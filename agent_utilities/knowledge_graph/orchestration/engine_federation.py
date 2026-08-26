@@ -163,7 +163,7 @@ class FederationMixin:
         """
         from agent_utilities.knowledge_graph.core.session import resolve_session
 
-        resolve_session(required_scope="kg:read")
+        session = resolve_session(required_scope="kg:read")
 
         # 0. REST virtual sources are served by invoking their extractor (the
         # `query` string carries no SPARQL endpoint; an optional `node_type`
@@ -181,9 +181,24 @@ class FederationMixin:
                 )
             connection = node_data.get("connection")
         else:
-            res = self.backend.execute_read(  # type: ignore[attr-defined]
-                "MATCH (n) WHERE n.id = $id RETURN n.connection as connection",
+            # CONCEPT:AU-KG.query.single-governed-read-path — routed through
+            # `query_cypher` (tenant scope + owner/scope ACL + audit) instead
+            # of a raw `self.backend.execute_read` call, so an
+            # ExternalGraphReference lookup can no longer read another
+            # tenant's connection alias by id-guessing; `resolve_session`
+            # above already proved a verified caller, this adds the actual
+            # tenant/ACL boundary every other content read gets.
+            res = self.query_cypher(  # type: ignore[attr-defined]
+                # `n.id AS id` is load-bearing, not cosmetic: `query_cypher`'s
+                # post-hoc row-visibility/audit layer
+                # (`secured_reads.filter_rows`/`row_node_ids`) fail-closed
+                # denies any row it cannot attribute to a governed node id —
+                # the established workaround this whole read-path tree uses
+                # (see `retrieval/graph_engineering.py`'s seed/report reads).
+                "MATCH (n) WHERE n.id = $id "
+                "RETURN n.id AS id, n.connection AS connection",
                 {"id": reference_id},
+                session=session,
             )
             if not res:
                 raise ValueError(

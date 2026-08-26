@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .models import GraphNode
 
@@ -30,6 +30,35 @@ async def get_process_graph_backend(*, session: GraphSession | None = None):
         return engine.backend
 
     return await asyncio.to_thread(_resolve_backend)
+
+
+async def query_cypher(
+    cypher: str,
+    params: dict[str, Any] | None = None,
+    *,
+    session: GraphSession | None = None,
+) -> list[dict[str, Any]]:
+    """Governed Cypher read through the sole engine read authority.
+
+    CONCEPT:AU-KG.query.single-governed-read-path — the async read sibling of
+    :func:`create_or_merge_node`: resolves the verified ambient session and
+    routes through the engine's own ``QueryMixin.query_cypher`` (tenant scope
+    + owner/scope ACL + audit, ``knowledge_graph/orchestration/engine_query.py``)
+    instead of a raw ``backend.execute_read`` call — the same guard every
+    other governed read in the tree gets. Prefer this over
+    :func:`get_process_graph_backend` for any read; that accessor exists for
+    callers that genuinely need the raw backend object, not as a general
+    read primitive.
+    """
+    from ..knowledge_graph.core.engine import IntelligenceGraphEngine
+    from ..knowledge_graph.core.session import resolve_session
+
+    def _read():
+        resolved_session = resolve_session(session, required_scope="kg:read")
+        engine = IntelligenceGraphEngine.get_or_create()
+        return engine.query_cypher(cypher, params or {}, session=resolved_session)
+
+    return await asyncio.to_thread(_read)
 
 
 async def create_or_merge_node(

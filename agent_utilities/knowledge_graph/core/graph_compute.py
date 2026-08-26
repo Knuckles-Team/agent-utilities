@@ -4479,6 +4479,27 @@ class GraphComputeEngine:
         engine SQL tables. Routes through ``client.query.sql`` (the same ``Sql`` wire
         op) — the engine, not this client, enforces what statements its user-table
         surface accepts. Raises if no engine query surface is available.
+
+        CONCEPT:AU-KG.query.single-governed-read-path — unlike every other read
+        path in this module tree (``QueryMixin.query_cypher``, the sibling
+        read-only ``sql()``), this method historically carried NO Python-side
+        governance layer at all: no session check, no audit trail. Row-level
+        authorization for the SELECT-shaped case is NOT actually absent — the
+        engine's own ``Method::Sql`` handler enforces
+        ``IsolationLayer::filter_view``/``check_access`` against the caller's
+        carrier identity before executing (epistemic-graph
+        ``src/server/handlers/query.rs``) — but this was the one call in the
+        tree that left no provenance trail and offered no clean, typed
+        failure when that carrier identity is missing. This is a deliberately
+        TRUSTED-INTERNAL primitive (DDL/ETL callers such as
+        ``fleet_catalog_tables``/``table_ingest`` run before any ambient
+        ``GraphSession`` exists, e.g. at boot-time catalog migration), so —
+        unlike ``query_cypher`` — it does NOT hard-require a resolved session
+        (that would break those callers, not just close a gap); it best-effort
+        records the same read-audit trail every governed read leaves when a
+        verified actor IS ambient (as it always is for
+        ``gateway/registry_api.py``'s tenant/principal-scoped caller, the one
+        caller reachable from outside this trusted-internal boundary today).
         """
         query_ns = getattr(self._client, "query", None)
         sql_fn = getattr(query_ns, "sql", None)
@@ -4488,7 +4509,19 @@ class GraphComputeEngine:
                 "engine SQL tables require the engine backend (build with the "
                 "'query' feature)."
             )
-        return sql_fn(statement)
+        result = sql_fn(statement)
+        try:
+            from agent_utilities.knowledge_graph.core.secured_reads import audit_read
+
+            head = (statement or "").strip().split(None, 1)
+            verb = head[0].upper() if head else "SQL"
+            audit_read([], summary=f"sql_exec:{verb}")
+        except Exception as exc:  # noqa: BLE001 — best-effort audit only; no
+            # ambient session at trusted-internal DDL/ETL boot time is
+            # expected and must never break the call (mirrors `sql()`'s own
+            # "never break a read" defense-in-depth posture two methods up).
+            logger.debug("sql_exec: audit trail skipped (%s)", type(exc).__name__)
+        return result
 
     def degree_centrality_all(self) -> list[tuple[str, float]]:
         """Compute degree centrality for all nodes."""

@@ -523,6 +523,7 @@ def _resolve_seed_ids(
     *,
     top_k: int,
     llm_fn: Any,
+    session: Any = None,
 ) -> list[str]:
     """Resolve one or more seed node ids for :func:`local_search`.
 
@@ -558,14 +559,23 @@ def _resolve_seed_ids(
         except Exception as exc:  # noqa: BLE001 — falls through to semantic search
             logger.debug("local_search: graph-query prompt failed: %s", exc)
 
-    backend = getattr(engine, "backend", None)
+    # CONCEPT:AU-KG.query.single-governed-read-path — routed through the
+    # engine's own `query_cypher` (tenant scope + owner/scope ACL + audit,
+    # `orchestration/engine_query.py`) instead of a raw `backend.execute_read`
+    # call. The raw form silently skipped every read guard `query_cypher`'s
+    # other 200+ callers get, letting GraphRAG seed resolution read across
+    # tenant boundaries. `query_cypher` itself resolves an ambient session
+    # when `session` is ``None`` (this function's default), so passing it
+    # straight through preserves every existing no-session caller unchanged.
+    query_cypher = getattr(engine, "query_cypher", None)
     for candidate_name in dict.fromkeys(n for n in (entity_name, query.strip()) if n):
         try:
-            if backend is not None and hasattr(backend, "execute_read"):
-                rows = backend.execute_read(
+            if callable(query_cypher):
+                rows = query_cypher(
                     "MATCH (n) WHERE n.name = $name OR n.label = $name "
                     "OR n.id = $name RETURN n.id AS id LIMIT $limit",
                     {"name": candidate_name, "limit": max(top_k, 1)},
+                    session=session,
                 )
                 ids = [
                     str(r["id"]) for r in rows if isinstance(r, dict) and r.get("id")
@@ -694,7 +704,7 @@ def local_search(
     graph = _graph_compute(engine)
     llm_fn = resolve_llm_fn() if (synthesize_answer or not node_id) else None
     seed_ids = _resolve_seed_ids(
-        engine, query, node_id, top_k=max(top_k, 1), llm_fn=llm_fn
+        engine, query, node_id, top_k=max(top_k, 1), llm_fn=llm_fn, session=session
     )
     if not seed_ids:
         return {
@@ -745,16 +755,23 @@ def local_search(
 # ---------------------------------------------------------------------------
 
 
-def _load_community_reports(engine: Any, *, level: int) -> list[dict[str, Any]]:
-    backend = getattr(engine, "backend", None)
-    if backend is None or not hasattr(backend, "execute_read"):
+def _load_community_reports(
+    engine: Any, *, level: int, session: Any = None
+) -> list[dict[str, Any]]:
+    # CONCEPT:AU-KG.query.single-governed-read-path — see `_resolve_seed_ids`
+    # above for the same fix: routed through `engine.query_cypher` (tenant
+    # scope + owner/scope ACL + audit) instead of a raw `backend.execute_read`
+    # bypass.
+    query_cypher = getattr(engine, "query_cypher", None)
+    if not callable(query_cypher):
         return []
     try:
-        rows = backend.execute_read(
+        rows = query_cypher(
             "MATCH (r) WHERE r.node_type = $node_type AND r.level = $level "
             "RETURN r.id AS id, r.theme AS theme, r.summary AS summary, "
             "r.member_count AS member_count, r.embedding AS embedding LIMIT $limit",
             {"node_type": "CommunityReport", "level": level, "limit": 500},
+            session=session,
         )
     except Exception as exc:  # noqa: BLE001 — degrade to "no reports available"
         logger.debug("global_search: community-report lookup failed: %s", exc)
@@ -871,13 +888,13 @@ def global_search(
         ``{"answer": str | None, "bundle": <ContextBundle dict> | None,
         "communities_used": [report_id, ...]}``.
     """
-    reports = _load_community_reports(engine, level=level)
+    reports = _load_community_reports(engine, level=level, session=session)
     if not reports and auto_build_reports:
         try:
             build_community_reports(engine)
         except Exception as exc:  # noqa: BLE001 — fall through to "no reports"
             logger.debug("global_search: auto build_community_reports failed: %s", exc)
-        reports = _load_community_reports(engine, level=level)
+        reports = _load_community_reports(engine, level=level, session=session)
     if not reports:
         return {
             "answer": None,
