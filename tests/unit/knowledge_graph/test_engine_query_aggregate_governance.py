@@ -18,8 +18,13 @@ Covers:
       since there is no row to Python-side post-filter).
     - a privileged actor's aggregate read gets no owner/scope restriction
       (mirrors ``secured_reads.visible``'s own privileged bypass).
-    - the general (non-aggregate) case is UNCHANGED: a row with no governable id
-      still denies (regression guard against silently broadening the boundary).
+    - the general (non-aggregate) case: a row with no governable id is now
+      ADMITTED when (and only when) owner/scope visibility was demonstrably
+      pushed into the query text for that call (fix/empty-projection,
+      `tenant_sharing.push_down_visibility`) -- the live production bug this
+      closed (`MATCH (n:Skill) RETURN n.name AS name` answering `[]`). Still
+      denies when pushdown could not be earned (regression guard against
+      silently broadening the boundary unconditionally).
     - a read-scope (``kg:read``, non-privileged) MCP-shaped actor sees a PUBLIC
       row and is denied a RESTRICTED row it does not own, on a real per-row read
       — proving the fix did not weaken RLS for non-public rows.
@@ -252,9 +257,63 @@ def test_aggregate_read_generic_admin_remains_owner_scoped(brain):
 # --- regression guard: the general (non-aggregate) case is unchanged --------
 
 
-def test_non_aggregate_read_without_governed_id_still_denies(brain, caplog):
-    """The fix must NOT broaden the general case: a row that strips its id
-    still can't dodge governance by simply not being an aggregate."""
+def test_non_aggregate_read_without_governed_id_is_admitted_when_scopable(brain):
+    """fix/empty-projection (live symptom: `MATCH (n:Skill) RETURN n.name AS
+    name LIMIT 5` answered `[]` on the live running service against a graph that demonstrably
+    had matching rows): unconditionally denying ANY non-aggregate row with no
+    governed id -- regardless of whether the query could be, and WAS, scoped
+    at the query level -- was itself the bug, not a safety net. `QueryMixin
+    .query_cypher` now pushes owner/scope visibility into the query text for
+    the non-aggregate path too (`tenant_sharing.push_down_visibility`,
+    mirroring the aggregate branch's pre-existing mandatory pushdown just
+    above), and threads the result through to `secured_reads.filter_rows`'s
+    new `trust_pushdown` flag: a row with no governed id is trusted (kept)
+    when -- and ONLY when -- that pushdown demonstrably narrowed the query
+    text for THIS call. This test proves both halves: the row is admitted,
+    AND the query actually sent to the backend carries the real predicate --
+    the trust was earned, not assumed. `test_non_aggregate_read_still_denies_
+    when_it_cannot_be_scoped` below is the companion regression guard for the
+    case where it CANNOT be earned."""
+    backend = _Backend(rows=[{"name": "no id here"}])
+    engine = _Harness(backend=backend)
+    actor = _actor(roles=("kg:read",))
+    session = _session(actor)
+
+    with use_actor(actor), use_session(session):
+        rows = engine.query_cypher(
+            "MATCH (n:Doc) RETURN n.name AS name", session=session
+        )
+
+    assert rows == [{"name": "no id here"}]
+    sent_query, params = backend.calls[-1]
+    # The trust was EARNED: the owner/scope predicate is demonstrably in the
+    # query text that was actually sent, exactly like the aggregate branch's
+    # own pushdown (see `test_aggregate_read_...` above in this file).
+    assert "_owner_id = $_visibility_owner_id" in sent_query
+    assert params["_visibility_owner_id"] == actor.actor_id
+
+
+def test_non_aggregate_read_still_denies_when_it_cannot_be_scoped(
+    brain, caplog, monkeypatch
+):
+    """The genuine regression guard: when owner/scope visibility pushdown
+    does NOT demonstrably succeed for this call (here, forced via monkeypatch
+    to isolate the row-classifier boundary from `push_down_visibility`'s own
+    best-effort scoping mechanics, which are exercised directly by
+    `tests/unit/knowledge_graph/test_tenant_sharing.py`'s own coverage of
+    `push_down_visibility` -- e.g. a query with no derivable `MATCH`
+    variable), an id-less row still denies for the WHOLE read exactly as
+    before this fix. Broadening never happens simply because a row lacks an
+    id; it happens ONLY when the query itself was demonstrably narrowed
+    first -- `push_down_visibility` reporting `False` is the single signal
+    that gates it, and this test pins that gate directly."""
+    from agent_utilities.knowledge_graph.core import tenant_sharing
+
+    monkeypatch.setattr(
+        tenant_sharing,
+        "push_down_visibility",
+        lambda cypher, actor=None: (cypher, {}, False),
+    )
     backend = _Backend(rows=[{"name": "no id here"}])
     engine = _Harness(backend=backend)
     actor = _actor(roles=("kg:read",))
@@ -317,9 +376,11 @@ def test_secured_read_failure_logs_the_true_cause(brain, caplog, monkeypatch):
     anti-pattern this task's Task 1 exists to close)."""
     from agent_utilities.knowledge_graph.core import secured_reads
 
-    monkeypatch.setattr(secured_reads, "filter_rows", lambda rows, _actor: rows)
+    monkeypatch.setattr(
+        secured_reads, "filter_rows", lambda rows, _actor=None, **_kw: rows
+    )
 
-    def _boom(_rows, _actor):
+    def _boom(_rows, _actor=None, **_kw):
         raise PermissionError("Row visibility evaluation failed") from ValueError(
             "https://internal.example/should-be-redacted boom"
         )
@@ -372,34 +433,48 @@ def test_delegation_context_carry_read_used_ambient_session():
 
 
 def test_delegation_context_carry_query_shape_was_the_bug_now_fixed(brain):
-    """The EXACT (pre-fix) query shape used by agent_runner.py's context_ref
+    """The EXACT query shape used by agent_runner.py's context_ref
     carry-over and agent_execution_tools.py's swarm context_ref --
-    ``RETURN c.content AS content`` with no id -- is a real, non-aggregate
-    instance of this task's bug: it denies via the SAME row_node_ids path an
+    ``RETURN c.content AS content`` with no id -- was a real, non-aggregate
+    instance of this task's bug: it denied via the SAME row_node_ids path an
     aggregate does, for ANY actor, because the row it returns carries no
-    governable node id. This is why those two call sites (plus the direct MCP
-    tool ``graph_context(action='get')``) were fixed to project ``c.id AS id``
-    too -- proven here end to end against the REAL (non-fake) governed read
-    path, not just the fake-engine unit test in test_invoker_context_handoff.py."""
+    governable node id.
+
+    Historically (before fix/empty-projection) the only remedy was fixing the
+    CALL SITE to also project ``c.id AS id`` (which those two call sites,
+    plus the direct MCP tool ``graph_context(action='get')``, still do -- a
+    real id column is still better practice: a genuine per-node audit trail
+    and eligibility for the fine-grained classification ACL, not just
+    tenant+owner/scope). fix/empty-projection additionally closes the
+    UNDERLYING gap for every OTHER caller that can't or doesn't do that
+    (ad hoc/external Cypher -- the live symptom this program fixed was an
+    ad hoc `MATCH (n:Skill) RETURN n.name AS name` against the live
+    running service, not an
+    internal call site): a query with a `MATCH` clause visibility can be
+    pushed into (this one has ``MATCH (c:ContextBlob)``) now ADMITS an
+    id-less row too, trusting the query-level owner/scope boundary instead of
+    unconditionally rejecting the whole read. Both shapes are proven correct
+    below, end to end against the REAL (non-fake) governed read path, not
+    just the fake-engine unit test in test_invoker_context_handoff.py."""
     actor = _actor("agent:delegated-run", roles=("kg:read",), tenant="tenant-a")
     session = _session(actor)
 
-    # Pre-fix shape (still reachable if any OTHER call site regresses to it):
-    # denied, same as any other id-less non-aggregate projection.
+    # The historical shape (still reachable from any caller that does not
+    # itself project an id) -- now ADMITTED via query-level visibility
+    # pushdown, not denied. No ACL evaluation applies to it (there is no id
+    # to classify by) -- exactly the pre-existing aggregate-row trade-off,
+    # extended to this shape.
     old_shape_backend = _Backend(rows=[{"content": "curated invoker context"}])
     old_shape_engine = _Harness(backend=old_shape_backend)
-    with (
-        use_actor(actor),
-        use_session(session),
-        pytest.raises(
-            PermissionError, match="Graph row-policy or audit enforcement failed"
-        ),
-    ):
-        old_shape_engine.query_cypher(
+    with use_actor(actor), use_session(session):
+        old_shape_rows = old_shape_engine.query_cypher(
             "MATCH (c:ContextBlob) WHERE c.id = $id RETURN c.content AS content",
             {"id": "ctx:abc:1"},
             session=session,
         )
+    assert old_shape_rows == [{"content": "curated invoker context"}]
+    old_sent_query, _old_params = old_shape_backend.calls[-1]
+    assert "_owner_id = $_visibility_owner_id" in old_sent_query
 
     # Fixed shape (what agent_runner.py / agent_execution_tools.py / the
     # graph_context MCP tool now send): the row now carries a governable id,

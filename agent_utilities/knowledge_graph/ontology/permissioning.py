@@ -625,6 +625,7 @@ def restricted_view(
     actor: ActorContext | None = None,
     *,
     mask: bool = False,
+    trust_pushdown: bool = False,
 ) -> list[dict[str, Any]]:
     """Materialize a permission-filtered VIEW of ``objects`` for ``actor``.
 
@@ -635,8 +636,23 @@ def restricted_view(
          :func:`redact_object` so properties the actor may not read are removed
          (or masked when ``mask`` is set).
 
-    Objects whose id cannot be determined are rejected because they cannot be
-    evaluated against mandatory controls. Returns filtered *copies*.
+    Objects whose id cannot be determined are normally rejected, because they
+    cannot be evaluated against mandatory markings/ACL controls at all —
+    UNLESS ``trust_pushdown`` is set (default ``False``, preserving the exact
+    prior behavior for every existing caller), meaning the caller already
+    pushed tenant scope + owner/scope visibility into the query text for
+    this specific read (:func:`~..core.tenant_sharing.push_down_visibility`).
+    A plain Cypher projection like ``RETURN n.name AS name`` never carries an
+    ``id`` column at all — that is a legitimate query shape, not evidence of
+    smuggled data, and when the caller can vouch the read was already scope
+    -bounded query-side, such an object is kept AS-IS (unredacted — there is
+    nothing to classify or redact) rather than raising for the whole batch
+    or being silently dropped, mirroring
+    :func:`~..core.tenant_sharing.filter_commons_catalog`'s ``trust_pushdown``
+    escape (the reference shape for this fix) and the identical relaxation
+    made in :func:`~..core.secured_reads.filter_rows`. Every caller that
+    hands this REAL governed KG objects (which always carry an id) is
+    unaffected either way. Returns filtered *copies*.
     """
     actor = _require_actor(actor)
     view: list[dict[str, Any]] = []
@@ -644,6 +660,9 @@ def restricted_view(
     for obj in objects:
         nid = _node_id_of(obj)
         if nid is None:
+            if trust_pushdown:
+                view.append(dict(obj))
+                continue
             raise PermissionError("Object permissioning requires a governed node id")
         if not _marking_permits(nid, actor) or not _acl_permits(nid, actor):
             continue
@@ -678,6 +697,7 @@ def enforce(
     actor: ActorContext | None = None,
     *,
     mask: bool = False,
+    trust_pushdown: bool = False,
 ) -> list[dict[str, Any]]:
     """Default-on fine-grained enforcement for a result set.
 
@@ -685,13 +705,20 @@ def enforce(
     permitting ACL; markings and property classifications can only narrow that
     grant. Missing authority or policy infrastructure fails closed.
 
+    ``trust_pushdown`` (default ``False``) is forwarded to
+    :func:`restricted_view` — see its docstring. Set only by a caller (e.g.
+    ``KnowledgeGraph.query``) that has already pushed owner/scope visibility
+    into the query text for this specific read.
+
     This is the property+row composition of :func:`restricted_view`; kept as a
     named entry point so the facade read path has one stable call.
     """
     resolved_actor = _require_actor(actor)
     if not objects:
         return []
-    return restricted_view(objects, resolved_actor, mask=mask)
+    return restricted_view(
+        objects, resolved_actor, mask=mask, trust_pushdown=trust_pushdown
+    )
 
 
 def build_acl(
