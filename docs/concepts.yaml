@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1221
+total_concepts: 1223
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -3598,6 +3598,15 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/iac.py
   - agent_utilities/knowledge_graph/enrichment/pipeline.py
   doc: read them here so the
+- id: AU-KG.enrichment.relation-projection
+  name: materialise the edges a node
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
+  - agent_utilities/knowledge_graph/enrichment/relation_projection.py
+  - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py
+  doc: materialise the edges a node
 - id: AU-KG.enrichment.second-brain-note-sync
   name: is the one-call personal-notes sync
   pillar: AU-KG
@@ -5578,6 +5587,16 @@ concepts:
   - agent_utilities/knowledge_graph/ontology/functions/__init__.py
   - agent_utilities/knowledge_graph/ontology/functions/runtime.py
   doc: and derived-properties consume
+- id: AU-KG.ontology.ontology-driven-reasoning
+  name: reason over the axioms
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/maintainer.py
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/ontology/axioms.py
+  doc: reason over the axioms
 - id: AU-KG.ontology.ontology-lifecycle
   name: wires KG-2.265
   pillar: AU-KG
@@ -9061,7 +9080,6 @@ concepts:
   - agent_utilities/gateway/registry.py
   - agent_utilities/gateway/widgets/_optional_client.py
   - agent_utilities/gateway/widgets/base.py
-  - agent_utilities/gateway/ws.py
   doc: Gateway Service Dashboard
 - id: AU-OS.config.health-gated-deploy-rollback
   name: Health-gated deploy and rollback watch where every deploy or restart the autonomy plane triggers
@@ -9758,6 +9776,7 @@ concepts:
   - agent_utilities/gateway/graph_api.py
   - agent_utilities/knowledge_graph/__main__.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/knowledge_graph/ingest_worker.py
   - agent_utilities/knowledge_graph/ingestion/__main__.py
   - agent_utilities/knowledge_graph/memory/cli.py

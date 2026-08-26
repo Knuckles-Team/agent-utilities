@@ -473,6 +473,10 @@ _AUTOSCALE_REACTIVE_INTERVAL = 5.0
 # work under load.
 _PLACEMENT_MINING_REACTIVE_INTERVAL = 30.0
 _HYGIENE_INTERVAL = 86400.0
+#: Ontology-reasoning sweep (CONCEPT:AU-KG.ontology.ontology-driven-reasoning).
+#: Hourly: inline reasoning only ever ran for the ~30 ``MATERIALIZE_SOURCES``
+#: connector categories, so nothing ever reasoned over the rest of the graph.
+_REASONING_INTERVAL = 3600.0
 _TRACE_RETENTION_INTERVAL = 86400.0
 # Warm-fork parent + dev-workspace idle reap (CONCEPT:AU-OS.host.so-they-are-idle). Background; never preempts work.
 _WARM_PARENT_REAP_INTERVAL = 300.0
@@ -822,6 +826,15 @@ class GraphEngineProtocol(Protocol):
             if hasattr(self.backend, "execute"):
                 return self.backend.execute(cypher, params)
         return []
+
+    def run_inference(self) -> int:
+        """Standard ontology rule inference — supplied by the engine's query
+        mixin (``orchestration.engine_query.run_inference``). Declared here so
+        the scheduled ``reasoning`` tick can name the engine contract it drives
+        (CONCEPT:AU-KG.ontology.ontology-driven-reasoning); a host without an
+        inference engine bound simply derives nothing."""
+        engine = getattr(self, "inference_engine", None)
+        return int(engine.run_inference()) if engine is not None else 0
 
 
 @contextlib.contextmanager
@@ -1717,6 +1730,8 @@ class TaskManagerMixin(GraphEngineProtocol):
             enabled=bool(getattr(_cfg, "enable_sdd_watcher", True)),
         )
         _maint("hygiene", "hygiene", _HYGIENE_INTERVAL)
+        # Ontology reasoning over the WHOLE graph (CONCEPT:AU-KG.ontology.ontology-driven-reasoning).
+        _maint("reasoning", "reasoning", _REASONING_INTERVAL)
         _maint("trace_retention", "trace_retention", _TRACE_RETENTION_INTERVAL)
         _maint("tenant_gc", "tenant_gc", _cfg.kg_tenant_gc_interval)
         # Goals-as-contracts SLA watch (CONCEPT:AU-ORCH.session.escalate-breached-goals): escalate breached goals.
@@ -1877,6 +1892,56 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
         except Exception as e:  # noqa: BLE001 — one job's failure never stops others
             logger.debug("hygiene tick error: %s", e)
+
+    def _tick_reasoning(self) -> None:
+        """One ontology-reasoning pass over the whole graph.
+
+        CONCEPT:AU-KG.ontology.ontology-driven-reasoning — reason over the axioms
+        the bundled OWL library declares, on a schedule, over the whole graph.
+        The platform owns four
+        reasoners and, until this tick, scheduled none of them: the only reasoning
+        that ever ran was ``run_materialize_source``'s per-connector
+        ``OntologyReasoningDriver.extrapolate``, which never sees a node that did
+        not arrive through one of the ~30 ``MATERIALIZE_SOURCES`` categories. The
+        measured consequence was a graph with **zero** edges carrying
+        ``inferred = true``.
+
+        Two complementary halves, both pre-existing and both previously without a
+        production caller on this path:
+
+        * :func:`...maintenance.owl_closure.run_closure` — the bounded, SHACL-validated
+          OWL closure (``OWLBridge.run_cycle``), which now reasons over the
+          object-property characteristics the bundled ``ontology*.ttl`` library
+          actually declares, instead of the single in-code axiom it used before.
+        * ``engine.run_inference()`` — :class:`...core.inference_engine.InferenceEngine`,
+          the repo's richest rule set (transitive ``DEPENDS_ON``, SKOS ``BROADER``,
+          PROV-O derivation chains). It is instantiated on every engine and, before
+          this, invoked only by tests.
+
+        Best-effort like every other tick: a failure logs and never stops the
+        scheduler.
+        """
+        try:
+            from agent_utilities.knowledge_graph.maintenance.owl_closure import (
+                run_closure,
+            )
+
+            closure = run_closure(self)
+        except Exception as e:  # noqa: BLE001 — one job's failure never stops others
+            logger.debug("reasoning tick: closure error: %s", e)
+            closure = {}
+        try:
+            inferred = int(self.run_inference() or 0)
+        except Exception as e:  # noqa: BLE001 — one job's failure never stops others
+            logger.debug("reasoning tick: rule inference error: %s", e)
+            inferred = 0
+        if closure.get("inferred_edges") or inferred:
+            logger.info(
+                "reasoning tick: closure_edges=%s rule_edges=%s conforms=%s",
+                closure.get("inferred_edges"),
+                inferred,
+                closure.get("conforms"),
+            )
 
     def _tick_fleet_reconciler(self) -> None:
         """One desired-state fleet reconcile pass (CONCEPT:AU-OS.config.desired-state-fleet-reconciler).
