@@ -1234,19 +1234,35 @@ def _read_private_engine_encryption_key(path: Any) -> str:
             os.close(descriptor)
 
 
-def _engine_persist_dir_holds_data() -> bool:
+def _engine_persist_dir_holds_data() -> bool | None:
     """Does the engine's durable store already exist and hold files?
 
-    Answered WITHOUT interpolating any path into a log record; the caller turns the
-    boolean into one of two fully STATIC messages.
+    Three outcomes, not two: ``True`` it definitely holds files, ``False`` it is
+    definitely empty (or no persist dir resolves at all), and ``None`` when that
+    could not be DETERMINED -- an unreadable or unmounted path. "Unreadable" is
+    emphatically not "empty", and collapsing the two is a defect this probe was
+    itself the victim of: in the graph-os container the durable store is not
+    mounted into the process that probes it, so a bare ``except Exception:
+    return False`` reported the populated production store as empty and the
+    caller emitted the mild warning instead of the loud one -- on the very check
+    meant to prevent a key being minted over existing data.
+
+    Answered WITHOUT interpolating any path into a log record; the caller turns
+    the result into one of three fully STATIC messages.
     """
     try:
         persist_dir = _resolve_engine_persist_dir()
-        if not persist_dir:
-            return False
-        return any(Path(persist_dir).iterdir())
-    except Exception:
+    except Exception:  # noqa: BLE001 - resolution failure is "undetermined"
+        return None
+    if not persist_dir:
         return False
+    try:
+        return any(Path(persist_dir).iterdir())
+    except FileNotFoundError:
+        # Definitely nothing there yet -- the ordinary first-run case.
+        return False
+    except Exception:  # noqa: BLE001 - unreadable/unmounted, NOT empty
+        return None
 
 
 def _warn_new_engine_encryption_key() -> None:
@@ -1258,7 +1274,8 @@ def _warn_new_engine_encryption_key() -> None:
     agent_utilities.* record (it sanitizes record.msg too). The SETTING NAMES carry
     the meaning.
     """
-    if _engine_persist_dir_holds_data():
+    holds_data = _engine_persist_dir_holds_data()
+    if holds_data is True:
         logger.warning(
             "EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF is not set, so a NEW engine "
             "encryption-at-rest key was just generated under AGENT_UTILITIES_DATA_DIR "
@@ -1268,6 +1285,18 @@ def _warn_new_engine_encryption_key() -> None:
             "key; if it was written in plaintext the engine will REFUSE to encrypt "
             "over it. Set EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF to the KMS reference for "
             "this deployment."
+        )
+        return
+    if holds_data is None:
+        logger.warning(
+            "EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF is not set, so a NEW engine "
+            "encryption-at-rest key was just generated under AGENT_UTILITIES_DATA_DIR "
+            "-- and whether the durable store resolved from GRAPH_SERVICE_PERSIST_DIR "
+            "already holds data COULD NOT BE DETERMINED: that location is not readable "
+            "from this process, which is NOT the same as it being empty. If it does "
+            "hold data written under a different key, or written in plaintext, the "
+            "engine will REFUSE to open it. Set EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF to "
+            "the KMS reference for this deployment."
         )
         return
     logger.warning(
@@ -1367,6 +1396,57 @@ def _resolve_engine_encryption_key(config: Any) -> str:
     if is_production_profile(profile) or deployment != "tiny":
         raise RuntimeError("local engine encryption key reference is required")
     return _validate_engine_encryption_material(_load_or_create_engine_encryption_key())
+
+
+def _autostart_engine_encryption_key(config: Any) -> str | None:
+    """Encryption-at-rest material for an autostarted engine, or ``None``.
+
+    Encryption-at-rest for a locally spawned engine is OPT-IN, and the one thing
+    that opts in is ``EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF``. With a reference
+    configured this is exactly :func:`_resolve_engine_encryption_key` and
+    behaviour is unchanged, including its refusal to run a production or
+    non-tiny deployment without one. With no reference and a dev/tiny profile it
+    returns ``None``, and the caller omits ``EPISTEMIC_GRAPH_ENCRYPTION_KEY``
+    from the child environment ENTIRELY -- which is how this deployment has
+    always actually run: the engine it replaces is spawned with no such
+    variable and opens its durable store fine.
+
+    Passing a key unconditionally (the previous behaviour) instead MINTS one
+    under ``AGENT_UTILITIES_DATA_DIR`` -- routinely a container ``emptyDir``, so
+    a different key every restart -- and hands it to an engine that will seal
+    the existing durable store under it. The store then fails to open under the
+    next restart's key, permanently. Encrypting a store at rest is a deliberate
+    deployment decision, never the silent side effect of a default.
+
+    :func:`_load_or_create_engine_encryption_key` and its warning are unchanged
+    and still serve callers that genuinely want a local key.
+    """
+    reference = str(
+        getattr(config, "epistemic_graph_encryption_key_ref", "") or ""
+    ).strip()
+    if reference:
+        return _resolve_engine_encryption_key(config)
+
+    # No reference: a production or non-tiny deployment must still fail closed
+    # rather than quietly start unencrypted, exactly as it does today.
+    from agent_utilities.core.profile_guard import is_production_profile
+
+    profile = str(getattr(config, "app_profile", "dev") or "dev")
+    deployment = str(getattr(config, "deployment_profile", "tiny") or "tiny")
+    if is_production_profile(profile) or deployment != "tiny":
+        raise RuntimeError("local engine encryption key reference is required")
+
+    # Static text only: agent_utilities.core.log_privacy redacts filesystem
+    # locations from every agent_utilities.* record, so the SETTING NAME is what
+    # carries the meaning here (same discipline as _resolve_engine_persist_dir).
+    logger.info(
+        "EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF is not set, so encryption-at-rest is "
+        "NOT configured for the autostarted engine and no encryption key is passed "
+        "to it. The durable store resolved from GRAPH_SERVICE_PERSIST_DIR is read "
+        "and written in plaintext. Set EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF to a "
+        "durable KMS reference to enable encryption-at-rest."
+    )
+    return None
 
 
 def engine_encryption_readiness(config: Any, *, remote: bool = False) -> dict[str, Any]:
@@ -2278,13 +2358,18 @@ class GraphComputeEngine:
         for environment_name, reference in runtime_roots:
             if reference:
                 child_env[environment_name] = _resolve_engine_path_ref(str(reference))
-        # Encryption material exists only in this private child environment.
-        # Ambient raw/ref variables were removed by ``_engine_child_environment``;
-        # AgentConfig persists only the reference, and the Rust process receives
-        # the validated value immediately before spawn.
-        child_env["EPISTEMIC_GRAPH_ENCRYPTION_KEY"] = _resolve_engine_encryption_key(
-            config
-        )
+        # Encryption-at-rest is OPT-IN, via EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF
+        # alone; with no reference configured the variable is omitted from the
+        # child environment entirely and the engine opens its store unencrypted,
+        # as this deployment has always run. Ambient raw/ref variables were
+        # already removed by ``_engine_child_environment``, so omitting it here
+        # really does mean the child receives none. When a reference IS
+        # configured, AgentConfig persists only that reference and the Rust
+        # process receives the validated value immediately before spawn --
+        # material exists only in this private child environment.
+        encryption_key = _autostart_engine_encryption_key(config)
+        if encryption_key is not None:
+            child_env["EPISTEMIC_GRAPH_ENCRYPTION_KEY"] = encryption_key
         child_env["GRAPH_SERVICE_AUTH_SECRET"] = auth_secret
         # Bounded startup-diagnostics capture (BUG-PE-052): see
         # `_log_engine_startup_failure` for why only stderr is redirected and
