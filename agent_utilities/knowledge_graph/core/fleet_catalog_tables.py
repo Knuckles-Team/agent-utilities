@@ -915,7 +915,31 @@ def _is_reachable_state(
 ) -> bool:
     """Is ``current`` the legacy shape, the current shape, or a valid
     in-between point on the ordered forward-only migration path — never a
-    step applied out of order or only partially."""
+    step applied out of order or only partially.
+
+    A store reaches an in-between point one of TWO ways, and both are valid:
+
+    * **Migrated up** from the pre-NE-007 ``legacy`` shape — this code never
+      drops a column, so such a store keeps every legacy column (including
+      the observed-discovery ones ``mcp_servers`` no longer declares) plus
+      the columns each applied step added. Walk the steps forward from
+      ``legacy``.
+    * **Created fresh** by an earlier post-legacy code version — its
+      ``CREATE TABLE`` was the then-current DDL, so it has today's
+      ``expected`` shape MINUS every column a LATER step introduced, and it
+      never had the retired legacy columns at all. Peel the steps back in
+      reverse from ``expected``.
+
+    Modelling only the first (the original bug) mis-classified every
+    fresh-created store as diverged the moment a new column step landed —
+    measured live 2026-08-25 on the graph-os catalog, whose ``mcp_servers``
+    was created at step ``0003`` and so matched neither ``legacy`` nor any
+    forward accumulation. That raised :class:`FleetCatalogSchemaDivergedError`
+    out of :func:`ensure_fleet_catalog_tables`, which
+    :func:`~.source_sync._write_fleet_relational` caught and degraded to
+    ``{"status": "error"}`` — silently skipping the ENTIRE relational
+    catalog write on every sync while the KG node write succeeded.
+    """
     if current == legacy or current == expected:
         return True
     accumulated = set(legacy)
@@ -925,6 +949,14 @@ def _is_reachable_state(
             continue
         accumulated |= set(columns)
         if current == accumulated:
+            return True
+    remaining = set(expected)
+    for _migration_id, table_columns in reversed(_MIGRATION_COLUMN_STEPS):
+        columns = table_columns.get(table)
+        if not columns:
+            continue
+        remaining -= set(columns)
+        if current == remaining:
             return True
     return False
 
@@ -1912,6 +1944,49 @@ def write_fleet_catalog(
         # bound to either the exact OAuth grant or the process-owned tenant
         # local visibility contract; legacy/unbound writes are skipped rather
         # than creating globally visible rows.
+        #
+        # BUG-PE-056 — the ONE exception, and it is not an authority
+        # loosening: a server whose probe FAILED never gets a binding
+        # (``MCPMultiplexer._bind_local_discovery_bindings`` mints one only
+        # for ``info["error"] is None``), so it used to fall out here with no
+        # discovery row at all — making "unavailable" indistinguishable from
+        # "empty" to the dashboard, the exact confusion this function's own
+        # docstring promises never to create. A failure observation exposes
+        # NO discovered capability (an errored probe has no tools/skills/
+        # prompts), so recording it needs no grant — only the verified tenant
+        # scope :func:`_resolve_tenant_id` already established. Record it
+        # under the process-owned tenant-local visibility contract, with the
+        # same empty principal/grant fields a local child's successful probe
+        # carries, and fall through to the ``continue`` below so no derived
+        # row is ever written for it.
+        if not server_discovery_authority_ready and not reachable and tenant_id:
+            discovery_authority_kind = DISCOVERY_AUTHORITY_TENANT_LOCAL
+            discovery_principal = ""
+            discovery_grant_digest = ""
+            unreachable_content = {
+                "server_id": server_id,
+                "server_name": server_name,
+                "reachable": False,
+                "last_error": _privacy_safe(str(err or "")),
+                "tool_count": 0,
+                "skill_count": 0,
+                "prompt_count": 0,
+                "resource_count": 0,
+                "discovery_authority_kind": discovery_authority_kind,
+                "discovery_principal": discovery_principal,
+                "discovery_grant_digest": discovery_grant_digest,
+            }
+            unreachable_key = idempotency_key or _content_signature(unreachable_content)
+            discovery_rows.append(
+                {
+                    "id": f"disc_{server_id}_{unreachable_key[:24]}",
+                    "tenant_id": tenant_id,
+                    **unreachable_content,
+                    "observed_at": now,
+                    "revision": write_revision,
+                    "idempotency_key": unreachable_key,
+                }
+            )
         if not server_discovery_authority_ready:
             continue
 
