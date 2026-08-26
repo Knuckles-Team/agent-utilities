@@ -228,6 +228,7 @@
     "POST /api/research/artifact",
     "POST /api/sessions/{session_id}/cancel",
     "POST /api/sessions/{session_id}/reply",
+    "POST /api/skill/classify",
     "POST /api/source/drain",
     "POST /api/source/sync",
     "POST /api/sparql",
