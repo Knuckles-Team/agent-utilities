@@ -115,6 +115,34 @@ class TestFallback:
         assert response.status_code == 200
         assert response.body
 
+    async def test_metrics_endpoint_engine_unreachable_signals_down(self, monkeypatch):
+        # Force the fetch to fail regardless of what happens to be listening
+        # on 127.0.0.1:9101 in the ambient environment (dev hosts run
+        # node-exporter on that same port outside the pod netns, so a "just
+        # don't run anything" test would be environment-dependent). The
+        # gateway's own metrics must still be served in full, plus an
+        # explicit down signal — never a silently partial scrape.
+        import httpx
+
+        async def raise_connect_error(self, *args, **kwargs):
+            raise httpx.ConnectError("connection refused (test)")
+
+        monkeypatch.setattr(httpx.AsyncClient, "get", raise_connect_error)
+        response = await metrics_endpoint()
+        body = response.body
+        assert b"graph_os_engine_metrics_up 0" in body
+        assert b"engine metrics unavailable" in body
+
+    async def test_metrics_endpoint_engine_reachable_merges_series(self, monkeypatch):
+        async def fake_fetch():
+            return b"epistemic_graph_fake_metric 42\n", True
+
+        monkeypatch.setattr(gm, "_fetch_engine_metrics", fake_fetch)
+        response = await metrics_endpoint()
+        body = response.body
+        assert b"graph_os_engine_metrics_up 1" in body
+        assert b"epistemic_graph_fake_metric 42" in body
+
 
 # ---------------------------------------------------------------------------
 # Route-template label (bounded cardinality)

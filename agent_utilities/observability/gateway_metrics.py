@@ -1133,12 +1133,82 @@ def render_metrics() -> tuple[bytes, str]:
     return generate_latest(_collection_registry()), CONTENT_TYPE_LATEST
 
 
+# The collapsed single-container graph-os pod (2026-08-25 unified cutover)
+# runs the epistemic-graph engine as an in-process child via KG_DAEMON_ROLE=host
+# autostart. The engine refuses to bind any non-loopback auxiliary listener
+# (epistemic-graph src/main.rs::resolve_listener_addr — "refusing non-loopback
+# auxiliary listener", no escape hatch), so its Prometheus exposition only ever
+# lives on 127.0.0.1:9101/metrics inside the pod's network namespace. graph-os
+# is the sole other process sharing that namespace, so it re-serves that
+# loopback exposition on its own HTTP surface — the same job the removed
+# metrics-proxy sidecar did. CONCEPT:AU-OS.observability.no-op-without-metrics.
+_ENGINE_METRICS_URL = "http://127.0.0.1:9101/metrics"
+_ENGINE_METRICS_TIMEOUT_SECS = 2.0
+
+
+async def _fetch_engine_metrics() -> tuple[bytes, bool]:
+    """Fetch the embedded engine's own Prometheus exposition.
+
+    Returns ``(body, ok)``. On any failure (engine not running, timeout, bad
+    status) returns an explicit failure comment rather than empty bytes — a
+    scrape must never silently look like a complete-but-empty engine.
+    """
+    # Governed HTTP transport (NE-015): every outbound httpx client is built
+    # through this factory rather than a bare `httpx.AsyncClient()` so the
+    # safety defaults (finite timeout, mandatory TLS verification) stay
+    # uniform and auditable in one place, even for this loopback-only call.
+    from agent_utilities.core.http_client import create_async_http_client
+
+    try:
+        async with create_async_http_client(
+            timeout=_ENGINE_METRICS_TIMEOUT_SECS, allow_loopback=True
+        ) as client:
+            resp = await client.get(_ENGINE_METRICS_URL)
+            resp.raise_for_status()
+            return resp.content, True
+    except Exception as exc:
+        logger.warning(
+            "engine metrics unreachable at %s (%s: %s) — /metrics will omit "
+            "engine series this scrape",
+            _ENGINE_METRICS_URL,
+            type(exc).__name__,
+            exc,
+        )
+        return (
+            f"# engine metrics unavailable ({type(exc).__name__}): "
+            f"{_ENGINE_METRICS_URL} did not respond\n".encode(),
+            False,
+        )
+
+
+def _engine_metrics_status_line(ok: bool) -> bytes:
+    """An explicit up/down gauge so a failed engine fetch is machine-visible,
+    not just a comment a human might miss (CONCEPT:AU-OS.observability.no-op-without-metrics)."""
+    return (
+        b"# HELP graph_os_engine_metrics_up Whether the last /metrics scrape "
+        b"successfully fetched the embedded epistemic-graph engine's loopback "
+        b"Prometheus endpoint (127.0.0.1:9101).\n"
+        b"# TYPE graph_os_engine_metrics_up gauge\n"
+        b"graph_os_engine_metrics_up " + (b"1" if ok else b"0") + b"\n"
+    )
+
+
 async def metrics_endpoint() -> Any:
-    """``GET /metrics`` handler for FastAPI ``add_api_route`` (no params)."""
+    """``GET /metrics`` handler for FastAPI ``add_api_route`` (no params).
+
+    Merges the Python gateway's own Prometheus exposition with the embedded
+    epistemic-graph engine's (fetched from its loopback listener — see
+    :data:`_ENGINE_METRICS_URL`). The gateway's own metrics are ALWAYS served
+    in full; if the engine fetch fails, ``graph_os_engine_metrics_up`` reports
+    0 and a comment explains why, rather than the scrape silently coming back
+    partial-but-presented-as-complete.
+    """
     from starlette.responses import Response
 
     body, content_type = render_metrics()
-    return Response(content=body, media_type=content_type)
+    engine_body, engine_ok = await _fetch_engine_metrics()
+    merged = body + b"\n" + _engine_metrics_status_line(engine_ok) + b"\n" + engine_body
+    return Response(content=merged, media_type=content_type)
 
 
 async def metrics_asgi_endpoint(request: Any) -> Any:  # noqa: ARG001
