@@ -697,7 +697,7 @@ class GraphMaintainer:
         )
 
         # Find episodes that haven't been synthesized
-        query = "MATCH (e:Episode) WHERE e.timestamp < $cutoff AND NOT (e)-[:CONSOLIDATES_INTO]->() RETURN e.id as id, e.description AS descriptionription"
+        query = "MATCH (e:Episode) WHERE e.timestamp < $cutoff AND NOT (e)-[:CONSOLIDATES_INTO]->() RETURN e.id as id, e.description AS description"
         episodes = self.engine.backend.execute(query, {"cutoff": cutoff_date})
 
         if not episodes:
@@ -904,9 +904,7 @@ class GraphMaintainer:
                         "batch_size": _TRACE_RETENTION_BATCH_SIZE,
                     },
                 )
-                selected_rows = (
-                    selected if isinstance(selected, list) else [selected]
-                )
+                selected_rows = selected if isinstance(selected, list) else [selected]
                 ids = [
                     row["id"]
                     for row in selected_rows

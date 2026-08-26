@@ -121,6 +121,30 @@ def test_prefix_is_applied_to_mounted_routes():
         assert ("/api" + path) in paths
 
 
+def test_mining_graphlearn_deepmining_full_fanout_mounted():
+    """BUG-PE-005: ``graph_mine``/``graph_learn``/``graph_mine_deep`` are deliberately
+    absent from the static ``ACTION_TOOL_ROUTES`` seed (same pattern as
+    ``graph_pipeline``) — their per-action REST twins come from the fan-out loops
+    in ``_mount_rest_routes``, each guarded by ``if "graph_mine" in
+    ACTION_TOOL_ROUTES:`` etc. Those three keys are populated at runtime by
+    ``register_engine_surface_tools`` (invoked via ``ensure_tools_registered``)
+    BEFORE ``_mount_rest_routes`` runs, in the one production call sequence
+    (``gateway.graph_api.register_graph_routes``). This pins the FULL fan-out
+    (not just the one representative path each tool has in ACTION_TOOL_ROUTES,
+    already covered by ``test_mapped_routes_are_actually_mounted``) so a future
+    reorder of that sequence, or a rename that breaks the ``in
+    ACTION_TOOL_ROUTES`` guard, is caught here instead of surfacing as a silent
+    404 in production.
+    """
+    paths = _mounted_paths()
+    for action in kg_server.MINING_ACTIONS:
+        assert f"/mining/{action}" in paths
+    for action in kg_server.GRAPHLEARN_ACTIONS:
+        assert f"/graphlearn/{action}" in paths
+    for action in kg_server.DEEP_MINING_ACTIONS:
+        assert f"/mining/deep/{action}" in paths
+
+
 # ── Third leg: MCP verb ⇄ domain-skill coverage (CONCEPT:AU-ECO.mcp.kg-skill-verb-coverage) ──
 # Beyond REST⇄MCP parity, every Graph-OS verb must be claimed explicitly by a
 # retained workflow skill's ``agents/graph-os.yaml`` sidecar. The contract lives

@@ -10,6 +10,10 @@ Covers:
 
 from __future__ import annotations
 
+import contextvars
+import threading
+import time
+
 import pytest
 
 from agent_utilities.knowledge_graph.core import tenant_sharing as ts
@@ -95,6 +99,112 @@ def test_stamp_ownership_does_not_overwrite_existing_share():
     ts.stamp_ownership(props, _user("alice", "acme"))
     # An already-shared node is not silently reset to private.
     assert props[ts.SCOPE_KEY] == ts.SCOPE_ORG
+
+
+# --- automated-service ownership stamping (role-independent) ---------------
+
+
+def _service(actor_id="graph-os-svc", tenant="acme", roles=()):
+    """An automated service principal.
+
+    Mirrors what the shared identity boundary actually mints for a
+    client-credentials token: ``request_identity.actor_from_claims`` types an
+    actor ``HUMAN`` when an ``email`` claim is present and
+    ``AUTOMATED_SERVICE`` otherwise, so this is the real shape of every
+    service write, not a synthetic one.
+    """
+    return ActorContext(
+        actor_id=actor_id,
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=tuple(roles),
+        tenant_id=tenant,
+        authenticated=True,
+    )
+
+
+@pytest.mark.parametrize("roles", [(), ("kg:admin",)])
+def test_stamp_ownership_service_is_org_scoped_regardless_of_privilege(roles):
+    """THE regression: an automated service's write is org-scoped platform
+    data because of WHO wrote it, never because of what role the IdP happened
+    to be handing out at the time.
+
+    Pre-fix, the un-privileged half of this parametrization stamped
+    ``_shared_scope="private"`` -- which is how a two-day ``kg:admin`` outage
+    (2026-07-22..2026-08-15) permanently orphaned 23,994 rows behind the
+    engine's row-level owner check, with no auto-recovery once the role came
+    back.
+    """
+    props: dict = {}
+    ts.stamp_ownership(props, _service("graph-os-svc", "acme", roles=roles))
+    assert props[ts.SCOPE_KEY] == ts.SCOPE_ORG
+    assert props[ts.TENANT_KEY] == "acme"
+    # Provenance: WHICH service wrote this is still recorded. An explicit
+    # `org` scope is what the engine's row-visibility check reads, so this
+    # marker is attribution, not a narrowing -- verified against the live
+    # graph, where 320 rows already carry exactly this `_owner_id` + `org`
+    # pairing and are visible to the tenant's humans.
+    assert props[ts.OWNER_KEY] == "graph-os-svc"
+
+
+def test_stamp_ownership_service_scope_is_identical_across_a_role_loss():
+    """States the invariant the way the incident violated it: the SAME
+    service principal writing the SAME node either side of losing
+    ``kg:admin`` must produce byte-identical ownership properties."""
+    privileged: dict = {}
+    ts.stamp_ownership(privileged, _service(roles=("kg:admin",)))
+
+    role_lost: dict = {}
+    ts.stamp_ownership(role_lost, _service(roles=()))
+
+    assert privileged == role_lost
+
+
+def test_stamp_ownership_service_preserves_explicit_private_share():
+    """`setdefault`, not an overwrite: a caller that deliberately asked for a
+    narrower scope still wins. This branch widens a DEFAULT, nothing more."""
+    props: dict = {ts.SCOPE_KEY: ts.SCOPE_PRIVATE}
+    ts.stamp_ownership(props, _service(roles=()))
+    assert props[ts.SCOPE_KEY] == ts.SCOPE_PRIVATE
+
+
+def test_stamp_ownership_service_preserves_explicit_owner():
+    props: dict = {ts.OWNER_KEY: "someone-else"}
+    ts.stamp_ownership(props, _service(roles=()))
+    assert props[ts.OWNER_KEY] == "someone-else"
+    assert props[ts.SCOPE_KEY] == ts.SCOPE_ORG
+
+
+def test_stamp_ownership_human_unchanged_by_the_service_branch():
+    """The widened default must not leak past automated services. An
+    unprivileged human is still private-by-default, and a privileged human is
+    still unowned + org -- exactly as before this branch existed."""
+    human: dict = {}
+    ts.stamp_ownership(human, _user("alice", "acme"))
+    assert human[ts.OWNER_KEY] == "alice"
+    assert human[ts.SCOPE_KEY] == ts.SCOPE_PRIVATE
+
+    admin: dict = {}
+    ts.stamp_ownership(admin, _user("root", "acme", roles=("kg:admin",)))
+    assert ts.OWNER_KEY not in admin
+    assert admin[ts.SCOPE_KEY] == ts.SCOPE_ORG
+
+
+def test_stamp_ownership_ai_agent_unchanged_by_the_service_branch():
+    """The branch keys on ``AUTOMATED_SERVICE`` specifically. An autonomous
+    AI agent is a distinct actor type whose writes are user-ish data and stay
+    private-by-default."""
+    props: dict = {}
+    ts.stamp_ownership(
+        props,
+        ActorContext(
+            actor_id="agent-7",
+            actor_type=ActorType.AI_AGENT,
+            tenant_id="acme",
+            authenticated=True,
+        ),
+    )
+    assert props[ts.OWNER_KEY] == "agent-7"
+    assert props[ts.SCOPE_KEY] == ts.SCOPE_PRIVATE
 
 
 # --- visibility predicate --------------------------------------------------
@@ -191,9 +301,15 @@ def test_accessible_graphs_tenantless_is_rejected():
 
 def test_read_union_dedups_org_wins():
     cfg = type("C", (), {"kg_default_graph": "kg"})()
+    # Commons rows must be catalog-shareable node types (or the reader's own
+    # tenant's data) to survive read_union's ``filter_commons_catalog`` pass
+    # below -- org rows are never subject to that commons-only restriction.
     data = {
         "tenant__acme__kg": [{"id": "n1", "src": "org"}, {"id": "n2", "src": "org"}],
-        "kg": [{"id": "n1", "src": "commons"}, {"id": "n3", "src": "commons"}],
+        "kg": [
+            {"id": "n1", "src": "commons", "node_type": "Tool"},
+            {"id": "n3", "src": "commons", "node_type": "Tool"},
+        ],
     }
 
     def executor(graph, cypher, params):
@@ -218,6 +334,157 @@ def test_read_union_tolerates_missing_commons():
         "MATCH (n) RETURN n", {}, executor, _user("alice", "acme"), config=cfg
     )
     assert [r["id"] for r in rows] == ["n1"]  # degrades to org-only
+
+
+def test_read_union_applies_commons_catalog_restriction_to_commons_rows():
+    """GOC-61: read_union must not hand a cross-tenant reader a commons row
+    that ``filter_commons_catalog`` would otherwise reject -- a non-catalog
+    node type stamped with another tenant's id must not leak through the
+    union merge just because it came back from the executor."""
+    cfg = type("C", (), {"kg_default_graph": "kg"})()
+    data = {
+        "tenant__acme__kg": [],
+        "kg": [
+            # Catalog-shareable type: visible to every tenant.
+            {"id": "tool-1", "node_type": "Tool"},
+            # Not catalog-shareable and owned by a DIFFERENT tenant: must be
+            # dropped for a bob (tenant=acme) reader.
+            {"id": "wi-1", "node_type": "WorkItem", "tenant_id": "other-tenant"},
+        ],
+    }
+
+    def executor(graph, cypher, params):
+        return data.get(graph, [])
+
+    rows = ts.read_union(
+        "MATCH (n) RETURN n", {}, executor, _user("alice", "acme"), config=cfg
+    )
+    assert [r["id"] for r in rows] == ["tool-1"]
+
+
+def test_read_union_projecting_query_returns_commons_rows():
+    """Regression: a PROJECTING Cypher query (``RETURN t.id AS id, t.name AS
+    name``) returns rows with no ``node_type`` column at all, even for a
+    catalog-shareable commons node -- the exact shape
+    ``/ontology/object-types`` uses (``RETURN labels(n) AS labels, count(n)
+    AS count``, BUG-PE-026). Before the query-level pushdown fix, ``read_union``
+    ran every commons row through the row-level fail-closed classifier
+    unconditionally; a projected row can never satisfy it (no ``node_type``
+    to classify), so every commons row was silently dropped. Constraint (a):
+    a projecting query must still surface commons rows."""
+    cfg = type("C", (), {"kg_default_graph": "kg"})()
+    data = {
+        "tenant__acme__kg": [],
+        "kg": [{"id": "t1", "name": "Tool-A"}],  # no node_type -- a projection
+    }
+
+    def executor(graph, cypher, params):
+        return data.get(graph, [])
+
+    rows = ts.read_union(
+        "MATCH (t:Tool) RETURN t.id as id, t.name as name",
+        {},
+        executor,
+        _user("alice", "acme"),
+        config=cfg,
+    )
+    assert [r["id"] for r in rows] == ["t1"]
+
+
+def test_read_union_projecting_query_still_denies_non_shareable_foreign_row():
+    """Constraint (b), proved alongside constraint (a): trusting the query
+    -level pushdown for a row the classifier CANNOT read a ``node_type``
+    from (see the projecting-query test above) must never widen into
+    trusting it for a row that DOES carry a classifiable ``node_type`` --
+    that row is always judged by :func:`filter_commons_catalog`'s ordinary
+    fail-closed rule regardless of whether pushdown ran, so a non-catalog
+    row stamped with another tenant's id is still denied even in a query
+    shape that triggers pushdown."""
+    cfg = type("C", (), {"kg_default_graph": "kg"})()
+    data = {
+        "tenant__acme__kg": [],
+        "kg": [
+            # Unclassifiable projection of a catalog-shareable node -> kept.
+            {"id": "t1", "name": "Tool-A"},
+            # Classifiable, not catalog-shareable, another tenant's data ->
+            # dropped, even though this query triggers pushdown too.
+            {
+                "id": "wi-1",
+                "name": "someone else's item",
+                "node_type": "WorkItem",
+                "tenant_id": "other-tenant",
+            },
+        ],
+    }
+
+    def executor(graph, cypher, params):
+        return data.get(graph, [])
+
+    rows = ts.read_union(
+        "MATCH (n) RETURN n.id as id, n.name as name",
+        {},
+        executor,
+        _user("alice", "acme"),
+        config=cfg,
+    )
+    assert [r["id"] for r in rows] == ["t1"]
+
+
+def test_read_union_concurrent_tenant_wins_regardless_of_completion_order():
+    """BUG-PE-019: read_union fans per-graph executor calls out concurrently
+    (``_READ_UNION_MAX_WORKERS``). Concurrency must never disturb the
+    documented "tenant rows win on a duplicate id" precedence, so prove it
+    holds even when the COMMONS executor call finishes strictly before the
+    tenant graph's -- a race a naive completion-order merge would only get
+    wrong under exactly this ordering."""
+    cfg = type("C", (), {"kg_default_graph": "kg"})()
+    tenant_started = threading.Event()
+
+    def executor(graph, cypher, params):
+        if graph == "kg":  # commons: wait for the tenant call to start, then
+            # answer immediately -- its future resolves first.
+            assert tenant_started.wait(timeout=5)
+            return [{"id": "n1", "src": "commons", "node_type": "Tool"}]
+        # tenant graph: signal commons, then keep "working" so its own
+        # future resolves strictly after commons's already has.
+        tenant_started.set()
+        time.sleep(0.2)
+        return [{"id": "n1", "src": "org"}]
+
+    rows = ts.read_union(
+        "MATCH (n) RETURN n", {}, executor, _user("alice", "acme"), config=cfg
+    )
+    by_id = {r["id"]: r["src"] for r in rows}
+    assert by_id == {"n1": "org"}  # tenant wins even though commons finished first
+
+
+def test_read_union_concurrent_fanout_propagates_ambient_context():
+    """``contextvars.copy_context()`` per submission is load-bearing, not
+    decoration: a caller's ``executor`` (e.g. agent-webui's
+    ``_graph_union_executor``) typically reads an ambient
+    ``current_session()``/``use_session()`` ``ContextVar`` pair to retarget
+    per graph. A bare ``ThreadPoolExecutor.submit`` would hand the worker
+    thread a FRESH context with no ambient state, silently breaking every
+    graph but whichever one happens to share the caller's own thread."""
+    cfg = type("C", (), {"kg_default_graph": "kg"})()
+    probe: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+        "probe", default=None
+    )
+    seen: dict[str, str | None] = {}
+
+    def executor(graph, cypher, params):
+        seen[graph] = probe.get()
+        return []
+
+    token = probe.set("ambient-value")
+    try:
+        ts.read_union(
+            "MATCH (n) RETURN n", {}, executor, _user("alice", "acme"), config=cfg
+        )
+    finally:
+        probe.reset(token)
+
+    assert seen == {"tenant__acme__kg": "ambient-value", "kg": "ambient-value"}
 
 
 # --- sharing transitions ---------------------------------------------------

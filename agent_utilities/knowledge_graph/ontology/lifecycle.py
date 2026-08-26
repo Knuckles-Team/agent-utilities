@@ -388,9 +388,18 @@ def _ensure_ontology_graph(gc: Any, graph_name: str) -> None:
     Mirrors ``GraphComputeEngine._ensure_local_session_graph``'s create-then-
     reverify-on-race pattern, without that method's local-session-only ``kg:admin``
     scope gate (this runs for any tenant's ontology graph, not just the one
-    packaged local session graph). Raises :class:`OntologyError` on a genuine,
-    non-race failure so the caller can fail closed rather than silently writing
-    into a graph that was never actually provisioned.
+    packaged local session graph) — including that seam's BUG-PE-049 fix: the
+    engine's own "already exists" rejection is the PRIMARY reconciliation
+    (this function's contract is that the graph exists once it returns, and
+    that error is that guarantee being met, not a failure), with a fresh
+    ``tenants.list()`` as SECONDARY for a create race lost to some other
+    rejection. ``tenants.list()`` alone is not authoritative here: against an
+    already-provisioned store the engine rejects the create while this
+    bootstrap context's list omits the graph, so a list-only reconciliation
+    let a real "already exists" escape and fail closed incorrectly. Raises
+    :class:`OntologyError` on a genuine, non-race failure so the caller can
+    fail closed rather than silently writing into a graph that was never
+    actually provisioned.
     """
     if graph_name in _KNOWN_ONTOLOGY_GRAPHS:
         return
@@ -403,6 +412,8 @@ def _ensure_ontology_graph(gc: Any, graph_name: str) -> None:
     ):
         # Not a real engine client (e.g. a unit-test fake) — nothing to provision.
         return
+
+    from ..core.graph_compute import _is_graph_already_exists_error
 
     def _listed() -> set[str]:
         try:
@@ -432,9 +443,15 @@ def _ensure_ontology_graph(gc: Any, graph_name: str) -> None:
         # used to provision it.
         tenants.create(graph_name, "Global")
     except Exception as exc:
-        # Another process/writer may have won a create race — reverify before
-        # treating this as fatal; otherwise fail closed (do not silently
-        # proceed to write axioms into a graph that was never provisioned).
+        # PRIMARY reconciliation (BUG-PE-049): the engine's own "already
+        # exists" rejection IS the guarantee this function exists to provide.
+        if _is_graph_already_exists_error(exc, graph_name):
+            _KNOWN_ONTOLOGY_GRAPHS.add(graph_name)
+            return
+        # SECONDARY: a create race lost to another authorized local process
+        # may still surface as some other rejection; a fresh list can settle
+        # that one. Anything else stays fail-closed and propagates exactly
+        # as before.
         if graph_name not in _listed():
             raise OntologyError(
                 f"could not provision dedicated ontology graph {graph_name!r}: {exc}"

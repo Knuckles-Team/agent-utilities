@@ -159,6 +159,30 @@ class TestMint:
         ):
             provider.get_token()
 
+    def test_transport_failure_message_is_sanitised_but_preserves_cause(self):
+        """BUG-PE-028: the outer message must stay sanitised (a live lane once
+        had a CERTIFICATE_VERIFY_FAILED surface as this exact opaque
+        message, findable only by monkeypatching ``requests.post``), but the
+        real transport exception must still be reachable as ``__cause__`` for
+        server-side logs/tracebacks -- `_mint` used to raise this `from
+        None`, discarding it entirely."""
+        provider = OAuthClientCredentialsProvider(
+            "https://idp.example.com/token", "client-a", "s3cr3t"
+        )
+        underlying = httpx.ConnectError("CERTIFICATE_VERIFY_FAILED")
+        with (
+            patch(
+                "agent_utilities.security.oauth_client_credentials.requests.post",
+                side_effect=underlying,
+            ),
+            pytest.raises(RuntimeError) as error,
+        ):
+            provider.get_token()
+
+        assert str(error.value) == "OAuth2 token request failed"
+        assert "CERTIFICATE_VERIFY_FAILED" not in str(error.value)
+        assert error.value.__cause__ is underlying
+
 
 # ---------------------------------------------------------------------------
 # Cache + proactive renewal — driven by an injected clock, never real sleep

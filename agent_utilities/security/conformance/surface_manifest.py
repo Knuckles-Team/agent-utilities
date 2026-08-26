@@ -257,9 +257,14 @@ GOC15_SURFACE_MANIFEST: tuple[SurfaceEntry, ...] = (
         surface_id="au:websocket-dashboard",
         disposition=Disposition.AUTHENTICATED_REQUIRED,
         citation=(
-            "gateway/ws.py:78-154 -- correct today but a SECOND, independent auth "
-            "implementation (ActorIdentityMiddleware structurally skips WS ASGI "
-            "scopes); GOC-62 standard requires this collapse onto the one verifier"
+            "agent-webui/agent/agent_webui/server.py:1822 _dashboard_ws -- "
+            "WebUIAuthorizationMiddleware enforces kg:admin on /ws/dashboard "
+            "(BUG-PE-038: agent_utilities/gateway/ws.py's dashboard_ws_router, "
+            "this entry's prior citation, is unused dead code -- never mounted "
+            "by agent-webui, which deliberately does not use it because its "
+            "OLDER gateway:read/write/admin capability namespace never maps "
+            "kg:admin -> gateway:admin -- and is removed on "
+            "fix/dead-routes-and-union-perf, BUG-PE-006)"
         ),
     ),
     SurfaceEntry(

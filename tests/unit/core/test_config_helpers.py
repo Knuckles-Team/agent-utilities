@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -118,6 +119,38 @@ def test_xdg_schema_rejection_logs_only_value_free_coordinates(
     assert "chat_models.0" in caplog.text.lower()
     assert secret_value not in caplog.text
     assert secret_value not in str(caught.value)
+
+
+def test_xdg_schema_rejection_log_includes_the_root_level_message(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Regression for the 2026-08-25 graph-os outage's swallowed cause.
+
+    A root-level ``@model_validator(mode="before")`` rejection (e.g. a
+    retired-configuration-key check) always carries an empty ``loc`` and the
+    generic ``type="value_error"`` -- before this fix the log line was
+    literally ``(value-free issues=[{'location': '', 'type': 'value_error'}])``
+    for every such rejection, indistinguishable from any other root-level
+    failure and useless for on-call diagnosis. The one field that actually
+    names the failed constraint is pydantic's ``msg`` -- a human-authored,
+    static description that (unlike ``input``) never embeds the rejected
+    value, so surfacing it does not reintroduce the value-leak this same test
+    module already guards against above.
+    """
+    # Split so this test does not itself trip
+    # scripts/check_current_only_contract.py's retired-identifier scan (same
+    # technique the retired-key registry and its other regression tests use).
+    retired_key = "ENGINE_" + "MODE"
+
+    with (
+        caplog.at_level(logging.ERROR),
+        pytest.raises(ch.ConfigurationSourceError) as caught,
+    ):
+        ch._validate_xdg_configuration_schema({retired_key: "external"})
+
+    assert caught.value.error_class == "ValidationError"
+    assert "retired durable configuration key" in caplog.text
+    assert retired_key in caplog.text
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX permission contract")
@@ -534,6 +567,56 @@ def test_get_discovery_registry_with_prompts(
     assert any(a.name == "router" for a in result.agents)
     assert len(result.tools) == 1
     assert result.tools[0].name == "tool1"
+
+
+def test_get_discovery_registry_prompt_description_alias_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression test for the descriptionription alias typo.
+
+    ``_fetch_prompt_agents`` builds ``MCPAgent.description`` from
+    ``row.get("description", "")``. If the Cypher query aliases
+    ``p.description`` to anything other than ``"description"``, every
+    prompt agent silently gets an empty description forever. This fake
+    backend derives the row key from the *actual* prompt query text so
+    the test fails if the alias in the source drifts from the key the
+    consumer reads.
+    """
+    fake_engine = MagicMock()
+    fake_engine.backend = MagicMock()
+
+    def fake_execute(query, *args, **kwargs):
+        if "MATCH (p:Prompt)" in query:
+            alias_match = re.search(r"p\.description AS (\w+)", query)
+            assert alias_match, "prompt query must alias p.description"
+            alias = alias_match.group(1)
+            return [
+                {
+                    "name": "router",
+                    alias: "Routes queries to the right specialist",
+                    "capabilities": ["routing"],
+                    "system_prompt": "You are the router",
+                    "json_blueprint": _prompt_blueprint("router JSON"),
+                }
+            ]
+        return []
+
+    fake_engine.backend.execute.side_effect = fake_execute
+    fake_engine_cls = MagicMock(
+        get_active=MagicMock(return_value=fake_engine),
+    )
+    fake_kg = MagicMock(IntelligenceGraphEngine=fake_engine_cls)
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "agent_utilities.knowledge_graph.core.engine",
+        fake_kg,
+    )
+    result = ch.get_discovery_registry()
+
+    # Proves the description VALUE actually reached the MCPAgent, not
+    # just that the alias string in the query changed.
+    router_agent = next(a for a in result.agents if a.name == "router")
+    assert router_agent.description == "Routes queries to the right specialist"
 
 
 def test_get_discovery_registry_blueprint_json_string(

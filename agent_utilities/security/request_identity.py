@@ -472,6 +472,34 @@ def mint_local_process_session() -> GraphSession:
 _system_write_session: GraphSession | None = None
 _system_write_session_lock = threading.Lock()
 
+# Headroom demanded of a CACHED system session before it is reused. A session
+# handed back with two seconds left would expire mid-RPC in the caller's hands;
+# re-minting slightly early is cheap (the OAuth2 provider caches its own token)
+# and makes the handed-out authority usable for the whole call it was fetched
+# for. See :func:`system_write_session` (BUG-PE-053).
+_SYSTEM_SESSION_MIN_TTL_S = 30
+
+
+def _session_authority_usable(session: GraphSession) -> bool:
+    """Whether a cached system session's credential is still good to hand out.
+
+    ``ensure_authority_current`` is the single existing definition of "this
+    verified authority is still valid" (expired JWT, a lease inside its
+    minimum TTL, or lapsed engine-route continuity) -- this reuses it rather
+    than re-deriving expiry semantics here. Any other exception type means
+    the session is not something this helper can vouch for either, so it is
+    treated the same way: drop it and mint a fresh one.
+    """
+    try:
+        session.ensure_authority_current(minimum_ttl_seconds=_SYSTEM_SESSION_MIN_TTL_S)
+    except Exception:  # noqa: BLE001 - any unusable cached authority is re-minted
+        logger.info(
+            "cached system write session is no longer current; re-minting",
+            exc_info=True,
+        )
+        return False
+    return True
+
 
 def system_write_session(config: Any = None) -> GraphSession:
     """Resolve the verified authority for a background/system-triggered graph write.
@@ -494,18 +522,40 @@ def system_write_session(config: Any = None) -> GraphSession:
     1. Prefer the already-verified ambient :class:`~agent_utilities.
        knowledge_graph.core.session.GraphSession` (:meth:`GraphSession.
        from_ambient`).
-    2. Else mint -- once per process, then cache -- this process's OWN
-       verified system identity through the exact mechanism every other
-       background/served entrypoint in this codebase already uses to
-       establish its process authority (:func:`mint_local_process_session`
-       for the ``tiny`` local profile with no configured external identity,
-       else :func:`acquire_process_identity_token` ->
+    2. Else mint -- then cache for as long as the minted credential stays
+       valid -- this process's OWN verified system identity through the
+       exact mechanism every other background/served entrypoint in this
+       codebase already uses to establish its process authority
+       (:func:`mint_local_process_session` for the ``tiny`` local profile
+       with no configured external identity, else
+       :func:`acquire_process_identity_token` ->
        :func:`mint_actor_from_token_sync` -> :func:`mint_graph_session` for a
        configured external identity -- see :func:`messaging.daemon.
        mint_process_identity` and ``kg_server.py``'s own bootstrap, which run
        this identical sequence). This is a REAL, validated, authenticated
        actor -- never a synthesized or unauthenticated one -- so it is never
        a bypass of the ownership-stamping seam it is meant to satisfy.
+
+    THE CACHE IS REVALIDATED, NOT PERMANENT (BUG-PE-053, measured live
+    2026-08-25). The session minted in step 2 wraps a bearer JWT with a
+    finite lifetime (Keycloak's access-token lifespan -- minutes, not the
+    lifetime of a long-running gateway process). The cache originally
+    returned that session forever, so every consumer began failing closed
+    with ``SessionExpiredError: Verified graph authority has expired`` once
+    the first minted token aged out, and NOTHING could recover it short of
+    restarting the process. That stayed invisible while the only consumers
+    were best-effort background writers that swallow their own failures;
+    it became a hard, permanent, whole-surface outage the moment
+    ``gateway/registry_api.py`` started routing every ``/api/registry/*``
+    and ``/api/enhanced/tools`` catalog read through this helper
+    (``8dc652039``) -- the dashboard's entire MCP tools/servers surface
+    served ``503 catalog_unavailable`` / an empty ``mcp_tools`` list from
+    roughly the token lifespan after each pod start onwards. So the cached
+    session is checked with :meth:`GraphSession.ensure_authority_current`
+    before it is handed back, and re-minted when that check says the
+    credential has expired (or is about to). ``_SYSTEM_SESSION_MIN_TTL_S``
+    buys enough headroom that a session handed to a caller does not expire
+    part-way through the engine RPC it was fetched for.
 
     Never returns an unauthenticated session: every branch below either
     returns a verified :class:`GraphSession` or raises (``SessionRequiredError``
@@ -526,8 +576,9 @@ def system_write_session(config: Any = None) -> GraphSession:
 
     global _system_write_session
     with _system_write_session_lock:
-        if _system_write_session is not None:
-            return _system_write_session
+        cached = _system_write_session
+        if cached is not None and _session_authority_usable(cached):
+            return cached
         if config is None:
             from agent_utilities.core.config import config as _config
 
@@ -598,8 +649,18 @@ def acquire_process_identity_token(config: Any = None) -> str:
 
             assert oauth2 is not None  # guaranteed by the XOR check above
             token = build_provider_from_config(oauth2).get_token()
-    except Exception:
-        raise RuntimeError("Graph process identity acquisition failed") from None
+    except Exception as exc:
+        # BUG-PE-028: was `from None`, discarding the real cause (a
+        # transport/TLS/secret-lookup failure) entirely -- a
+        # CERTIFICATE_VERIFY_FAILED once surfaced as this opaque message
+        # with no way to find the actual root cause short of monkeypatching
+        # `requests.post`. Every caller of this function is internal
+        # server-side bootstrap code (gateway/messaging daemons, ingest
+        # worker, MCP servers -- never an external/untrusted consumer), so
+        # chaining the cause is safe: the OUTER message stays sanitised
+        # (never echoes secret/token material), while `__cause__` keeps the
+        # real exception available to server-side logs/tracebacks.
+        raise RuntimeError("Graph process identity acquisition failed") from exc
     if (
         not isinstance(token, str)
         or not token

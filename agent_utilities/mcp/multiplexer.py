@@ -139,6 +139,42 @@ _PROMPT_RESOURCE_RE = re.compile(r"^prompt://(?P<provider>[^/]+)/(?P<name>[^/]+)
 _MAX_PROMPT_BODY_BYTES = 512 * 1024
 _MAX_PROMPT_HARVEST_TOTAL_BYTES = 8 * 1024 * 1024
 _PROMPT_HARVEST_BUDGET_SEC = 120.0
+# Share of the ENCLOSING probe's remaining time an OPTIONAL body harvest may
+# consume (BUG-PE-054). ``_SKILL_HARVEST_BUDGET_SEC``/``_PROMPT_HARVEST_BUDGET_SEC``
+# above are 120s, but every harvest runs INSIDE ``probe_server``'s own
+# ``asyncio.wait_for(_probe(), timeout=probe_to)`` — and ``probe_to`` is the
+# per-server ``timeout`` from ``mcp_config.json``, in practice 10-15s. An inner
+# best-effort budget 8-12x larger than the outer deadline it lives in is not a
+# bound at all: measured live 2026-08-25 against the homelab fleet,
+# ``fan-manager-mcp``'s prompt harvest spent 16.3s retrying two unservable
+# ``prompt://`` bodies (5 attempts each with backoff), blowing the 15s probe
+# deadline and DISCARDING the 14 tools ``list_tools`` had already returned
+# 16 seconds earlier. Six servers failed that way on every single sweep, and
+# because ``write_fleet_catalog`` only writes a discovery row for a probe that
+# bound an authority, they showed up in agent-webui as "0 tools" rather than as
+# unreachable. Half of what is left, taken fresh at each harvest, keeps the
+# tools/skills already in hand: skills can never spend more than half the
+# remaining probe, and prompts never more than half of what skills left.
+_HARVEST_DEADLINE_SHARE = 0.5
+
+
+def _harvest_deadline(probe_deadline: float | None, budget_sec: float) -> float:
+    """Monotonic deadline for one optional body harvest.
+
+    ``probe_deadline`` is the enclosing :meth:`MCPMultiplexer.probe_server`
+    deadline (``None`` for a caller with no probe deadline of its own, which
+    keeps the standalone ``budget_sec`` behaviour). The harvest gets whichever
+    is SOONER: its own budget, or its share of the probe time still left.
+    """
+    own = time.monotonic() + budget_sec
+    if probe_deadline is None:
+        return own
+    share = time.monotonic() + max(
+        0.0, (probe_deadline - time.monotonic()) * _HARVEST_DEADLINE_SHARE
+    )
+    return min(own, share)
+
+
 _SERVER_DISCOVERY_STOPWORDS = frozenset({"api", "mcp", "manager", "server", "service"})
 # Fleet-wide concurrent-probe ceiling (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog), shared
 # across overlapping ``probe_catalog`` calls via ``MCPMultiplexer._probe_semaphore``
@@ -150,7 +186,23 @@ _SERVER_DISCOVERY_STOPWORDS = frozenset({"api", "mcp", "manager", "server", "ser
 # before any real work, so a 61-server fleet queued 16-wide needed 4 full waves
 # to even ATTEMPT every server once — comfortably exceeding any interactive
 # budget on its own, before counting genuinely slow/unreachable servers.
-_PROBE_CONCURRENCY = 32
+#
+# LOWERED 32 -> 8 (BUG-PE-055). That reasoning optimised for "attempt every
+# server soon" and ignored that each probe carries its OWN wall-clock timeout:
+# raising concurrency past what one event loop can actually service makes every
+# in-flight probe MISS that timeout, so the sweep attempts more servers and
+# finishes fewer. Measured live 2026-08-25, same 66-server homelab fleet, same
+# process, only this number varied (successful servers / tools written):
+#
+#     32 ->  4/66,   361 tools      8 -> 65/66, 7975 tools
+#      6 -> 58/66,  6291 tools      4 -> 59/66, 7422 tools
+#      3 -> 60/66,  9008 tools
+#
+# Servers that individually probe in 3.5-7.8s were uniformly failing their own
+# 10-15s deadline at 32-wide — one loop decoding ~10k tool schemas cannot keep
+# 32 probes inside their deadlines. 8 completes the fleet in ~55s, inside the
+# connectors lane's 108s fleet-probe budget, with room to spare.
+_PROBE_CONCURRENCY = 8
 _RUNTIME_CHILD_POLICY_GROUP = "agent_utilities.mcp_child_policies"
 _RUNTIME_CHILD_POLICY_RE = re.compile(r"^[a-z][a-z0-9-]{1,62}$")
 _RUNTIME_CHILD_POLICY_TRANSPORT_KEYS = frozenset(
@@ -3839,6 +3891,12 @@ class MCPMultiplexer:
             info = {"tools": [], "error": "invalid probe timeout"}
             return self._cache_probe(server_name, info)
 
+        # The deadline ``asyncio.wait_for`` below will enforce. The OPTIONAL
+        # skill/prompt body harvests are clamped to a share of what is left of
+        # it (:func:`_harvest_deadline`, BUG-PE-054) so neither can spend the
+        # tool probe's own deadline and discard tools already in hand.
+        probe_deadline = time.monotonic() + probe_to
+
         async def _probe() -> tuple[list[dict], list[dict], list[dict], Any | None]:
             # Enter AND exit the transports within this single coroutine so the
             # anyio cancel scopes are not crossed between tasks. ``wait_for``
@@ -3862,8 +3920,12 @@ class MCPMultiplexer:
                             runtime_policy,
                             tools,
                         )
-                    skills = await self._probe_skills(server_name, session)
-                    prompts = await self._probe_prompts(server_name, session)
+                    skills = await self._probe_skills(
+                        server_name, session, probe_deadline=probe_deadline
+                    )
+                    prompts = await self._probe_prompts(
+                        server_name, session, probe_deadline=probe_deadline
+                    )
                     discovery_binding = _CURRENT_DISCOVERY_BINDING.get()
                     if discovery_binding is None:
                         discovery_binding = _tenant_local_discovery_binding()
@@ -3904,7 +3966,9 @@ class MCPMultiplexer:
             self._record_discovery_binding(server_name, result, discovery_binding)
         return result
 
-    async def _probe_skills(self, server_name: str, session: Any) -> list[dict]:
+    async def _probe_skills(
+        self, server_name: str, session: Any, *, probe_deadline: float | None = None
+    ) -> list[dict]:
         """Best-effort ``skill://`` resource enumeration for one probed session
         (CONCEPT:AU-ECO.mcp.skills-over-mcp-provider).
 
@@ -3939,11 +4003,18 @@ class MCPMultiplexer:
                 redact_for_log(exc),
             )
             return []
-        await self._harvest_skill_bodies(server_name, session, skills)
+        await self._harvest_skill_bodies(
+            server_name, session, skills, probe_deadline=probe_deadline
+        )
         return skills
 
     async def _harvest_skill_bodies(
-        self, server_name: str, session: Any, skills: list[dict]
+        self,
+        server_name: str,
+        session: Any,
+        skills: list[dict],
+        *,
+        probe_deadline: float | None = None,
     ) -> None:
         """Read each catalogued ``skill://`` body over the OPEN probe session.
 
@@ -3965,13 +4036,14 @@ class MCPMultiplexer:
         precondition instead of quietly skipping the skill.
         """
         harvested_bytes = 0
-        deadline = time.monotonic() + _SKILL_HARVEST_BUDGET_SEC
+        deadline = _harvest_deadline(probe_deadline, _SKILL_HARVEST_BUDGET_SEC)
         for entry in skills:
             uri = entry.get("uri") or ""
             if time.monotonic() >= deadline:
                 entry["harvest_error"] = (
-                    f"skill body harvest budget exceeded after "
-                    f"{_SKILL_HARVEST_BUDGET_SEC:g}s"
+                    "skill body harvest budget exceeded (bounded by the "
+                    f"smaller of {_SKILL_HARVEST_BUDGET_SEC:g}s and this probe's own "
+                    "remaining deadline)"
                 )
                 continue
             if harvested_bytes >= _MAX_HARVEST_TOTAL_BYTES:
@@ -4029,7 +4101,9 @@ class MCPMultiplexer:
             raise RuntimeError("skill body read failed without a recorded cause")
         raise last
 
-    async def _probe_prompts(self, server_name: str, session: Any) -> list[dict]:
+    async def _probe_prompts(
+        self, server_name: str, session: Any, *, probe_deadline: float | None = None
+    ) -> list[dict]:
         """Best-effort ``prompt://`` resource enumeration for one probed
         session (CONCEPT:AU-ECO.mcp.cross-process-prompt-harvest).
 
@@ -4066,11 +4140,18 @@ class MCPMultiplexer:
                 redact_for_log(exc),
             )
             return []
-        await self._harvest_prompt_bodies(server_name, session, prompts)
+        await self._harvest_prompt_bodies(
+            server_name, session, prompts, probe_deadline=probe_deadline
+        )
         return prompts
 
     async def _harvest_prompt_bodies(
-        self, server_name: str, session: Any, prompts: list[dict]
+        self,
+        server_name: str,
+        session: Any,
+        prompts: list[dict],
+        *,
+        probe_deadline: float | None = None,
     ) -> None:
         """Read each catalogued ``prompt://`` body over the OPEN probe session.
 
@@ -4082,13 +4163,14 @@ class MCPMultiplexer:
         against the named reason instead of quietly skipping the prompt.
         """
         harvested_bytes = 0
-        deadline = time.monotonic() + _PROMPT_HARVEST_BUDGET_SEC
+        deadline = _harvest_deadline(probe_deadline, _PROMPT_HARVEST_BUDGET_SEC)
         for entry in prompts:
             uri = entry.get("uri") or ""
             if time.monotonic() >= deadline:
                 entry["harvest_error"] = (
-                    f"prompt body harvest budget exceeded after "
-                    f"{_PROMPT_HARVEST_BUDGET_SEC:g}s"
+                    "prompt body harvest budget exceeded (bounded by the "
+                    f"smaller of {_PROMPT_HARVEST_BUDGET_SEC:g}s and this probe's own "
+                    "remaining deadline)"
                 )
                 continue
             if harvested_bytes >= _MAX_PROMPT_HARVEST_TOTAL_BYTES:

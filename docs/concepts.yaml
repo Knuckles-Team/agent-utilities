@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1220
+total_concepts: 1222
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -1244,6 +1244,7 @@ concepts:
   pillar: AU-ECO
   status: live
   code_paths:
+  - agent_utilities/gateway/schemas/graph_core.py
   - agent_utilities/knowledge_graph/ontology/__init__.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/ontology_tools.py
@@ -1513,12 +1514,13 @@ concepts:
   - agent_utilities/mcp/tools/engine_tools.py
   doc: Full engine API + MCP surface
 - id: AU-ECO.mcp.gateway-dispatch-isolation
-  name: most graph_*/
+  name: run the blocking call on
   pillar: AU-ECO
   status: live
   code_paths:
+  - agent_utilities/gateway/registry_api.py
   - agent_utilities/mcp/kg_server.py
-  doc: most graph_*/
+  doc: run the blocking call on
 - id: AU-ECO.mcp.graph-reach-mcp-tool
   name: graph_reach MCP tool and REST twin for outbound user messaging
   pillar: AU-ECO
@@ -2534,6 +2536,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/gateway/schemas/graph_core.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/ontology_tools.py
@@ -3058,6 +3061,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/resource_priority.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/observability/correlation.py
   doc: carry the resource PriorityClass so a spawned/child agent
 - id: AU-KG.compute.pure-config-enumeration-fail
@@ -4191,6 +4195,14 @@ concepts:
   - agent_utilities/knowledge_graph/research/cohort.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
   doc: fetch only the requested ids per-id — avoids the
+- id: AU-KG.ingest.fleet-catalog-acl-projection
+  name: the SQL half of the
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/fleet_catalog_tables.py
+  - agent_utilities/knowledge_graph/core/secured_reads.py
+  doc: the SQL half of the
 - id: AU-KG.ingest.fleet-catalog-relational-tables
   name: Runs FIRST, from the
   pillar: AU-KG
@@ -6115,6 +6127,14 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/retrieval/code_metrics.py
   doc: the top nodes by degree + edges
+- id: AU-KG.query.typed-rest-schemas
+  name: these routes are mounted in
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/gateway/schemas/__init__.py
+  - agent_utilities/gateway/schemas/graph_analyze.py
+  doc: these routes are mounted in
 - id: AU-KG.query.vendor-agnostic-traversal
   name: standardized so an atomic skill gets the SAME enrichment level
   pillar: AU-KG
@@ -9049,7 +9069,6 @@ concepts:
   - agent_utilities/gateway/registry.py
   - agent_utilities/gateway/widgets/_optional_client.py
   - agent_utilities/gateway/widgets/base.py
-  - agent_utilities/gateway/ws.py
   doc: Gateway Service Dashboard
 - id: AU-OS.config.health-gated-deploy-rollback
   name: Health-gated deploy and rollback watch where every deploy or restart the autonomy plane triggers
@@ -9340,6 +9359,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/deployment/doctor.py
+  - agent_utilities/gateway/schemas/graph_core.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/security/secrets_client.py
   doc: the vault-first routine genesis/deployment uses so an

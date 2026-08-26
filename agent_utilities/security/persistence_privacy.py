@@ -159,6 +159,54 @@ _PERSON_FIELDS = frozenset(
     }
 )
 _PERSON_CONTEXT = frozenset({"author", "employee", "owner", "person", "user"})
+
+# Structural identifier fields: opaque handles (uuid4 hex, content hashes, ids
+# minted by this codebase) that MUST survive sanitization byte-for-byte
+# because they are primary keys or graph-edge endpoints, not free text. The
+# hex alphabet of a uuid4 id overlaps the IBAN shape (2 letters + 2 digits +
+# grouped alphanumerics), so the free-text ``iban`` pattern in `_PATTERNS`
+# collapses ~5% of such ids to the single literal "[REDACTED_IBAN]",
+# duplicating keys and silently repointing graph edges. Each field below is a
+# confirmed structural-identifier key in this codebase (not a guess):
+#   - id, node_id      : KG node primary keys (`get_graph_nodes`,
+#                         `graphql_document.py`, `workflow_store.py`).
+#   - source, target    : relationship-edge endpoints (`get_graph_relationships`,
+#                         `link_nodes`); the exact field pair implicated in the
+#                         live edge-corruption defect this fixes.
+#   - src, dst          : the same edge-endpoint shape under its short spelling
+#                         (`reasoning_driver.py`, `skill_graph_distiller.py`,
+#                         `code_metrics.py`, `context_compiler.py`).
+#   - parent            : parent-commit/parent-node id (`run_commit.py`).
+#   - agent_id, run_id,
+#     trace_id          : opaque provenance ids threaded through KG ingestion,
+#                         durable execution, and AG-UI events
+#                         (`analytics_worker.py`, `durable_execution_kg.py`,
+#                         `envelope_ingest.py`, `agui_emitter.py`).
+# Deliberately excluded: ``key`` — used in this codebase for heterogeneous,
+# non-identifier purposes (DSL rule keys, object-store keys, BPMN process
+# keys) where a value collision with a free-text pattern has not been
+# observed and blanket-exempting it would widen the hole a real secret could
+# hide in. This exemption is intentionally read-only: unlike
+# `_SECRET_FIELDS`/`_LOCATION_FIELDS`/`_PERSON_FIELDS`, it does not replace
+# the value with a fixed redacted literal — it leaves the identifier untouched and only
+# skips the free-text pattern pass (`_sanitize_string`) for it. It has no
+# effect on non-string values (dicts/lists under these keys are still walked
+# recursively, so a genuinely sensitive nested field is still caught).
+_STRUCTURAL_ID_FIELDS = frozenset(
+    {
+        "id",
+        "node_id",
+        "source",
+        "target",
+        "src",
+        "dst",
+        "parent",
+        "agent_id",
+        "run_id",
+        "trace_id",
+    }
+)
+
 _REFERENCE_RE = re.compile(r"^pref_[a-z0-9_]+_[0-9a-f]{64}$")
 
 
@@ -354,6 +402,15 @@ class PersistencePrivacyGuard:
                 if field in _LOCATION_FIELDS and populated:
                     counts["location_field"] = counts.get("location_field", 0) + 1
                     clean[key] = "[REDACTED_LOCATION]"
+                    continue
+                if field in _STRUCTURAL_ID_FIELDS and isinstance(item, str):
+                    # Structural identifiers are exempt from the free-text
+                    # regex pass only (see `_STRUCTURAL_ID_FIELDS`): the raw
+                    # value is preserved so primary keys and graph edges
+                    # cannot be collapsed into a shared "[REDACTED_*]"
+                    # literal. Non-string values under these keys still fall
+                    # through to the recursive walk below.
+                    clean[key] = item
                     continue
                 personal = field in _PERSON_FIELDS or (
                     field == "name" and any(part in _PERSON_CONTEXT for part in context)

@@ -5289,8 +5289,17 @@ class TaskManagerMixin(GraphEngineProtocol):
 
                 embed_model = create_embedding_model()
 
+                # KG-2.134/LANE-6: read/embed/write are each a real blocking
+                # call (file I/O, remote-embedder network round trip, native
+                # engine write) — hop each off the event loop via
+                # ``asyncio.to_thread`` (contextvar-propagating, unlike a bare
+                # executor submit) so the ambient GraphSession/PriorityClass
+                # still reach the offloaded call. Kept strictly sequential
+                # (read -> embed -> write), matching the prior in-line order.
                 diff_content = (
-                    target.read_text(encoding="utf-8", errors="replace")
+                    await asyncio.to_thread(
+                        target.read_text, encoding="utf-8", errors="replace"
+                    )
                     if target.is_file()
                     else str(target)
                 )
@@ -5298,7 +5307,9 @@ class TaskManagerMixin(GraphEngineProtocol):
                     raise Exception("Empty diff content")
 
                 nid = f"diff-{hashlib.sha256(diff_content.encode()).hexdigest()[:8]}"
-                embedding = embed_model.get_text_embedding(diff_content)
+                embedding = await asyncio.to_thread(
+                    embed_model.get_text_embedding, diff_content
+                )
 
                 props: dict[str, Any] = {
                     "content": diff_content,
@@ -5306,7 +5317,9 @@ class TaskManagerMixin(GraphEngineProtocol):
                     "target_path": str(target),
                     "last_seen_timestamp": datetime.now(UTC).isoformat(),
                 }
-                self.add_node(nid, "DiffEntry", properties=props)
+                await asyncio.to_thread(
+                    self.add_node, nid, "DiffEntry", properties=props
+                )
 
                 self._update_task_status(
                     job_id,
@@ -5356,11 +5369,16 @@ class TaskManagerMixin(GraphEngineProtocol):
                 if result.get("status") == "success":
                     new_targets = result.get("discovered_targets", [])
                     if current_depth < max_depth and new_targets:
-                        # Queue subsequent background jobs for discovered concepts
+                        # Queue subsequent background jobs for discovered concepts.
+                        # KG-2.134/LANE-6: durable-queue enqueue is a synchronous
+                        # engine write — hop it off the loop via ``to_thread``.
+                        # Awaited per-iteration (not gathered) to preserve the
+                        # original one-at-a-time submission order.
                         for new_target in new_targets:
                             # Avoid immediate loops by checking if it's the exact same query
                             if new_target != query:
-                                self.submit_task(
+                                await asyncio.to_thread(
+                                    self.submit_task,
                                     target_path=new_target,
                                     is_codebase=False,
                                     task_type="deep_analysis",
@@ -5734,8 +5752,14 @@ class TaskManagerMixin(GraphEngineProtocol):
                     raw_id = f"{file_path}::{chunk_text}".encode(errors="replace")
                     nid = f"doc-{hashlib.sha256(raw_id).hexdigest()[:8]}"
 
-                    existing = self.query_cypher(
-                        "MATCH (n:Article {id: $nid}) RETURN n.id as id", {"nid": nid}
+                    # KG-2.134/LANE-6: per-chunk dedup read is a synchronous
+                    # engine call inside a hot ingestion loop — hop it off the
+                    # loop. Awaited per-iteration (not gathered) to preserve
+                    # the original one-chunk-at-a-time processing order.
+                    existing = await asyncio.to_thread(
+                        self.query_cypher,
+                        "MATCH (n:Article {id: $nid}) RETURN n.id as id",
+                        {"nid": nid},
                     )
                     if existing:
                         self.backend.execute(
@@ -5751,15 +5775,31 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # packs many chunks into a single request; this replaces N serial
                 # round-trips with ~N/64, the change that takes a document from minutes
                 # to seconds. Fall back to per-chunk only if the model lacks the batch API.
+                # KG-2.134/LANE-6: each embed call is a blocking remote round
+                # trip — hop it off the loop. The batch sub-loop and the
+                # per-chunk fallback both stay sequential (awaited in order,
+                # not gathered), matching the prior in-line iteration order;
+                # the batch call itself already amortizes the network cost, so
+                # this only removes it from the event loop, not from being one
+                # call per sub-batch.
                 texts = [c[1] for c in pending]
                 embeddings: list = []
                 _embed_batch = getattr(embed_model, "get_text_embedding_batch", None)
                 if callable(_embed_batch):
                     _BATCH = 64
                     for _i in range(0, len(texts), _BATCH):
-                        embeddings.extend(_embed_batch(texts[_i : _i + _BATCH]))
+                        embeddings.extend(
+                            await asyncio.to_thread(
+                                _embed_batch, texts[_i : _i + _BATCH]
+                            )
+                        )
                 else:
-                    embeddings = [embed_model.get_text_embedding(t) for t in texts]
+                    for _text in texts:
+                        embeddings.append(
+                            await asyncio.to_thread(
+                                embed_model.get_text_embedding, _text
+                            )
+                        )
 
                 for (nid, chunk_text, idx, meta), embedding in zip(
                     pending, embeddings, strict=False
@@ -5772,7 +5812,12 @@ class TaskManagerMixin(GraphEngineProtocol):
                         "target_path": str(target),
                         "chunk_index": idx,
                     }
-                    self.add_node(nid, "Article", properties=props)
+                    # KG-2.134/LANE-6: synchronous engine write, hopped off the
+                    # loop; awaited per-iteration to keep node-creation order
+                    # (and the ``created`` bookkeeping list it feeds) unchanged.
+                    await asyncio.to_thread(
+                        self.add_node, nid, "Article", properties=props
+                    )
                     created.append(nid)
 
                 self.backend.execute(

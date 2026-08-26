@@ -57,7 +57,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, TypedDict
 
 from agent_utilities._version import __version__
 from agent_utilities.core.config import setting
@@ -536,21 +536,71 @@ def _parse_skill_md(path: Any) -> dict[str, Any]:
         }
 
 
-def get_toggle_state(engine, item_type: str, item_id: str) -> bool:
-    """Check if an item is enabled or disabled in the KG."""
-    if not engine:
-        return True
-    pref_id = f"preference:toggle:{item_type}:{item_id}"
+def get_toggle_states_batch(
+    engine: Any, items: list[tuple[str, str]]
+) -> dict[tuple[str, str], bool]:
+    """Resolve many ``(item_type, item_id)`` toggle states in ONE round trip.
+
+    DEFECT B fix: ``get_tools_endpoint`` used to call a single-item toggle read
+    once per rendered item — one synchronous Cypher round trip each. Measured
+    inventory on the production pod: 254 skill files + 68 skill-graph files +
+    31 builtin tools + 66 MCP servers = 350+ sequential engine round trips in
+    a single request (it did not return within 90s, nor within 180s). This
+    batches every id the caller is about to render into ONE query.
+
+    Engine facts this function must respect (both confirmed live against the
+    deployed engine — getting either wrong makes the batch silently match
+    nothing):
+
+    1. ``STARTS WITH`` with a ``$param`` operand does not parse on the
+       deployed engine. This uses ``IN`` with an explicit id list instead —
+       index-servable via the engine's node-id fast path, O(items rendered)
+       rather than O(all preferences), and already the pattern used by the
+       sibling batching helper :func:`get_existing_disabled_batch`.
+    2. The row-governance layer (``secured_reads.row_node_ids``) requires
+       every returned row to carry an identity under ``id``/``node_id``/
+       ``n.id``/``_id`` — this projects ``p.id AS id`` so a real match is not
+       rejected by governance and silently reported as "enabled" (see
+       the data-loss note above for what this caused).
+
+    Fail-open on a query error (an id with no resolvable state defaults to
+    enabled=True), matching the previous per-item
+    default — this function only changes the ROUND-TRIP COUNT and the
+    governance projection, not the toggle default semantics.
+    """
+    seen = list(dict.fromkeys(items))  # de-dupe, preserve order
+    if not engine or not seen:
+        return dict.fromkeys(seen, True)
+
+    pref_id_by_key = {key: f"preference:toggle:{key[0]}:{key[1]}" for key in seen}
+    pref_ids = list(pref_id_by_key.values())
     try:
         res = engine.query_cypher(
-            "MATCH (p:Preference) WHERE p.id = $pref_id RETURN p.value as value",
-            {"pref_id": pref_id},
+            "MATCH (p:Preference) WHERE p.id IN $pref_ids "
+            "RETURN p.id AS id, p.value AS value",
+            {"pref_ids": pref_ids},
         )
-        if res and len(res) > 0:
-            return res[0].get("value") == "enabled"
+        if not isinstance(res, list):
+            raise TypeError(f"expected a list of rows, got {type(res).__name__}")
     except Exception as exc:
-        logger.error("Failed to query toggle state: %s", exc)
-    return True  # Enabled by default
+        logger.error(
+            "get_toggle_states_batch(%d items) failed — defaulting every "
+            "item to enabled=True: %s",
+            len(seen),
+            exc,
+        )
+        return dict.fromkeys(seen, True)
+
+    value_by_pref_id: dict[str, Any] = {}
+    for row in res:
+        if isinstance(row, dict) and row.get("id"):
+            value_by_pref_id[str(row["id"])] = row.get("value")
+
+    result: dict[tuple[str, str], bool] = {}
+    for key in seen:
+        value = value_by_pref_id.get(pref_id_by_key[key])
+        result[key] = True if value is None else value == "enabled"
+    return result
 
 
 def set_toggle_state(engine, item_type: str, item_id: str, enabled: bool):
@@ -631,134 +681,371 @@ def _external_error_response(
     )
 
 
+class _ToolsPayload(TypedDict):
+    """The catalog body :func:`get_tools_endpoint` serialises.
+
+    Named rather than ``dict[str, Any]`` so the producer/consumer seam is
+    typed: the handler, its tests, and the webui contract all agree on this
+    key set instead of rediscovering it from the return statement.
+
+    FIX LANE (collapse-tool-endpoints): the original five list keys are
+    UNCHANGED (same names, same per-item field names) — nothing that reads
+    this route's JSON body needs to change. ``section_status`` is new and
+    purely additive (CONCEPT:AU-KG.ingest.fleet-catalog-relational-tables):
+    each of the five sections below now degrades independently on its own
+    read failure (``"unavailable"``) instead of the whole request failing
+    closed, and this map is how a caller tells "genuinely zero items" apart
+    from "this section's source could not be read this time".
+    """
+
+    mcp_tools: list[dict[str, Any]]
+    builtin_tools: list[dict[str, Any]]
+    skills: list[dict[str, Any]]
+    skill_graphs: list[dict[str, Any]]
+    skill_workflows: list[dict[str, Any]]
+    section_status: dict[str, str]
+
+
+# Bound on how many pages of one fleet-catalog ``kind`` this route will drain
+# via registry_api's own keyset-paginated ``_authorized_page`` (100 rows per
+# page, see ``registry_api._MAX_LIMIT``) before giving up on that section for
+# this request. Mirrors the same defensive drain-cap idea
+# ``agent_webui.api_extensions._read_fleet_catalog`` already applies to the
+# identical read path (its own comment there measured ~9 pages to drain 841
+# ``skills`` rows) — 25 pages is headroom above that observed size without
+# letting one pathological catalog hang this request forever.
+_TOOLS_CATALOG_DRAIN_MAX_PAGES = 25
+
+
+def _read_catalog_kind_sync(
+    kind: str, *, require_discovery_binding: bool
+) -> list[dict[str, Any]]:
+    """Drain one fleet-catalog ``kind`` through registry_api's OWN
+    tenant/principal-scoped, fail-closed authorized-read path — the exact
+    same private functions ``agent_webui.api_extensions._read_fleet_catalog``
+    already reuses in-process for ``/api/enhanced/tools`` (see that
+    function's docstring). This never re-derives tenant scoping, redaction,
+    or SQL construction; it is a thin synchronous drain loop on top of
+    ``_authorized_page``.
+
+    Synchronous and blocking (a unix-socket engine RPC per page) by design:
+    the caller, :func:`_build_tools_payload_sync`, already runs entirely
+    inside a worker thread via ``asyncio.to_thread`` from
+    :func:`get_tools_endpoint` — calling registry_api's own ASYNC wrapper
+    (``_offload_catalog_call``, which itself does ``asyncio.to_thread``)
+    from here would require a running event loop that this thread does not
+    have. Calling the sync ``_authorized_page``/``_authorized_count``
+    directly is therefore both correct and simpler here.
+
+    Raises whatever ``_require_catalog_authority``/``_authorized_page``
+    raise (``PermissionError``, ``registry_api.CatalogUnavailable``, or any
+    other exception the engine surfaces) — the caller is responsible for
+    catching this per-section and recording ``section_status``, matching
+    every other section's independent-degrade contract in this function.
+    """
+    from ..gateway.registry_api import (
+        _KIND_SPECS,
+        _MAX_LIMIT,
+        _authorized_page,
+        _get_catalog_engine,
+        _require_catalog_authority,
+        _row_key,
+    )
+
+    tenant, principal, grant_digests = _require_catalog_authority(
+        require_discovery_binding=require_discovery_binding
+    )
+    engine = _get_catalog_engine()
+    spec = _KIND_SPECS[kind]
+    rows: list[dict[str, Any]] = []
+    after: tuple[str, str] | None = None
+    for _page_num in range(_TOOLS_CATALOG_DRAIN_MAX_PAGES):
+        page = _authorized_page(
+            kind,
+            tenant=tenant,
+            principal=principal,
+            grant_digests=grant_digests,
+            query="",
+            after=after,
+            limit=_MAX_LIMIT,
+            engine=engine,
+        )
+        if not page:
+            break
+        rows.extend(page)
+        if len(page) < _MAX_LIMIT:
+            break
+        after = _row_key(spec, page[-1])
+    return rows
+
+
+def _build_tools_payload_sync(
+    engine: Any, workspace_root: Path | None
+) -> _ToolsPayload:
+    """Synchronous body of :func:`get_tools_endpoint` — file I/O + ONE batched engine round trip.
+
+    DEFECT A/B fix: this used to be inlined directly in the ``async def``
+    handler, issuing a single-item toggle read per rendered item (350+
+    sequential, BLOCKING ``query_cypher`` round trips on the production pod —
+    254 skill files + 68 skill-graph files + 31 builtin tools + 66 MCP
+    servers — enough that the request never returned within 180s). Every one
+    of those blocking calls ran directly on the single asyncio event loop,
+    starving every other request on the worker (reproduced live: concurrent
+    static-asset requests timed out at the 25s ceiling while this request was
+    in flight; idle baseline for those same assets is 44-112ms).
+
+    Fixed two ways:
+    1. This whole function is now synchronous, blocking, file-I/O-and-engine
+       heavy code, run via ``asyncio.to_thread`` from the async endpoint
+       below — matching the existing ``_execute_tool``/``asyncio.to_thread``
+       pattern already used elsewhere in this file — so it never blocks the
+       event loop.
+    2. It gathers every ``(item_type, item_id)`` pair it is about to render
+       FIRST, then resolves every toggle state in ONE
+       :func:`get_toggle_states_batch` call instead of N per-item calls.
+
+    FIX LANE (collapse-tool-endpoints) — SQL fleet catalog as the single
+    source of truth: this used to build every section from a fresh
+    config/filesystem scan, a second inventory of the SAME MCP/skill fleet
+    that ``/api/registry/*`` and the webui BFF already read from the SQL
+    fleet-catalog tables (``agent_utilities.knowledge_graph.core.
+    fleet_catalog_tables``). Evidence-based per section:
+
+    - ``mcp_tools`` (despite the key name, this has always been a list of
+      *servers*, one per configured ``mcpServers`` entry — never individual
+      MCP tools) now reads the catalog's ``servers`` kind
+      (``mcp_servers`` table). That table is written from the SAME
+      multiplexer config map (``MCPMultiplexer.load_catalog()``) this used
+      to re-parse from ``mcp_config.json`` directly
+      (:func:`~..knowledge_graph.core.fleet_catalog_tables.
+      write_fleet_catalog`), so this is a genuine single-source collapse
+      with no fidelity loss: ``command``/``args`` were already opaque
+      presence markers (``"[configured]"``), never real values, and the
+      catalog derives the same ``launch_mode`` split from ``transport``
+      that this used to derive from ``cfg.get("command")``.
+    - ``skills``/``skill_workflows``/``skill_graphs``/``builtin_tools``
+      stay on their existing filesystem/KG-native sources — investigated
+      and deliberately NOT moved:
+        * ``builtin_tools`` has no catalog table at all. The fleet catalog
+          models MCP servers/tools/prompts/resources and skills-over-MCP;
+          these are native, in-process Python callables under
+          ``agent_utilities/tools/*.py``, never MCP-discovered and never
+          written to any catalog table.
+        * ``skills``/``skill_workflows`` (local ``universal-skills``
+          corpus) — the catalog's ``skills`` table CAN represent an
+          individual skill's id/name/description/enabled (written by
+          :func:`~..knowledge_graph.ingestion.skill_workflow_ingest.
+          ingest_atomic_skills`/``ingest_skill_workflows``), but it does
+          NOT store ``domain`` or ``tags`` — both real fields on this
+          route's existing per-item shape, sourced from each ``SKILL.md``'s
+          frontmatter. There is also no live-freshness guarantee: catalog
+          rows are only as current as the last ingestion pass (an
+          on-demand action or the package-install-triggered watermarked
+          leg), while this filesystem glob always reflects the corpus as
+          it exists on disk right now. Moving these two sections would
+          silently blank ``domain``/``tags`` and could show a stale/absent
+          item for anything added since the last ingest — exactly the
+          "fabricate or silently drop" failure mode this fix lane was
+          told to avoid, so they stay filesystem-sourced.
+        * ``skill_graphs`` — the catalog schema supports this
+          (``skill_type="graph"``), but unlike the atomic-skill/workflow
+          legs, nothing ingests the ``skill-graphs`` package on any
+          automatic/scheduled trigger (only a manual, explicit-``root``
+          on-demand action reaches it) — in a typical deployment those
+          catalog rows are simply absent. Serving this section from the
+          catalog today would silently show an empty list where the
+          on-disk corpus is real and current, so it also stays
+          filesystem-sourced.
+    """
+    section_status: dict[str, str] = {}
+
+    # 1. MCP Tools — now the SQL fleet catalog's ``servers`` kind (see
+    #    docstring above), not a fresh ``mcp_config.json`` parse.
+    mcp_tools: list[dict[str, Any]] = []
+    mcp_entries: list[tuple[str, dict[str, Any]]] = []  # (name, catalog_row)
+    try:
+        server_rows = _read_catalog_kind_sync(
+            "servers", require_discovery_binding=False
+        )
+        mcp_entries = [
+            (str(row.get("name") or ""), row) for row in server_rows if row.get("name")
+        ]
+        section_status["mcp_tools"] = "ok"
+    except Exception as e:
+        logger.error("Failed to read the fleet-catalog 'servers' kind: %s", e)
+        section_status["mcp_tools"] = "unavailable"
+
+    # 2. Built-in Agent Tools — gather raw file stems first. No catalog
+    #    equivalent exists (see docstring) — filesystem-sourced as before.
+    builtin_stems: list[str] = []
+    try:
+        tools_dir = Path(__file__).resolve().parents[1] / "tools"
+        if tools_dir.exists() and tools_dir.is_dir():
+            for f in tools_dir.glob("*.py"):
+                if f.name.startswith("_"):
+                    continue
+                builtin_stems.append(f.stem)
+        section_status["builtin_tools"] = "ok"
+    except Exception as e:
+        logger.error("Failed to scan built-in tools directory: %s", e)
+        section_status["builtin_tools"] = "unavailable"
+
+    # 3. Skills & Workflows — parse SKILL.md files first, defer toggle state.
+    #    No catalog migration (see docstring: domain/tags + freshness gap).
+    skill_entries: list[dict[str, Any]] = []  # bucket="skill"
+    workflow_entries: list[dict[str, Any]] = []  # bucket="skill_workflow"
+    try:
+        univ_skills_dir = (
+            workspace_root
+            / "agent-packages"
+            / "skills"
+            / "universal-skills"
+            / "universal_skills"
+            if workspace_root is not None
+            else None
+        )
+        if univ_skills_dir is not None and univ_skills_dir.exists():
+            for p in univ_skills_dir.glob("**/SKILL.md"):
+                skill_info = _parse_skill_md(p)
+                if "workflows" in p.parts:
+                    skill_info["type"] = "Skill Workflow"
+                    workflow_entries.append(skill_info)
+                else:
+                    skill_info["type"] = "Agent Skill"
+                    skill_entries.append(skill_info)
+        section_status["skills"] = "ok"
+        section_status["skill_workflows"] = "ok"
+    except Exception as e:
+        logger.error("Failed to scan the universal-skills corpus: %s", e)
+        section_status["skills"] = "unavailable"
+        section_status["skill_workflows"] = "unavailable"
+        skill_entries = []
+        workflow_entries = []
+
+    # 4. Skill Graphs — parse SKILL.md files first, defer toggle state.
+    #    No catalog migration (see docstring: no reliable ingestion sync).
+    graph_entries: list[dict[str, Any]] = []
+    try:
+        graphs_dir = (
+            workspace_root
+            / "agent-packages"
+            / "skills"
+            / "skill-graphs"
+            / "skill_graphs"
+            if workspace_root is not None
+            else None
+        )
+        if graphs_dir is not None and graphs_dir.exists():
+            for p in graphs_dir.glob("**/SKILL.md"):
+                skill_info = _parse_skill_md(p)
+                skill_info["type"] = "Skill Graph"
+                graph_entries.append(skill_info)
+        section_status["skill_graphs"] = "ok"
+    except Exception as e:
+        logger.error("Failed to scan the skill-graphs corpus: %s", e)
+        section_status["skill_graphs"] = "unavailable"
+        graph_entries = []
+
+    # ── ONE batched engine round trip for every toggle state ───────────────
+    # Still the Preference-node toggle store, for EVERY section including the
+    # now-catalog-sourced ``mcp_tools`` — this is deliberate, not an
+    # oversight: ``POST /api/tools/toggle`` (``toggle_tool_endpoint`` below)
+    # writes user enable/disable preference to this SAME store, keyed by
+    # ``(item_type, item_id)``. The fleet-catalog row's own ``enabled``
+    # column reflects the SERVER's configured ``disabled`` flag, not this
+    # per-user toggle preference — reading catalog ``enabled`` here instead
+    # would make toggling a server in the UI silently stop being reflected
+    # on the next GET. The catalog row's own ``enabled`` is still honored as
+    # an additional AND term below (a server force-disabled in config stays
+    # disabled even if the toggle preference says otherwise), preserving the
+    # original ``cfg.get("disabled")`` override semantics.
+    toggle_keys: list[tuple[str, str]] = (
+        [("mcp_server", name) for name, _row in mcp_entries]
+        + [("builtin_tool", stem) for stem in builtin_stems]
+        + [("skill_workflow", info["id"]) for info in workflow_entries]
+        + [("skill", info["id"]) for info in skill_entries]
+        + [("skill_graph", info["id"]) for info in graph_entries]
+    )
+    toggle_states = get_toggle_states_batch(engine, toggle_keys)
+
+    for name, row in mcp_entries:
+        mcp_enabled = toggle_states[("mcp_server", name)]
+        if not row.get("enabled", True):
+            mcp_enabled = False
+        transport = str(row.get("transport") or "")
+        is_stdio = transport == "stdio"
+        mcp_tools.append(
+            {
+                "name": name,
+                "type": "MCP Server",
+                "launch_mode": "subprocess" if is_stdio else "remote",
+                # The catalog never stores the raw command/args (privacy —
+                # see fleet_catalog_tables' module docstring); these stayed
+                # opaque presence markers even before this migration.
+                "command": "[configured]" if is_stdio else "",
+                "args": ["[configured]"] if is_stdio else [],
+                "status": "active" if mcp_enabled else "disabled",
+                "enabled": mcp_enabled,
+            }
+        )
+
+    builtin_tools = [
+        {
+            "name": stem,
+            "type": "Built-in Tool",
+            "file_path": f"tool://{stem}",
+            "status": "enabled"
+            if toggle_states[("builtin_tool", stem)]
+            else "disabled",
+            "enabled": toggle_states[("builtin_tool", stem)],
+        }
+        for stem in builtin_stems
+    ]
+
+    workflows = []
+    for skill_info in workflow_entries:
+        skill_info["enabled"] = toggle_states[("skill_workflow", skill_info["id"])]
+        workflows.append(skill_info)
+
+    skills = []
+    for skill_info in skill_entries:
+        skill_info["enabled"] = toggle_states[("skill", skill_info["id"])]
+        skills.append(skill_info)
+
+    graphs = []
+    for skill_info in graph_entries:
+        skill_info["enabled"] = toggle_states[("skill_graph", skill_info["id"])]
+        graphs.append(skill_info)
+
+    return {
+        "mcp_tools": mcp_tools,
+        "builtin_tools": builtin_tools,
+        "skills": sorted(skills, key=lambda x: x.get("name", "").lower()),
+        "skill_graphs": sorted(graphs, key=lambda x: x.get("name", "").lower()),
+        "skill_workflows": sorted(workflows, key=lambda x: x.get("name", "").lower()),
+        "section_status": section_status,
+    }
+
+
 async def get_tools_endpoint(request: Request) -> JSONResponse:
     """Retrieve all MCP tools, built-in tools, skills, skill graphs, and workflows categorized."""
-    import json
-    from pathlib import Path
-
     from ..knowledge_graph.core.session import resolve_session
 
     resolve_session(required_scope="kg:read")
 
     engine = _get_engine()
-
-    # 1. MCP Tools
-    mcp_tools = []
-    # Try different config paths
-    config_paths = [
-        Path.home() / ".config" / "agent-utilities" / "mcp_config.json",
-        Path.home() / ".config" / "agent-utilities" / "config.json",
-        Path("workspace/mcp_config.json"),
-    ]
-    config_path = None
-    for cp in config_paths:
-        if cp.exists():
-            config_path = cp
-            break
-
-    if config_path:
-        try:
-            mcp_data = json.loads(config_path.read_text(encoding="utf-8"))
-            mcp_servers = mcp_data.get("mcpServers", {})
-            if (
-                not mcp_servers
-                and "mcp_config" in mcp_data
-                and isinstance(mcp_data["mcp_config"], dict)
-            ):
-                mcp_servers = mcp_data["mcp_config"].get("mcpServers", {})
-            for name, cfg in mcp_servers.items():
-                mcp_enabled = get_toggle_state(engine, "mcp_server", name)
-                if cfg.get("disabled", False):
-                    mcp_enabled = False
-                mcp_tools.append(
-                    {
-                        "name": name,
-                        "type": "MCP Server",
-                        "launch_mode": "subprocess" if cfg.get("command") else "remote",
-                        "command": "[configured]" if cfg.get("command") else "",
-                        "args": ["[configured]"] if cfg.get("args") else [],
-                        "status": "active" if mcp_enabled else "disabled",
-                        "enabled": mcp_enabled,
-                    }
-                )
-        except Exception as e:
-            logger.error("Failed to parse MCP config: %s", e)
-
-    # 2. Built-in Agent Tools
-    builtin_tools = []
-    tools_dir = Path(__file__).resolve().parents[1] / "tools"
-    if tools_dir.exists() and tools_dir.is_dir():
-        for f in tools_dir.glob("*.py"):
-            if f.name.startswith("_"):
-                continue
-            builtin_enabled = get_toggle_state(engine, "builtin_tool", f.stem)
-            builtin_tools.append(
-                {
-                    "name": f.stem,
-                    "type": "Built-in Tool",
-                    "file_path": f"tool://{f.stem}",
-                    "status": "enabled" if builtin_enabled else "disabled",
-                    "enabled": builtin_enabled,
-                }
-            )
-
-    # 3. Skills & Workflows
-    skills = []
-    workflows = []
     workspace_value = (setting("WORKSPACE_PATH", "") or "").strip()
     workspace_root = Path(workspace_value) if workspace_value else None
-    univ_skills_dir = (
-        workspace_root
-        / "agent-packages"
-        / "skills"
-        / "universal-skills"
-        / "universal_skills"
-        if workspace_root is not None
-        else None
-    )
-    if univ_skills_dir is not None and univ_skills_dir.exists():
-        for p in univ_skills_dir.glob("**/SKILL.md"):
-            skill_info = _parse_skill_md(p)
-            if "workflows" in p.parts:
-                skill_info["type"] = "Skill Workflow"
-                skill_info["enabled"] = get_toggle_state(
-                    engine, "skill_workflow", skill_info["id"]
-                )
-                workflows.append(skill_info)
-            else:
-                skill_info["type"] = "Agent Skill"
-                skill_info["enabled"] = get_toggle_state(
-                    engine, "skill", skill_info["id"]
-                )
-                skills.append(skill_info)
 
-    # 4. Skill Graphs
-    graphs = []
-    graphs_dir = (
-        workspace_root / "agent-packages" / "skills" / "skill-graphs" / "skill_graphs"
-        if workspace_root is not None
-        else None
-    )
-    if graphs_dir is not None and graphs_dir.exists():
-        for p in graphs_dir.glob("**/SKILL.md"):
-            skill_info = _parse_skill_md(p)
-            skill_info["type"] = "Skill Graph"
-            skill_info["enabled"] = get_toggle_state(
-                engine, "skill_graph", skill_info["id"]
-            )
-            graphs.append(skill_info)
-
-    return JSONResponse(
-        {
-            "mcp_tools": mcp_tools,
-            "builtin_tools": builtin_tools,
-            "skills": sorted(skills, key=lambda x: x.get("name", "").lower()),
-            "skill_graphs": sorted(graphs, key=lambda x: x.get("name", "").lower()),
-            "skill_workflows": sorted(
-                workflows, key=lambda x: x.get("name", "").lower()
-            ),
-        }
-    )
+    # DEFECT A fix: this endpoint used to call ``engine.query_cypher`` (a
+    # plain blocking ``def``) directly and synchronously from inside an
+    # ``async def`` handler, blocking the single-threaded asyncio event loop
+    # for the whole request — starving every other request on the worker,
+    # including static files (reproduced live). Move the blocking work off
+    # the loop via ``asyncio.to_thread``, matching ``_execute_tool``'s
+    # existing pattern in this file.
+    payload = await asyncio.to_thread(_build_tools_payload_sync, engine, workspace_root)
+    return JSONResponse(payload)
 
 
 async def toggle_tool_endpoint(request: Request) -> JSONResponse:
@@ -781,7 +1068,12 @@ async def toggle_tool_endpoint(request: Request) -> JSONResponse:
         )
 
     engine = _get_engine()
-    set_toggle_state(engine, item_type, item_id, enabled)
+    # DEFECT A audit: same blocking-call anti-pattern as `get_tools_endpoint`
+    # — `set_toggle_state` calls `engine.add_node`/`engine.query_cypher`
+    # (plain blocking `def`s) directly from this `async def` handler. Move it
+    # off the loop via `asyncio.to_thread`, matching `_execute_tool`'s
+    # existing pattern in this file.
+    await asyncio.to_thread(set_toggle_state, engine, item_type, item_id, enabled)
     return JSONResponse(
         {"status": "success", "type": item_type, "id": item_id, "enabled": enabled}
     )
@@ -966,14 +1258,105 @@ def _make_tool_endpoint(tool_name: str):
     return _handler
 
 
+#: The ``graph_query`` MCP tool's own documented parameters (KG-2.134 /
+#: ``agent_utilities/mcp/tools/query_tools.py``'s ``graph_query`` signature).
+#: Kept as an explicit allowlist so this REST twin never blind-splats an
+#: arbitrary request body into ``_execute_tool`` (LANE 9 / U-74 follow-up):
+#: an unrecognized field becomes an immediate, clean 4xx here instead of
+#: reaching ``_execute_tool`` at all.
+_GRAPH_QUERY_TOOL_FIELDS = frozenset(
+    {
+        "as_of",
+        "connection",
+        "cypher",
+        "graph",
+        "include_epistemic",
+        "params",
+        "reference_id",
+        "scope",
+    }
+)
+
+
 async def graph_query_endpoint(request: Request) -> JSONResponse:
+    """REST twin of the ``graph_query`` MCP tool.
+
+    LANE 9 fix: the tool's real parameter is ``cypher`` (see
+    ``_GRAPH_QUERY_TOOL_FIELDS`` / the ``graph_query`` tool signature), but a
+    plausible, naturally-expected wire name for "the query string" is
+    ``query`` — and that name is not a caller mistake in this codebase: it is
+    the genuine field name of the *different*, already-correct
+    ``POST /api/graph/execute_cypher`` route (agent-webui's
+    ``execute_cypher``, whose target ``QueryMixin.query_cypher`` really does
+    take a ``query`` kwarg — see
+    ``agent_utilities/knowledge_graph/orchestration/engine_query.py``), which
+    ``CypherReplView.tsx``/``TemporalGraphView.tsx``/``GraphView.tsx`` all
+    call. To stay compatible with a client that assumes wire-name parity
+    across these two Cypher-shaped routes, ``query`` is accepted here as an
+    alias for ``cypher`` — mapping at this boundary, rather than renaming the
+    tool's own ``cypher`` parameter (which every existing internal caller of
+    the ``graph_query`` MCP tool relies on) or forcing every REST client onto
+    one spelling.
+
+    Precedence when both are supplied: identical values collapse to one
+    (no ambiguity); different values are a client error returned as a
+    deterministic 4xx rather than silently preferring either field.
+
+    This endpoint does not forward the raw request body into
+    ``_execute_tool`` — only ``_GRAPH_QUERY_TOOL_FIELDS`` (plus the ``query``
+    alias) are ever passed through, so a genuinely unknown field fails fast
+    as a clean 4xx here instead of reaching the tool dispatch (and, on a
+    build predating the ``_execute_tool``-internal
+    ``_validate_tool_kwargs_against_signature`` guard, the authority/session
+    bootstrap that precedes it) only to 500 later.
+    """
     try:
         body = await request.json()
     except Exception:
         body = {}
+    if not isinstance(body, dict):
+        return JSONResponse(
+            {"status": "error", "message": "request body must be a JSON object"},
+            status_code=400,
+        )
+
+    query_val = body.get("query")
+    cypher_val = body.get("cypher")
+    if query_val is not None and cypher_val is not None and query_val != cypher_val:
+        return JSONResponse(
+            {
+                "status": "error",
+                "message": (
+                    "both 'query' and 'cypher' were supplied with different "
+                    "values; send exactly one (or identical values in both)."
+                ),
+            },
+            status_code=400,
+        )
+
+    unknown = sorted(set(body) - _GRAPH_QUERY_TOOL_FIELDS - {"query"})
+    if unknown:
+        return JSONResponse(
+            {
+                "status": "error",
+                "message": f"Unsupported field(s): {', '.join(unknown)}.",
+            },
+            status_code=400,
+        )
+
+    kwargs = {k: v for k, v in body.items() if k in _GRAPH_QUERY_TOOL_FIELDS}
+    if "cypher" not in kwargs and query_val is not None:
+        kwargs["cypher"] = query_val
+
     try:
-        res = await _execute_tool("graph_query", **body)
+        res = await _execute_tool("graph_query", **kwargs)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except UnsupportedToolFieldError as e:
+        # Defense-in-depth: `_GRAPH_QUERY_TOOL_FIELDS` is kept in sync with
+        # the tool's real signature above, so this should be unreachable —
+        # but if it ever drifts, still surface the client-caused 4xx rather
+        # than the generic 500 below (U-74).
+        return _external_error_response(e, status_code=400, code="invalid_request")
     except Exception as e:
         return _external_error_response(e)
 
@@ -986,18 +1369,53 @@ async def graph_search_endpoint(request: Request) -> JSONResponse:
     try:
         res = await _execute_tool("graph_search", **body)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except UnsupportedToolFieldError as e:
+        # U-74: same deterministic-4xx treatment as `_make_tool_endpoint` —
+        # this hand-written endpoint predates that factory and was never
+        # updated to catch this exception subclass specially, so a caller
+        # field the `graph_search` tool doesn't accept fell through to the
+        # generic 500 below instead. `graph_search`'s own wire field names
+        # (`query`, `mode`, `top_k`, ...) already match its documented tool
+        # parameters 1:1 — see `graph_search`'s signature in
+        # `agent_utilities/mcp/tools/query_tools.py` — so unlike
+        # `graph_query`/`cypher` there is no latent name mismatch here; only
+        # the missing status-code mapping needed fixing.
+        return _external_error_response(e, status_code=400, code="invalid_request")
     except Exception as e:
         return _external_error_response(e)
 
 
 async def graph_write_endpoint(request: Request) -> JSONResponse:
+    """POST /graph/write — collapsed, typed dispatch for every ``graph_write``
+    action. Covers the six actions that used to have their own granular
+    routes (``add_node``, ``add_edge``, ``delete_edge``, ``bulk_ingest``,
+    ``log_chat``, ``register_execution`` — formerly
+    ``/graph/write/{node,edge,bulk,chat,execution}``) plus every other
+    action the tool accepts (``delete_node``, ``register_external_graph``,
+    ``compare_and_set``, ``store_memory``, ``recall_memory``,
+    ``recall_media``, ``submit_sdd``, ``check_loop``) — see
+    ``GraphWriteAction`` below for the full discriminated union. The body is
+    validated against that union instead of forwarded blind (``**body``), so
+    an unrecognized/malformed ``action`` is a clean 400, never a 500, and
+    FastAPI documents every action's real shape (mounted via
+    ``add_api_route(..., response_model=GraphToolResponse)`` in
+    ``_mount_rest_routes``, not the raw Starlette ``add_route`` most other
+    handlers in this file still use).
+    """
     try:
         body = await request.json()
     except Exception:
         body = {}
     try:
-        res = await _execute_tool("graph_write", **body)
+        action_model = _GRAPH_WRITE_ACTION_ADAPTER.validate_python(body)
+    except ValidationError as e:
+        return _external_error_response(e, status_code=400, code="invalid_request")
+    try:
+        res = await _dispatch_graph_write_action(action_model)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except UnsupportedToolFieldError as e:
+        # U-74, same class of fix as `graph_search_endpoint` above.
+        return _external_error_response(e, status_code=400, code="invalid_request")
     except Exception as e:
         return _external_error_response(e)
 
@@ -1010,6 +1428,9 @@ async def graph_ingest_endpoint(request: Request) -> JSONResponse:
     try:
         res = await _execute_tool("graph_ingest", **body)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except UnsupportedToolFieldError as e:
+        # U-74, same class of fix as `graph_search_endpoint` above.
+        return _external_error_response(e, status_code=400, code="invalid_request")
     except Exception as e:
         return _external_error_response(e)
 
@@ -1022,6 +1443,9 @@ async def graph_analyze_endpoint(request: Request) -> JSONResponse:
     try:
         res = await _execute_tool("graph_analyze", **body)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except UnsupportedToolFieldError as e:
+        # U-74, same class of fix as `graph_search_endpoint` above.
+        return _external_error_response(e, status_code=400, code="invalid_request")
     except Exception as e:
         return _external_error_response(e)
 
@@ -1202,6 +1626,12 @@ def _make_action_endpoint(tool_name: str):
         try:
             res = await _execute_tool(tool_name, **body)
             return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        except UnsupportedToolFieldError as e:
+            # U-74, same class of fix as `graph_search_endpoint` above: this
+            # factory blind-splats the body the same way, so any tool it
+            # backs (graph_code/research/evaluate/explain/observe) shared the
+            # missing 4xx mapping.
+            return _external_error_response(e, status_code=400, code="invalid_request")
         except Exception as e:
             return _external_error_response(e)
 
@@ -1347,67 +1777,385 @@ async def graph_search_dci_endpoint(request: Request) -> JSONResponse:
         return _external_error_response(e)
 
 
-# 3. Granular Graph Write endpoints
-async def graph_write_node_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
+# 3. Collapsed Graph Write endpoint (POST + DELETE /graph/write)
+#
+# CONSOLIDATION: this used to be six separate granular routes — POST
+# /graph/write/node, POST/DELETE /graph/write/edge, POST /graph/write/bulk,
+# POST /graph/write/chat, POST /graph/write/execution — each a thin
+# hand-written Starlette handler reading a handful of ``body.get`` keys.
+# Collapsed into the SAME action-routed ``POST /graph/write`` the base
+# endpoint already exposed (plus a ``DELETE /graph/write`` twin for
+# ``delete_edge`` — see ``graph_write_delete_edge_endpoint`` below), now
+# dispatched through a real Pydantic discriminated union
+# (``GraphWriteAction``) instead of ``**body`` passthrough, so every action
+# gets its own validated shape AND FastAPI documents it.
+#
+# The six "primary" variants below (``_AddNodeAction`` ..
+# ``_RegisterExecutionAction``) extend the already-merged per-route models in
+# ``agent_utilities.gateway.schemas.graph_ingest`` (imported, not redefined)
+# — each adds the ``action`` discriminator plus ``connection``/``graph``,
+# which the granular routes never forwarded even though ``graph_write``
+# resolves them generically for EVERY action (``_resolve_target_engines``/
+# ``bound_to_graph`` run before the action dispatch, not just for
+# ``bulk_ingest``). ``_BulkIngestAction`` additionally restores
+# ``idempotency_key``/``evidence``/``upsert`` — the real defect this
+# consolidation fixes: the deleted ``graph_write_bulk_endpoint`` forwarded
+# ONLY ``nodes``, always taking the non-idempotent ``BatchUpdate``
+# (``upsert=True``) path even when a caller supplied an idempotency key, so a
+# retried bulk write could double-write.
+#
+# ``_OtherGraphWriteAction`` is the 7th union member and covers every action
+# that never had its own granular route (``delete_node``,
+# ``register_external_graph``, ``compare_and_set``, ``store_memory``,
+# ``recall_memory``, ``recall_media``, ``submit_sdd``, ``check_loop``) — it
+# IS ``GraphWriteRequest`` itself (imported, not redefined; the already
+# merged, ``extra="allow"``, full-passthrough model), with ``action``
+# narrowed to a Literal of exactly those eight values (Pydantic discriminated
+# unions support several tag values mapping to one member). This preserves
+# the pre-consolidation base route's full action vocabulary byte-for-byte
+# instead of silently dropping it down to only the six actions collapsed
+# here.
+from typing import Annotated, Literal
+
+from pydantic import Field, TypeAdapter, ValidationError, field_validator
+
+from agent_utilities.gateway.schemas.graph_ingest import (
+    GraphToolResponse,
+    GraphWriteBulkRequest,
+    GraphWriteChatRequest,
+    GraphWriteEdgeDeleteRequest,
+    GraphWriteEdgeRequest,
+    GraphWriteExecutionRequest,
+    GraphWriteNodeRequest,
+    GraphWriteRequest,
+)
+
+_CONNECTION_FIELD_DESCRIPTION = (
+    "Named backend connection to write to (default = primary). Use a "
+    "registered connection name, or 'all'/a comma-separated list to mirror "
+    "the same write to several backends. Applies to every action (resolved "
+    "generically before the action-specific dispatch) — not just "
+    "bulk_ingest, which is all the granular routes ever exposed this on."
+)
+_GRAPH_FIELD_DESCRIPTION = (
+    "Explicit physical engine graph to write to, independent of "
+    "'connection'. Empty = the caller's own bound graph. Requires exactly "
+    "one resolved 'connection' — never combinable with connection='all'/a "
+    "list. Applies to every action, not just bulk_ingest."
+)
+
+
+def _coerce_properties_str_to_dict(v: Any) -> Any:
+    """``mode="before"`` validator shared by ``_AddNodeAction``/
+    ``_AddEdgeAction``: accept an already-JSON-encoded string for
+    ``properties`` (the shape the base ``/graph/write`` route has
+    historically taken there — see ``test_tiny_profile_serves_kg_over_
+    gateway_with_zero_containers``) IN ADDITION to a plain JSON object,
+    without widening the field's declared type away from the inherited
+    ``dict[str, Any]`` (a wider ``dict | str`` annotation here would violate
+    Liskov substitution against ``GraphWriteNodeRequest``/
+    ``GraphWriteEdgeRequest``'s own ``properties: dict[str, Any]``, which
+    mypy correctly rejects). An empty string normalizes to ``{}``; any other
+    string is JSON-decoded (a non-dict/invalid JSON string is a clean 400 via
+    the surrounding discriminated-union validation, not a silent pass).
+    """
+    if isinstance(v, str):
+        return json.loads(v) if v.strip() else {}
+    return v
+
+
+class _AddNodeAction(GraphWriteNodeRequest):
+    """``POST /graph/write``, ``action='add_node'`` — replaces
+    ``POST /graph/write/node``.
+    """
+
+    action: Literal["add_node"] = Field(
+        description="Fixed discriminator for this variant: 'add_node'."
+    )
+    properties: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "JSON object of node properties, OR an already-JSON-encoded "
+            "string (both accepted; forwarded to the graph_write tool as a "
+            "JSON-encoded string either way — the base /graph/write route "
+            "has historically taken a raw pre-encoded string here, so both "
+            "forms are supported for compatibility)."
+        ),
+        json_schema_extra={"examples": [{"label": "example"}]},
+    )
+    connection: str = Field(default="", description=_CONNECTION_FIELD_DESCRIPTION)
+    graph: str = Field(default="", description=_GRAPH_FIELD_DESCRIPTION)
+
+    _coerce_properties = field_validator("properties", mode="before")(
+        _coerce_properties_str_to_dict
+    )
+
+
+class _AddEdgeAction(GraphWriteEdgeRequest):
+    """``POST /graph/write``, ``action='add_edge'`` — replaces
+    ``POST /graph/write/edge``.
+    """
+
+    action: Literal["add_edge"] = Field(
+        description="Fixed discriminator for this variant: 'add_edge'."
+    )
+    properties: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "JSON object of edge properties, OR an already-JSON-encoded "
+            "string (both accepted)."
+        ),
+    )
+    connection: str = Field(default="", description=_CONNECTION_FIELD_DESCRIPTION)
+    graph: str = Field(default="", description=_GRAPH_FIELD_DESCRIPTION)
+
+    _coerce_properties = field_validator("properties", mode="before")(
+        _coerce_properties_str_to_dict
+    )
+
+
+class _DeleteEdgeAction(GraphWriteEdgeDeleteRequest):
+    """``action='delete_edge'`` — reachable via ``POST /graph/write`` (this
+    variant) AND via ``DELETE /graph/write``
+    (``graph_write_delete_edge_endpoint`` below, which validates the same
+    ``GraphWriteEdgeDeleteRequest`` shape and hard-codes this action) —
+    replaces ``DELETE /graph/write/edge``. Both are kept so neither an
+    action-field-first caller nor a REST-verb-first caller loses the
+    capability.
+    """
+
+    action: Literal["delete_edge"] = Field(
+        description="Fixed discriminator for this variant: 'delete_edge'."
+    )
+    connection: str = Field(default="", description=_CONNECTION_FIELD_DESCRIPTION)
+    graph: str = Field(default="", description=_GRAPH_FIELD_DESCRIPTION)
+
+
+class _BulkIngestAction(GraphWriteBulkRequest):
+    """``POST /graph/write``, ``action='bulk_ingest'`` — replaces
+    ``POST /graph/write/bulk``.
+
+    REGRESSION FIX: the deleted granular route forwarded ONLY ``nodes``,
+    silently discarding ``idempotency_key``/``evidence``/``upsert``/
+    ``connection``/``graph`` and always taking the non-idempotent
+    ``BatchUpdate(upsert=True)`` path. This variant forwards all of them.
+    """
+
+    action: Literal["bulk_ingest"] = Field(
+        description="Fixed discriminator for this variant: 'bulk_ingest'."
+    )
+    idempotency_key: str = Field(
+        default="",
+        description=(
+            "Caller-owned idempotency key for this exact batch. Non-empty "
+            "(or a non-empty 'evidence') routes the batch onto the engine's "
+            "durably-idempotent ApplyChangeEnvelopes path, scoped by "
+            "(tenant, graph, idempotency_key) — a replay reports "
+            "'status':'skipped', never silently re-reported as fresh "
+            "success. Empty uses the lighter BatchUpdate path, which has no "
+            "per-call idempotency key."
+        ),
+    )
+    evidence: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "Evidence records ({'object_id','modality','locus',"
+            "'content_digest'}) attached to the first node in 'nodes'. "
+            "Non-empty routes the batch onto ApplyChangeEnvelopes instead "
+            "of the lighter BatchUpdate path."
+        ),
+    )
+    upsert: bool = Field(
+        default=True,
+        description=(
+            "On the BatchUpdate (light) path only: True (default) MERGEs "
+            "onto an existing id (idempotent); False INSERTs (a repeated "
+            "edge becomes an additional parallel edge rather than "
+            "replacing the prior one)."
+        ),
+    )
+    connection: str = Field(default="", description=_CONNECTION_FIELD_DESCRIPTION)
+    graph: str = Field(default="", description=_GRAPH_FIELD_DESCRIPTION)
+
+
+class _LogChatAction(GraphWriteChatRequest):
+    """``POST /graph/write``, ``action='log_chat'`` — replaces
+    ``POST /graph/write/chat``.
+    """
+
+    action: Literal["log_chat"] = Field(
+        description="Fixed discriminator for this variant: 'log_chat'."
+    )
+    connection: str = Field(default="", description=_CONNECTION_FIELD_DESCRIPTION)
+    graph: str = Field(default="", description=_GRAPH_FIELD_DESCRIPTION)
+
+
+class _RegisterExecutionAction(GraphWriteExecutionRequest):
+    """``POST /graph/write``, ``action='register_execution'`` — replaces
+    ``POST /graph/write/execution``.
+    """
+
+    action: Literal["register_execution"] = Field(
+        description="Fixed discriminator for this variant: 'register_execution'."
+    )
+    connection: str = Field(default="", description=_CONNECTION_FIELD_DESCRIPTION)
+    graph: str = Field(default="", description=_GRAPH_FIELD_DESCRIPTION)
+
+
+class _OtherGraphWriteAction(GraphWriteRequest):
+    """``POST /graph/write`` for every action never given its own granular
+    route: ``delete_node``, ``register_external_graph``,
+    ``compare_and_set``, ``store_memory``, ``recall_memory``,
+    ``recall_media``, ``submit_sdd``, ``check_loop``. ``GraphWriteRequest``
+    itself (imported, not redefined) already declares every field these
+    actions read, with ``extra='allow'`` full passthrough — this subclass
+    only narrows ``action`` to a Literal of those eight values so the
+    discriminated union can tag-match it.
+    """
+
+    action: Literal[
+        "delete_node",
+        "register_external_graph",
+        "compare_and_set",
+        "store_memory",
+        "recall_memory",
+        "recall_media",
+        "submit_sdd",
+        "check_loop",
+    ] = Field(
+        description=(
+            "One of: delete_node, register_external_graph, compare_and_set, "
+            "store_memory, recall_memory, recall_media, submit_sdd, "
+            "check_loop. See GraphWriteRequest's own field docs for which "
+            "fields each of these reads."
+        )
+    )
+
+
+GraphWriteAction = Annotated[
+    _AddNodeAction
+    | _AddEdgeAction
+    | _DeleteEdgeAction
+    | _BulkIngestAction
+    | _LogChatAction
+    | _RegisterExecutionAction
+    | _OtherGraphWriteAction,
+    Field(discriminator="action"),
+]
+
+_GRAPH_WRITE_ACTION_ADAPTER: TypeAdapter[Any] = TypeAdapter(GraphWriteAction)
+
+
+async def _dispatch_graph_write_action(action_model: Any) -> Any:
+    """Invoke ``_execute_tool("graph_write", ...)`` for one validated
+    ``GraphWriteAction``. The six explicit branches mirror, field-for-field,
+    what the now-deleted granular ``/graph/write/*`` routes used to forward
+    (plus ``connection``/``graph``, and the ``bulk_ingest`` defect fix — see
+    the class docstrings above); ``_OtherGraphWriteAction`` forwards its
+    full body exactly as the pre-consolidation ``**body`` passthrough did.
+    """
+    if isinstance(action_model, _AddNodeAction):
+        return await _execute_tool(
             "graph_write",
             action="add_node",
-            id=body.get("node_id", ""),
-            node_type=body.get("node_type", ""),
-            properties=_to_json_str(body.get("properties", {})),
+            node_id=action_model.node_id,
+            node_type=action_model.node_type,
+            properties=_to_json_str(action_model.properties),
+            connection=action_model.connection,
+            graph=action_model.graph,
         )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
+    if isinstance(action_model, _AddEdgeAction):
+        return await _execute_tool(
+            "graph_write",
+            action="add_edge",
+            source_id=action_model.source_id,
+            target_id=action_model.target_id,
+            rel_type=action_model.rel_type,
+            properties=_to_json_str(action_model.properties),
+            connection=action_model.connection,
+            graph=action_model.graph,
+        )
+    if isinstance(action_model, _DeleteEdgeAction):
+        return await _execute_tool(
+            "graph_write",
+            action="delete_edge",
+            source_id=action_model.source_id,
+            target_id=action_model.target_id,
+            rel_type=action_model.rel_type,
+            connection=action_model.connection,
+            graph=action_model.graph,
+        )
+    if isinstance(action_model, _BulkIngestAction):
+        return await _execute_tool(
+            "graph_write",
+            action="bulk_ingest",
+            nodes=_to_json_str(action_model.nodes),
+            idempotency_key=action_model.idempotency_key,
+            evidence=_to_json_str(action_model.evidence),
+            upsert=action_model.upsert,
+            connection=action_model.connection,
+            graph=action_model.graph,
+        )
+    if isinstance(action_model, _LogChatAction):
+        return await _execute_tool(
+            "graph_write",
+            action="log_chat",
+            agent_id=action_model.agent_id,
+            properties=action_model.content,
+            connection=action_model.connection,
+            graph=action_model.graph,
+        )
+    if isinstance(action_model, _RegisterExecutionAction):
+        return await _execute_tool(
+            "graph_write",
+            action="register_execution",
+            agent_id=action_model.agent_id,
+            connection=action_model.connection,
+            graph=action_model.graph,
+        )
+    # _OtherGraphWriteAction: full passthrough parity with the
+    # pre-consolidation **body forwarding.
+    return await _execute_tool("graph_write", **action_model.model_dump())
 
 
 async def graph_write_delete_node_endpoint(request: Request) -> JSONResponse:
     try:
         node_id = request.path_params.get("node_id", "")
-        res = await _execute_tool("graph_write", action="delete_node", id=node_id)
+        # Same DEFECT C field-name bug as `_AddNodeAction`'s dispatch above:
+        # the tool parameter is ``node_id``, not ``id``.
+        res = await _execute_tool("graph_write", action="delete_node", node_id=node_id)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
-
-
-async def graph_write_edge_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_write",
-            action="add_edge",
-            source_id=body.get("source_id", ""),
-            target_id=body.get("target_id", ""),
-            rel_type=body.get("rel_type", ""),
-            properties=_to_json_str(body.get("properties", {})),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except UnsupportedToolFieldError as e:
+        return _external_error_response(e, status_code=400, code="invalid_request")
     except Exception as e:
         return _external_error_response(e)
 
 
 async def graph_write_delete_edge_endpoint(request: Request) -> JSONResponse:
+    """DELETE /graph/write — action='delete_edge' (replaces
+    DELETE /graph/write/edge). Kept as a dedicated DELETE handler on the
+    collapsed base path — see ``_DeleteEdgeAction``'s docstring above for
+    why ``action='delete_edge'`` is ALSO reachable via POST.
+    """
     try:
         body = await request.json()
     except Exception:
         body = {}
     try:
+        payload = GraphWriteEdgeDeleteRequest.model_validate(body or {})
+    except ValidationError as e:
+        return _external_error_response(e, status_code=400, code="invalid_request")
+    try:
         res = await _execute_tool(
             "graph_write",
             action="delete_edge",
-            source_id=body.get("source_id", ""),
-            target_id=body.get("target_id", ""),
-            rel_type=body.get("rel_type", ""),
+            source_id=payload.source_id,
+            target_id=payload.target_id,
+            rel_type=payload.rel_type,
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except UnsupportedToolFieldError as e:
+        return _external_error_response(e, status_code=400, code="invalid_request")
     except Exception as e:
         return _external_error_response(e)
 
@@ -1423,22 +2171,6 @@ async def graph_write_external_endpoint(request: Request) -> JSONResponse:
             action="register_external_graph",
             endpoint_url=body.get("endpoint_url", ""),
             graph_type=body.get("graph_type", ""),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
-
-
-async def graph_write_bulk_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_write",
-            action="bulk_ingest",
-            nodes=_to_json_str(body.get("nodes", [])),
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
@@ -1540,23 +2272,6 @@ async def graph_ontology_import_stardog_endpoint(request: Request) -> JSONRespon
         return _external_error_response(e)
 
 
-async def graph_write_chat_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_write",
-            action="log_chat",
-            agent_id=body.get("agent_id", ""),
-            properties=body.get("content", ""),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
-
-
 async def graph_write_sdd_endpoint(request: Request) -> JSONResponse:
     try:
         body = await request.json()
@@ -1568,22 +2283,6 @@ async def graph_write_sdd_endpoint(request: Request) -> JSONResponse:
             action="submit_sdd",
             agent_id=body.get("agent_id", ""),
             properties=body.get("content", ""),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
-
-
-async def graph_write_execution_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_write",
-            action="register_execution",
-            agent_id=body.get("agent_id", ""),
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
@@ -4646,6 +5345,59 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     def route(path: str, handler, methods: list[str]) -> None:
         app.add_route(prefix + path, handler, methods=methods)
 
+    def route_typed(
+        path: str,
+        handler,
+        methods: list[str],
+        *,
+        response_model: type,
+        summary: str,
+        description: str,
+        request_model: type | Any,
+    ) -> None:
+        """Like ``route()`` but mounted via FastAPI's
+        ``add_api_route(..., response_model=...)`` when ``app`` supports it
+        (every production caller — see ``build_agent_app``) so the route is
+        visible to ``app.openapi()``. ``scripts/check_openapi_coverage.py``
+        measures exactly this gap for every OTHER route in this file, which
+        still uses the raw ``route()``/``add_route`` helper above; this is
+        the first route in ``_mount_rest_routes`` to close it. Falls back to
+        the plain Starlette ``add_route`` for a bare-Starlette/test-double
+        ``app`` that only implements ``add_route`` (mirrors the existing
+        ``add_api_route``-vs-``add_route`` guard in
+        ``agent_utilities.gateway.graph_api.register_graph_routes``'s
+        ``/metrics`` mount) — undocumented in that fallback case, but still
+        callable.
+
+        ``request_model`` may be a ``BaseModel`` subclass or a typing
+        construct (e.g. an ``Annotated[Union[...], Field(discriminator=...)]``
+        alias) — the handler itself parses the body manually (so a
+        malformed/unrecognized ``action`` is a controlled 400, not FastAPI's
+        default 422), so this only feeds ``openapi_extra`` a real JSON Schema
+        for documentation; it does not change request parsing.
+        """
+        if not hasattr(app, "add_api_route"):
+            app.add_route(prefix + path, handler, methods=methods)
+            return
+        if hasattr(request_model, "model_json_schema"):
+            body_schema = request_model.model_json_schema()
+        else:
+            body_schema = TypeAdapter(request_model).json_schema()
+        app.add_api_route(
+            prefix + path,
+            handler,
+            methods=methods,
+            response_model=response_model,
+            summary=summary,
+            description=description,
+            openapi_extra={
+                "requestBody": {
+                    "required": True,
+                    "content": {"application/json": {"schema": body_schema}},
+                }
+            },
+        )
+
     # ── Sessions & goals (durable Starlette handlers in core.sessions) ──
     route("/sessions", get_all_sessions, ["GET"])
     route("/sessions/{session_id}", get_session_details, ["GET"])
@@ -4664,7 +5416,44 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     # ── Bilateral graph execution (action-routed) ──
     route("/graph/query", graph_query_endpoint, ["POST"])
     route("/graph/search", graph_search_endpoint, ["POST"])
-    route("/graph/write", graph_write_endpoint, ["POST"])
+    # Collapsed, typed graph_write dispatch (CONSOLIDATION: see the
+    # `GraphWriteAction` discriminated union above graph_write_endpoint's
+    # definition) — the first FastAPI-documented route in this file.
+    route_typed(
+        "/graph/write",
+        graph_write_endpoint,
+        ["POST"],
+        response_model=GraphToolResponse,
+        summary="Write a node/edge or run another graph_write action",
+        description=(
+            "Collapsed, action-routed graph_write endpoint. Validates the "
+            "body against a discriminated union on 'action' covering "
+            "add_node, add_edge, delete_edge, bulk_ingest, log_chat, "
+            "register_execution (formerly separate granular routes under "
+            "/graph/write/{node,edge,bulk,chat,execution}, now removed), "
+            "plus every other graph_write action (delete_node, "
+            "register_external_graph, compare_and_set, store_memory, "
+            "recall_memory, recall_media, submit_sdd, check_loop). See the "
+            "GraphWriteAction union's member models for the exact per-action "
+            "request shape."
+        ),
+        request_model=GraphWriteAction,
+    )
+    route_typed(
+        "/graph/write",
+        graph_write_delete_edge_endpoint,
+        ["DELETE"],
+        response_model=GraphToolResponse,
+        summary="Delete an edge (graph_write action=delete_edge)",
+        description=(
+            "Deletes one edge identified by source_id/target_id/rel_type. "
+            "Equivalent to POST /graph/write with action='delete_edge'; "
+            "kept as a dedicated DELETE verb on the same collapsed path so "
+            "a REST-verb-first caller does not lose the capability the "
+            "removed DELETE /graph/write/edge granular route had."
+        ),
+        request_model=GraphWriteEdgeDeleteRequest,
+    )
     route("/graph/ingest", graph_ingest_endpoint, ["POST"])
     route("/graph/analyze", graph_analyze_endpoint, ["POST"])
     route("/graph/code", graph_code_endpoint, ["POST"])
@@ -4685,13 +5474,10 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     route("/graph/search/discover", graph_search_discover_endpoint, ["POST"])
     route("/graph/search/dci", graph_search_dci_endpoint, ["POST"])
 
-    # ── Granular write ──
-    route("/graph/write/node", graph_write_node_endpoint, ["POST"])
+    # ── Granular write (out of this consolidation's scope — see kg_server.py's
+    # collapsed-write comment block above graph_write_endpoint) ──
     route("/graph/write/node/{node_id}", graph_write_delete_node_endpoint, ["DELETE"])
-    route("/graph/write/edge", graph_write_edge_endpoint, ["POST"])
-    route("/graph/write/edge", graph_write_delete_edge_endpoint, ["DELETE"])
     route("/graph/write/external", graph_write_external_endpoint, ["POST"])
-    route("/graph/write/bulk", graph_write_bulk_endpoint, ["POST"])
     route("/graph/write/memory", graph_write_memory_endpoint, ["POST"])
     route("/graph/write/memory/recall", graph_write_memory_recall_endpoint, ["POST"])
     # CONCEPT:AU-KG.ontology.federation-runtime — federation: explicit twin for ontology package-sync.
@@ -4711,9 +5497,7 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
         graph_ontology_import_stardog_endpoint,
         ["POST"],
     )
-    route("/graph/write/chat", graph_write_chat_endpoint, ["POST"])
     route("/graph/write/sdd", graph_write_sdd_endpoint, ["POST"])
-    route("/graph/write/execution", graph_write_execution_endpoint, ["POST"])
 
     # ── Granular ingest ──
     route("/graph/ingest/submit", graph_ingest_submit_endpoint, ["POST"])

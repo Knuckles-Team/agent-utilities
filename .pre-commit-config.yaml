@@ -626,6 +626,26 @@ repos:
     # static text scan of some other tree) -- its verdict is a pure function
     # of agent_utilities/ source. ~14s standalone.
     files: ^agent_utilities/.*
+  - id: guardrail-openapi-coverage
+    name: Guardrail — every mounted route documented in the OpenAPI spec
+    # Builds the real production FastAPI app (agent_utilities.server.app.
+    # build_agent_app, LLM/A2A bootstrap patched out — see the script's
+    # docstring for exactly what that covers), diffs its full mounted route
+    # table against app.openapi(), and ratchets two finding sets against
+    # scripts/openapi_coverage_baseline.json: routes mounted via raw
+    # Starlette add_route (kg_server.py's _mount_rest_routes — invisible to
+    # /docs by construction) and documented operations missing a summary or
+    # description. Fails only on regression vs the baseline; run with
+    # --update-baseline after a genuine fix.
+    entry: python3 scripts/check_openapi_coverage.py
+    language: system
+    pass_filenames: false
+    # Scoped: this gate imports the live agent_utilities package and
+    # introspects the runtime FastAPI app's route table + generated schema
+    # (reflection, not a static text scan) -- its verdict is a pure function
+    # of agent_utilities/server + agent_utilities/gateway + agent_utilities/
+    # mcp/kg_server.py source, plus its own baseline. ~15s standalone.
+    files: ^(agent_utilities/server/.*\.py|agent_utilities/gateway/.*\.py|agent_utilities/mcp/kg_server\.py|scripts/check_openapi_coverage\.py|scripts/openapi_coverage_baseline\.json)$
   - id: guardrail-cpd-drift
     name: Guardrail — Capability Power Descriptors stay in sync (Seam 8 CPD)
     entry: python3 scripts/check_cpd.py

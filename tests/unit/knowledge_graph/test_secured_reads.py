@@ -848,3 +848,258 @@ def test_durable_access_rows_unknown_graph_and_hydration_failure_both_deny_close
         == str(denied_exc.value)
         == ("Node permission evaluation failed")
     )
+
+
+# ---------------------------------------------------------------------------
+# PERF-SR-1: id-indexed batch hydration accelerator
+# (`secured_reads._id_indexed_batch_rows`) — closes the O(graph) unlabeled
+# `MATCH (n)` cliff for ANY label, not just the ones hardcoded into
+# `_LABELED_HYDRATION_CANDIDATES`.
+# ---------------------------------------------------------------------------
+
+
+class _IdIndexedNodeStore:
+    """Stands in for `GraphComputeEngine`'s id-primary-key batch property
+    read (`_get_node_properties_batch`) — the SAME capability
+    `EpistemicGraphBackend.semantic_search` already uses to hydrate a
+    candidate id set's properties in one round trip, independent of label.
+    """
+
+    def __init__(self, properties_by_id: dict[str, dict]) -> None:
+        self._properties_by_id = properties_by_id
+        self.calls: list[list[str]] = []
+
+    def _get_node_properties_batch(self, node_ids: list[str]) -> dict[str, dict]:
+        self.calls.append(list(node_ids))
+        return {
+            node_id: self._properties_by_id[node_id]
+            for node_id in node_ids
+            if node_id in self._properties_by_id
+        }
+
+
+class _AcceleratedBackendReader(_FakeBackendReader):
+    """A backend exposing BOTH `execute_read` (the required Cypher capability
+    check) and `.graph` (the id-indexed accelerator) — models the production
+    `EpistemicGraphBackend`, which exposes both surfaces over the same
+    underlying node store."""
+
+    def __init__(self, rows: list[dict], node_store: _IdIndexedNodeStore) -> None:
+        super().__init__(rows)
+        self.graph = node_store
+
+
+def test_durable_access_rows_resolves_non_fleet_label_via_id_indexed_batch(
+    monkeypatch, brain
+):
+    """A label OUTSIDE `_LABELED_HYDRATION_CANDIDATES` (e.g. `Preference`,
+    the toggle-state case this fix must unblock) resolves WITHOUT any Cypher
+    round trip at all when the backend exposes the id-indexed accelerator --
+    proving the cliff (a non-allowlisted label falling through every
+    candidate then paying the O(graph) unlabeled `MATCH (n)` scan) is closed
+    generically, not by adding "Preference" to the tuple. Assert on the
+    query/call SHAPE (zero Cypher queries issued), never on wall-clock."""
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+
+    node_store = _IdIndexedNodeStore(
+        {
+            "pref:dark-mode": {
+                "tenant_id": "tenant-a",
+                "classification": "internal",
+                "external_access": None,
+                "_owner_id": "principal:verified",
+                "_shared_scope": "private",
+            }
+        }
+    )
+    backend = _AcceleratedBackendReader(rows=[], node_store=node_store)
+    engine = _FakeEngine(backend)
+    monkeypatch.setattr(IntelligenceGraphEngine, "_ACTIVE_ENGINE", engine)
+
+    rows = sr._durable_access_rows(["pref:dark-mode"])
+
+    assert rows["pref:dark-mode"]["tenant_id"] == "tenant-a"
+    assert rows["pref:dark-mode"]["classification"] == "internal"
+    assert rows["pref:dark-mode"]["owner_id"] == "principal:verified"
+    assert rows["pref:dark-mode"]["shared_scope"] == "private"
+    # The load-bearing assertion: no labeled-candidate loop, and no unlabeled
+    # full-graph scan -- zero Cypher queries issued at all.
+    assert backend.queries == []
+    assert node_store.calls == [["pref:dark-mode"]]
+
+
+def test_id_indexed_accelerator_falls_through_when_it_cannot_resolve(
+    monkeypatch, brain
+):
+    """The accelerator is purely additive: an id it cannot answer for
+    (absent from its store) must still fall through to the existing labeled/
+    unlabeled Cypher path exactly as before this fix -- never silently
+    drops the id."""
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+
+    node_store = _IdIndexedNodeStore({})  # never resolves anything
+    backend = _AcceleratedBackendReader(
+        rows=[
+            {
+                "id": "memory:some-id",
+                "tenant_id": "tenant-a",
+                "classification": "public",
+                "external_access": None,
+                "owner_id": None,
+                "shared_scope": None,
+            }
+        ],
+        node_store=node_store,
+    )
+    engine = _FakeEngine(backend)
+    monkeypatch.setattr(IntelligenceGraphEngine, "_ACTIVE_ENGINE", engine)
+
+    rows = sr._durable_access_rows(["memory:some-id"])
+
+    assert rows["memory:some-id"]["tenant_id"] == "tenant-a"
+    # Accelerator was consulted first (and declined), THEN Cypher answered.
+    assert node_store.calls == [["memory:some-id"]]
+    assert backend.queries  # fell through to the (still correct) Cypher path
+
+
+def test_id_indexed_accelerator_produces_identical_authorization_to_cypher_path(
+    monkeypatch, brain
+):
+    """The load-bearing safety test. Whether or not the id-indexed
+    accelerator answers a lookup, the FINAL authorization decision
+    (``permit()``'s grant/deny) must be IDENTICAL -- checked for both an
+    allowlisted label (Tool) and a non-allowlisted one (Preference), and for
+    both a granted and a denied case. The accelerator must never grant
+    something the slow Cypher path would deny, or vice versa."""
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+
+    actor = _actor("kg:read")
+
+    # (node_id, label, raw node properties, expected permit() outcome)
+    scenarios = [
+        (
+            "tool_owned",
+            "Tool",
+            {
+                "tenant_id": "tenant-a",
+                "classification": "confidential",
+                "external_access": None,
+                "_owner_id": "principal:verified",
+                "_shared_scope": "private",
+            },
+            True,
+        ),
+        (
+            "pref_owned",
+            "Preference",
+            {
+                "tenant_id": "tenant-a",
+                "classification": "confidential",
+                "external_access": None,
+                "_owner_id": "principal:verified",
+                "_shared_scope": "private",
+            },
+            True,
+        ),
+        (
+            "tool_other_tenant",
+            "Tool",
+            {
+                "tenant_id": "tenant-b",
+                "classification": "confidential",
+                "external_access": None,
+                "_owner_id": "someone-else",
+                "_shared_scope": "private",
+            },
+            False,
+        ),
+        (
+            "pref_other_tenant",
+            "Preference",
+            {
+                "tenant_id": "tenant-b",
+                "classification": "confidential",
+                "external_access": None,
+                "_owner_id": "someone-else",
+                "_shared_scope": "private",
+            },
+            False,
+        ),
+        (
+            "pref_unowned",
+            "Preference",
+            {
+                "tenant_id": "tenant-a",
+                "classification": "confidential",
+                "external_access": None,
+                "_owner_id": "",
+                "_shared_scope": "",
+            },
+            False,
+        ),
+    ]
+
+    for node_id, label, props, expect_granted in scenarios:
+        cypher_row = {
+            "id": node_id,
+            "_label": label,
+            "tenant_id": props["tenant_id"],
+            "classification": props["classification"],
+            "external_access": props["external_access"],
+            "owner_id": props["_owner_id"],
+            "shared_scope": props["_shared_scope"],
+        }
+
+        # -- Slow path: execute_read-only backend, label-loop then unlabeled
+        # scan (no accelerator exposed at all).
+        reset_company_brain()
+        slow_backend = _LabelAwareBackendReader(rows=[cypher_row])
+        monkeypatch.setattr(
+            IntelligenceGraphEngine, "_ACTIVE_ENGINE", _FakeEngine(slow_backend)
+        )
+        with use_actor(actor):
+            slow_granted = sr.permit([node_id], actor) == [node_id]
+
+        # -- Fast path: the SAME underlying data through the id-indexed
+        # accelerator instead of Cypher.
+        reset_company_brain()
+        node_store = _IdIndexedNodeStore({node_id: props})
+        fast_backend = _AcceleratedBackendReader(rows=[], node_store=node_store)
+        monkeypatch.setattr(
+            IntelligenceGraphEngine, "_ACTIVE_ENGINE", _FakeEngine(fast_backend)
+        )
+        with use_actor(actor):
+            fast_granted = sr.permit([node_id], actor) == [node_id]
+
+        assert node_store.calls, f"{node_id}: accelerator was never consulted"
+        assert slow_granted == expect_granted, f"{node_id}: unexpected slow-path result"
+        assert fast_granted == expect_granted, f"{node_id}: unexpected fast-path result"
+        assert slow_granted == fast_granted, (
+            f"{node_id}: accelerator authorization diverged from the Cypher path"
+        )
+
+
+def test_row_without_governed_id_still_raises_with_accelerator_active(
+    monkeypatch, brain
+):
+    """The identity requirement (``row_node_ids`` -> ``PermissionError``) is
+    upstream of, and independent from, ``_durable_access_rows``/the new
+    accelerator: a raw graph row that never carries an id must still raise,
+    even when the active backend exposes the id-indexed accelerator this fix
+    adds. Proves the accelerator cannot be used to smuggle an ungoverned row
+    past the identity gate."""
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+
+    node_store = _IdIndexedNodeStore(
+        {"pref:x": {"tenant_id": "tenant-a", "classification": "public"}}
+    )
+    backend = _AcceleratedBackendReader(rows=[], node_store=node_store)
+    engine = _FakeEngine(backend)
+    monkeypatch.setattr(IntelligenceGraphEngine, "_ACTIVE_ENGINE", engine)
+
+    with use_actor(_actor("kg:read")):
+        with pytest.raises(PermissionError, match="governed node id"):
+            sr.filter_rows([{"value": "no identity here"}])
+    # row_node_ids rejects before hydration is ever attempted -- the
+    # accelerator is never even reached.
+    assert node_store.calls == []

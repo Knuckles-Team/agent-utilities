@@ -56,18 +56,13 @@ from agent_utilities.mcp.kg_server import (
     graph_search_endpoint,
     # Search
     graph_search_memory_endpoint,
-    graph_write_bulk_endpoint,
-    graph_write_chat_endpoint,
     graph_write_delete_edge_endpoint,
     graph_write_delete_node_endpoint,
-    graph_write_edge_endpoint,
     graph_write_endpoint,
-    graph_write_execution_endpoint,
     graph_write_external_endpoint,
     graph_write_memory_endpoint,
     graph_write_memory_recall_endpoint,
     # Write
-    graph_write_node_endpoint,
     graph_write_sdd_endpoint,
     toggle_tool_endpoint,
 )
@@ -117,32 +112,26 @@ def test_app():
     )
     app.add_route("/graph/search/dci", graph_search_dci_endpoint, methods=["POST"])
 
-    # Granular Graph Write endpoints
-    app.add_route("/graph/write/node", graph_write_node_endpoint, methods=["POST"])
+    # Granular Graph Write endpoints (node/edge/bulk/chat/execution collapsed
+    # into POST/DELETE /graph/write — see graph_write_endpoint's own mount
+    # above; DELETE /graph/write is added separately below since a single
+    # `app.add_route` call declares only one method set per path).
+    app.add_route("/graph/write", graph_write_delete_edge_endpoint, methods=["DELETE"])
     app.add_route(
         "/graph/write/node/{node_id}",
         graph_write_delete_node_endpoint,
         methods=["DELETE"],
     )
-    app.add_route("/graph/write/edge", graph_write_edge_endpoint, methods=["POST"])
-    app.add_route(
-        "/graph/write/edge", graph_write_delete_edge_endpoint, methods=["DELETE"]
-    )
     app.add_route(
         "/graph/write/external", graph_write_external_endpoint, methods=["POST"]
     )
-    app.add_route("/graph/write/bulk", graph_write_bulk_endpoint, methods=["POST"])
     app.add_route("/graph/write/memory", graph_write_memory_endpoint, methods=["POST"])
     app.add_route(
         "/graph/write/memory/recall",
         graph_write_memory_recall_endpoint,
         methods=["POST"],
     )
-    app.add_route("/graph/write/chat", graph_write_chat_endpoint, methods=["POST"])
     app.add_route("/graph/write/sdd", graph_write_sdd_endpoint, methods=["POST"])
-    app.add_route(
-        "/graph/write/execution", graph_write_execution_endpoint, methods=["POST"]
-    )
 
     # Granular Graph Ingest endpoints
     app.add_route(
@@ -352,13 +341,21 @@ async def test_granular_search_endpoints(mock_execute_tool, client):
 
 @pytest.mark.asyncio
 @patch("agent_utilities.mcp.kg_server._execute_tool", new_callable=AsyncMock)
-async def test_granular_write_endpoints(mock_execute_tool, client):
+async def test_collapsed_graph_write_endpoint(mock_execute_tool, client):
+    """POST/DELETE /graph/write collapsed dispatch — replaces the deleted
+    granular /graph/write/{node,edge,bulk,chat,execution} routes. Each
+    assertion below is the SAME `_execute_tool("graph_write", ...)` call the
+    granular route it replaces used to make (the no-regression proof), plus
+    the connection/graph/idempotency-key fields those granular routes
+    silently dropped.
+    """
     mock_execute_tool.return_value = {"status": "write_ok"}
 
-    # 1. POST /graph/write/node
+    # 1. POST /graph/write, action=add_node (was POST /graph/write/node)
     res = client.post(
-        "/graph/write/node",
+        "/graph/write",
         json={
+            "action": "add_node",
             "node_id": "agent-1",
             "node_type": "Agent",
             "properties": {"name": "Test Agent"},
@@ -366,26 +363,33 @@ async def test_granular_write_endpoints(mock_execute_tool, client):
     )
     assert res.status_code == 200
     assert res.json() == {"status": "success", "result": {"status": "write_ok"}}
+    # DEFECT C regression: the `graph_write` tool declares this parameter as
+    # `node_id`, not `id` (see write_ingest_tools.graph_write's signature).
+    # The old `id=` kwarg made every real call fail closed with
+    # UnsupportedToolFieldError — confirmed live in the pod logs.
     mock_execute_tool.assert_called_with(
         "graph_write",
         action="add_node",
-        id="agent-1",
+        node_id="agent-1",
         node_type="Agent",
         properties='{"name": "Test Agent"}',
+        connection="",
+        graph="",
     )
 
-    # 2. DELETE /graph/write/node/{node_id}
+    # 2. DELETE /graph/write/node/{node_id} — unchanged, own dedicated route.
     res = client.delete("/graph/write/node/agent-1")
     assert res.status_code == 200
     assert res.json() == {"status": "success", "result": {"status": "write_ok"}}
     mock_execute_tool.assert_called_with(
-        "graph_write", action="delete_node", id="agent-1"
+        "graph_write", action="delete_node", node_id="agent-1"
     )
 
-    # 3. POST /graph/write/edge
+    # 3. POST /graph/write, action=add_edge (was POST /graph/write/edge)
     res = client.post(
-        "/graph/write/edge",
+        "/graph/write",
         json={
+            "action": "add_edge",
             "source_id": "agent-1",
             "target_id": "skill-1",
             "rel_type": "HAS_SKILL",
@@ -401,12 +405,39 @@ async def test_granular_write_endpoints(mock_execute_tool, client):
         target_id="skill-1",
         rel_type="HAS_SKILL",
         properties='{"level": "expert"}',
+        connection="",
+        graph="",
     )
 
-    # 4. DELETE /graph/write/edge
+    # 4. POST /graph/write, action=delete_edge (was DELETE /graph/write/edge,
+    # now ALSO reachable this way in addition to the dedicated DELETE verb
+    # exercised in step 5).
+    res = client.post(
+        "/graph/write",
+        json={
+            "action": "delete_edge",
+            "source_id": "agent-1",
+            "target_id": "skill-1",
+            "rel_type": "HAS_SKILL",
+        },
+    )
+    assert res.status_code == 200
+    assert res.json() == {"status": "success", "result": {"status": "write_ok"}}
+    mock_execute_tool.assert_called_with(
+        "graph_write",
+        action="delete_edge",
+        source_id="agent-1",
+        target_id="skill-1",
+        rel_type="HAS_SKILL",
+        connection="",
+        graph="",
+    )
+
+    # 5. DELETE /graph/write (was DELETE /graph/write/edge) — the dedicated
+    # DELETE verb on the collapsed path.
     res = client.request(
         "DELETE",
-        "/graph/write/edge",
+        "/graph/write",
         json={"source_id": "agent-1", "target_id": "skill-1", "rel_type": "HAS_SKILL"},
     )
     assert res.status_code == 200
@@ -418,6 +449,73 @@ async def test_granular_write_endpoints(mock_execute_tool, client):
         target_id="skill-1",
         rel_type="HAS_SKILL",
     )
+
+    # 6. POST /graph/write, action=bulk_ingest (was POST /graph/write/bulk).
+    # REGRESSION GUARD (the real defect this consolidation fixes): the
+    # deleted granular route forwarded ONLY `nodes`, silently discarding
+    # idempotency_key/evidence/upsert/connection/graph and always taking the
+    # non-idempotent BatchUpdate(upsert=True) path. Assert every one of them
+    # reaches the tool call now.
+    res = client.post(
+        "/graph/write",
+        json={
+            "action": "bulk_ingest",
+            "nodes": [{"id": "n1", "type": "Concept", "properties": {}}],
+            "idempotency_key": "batch-1",
+            "evidence": [{"object_id": "o1", "modality": "text"}],
+            "upsert": False,
+            "connection": "primary",
+            "graph": "tenant-graph",
+        },
+    )
+    assert res.status_code == 200
+    assert res.json() == {"status": "success", "result": {"status": "write_ok"}}
+    mock_execute_tool.assert_called_with(
+        "graph_write",
+        action="bulk_ingest",
+        nodes='[{"id": "n1", "type": "Concept", "properties": {}}]',
+        idempotency_key="batch-1",
+        evidence='[{"object_id": "o1", "modality": "text"}]',
+        upsert=False,
+        connection="primary",
+        graph="tenant-graph",
+    )
+
+    # 7. POST /graph/write, action=log_chat (was POST /graph/write/chat)
+    res = client.post(
+        "/graph/write",
+        json={"action": "log_chat", "agent_id": "agent-1", "content": "hello"},
+    )
+    assert res.status_code == 200
+    assert res.json() == {"status": "success", "result": {"status": "write_ok"}}
+    mock_execute_tool.assert_called_with(
+        "graph_write",
+        action="log_chat",
+        agent_id="agent-1",
+        properties="hello",
+        connection="",
+        graph="",
+    )
+
+    # 8. POST /graph/write, action=register_execution (was POST /graph/write/execution)
+    res = client.post(
+        "/graph/write",
+        json={"action": "register_execution", "agent_id": "agent-1"},
+    )
+    assert res.status_code == 200
+    assert res.json() == {"status": "success", "result": {"status": "write_ok"}}
+    mock_execute_tool.assert_called_with(
+        "graph_write",
+        action="register_execution",
+        agent_id="agent-1",
+        connection="",
+        graph="",
+    )
+
+    # 9. An action outside the discriminated union's vocabulary is a clean
+    # 400, never a 500 or a silent pass-through to the tool.
+    res = client.post("/graph/write", json={"action": "not_a_real_action"})
+    assert res.status_code == 400
 
 
 @pytest.mark.asyncio

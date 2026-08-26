@@ -22,7 +22,7 @@ are exposed by the `graph-os` MCP server and mirrored 1:1 by the REST gateway
 | Connectors (1) | `source_connector` |
 
 The REST gateway mounts the same surface under `/api`: the 25 action-routed
-twins plus granular sub-routes (`/api/graph/write/node`, `/api/graph/ingest/jobs`,
+twins plus granular sub-routes (`/api/graph/write/sdd`, `/api/graph/ingest/jobs`,
 `/api/sessions`, `/api/goals`, …), alongside the fleet supervisory plane
 (`/api/fleet/*` — health/topology/pause/kill/approvals plus the correlation
 queries `/api/fleet/trace` and `/api/fleet/touched`), a granular **typed**

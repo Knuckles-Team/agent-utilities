@@ -17,6 +17,11 @@ Covers (Definition of Done):
 - The role granted is the narrow `control:system` role and never `System`.
 - The CLI (`system_admission_cli.py`) produces the same provisioning as the
   boot path (`ensure_system_principal_access`) for the same principal.
+- A principal whose `existing_roles` is unknown (`None`, the default) is
+  refused outright, and nothing is written — the mirror image of
+  `tenant_rbac_admission`'s own incident: this module's boot path used to
+  default to an implicit empty role set too, and could silently clobber a
+  role `tenant_rbac_admission` had already granted the same principal.
 """
 
 from __future__ import annotations
@@ -53,7 +58,7 @@ def _clear_admission_cache():
 
 def test_grant_selector_is_control_graph_not_a_tenant_pattern() -> None:
     client = sra.FixtureSystemAdmissionClient()
-    principal = sra.SystemPrincipal(agent_id="graph-os-scheduler")
+    principal = sra.SystemPrincipal(agent_id="graph-os-scheduler", existing_roles=())
 
     sra.provision_system_principal_access(
         client, [principal], admin_authority=_authority("provisioner:deploy")
@@ -81,7 +86,7 @@ def test_admission_grants_reachability_on_control_graph_read_and_write() -> None
     that some call was made."""
 
     client = sra.FixtureSystemAdmissionClient()
-    principal = sra.SystemPrincipal(agent_id="graph-os-scheduler")
+    principal = sra.SystemPrincipal(agent_id="graph-os-scheduler", existing_roles=())
 
     assert client._has_access("graph-os-scheduler", "Read") is False
 
@@ -129,7 +134,9 @@ def test_system_principal_refuses_role_system() -> None:
 
 def test_admitting_a_fresh_principal_grants_exactly_the_control_role() -> None:
     client = sra.FixtureSystemAdmissionClient()
-    principal = sra.SystemPrincipal(agent_id="graph-os-scheduler", role="Agent")
+    principal = sra.SystemPrincipal(
+        agent_id="graph-os-scheduler", role="Agent", existing_roles=()
+    )
 
     result = sra.provision_system_principal_access(
         client, [principal], admin_authority=_authority("provisioner:deploy")
@@ -188,12 +195,36 @@ def test_a_failed_registration_rpc_is_never_swallowed() -> None:
             raise RuntimeError("engine unreachable")
 
     client = _FailingClient()
-    principal = sra.SystemPrincipal(agent_id="graph-os-scheduler")
+    principal = sra.SystemPrincipal(agent_id="graph-os-scheduler", existing_roles=())
     with pytest.raises(RuntimeError):
         sra.provision_system_principal_access(
             client, [principal], admin_authority=_authority("provisioner:deploy")
         )
 
+
+def test_admitting_a_principal_with_unknown_existing_roles_fails_loudly() -> None:
+    """Mirror-image of `tenant_rbac_admission`'s own regression proof: this
+    module used to default `existing_roles` to an empty tuple too, so a
+    caller (this module's own `ensure_system_principal_access`, in
+    practice) that never learned the principal's real prior roles would
+    silently register `roles=['control:system']` alone — clobbering
+    whatever `tenant_rbac_admission` had already granted the SAME
+    principal. It must now fail loudly and write nothing."""
+
+    client = sra.FixtureSystemAdmissionClient()
+    principal = sra.SystemPrincipal(agent_id="graph-os-scheduler")  # unset
+
+    assert principal.existing_roles is None
+
+    with pytest.raises(sra.SystemAdmissionError, match="existing_roles is unknown"):
+        sra.provision_system_principal_access(
+            client, [principal], admin_authority=_authority("provisioner:deploy")
+        )
+
+    assert "register_identity" not in [call for call, _args in client.calls], (
+        "an unknown prior role set must never reach register_identity — "
+        "fail closed, never write a possibly-reduced set"
+    )
 
 
 ADMITTING_PRINCIPAL = "graph-os:process"
@@ -262,18 +293,40 @@ def test_ensure_admission_is_idempotent_across_repeated_calls(
     client = sra.FixtureSystemAdmissionClient()
 
     first = sra.ensure_system_principal_access(
-        "graph-os-scheduler", client=client
+        "graph-os-scheduler", client=client, existing_roles=()
     )
     assert first.already_held is False
 
     second = sra.ensure_system_principal_access(
-        "graph-os-scheduler", client=client
+        "graph-os-scheduler", client=client, existing_roles=()
     )
     assert second.already_held is True
 
     # The second call must be a cache hit: no additional register_identity.
     register_calls = [c for c, _a in client.calls if c == "register_identity"]
     assert len(register_calls) == 1
+
+
+def test_ensure_admission_fails_loudly_without_existing_roles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The mirror-image fix's actual point of enforcement: `kg_server.py`'s
+    boot path calls `ensure_system_principal_access(actor_id)` with no
+    `existing_roles` (it has no reliable source for the principal's real
+    engine-RBAC roles either — see the module docstring). That must now
+    degrade honestly (typed error, cached backoff, nothing written) instead
+    of silently registering `roles=['control:system']` alone and clobbering
+    whatever `tenant_rbac_admission` already granted this same principal."""
+
+    _hold_signer_key(monkeypatch)
+    client = sra.FixtureSystemAdmissionClient()
+
+    with pytest.raises(sra.SystemAdmissionError, match="existing_roles is unknown"):
+        sra.ensure_system_principal_access("graph-os-scheduler", client=client)
+
+    assert "register_identity" not in [call for call, _args in client.calls], (
+        "must never reach register_identity when the prior role set is unknown"
+    )
 
 
 def test_ensure_admission_degrades_honestly_on_missing_credential() -> None:
@@ -402,7 +455,7 @@ def test_cli_dry_run_never_touches_a_live_client_or_credential(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls = _count_resolutions(monkeypatch)
-    principals = [sra.SystemPrincipal(agent_id="graph-os-scheduler")]
+    principals = [sra.SystemPrincipal(agent_id="graph-os-scheduler", existing_roles=())]
     result = cli.run_system_admission(
         principals, apply=False
     )
@@ -429,12 +482,12 @@ def test_cli_apply_produces_the_same_provisioning_as_the_boot_path(
     _hold_signer_key(monkeypatch)
     boot_client = sra.FixtureSystemAdmissionClient()
     sra.ensure_system_principal_access(
-        "graph-os-scheduler", client=boot_client
+        "graph-os-scheduler", client=boot_client, existing_roles=()
     )
 
     cli_client = sra.FixtureSystemAdmissionClient()
     cli.run_system_admission(
-        [sra.SystemPrincipal(agent_id="graph-os-scheduler")],
+        [sra.SystemPrincipal(agent_id="graph-os-scheduler", existing_roles=())],
         apply=True,
         client=cli_client,
     )

@@ -192,6 +192,151 @@ def test_run_one_cycle_intake_papers_runs_research_pipeline(monkeypatch):
     assert rep["errors"] == []
 
 
+# ── `_run_coro` context propagation (D-au priority-tagging audit) ─────────
+#
+# `_run_intake_papers` wraps `_run_coro(runner.run_daily_pipeline(...))` in
+# `priority_scope(PriorityClass.BACKGROUND_INGESTION)`. `_run_coro` has two
+# branches: no loop running -> `asyncio.run(coro)` in the SAME thread (a Task
+# copies the current contextvars.Context for free); a loop already running
+# (e.g. an async MCP handler driving the cycle) -> a worker-thread fallback.
+# That fallback used to hand the coroutine to a bare
+# `concurrent.futures.ThreadPoolExecutor`, which does NOT propagate
+# contextvars into the new thread -- silently dropping both the
+# `priority_scope` tag and the ambient `GraphSession` every engine write
+# resolves per call. Fixed by capturing `contextvars.copy_context()` before
+# submitting and running the coroutine inside it on the worker thread.
+
+
+def _loop_controller_test_session():
+    from agent_utilities.knowledge_graph.core.session import GraphSession
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.brain_context import ActorContext
+
+    actor = ActorContext(
+        actor_id="principal:loop-controller-test",
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=("kg:write",),
+        tenant_id="tenant-a",
+        authenticated=True,
+    )
+    return GraphSession(
+        actor=actor,
+        tenant="tenant-a",
+        scopes=frozenset({"kg:write"}),
+        graph="tenant-a-graph",
+        policy_version="policy-1",
+        audience="agent-services",
+    )
+
+
+def test_run_coro_direct_branch_propagates_priority_and_session():
+    """No event loop is running here, so `_run_coro` takes the direct
+    `asyncio.run` branch -- the one that already worked; kept as a regression
+    guard alongside the fallback-branch test below."""
+    import asyncio
+
+    from agent_utilities.core.resource_priority import PriorityClass, priority_scope
+    from agent_utilities.knowledge_graph.core.session import (
+        current_session,
+        use_session,
+    )
+    from agent_utilities.knowledge_graph.research.loop_controller import _run_coro
+
+    with pytest.raises(RuntimeError):
+        asyncio.get_running_loop()
+
+    session = _loop_controller_test_session()
+
+    async def _inner():
+        from agent_utilities.core.resource_priority import current_priority
+
+        return current_priority(), current_session()
+
+    with use_session(session), priority_scope(PriorityClass.BACKGROUND_INGESTION):
+        priority, propagated_session = _run_coro(_inner())
+
+    assert priority is PriorityClass.BACKGROUND_INGESTION
+    assert propagated_session is session
+
+
+async def test_run_coro_threadpool_fallback_propagates_priority_and_session():
+    """This test function itself runs inside a live event loop, so
+    `_run_coro` (called synchronously below) takes its ThreadPoolExecutor
+    fallback branch -- the vulnerable one before the D-au fix."""
+    import asyncio
+
+    from agent_utilities.core.resource_priority import PriorityClass, priority_scope
+    from agent_utilities.knowledge_graph.core.session import (
+        current_session,
+        use_session,
+    )
+    from agent_utilities.knowledge_graph.research.loop_controller import _run_coro
+
+    asyncio.get_running_loop()  # sanity: confirms the fallback branch will fire
+
+    session = _loop_controller_test_session()
+
+    async def _inner():
+        from agent_utilities.core.resource_priority import current_priority
+
+        return current_priority(), current_session()
+
+    with use_session(session), priority_scope(PriorityClass.BACKGROUND_INGESTION):
+        priority, propagated_session = _run_coro(_inner())
+
+    assert priority is PriorityClass.BACKGROUND_INGESTION
+    assert propagated_session is session
+
+
+async def test_run_intake_papers_priority_survives_a_running_event_loop(monkeypatch):
+    """End-to-end through `LoopController._run_intake_papers`: even when the
+    cycle is driven from inside an already-running loop (forcing `_run_coro`'s
+    worker-thread fallback), the research pipeline coroutine still observes
+    `PriorityClass.BACKGROUND_INGESTION` and the ambient `GraphSession`."""
+    import asyncio
+
+    import agent_utilities.automation.research_pipeline as rp
+    from agent_utilities.knowledge_graph.core.session import use_session
+
+    asyncio.get_running_loop()  # sanity: confirms the fallback branch will fire
+
+    session = _loop_controller_test_session()
+    seen: dict = {}
+
+    class _FakeRunner:
+        def __init__(self, engine=None, **kw):
+            pass
+
+        async def run_daily_pipeline(self, papers=None):
+            from agent_utilities.core.resource_priority import current_priority
+            from agent_utilities.knowledge_graph.core.session import current_session
+
+            seen["priority"] = current_priority()
+            seen["session"] = current_session()
+            from types import SimpleNamespace
+
+            return SimpleNamespace(
+                papers_discovered=len(papers or []),
+                papers_relevant=0,
+                papers_marginal=0,
+                papers_already_known=0,
+                owl_inferences=0,
+                errors=[],
+            )
+
+    monkeypatch.setattr(rp, "ResearchPipelineRunner", _FakeRunner)
+
+    eng = _StubEngine([], [])
+    with use_session(session):
+        LoopController(eng)._run_intake_papers(
+            papers=[{"id": "2606.09498", "title": "Self-Harness"}]
+        )
+
+    assert seen["priority"] is not None
+    assert seen["priority"].value == "background_ingestion"
+    assert seen["session"] is session
+
+
 # ── Discovery-flywheel mining stage (CONCEPT:AU-KG.evolution.mining-flywheel) ──────────
 
 

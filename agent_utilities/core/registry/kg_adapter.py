@@ -406,7 +406,8 @@ class RegistryMixin(_Base):
         that file only ever holds process-launch config (command/args) for a
         *local* server list, never the fleet-wide discovered set. Consumers
         needing an is-this-server-enabled/disabled toggle should merge this
-        with :meth:`get_toggle_state`, mirroring how prompts/skills already do.
+        with :func:`~agent_utilities.mcp.kg_server.get_toggle_states_batch`,
+        mirroring how prompts/skills already do.
 
         BUG-042 naming contract — READ BEFORE calling this from a new site.
         This method answers exactly one question: **"what MCP servers are

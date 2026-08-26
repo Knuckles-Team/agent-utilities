@@ -31,14 +31,107 @@ logger = logging.getLogger(__name__)
 # through as the node's Cypher label by `_ingest_graph_slice_via_envelope`),
 # and `skill_workflow_ingest.ingest_runnable_skill` writes the runnable
 # resource as `engine._upsert_node("CallableResource", resource_id, ...)`.
-# See :func:`_durable_access_rows` for why this list is a first-try
-# optimization, not an exhaustive label enumeration.
+#
+# PERF-SR-1 (row-governance clone-the-graph audit): this tuple is now a
+# SECONDARY safety net, not the primary defense against the O(graph) unlabeled
+# `MATCH (n)` scan below. The primary defense is `_id_indexed_batch_rows` —
+# a label-independent, bounded-by-`len(node_ids)` lookup through the active
+# backend's own id-primary-key node store (when the backend exposes one; see
+# that function's docstring). Any id that primary path resolves NEVER reaches
+# this tuple or the unlabeled scan at all, for ANY label — a non-allowlisted
+# label (e.g. `Preference`) is no longer a cliff on a backend with that
+# accelerator. This tuple, and the unlabeled fallback after it, remain the
+# ONLY path for a backend that does not expose the accelerator (an
+# `execute_read`-only Cypher surface with no id-indexed store beneath it) —
+# for such a backend, an id whose label isn't in this tuple still pays the
+# full unlabeled scan, because there is no generic way to bound an
+# id-equality-in-list Cypher query without either an id index in the query
+# engine itself (a parallel lane's dependency, see `_id_indexed_batch_rows`)
+# or knowing the label in advance. Extending this tuple is still a valid
+# (if narrow) mitigation for that remaining case; it is simply no longer
+# load-bearing for the backend that hit the production incident.
 _LABELED_HYDRATION_CANDIDATES: tuple[str, ...] = (
     "Tool",
     "MCPServer",
     "CallableResource",
     "Skill",
 )
+
+
+def _id_indexed_batch_rows(backend: Any, node_ids: list[str]) -> list[dict[str, Any]]:
+    """Bounded, label-independent ACL-row hydration via the backend's own
+    id-primary-key node store — the fix for the "no id index, only a label
+    index" cliff described on `_durable_access_rows`, without needing an
+    enumerated label allowlist at all.
+
+    Every concrete node store beneath a backend is ALREADY id-keyed for its
+    own CRUD surface — `has_node(id)`, `remove_node(id)`, and (critically)
+    `GraphComputeEngine._get_node_properties_batch(ids)` all resolve by
+    primary key, in ONE round trip for the batch form, with no per-label
+    branching and no full-graph clone. That primitive is not new: it is the
+    SAME one `EpistemicGraphBackend.semantic_search` already uses to
+    hydrate a candidate id set's properties (see that method). What has "no
+    id index" is specifically the CYPHER QUERY PLANNER's `MATCH (n) WHERE
+    n.id IN $ids` form (`GraphCore::get_nodes()`, per the docstring below) —
+    a distinct surface from the node store itself. This function reaches the
+    node store directly, bypassing the query planner (and therefore the
+    label question) entirely.
+
+    Feature-detected via `backend.graph` (the backend's OWN public property
+    exposing its `GraphComputeEngine`, e.g. `EpistemicGraphBackend.graph`)
+    and `_get_node_properties_batch` on it. Absent on any backend that has no
+    such store (a bare `execute_read`-only test double, or a future backend
+    with a genuinely different storage shape) — those degrade to exactly the
+    label-loop-then-unlabeled-scan path that ran before this function
+    existed. Any exception, a non-dict response, or the capability being
+    entirely missing all resolve to "not accelerated", never to a grant or a
+    denial of their own: `_durable_access_rows`'s existing labeled/unlabeled
+    Cypher path (already fail-closed, already covered by the tests in this
+    module) is the sole source of truth whenever this returns a partial or
+    empty result. A node with a genuinely empty property bag is deliberately
+    left unresolved here (falls through to the Cypher path, which returns
+    the same node with the same governance fields all `NULL`, denied the
+    same way) — this function only ever shortcuts a lookup the Cypher path
+    would answer identically, never changes the answer.
+
+    Returns rows in the SAME shape `_durable_access_rows`'s Cypher
+    `return_clause` produces (`id`/`tenant_id`/`classification`/
+    `external_access`/`owner_id`/`shared_scope`) so the caller's existing
+    row-assembly loop handles both sources uniformly — including the
+    existing JSON-vs-native `external_access` normalization. `owner_id`/
+    `shared_scope` are read from the underlying `_owner_id`/`_shared_scope`
+    property names (the literal write-time stamp, per
+    `tenant_sharing.stamp_ownership`) since this path reads raw node
+    properties rather than an aliased Cypher `RETURN`.
+    """
+    if not node_ids:
+        return []
+    node_store = getattr(backend, "graph", None)
+    batch_read = getattr(node_store, "_get_node_properties_batch", None)
+    if not callable(batch_read):
+        return []
+    try:
+        raw = batch_read(list(node_ids))
+    except Exception:  # noqa: BLE001 — accelerator is a pure optimization, never authoritative on failure
+        return []
+    if not isinstance(raw, dict):
+        return []
+    rows: list[dict[str, Any]] = []
+    for node_id in node_ids:
+        props = raw.get(node_id)
+        if not isinstance(props, dict) or not props:
+            continue
+        rows.append(
+            {
+                "id": node_id,
+                "tenant_id": props.get("tenant_id"),
+                "classification": props.get("classification"),
+                "external_access": props.get("external_access"),
+                "owner_id": props.get("_owner_id"),
+                "shared_scope": props.get("_shared_scope"),
+            }
+        )
+    return rows
 
 
 def _verified_actor(actor: ActorContext | None) -> ActorContext:
@@ -89,6 +182,34 @@ def _durable_access_rows(node_ids: list[str]) -> dict[str, dict[str, Any]]:
     backend is a configuration failure, not permission to fall back to N
     per-node reads.
 
+    **SQL-authoritative fast path first** (CONCEPT:AU-KG.ingest.fleet-catalog-acl-projection).
+    The production incident this closes measured two *unlabeled* Cypher full
+    scans per fleet tool (1-4s each, ~12/min) — the label-scoped candidates
+    below already fixed the "unlabeled" half; this fixes the "at all" half
+    for the common case. ``fleet_catalog_tables.catalog_acl_rows`` carries a
+    durable ACL stamp written from the SAME policy
+    (``tenant_sharing.stamp_ownership``/``stamp_classification``) the
+    matching KG node write uses, so for any id it can fully answer for, the
+    Cypher round trip below is skipped entirely. It answers ONLY for an id
+    whose catalog row was written with a real ACL stamp; every other id —
+    not a fleet node, a fleet node the (possibly still-empty, see
+    ``fleet_catalog_tables`` module docstring) catalog hasn't synced yet, or
+    a legacy/un-stamped catalog row — falls through to the Cypher path
+    below completely unchanged, so this can only ever make an id resolve
+    FASTER, never resolve to something the Cypher path would not have
+    granted.
+
+    The SQL query's tenant scope is resolved from the SAME ambient
+    :func:`~...security.brain_context.current_actor` every write-time stamp
+    (:func:`~.fleet_catalog_tables._stamped_acl_fields`) and every other
+    read helper in this module reads — never a caller-suppliable parameter
+    (this function keeps the exact ``(node_ids)`` signature it always had:
+    a graph, tenant, or actor is never accepted as a raw argument here, only
+    ever resolved from verified ambient/session state). No bound actor (an
+    unauthenticated context, or none at all) simply skips the fast path —
+    every id then falls through to the Cypher path exactly as before this
+    existed.
+
     Reads through ``active.backend`` — the SAME authority every node write
     (``IngestionMixin._upsert_node``, used by ``ingest_mcp_server`` and every
     other platform-node ingestion path) targets. Earlier this read
@@ -125,11 +246,35 @@ def _durable_access_rows(node_ids: list[str]) -> dict[str, dict[str, Any]]:
     """
 
     from .engine import IntelligenceGraphEngine
+    from .fleet_catalog_tables import catalog_acl_rows
     from .session import current_session
 
     active = IntelligenceGraphEngine.get_active()
     if active is None:
         return {}
+
+    result: dict[str, dict[str, Any]] = {}
+    remaining = list(dict.fromkeys(node_ids))
+
+    tenant_id = ""
+    try:
+        ambient_actor = current_actor()
+        if getattr(ambient_actor, "authenticated", False):
+            tenant_id = str(getattr(ambient_actor, "tenant_id", "") or "")
+    except Exception:  # noqa: BLE001 — no/invalid ambient actor just skips the fast path
+        tenant_id = ""
+
+    if tenant_id and remaining:
+        try:
+            sql_hits = catalog_acl_rows(active, remaining, tenant_id)
+        except Exception:  # noqa: BLE001 — SQL fast path is a pure optimization, never authoritative on failure
+            sql_hits = {}
+        if sql_hits:
+            result.update(sql_hits)
+            remaining = [node_id for node_id in remaining if node_id not in sql_hits]
+
+    if not remaining:
+        return result
 
     session = current_session()
     requested_graph = (
@@ -183,8 +328,24 @@ def _durable_access_rows(node_ids: list[str]) -> dict[str, dict[str, Any]]:
         "n.external_access AS external_access, n._owner_id AS owner_id, "
         "n._shared_scope AS shared_scope"
     )
-    remaining = list(dict.fromkeys(node_ids))
     rows: list[dict[str, Any]] = []
+
+    # Primary defense against the O(graph) unlabeled scan below: a bounded,
+    # label-independent id lookup through the backend's own node store (see
+    # `_id_indexed_batch_rows`'s docstring). Resolves ANY label, including one
+    # never added to `_LABELED_HYDRATION_CANDIDATES` — e.g. `Preference`.
+    # Purely additive: whatever it cannot resolve (capability absent,
+    # transient failure, or a genuinely property-empty node) falls straight
+    # through to the labeled/unlabeled Cypher path exactly as if this call
+    # had never run.
+    accelerated_rows = _id_indexed_batch_rows(backend, remaining)
+    if accelerated_rows:
+        rows.extend(accelerated_rows)
+        resolved_by_accelerator = {row["id"] for row in accelerated_rows}
+        remaining = [
+            node_id for node_id in remaining if node_id not in resolved_by_accelerator
+        ]
+
     try:
         for candidate_label in _LABELED_HYDRATION_CANDIDATES:
             if not remaining:
@@ -220,7 +381,9 @@ def _durable_access_rows(node_ids: list[str]) -> dict[str, dict[str, Any]]:
     except Exception as exc:
         raise PermissionError("Durable ACL hydration query failed") from exc
 
-    result: dict[str, dict[str, Any]] = {}
+    # `result` was pre-seeded above with the SQL fast path's hits (for a
+    # disjoint id set — `remaining` never contained an id SQL already
+    # answered), so this only ever ADDS entries, never overwrites one.
     for row in rows:
         if not isinstance(row, dict):
             raise PermissionError("Durable ACL hydration response is invalid")

@@ -19,7 +19,9 @@ arbitrary SQL.
 
 from __future__ import annotations
 
+import contextvars
 import re
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -132,7 +134,7 @@ class _FakeGraphCompute:
 
     Beyond the original CAS-shaped statements, this fake also has to model
     enough of the real engine's ``information_schema.columns`` / ``ALTER
-    TABLE ADD COLUMN`` / ``INSERT ... ON CONFLICT`` behavior for the
+    TABLE ADD COLUMN`` behavior for the
     migration path (``fleet_catalog_tables._claim_and_migrate``) to be
     meaningfully exercised:
 
@@ -145,8 +147,9 @@ class _FakeGraphCompute:
       column set raises — reproducing the real engine rejecting a write
       against an undeclared column, which is exactly NE-052's reported
       defect against a legacy pre-tenant-scope store.
-    * ``INSERT ... ON CONFLICT (id) DO NOTHING`` / ``DO UPDATE SET ...`` is
-      understood, needed for the migration ledger's claim/finalize writes.
+    * ``INSERT ... ON CONFLICT ...`` is REFUSED, matching the deployed
+      engine, whose SQL tier ignores the clause and raises a duplicate-key
+      error for every form of it.
     """
 
     def __init__(self) -> None:
@@ -248,53 +251,36 @@ class _FakeGraphCompute:
             return []
 
         if head == "INSERT":
-            base, _, conflict_clause = statement.partition(" ON CONFLICT ")
-            m = re.match(r"INSERT INTO (\w+) \((.*?)\) VALUES (.*)$", base, re.DOTALL)
+            # The REAL engine ignores an ``ON CONFLICT`` clause entirely —
+            # every form raises the same duplicate-key error a bare INSERT
+            # does (measured live 2026-08-25 against the deployed engine).
+            # This fake used to IMPLEMENT the clause, which is precisely why
+            # the migration-ledger claim's dependence on it went unnoticed
+            # until it broke every fleet-catalog write in production. A fake
+            # that is more capable than the thing it stands in for cannot
+            # catch that class of bug, so emitting the clause is now a hard
+            # failure here.
+            assert " ON CONFLICT " not in statement, (
+                "the engine's SQL tier does not support ON CONFLICT; use a "
+                f"read-then-write instead: {statement}"
+            )
+            m = re.match(
+                r"INSERT INTO (\w+) \((.*?)\) VALUES (.*)$", statement, re.DOTALL
+            )
             assert m, f"unrecognized INSERT: {statement}"
             table, cols_str, values_str = m.groups()
             cols = [c.strip() for c in cols_str.split(",")]
             self._row_columns(table, cols)
             store = self.tables.setdefault(table, {})
 
-            conflict_action: tuple[str, str] | None = None
-            if conflict_clause:
-                clause = conflict_clause.strip()
-                if re.match(r"\(\w+\)\s+DO NOTHING$", clause, re.IGNORECASE):
-                    conflict_action = ("nothing", "")
-                else:
-                    um = re.match(
-                        r"\(\w+\)\s+DO UPDATE SET\s+(.*)$",
-                        clause,
-                        re.IGNORECASE | re.DOTALL,
-                    )
-                    assert um, f"unrecognized ON CONFLICT clause: {conflict_clause}"
-                    conflict_action = ("update", um.group(1))
-
             for row_str in _extract_value_rows(values_str):
                 vals = [_parse_literal(t) for t in _split_top(row_str)]
                 row = dict(zip(cols, vals, strict=True))
-                row_id = str(row.get("id"))
-                if row_id in store:
-                    if conflict_action is None:
-                        # No pre-existing test relies on a bare duplicate-id
-                        # INSERT raising (the tenant-collision test writes
-                        # the same id for two tenants and expects the fake's
-                        # historical blind-overwrite tolerance), so this
-                        # stays a tolerant overwrite here — only an explicit
-                        # ON CONFLICT clause (used exclusively by the
-                        # migration ledger) gets real conflict semantics.
-                        store[row_id] = row
-                        continue
-                    kind, set_clause = conflict_action
-                    if kind == "nothing":
-                        continue
-                    existing = dict(store[row_id])
-                    for pair in _split_top(set_clause):
-                        col, _, lit = pair.partition("=")
-                        existing[col.strip()] = _parse_literal(lit.strip())
-                    store[row_id] = existing
-                    continue
-                store[row_id] = row
+                # A bare duplicate-id INSERT stays a tolerant overwrite: the
+                # tenant-collision test writes the same id for two tenants
+                # and depends on it. Only the ON CONFLICT assertion above
+                # was tightened.
+                store[str(row.get("id"))] = row
             return {"ok": True}
 
         if head == "UPDATE":
@@ -976,11 +962,13 @@ def test_losing_claim_while_another_process_still_migrating_is_a_noop_not_an_err
     gc = eng.graph_compute
     gc.sql_exec(fct._LEDGER_DDL)
     # Another process already claimed the migration and has not finished.
+    # The claim is a LEASE (`_MIGRATION_CLAIM_LEASE_SEC`), so a LIVE claim
+    # must be stamped now — a fixed past date would model an ABANDONED one.
     gc.tables[fct._MIGRATION_LEDGER][fct._LOCK_ROW_ID] = {
         "id": fct._LOCK_ROW_ID,
         "status": "migrating",
         "claimant": "other-process-token",
-        "claimed_at": "2026-08-20T00:00:00+00:00",
+        "claimed_at": datetime.now(UTC).isoformat(),
         "version": 0,
         "migration_id": "",
         "checksum": "",
@@ -1282,3 +1270,557 @@ def test_get_skill_row_returns_the_current_row():
         row = fct.get_skill_row(eng, skill_id=bound_id)
     assert row is not None
     assert row["name"] == "foo"
+
+
+# ---------------------------------------------------------------------------
+# NE-0XX / AU-CATALOG-ACL: the ACL-projection migration step (0004) and the
+# writer-side ACL stamp it backs -- CONCEPT:AU-KG.ingest.fleet-catalog-acl-projection.
+# ---------------------------------------------------------------------------
+
+# The exact pre-ACL-projection shape of the 3 affected tables, AS AN
+# ALTER-TABLE-MIGRATED STORE WOULD ACTUALLY CARRY IT -- i.e. this module's
+# own ``_DDL`` as it stood immediately before this change (steps 0001-0003
+# applied, step 0004 not yet invented). This is the REALISTIC production
+# case the task description calls out: ``fleet-tool-schema-sync`` already
+# ran under the prior code version, so these tables are genuinely deployed
+# with real rows, just missing the new ACL columns.
+#
+# ``mcp_servers`` is deliberately NOT the clean 9-column shape a genuinely
+# FRESH ``CREATE TABLE`` produces under the pre-ACL ``_DDL`` text: this
+# module's migration mechanism is additive-only (``ALTER TABLE ADD COLUMN``
+# never drops a column), so a store that reached "current" via the real
+# ledgered migration path (:data:`fct._MIGRATION_COLUMN_STEPS`, step
+# ``0001_tenant_revision_idempotency``, the only step that ever touches
+# ``mcp_servers``) still carries its pre-NE-007 observed-discovery columns
+# (``reachable``/``last_probe_at``/... -- see :data:`fct._LEGACY_SCHEMA_COLUMNS`)
+# forever, since those moved to the new ``mcp_server_discovery`` table
+# without ever being physically dropped from an already-migrated
+# ``mcp_servers``. That 16-column shape (legacy 13 + step 1's 3) is what
+# :func:`fct._is_reachable_state` actually recognizes as "already migrated,
+# pre-ACL" for this table.
+_PRE_ACL_DDL: dict[str, str] = {
+    fct.TABLE_MCP_SERVERS: """CREATE TABLE IF NOT EXISTS mcp_servers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    transport TEXT NOT NULL,
+    url TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL,
+    reachable BOOLEAN NOT NULL,
+    last_probe_at TEXT NOT NULL,
+    last_error TEXT NOT NULL,
+    tool_count BIGINT NOT NULL,
+    skill_count BIGINT NOT NULL,
+    prompt_count BIGINT NOT NULL,
+    resource_count BIGINT NOT NULL,
+    updated_at TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    revision BIGINT NOT NULL,
+    idempotency_key TEXT NOT NULL
+)""",
+    fct.TABLE_MCP_TOOLS: """CREATE TABLE IF NOT EXISTS mcp_tools (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    server_id TEXT NOT NULL,
+    server_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    input_schema TEXT NOT NULL,
+    schema_digest TEXT NOT NULL,
+    tool_mode TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL,
+    discovery_authority_kind TEXT NOT NULL,
+    discovery_principal TEXT NOT NULL,
+    discovery_grant_digest TEXT NOT NULL,
+    revision BIGINT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+)""",
+    fct.TABLE_SKILLS: """CREATE TABLE IF NOT EXISTS skills (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    uri TEXT NOT NULL,
+    skill_type TEXT NOT NULL,
+    classification TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    mcp_server TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL,
+    discovery_authority_kind TEXT NOT NULL,
+    discovery_principal TEXT NOT NULL,
+    discovery_grant_digest TEXT NOT NULL,
+    revision BIGINT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+)""",
+}
+
+
+def _seed_step3_store(eng: _FakeEngine) -> None:
+    """Stand up a store already fully migrated through step 0003 -- exactly
+    the shape this module shipped in before the ACL-projection change, with
+    real pre-existing rows (a desired server, a discovery-bound tool, a
+    discovery-bound skill)."""
+    gc = eng.graph_compute
+    for ddl in _PRE_ACL_DDL.values():
+        gc.sql_exec(ddl)
+    gc.tables[fct.TABLE_MCP_SERVERS]["mcp_server_srv"] = {
+        "id": "mcp_server_srv",
+        "tenant_id": "tenant-a",
+        "name": "srv",
+        "transport": "stdio",
+        "url": "",
+        "enabled": True,
+        "reachable": True,
+        "last_probe_at": "2026-01-01T00:00:00+00:00",
+        "last_error": "",
+        "tool_count": 1,
+        "skill_count": 0,
+        "prompt_count": 0,
+        "resource_count": 0,
+        "revision": 1,
+        "idempotency_key": "seed-server",
+        "updated_at": "2026-01-01T00:00:00+00:00",
+    }
+    gc.tables[fct.TABLE_MCP_TOOLS]["tool_srv_t1__grant-digest-1"] = {
+        "id": "tool_srv_t1__grant-digest-1",
+        "tenant_id": "tenant-a",
+        "server_id": "mcp_server_srv",
+        "server_name": "srv",
+        "name": "t1",
+        "description": "an existing tool",
+        "input_schema": '{"properties": {}}',
+        "schema_digest": fct._schema_digest({"properties": {}}),
+        "tool_mode": "verbose",
+        "enabled": True,
+        "discovery_authority_kind": fct.DISCOVERY_AUTHORITY_OAUTH_GRANT,
+        "discovery_principal": "principal:probe",
+        "discovery_grant_digest": "grant-digest-1",
+        "revision": 1,
+        "idempotency_key": "seed-tool",
+        "updated_at": "2026-01-01T00:00:00+00:00",
+    }
+    gc.tables[fct.TABLE_SKILLS]["skill_srv_s1__tenant_local"] = {
+        "id": "skill_srv_s1__tenant_local",
+        "tenant_id": "tenant-a",
+        "name": "s1",
+        "description": "an existing skill",
+        "uri": "skill://srv/s1",
+        "skill_type": "mcp_skill",
+        "classification": "MCP Skill",
+        "provider": "mcp:srv",
+        "mcp_server": "srv",
+        "enabled": True,
+        "discovery_authority_kind": fct.DISCOVERY_AUTHORITY_TENANT_LOCAL,
+        "discovery_principal": "",
+        "discovery_grant_digest": "",
+        "revision": 1,
+        "idempotency_key": "seed-skill",
+        "updated_at": "2026-01-01T00:00:00+00:00",
+    }
+
+
+def test_acl_projection_migration_adds_columns_to_an_already_deployed_step3_store():
+    """The case that actually matters in production: these tables are
+    ALREADY DEPLOYED at the pre-ACL (0001-0003) shape from
+    ``fleet-tool-schema-sync`` runs before this change -- ``CREATE TABLE IF
+    NOT EXISTS`` is a silent no-op against them (module docstring), so only
+    the ledgered ``ALTER TABLE`` path can bring them forward. Proves step
+    0004 does exactly that, without touching -- let alone dropping -- the
+    pre-existing rows or their other columns."""
+    eng = _FakeEngine()
+    _seed_step3_store(eng)
+    gc = eng.graph_compute
+
+    assert "acl_classification" not in gc.columns[fct.TABLE_MCP_SERVERS]
+    assert "kg_node_id" not in gc.columns[fct.TABLE_MCP_TOOLS]
+
+    with use_actor(_session("tenant-a").actor), use_session(_session("tenant-a")):
+        ok = fct.ensure_fleet_catalog_tables(eng)
+    assert ok is True
+
+    for table in (fct.TABLE_MCP_SERVERS, fct.TABLE_MCP_TOOLS, fct.TABLE_SKILLS):
+        assert {"acl_classification", "acl_owner_id", "acl_shared_scope"} <= gc.columns[
+            table
+        ]
+    assert "kg_node_id" in gc.columns[fct.TABLE_MCP_TOOLS]
+    assert "kg_node_id" in gc.columns[fct.TABLE_SKILLS]
+    # mcp_servers never needed kg_node_id -- its own `id` already IS the KG
+    # node id (a server row is never suffixed with a discovery-grant digest).
+    assert "kg_node_id" not in gc.columns[fct.TABLE_MCP_SERVERS]
+
+    # Pre-existing data survived untouched.
+    server_row = gc.tables[fct.TABLE_MCP_SERVERS]["mcp_server_srv"]
+    assert server_row["name"] == "srv"
+    assert server_row["revision"] == 1
+
+    # kg_node_id was deterministically reconstructed by stripping the exact
+    # recorded discovery_grant_digest suffix off the row's own `id`.
+    tool_row = gc.tables[fct.TABLE_MCP_TOOLS]["tool_srv_t1__grant-digest-1"]
+    assert tool_row["kg_node_id"] == "tool_srv_t1"
+    skill_row = gc.tables[fct.TABLE_SKILLS]["skill_srv_s1__tenant_local"]
+    assert skill_row["kg_node_id"] == "skill_srv_s1"
+
+    # ACL columns are deliberately left NULL for a pre-existing row -- there
+    # is no verified actor context to recover retroactively. NULL is what
+    # tells a reader "SQL has no opinion", never "unrestricted".
+    assert not tool_row.get("acl_classification")
+    assert not tool_row.get("acl_owner_id")
+    assert not skill_row.get("acl_classification")
+    assert not server_row.get("acl_classification")
+
+    ledger_row = gc.tables[fct._MIGRATION_LEDGER]["step__0004_acl_projection_columns"]
+    assert ledger_row["status"] == "applied"
+    assert ledger_row["checksum"] == fct._step_checksum(
+        "0004_acl_projection_columns", dict(fct._ACL_PROJECTION_MIGRATION)
+    )
+
+    # A write against this now-migrated store succeeds (the regression this
+    # closes: an already-deployed store must not fail at INSERT time
+    # referencing columns it lacked before this step ran).
+    with use_actor(_session("tenant-a").actor), use_session(_session("tenant-a")):
+        result = _write_fleet_catalog(eng, _server_catalog())
+    assert result["status"] == "ok"
+
+
+# The OTHER way a store legitimately arrives at the pre-ACL shape, and the
+# one the comment above ``_PRE_ACL_DDL`` wrongly assumed could not happen in
+# production: a store CREATED FRESH by the pre-ACL code version. Its
+# ``CREATE TABLE`` was the then-current DDL text, so ``mcp_servers`` is the
+# clean 9-column shape -- it never had the retired pre-NE-007
+# observed-discovery columns at all, and so matches neither
+# ``_LEGACY_SCHEMA_COLUMNS`` nor any forward accumulation from it.
+_FRESH_PRE_ACL_DDL: dict[str, str] = {
+    fct.TABLE_MCP_SERVERS: """CREATE TABLE IF NOT EXISTS mcp_servers (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    transport TEXT NOT NULL,
+    url TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL,
+    revision BIGINT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+)""",
+    fct.TABLE_MCP_TOOLS: _PRE_ACL_DDL[fct.TABLE_MCP_TOOLS],
+    fct.TABLE_SKILLS: _PRE_ACL_DDL[fct.TABLE_SKILLS],
+}
+
+
+def test_fresh_created_pre_acl_store_is_migrated_not_reported_diverged():
+    """ROOT-CAUSE REGRESSION (measured live 2026-08-25 on graph-os).
+
+    ``_is_reachable_state`` modelled only "migrated up from the pre-NE-007
+    legacy shape", so a store whose ``mcp_servers`` was CREATED FRESH at
+    step 0003 -- today's shape minus step 0004's ACL columns, and without
+    the retired legacy observed-discovery columns -- matched nothing and was
+    declared diverged. ``ensure_fleet_catalog_tables`` then raised,
+    ``source_sync._write_fleet_relational`` caught it, and the ENTIRE
+    relational catalog write was silently skipped on every sync while the KG
+    node write succeeded -- the dashboard kept reading a months-stale
+    catalog. The fix must recognize this shape and migrate it forward.
+    """
+    eng = _FakeEngine()
+    gc = eng.graph_compute
+    for ddl in _FRESH_PRE_ACL_DDL.values():
+        gc.sql_exec(ddl)
+    for ddl in (
+        fct._DDL[fct.TABLE_MCP_SERVER_DISCOVERY],
+        fct._DDL[fct.TABLE_MCP_PROMPTS],
+        fct._DDL[fct.TABLE_MCP_RESOURCES],
+    ):
+        gc.sql_exec(ddl)
+
+    assert gc.columns[fct.TABLE_MCP_SERVERS] == {
+        "id",
+        "tenant_id",
+        "name",
+        "transport",
+        "url",
+        "enabled",
+        "revision",
+        "idempotency_key",
+        "updated_at",
+    }
+
+    with use_actor(_session("tenant-a").actor), use_session(_session("tenant-a")):
+        ok = fct.ensure_fleet_catalog_tables(eng)
+    assert ok is True
+    assert {"acl_classification", "acl_owner_id", "acl_shared_scope"} <= gc.columns[
+        fct.TABLE_MCP_SERVERS
+    ]
+
+    # And the write that was being skipped now actually lands.
+    with use_actor(_session("tenant-a").actor), use_session(_session("tenant-a")):
+        result = _write_fleet_catalog(eng, _server_catalog())
+    assert result["status"] == "ok"
+    assert result["tools_written"] == 1
+
+
+def test_an_abandoned_migration_claim_is_taken_over_not_waited_on_forever():
+    """A migrator that dies mid-step leaves its `migrating` ledger row
+    behind. Measured live 2026-08-25: the graph-os container was OOM-killed
+    while applying step 0004, leaving a half-applied schema AND a claim no
+    process held. Treating that as live wedges the store permanently and
+    every fleet-catalog write stays skipped, so the claim is a lease."""
+    eng = _FakeEngine()
+    _seed_legacy_store(eng)
+    gc = eng.graph_compute
+    gc.sql_exec(fct._LEDGER_DDL)
+    stale = datetime.now(UTC) - timedelta(seconds=fct._MIGRATION_CLAIM_LEASE_SEC + 60)
+    gc.tables[fct._MIGRATION_LEDGER][fct._LOCK_ROW_ID] = {
+        "id": fct._LOCK_ROW_ID,
+        "status": "migrating",
+        "claimant": "token-of-a-process-that-died",
+        "claimed_at": stale.isoformat(),
+        "version": 0,
+        "migration_id": "",
+        "checksum": "",
+        "applied_at": "",
+    }
+    assert fct._claim_and_migrate(eng) is True
+    assert any(s.startswith("ALTER TABLE") for s in gc.statements)
+    assert gc.tables[fct._MIGRATION_LEDGER][fct._LOCK_ROW_ID]["status"] == "complete"
+
+
+def test_an_unreadable_claim_timestamp_is_treated_as_abandoned():
+    """Never wedge on a value that cannot be interpreted."""
+    assert fct._claim_is_live({"claimed_at": ""}) is False
+    assert fct._claim_is_live({"claimed_at": "not-a-timestamp"}) is False
+    assert fct._claim_is_live({"claimed_at": datetime.now(UTC).isoformat()}) is True
+
+
+def test_large_batches_are_chunked_not_one_giant_statement_nor_one_per_row():
+    """Batched writing must stay batched, but bounded. The live fleet probes
+    ~9,600 tools; rendering all of them into ONE `INSERT ... VALUES` built a
+    multi-megabyte statement that OOM-killed the graph-os container
+    (measured 2026-08-25). Chunking keeps it a handful of statements, never
+    one per row."""
+    eng = _FakeEngine()
+    n = fct._MAX_ROWS_PER_STATEMENT * 2 + 7
+    catalog = {
+        "srv": {
+            "error": None,
+            "tools": [
+                {"name": f"t{i}", "description": "d", "inputSchema": {}}
+                for i in range(n)
+            ],
+            "skills": [],
+            "prompts": [],
+        }
+    }
+    with use_actor(_session("tenant-a").actor), use_session(_session("tenant-a")):
+        result = _write_fleet_catalog(eng, catalog)
+    assert result["tools_written"] == n
+
+    tool_inserts = [
+        s
+        for s in eng.graph_compute.statements
+        if s.startswith(f"INSERT INTO {fct.TABLE_MCP_TOOLS} ")
+    ]
+    tool_selects = [
+        s
+        for s in eng.graph_compute.statements
+        if s.startswith(f"SELECT * FROM {fct.TABLE_MCP_TOOLS} ")
+    ]
+    assert len(tool_inserts) == 3
+    assert len(tool_selects) == 3
+    for statement in tool_inserts:
+        assert statement.count("), (") + 1 <= fct._MAX_ROWS_PER_STATEMENT
+
+
+def test_a_completed_ledger_row_does_not_veto_the_next_migration_step():
+    """SECOND ROOT CAUSE (measured live 2026-08-25 on platform/graph-os).
+
+    Every real store that has ever finished a migration carries a
+    ``schema_state`` ledger row marked ``complete``. Claiming the lock for
+    the NEXT step used ``INSERT ... ON CONFLICT (id) DO NOTHING`` against
+    that row — and the engine's SQL tier ignores the clause, raising a bare
+    duplicate-key error straight out of ``ensure_fleet_catalog_tables``. Even
+    had the clause worked, the claim would have been a silent no-op and the
+    re-read would have taken the "someone else already finished"
+    short-circuit, returning success having applied nothing — and the write
+    would then have failed at INSERT time on the very columns the skipped
+    step adds. The claim must take over a completed row and run the step.
+    """
+    eng = _FakeEngine()
+    gc = eng.graph_compute
+    for ddl in _FRESH_PRE_ACL_DDL.values():
+        gc.sql_exec(ddl)
+    for table in (
+        fct.TABLE_MCP_SERVER_DISCOVERY,
+        fct.TABLE_MCP_PROMPTS,
+        fct.TABLE_MCP_RESOURCES,
+    ):
+        gc.sql_exec(fct._DDL[table])
+    gc.sql_exec(fct._LEDGER_DDL)
+    gc.tables[fct._MIGRATION_LEDGER] = {
+        fct._LOCK_ROW_ID: {
+            "id": fct._LOCK_ROW_ID,
+            "status": "complete",
+            "claimant": "",
+            "claimed_at": "2026-08-20T22:52:56+00:00",
+            "version": fct._SCHEMA_VERSION_CURRENT,
+            "migration_id": fct._CURRENT_MARKER,
+            "checksum": "a-digest-from-when-this-shape-WAS-current",
+            "applied_at": "2026-08-20T22:52:56+00:00",
+        }
+    }
+
+    with use_actor(_session("tenant-a").actor), use_session(_session("tenant-a")):
+        assert fct.ensure_fleet_catalog_tables(eng) is True
+
+    assert {"acl_classification", "acl_owner_id", "acl_shared_scope"} <= gc.columns[
+        fct.TABLE_MCP_SERVERS
+    ]
+    assert (
+        gc.tables[fct._MIGRATION_LEDGER]["step__0004_acl_projection_columns"]["status"]
+        == "applied"
+    )
+    assert gc.tables[fct._MIGRATION_LEDGER][fct._LOCK_ROW_ID]["status"] == "complete"
+    # And no statement reached the engine carrying a clause it cannot honor.
+    assert not [s for s in gc.statements if " ON CONFLICT " in s]
+
+
+def test_unbound_unreachable_server_still_records_a_failure_observation():
+    """BUG-PE-056. A failed probe never gets a discovery binding (the
+    multiplexer mints one only for ``info["error"] is None``), so it used to
+    produce NO ``mcp_server_discovery`` row at all -- making "unavailable"
+    indistinguishable from "empty" to the dashboard, which reads
+    ``tool_count`` off that row. A failure observation exposes no discovered
+    capability, so it is recorded under the process-owned tenant-local
+    visibility contract with empty principal/grant fields. Derived rows
+    (tools/skills/prompts/resources) stay unwritten, exactly as before."""
+    eng = _FakeEngine()
+    catalog = _server_catalog(error="econnrefused: no route to host")
+    with use_actor(_session("tenant-a").actor), use_session(_session("tenant-a")):
+        result = fct.write_fleet_catalog(eng, catalog, discovery_bindings=None)
+
+    assert result["status"] == "ok"
+    assert result["servers_unreachable"] == 1
+    assert result["discovery_written"] == 1
+    row = next(iter(eng.graph_compute.tables[fct.TABLE_MCP_SERVER_DISCOVERY].values()))
+    assert row["reachable"] is False
+    assert "econnrefused" in row["last_error"]
+    assert row["tenant_id"] == "tenant-a"
+    assert row["discovery_authority_kind"] == fct.DISCOVERY_AUTHORITY_TENANT_LOCAL
+    assert row["discovery_principal"] == ""
+    assert row["discovery_grant_digest"] == ""
+    # No unbound capability row was created as a side effect.
+    assert not eng.graph_compute.tables[fct.TABLE_MCP_TOOLS]
+    assert not eng.graph_compute.tables[fct.TABLE_SKILLS]
+
+
+def test_unbound_reachable_server_still_writes_no_derived_rows():
+    """The authority model is unchanged for a SUCCESSFUL probe with no
+    binding: no discovery row, no tool rows. BUG-PE-056's exception is
+    scoped strictly to a failure observation."""
+    eng = _FakeEngine()
+    with use_actor(_session("tenant-a").actor), use_session(_session("tenant-a")):
+        result = fct.write_fleet_catalog(
+            eng, _server_catalog(), discovery_bindings=None
+        )
+    assert result["discovery_written"] == 0
+    assert not eng.graph_compute.tables[fct.TABLE_MCP_SERVER_DISCOVERY]
+    assert not eng.graph_compute.tables[fct.TABLE_MCP_TOOLS]
+
+
+def test_diverged_schema_still_detected_with_the_new_acl_columns_present():
+    """The divergence guard must still fire on a hand-modified store even
+    after the schema's current shape grew to include the ACL-projection
+    columns -- growing by 4 legitimate columns must never be read as license
+    to also accept an arbitrary 5th, unrecognized one."""
+    eng = _FakeEngine()
+    gc = eng.graph_compute
+    for ddl in fct._DDL.values():
+        gc.sql_exec(ddl)
+    gc.columns[fct.TABLE_MCP_TOOLS].add("mystery_acl_column")
+    with pytest.raises(fct.FleetCatalogSchemaDivergedError):
+        fct._claim_and_migrate(eng)
+
+
+def test_too_new_ledger_still_refused_after_the_acl_step_exists():
+    """A ledger recording a migration this code version does not know about
+    is still refused exactly as before step 0004 was added -- adding a new
+    KNOWN step must never widen what counts as recognized."""
+    eng = _FakeEngine()
+    gc = eng.graph_compute
+    for ddl in fct._DDL.values():
+        gc.sql_exec(ddl)
+    gc.sql_exec(fct._LEDGER_DDL)
+    gc.tables[fct._MIGRATION_LEDGER][fct._LOCK_ROW_ID] = {
+        "id": fct._LOCK_ROW_ID,
+        "status": "complete",
+        "claimant": "",
+        "claimed_at": "2030-01-01T00:00:00+00:00",
+        "version": 99,
+        "migration_id": "0005_from_a_future_release",
+        "checksum": "deadbeef",
+        "applied_at": "2030-01-01T00:00:00+00:00",
+    }
+    with pytest.raises(fct.FleetCatalogSchemaTooNewError):
+        fct._claim_and_migrate(eng)
+
+
+def test_write_fleet_catalog_stamps_acl_projection_fields_from_the_write_time_actor():
+    """The writer stamps ``acl_classification``/``acl_owner_id``/
+    ``acl_shared_scope`` from the SAME policy
+    (``tenant_sharing.stamp_ownership``/``stamp_classification``) the
+    matching KG node write uses for these labels -- neither "MCPServer" nor
+    "Tool" is a PUBLIC_CATALOG_LABEL, so the classification stays
+    ``confidential`` and the owner marker still names the writer.
+
+    ``acl_shared_scope`` is ``org``, not ``private``: ``_session`` mints an
+    ``ActorType.AUTOMATED_SERVICE`` actor, and ``stamp_ownership`` now scopes
+    a service write to the org by ACTOR TYPE rather than by the writer's
+    current ``kg:admin`` role (see ``test_tenant_sharing.py``
+    ``::test_stamp_ownership_service_is_org_scoped_regardless_of_privilege``).
+    The fleet tool catalog is exactly the platform data that change exists
+    for -- deciding its durable visibility from a mutable IdP role is what
+    orphaned 23,994 rows behind the engine's row-level owner check during a
+    two-day role outage. The owner marker is retained as provenance; an
+    explicit ``org`` scope is what the row-visibility check reads."""
+    eng = _FakeEngine()
+    with use_actor(_session("tenant-a", actor_id="sync-actor").actor), use_session(
+        _session("tenant-a", actor_id="sync-actor")
+    ):
+        _write_fleet_catalog(eng, _server_catalog())
+    server_row = eng.graph_compute.tables[fct.TABLE_MCP_SERVERS]["mcp_server_srv"]
+    tool_row = _one_row(fct.TABLE_MCP_TOOLS, "tool_srv_t1", eng)
+
+    assert server_row["acl_classification"] == "confidential"
+    assert server_row["acl_owner_id"] == "sync-actor"
+    assert server_row["acl_shared_scope"] == "org"
+    assert tool_row["acl_classification"] == "confidential"
+    assert tool_row["acl_owner_id"] == "sync-actor"
+    assert tool_row["acl_shared_scope"] == "org"
+    assert tool_row["kg_node_id"] == "tool_srv_t1"
+
+
+def test_write_fleet_catalog_leaves_acl_projection_null_without_a_verified_actor():
+    """No ambient actor bound at write time must not crash the catalog write
+    -- it simply carries no SQL-authoritative ACL yet, exactly like a legacy
+    pre-migration row. The suite-wide ``isolate_graph_compute_engine``
+    fixture binds a real ambient actor for every test by default, so this
+    runs in a genuinely fresh :class:`contextvars.Context` (the same
+    technique ``test_secured_reads.test_missing_identity_fails_closed``
+    uses) to actually get an unbound one, rather than a session with no
+    actor at all (not otherwise reachable through this suite)."""
+    eng = _FakeEngine()
+
+    def _write_without_an_actor():
+        with use_session(_session("tenant-a")):
+            # `use_session` alone does not bind `current_actor()`.
+            return fct.write_fleet_catalog(
+                eng,
+                _server_catalog(),
+                discovery_bindings={
+                    "srv": fct.TenantLocalDiscoveryBinding(tenant_id="tenant-a")
+                },
+            )
+
+    result = contextvars.Context().run(_write_without_an_actor)
+    assert result["status"] == "ok"
+    tool_row = _one_row(fct.TABLE_MCP_TOOLS, "tool_srv_t1", eng)
+    assert tool_row.get("acl_classification") is None
+    assert tool_row.get("acl_owner_id") is None

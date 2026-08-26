@@ -109,6 +109,44 @@ class _NativeOccRetryBudgetExhausted(RuntimeError):
         self.conflicts = tuple(conflicts)
 
 
+#: Greppable marker embedded in the message of
+#: :class:`_PartialMaterializationRetriesExhausted` so a caller reached only
+#: through the synthesized ``RuntimeError`` that :func:`ingest_graph_slice`
+#: raises on a non-success status (e.g. ``source_sync._write_fleet_slice``)
+#: can still tell "the engine was still materializing and gave up after
+#: bounded retries" apart from a genuine content rejection, without
+#: re-parsing engine wire payloads. Exported (not underscore-only in intent,
+#: just following this module's existing private-cross-import convention —
+#: see ``_retryable_partial_materialization`` reused from ``engine_tasks.py``)
+#: for ``source_sync.py`` to import and match against ``str(exc)``.
+PARTIAL_MATERIALIZATION_RETRIES_EXHAUSTED_MARKER = (
+    "PARTIAL_MATERIALIZATION_RETRIES_EXHAUSTED"
+)
+
+
+class _PartialMaterializationRetriesExhausted(RuntimeError):
+    """A retryable PARTIAL_MATERIALIZATION signal never cleared in time.
+
+    Raised by :func:`ingest_envelope` only after
+    :func:`~agent_utilities.knowledge_graph.core.engine_tasks._retryable_partial_materialization`
+    matched the engine's exact wire payload on every attempt, and one of the
+    three bounded-resume stop conditions fired (mirrors
+    ``pipeline/runner.py``'s ``_MATERIALIZATION_MAX_ATTEMPTS`` resume loop):
+    the attempt budget ran out, the ``completeness_cursor`` stopped advancing,
+    or ``source_snapshot_version`` changed mid-resume. This is DELIBERATELY
+    NOT the same outcome as a genuine engine rejection (bad content, policy
+    denial): the row was never judged unacceptable, the engine just never
+    finished materializing within budget. Callers MUST NOT treat this the
+    same as a content rejection — e.g. never cache the row as permanently
+    known-bad from this signal alone.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(
+            f"{PARTIAL_MATERIALIZATION_RETRIES_EXHAUSTED_MARKER}: {message}"
+        )
+
+
 class NativeChangeEnvelopeEngineProxy:
     """Make batch-producing connectors use the native envelope boundary.
 
@@ -185,6 +223,32 @@ _CURSOR_READ_LIVE = object()
 _NATIVE_OCC_MAX_ATTEMPTS = 8
 _NATIVE_OCC_BACKOFF_BASE_SECONDS = 0.001
 _NATIVE_OCC_BACKOFF_CAP_SECONDS = 0.01
+
+# Bounded resume for the engine's retryable PARTIAL_MATERIALIZATION signal
+# (a catalog-known graph deliberately rejects every operation while its
+# bounded lazy-open rebuild is incomplete — availability state, not an
+# ingestion failure). Same fixed-constant discipline, and the SAME values, as
+# ``pipeline/runner.py``'s ``_MATERIALIZATION_MAX_ATTEMPTS`` /
+# ``_MATERIALIZATION_RETRY_DELAY_S`` (a sibling lane's fix for the identical
+# wire payload at the pipeline-phase granularity) — reused by value rather
+# than imported so this module keeps its existing no-cross-layer-import shape
+# (``pipeline`` depends on ``ingestion``, not the reverse). A hardcoded module
+# constant, never an env knob (Configuration discipline).
+#
+# This retry is paid ONCE per ``ingest_envelope`` call, whatever granularity
+# that call happens to be invoked at. ``source_sync._write_fleet_slice``
+# calls into this through ``ingest_graph_slice`` with the ENTIRE fleet-catalog
+# slice packed into ONE envelope at the top of its bisection tree, so in the
+# steady state (the engine finishes materializing within the budget below)
+# the whole ~1,372-row slice lands after this ONE bounded wait — never a
+# per-row retry loop. ``_write_fleet_slice`` deliberately does not bisect
+# further on this exact signal (seeing
+# ``PARTIAL_MATERIALIZATION_RETRIES_EXHAUSTED_MARKER`` in the propagated
+# error) precisely so that, even in the worst case, this budget is paid a
+# small constant number of times — not once per row.
+_MATERIALIZATION_MAX_ATTEMPTS = 8
+_MATERIALIZATION_RETRY_DELAY_S = 1.0
+_MATERIALIZATION_UNSET = object()
 _NATIVE_OCC_CONFLICT_RE = re.compile(
     r"\b(?:STALE_GRAPH_VERSION|STALE_VERSION|STALE_CONTENT_VERSION|STALE_CURSOR)\b",
     re.IGNORECASE,
@@ -2622,68 +2686,142 @@ def ingest_envelope(engine: Any, envelope: ChangeEnvelope) -> dict[str, Any]:
     if violations:
         return {**base, "status": "rejected", "violations": violations}
 
-    try:
-        authority = _resolve_native_authority(engine)
-        authority, session = _native_session(authority, envelope)
-        embedded_by_position = _prepare_embedding_envelopes(
-            authority.compute.client, [envelope]
-        )
-        result = _apply_native_change_envelope(authority, session, envelope)
-        if embedded_by_position and result.get("status") in {"success", "skipped"}:
-            _commit_embedded_vectors(
-                authority, {0: result.get("node_id")}, embedded_by_position
+    from ..core.engine_tasks import _retryable_partial_materialization
+
+    # Bounded resume state for THIS envelope's own attempts — see the
+    # _MATERIALIZATION_* constants above for the shared rationale/values with
+    # ``pipeline/runner.py``'s identical resume loop.
+    attempt = 0
+    resume_snapshot_version: Any = _MATERIALIZATION_UNSET
+    last_cursor: Any = _MATERIALIZATION_UNSET
+
+    while True:
+        attempt += 1
+        try:
+            authority = _resolve_native_authority(engine)
+            authority, session = _native_session(authority, envelope)
+            embedded_by_position = _prepare_embedding_envelopes(
+                authority.compute.client, [envelope]
             )
-        return result
-    except NativeChangeEnvelopeUnavailable:
-        logger.warning("native ChangeEnvelope capability is unavailable")
-        return {
-            **base,
-            "status": "failed",
-            "error": "NativeChangeEnvelopeUnavailable",
-            "reason": "authoritative native ChangeEnvelope commit is unavailable",
-        }
-    except (PermissionError, ValueError) as exc:
-        # D-DSTK + D-DG (reconciliation-gate-2: two lanes fixed this same
-        # defect independently). Collapsing to type(exc).__name__ alone dropped
-        # the actual rejection reason (which field/tenant/identity was invalid)
-        # — "rejected (ValueError)" is equally true of a bad property type, an
-        # over-long id and a policy denial, so every caller across the fleet
-        # (source_sync, external_graph, document_processing, ...) reported an
-        # unactionable failure. `error` stays the class name (some callers match
-        # on it); the message now travels too, under the `reason` key this
-        # function already uses everywhere else (including the sibling
-        # "unavailable" return in this very except-chain).
-        # NB: no exc_info — core/log_privacy.py nulls it on every
-        # agent_utilities.* record, so the interpolated message is the only
-        # channel that actually carries the cause.
-        logger.warning(
-            "native ChangeEnvelope rejected (%s): %s", type(exc).__name__, exc
-        )
-        return {
-            **base,
-            "status": "rejected",
-            "error": type(exc).__name__,
-            "reason": str(exc),
-        }
-    except _NativeOccRetryBudgetExhausted as exc:
-        logger.warning(
-            "native ChangeEnvelope OCC retry budget exhausted (conflict_sequence=%s)",
-            ",".join(exc.conflicts),
-        )
-        return {
-            **base,
-            "status": "failed",
-            "error": "NativeChangeEnvelopeConflictExhausted",
-        }
-    except Exception as exc:  # noqa: BLE001 — never fall back after native failure (this is the authoritative commit path, so a genuine failure must surface as failed status, not be retried on a different path); `error`/`reason` below now carry the real cause instead of only the exception class name
-        # Same reasoning as the rejection path above: the class name alone
-        # cannot tell an operator WHICH commit failed or why.
-        logger.warning(
-            "native ChangeEnvelope commit failed (%s): %s", type(exc).__name__, exc
-        )
-        return {
-            **base,
-            "status": "failed",
-            "error": type(exc).__name__,
-            "reason": str(exc),
-        }
+            result = _apply_native_change_envelope(authority, session, envelope)
+            if embedded_by_position and result.get("status") in {
+                "success",
+                "skipped",
+            }:
+                _commit_embedded_vectors(
+                    authority, {0: result.get("node_id")}, embedded_by_position
+                )
+            return result
+        except NativeChangeEnvelopeUnavailable:
+            logger.warning("native ChangeEnvelope capability is unavailable")
+            return {
+                **base,
+                "status": "failed",
+                "error": "NativeChangeEnvelopeUnavailable",
+                "reason": "authoritative native ChangeEnvelope commit is unavailable",
+            }
+        except (PermissionError, ValueError) as exc:
+            # D-DSTK + D-DG (reconciliation-gate-2: two lanes fixed this same
+            # defect independently). Collapsing to type(exc).__name__ alone dropped
+            # the actual rejection reason (which field/tenant/identity was invalid)
+            # — "rejected (ValueError)" is equally true of a bad property type, an
+            # over-long id and a policy denial, so every caller across the fleet
+            # (source_sync, external_graph, document_processing, ...) reported an
+            # unactionable failure. `error` stays the class name (some callers match
+            # on it); the message now travels too, under the `reason` key this
+            # function already uses everywhere else (including the sibling
+            # "unavailable" return in this very except-chain).
+            # NB: no exc_info — core/log_privacy.py nulls it on every
+            # agent_utilities.* record, so the interpolated message is the only
+            # channel that actually carries the cause.
+            logger.warning(
+                "native ChangeEnvelope rejected (%s): %s", type(exc).__name__, exc
+            )
+            return {
+                **base,
+                "status": "rejected",
+                "error": type(exc).__name__,
+                "reason": str(exc),
+            }
+        except _NativeOccRetryBudgetExhausted as exc:
+            logger.warning(
+                "native ChangeEnvelope OCC retry budget exhausted (conflict_sequence=%s)",
+                ",".join(exc.conflicts),
+            )
+            return {
+                **base,
+                "status": "failed",
+                "error": "NativeChangeEnvelopeConflictExhausted",
+            }
+        except Exception as exc:  # noqa: BLE001 — never fall back after native failure (this is the authoritative commit path, so a genuine failure must surface as failed status, not be retried on a different path); `error`/`reason` below now carry the real cause instead of only the exception class name
+            # Only the EXACT retryable wire payload
+            # (PARTIAL_MATERIALIZATION, retryable=True) resumes; every other
+            # exception — malformed, stale, or terminal — falls straight
+            # through to the unchanged failure handling below. This is the
+            # SAME strictness `_retryable_partial_materialization` already
+            # enforces; it is not re-implemented or broadened here.
+            materialization = _retryable_partial_materialization(exc)
+            effective_exc: BaseException = exc
+            if materialization is not None:
+                cursor = materialization.get("completeness_cursor")
+                snapshot_version = materialization.get("source_snapshot_version")
+                if resume_snapshot_version is _MATERIALIZATION_UNSET:
+                    resume_snapshot_version = snapshot_version
+                if snapshot_version != resume_snapshot_version:
+                    # A completeness_cursor is only valid against the snapshot
+                    # it was issued for; the engine moved to a different
+                    # snapshot mid-resume, so the cursor no longer means what
+                    # it did.
+                    effective_exc = _PartialMaterializationRetriesExhausted(
+                        f"envelope {envelope.envelope_id} partial-materialization "
+                        "resume aborted: source_snapshot_version changed from "
+                        f"{resume_snapshot_version!r} to {snapshot_version!r} "
+                        f"while resuming from cursor={cursor!r}."
+                    )
+                elif (
+                    last_cursor is not _MATERIALIZATION_UNSET and cursor == last_cursor
+                ):
+                    effective_exc = _PartialMaterializationRetriesExhausted(
+                        f"envelope {envelope.envelope_id} partial-materialization "
+                        f"cursor stopped advancing at {cursor!r} "
+                        f"(snapshot={snapshot_version!r}) after {attempt} "
+                        "attempt(s); giving up instead of retrying forever."
+                    )
+                elif attempt >= _MATERIALIZATION_MAX_ATTEMPTS:
+                    effective_exc = _PartialMaterializationRetriesExhausted(
+                        f"envelope {envelope.envelope_id} did not finish "
+                        f"materializing within {_MATERIALIZATION_MAX_ATTEMPTS} "
+                        f"attempts (cursor={cursor!r}, "
+                        f"snapshot={snapshot_version!r})."
+                    )
+                else:
+                    last_cursor = cursor
+                    logger.info(
+                        "native ChangeEnvelope commit for %s hit a retryable "
+                        "partial materialization (cursor=%s snapshot=%s); "
+                        "resuming (attempt %d/%d)",
+                        envelope.envelope_id,
+                        cursor,
+                        snapshot_version,
+                        attempt,
+                        _MATERIALIZATION_MAX_ATTEMPTS,
+                    )
+                    time.sleep(_MATERIALIZATION_RETRY_DELAY_S)
+                    continue
+
+            # Same reasoning as the rejection path above: the class name alone
+            # cannot tell an operator WHICH commit failed or why.
+            logger.warning(
+                "native ChangeEnvelope commit failed (%s): %s",
+                type(effective_exc).__name__,
+                effective_exc,
+            )
+            return {
+                **base,
+                "status": "failed",
+                "error": type(effective_exc).__name__,
+                "reason": str(effective_exc),
+                "retryable": isinstance(
+                    effective_exc, _PartialMaterializationRetriesExhausted
+                ),
+            }

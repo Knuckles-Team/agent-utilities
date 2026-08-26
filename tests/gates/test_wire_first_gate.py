@@ -270,6 +270,76 @@ def test_symbol_gate_ignores_a_comment_only_mention(tmp_path):
     assert "StillNeverCalledPolicy" in symbols
 
 
+def test_symbol_gate_ignores_a_property_name_collision_with_an_unrelated_call(
+    tmp_path,
+):
+    """The exact D-OB-9 false positive this fix closes: a ``@property``
+    accessor (``Widget.fingerprint``) has zero real callers anywhere, but an
+    UNRELATED class/method defined in a test file happens to share the bare
+    name ``fingerprint`` and is invoked with call syntax
+    (``loader.fingerprint(1)``). A property can never legitimately be
+    referenced with call syntax — before this fix, the bare ``.name(``-call
+    counter conflated the two (matching on the trailing token alone, with
+    no class/module qualification) and flagged the property as test-only
+    purely because of the name collision. Reproduces the real regression:
+    ``scripts/dual_principal_validation.py``'s module-level ``fingerprint()``
+    helper, called as ``mod.fingerprint(...)`` in its test, flipped THREE
+    unrelated ``*.fingerprint`` properties (``PromptCacheKey``,
+    ``SemanticCacheKey``, ``OAuthGrantBinding``) to "test-only" — verified
+    this fixture trips on the pre-fix code before the gate was patched."""
+    src_dir = tmp_path / "agent_utilities"
+    src_dir.mkdir()
+    (src_dir / "widget.py").write_text(
+        "class Widget:\n"
+        "    @property\n"
+        "    def fingerprint(self) -> str:\n"
+        "        return 'w'\n"
+    )
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_unrelated.py").write_text(
+        "class Loader:\n"
+        "    def fingerprint(self, x):\n"
+        "        return x\n\n"
+        "def test_x():\n"
+        "    loader = Loader()\n"
+        "    assert loader.fingerprint(1) == 1\n"
+    )
+
+    findings = check_wiring.find_test_only_symbols(
+        src_dir=src_dir, tests_dir=tests_dir, display_root=tmp_path
+    )
+    symbols = {f["symbol"] for f in findings}
+    assert "Widget.fingerprint" not in symbols
+
+
+def test_symbol_gate_still_trips_on_a_genuine_test_only_method(tmp_path):
+    """A genuinely test-only REGULAR (non-property) method must still be
+    flagged — proving the property exclusion above does not weaken
+    detection for the much larger non-property case this gate exists to
+    catch."""
+    src_dir = tmp_path / "agent_utilities"
+    src_dir.mkdir()
+    (src_dir / "policy.py").write_text(
+        "class OrphanPolicy:\n"
+        "    def evaluate_distinctively(self):\n"
+        "        return True\n"
+    )
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_policy.py").write_text(
+        "from agent_utilities.policy import OrphanPolicy\n\n"
+        "def test_x():\n"
+        "    assert OrphanPolicy().evaluate_distinctively()\n"
+    )
+
+    findings = check_wiring.find_test_only_symbols(
+        src_dir=src_dir, tests_dir=tests_dir, display_root=tmp_path
+    )
+    symbols = {f["symbol"] for f in findings}
+    assert "OrphanPolicy.evaluate_distinctively" in symbols
+
+
 # ---------------------------------------------------------------------------
 # Regression lock — the real repo's ratchet must stay green
 # ---------------------------------------------------------------------------

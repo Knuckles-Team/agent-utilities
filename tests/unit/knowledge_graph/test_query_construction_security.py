@@ -17,15 +17,19 @@ def test_timeseries_cypher_literal_cannot_close_string() -> None:
 
 
 def test_mcp_toggle_queries_parameterize_ids_and_values() -> None:
-    from agent_utilities.mcp.kg_server import get_toggle_state, set_toggle_state
+    from agent_utilities.mcp.kg_server import (
+        get_toggle_states_batch,
+        set_toggle_state,
+    )
 
     engine = MagicMock()
     engine.query_cypher.return_value = []
     attack = "x' SET n.admin = true //"
 
-    get_toggle_state(engine, "skill", attack)
+    get_toggle_states_batch(engine, [("skill", attack)])
     query, params = engine.query_cypher.call_args.args
-    assert attack not in query and params["pref_id"].endswith(attack)
+    assert attack not in query
+    assert params["pref_ids"] == [f"preference:toggle:skill:{attack}"]
 
     set_toggle_state(engine, "skill", attack, enabled=False)
     query, params = engine.query_cypher.call_args.args
