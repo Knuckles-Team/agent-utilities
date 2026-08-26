@@ -41,9 +41,24 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: d2d791fc24bcadf3778bcbf505ddf1e5d8229c8e2d4409bb908414a01b02069a
+  tool_schema_sha256: 3afd6dd7fb342d95a4ac36d0bfb6bc822a955f0961ccaf5f36ef56760f1c2482
   raw:
     source_type: ard
+    interface: source_connector_v1
+- preset: native-arxiv
+  server: agent-utilities
+  tool: arxiv
+  action: load
+  records_path: null
+  id_field: id
+  title_field: title
+  text_field: text
+  updated_field: updated_at
+  pagination: null
+  doc_type: document
+  tool_schema_sha256: 7d7d45480173b10bf0fff3396dc18c3ed55535c6c2606b7963c4c1495f94f7f3
+  raw:
+    source_type: arxiv
     interface: source_connector_v1
 - preset: native-database
   server: agent-utilities
@@ -56,7 +71,7 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: c2b57e00963067189c36e3b77281e8a0db17b54913211e6afd8e6c186cfb5eb5
+  tool_schema_sha256: 3aa6222d895f622b45659d3b79c2c1a51e240a4aef43feb4f88ce006de8b9038
   raw:
     source_type: database
     interface: source_connector_v1
@@ -71,7 +86,7 @@ sync:
   updated_field: null
   pagination: null
   doc_type: null
-  tool_schema_sha256: 4d3017446de6e06003508225e66afddadd5f01847cf0612cc17f5f96b015e1c3
+  tool_schema_sha256: 3975f507419e9aed930902b8d0f688a46b2930bcb11c1fb3d7a0e8a4f2158f44
   raw:
     source_type: external_graph
     interface: external_graph_ingestion_v1
@@ -86,9 +101,24 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: 20bc8323c8122cfd74f13a9e81ed9b9e5db2a7616eec1fa1c30a71041c650132
+  tool_schema_sha256: 9c2dadfaecaec7db8c41ec2b605cd22a002b4c902aeaf2748a58916b9ddbda80
   raw:
     source_type: filesystem
+    interface: source_connector_v1
+- preset: native-git-markdown
+  server: agent-utilities
+  tool: git_markdown
+  action: load
+  records_path: null
+  id_field: id
+  title_field: title
+  text_field: text
+  updated_field: updated_at
+  pagination: null
+  doc_type: document
+  tool_schema_sha256: 268a11b43f8a44af8fe82cdcf2601a15d5b0b7888c80add9ada49dd49e64e6a2
+  raw:
+    source_type: git_markdown
     interface: source_connector_v1
 - preset: native-graphql-document
   server: agent-utilities
@@ -101,7 +131,7 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: 582483719fd1a0ee829702d8ba6e52746fa301f41c8a17429cc88f0cc4fe4f5e
+  tool_schema_sha256: 4f9895a51c5d146379344dd248dd0837d5a28c0ad57e047cb879a967c513f740
   raw:
     source_type: graphql_document
     interface: source_connector_v1
@@ -116,7 +146,7 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: 7f8dc9d8c4933cf5ebe8422f97f09dc0b3439015cc864e8d719626eb89baa2f0
+  tool_schema_sha256: 8bd14898a646dfb8e6b9c80ec7b6e8c0140d84efd13b3668218a168be2efffe4
   raw:
     source_type: reader
     interface: source_connector_v1
@@ -131,7 +161,7 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: 43c8f8a9452ab8409923c7db411e7d1cea537d6f35d60a0dbf8b5de4793ff2c6
+  tool_schema_sha256: 1f6643fb0ce57c5c520efcc9eea856d30e9b18ad9413d8242ddc6ccda9c372a8
   raw:
     source_type: rest
     interface: source_connector_v1
@@ -146,7 +176,7 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: 54bb5869e96a8b78f2970c9985b5f940600739af776c6c96071b3ad7d0e0a935
+  tool_schema_sha256: a6988905ae6e5d9ebc01c8a4dea5fb08f632f036c5f4a8dd4ff00d1749ba07be
   raw:
     source_type: rss
     interface: source_connector_v1
@@ -161,13 +191,13 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: eee1293429d5da77319b04736f3ee1c40b88f8beea0aec6aca303eff0c4bfe91
+  tool_schema_sha256: 3dde921c16a1253bf8a32d6710ca747e81064ff00fe9c26bf42c2907adcc233e
   raw:
     source_type: web
     interface: source_connector_v1
 provenance:
   generated_by: scripts/generate_native_connector_manifest.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-26T13:34:08Z'
   source_artifacts:
   - agent_utilities/protocols/source_connectors/connectors
   - agent_utilities/knowledge_graph/ingestion/external_graph.py
@@ -176,10 +206,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: c97eb180307cb9e08b81df3439ade1552d91454485b83d085a9ba1b3503f4a8f
     triple_count: 17
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: 5oQc4sQjcZwURJnUErSmPFWbjtZh0_jjWn2aXnNmp9XIMXqDrv7r-JmIIf4KCv2cZJfCSJIX6_M1a2AAdGjaCw
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  source_commit: b40217a358a43ffb1b5f09ed31fad439d30c5206
 policy:
   pii_fields: {}
   tenant_boundary: tenant_id

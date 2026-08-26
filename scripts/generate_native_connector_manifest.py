@@ -182,9 +182,10 @@ def build_manifest(
         signature_algorithm=signer.algorithm,
         signing_public_key=signer.public_key,
         signature=None,
-        # GOC-84/GOC-16: binds the frozen dependency-lock state into what gets
-        # signed, so a lock drift after generation is provable, not assumed.
-        dependency_lock_digest=ontology_integrity.dependency_lock_digest(),
+        # Which commit produced this manifest -- nothing more (replaces the old
+        # signed dependency_lock_digest pin, GOC-84/GOC-16, removed: it made every
+        # dependency addition a release-Job-gated operation for no benefit here).
+        source_commit=ontology_integrity.repository_commit_sha(),
     )
     # NOTE: local renamed from `unsigned` -- that name is now the parameter
     # selecting UNSIGNED-preview mode, and shadowing it here would silently

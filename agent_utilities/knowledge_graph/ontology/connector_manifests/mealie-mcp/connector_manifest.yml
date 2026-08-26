@@ -259,7 +259,7 @@ sync:
     doc_type: recipe
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-21T04:30:39Z'
+  generated_at: '2026-08-26T13:42:55Z'
   source_artifacts:
   - mealie_mcp/connectors/mcp_source_presets.json
   - mealie_mcp/connectors/tool_schema_fingerprints.json
@@ -272,7 +272,7 @@ provenance:
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
+  source_commit: de54e2700eb45ebc0031a565d2d741b8685c12a3
 policy:
   pii_fields: {}
   tenant_boundary: null

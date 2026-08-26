@@ -32,8 +32,7 @@ __all__ = [
     "canonical_hash",
     "canonical_manifest_hash",
     "canonical_signed_document_hash",
-    "default_dependency_lock_path",
-    "dependency_lock_digest",
+    "repository_commit_sha",
     "DURABLE_SECRET_SCHEMES",
     "ReleaseSigner",
     "ReleaseSigningError",
@@ -328,87 +327,40 @@ def assert_signing_key_matches_locks(
 DURABLE_SECRET_SCHEMES = ("vault://", "secret://")
 
 
-def default_dependency_lock_path() -> Path:
-    """The ecosystem-workspace ``uv.lock`` this repo's own dependency pins live in."""
+def repository_commit_sha(root: str | Path | None = None) -> str | None:
+    """The git commit SHA of a repository checkout, at call time.
 
-    return Path(__file__).resolve().parents[3] / "uv.lock"
+    ``root`` defaults to this ``agent-utilities`` checkout itself; a caller
+    generating a manifest FOR another repo (e.g. one connector's own
+    ``agents/<pkg>`` checkout) passes that connector's root instead, so the
+    recorded commit answers "which commit of the connector's OWN repo produced
+    this manifest" rather than always naming agent-utilities.
 
-
-def dependency_lock_digest(lock_path: str | Path | None = None) -> str:
-    """Deterministic SHA-256 over the exact ``(name, version)`` pins in a ``uv.lock``.
-
-    CONCEPT:AU-KG.ontology.connector-manifest-gate — GOC-84 names "dependency-lock
-    drift" as one of the adversarial cases a signed connector manifest must catch:
-    a connector's declared behavior can depend on a third-party library version even
-    when neither the manifest YAML nor the connector's own source changed a single
-    byte. Binding this digest into ``ProvenanceSpec`` (and therefore into the signed
-    ``canonical_manifest_hash``) makes that class of drift provable, not assumed.
-
-    Hashes the *parsed* ``(name, version)`` pairs from every ``[[package]]`` table,
-    sorted, rather than the raw file bytes — invariant to comment/whitespace/
-    reordering churn in the lock file, while any real dependency add/remove/version
-    change still changes the digest. Raises :class:`ReleaseSigningError` if the lock
-    cannot be read or parsed: a manifest must never be signed (or verified) against
-    dependency state nobody could actually confirm.
+    Replaces the old signed ``dependency_lock_digest`` provenance pin (GOC-84/
+    GOC-16, removed): provenance now answers "which commit produced this
+    manifest", not "did the dependency lock match a signature at generation
+    time" — the latter made every dependency addition a release-Job-gated
+    operation for zero benefit in an internal deployment. Returns ``None``
+    rather than raising when this checkout is not a git repository or ``git``
+    is unavailable: recording a commit hash is descriptive provenance, not a
+    security gate, so it must fail soft.
     """
-    import tomllib
+    import subprocess
 
-    path = Path(lock_path) if lock_path is not None else default_dependency_lock_path()
+    root = Path(root) if root is not None else Path(__file__).resolve().parents[3]
     try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise ReleaseSigningError(f"dependency lock is unreadable: {path}") from exc
-    try:
-        document = tomllib.loads(text)
-    except (tomllib.TOMLDecodeError, ValueError) as exc:
-        raise ReleaseSigningError(f"dependency lock is malformed: {path}") from exc
-    packages = document.get("package")
-    if not isinstance(packages, list):
-        raise ReleaseSigningError("dependency lock package inventory is invalid")
-    pins: list[tuple[str, str]] = []
-    for item in packages:
-        if not isinstance(item, dict):
-            raise ReleaseSigningError("dependency lock package inventory is invalid")
-        name = item.get("name")
-        version = item.get("version")
-        if not isinstance(name, str) or not name:
-            raise ReleaseSigningError(
-                "dependency lock contains an invalid package identity"
-            )
-        source = item.get("source")
-        if version is None and isinstance(source, dict) and "editable" in source:
-            # Editable/path workspace members (this repo itself, sibling crates
-            # such as epistemic-graph) carry a dynamic version resolved from
-            # local build-backend metadata, not a pinned registry release, so
-            # uv.lock legitimately omits ``version`` -- demanding one treated a
-            # VALID lock as corrupt and made this digest unsatisfiable against
-            # the repo's own lock.
-            #
-            # Pin them on their SOURCE PATH rather than skipping them. Skipping
-            # is tempting (their content is already covered by canonical_hash)
-            # but it makes the digest BLIND to a real change: relocating a
-            # member from "." to ".uv-workspace-siblings/agent-utilities" is a
-            # different source tree being built, and a skip-based digest yields
-            # the IDENTICAL value across that move -- so an existing signature
-            # would stay valid over it. For a RELEASE-SIGNING digest that is the
-            # wrong direction to fail: a signed-but-stale artifact is worse than
-            # an unsigned one, because it manufactures trust nothing reviewed.
-            # Pinning the path keeps the digest sensitive to which tree is in
-            # play without fabricating a version that does not exist.
-            editable_ref = source.get("editable")
-            if not isinstance(editable_ref, str) or not editable_ref:
-                raise ReleaseSigningError(
-                    "dependency lock contains an invalid package identity"
-                )
-            pins.append((name, f"editable:{editable_ref}"))
-            continue
-        if not isinstance(version, str) or not version:
-            raise ReleaseSigningError(
-                "dependency lock contains an invalid package identity"
-            )
-        pins.append((name, version))
-    payload = json.dumps(sorted(pins), separators=(",", ":"), ensure_ascii=False)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        result = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    sha = result.stdout.strip()
+    return sha or None
 
 
 def release_signer_for_publication(

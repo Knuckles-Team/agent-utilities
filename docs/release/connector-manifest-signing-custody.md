@@ -24,22 +24,24 @@ written for the person who will actually run this, not as design narrative.
   `scripts/certify_connector_tool_schemas.py`) already call this signer internally — this
   page's job is never to re-implement signing, only to give it a place with the real key.
 * `agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py` already fails
-  closed on an unsigned manifest, a tampered manifest, a wrong signer, and (as of GOC-16)
-  a drifted dependency lock (`_dependency_lock_violations`) — this is `precheck_source`,
-  the gate every `sync_source` call goes through **before any tool is exposed**.
+  closed on an unsigned manifest, a tampered manifest, or a wrong signer — this is
+  `precheck_source`, the gate every `sync_source` call goes through **before any tool is
+  exposed**.
 
 ## What GOC-16 built (this lane)
 
 | Piece | Path |
 |---|---|
-| `ProvenanceSpec.dependency_lock_digest` — binds the frozen `uv.lock` state into what gets signed | `agent_utilities/knowledge_graph/ontology/connector_manifest.py` |
-| `ontology_integrity.dependency_lock_digest()` — the digest function itself | `agent_utilities/knowledge_graph/ontology/ontology_integrity.py` |
-| `_dependency_lock_violations` — the fail-closed check consuming it | `agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py` |
 | The controlled-release orchestrator (freeze → regenerate → sign → verify) | `scripts/release/regenerate_and_sign_connector_manifests.py` |
 | The Kubernetes Job template that holds the real key via OpenBao workload identity | `deploy/release/connector-manifest-signing-job.yaml` |
 | The keyless diff/freeze report job (GitHub Actions, `workflow_dispatch`-only) | `.github/workflows/advisory.yml` → `connector-manifest-diff` |
 | Source-only input/output custody contract (synthetic fixture + static gate) | `tests/fixtures/release/connector-manifest-signing-inputs.yml`, `tests/unit/release/test_connector_manifest_signing_job_contract.py` |
 | Known-bad proofs for the four named adversarial cases | `tests/unit/knowledge_graph/ontology/test_connector_manifest_signing_known_bad.py` |
+
+(GOC-16's original `dependency_lock_digest` signed pin was removed: it made every
+`pyproject.toml` dependency addition a release-Job-gated operation for no benefit in an
+internal deployment. Provenance now records `ProvenanceSpec.source_commit` — the git
+commit SHA a manifest was generated from — nothing more.)
 
 **Not built here, and deliberately not attempted:** regenerating and signing the REAL
 bundled fleet manifests. That is GOC-84's own work, hard-blocked on GOC-83's lock freeze
@@ -193,9 +195,9 @@ later attempt from overwriting an earlier output.
 kubectl apply -f deploy/release/connector-manifest-signing-job.yaml   # reviewed namespace + ServiceAccount setup
 ```
 
-Then, for an actual signing run: take the `frozen_sha` and `dependency lock digest` the
-keyless `connector-manifest-diff` GitHub Actions job reports (`workflow_dispatch` it from
-the Actions tab, read the job summary), substitute them plus the frozen commit's built
+Then, for an actual signing run: take the `frozen_sha` the keyless
+`connector-manifest-diff` GitHub Actions job reports (`workflow_dispatch` it from the
+Actions tab, read the job summary), substitute it plus the frozen commit's built
 image digest, input attestation/wheel digests, release timestamp, and unique output run
 ID into a COPY of the `Job` in `deploy/release/connector-manifest-signing-job.yaml`
 (never re-apply the same Job name twice — give each run a unique name), and:
@@ -248,7 +250,6 @@ the following is refused with a bounded diagnostic — never a silent pass, neve
 | One-bit source change (native connector code diverges post-signing) | `_native_provider_violations` | `[tool-schema] ...differs from its signed code fingerprint` |
 | Schema change (a field mapping changes post-signing) | `_check_manifest_bytes` integrity/signature check | `[integrity]` / `[signature]` |
 | Alias change (a sync preset's `server` changes post-signing) | `_signature_violations` | `[signature]` |
-| Dependency-lock drift (`uv.lock` moves after signing) | `_dependency_lock_violations` (GOC-16) | `[dependency-lock] ...drifted since this manifest was generated` |
 
 `scripts/release/regenerate_and_sign_connector_manifests.py` additionally refuses to
 proceed (`verify_freeze`) on a dirty working tree, a commit SHA mismatch, or (with

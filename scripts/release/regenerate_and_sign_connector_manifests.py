@@ -69,17 +69,13 @@ def _git(*args: str) -> str:
     return result.stdout.strip()
 
 
-def verify_freeze(
-    *, frozen_sha: str | None, expected_lock_digest: str | None
-) -> list[str]:
-    """Step 1 — the working tree must be EXACTLY the reviewed commit and lock.
+def verify_freeze(*, frozen_sha: str | None) -> list[str]:
+    """Step 1 — the working tree must be EXACTLY the reviewed commit.
 
     No manifest may ever be generated against a moving target (GOC-84's own explicit
     hard rule) — a manifest generated against unfrozen code goes stale the moment
     anything else lands.
     """
-    from agent_utilities.knowledge_graph.ontology import ontology_integrity
-
     problems: list[str] = []
     dirty = _git("status", "--porcelain")
     if dirty:
@@ -90,18 +86,6 @@ def verify_freeze(
     head = _git("rev-parse", "HEAD")
     if frozen_sha and head != frozen_sha:
         problems.append(f"HEAD {head} != expected frozen commit {frozen_sha}")
-    if expected_lock_digest:
-        try:
-            live_digest = ontology_integrity.dependency_lock_digest()
-        except ontology_integrity.ReleaseSigningError as exc:
-            problems.append(f"dependency lock could not be read: {exc}")
-        else:
-            if live_digest != expected_lock_digest:
-                problems.append(
-                    f"live uv.lock digest {live_digest} != expected frozen digest "
-                    f"{expected_lock_digest} — the dependency lock moved since the "
-                    "commit this run was told to freeze against"
-                )
     return problems
 
 
@@ -229,11 +213,6 @@ def main() -> int:
         "--frozen-sha",
         help="the exact reviewed commit SHA this run must be checked out at",
     )
-    ap.add_argument(
-        "--expected-lock-digest",
-        help="the exact uv.lock digest (ontology_integrity.dependency_lock_digest) "
-        "this run must match",
-    )
     ap.add_argument("--agents-root", type=Path, help="the agents/ fleet root")
     ap.add_argument(
         "--native-output-dir",
@@ -272,9 +251,7 @@ def main() -> int:
 
     report: dict[str, object] = {}
 
-    freeze_problems = verify_freeze(
-        frozen_sha=args.frozen_sha, expected_lock_digest=args.expected_lock_digest
-    )
+    freeze_problems = verify_freeze(frozen_sha=args.frozen_sha)
     report["freeze"] = {"ok": not freeze_problems, "problems": freeze_problems}
     if freeze_problems:
         print(json.dumps(report, indent=2))

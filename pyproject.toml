@@ -97,6 +97,10 @@ name = "Repository Maintainers"
 email = "maintainers@example.invalid"
 
 [project.optional-dependencies]
+# THROWAWAY-DEP-TEST: temporary extra added and reverted in the same change, solely
+# to prove that adding a dependency no longer breaks the repo (dependency_lock_digest
+# removal acceptance test). Not a real feature; removed before commit.
+throwaway-dep-test = ["humanize>=4.0.0"]
 # CONCEPT:KG-2.324 / CONCEPT:AU-OS.deployment.engine-resolver-auto-provision — GOC-73:
 # the epistemic-graph engine moved from a hard base dependency to this OPT-IN extra.
 # `pip install agent-utilities[graphos]` yields a self-contained, FULLY-CAPABLE

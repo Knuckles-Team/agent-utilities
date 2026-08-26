@@ -115,7 +115,6 @@ spec:
                 --apply
               exec python3 scripts/release/regenerate_and_sign_connector_manifests.py \
                 --frozen-sha "${FROZEN_SHA}" \
-                --expected-lock-digest "${EXPECTED_LOCK_DIGEST}" \
                 --agents-root "${STAGING_ROOT}/agents" \
                 --native-output-dir "${PUBLIC_OUTPUT_ROOT}/native" \
                 --manifest-output-dir "${PUBLIC_OUTPUT_ROOT}/manifests" \
@@ -124,7 +123,6 @@ spec:
                 --sign
           env:
             - {name: FROZEN_SHA, value: "REPLACE_WITH_FROZEN_SHA"}
-            - {name: EXPECTED_LOCK_DIGEST, value: "REPLACE_WITH_EXPECTED_LOCK_DIGEST"}
             - {name: RELEASE_TIMESTAMP, value: "REPLACE_WITH_RELEASE_TIMESTAMP"}
             - {name: RELEASE_INPUT_ROOT, value: /release-input}
             - {name: FROZEN_FLEET_ROOT, value: /release-input/agents}
