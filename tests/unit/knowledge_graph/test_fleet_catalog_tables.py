@@ -133,7 +133,7 @@ class _FakeGraphCompute:
 
     Beyond the original CAS-shaped statements, this fake also has to model
     enough of the real engine's ``information_schema.columns`` / ``ALTER
-    TABLE ADD COLUMN`` / ``INSERT ... ON CONFLICT`` behavior for the
+    TABLE ADD COLUMN`` behavior for the
     migration path (``fleet_catalog_tables._claim_and_migrate``) to be
     meaningfully exercised:
 
@@ -146,8 +146,9 @@ class _FakeGraphCompute:
       column set raises — reproducing the real engine rejecting a write
       against an undeclared column, which is exactly NE-052's reported
       defect against a legacy pre-tenant-scope store.
-    * ``INSERT ... ON CONFLICT (id) DO NOTHING`` / ``DO UPDATE SET ...`` is
-      understood, needed for the migration ledger's claim/finalize writes.
+    * ``INSERT ... ON CONFLICT ...`` is REFUSED, matching the deployed
+      engine, whose SQL tier ignores the clause and raises a duplicate-key
+      error for every form of it.
     """
 
     def __init__(self) -> None:
@@ -249,53 +250,36 @@ class _FakeGraphCompute:
             return []
 
         if head == "INSERT":
-            base, _, conflict_clause = statement.partition(" ON CONFLICT ")
-            m = re.match(r"INSERT INTO (\w+) \((.*?)\) VALUES (.*)$", base, re.DOTALL)
+            # The REAL engine ignores an ``ON CONFLICT`` clause entirely —
+            # every form raises the same duplicate-key error a bare INSERT
+            # does (measured live 2026-08-25 against the deployed engine).
+            # This fake used to IMPLEMENT the clause, which is precisely why
+            # the migration-ledger claim's dependence on it went unnoticed
+            # until it broke every fleet-catalog write in production. A fake
+            # that is more capable than the thing it stands in for cannot
+            # catch that class of bug, so emitting the clause is now a hard
+            # failure here.
+            assert " ON CONFLICT " not in statement, (
+                "the engine's SQL tier does not support ON CONFLICT; use a "
+                f"read-then-write instead: {statement}"
+            )
+            m = re.match(
+                r"INSERT INTO (\w+) \((.*?)\) VALUES (.*)$", statement, re.DOTALL
+            )
             assert m, f"unrecognized INSERT: {statement}"
             table, cols_str, values_str = m.groups()
             cols = [c.strip() for c in cols_str.split(",")]
             self._row_columns(table, cols)
             store = self.tables.setdefault(table, {})
 
-            conflict_action: tuple[str, str] | None = None
-            if conflict_clause:
-                clause = conflict_clause.strip()
-                if re.match(r"\(\w+\)\s+DO NOTHING$", clause, re.IGNORECASE):
-                    conflict_action = ("nothing", "")
-                else:
-                    um = re.match(
-                        r"\(\w+\)\s+DO UPDATE SET\s+(.*)$",
-                        clause,
-                        re.IGNORECASE | re.DOTALL,
-                    )
-                    assert um, f"unrecognized ON CONFLICT clause: {conflict_clause}"
-                    conflict_action = ("update", um.group(1))
-
             for row_str in _extract_value_rows(values_str):
                 vals = [_parse_literal(t) for t in _split_top(row_str)]
                 row = dict(zip(cols, vals, strict=True))
-                row_id = str(row.get("id"))
-                if row_id in store:
-                    if conflict_action is None:
-                        # No pre-existing test relies on a bare duplicate-id
-                        # INSERT raising (the tenant-collision test writes
-                        # the same id for two tenants and expects the fake's
-                        # historical blind-overwrite tolerance), so this
-                        # stays a tolerant overwrite here — only an explicit
-                        # ON CONFLICT clause (used exclusively by the
-                        # migration ledger) gets real conflict semantics.
-                        store[row_id] = row
-                        continue
-                    kind, set_clause = conflict_action
-                    if kind == "nothing":
-                        continue
-                    existing = dict(store[row_id])
-                    for pair in _split_top(set_clause):
-                        col, _, lit = pair.partition("=")
-                        existing[col.strip()] = _parse_literal(lit.strip())
-                    store[row_id] = existing
-                    continue
-                store[row_id] = row
+                # A bare duplicate-id INSERT stays a tolerant overwrite: the
+                # tenant-collision test writes the same id for two tenants
+                # and depends on it. Only the ON CONFLICT assertion above
+                # was tightened.
+                store[str(row.get("id"))] = row
             return {"ok": True}
 
         if head == "UPDATE":
@@ -1468,6 +1452,59 @@ def test_fresh_created_pre_acl_store_is_migrated_not_reported_diverged():
         result = _write_fleet_catalog(eng, _server_catalog())
     assert result["status"] == "ok"
     assert result["tools_written"] == 1
+
+
+def test_a_completed_ledger_row_does_not_veto_the_next_migration_step():
+    """SECOND ROOT CAUSE (measured live 2026-08-25 on platform/graph-os).
+
+    Every real store that has ever finished a migration carries a
+    ``schema_state`` ledger row marked ``complete``. Claiming the lock for
+    the NEXT step used ``INSERT ... ON CONFLICT (id) DO NOTHING`` against
+    that row — and the engine's SQL tier ignores the clause, raising a bare
+    duplicate-key error straight out of ``ensure_fleet_catalog_tables``. Even
+    had the clause worked, the claim would have been a silent no-op and the
+    re-read would have taken the "someone else already finished"
+    short-circuit, returning success having applied nothing — and the write
+    would then have failed at INSERT time on the very columns the skipped
+    step adds. The claim must take over a completed row and run the step.
+    """
+    eng = _FakeEngine()
+    gc = eng.graph_compute
+    for ddl in _FRESH_PRE_ACL_DDL.values():
+        gc.sql_exec(ddl)
+    for table in (
+        fct.TABLE_MCP_SERVER_DISCOVERY,
+        fct.TABLE_MCP_PROMPTS,
+        fct.TABLE_MCP_RESOURCES,
+    ):
+        gc.sql_exec(fct._DDL[table])
+    gc.sql_exec(fct._LEDGER_DDL)
+    gc.tables[fct._MIGRATION_LEDGER] = {
+        fct._LOCK_ROW_ID: {
+            "id": fct._LOCK_ROW_ID,
+            "status": "complete",
+            "claimant": "",
+            "claimed_at": "2026-08-20T22:52:56+00:00",
+            "version": fct._SCHEMA_VERSION_CURRENT,
+            "migration_id": fct._CURRENT_MARKER,
+            "checksum": "a-digest-from-when-this-shape-WAS-current",
+            "applied_at": "2026-08-20T22:52:56+00:00",
+        }
+    }
+
+    with use_actor(_session("tenant-a").actor), use_session(_session("tenant-a")):
+        assert fct.ensure_fleet_catalog_tables(eng) is True
+
+    assert {"acl_classification", "acl_owner_id", "acl_shared_scope"} <= gc.columns[
+        fct.TABLE_MCP_SERVERS
+    ]
+    assert (
+        gc.tables[fct._MIGRATION_LEDGER]["step__0004_acl_projection_columns"]["status"]
+        == "applied"
+    )
+    assert gc.tables[fct._MIGRATION_LEDGER][fct._LOCK_ROW_ID]["status"] == "complete"
+    # And no statement reached the engine carrying a clause it cannot honor.
+    assert not [s for s in gc.statements if " ON CONFLICT " in s]
 
 
 def test_unbound_unreachable_server_still_records_a_failure_observation():

@@ -73,8 +73,9 @@ target schema (no ``mcp_server_versions``/UUID identities/``provider_auth_grants
   logical write), a write carrying a ``revision`` that is not newer than the
   stored one is **rejected**, and only a write that clears both checks is
   applied. The engine's SQL tier has no composite ``PRIMARY KEY``, no
-  ``FOREIGN KEY``, and no conditional/``EXCLUDED``-aware ``ON CONFLICT`` today
-  (a parallel track is adding those), so this is intentionally NOT expressed
+  ``FOREIGN KEY``, and no working ``ON CONFLICT`` at all today (every form
+  raises the same duplicate-key error a bare ``INSERT`` does — measured live
+  2026-08-25; a parallel track is adding those), so this is NOT expressed
   as a single conditional ``UPDATE ... WHERE revision < EXCLUDED.revision``
   — each table's DDL comment names the constraint this would become once the
   engine supports it. The read-then-write is not linearizable against two
@@ -208,12 +209,14 @@ closes that gap:
   — the one deliberate exception to this module's usual "never raises,
   always best-effort" contract, because silently limping forward against an
   unverified schema is exactly the defect this closes.
-* **Concurrency** is a claim on the ledger's singleton lock row via
-  ``INSERT ... ON CONFLICT (id) DO NOTHING`` (the engine's own single-column
-  ``PRIMARY KEY`` already enforces first-writer-wins on that one row); a
-  process that loses the claim performs no DDL and returns ``False`` for
-  that attempt rather than racing the winner — a genuine no-op, not an
-  error — and picks up the now-migrated schema on its next call.
+* **Concurrency** is a claim on the ledger's singleton lock row, written
+  read-then-write via :func:`_ledger_put` (the deployed engine's SQL tier
+  ignores an ``ON CONFLICT`` clause entirely — measured live 2026-08-25;
+  see that function). The claim writes a fresh token and re-reads it: a
+  process that finds a different claimant lost the race, performs no DDL,
+  and returns ``False`` for that attempt rather than racing the winner — a
+  genuine no-op, not an error — picking up the now-migrated schema on its
+  next call.
 * **Verification**: after applying every needed step, the winner
   re-introspects every table and asserts the columns now match the frozen
   current shape (:data:`_CURRENT_SCHEMA_COLUMNS`) before recording the
@@ -1096,14 +1099,72 @@ def _apply_step(
         if migration_id != "0003_discovery_binding_columns":
             _backfill_legacy_rows(gc, table, newly_added)
     checksum = _step_checksum(migration_id, table_columns)
-    gc.sql_exec(
-        f"INSERT INTO {_MIGRATION_LEDGER} "
-        "(id, status, claimant, claimed_at, version, migration_id, checksum, applied_at) "
-        f"VALUES ({_sql_literal('step__' + migration_id)}, {_sql_literal('applied')}, "
-        f"{_sql_literal('')}, {_sql_literal('')}, {_sql_literal(0)}, "
-        f"{_sql_literal(migration_id)}, {_sql_literal(checksum)}, {_sql_literal(_now_iso())}) "
-        "ON CONFLICT (id) DO NOTHING"
+    _ledger_put(
+        gc,
+        "step__" + migration_id,
+        {
+            "status": "applied",
+            "claimant": "",
+            "claimed_at": "",
+            "version": 0,
+            "migration_id": migration_id,
+            "checksum": checksum,
+            "applied_at": _now_iso(),
+        },
+        overwrite=False,
     )
+
+
+_LEDGER_COLUMNS: tuple[str, ...] = (
+    "status",
+    "claimant",
+    "claimed_at",
+    "version",
+    "migration_id",
+    "checksum",
+    "applied_at",
+)
+
+
+def _ledger_put(
+    gc: Any, row_id: str, values: dict[str, Any], *, overwrite: bool
+) -> None:
+    """Write one migration-ledger row WITHOUT an ``ON CONFLICT`` clause.
+
+    Measured live 2026-08-25 against the deployed engine: its SQL tier
+    IGNORES ``ON CONFLICT`` entirely — ``DO NOTHING`` and ``DO UPDATE``
+    both raise the same bare "duplicate key value violates unique
+    constraint" error a plain ``INSERT`` does. Every ledger write used one,
+    so a store that had already recorded a completed migration could never
+    claim the lock for the NEXT step: the claim ``INSERT`` raised straight
+    out of :func:`ensure_fleet_catalog_tables`, and
+    :func:`~.source_sync._write_fleet_relational` degraded that to "the
+    relational catalog was not written" on every sync.
+
+    So the ledger is written the way :func:`_cas_batch_upsert` already
+    writes every catalog row on this tier — read first, then ``INSERT`` a
+    new id or ``UPDATE`` an existing one. ``overwrite=False`` reproduces
+    ``DO NOTHING`` (an existing row is left exactly as it is);
+    ``overwrite=True`` reproduces ``DO UPDATE``.
+    """
+    if _read_ledger_row(gc, row_id) is not None:
+        if not overwrite:
+            return
+        assignments = ", ".join(
+            f"{_safe_ident(column)} = {_sql_literal(values[column])}"
+            for column in _LEDGER_COLUMNS
+        )
+        gc.sql_exec(
+            f"UPDATE {_MIGRATION_LEDGER} SET {assignments} "
+            f"WHERE id = {_sql_literal(row_id)}"
+        )
+        return
+    columns = ", ".join(("id", *_LEDGER_COLUMNS))
+    literals = ", ".join(
+        _sql_literal(value)
+        for value in (row_id, *(values[column] for column in _LEDGER_COLUMNS))
+    )
+    gc.sql_exec(f"INSERT INTO {_MIGRATION_LEDGER} ({columns}) VALUES ({literals})")
 
 
 def _read_ledger_row(gc: Any, row_id: str) -> dict[str, Any] | None:
@@ -1123,17 +1184,19 @@ def _read_ledger_row(gc: Any, row_id: str) -> dict[str, Any] | None:
 def _finalize_ledger(gc: Any, columns: dict[str, set[str]], *, claimant: str) -> None:
     digest = _table_schema_digest(columns)
     now = _now_iso()
-    gc.sql_exec(
-        f"INSERT INTO {_MIGRATION_LEDGER} "
-        "(id, status, claimant, claimed_at, version, migration_id, checksum, applied_at) "
-        f"VALUES ({_sql_literal(_LOCK_ROW_ID)}, {_sql_literal('complete')}, "
-        f"{_sql_literal(claimant)}, {_sql_literal(now)}, {_sql_literal(_SCHEMA_VERSION_CURRENT)}, "
-        f"{_sql_literal(_CURRENT_MARKER)}, {_sql_literal(digest)}, {_sql_literal(now)}) "
-        "ON CONFLICT (id) DO UPDATE SET "
-        f"status = {_sql_literal('complete')}, claimant = {_sql_literal(claimant)}, "
-        f"claimed_at = {_sql_literal(now)}, version = {_sql_literal(_SCHEMA_VERSION_CURRENT)}, "
-        f"migration_id = {_sql_literal(_CURRENT_MARKER)}, checksum = {_sql_literal(digest)}, "
-        f"applied_at = {_sql_literal(now)}"
+    _ledger_put(
+        gc,
+        _LOCK_ROW_ID,
+        {
+            "status": "complete",
+            "claimant": claimant,
+            "claimed_at": now,
+            "version": _SCHEMA_VERSION_CURRENT,
+            "migration_id": _CURRENT_MARKER,
+            "checksum": digest,
+            "applied_at": now,
+        },
+        overwrite=True,
     )
 
 
@@ -1187,14 +1250,39 @@ def _claim_and_migrate(engine: Any) -> bool:
             _finalize_ledger(gc, current_columns, claimant="")
         return True
 
+    if lock_row is not None and str(lock_row.get("status")) == "migrating":
+        # Another process holds a LIVE claim — never take that over.
+        logger.info(
+            "fleet catalog schema migration already claimed by another "
+            "process; skipping this attempt (will retry on the next call)"
+        )
+        return False
+
     token = uuid.uuid4().hex
-    gc.sql_exec(
-        f"INSERT INTO {_MIGRATION_LEDGER} "
-        "(id, status, claimant, claimed_at, version, migration_id, checksum, applied_at) "
-        f"VALUES ({_sql_literal(_LOCK_ROW_ID)}, {_sql_literal('migrating')}, "
-        f"{_sql_literal(token)}, {_sql_literal(_now_iso())}, {_sql_literal(0)}, "
-        f"{_sql_literal('')}, {_sql_literal('')}, {_sql_literal('')}) "
-        "ON CONFLICT (id) DO NOTHING"
+    # ``overwrite=True``, deliberately: a ``schema_state`` row marked
+    # ``complete`` records that the schema was current AT THE TIME — it is
+    # not a live claim (that case returned above), and it must not veto the
+    # NEXT step. ``needed`` above is computed from the store's ACTUAL
+    # columns, so reaching this line already means a step is genuinely
+    # outstanding. Every real store that has ever finished a migration
+    # carries such a row, so the old ``DO NOTHING`` claim could never
+    # migrate one: the re-read below took the "someone else already
+    # finished" short-circuit and returned success having applied nothing,
+    # and the write then failed at INSERT time on the very columns the
+    # skipped step adds.
+    _ledger_put(
+        gc,
+        _LOCK_ROW_ID,
+        {
+            "status": "migrating",
+            "claimant": token,
+            "claimed_at": _now_iso(),
+            "version": 0,
+            "migration_id": "",
+            "checksum": "",
+            "applied_at": "",
+        },
+        overwrite=True,
     )
     claimed = _read_ledger_row(gc, _LOCK_ROW_ID)
     if claimed is None or str(claimed.get("claimant")) != token:
