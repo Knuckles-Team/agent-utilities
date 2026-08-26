@@ -1260,7 +1260,70 @@ def _prepare_node_rows(
             existing.update(auxiliary)
             existing["id"] = auxiliary_id
             node_rows.append((auxiliary_id, existing))
+    _project_relations_into(client, node_rows, links)
     return node_id, node_rows, links, features, evidence
+
+
+def _project_relations_into(
+    client: Any,
+    node_rows: list[tuple[str, dict[str, Any]]],
+    links: list[dict[str, Any]],
+) -> None:
+    """Materialise the edges these rows' own properties encode, in place.
+
+    CONCEPT:AU-KG.enrichment.relation-projection — materialise the edges a node's
+    own properties already encode. This is the connector leg of the SAME
+    projection ``EpistemicGraphBackend.add_node`` applies, sharing one
+    :func:`~...enrichment.relation_projection.project_relations` implementation
+    rather than a second copy of the convention. Injected here (not in
+    :func:`_graph_operations`) so derived rows are SHACL-validated and folded
+    into the envelope's content digest exactly like the rows that caused them.
+
+    Free on the wire: the derived nodes/edges travel inside the SAME native
+    ``ChangeEnvelope`` mutation, and a node type with no projection rule costs
+    one dict lookup. A reference property whose targets this projection did not
+    write needs one batched existence probe, because the engine refuses an
+    envelope whose edge endpoints do not exist.
+    """
+    from ..enrichment.relation_projection import project_relations, projects_anything
+
+    derived: list[tuple[str, dict[str, Any]]] = []
+    edges: list[tuple[str, str, str]] = []
+    candidates: list[tuple[str, str, str]] = []
+    known = {identifier for identifier, _ in node_rows}
+    for node_id, properties in list(node_rows):
+        if not projects_anything(properties.get("node_type")):
+            continue
+        projected = project_relations(node_id, properties)
+        for identifier, row in projected.nodes:
+            if identifier in known:
+                continue
+            known.add(identifier)
+            derived.append((identifier, row))
+        edges.extend(projected.edges)
+        candidates.extend(projected.candidate_edges)
+
+    if candidates:
+        targets = sorted({target for _, target, _ in candidates} - known)
+        present: dict[str, bool] = {}
+        try:
+            present = dict(client.nodes.has_batch(targets)) if targets else {}
+        except Exception as exc:  # noqa: BLE001 — an unverifiable reference is dropped, never a failed envelope
+            logger.debug("relation projection: endpoint check failed: %s", exc)
+        edges.extend(
+            edge for edge in candidates if edge[1] in known or present.get(edge[1])
+        )
+
+    node_rows.extend(derived)
+    links.extend(
+        {
+            "source": source,
+            "target": target,
+            "relationship": relationship,
+            "projected_from": "node_property",
+        }
+        for source, target, relationship in edges
+    )
 
 
 def _graph_operations(

@@ -181,14 +181,18 @@ class InferenceEngine:
                     for succ in successors:
                         for succ2 in typed_adj.get(succ, []):
                             if n != succ2:
-                                # Check if they are already linked with inferred_type
-                                already_linked = False
-                                for src, tgt, props in raw_edges:
-                                    if src == n and tgt == succ2:
-                                        e_type = self._edge_type(props)
-                                        if e_type.upper() == inferred_type.upper():
-                                            already_linked = True
-                                            break
+                                # NEVER overwrite an existing relation with an
+                                # inferred one. The native graph holds at most ONE
+                                # edge per ordered node pair and the write is a
+                                # remove-then-add, so linking an already-connected
+                                # pair DESTROYS the asserted edge. Skipping only on
+                                # a same-type match (the previous test) meant a
+                                # derived ``DEPENDS_ON_INDIRECT`` silently replaced
+                                # whatever relation the pair really had.
+                                already_linked = any(
+                                    src == n and tgt == succ2
+                                    for src, tgt, _props in raw_edges
+                                )
                                 if not already_linked:
                                     self.engine.link_nodes(
                                         n,
@@ -241,13 +245,11 @@ class InferenceEngine:
                 for e, p in occurred_during_edges:
                     for pp in part_of_edges.get(p, []):
                         if e != pp:
-                            already_linked = False
-                            for src, tgt, props in raw_edges:
-                                if src == e and tgt == pp:
-                                    e_type = self._edge_type(props)
-                                    if e_type.upper() == "OCCURRED_DURING":
-                                        already_linked = True
-                                        break
+                            # Same one-edge-per-pair rule as _transitive_closure:
+                            # inference may CONNECT, never RELABEL.
+                            already_linked = any(
+                                src == e and tgt == pp for src, tgt, _props in raw_edges
+                            )
                             if not already_linked:
                                 self.engine.link_nodes(
                                     e,

@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1222
+total_concepts: 1224
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -3599,6 +3599,15 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/iac.py
   - agent_utilities/knowledge_graph/enrichment/pipeline.py
   doc: read them here so the
+- id: AU-KG.enrichment.relation-projection
+  name: materialise the edges a node
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
+  - agent_utilities/knowledge_graph/enrichment/relation_projection.py
+  - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py
+  doc: materialise the edges a node
 - id: AU-KG.enrichment.second-brain-note-sync
   name: is the one-call personal-notes sync
   pillar: AU-KG
@@ -5587,6 +5596,16 @@ concepts:
   - agent_utilities/knowledge_graph/ontology/functions/__init__.py
   - agent_utilities/knowledge_graph/ontology/functions/runtime.py
   doc: and derived-properties consume
+- id: AU-KG.ontology.ontology-driven-reasoning
+  name: reason over the axioms
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/maintainer.py
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/ontology/axioms.py
+  doc: reason over the axioms
 - id: AU-KG.ontology.ontology-lifecycle
   name: wires KG-2.265
   pillar: AU-KG
