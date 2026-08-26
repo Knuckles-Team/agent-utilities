@@ -1167,6 +1167,61 @@ def _configure_jwt_auth(args: argparse.Namespace) -> Any:
         _sys.exit(1)
 
 
+def _rate_limit_client_id(context: Any) -> str:
+    """Per-caller bucket key for :class:`RateLimitingMiddleware`.
+
+    Without this, ``RateLimitingMiddleware(get_client_id=None)`` buckets
+    EVERY request from EVERY caller under the single literal key
+    ``"global"`` (``fastmcp.server.middleware.rate_limiting
+    .RateLimitingMiddleware._get_client_identifier``) — one shared
+    20-token / 10-req/s budget for the WHOLE server, across every session
+    and every caller, covering every request type (``initialize``,
+    ``notifications/initialized``, ``tools/list``, ``tools/call`` — not
+    just tool calls). This fleet routinely runs several concurrent MCP
+    clients against graph-os at once (multiple agent lanes, the harness,
+    service-account bridges); a handful of them handshaking within the
+    same second exhausts the shared bucket, and each rejected request
+    surfaces as a JSON-RPC ``-32000 "Rate limit exceeded for client:
+    global"`` error. A caller that does not check the ``error`` field
+    before reading ``result.tools`` mistakes that for a genuinely empty
+    ``tools/list`` — this module's own multiplexer already documents a
+    fleet child tripping the identical "Rate limit exceeded for client:
+    global" message under a bulk probe (see the skill-harvest backoff
+    comment in ``multiplexer.py``), so this is a known, live failure
+    shape for this exact middleware, not a hypothetical one.
+
+    Keying per authenticated caller preserves the same PER-CALLER budget
+    (a single runaway/abusive client is still throttled) while stopping
+    unrelated legitimate callers from starving each other on a shared
+    bucket none of them knows exists. Falls back to one anonymous bucket
+    only for requests with no resolvable identity (stdio, or an
+    unauthenticated HTTP caller) — those already share fate under the
+    same trust boundary.
+    """
+    import hashlib
+
+    from fastmcp.server.dependencies import get_access_token
+
+    try:
+        token = get_access_token()
+    except Exception:
+        token = None
+    if token is None:
+        return "anonymous"
+    claims = getattr(token, "claims", None) or {}
+    raw = "\x00".join(
+        str(value or "")
+        for value in (
+            getattr(token, "client_id", None),
+            claims.get("sub") if isinstance(claims, dict) else None,
+            claims.get("tenant_id") if isinstance(claims, dict) else None,
+        )
+    )
+    if not raw.strip("\x00"):
+        return "anonymous"
+    return "caller_" + hashlib.blake2s(raw.encode("utf-8"), digest_size=16).hexdigest()
+
+
 def _configure_middleware(
     args: argparse.Namespace, *, server_name: str = ""
 ) -> list[Any]:
@@ -1202,7 +1257,11 @@ def _configure_middleware(
 
     middlewares: list[Any] = [
         ErrorHandlingMiddleware(include_traceback=False, transform_errors=True),
-        RateLimitingMiddleware(max_requests_per_second=10.0, burst_capacity=20),
+        RateLimitingMiddleware(
+            max_requests_per_second=10.0,
+            burst_capacity=20,
+            get_client_id=_rate_limit_client_id,
+        ),
     ]
 
     # Scope every tool call to the caller's validated OIDC (Okta/Keycloak)
