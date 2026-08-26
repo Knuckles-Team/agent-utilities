@@ -314,7 +314,10 @@ Still not wired, re-surveyed this pass:
   sidecar_contract.py`'s `SIDECAR_CAPABILITIES['video']` names the future
   producer (a `data-science-mcp` keyframe/shot-boundary sidecar) and its
   wire shape, so the capability that's missing is now a documented contract
-  stub, not an open question — see the section below. **GOC-07 (2026-08-16) wires the
+  stub, not an open question — see the section below and
+  `plans/_archive/au-eg-program/issue-register.md`'s W4.6 entry (a
+  workspace-level planning archive outside this repo, not this repo's own
+  `reports/`). **GOC-07 (2026-08-16) wires the
   adapter** (`agent_utilities/media/video_sidecar.py`) against this same
   declared contract — see the updated table rows above and the "GOC-07"
   section below. This still does NOT add an in-AU video-decode capability;
@@ -382,9 +385,10 @@ paperless-ngx-mcp PDF alternate, which has no word-box detail) writes none
 rather than guessing.
 
 Shipped W4.6: PDF (via `stirlingpdf-mcp`, default) and JPEG (via
-`data-science-mcp`) — see the table above for the exact locus/producer
-mapping (no separate tracking issue exists for this item). **Shipped
-GOC-07 (2026-08-16):** audio (via
+`data-science-mcp`) — see the table above and
+`plans/_archive/au-eg-program/issue-register.md`'s W4.6 entry (workspace-level
+planning archive, outside this repo) for the exact locus/producer mapping.
+**Shipped GOC-07 (2026-08-16):** audio (via
 `audio-transcriber-mcp`, default) and video (via `data-science-mcp`),
 completing all four modalities `sidecar_contract.SIDECAR_CAPABILITIES`
 declares — `STUB_MODALITIES` is now empty. All four sidecar tool actions
@@ -448,8 +452,10 @@ itself) so this class of bug cannot recur silently.
 (mapped to `eg-program`'s `ProgramModality::Spatial`) was added after this
 seam's 11-locus scope was set and after the audit this program's W3.3 task
 cites. No AU producer targets `Point` — out of scope for W3.3 (a spatial/geo
-locus, not one of the named table/code/row/metric/trace kinds) — a scope
-note, not a defect; not tracked anywhere else.
+locus, not one of the named table/code/row/metric/trace kinds) — logged as
+entry W3.3-2 in `plans/_archive/au-eg-program/issue-register.md`
+(workspace-level planning archive, outside this repo) as a scope note, not a
+defect.
 
 **Media-decode loci deferred to W4.6.** `PageRegion`/`ImageRegion`/
 `AudioRange` already have live AU producers (readers_office/readers_media/
