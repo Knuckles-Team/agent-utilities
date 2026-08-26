@@ -20,9 +20,10 @@ production logs again.
 
 Skips (not failures) when ``gateway-widgets`` isn't installed in the current
 environment (``python3 scripts/uv_workspace.py run --extra serving ...`` or
-``--extra gateway-widgets`` installs it) and xfails the small number of
-widgets with a KNOWN, separately-tracked breakage that a dependency
-declaration alone cannot fix (see ``KNOWN_BROKEN`` below).
+``--extra gateway-widgets`` installs it). The small number of widgets with a
+KNOWN, separately-tracked third-party breakage that a dependency declaration
+alone cannot fix (see ``KNOWN_BROKEN`` below) are asserted to fail in exactly
+the documented way, so the entry cannot outlive the defect.
 """
 
 from __future__ import annotations
@@ -123,7 +124,13 @@ def test_widget_connector_import_resolves(widget_name: str) -> None:
     """The widget's declared connector module + symbol actually import."""
     module_name, symbol = WIDGET_CONNECTOR_IMPORTS[widget_name]
     if widget_name in KNOWN_BROKEN:
-        pytest.xfail(KNOWN_BROKEN[widget_name])
+        # Deliberately NOT an xfail. Assert the EXACT documented third-party
+        # breakage instead, so this test fails loudly -- prompting removal of
+        # this KNOWN_BROKEN entry -- the moment the fixed connector is
+        # published, rather than staying quietly "expected to fail" forever.
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module(module_name)
+        return
 
     module = importlib.import_module(module_name)
     assert hasattr(module, symbol), (

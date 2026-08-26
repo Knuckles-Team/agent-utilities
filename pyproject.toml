@@ -355,18 +355,25 @@ computer-use = [
 # (`except ImportError: return WidgetData(status="skipped", ...)`); `sentry.py` and
 # `zulip.py` do not and will keep flooding logs until those connectors are published.
 #
-# ALSO STILL BROKEN after this extra (separate, deeper bug — not a missing
-# dependency): `container_manager.py`, `arr.py`, `vector_db.py`,
-# `tunnel_manager.py`, `atlassian.py`, `repository_manager.py`, and
-# `media_downloader.py` import `<pkg>.api_client`, but that submodule does not
-# exist in `container-manager-mcp`/`arr-mcp`/`vector-mcp`/`tunnel-manager`/
-# `atlassian-agent`/`repository-manager`/`media-downloader` at ANY version,
-# local or published — those packages expose a different API surface entirely.
-# Declaring the dependency here only changes their failure from
-# `ModuleNotFoundError: No module named '<connector>_mcp'` to
-# `ModuleNotFoundError: No module named '<connector>_mcp.api_client'`; the widgets
-# themselves need a real fix (point at each package's actual public entry point),
-# tracked separately.
+# `container_manager.py`, `arr.py`, `vector_db.py`, `tunnel_manager.py`,
+# `atlassian.py`, `repository_manager.py` and `media_downloader.py` used to import a
+# `<pkg>.api_client` submodule those packages never shipped at any version — a second,
+# deeper bug a dependency declaration alone could not fix. That has since been fixed
+# separately (`fix(gateway): point 9 dashboard widgets at their real connector
+# clients`): each now imports its package's ACTUAL public entry point
+# (`container_manager_mcp.create_manager`, `arr_mcp.api.api_client_sonarr`,
+# `vector_mcp.vector_api`, `tunnel_manager.HostManager`,
+# `atlassian_agent.api.api_client_jira_cloud`, `repository_manager.repository_manager`,
+# `media_downloader.api_client`), so declaring their distributions here does make them
+# work rather than merely moving the ModuleNotFoundError one level deeper.
+#
+# `portainer-agent` IS declared below, but its newest PUBLISHED version (1.1.0) imports
+# `agent_utilities.http`, a module this package renamed to `agent_utilities.httpsupport`;
+# the local sibling checkout (2.1.0) already carries the fix but is unpublished. The
+# widget degrades safely through `BaseWidget._safe_fetch` meanwhile, and the floor
+# (`>=1.1.0`) picks the fix up automatically once 2.1.0 reaches PyPI. Asserted in
+# `tests/unit/gateway/test_gateway_widgets_extra.py::KNOWN_BROKEN` so the note cannot
+# outlive the defect.
 gateway-widgets = [
     "ansible-tower-mcp>=2.0.1",
     "arr-mcp>=2.1.0",
