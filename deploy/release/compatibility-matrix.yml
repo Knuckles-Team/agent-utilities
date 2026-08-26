@@ -77,7 +77,7 @@ components:
     dependsOn:
       agent-utilities: "==2.5.0"
       epistemic-graph: "==2.27.0"
-    exactEntries: 68
+    exactEntries: 69
     requiredCapabilities:
       - connector-live-certification
       - governed-graphql-document-ingestion

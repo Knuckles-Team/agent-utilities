@@ -1,0 +1,124 @@
+connector: lakekeeper-mcp
+ontology_source: lakekeeper
+schema_version: '1'
+resources:
+- name: IcebergCatalog
+  label: Iceberg Catalog
+  id_prefix: icebergcatalog
+  relations:
+  - name: hasNamespace
+    label: has namespace
+    target: IcebergNamespace
+    lpg_rel_type: ''
+- name: IcebergNamespace
+  label: Iceberg Namespace
+  id_prefix: icebergnamespace
+  relations:
+  - name: hasTable
+    label: has table
+    target: IcebergTable
+    lpg_rel_type: ''
+- name: IcebergSchemaVersion
+  label: Iceberg Schema Version
+  id_prefix: icebergschemaversion
+  relations: []
+- name: IcebergSnapshot
+  label: Iceberg Snapshot
+  id_prefix: icebergsnapshot
+  relations:
+  - name: parentSnapshot
+    label: parent snapshot
+    target: IcebergSnapshot
+    lpg_rel_type: ''
+- name: IcebergTable
+  label: Iceberg Table
+  id_prefix: icebergtable
+  relations:
+  - name: hasSchemaVersion
+    label: has schema version
+    target: IcebergSchemaVersion
+    lpg_rel_type: ''
+  - name: hasSnapshot
+    label: has snapshot
+    target: IcebergSnapshot
+    lpg_rel_type: ''
+  - name: storedIn
+    label: stored in
+    target: LakeWarehouse
+    lpg_rel_type: ''
+- name: LakeWarehouse
+  label: Lake Warehouse
+  id_prefix: lakewarehouse
+  relations: []
+actions:
+- id: epistemic-answer
+  name: Epistemic Answer
+  description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
+    confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
+    policy-redaction-aware provenance.'
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events: []
+identity:
+  id_field: {}
+  title_field: {}
+  text_field: {}
+  updated_field: {}
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  IcebergCatalog:
+    ontology_class: null
+    fields: {}
+  IcebergNamespace:
+    ontology_class: null
+    fields: {}
+  IcebergSchemaVersion:
+    ontology_class: null
+    fields: {}
+  IcebergSnapshot:
+    ontology_class: null
+    fields: {}
+  IcebergTable:
+    ontology_class: null
+    fields: {}
+  LakeWarehouse:
+    ontology_class: null
+    fields: {}
+sync: []
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-08-26T20:09:33Z'
+  source_artifacts:
+  - lakekeeper_mcp/ontology/lakekeeper.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 3375260071917533f57dbacb029e320dce95548fbf3c70a5ac62bf9db4121109
+    triple_count: 46
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  source_commit: c3a7e2328821ee837dd018ed64cedfdb7767cbff
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "schema_mappings.IcebergCatalog.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.IcebergNamespace.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
+  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.IcebergSchemaVersion.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by\
+  \ any heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.IcebergSnapshot.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
+  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.IcebergTable.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.LakeWarehouse.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
