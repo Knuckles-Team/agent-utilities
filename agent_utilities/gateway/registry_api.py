@@ -734,14 +734,101 @@ def _rows_from_engine(raw: Any) -> list[dict[str, Any]]:
     return rows
 
 
+def _catalog_service_session() -> Any:
+    """The fixed identity this deployment's catalog SQL RPC must run as.
+
+    ROOT CAUSE (measured live 2026-08-25, D-catalog-503-human): the engine's
+    native ``Method::Sql`` RPC (``epistemic-graph``
+    ``src/server/handlers/query.rs``) resolves an **owner-scoped** redb
+    table store keyed by the CALLING actor's own verified tenant+principal
+    (``src/server/sql_tables.rs::user_table_store`` /
+    ``owner_filename`` — "every owner receives a distinct redb database").
+    There is no catalog shared across actors on this path — that sharing
+    (``src/server/sql_catalog_acl.rs``, CONCEPT:NE-003) exists only for the
+    wire-protocol adapters (pgwire/mysql/sqlite) that delegate through
+    ``WireSession``; the native RPC AU's Python client uses never opts into
+    it. ``fleet_catalog_tables.py`` writes the ``mcp_servers``/``mcp_tools``/
+    ``skills``/... tables once, under this process's own fixed
+    ``automated_service`` identity (whatever actor is ambient when the
+    scheduled ``fleet-tool-schema-sync`` job runs — which resolves through
+    the SAME :func:`~agent_utilities.security.request_identity.
+    system_write_session` this function calls). Any OTHER verified actor —
+    including a fully authorized human carrying ``kg:admin`` — therefore
+    opens its OWN, always-empty private catalog on read and gets
+    ``SQL error: ... table 'X' not found``, which was surfacing as a bare,
+    cause-less 503 (see :func:`_log_catalog_exception`). Confirmed live:
+    the writer's own identity reads the table fine (count=66); a distinct,
+    fully-admitted actor gets ``table not found`` on the identical query.
+
+    This module's own ``tenant_id``/principal predicate (:func:`_build_where`,
+    built from the REAL calling actor via :func:`_require_catalog_authority`)
+    is already the entire authorization boundary for this store — the engine
+    enforces no RLS of its own on a plain user table (see
+    ``fleet_catalog_tables`` module docstring: "gated only on authentication
+    ... never on the named-graph Read/Write Pattern grant"). So running the
+    already-correctly-scoped SQL under the fixed writer identity changes only
+    WHICH physical catalog file is opened, never WHAT rows a caller may see.
+
+    ``suspend_session()`` is required, not a bare call to
+    ``system_write_session()``: that helper *prefers* an already-bound
+    ambient session (by design, for the different "attribute an
+    unauthenticated background write" problem it was built for, BUG-033/
+    BUG-039) — inside a served request there always IS one (the caller's
+    own), so an unguarded call would just hand back the caller's own session
+    and fix nothing.
+    """
+    from agent_utilities.knowledge_graph.core.session import suspend_session
+    from agent_utilities.security.request_identity import system_write_session
+
+    with suspend_session():
+        return system_write_session()
+
+
+def _log_catalog_exception(action: str, exc: BaseException) -> None:
+    """Log a catalog RPC failure with its real message and full cause chain.
+
+    Previously these call sites logged only ``type(exc).__name__`` (e.g. a
+    bare ``RuntimeError``), discarding the engine's own error text — exactly
+    the detail that distinguishes WHY a call failed (a missing-table SQL
+    plan error vs. an ACCESS_DENIED principal/graph mismatch vs. a network
+    fault) from merely THAT it failed. That gap is what made the
+    owner-scoped-SQL-catalog root cause (see :func:`_catalog_service_session`)
+    take a live in-pod repro to uncover instead of one log line. Server-side
+    log only — the HTTP response stays the generic ``catalog_unavailable``
+    body; this never reaches the client.
+    """
+    chain: list[str] = []
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        chain.append(f"{type(current).__name__}: {current}")
+        current = current.__cause__
+    logger.warning(
+        "authoritative registry catalog %s failed: %s", action, " <- ".join(chain)
+    )
+
+
 def _require_sql_exec(engine: Any) -> Callable[[str], Any]:
-    """Resolve the engine's write-capable SQL surface or fail closed."""
+    """Resolve the engine's write-capable SQL surface or fail closed.
+
+    The returned callable executes under this deployment's fixed
+    catalog-service identity (:func:`_catalog_service_session`), never the
+    caller's own ambient session — see that function's docstring for why.
+    """
 
     graph_compute = getattr(engine, "graph_compute", None)
     sql_exec = getattr(graph_compute, "sql_exec", None)
     if not callable(sql_exec):
         raise CatalogUnavailable("authoritative catalog SQL is unavailable")
-    return sql_exec
+
+    def _run_as_catalog_service(statement: str) -> Any:
+        from agent_utilities.knowledge_graph.core.session import use_session
+
+        with use_session(_catalog_service_session()):
+            return sql_exec(statement)
+
+    return _run_as_catalog_service
 
 
 def _search_columns(spec: _KindSpec) -> list[str]:
@@ -892,9 +979,7 @@ def _authorized_count(
     except CatalogUnavailable:
         raise
     except Exception as exc:  # noqa: BLE001 - explicit unavailable response
-        logger.warning(
-            "authoritative registry catalog count failed (%s)", type(exc).__name__
-        )
+        _log_catalog_exception("count", exc)
         raise CatalogUnavailable("authoritative catalog read failed") from exc
     if len(rows) != 1:
         raise CatalogUnavailable("authoritative catalog count is malformed")
@@ -946,9 +1031,7 @@ def _authorized_page(
     except CatalogUnavailable:
         raise
     except Exception as exc:  # noqa: BLE001 - explicit unavailable response
-        logger.warning(
-            "authoritative registry catalog read failed (%s)", type(exc).__name__
-        )
+        _log_catalog_exception("page read", exc)
         raise CatalogUnavailable("authoritative catalog read failed") from exc
     if len(rows) > fetch:
         raise CatalogUnavailable(
@@ -985,9 +1068,7 @@ def _authorized_item(
     except CatalogUnavailable:
         raise
     except Exception as exc:  # noqa: BLE001 - explicit unavailable response
-        logger.warning(
-            "authoritative registry catalog read failed (%s)", type(exc).__name__
-        )
+        _log_catalog_exception("item read", exc)
         raise CatalogUnavailable("authoritative catalog read failed") from exc
     if len(rows) > 1:
         raise CatalogUnavailable("authoritative catalog item lookup is malformed")

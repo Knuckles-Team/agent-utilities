@@ -10,10 +10,13 @@ import json
 import logging
 import os
 import re
+import shutil
+import tempfile
 import threading
 import time
 from collections import deque
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from types import ModuleType
 from typing import Any, cast
 
@@ -46,6 +49,11 @@ _PR_SET_PDEATHSIG = 1
 # daemon and launch a competing writer.
 _ENGINE_STARTUP_TIMEOUT_SECS = 30.0
 _ENGINE_STARTUP_POLL_SECS = 0.1
+# Bound on how much of a spawned engine's own startup diagnostics is surfaced
+# when it fails to come up (BUG-PE-052).  Only the child's STDERR is captured;
+# the engine writes fatal startup errors there and nothing else (its `tracing`
+# fmt subscriber targets stdout), so the capture is bounded by construction.
+_ENGINE_STARTUP_CAPTURE_BYTES = 8 * 1024
 
 # Children spawned in *coupled* mode (the embedded/tiny path) so the embedded
 # engine dies with this process. The parent-death signal (Linux) is the primary
@@ -264,13 +272,94 @@ def _engine_child_environment() -> dict[str, str]:
     return inherited
 
 
-def _resolve_engine_path_ref(reference: str) -> str:
-    """Resolve one runtime-only directory reference without logging its value."""
+def _log_engine_startup_failure(capture: Any) -> None:
+    """Surface a failed engine child's own startup diagnostics, bounded.
+
+    Autostart used to send the child's stdout AND stderr to ``DEVNULL``
+    (BUG-PE-052), so an engine that died at startup left the operator with only
+    ``exited during startup (status 1)`` and no way to learn the real cause
+    (e.g. ``error: failed to open durable graph store: ...``) short of re-running
+    the binary by hand.  In the 3-container topology that text reaches the
+    container log from the engine's own process, so discarding it is an
+    observability regression under the collapse.
+
+    Only the child's STDERR is captured: the engine writes every fatal startup
+    diagnostic there with ``eprintln!`` and installs its ``tracing`` fmt
+    subscriber on STDOUT, which stays ``DEVNULL``.  The capture therefore cannot
+    accumulate a running engine's INFO stream -- it holds a few lines emitted
+    immediately before ``exit()``.  Only the last
+    ``_ENGINE_STARTUP_CAPTURE_BYTES`` are read, and the text is emitted through
+    this module's normal logger so the process-wide log-privacy boundary
+    (``agent_utilities.core.log_privacy``) redacts paths, endpoints, host:port
+    pairs and caller identifiers out of it exactly as it does for every other
+    record this module emits.
+    """
 
     try:
-        from agent_utilities.security.secrets_client import create_secrets_client
+        capture.seek(0, os.SEEK_END)
+        size = capture.tell()
+        capture.seek(max(0, size - _ENGINE_STARTUP_CAPTURE_BYTES))
+        payload = capture.read()
+    except Exception:  # noqa: BLE001 - diagnostics must never mask the failure
+        return
+    if isinstance(payload, bytes):
+        payload = payload.decode("utf-8", errors="replace")
+    startup_output = str(payload or "").strip()
+    if not startup_output:
+        return
+    logger.error(
+        "The local epistemic-graph process failed at startup; its own "
+        "diagnostic output follows: %s",
+        startup_output,
+    )
 
-        value = create_secrets_client().resolve_ref(reference)
+
+def _is_graph_already_exists_error(error: BaseException, graph_name: str) -> bool:
+    """Whether ``error`` is the engine's "this graph already exists" rejection.
+
+    The engine exposes no typed exception for a duplicate create: both the
+    served dispatcher (``epistemic-graph/src/server/dispatch.rs``) and the core
+    registry (``epistemic-graph/crates/eg-core/src/registry.rs``) reject it with
+    the one literal message ``Graph '<name>' already exists``, which the
+    generated client re-raises verbatim as a plain ``RuntimeError``.  Matching
+    that whole sentence -- graph name included -- is therefore the narrowest
+    available test: no other engine failure produces it, so nothing else can be
+    mistaken for success.
+    """
+
+    return f"Graph '{graph_name}' already exists" in str(error)
+
+
+def _resolve_engine_path_ref(reference: str) -> str:
+    """Resolve one runtime-only directory reference without logging its value.
+
+    Dispatches on the reference SCHEME first, exactly as
+    :func:`agent_utilities.security.cli_secrets.resolve_runtime_secret_reference`
+    already does.  ``env://VAR`` is answered from this process's settings and
+    needs no engine at all; only a store-backed scheme (``vault://`` /
+    ``secret://``) falls through to the engine-backed secrets client.
+
+    Resolving every scheme through that client was circular under local
+    autostart (BUG-PE-050): ``create_secrets_client()`` opens ``__secrets__`` on
+    the very engine this call runs while spawning, so with the transport breaker
+    open it raised and aborted the spawn before the engine could exist.  An
+    ``env://`` reference is the one shape autostart configures, and it never
+    needed the engine.
+
+    Neither branch logs the reference or the resolved value, and the caller's
+    ``_engine_child_environment`` narrowing is untouched: this returns the value
+    to exactly one caller, which places it in the private child environment.
+    """
+
+    rendered_reference = str(reference or "").strip()
+    scheme, separator, target = rendered_reference.partition("://")
+    try:
+        if separator and scheme == "env":
+            value: Any = setting(target)
+        else:
+            from agent_utilities.security.secrets_client import create_secrets_client
+
+            value = create_secrets_client().resolve_ref(rendered_reference)
         if isinstance(value, bytes):
             rendered = value.decode("utf-8")
         else:
@@ -1145,6 +1234,53 @@ def _read_private_engine_encryption_key(path: Any) -> str:
             os.close(descriptor)
 
 
+def _engine_persist_dir_holds_data() -> bool:
+    """Does the engine's durable store already exist and hold files?
+
+    Answered WITHOUT interpolating any path into a log record; the caller turns the
+    boolean into one of two fully STATIC messages.
+    """
+    try:
+        persist_dir = _resolve_engine_persist_dir()
+        if not persist_dir:
+            return False
+        return any(Path(persist_dir).iterdir())
+    except Exception:
+        return False
+
+
+def _warn_new_engine_encryption_key() -> None:
+    """Never mint an encryption-at-rest key silently (BUG-PE-055).
+
+    Same hazard family as the unset-GRAPH_SERVICE_PERSIST_DIR warning above, and the
+    same message discipline: the literal paths are deliberately NOT interpolated,
+    because agent_utilities.core.log_privacy redacts filesystem locations from every
+    agent_utilities.* record (it sanitizes record.msg too). The SETTING NAMES carry
+    the meaning.
+    """
+    if _engine_persist_dir_holds_data():
+        logger.warning(
+            "EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF is not set, so a NEW engine "
+            "encryption-at-rest key was just generated under AGENT_UTILITIES_DATA_DIR "
+            "-- but the durable store resolved from GRAPH_SERVICE_PERSIST_DIR ALREADY "
+            "HOLDS DATA. If that store was written under a different key the engine "
+            "will REFUSE to open it and the data is unreachable without the original "
+            "key; if it was written in plaintext the engine will REFUSE to encrypt "
+            "over it. Set EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF to the KMS reference for "
+            "this deployment."
+        )
+        return
+    logger.warning(
+        "EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF is not set, so a NEW engine "
+        "encryption-at-rest key was generated under AGENT_UTILITIES_DATA_DIR. If that "
+        "location is not durable storage (e.g. a container emptyDir) a different key "
+        "will be generated on every restart, and once the engine binds a key to the "
+        "durable store resolved from GRAPH_SERVICE_PERSIST_DIR it will REFUSE to open "
+        "under any other key. Set EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF to make the key "
+        "durable and silence this warning."
+    )
+
+
 def _load_or_create_engine_encryption_key() -> str:
     """Load or atomically create the stable private key for local tiny mode.
 
@@ -1199,6 +1335,7 @@ def _load_or_create_engine_encryption_key() -> str:
         with contextlib.suppress(OSError):
             path.unlink()
         raise RuntimeError("local engine encryption key is unavailable") from exc
+    _warn_new_engine_encryption_key()
     return _read_private_engine_encryption_key(path)
 
 
@@ -1409,6 +1546,87 @@ def _query_unified_accepts_reorder_kwarg(unified_method: Any) -> bool:
         ValueError,
     ):  # pragma: no cover - defensive: unintrospectable callable
         return False
+
+
+def _build_engine_transport_argv(
+    server_path: str,
+    sock: str | None,
+    connect_kwargs: Mapping[str, Any],
+) -> list[str]:
+    """Build the transport argv for an auto-started ``epistemic-graph-server``.
+
+    Pure and side-effect-free so the exact argv is directly unit-testable.
+    ``--socket-path`` and ``--tcp-addr`` are INDEPENDENT, not mutually
+    exclusive: a UDS-connecting client (the common case — ``sock`` truthy) can
+    also arm a second, TCP(+TLS) listener via ``GRAPH_SERVICE_TCP_ADDR`` for
+    consumers that dial the engine directly over the network (e.g. a
+    Service-fronted single-container topology) rather than through this
+    process's own connection. When ``sock`` is unset, ``connect_kwargs``'s
+    ``tcp_addr`` still wins over the setting — Windows' zero-config transport
+    is loopback TCP, and passing that address explicitly also makes an
+    operator-selected local loopback port deterministic on every platform.
+    Every flag here is optional and omitted when unset, so a caller that sets
+    none of these new settings gets byte-identical argv to before.
+    """
+    cmd = [server_path]
+    if sock:
+        cmd += ["--socket-path", str(sock)]
+    tcp_addr = connect_kwargs.get("tcp_addr") or setting("GRAPH_SERVICE_TCP_ADDR")
+    if tcp_addr:
+        cmd += ["--tcp-addr", str(tcp_addr)]
+    tls_cert = setting("GRAPH_SERVICE_TLS_CERT")
+    if tls_cert:
+        cmd += ["--tcp-tls-cert", str(tls_cert)]
+    tls_key = setting("GRAPH_SERVICE_TLS_KEY")
+    if tls_key:
+        cmd += ["--tcp-tls-key", str(tls_key)]
+    metrics_addr = setting("GRAPH_SERVICE_METRICS_ADDR")
+    if metrics_addr:
+        cmd += ["--metrics-addr", str(metrics_addr)]
+    return cmd
+
+
+def _resolve_engine_persist_dir() -> str | None:
+    """Resolve the auto-started engine's ``--persist-dir`` (BUG-PE-003).
+
+    Durable by default (CONCEPT:EG-KG.storage.nonblocking-checkpoint / OS-5.9):
+    snapshot the graphs to disk so an auto-spawned engine warm-restarts from
+    the last checkpoint instead of starting empty. pggraph stays the durable
+    system-of-record; this is the fast local cache.
+
+    ``GRAPH_SERVICE_PERSIST_DIR`` unset is a legitimate, convenient default for
+    laptop/dev use — but the implicit fallback path resolves under
+    ``AGENT_UTILITIES_DATA_DIR``, which in a container is routinely an
+    ephemeral ``emptyDir``. Silently choosing that path means a restart
+    discards the durable graph with no error and no warning. This must never
+    happen silently, so the fallback always logs a WARNING event naming that
+    the persist directory was NOT explicitly configured. The literal path is
+    still passed to ``%s`` here — it is this package's process-wide log
+    privacy boundary (``agent_utilities.core.log_privacy``, installed in
+    ``agent_utilities/__init__.py``) that redacts filesystem locations from
+    every ``agent_utilities.*`` record before it is emitted, the same as any
+    other path logged in this module. That is what makes the resolved path
+    itself invisible in the rendered log line; the WARNING event is what
+    makes the fallback unmistakable.
+    """
+    persist_dir = setting("GRAPH_SERVICE_PERSIST_DIR")
+    if persist_dir is not None:
+        return persist_dir or None
+    try:
+        from agent_utilities.core.paths import data_dir
+
+        persist_dir = str(data_dir() / "graph_snapshots")
+    except Exception:
+        return None
+    logger.warning(
+        "GRAPH_SERVICE_PERSIST_DIR is not set; auto-starting the engine with "
+        "an IMPLICIT persist dir resolved under AGENT_UTILITIES_DATA_DIR. If "
+        "that location is not durable storage (e.g. a container emptyDir), "
+        "graph data will be silently DISCARDED on the next restart. Set "
+        "GRAPH_SERVICE_PERSIST_DIR explicitly to make this a deliberate "
+        "choice and silence this warning."
+    )
+    return persist_dir
 
 
 class GraphComputeEngine:
@@ -1898,27 +2116,22 @@ class GraphComputeEngine:
             if os.name == "nt"
             else "epistemic-graph-server"
         )
-        server_path = str(Path(sys.executable).parent / _server_exe)
-        cmd = [server_path]
-        if sock:
-            cmd += ["--socket-path", str(sock)]
-        elif connect_kwargs.get("tcp_addr"):
-            # Windows' zero-config transport is loopback TCP. Passing the
-            # address explicitly also makes an operator-selected local
-            # loopback port deterministic on every platform.
-            cmd += ["--tcp-addr", str(connect_kwargs["tcp_addr"])]
-        # Durable by default (CONCEPT:EG-KG.storage.nonblocking-checkpoint / OS-5.9): snapshot the graphs to disk
-        # so an auto-spawned engine warm-restarts from the last checkpoint instead
-        # of starting empty. pggraph stays the durable system-of-record; this is
-        # the fast local cache.
-        persist_dir = setting("GRAPH_SERVICE_PERSIST_DIR")
-        if persist_dir is None:
-            try:
-                from agent_utilities.core.paths import data_dir
-
-                persist_dir = str(data_dir() / "graph_snapshots")
-            except Exception:
-                persist_dir = None
+        # Interpreter adjacency alone is wrong outside a venv (BUG-PE-051): the
+        # packaged image runs `/usr/bin/python3` while maturin installed the
+        # binary on PATH at `/usr/local/bin`, so the adjacent guess did not
+        # exist.  Adjacency still WINS when it resolves, because a build sitting
+        # in this interpreter's own environment is the more specific match for
+        # the wheel actually imported -- PATH may point at an unrelated system
+        # engine of a different version.  PATH is the fallback.
+        # `shutil.which` applies PATHEXT on Windows, and `_server_exe` already
+        # carries the `.exe` there, so both halves keep the Windows contract.
+        adjacent_server = Path(sys.executable).parent / _server_exe
+        if adjacent_server.exists():
+            server_path = str(adjacent_server)
+        else:
+            server_path = shutil.which(_server_exe) or str(adjacent_server)
+        cmd = _build_engine_transport_argv(server_path, sock, connect_kwargs)
+        persist_dir = _resolve_engine_persist_dir()
         if persist_dir:
             cmd += ["--persist-dir", persist_dir]
         # Reference-counted supervision (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): a DETACHED engine that
@@ -2073,6 +2286,11 @@ class GraphComputeEngine:
             config
         )
         child_env["GRAPH_SERVICE_AUTH_SECRET"] = auth_secret
+        # Bounded startup-diagnostics capture (BUG-PE-052): see
+        # `_log_engine_startup_failure` for why only stderr is redirected and
+        # why that cannot grow. This handle is closed as soon as readiness is
+        # decided; the child keeps its own descriptor.
+        startup_capture = tempfile.TemporaryFile()  # noqa: SIM115
         if coupled:
             # Embedded/tiny path: the engine's lifetime is tied to ours. Do NOT
             # start a new session (that would detach it); instead arm the
@@ -2086,7 +2304,7 @@ class GraphComputeEngine:
             # (the documented cross-platform coupling mechanism).
             coupled_kwargs: dict[str, Any] = {
                 "stdout": subprocess.DEVNULL,
-                "stderr": subprocess.DEVNULL,
+                "stderr": startup_capture,
                 "env": child_env,
             }
             if os.name == "posix":
@@ -2106,7 +2324,7 @@ class GraphComputeEngine:
             # detaches the child from the launcher's console/job instead.
             detach_kwargs: dict[str, Any] = {
                 "stdout": subprocess.DEVNULL,
-                "stderr": subprocess.DEVNULL,
+                "stderr": startup_capture,
                 "env": child_env,
             }
             if os.name == "posix":
@@ -2136,9 +2354,11 @@ class GraphComputeEngine:
                 if coupled:
                     with contextlib.suppress(ValueError):
                         _coupled_children.remove(child)
+                _log_engine_startup_failure(startup_capture)
+                startup_capture.close()
                 raise ConnectionError(
                     "The local epistemic-graph process exited during startup "
-                    f"(status {status})."
+                    f"(status {status}); its own diagnostic output was logged."
                 )
             try:
                 connected = SyncEpistemicGraphClient.connect(**connect_kwargs)
@@ -2146,6 +2366,7 @@ class GraphComputeEngine:
                     connected,
                     connect_kwargs,
                 )
+                startup_capture.close()
                 return connected
             except Exception as exc:  # noqa: BLE001 - bounded readiness probe
                 last_error = exc
@@ -2160,6 +2381,8 @@ class GraphComputeEngine:
                 if coupled:
                     with contextlib.suppress(ValueError):
                         _coupled_children.remove(child)
+                _log_engine_startup_failure(startup_capture)
+                startup_capture.close()
                 raise ConnectionError(
                     "The local epistemic-graph process did not become ready "
                     f"within {_ENGINE_STARTUP_TIMEOUT_SECS:g} seconds."
@@ -2202,10 +2425,23 @@ class GraphComputeEngine:
                 return
             try:
                 client.tenants.create(graph_name, "Agent")
-            except Exception:
-                # Another authorized local process may win the create race.  A
-                # fresh authoritative list is the only accepted reconciliation;
-                # otherwise preserve the original fail-closed exception.
+            except Exception as exc:
+                # PRIMARY reconciliation (BUG-PE-049): this seam's contract is
+                # that the graph EXISTS once it returns, so the engine's own
+                # "already exists" rejection IS that guarantee being met, not a
+                # failure.  It has to be primary because ``tenants.list()`` is
+                # NOT authoritative here: against an existing production-shaped
+                # store the engine rejects the create while this bootstrap
+                # context's list omits the graph, so the previous list-only
+                # reconciliation let a real "already exists" escape and killed
+                # boot.  (Why the list under-reports is an ownership/visibility
+                # question of its own and is deliberately not addressed here.)
+                if _is_graph_already_exists_error(exc, graph_name):
+                    return
+                # SECONDARY: a create race lost to another authorized local
+                # process may still surface as some other rejection; a fresh
+                # list can settle that one.  Anything else stays fail-closed and
+                # propagates exactly as before.
                 if graph_name in _listed_names():
                     return
                 raise

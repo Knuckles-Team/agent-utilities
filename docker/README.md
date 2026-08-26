@@ -26,7 +26,7 @@ vars, `config.json`, secrets, database choice) lives in [`docs/recipes/`](../doc
 | File | Builds | Role |
 |---|---|---|
 | `Dockerfile` | the **agent-utilities** image (`graph-os` MCP server + KG engine + built-in MCP fleet gateway) | the one image every deployment runs |
-| `graphos-unified.Dockerfile` | the **`knucklessg1/graph-os-unified`** image — the ONE self-contained image (editable-source au + engine wheel + langfuse-agent + messaging backends) that 3 of the 4 containers in the live `platform/graph-os` Kubernetes Deployment actually run | see **§5 below** for how it's built — do NOT hand-apply a Kaniko Job for this anymore |
+| `graphos-unified.Dockerfile` | the **`knucklessg1/graph-os-unified`** image — the ONE self-contained image (editable-source au + engine wheel + langfuse-agent + messaging backends) that both non-init containers (`graph-os`, `metrics-proxy`) in the live `platform/graph-os` Kubernetes Deployment actually run | see **§5 below** for how it's built — prefer the real CI pipeline; `graphos-unified-kaniko-job.yaml` remains for local/dev rebuilds |
 
 ## 3. The tiers (compose files)
 
@@ -73,23 +73,31 @@ docker compose -f docker/mcp.compose.yml up -d         # docs/recipes/single-nod
 
 ## 5. Building `knucklessg1/graph-os-unified` — use the real CI pipeline, not a hand-applied Job
 
-**Retired 2026-08-02 (closes D-IMG-2 / D-CDX-18 / D-EIMG-5).** Until now, every rebuild of
+**Retired 2026-08-02 (closes D-IMG-2 / D-CDX-18 / D-EIMG-5).** Until then, every rebuild of
 `knucklessg1/graph-os-unified` — the image the live `platform/graph-os` Deployment actually
-runs in 3 of its 4 containers — meant hand-writing yet another near-duplicate Kaniko `Job`
-manifest in this directory and `kubectl apply`-ing it: `graphos-unified-kaniko-job.yaml`,
-`-langfuse-`, `-skill-runtime-`, `-fastmcp4-`, and (preserved-but-rejected, never landed
-here) an unsafe `-fix-0801-` variant. Four to five near-identical, hand-maintained,
-node-pinned, `envsubst`-templated manifests, each hard-coding a different `hostPath` build
-context and destination tag, with no CI gate proving any of them still pointed at real
-source (one, `graphos-unified-kaniko-job.yaml`, had rotted to point at a pruned, dangling,
-non-git worktree directory — applying it today would have silently rebuilt months-old
-source). That pattern is **retired**. Those files (`graphos-unified-kaniko-job.yaml`,
-`graphos-unified-langfuse-kaniko-job.yaml`, `graphos-unified-skill-runtime-kaniko-job.yaml`,
-`graphos-unified-fastmcp4-kaniko-job.yaml`, `kaniko-build.env.example`) have been removed
-from this directory — their institutional knowledge (context-composition tricks, the
-`.dockerignore` `docker/*` gotcha, why caching must stay on, why the eg wheel/langfuse-agent
-mounts exist) is preserved in `git log`/`git show` on this path and, more importantly, is
-now encoded as **comments in the pipeline that replaced them**.
+runs in both of its non-init containers — meant hand-writing yet another near-duplicate
+Kaniko `Job` manifest in this directory and `kubectl apply`-ing it: several near-identical,
+hand-maintained, node-pinned, `envsubst`-templated variants (`-langfuse-`, `-skill-runtime-`,
+`-fastmcp4-`), each hard-coding a different `hostPath` build context and destination tag,
+with no CI gate proving any of them still pointed at real source, plus a
+preserved-but-rejected, never-landed, unsafe `-fix-0801-` variant. That proliferation is
+**retired**: the langfuse/skill-runtime/fastmcp4 variants and `kaniko-build.env.example`
+have been removed from this directory, and the dated one-off `-fix-0801-` variant was
+removed 2026-08-25 as a superseded duplicate — `graphos-unified-kaniko-job.yaml`'s own
+header already documents that it supersedes dated one-off variants like it, and no live
+cluster resource (`kubectl -n image-build get jobs`) still references the `-fix-0801-`
+name. Their institutional knowledge (context-composition tricks, the `.dockerignore`
+`docker/*` gotcha, why caching must stay on, why the eg wheel/langfuse-agent mounts exist)
+is preserved in `git log`/`git show` on this path and, more importantly, is now encoded as
+**comments in the pipeline that replaced them**.
+
+**`graphos-unified-kaniko-job.yaml` was NOT removed** and is still the one canonical,
+current manifest — it is the file `graphos-unified.Dockerfile`'s own header has always
+named, it supersedes every dated one-off variant, and it remains the current path for a
+local/dev rebuild that must not go through GitLab CI (see
+`inventory/k8s-migration/GRAPHOS-LOCAL-REDEPLOY.md` in the workspace root for the full
+`envsubst | kubectl apply` sequence). Prefer the CI pipeline below for anything that will
+be rolled out; use this file directly only for local iteration.
 
 **The real, parameterized, digest-pinned, checksum-verified GitLab CI pipeline now lives
 at `homelab/containers/images/graph-os-unified`** on the internal GitLab instance

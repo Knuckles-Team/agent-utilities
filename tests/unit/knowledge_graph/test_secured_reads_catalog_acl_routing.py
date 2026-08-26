@@ -154,7 +154,14 @@ def test_sql_authoritative_id_resolves_via_sql_without_a_cypher_round_trip(
 
     assert rows["tool_srv_t1"]["classification"] == "confidential"
     assert rows["tool_srv_t1"]["owner_id"] == "sync-actor"
-    assert rows["tool_srv_t1"]["shared_scope"] == "private"
+    # `org`, not `private`: the ambient test actor is
+    # `ActorType.AUTOMATED_SERVICE` (`tests/conftest.py`, `TEST_AGENT_ID`),
+    # and `tenant_sharing.stamp_ownership` now scopes a service write to
+    # the org by ACTOR TYPE instead of by the writer's current `kg:admin`
+    # role. The `_owner_id` provenance marker above is unchanged; only the
+    # visibility default widened. See
+    # `test_tenant_sharing.py::test_stamp_ownership_service_is_org_scoped_regardless_of_privilege`.
+    assert rows["tool_srv_t1"]["shared_scope"] == "org"
     assert rows["tool_srv_t1"]["external_access"] is None
     assert rows["tool_srv_t1"]["tenant_id"] == "tenant-a"
     # The dominant cost this closes: zero Cypher round trips for an id the

@@ -37,6 +37,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent_utilities.security.conformance.surface_manifest import (
+    GOC15_SURFACE_MANIFEST,
     Disposition,
     lookup_query_dialect,
 )
@@ -121,3 +122,49 @@ def test_eg_obs_ingest_fail_open_proof_exists_in_source() -> None:
     # and an ingest POST (the actual bug) -- a test asserting only the ingest
     # side could be vacuously green if the whole harness were broken.
     assert '"403 Forbidden"' in source
+
+
+def test_websocket_dashboard_citation_does_not_regress_to_the_dead_module() -> None:
+    """BUG-PE-038: this entry used to cite `gateway/ws.py:78-154` -- a module
+    that is unused dead code today (nothing imports it; agent-webui's own
+    `/ws/dashboard` handler has a `Deliberately NOT
+    agent_utilities.gateway.ws.dashboard_ws_router` comment explaining why)
+    and is removed outright on `fix/dead-routes-and-union-perf` (BUG-PE-006).
+    The real enforcement this surface's `AUTHENTICATED_REQUIRED` disposition
+    describes is `WebUIAuthorizationMiddleware` in agent-webui's
+    `server.py`. A citation drifting back to the dead module would be worse
+    than no citation -- a false sense of where the proof actually lives (the
+    same "citation to a deleted/renamed file" failure mode
+    `test_federation_reader_proof_file_exists_and_names_the_right_assertion`
+    guards for BUG-036, above)."""
+
+    entry = next(
+        (e for e in GOC15_SURFACE_MANIFEST if e.surface_id == "au:websocket-dashboard"),
+        None,
+    )
+    assert entry is not None
+    assert entry.disposition is Disposition.AUTHENTICATED_REQUIRED
+    # The stale citation pointed AT gateway/ws.py as the evidence (a specific
+    # path:line-range); a passing mention of that module in the explanatory
+    # prose (why it is NOT the evidence) is fine and expected.
+    assert "gateway/ws.py:78-154" not in entry.citation
+    assert "server.py" in entry.citation
+
+    # When agent-webui is checked out as a sibling repo, the cited file+line
+    # should actually exist -- best-effort, skipped rather than failed when
+    # the sibling isn't present in this environment (matches this file's own
+    # BUG-037 pattern for the epistemic-graph sibling above).
+    candidates = [
+        _REPO_ROOT.parent / "agent-webui" / "agent" / "agent_webui" / "server.py",
+    ]
+    server_py = next((c for c in candidates if c.is_file()), None)
+    if server_py is None:
+        import pytest
+
+        pytest.skip(
+            "agent-webui sibling repo not present in this environment -- the "
+            "cited server.py cannot be checked from here"
+        )
+    source = server_py.read_text(encoding="utf-8")
+    assert "_dashboard_ws" in source
+    assert "/ws/dashboard" in source

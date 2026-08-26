@@ -196,6 +196,12 @@ class QueryMixin(_Base):
         # up front, from the CALLER'S query text (aggregate-ness is a property of
         # what was asked, unaffected by scope/visibility injection below).
         aggregate_query = is_aggregation_cypher(query)
+        # BUG-PE-040: set when the commons-catalog restriction below
+        # demonstrably narrowed the query text for THIS call (non-aggregate
+        # path only) — mirrors `read_union`'s `pushed_down` flag
+        # (`tenant_sharing.read_union`, BUG-PE-039) and is threaded through
+        # to `filter_commons_catalog(..., trust_pushdown=...)` below.
+        commons_pushed_down = False
 
         # Tenant scoping + owner/scope visibility on the MCP/orchestration read
         # chokepoint (CONCEPT:AU-KG.query.skip-assimilated-papers + KG-2.60). Mandatory
@@ -267,6 +273,48 @@ class QueryMixin(_Base):
                         scoped_query, session.actor, graph_name, var=agg_var
                     )
                     params.update(catalog_params)
+            else:
+                # BUG-PE-040: the identical defect `read_union` was fixed for
+                # (`tenant_sharing.read_union` / BUG-PE-039, commit
+                # 7b8075b8d) exists at THIS chokepoint too. The non-aggregate
+                # row-read path below (`filter_commons_catalog`) fails CLOSED
+                # by design — a row with no `node_type` is dropped — but a
+                # *projecting* query (`RETURN t.id AS id`) returns rows with
+                # no `node_type` column even for a catalog-shareable node, so
+                # every commons row was silently dropped. Push the
+                # restriction into the query text instead, so a projecting
+                # query is narrowed at the source rather than relying on
+                # row-shape the executor may not preserve.
+                #
+                # Best-effort and MUST NOT fail open: any failure here (e.g.
+                # no bound node variable to scope by) just leaves
+                # `scoped_query` unchanged and `commons_pushed_down` False —
+                # the row-level classifier below stays fail-closed, exactly
+                # the pre-existing behaviour. Idempotent (a WHERE predicate
+                # ANDed twice is harmless), so this stacks harmlessly with
+                # any pushdown a caller already applied upstream (e.g.
+                # agent-webui's `_graph_union_executor`).
+                from agent_utilities.knowledge_graph.core.tenant_sharing import (
+                    apply_commons_catalog_restriction,
+                )
+
+                graph_name = getattr(
+                    getattr(self, "graph_compute", None), "graph_name", None
+                )
+                try:
+                    candidate_query, catalog_params = apply_commons_catalog_restriction(
+                        scoped_query, session.actor, graph_name
+                    )
+                except Exception as exc:  # noqa: BLE001 — pushdown is best-effort; the row-level fallback below is the safety net and must never fail open
+                    logger.debug(
+                        "query_cypher: commons catalog pushdown unavailable: %s",
+                        exc,
+                    )
+                else:
+                    if candidate_query != scoped_query:
+                        scoped_query = candidate_query
+                        params.update(catalog_params)
+                        commons_pushed_down = True
         except PermissionError as exc:
             # A genuine, already-typed fail-closed scoping/authorization
             # decision reached here — e.g. `cypher_scoping.UnscopableQueryError`
@@ -375,6 +423,16 @@ class QueryMixin(_Base):
                 # that owner/scope alone treats as visible to everyone. A
                 # no-op unless this engine is bound to the commons graph and
                 # the actor is unprivileged.
+                #
+                # BUG-PE-040: `trust_pushdown=commons_pushed_down` — set
+                # above only when `apply_commons_catalog_restriction`
+                # demonstrably narrowed `scoped_query` for this call — lets
+                # an otherwise-unclassifiable projected row (no `node_type`
+                # column) survive here instead of being fail-closed dropped,
+                # exactly mirroring `read_union`'s row-level fallback
+                # (`tenant_sharing.filter_commons_catalog`, BUG-PE-039). A
+                # row that DOES carry a classifiable `node_type` is judged
+                # exactly as before regardless of this flag.
                 from agent_utilities.knowledge_graph.core.tenant_sharing import (
                     filter_commons_catalog,
                 )
@@ -382,7 +440,9 @@ class QueryMixin(_Base):
                 graph_name = getattr(
                     getattr(self, "graph_compute", None), "graph_name", None
                 )
-                rows = filter_commons_catalog(rows, session.actor, graph_name)
+                rows = filter_commons_catalog(
+                    rows, session.actor, graph_name, trust_pushdown=commons_pushed_down
+                )
 
                 # The engine also emits its protocol audit. This service-level
                 # record proves the guarded GraphSession/query boundary ran without

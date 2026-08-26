@@ -46,9 +46,10 @@ from __future__ import annotations
 import contextvars
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from ...models.company_brain import DataClassification
+from ...models.company_brain import ActorType, DataClassification
 from ...security.brain_context import ActorContext, current_actor
 from .shard_topology import default_graph_name, tenant_graph_name
 
@@ -200,10 +201,33 @@ def stamp_ownership(
       makes the tenant ``scope()`` predicate (``n.tenant_id = <org>``) match, so
       cross-org isolation works on a shared backend graph, not only in the
       KG-2.58 named-graph/sharded mode.
+    * **Automated-service writes are org-scoped by ACTOR TYPE, never by
+      role.** This is the D-STATS/24k-orphan fix and it is deliberately the
+      FIRST branch, ahead of :func:`is_privileged`. "Is this platform data or
+      user data?" is a durable property of *who is writing* — a service
+      principal only ever writes platform data — whereas ``kg:admin`` is a
+      **mutable IdP role**. Deciding a durable row property from a mutable
+      role means a transient role loss silently and permanently reclassifies
+      whatever was written during it, with no auto-recovery: measured, the
+      graph-os service account lost ``kg:admin`` from 2026-07-22 to
+      2026-08-15 and stamped **23,994** rows ``_shared_scope="private"``,
+      owned by itself, invisible to every human in the tenant, while the
+      1,124 rows written on either side of that window are ``"org"``. The
+      temporal split is clean with zero overlap. An automated service now
+      gets ``_owner_id`` (provenance — *which* service wrote this) plus an
+      unconditional ``_shared_scope="org"`` (outcome — platform data), so
+      the same write produces the same visibility whether or not the IdP
+      happens to be handing out ``kg:admin`` that day. Verified against the
+      live row breakdown that this pairing is genuinely org-visible and not
+      a narrowing: of the 1,124 rows the tenant's humans can see today, 320
+      already carry ``_owner_id=<graph-os svc>`` **with** ``org`` — an
+      explicit ``org`` scope wins over the owner marker in the engine's
+      row-visibility check.
     * **Private-by-default ownership** (``_owner_id`` + ``_shared_scope``) is
-      added only for a real, non-privileged actor; privileged/system writes are
-      left **unowned** (no ``_owner_id``) so platform data stays visible to
-      everyone in the tenant, but they still get an explicit
+      added only for a real, non-privileged human-or-agent actor;
+      privileged/system writes are left **unowned** (no ``_owner_id``) so
+      platform data stays visible to everyone in the tenant, but they still
+      get an explicit
       ``_shared_scope="org"`` marker (U-77 / GOC-61): the native engine's
       row-level guard denies any row that carries neither a recognized owner
       marker (``_owner_id``/``_owner``) nor a recognized visibility marker
@@ -221,6 +245,15 @@ def stamp_ownership(
     actor = _require_actor(actor)
     if actor.tenant_id:
         properties.setdefault(TENANT_KEY, actor.tenant_id)
+    if actor.actor_type is ActorType.AUTOMATED_SERVICE:
+        # Ahead of the is_privileged() branch ON PURPOSE — see the docstring:
+        # the outcome must not depend on a mutable role the IdP can withdraw
+        # between two otherwise identical writes. `setdefault` throughout, so
+        # a caller that explicitly asked for something narrower (an explicit
+        # `"private"` share) still wins, exactly as on every other branch.
+        properties.setdefault(OWNER_KEY, actor.actor_id)
+        properties.setdefault(SCOPE_KEY, SCOPE_ORG)
+        return
     if is_privileged(actor):
         properties.setdefault(SCOPE_KEY, SCOPE_ORG)
         return
@@ -454,6 +487,18 @@ def apply_visibility(
 # ---------------------------------------------------------------------------
 
 
+# Bound on concurrent per-graph fan-out, below. ``accessible_graphs`` is small
+# today (tenant graph + commons = 2) and stays small (ordered, de-duplicated;
+# ancestor chains are short in practice) — this cap just keeps a pathological
+# tenancy tree from spawning an unbounded thread pool, matching "must not
+# degrade linearly if ancestor tenants are added" without over-provisioning
+# for a case that doesn't exist. Mirrors agent-webui's
+# ``api_extensions._rows_per_accessible_graph``/``_READ_UNION_MAX_WORKERS``
+# (BUG-PE-019) so the two independent fan-outs over the same primitive share
+# one shape rather than inventing a second.
+_READ_UNION_MAX_WORKERS = 8
+
+
 def read_union(
     cypher: str,
     params: dict[str, Any] | None,
@@ -468,16 +513,118 @@ def read_union(
     named graph. The actor's own (org) graph is queried first so its rows win on
     duplicate ids; commons rows fill in the rest. A per-graph failure is logged
     and skipped — a missing commons graph degrades to org-only, never an error.
+
+    The commons leg gets the cross-tenant commons READ restriction (GOC-61,
+    2026-08-09 owner ruling) for free — a caller of this primitive does not
+    have to remember to apply it separately. Two layers, both always run:
+
+    1. Query-level PUSHDOWN: :func:`apply_commons_catalog_restriction` is
+       tried against ``cypher`` for the commons graph, and when it changes
+       the query text the modified ``(cypher, params)`` is what actually
+       runs, narrowing the result at the source.
+    2. Row-level classification: every row returned — pushed down or not —
+       still goes through :func:`filter_commons_catalog`. A row that DOES
+       carry a classifiable ``node_type`` is always judged by it (kept only
+       if catalog-shareable or the reader's own tenant) regardless of
+       whether pushdown ran — defense in depth against an ``executor`` that
+       does not actually honor the pushed-down query text it was handed.
+
+    Layer 2 only changes behaviour for a row it cannot classify at all (no
+    ``node_type`` — a *projecting* query like ``RETURN t.id AS id`` or
+    ``RETURN labels(n) AS labels, count(n) AS count`` returns exactly that
+    shape even for a catalog-shareable node): such a row is kept when layer 1
+    demonstrably narrowed the query for this call (``trust_pushdown``), and
+    dropped (fail closed, the pre-existing behaviour) otherwise — e.g. when
+    the query has no ``MATCH``/``RETURN`` site or no bound node variable to
+    scope, or any other :func:`apply_commons_catalog_restriction` failure
+    (best-effort, must never fail OPEN). A WHERE predicate applied twice is
+    idempotent, so layer 1 stacks harmlessly with a caller's own pushdown
+    (e.g. agent-webui's ``_graph_union_executor``, which does the identical
+    pushdown-then-row-fallback dance at its own layer). ``executor`` must
+    therefore return Cypher-shaped node rows (a nested properties dict, or
+    the row itself, carrying ``node_type``/``tenant_id``) for the commons
+    leg whenever pushdown does not apply to a given query — a caller whose
+    executor speaks a different row shape entirely (e.g. SPARQL bindings,
+    which carry no Cypher ``node_type``) would have every such commons row
+    dropped by the fail-closed classifier and should not reuse this function
+    for that leg.
+
+    CONCURRENT, BOUNDED (``_READ_UNION_MAX_WORKERS``, BUG-PE-019): each
+    graph's ``executor`` call is independent, so running them one at a time
+    made every caller's latency scale with the number of accessible graphs
+    for no reason. ``contextvars.copy_context()`` per submission is
+    load-bearing, not decoration — a caller's ``executor`` (e.g.
+    agent-webui's ``_graph_union_executor``) typically reads the ambient
+    ``current_session()``/``use_session()`` ``ContextVar`` pair to retarget
+    per graph, and a bare ``ThreadPoolExecutor.submit`` would hand it a FRESH
+    context with no ambient session at all, silently breaking every graph but
+    the one the caller's own thread happens to still be on. Results are
+    collected back into ``accessible_graphs()``'s own order (tenant graph
+    first) regardless of which one finishes first, so the "tenant rows win
+    on a duplicate id" precedence below is unaffected by concurrency. Two or
+    fewer accessible graphs (today's norm) skip the pool entirely — no
+    thread-pool overhead for the common case.
     """
+    actor = _require_actor(actor)
+    graphs = accessible_graphs(actor, config)
+
+    def _one(graph: str) -> list[dict[str, Any]]:
+        exec_cypher, exec_params = cypher, dict(params or {})
+        pushed_down = False
+        try:
+            candidate_cypher, extra_params = apply_commons_catalog_restriction(
+                cypher, actor, graph, config=config
+            )
+        except Exception as exc:  # noqa: BLE001 — pushdown is best-effort; the row-level fallback below is the safety net and must never fail open
+            logger.debug(
+                "read_union: commons catalog pushdown unavailable for graph %s: %s",
+                graph,
+                exc,
+            )
+        else:
+            if candidate_cypher != cypher:
+                exec_cypher = candidate_cypher
+                exec_params.update(extra_params)
+                pushed_down = True
+        rows = executor(graph, exec_cypher, exec_params) or []
+        # Always run the row-level classifier — it still fail-closed-drops
+        # any row that DOES carry a classifiable node_type and isn't
+        # shareable/the reader's own tenant, pushdown or not (defense in
+        # depth against an executor that doesn't actually honor the pushed
+        # -down query text). `trust_pushdown` only changes what happens to a
+        # row the classifier cannot read a node_type from at all — e.g. a
+        # projecting query's row — trusting that the query itself already
+        # excluded non-shareable rows when the query text was demonstrably
+        # narrowed for this call.
+        return filter_commons_catalog(
+            rows, actor, graph, config, trust_pushdown=pushed_down
+        )
+
+    rows_by_graph: dict[str, list[dict[str, Any]]] = {}
+    if len(graphs) <= 1:
+        for graph in graphs:
+            try:
+                rows_by_graph[graph] = _one(graph)
+            except Exception as exc:  # noqa: BLE001 — one graph down ≠ whole read down
+                logger.debug("read_union: graph %s unavailable: %s", graph, exc)
+    else:
+        max_workers = min(len(graphs), _READ_UNION_MAX_WORKERS)
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            pending = {
+                pool.submit(contextvars.copy_context().run, _one, graph): graph
+                for graph in graphs
+            }
+            for future in pending:
+                graph = pending[future]
+                try:
+                    rows_by_graph[graph] = future.result()
+                except Exception as exc:  # noqa: BLE001 — one graph down ≠ whole read down
+                    logger.debug("read_union: graph %s unavailable: %s", graph, exc)
+
     seen: set[str] = set()
     merged: list[dict[str, Any]] = []
-    for graph in accessible_graphs(actor, config):
-        try:
-            rows = executor(graph, cypher, params or {}) or []
-        except Exception as exc:  # noqa: BLE001 — one graph down ≠ whole read down
-            logger.debug("read_union: graph %s unavailable: %s", graph, exc)
-            continue
-        for row in rows:
+    for graph in graphs:
+        for row in rows_by_graph.get(graph, ()):
             nid = _row_id(row, id_keys)
             if nid is None:
                 merged.append(row)
@@ -981,6 +1128,8 @@ def filter_commons_catalog(
     actor: ActorContext | None,
     graph_name: str | None,
     config: Any = None,
+    *,
+    trust_pushdown: bool = False,
 ) -> list[dict[str, Any]]:
     """Cross-tenant commons READ restriction (2026-08-09 owner ruling), Python-side.
 
@@ -996,7 +1145,29 @@ def filter_commons_catalog(
     Fails CLOSED, unlike :func:`filter_visible`: a row this function cannot
     classify (no ``node_type``, no ``tenant_id``, and not the reader's own)
     is DROPPED, not kept — this is the deny-by-default half of the 2026-08-09
-    ruling, so an unclassified/novel type must not leak by omission.
+    ruling, so an unclassified/novel type must not leak by omission. A row
+    that DOES carry a ``node_type`` is always classified and, if not
+    catalog-shareable and not the reader's own tenant, always dropped —
+    ``trust_pushdown`` never overrides that; it changes ONLY the unclassifiable
+    case.
+
+    ``trust_pushdown``: set by :func:`read_union` when the query actually run
+    for this graph was already narrowed by
+    :func:`apply_commons_catalog_restriction` (its text differs from the
+    caller's original ``cypher``). A *projecting* query (``RETURN t.id AS
+    id``) returns rows with no ``node_type`` column at all even for a
+    catalog-shareable node — genuinely unclassifiable, not merely a novel
+    type — so this function cannot, and must not try to, judge it row-by-row;
+    the restriction was instead already enforced by the query text itself
+    before these rows ever came back. In that situation ONLY, an
+    unclassifiable row (no ``node_type``, and not matched by the reader's own
+    ``tenant_id``) is kept rather than dropped. This still requires the
+    caller's ``executor`` to actually honor the ``cypher``/``params`` it was
+    handed (``read_union``'s own documented contract) — an executor that
+    silently ignores the pushed-down query text and returns unrestricted
+    projected rows would defeat this, exactly the residual risk a caller
+    substituting a non-conforming ``executor`` accepts; every row that DOES
+    carry classifiable data is unaffected and stays fail-closed regardless.
     """
     if not _is_commons_graph_name(graph_name, config):
         return rows
@@ -1014,8 +1185,16 @@ def filter_commons_catalog(
         row_tenant = str(props.get(TENANT_KEY) or "")
         if reader_tenant and row_tenant and row_tenant == reader_tenant:
             out.append(row)
-        # else: not catalog-shareable and not the reader's own tenant's data
-        # -> dropped (fail closed; this is the point of the restriction).
+            continue
+        if not node_type and trust_pushdown:
+            # Genuinely unclassifiable (no node_type at all, so this is not
+            # "classified and not shareable") AND the query itself was
+            # already narrowed for this graph -- keep rather than drop.
+            out.append(row)
+            continue
+        # else: dropped (fail closed) -- either classified and not
+        # catalog-shareable/not the reader's own tenant's data, or
+        # unclassifiable with no proof the query already scoped it out.
     return out
 
 

@@ -73,8 +73,9 @@ target schema (no ``mcp_server_versions``/UUID identities/``provider_auth_grants
   logical write), a write carrying a ``revision`` that is not newer than the
   stored one is **rejected**, and only a write that clears both checks is
   applied. The engine's SQL tier has no composite ``PRIMARY KEY``, no
-  ``FOREIGN KEY``, and no conditional/``EXCLUDED``-aware ``ON CONFLICT`` today
-  (a parallel track is adding those), so this is intentionally NOT expressed
+  ``FOREIGN KEY``, and no working ``ON CONFLICT`` at all today (every form
+  raises the same duplicate-key error a bare ``INSERT`` does — measured live
+  2026-08-25; a parallel track is adding those), so this is NOT expressed
   as a single conditional ``UPDATE ... WHERE revision < EXCLUDED.revision``
   — each table's DDL comment names the constraint this would become once the
   engine supports it. The read-then-write is not linearizable against two
@@ -208,12 +209,14 @@ closes that gap:
   — the one deliberate exception to this module's usual "never raises,
   always best-effort" contract, because silently limping forward against an
   unverified schema is exactly the defect this closes.
-* **Concurrency** is a claim on the ledger's singleton lock row via
-  ``INSERT ... ON CONFLICT (id) DO NOTHING`` (the engine's own single-column
-  ``PRIMARY KEY`` already enforces first-writer-wins on that one row); a
-  process that loses the claim performs no DDL and returns ``False`` for
-  that attempt rather than racing the winner — a genuine no-op, not an
-  error — and picks up the now-migrated schema on its next call.
+* **Concurrency** is a claim on the ledger's singleton lock row, written
+  read-then-write via :func:`_ledger_put` (the deployed engine's SQL tier
+  ignores an ``ON CONFLICT`` clause entirely — measured live 2026-08-25;
+  see that function). The claim writes a fresh token and re-reads it: a
+  process that finds a different claimant lost the race, performs no DDL,
+  and returns ``False`` for that attempt rather than racing the winner — a
+  genuine no-op, not an error — picking up the now-migrated schema on its
+  next call.
 * **Verification**: after applying every needed step, the winner
   re-introspects every table and asserts the columns now match the frozen
   current shape (:data:`_CURRENT_SCHEMA_COLUMNS`) before recording the
@@ -224,7 +227,7 @@ import hashlib
 import json
 import logging
 import uuid
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -915,7 +918,31 @@ def _is_reachable_state(
 ) -> bool:
     """Is ``current`` the legacy shape, the current shape, or a valid
     in-between point on the ordered forward-only migration path — never a
-    step applied out of order or only partially."""
+    step applied out of order or only partially.
+
+    A store reaches an in-between point one of TWO ways, and both are valid:
+
+    * **Migrated up** from the pre-NE-007 ``legacy`` shape — this code never
+      drops a column, so such a store keeps every legacy column (including
+      the observed-discovery ones ``mcp_servers`` no longer declares) plus
+      the columns each applied step added. Walk the steps forward from
+      ``legacy``.
+    * **Created fresh** by an earlier post-legacy code version — its
+      ``CREATE TABLE`` was the then-current DDL, so it has today's
+      ``expected`` shape MINUS every column a LATER step introduced, and it
+      never had the retired legacy columns at all. Peel the steps back in
+      reverse from ``expected``.
+
+    Modelling only the first (the original bug) mis-classified every
+    fresh-created store as diverged the moment a new column step landed —
+    measured live 2026-08-25 on the graph-os catalog, whose ``mcp_servers``
+    was created at step ``0003`` and so matched neither ``legacy`` nor any
+    forward accumulation. That raised :class:`FleetCatalogSchemaDivergedError`
+    out of :func:`ensure_fleet_catalog_tables`, which
+    :func:`~.source_sync._write_fleet_relational` caught and degraded to
+    ``{"status": "error"}`` — silently skipping the ENTIRE relational
+    catalog write on every sync while the KG node write succeeded.
+    """
     if current == legacy or current == expected:
         return True
     accumulated = set(legacy)
@@ -925,6 +952,14 @@ def _is_reachable_state(
             continue
         accumulated |= set(columns)
         if current == accumulated:
+            return True
+    remaining = set(expected)
+    for _migration_id, table_columns in reversed(_MIGRATION_COLUMN_STEPS):
+        columns = table_columns.get(table)
+        if not columns:
+            continue
+        remaining -= set(columns)
+        if current == remaining:
             return True
     return False
 
@@ -1064,14 +1099,72 @@ def _apply_step(
         if migration_id != "0003_discovery_binding_columns":
             _backfill_legacy_rows(gc, table, newly_added)
     checksum = _step_checksum(migration_id, table_columns)
-    gc.sql_exec(
-        f"INSERT INTO {_MIGRATION_LEDGER} "
-        "(id, status, claimant, claimed_at, version, migration_id, checksum, applied_at) "
-        f"VALUES ({_sql_literal('step__' + migration_id)}, {_sql_literal('applied')}, "
-        f"{_sql_literal('')}, {_sql_literal('')}, {_sql_literal(0)}, "
-        f"{_sql_literal(migration_id)}, {_sql_literal(checksum)}, {_sql_literal(_now_iso())}) "
-        "ON CONFLICT (id) DO NOTHING"
+    _ledger_put(
+        gc,
+        "step__" + migration_id,
+        {
+            "status": "applied",
+            "claimant": "",
+            "claimed_at": "",
+            "version": 0,
+            "migration_id": migration_id,
+            "checksum": checksum,
+            "applied_at": _now_iso(),
+        },
+        overwrite=False,
     )
+
+
+_LEDGER_COLUMNS: tuple[str, ...] = (
+    "status",
+    "claimant",
+    "claimed_at",
+    "version",
+    "migration_id",
+    "checksum",
+    "applied_at",
+)
+
+
+def _ledger_put(
+    gc: Any, row_id: str, values: dict[str, Any], *, overwrite: bool
+) -> None:
+    """Write one migration-ledger row WITHOUT an ``ON CONFLICT`` clause.
+
+    Measured live 2026-08-25 against the deployed engine: its SQL tier
+    IGNORES ``ON CONFLICT`` entirely — ``DO NOTHING`` and ``DO UPDATE``
+    both raise the same bare "duplicate key value violates unique
+    constraint" error a plain ``INSERT`` does. Every ledger write used one,
+    so a store that had already recorded a completed migration could never
+    claim the lock for the NEXT step: the claim ``INSERT`` raised straight
+    out of :func:`ensure_fleet_catalog_tables`, and
+    :func:`~.source_sync._write_fleet_relational` degraded that to "the
+    relational catalog was not written" on every sync.
+
+    So the ledger is written the way :func:`_cas_batch_upsert` already
+    writes every catalog row on this tier — read first, then ``INSERT`` a
+    new id or ``UPDATE`` an existing one. ``overwrite=False`` reproduces
+    ``DO NOTHING`` (an existing row is left exactly as it is);
+    ``overwrite=True`` reproduces ``DO UPDATE``.
+    """
+    if _read_ledger_row(gc, row_id) is not None:
+        if not overwrite:
+            return
+        assignments = ", ".join(
+            f"{_safe_ident(column)} = {_sql_literal(values[column])}"
+            for column in _LEDGER_COLUMNS
+        )
+        gc.sql_exec(
+            f"UPDATE {_MIGRATION_LEDGER} SET {assignments} "
+            f"WHERE id = {_sql_literal(row_id)}"
+        )
+        return
+    columns = ", ".join(("id", *_LEDGER_COLUMNS))
+    literals = ", ".join(
+        _sql_literal(value)
+        for value in (row_id, *(values[column] for column in _LEDGER_COLUMNS))
+    )
+    gc.sql_exec(f"INSERT INTO {_MIGRATION_LEDGER} ({columns}) VALUES ({literals})")
 
 
 def _read_ledger_row(gc: Any, row_id: str) -> dict[str, Any] | None:
@@ -1091,17 +1184,19 @@ def _read_ledger_row(gc: Any, row_id: str) -> dict[str, Any] | None:
 def _finalize_ledger(gc: Any, columns: dict[str, set[str]], *, claimant: str) -> None:
     digest = _table_schema_digest(columns)
     now = _now_iso()
-    gc.sql_exec(
-        f"INSERT INTO {_MIGRATION_LEDGER} "
-        "(id, status, claimant, claimed_at, version, migration_id, checksum, applied_at) "
-        f"VALUES ({_sql_literal(_LOCK_ROW_ID)}, {_sql_literal('complete')}, "
-        f"{_sql_literal(claimant)}, {_sql_literal(now)}, {_sql_literal(_SCHEMA_VERSION_CURRENT)}, "
-        f"{_sql_literal(_CURRENT_MARKER)}, {_sql_literal(digest)}, {_sql_literal(now)}) "
-        "ON CONFLICT (id) DO UPDATE SET "
-        f"status = {_sql_literal('complete')}, claimant = {_sql_literal(claimant)}, "
-        f"claimed_at = {_sql_literal(now)}, version = {_sql_literal(_SCHEMA_VERSION_CURRENT)}, "
-        f"migration_id = {_sql_literal(_CURRENT_MARKER)}, checksum = {_sql_literal(digest)}, "
-        f"applied_at = {_sql_literal(now)}"
+    _ledger_put(
+        gc,
+        _LOCK_ROW_ID,
+        {
+            "status": "complete",
+            "claimant": claimant,
+            "claimed_at": now,
+            "version": _SCHEMA_VERSION_CURRENT,
+            "migration_id": _CURRENT_MARKER,
+            "checksum": digest,
+            "applied_at": now,
+        },
+        overwrite=True,
     )
 
 
@@ -1155,14 +1250,39 @@ def _claim_and_migrate(engine: Any) -> bool:
             _finalize_ledger(gc, current_columns, claimant="")
         return True
 
+    if lock_row is not None and str(lock_row.get("status")) == "migrating":
+        # Another process holds a LIVE claim — never take that over.
+        logger.info(
+            "fleet catalog schema migration already claimed by another "
+            "process; skipping this attempt (will retry on the next call)"
+        )
+        return False
+
     token = uuid.uuid4().hex
-    gc.sql_exec(
-        f"INSERT INTO {_MIGRATION_LEDGER} "
-        "(id, status, claimant, claimed_at, version, migration_id, checksum, applied_at) "
-        f"VALUES ({_sql_literal(_LOCK_ROW_ID)}, {_sql_literal('migrating')}, "
-        f"{_sql_literal(token)}, {_sql_literal(_now_iso())}, {_sql_literal(0)}, "
-        f"{_sql_literal('')}, {_sql_literal('')}, {_sql_literal('')}) "
-        "ON CONFLICT (id) DO NOTHING"
+    # ``overwrite=True``, deliberately: a ``schema_state`` row marked
+    # ``complete`` records that the schema was current AT THE TIME — it is
+    # not a live claim (that case returned above), and it must not veto the
+    # NEXT step. ``needed`` above is computed from the store's ACTUAL
+    # columns, so reaching this line already means a step is genuinely
+    # outstanding. Every real store that has ever finished a migration
+    # carries such a row, so the old ``DO NOTHING`` claim could never
+    # migrate one: the re-read below took the "someone else already
+    # finished" short-circuit and returned success having applied nothing,
+    # and the write then failed at INSERT time on the very columns the
+    # skipped step adds.
+    _ledger_put(
+        gc,
+        _LOCK_ROW_ID,
+        {
+            "status": "migrating",
+            "claimant": token,
+            "claimed_at": _now_iso(),
+            "version": 0,
+            "migration_id": "",
+            "checksum": "",
+            "applied_at": "",
+        },
+        overwrite=True,
     )
     claimed = _read_ledger_row(gc, _LOCK_ROW_ID)
     if claimed is None or str(claimed.get("claimant")) != token:
@@ -1222,6 +1342,26 @@ def ensure_fleet_catalog_tables(engine: Any) -> bool:
     return ok
 
 
+# Rows per SQL statement. Batched writing is required (the
+# ``check-no-per-element-ingest-loop`` gate, and the module docstring's
+# "batched, never per-element" contract), but a batch of UNBOUNDED size is a
+# different failure: the live fleet probes ~9,600 tools, and rendering all of
+# them into one ``INSERT ... VALUES`` (each carrying a full ``input_schema``
+# JSON blob) built a multi-megabyte statement that had to be held in memory
+# by this process, serialized to the engine, and parsed there all at once.
+# Measured live 2026-08-25: doing that inside the graph-os container
+# OOM-killed it (10Gi limit). Chunking keeps the write batched — ~20
+# statements for the whole fleet's tools instead of ~9,600 — while bounding
+# peak statement size.
+_MAX_ROWS_PER_STATEMENT = 500
+
+
+def _chunks(items: list[Any], size: int = _MAX_ROWS_PER_STATEMENT) -> Iterator[list]:
+    """Split ``items`` into consecutive lists of at most ``size`` entries."""
+    for start in range(0, len(items), size):
+        yield items[start : start + size]
+
+
 def _select_existing(
     engine: Any,
     table: str,
@@ -1230,34 +1370,37 @@ def _select_existing(
     *,
     id_col: str = "id",
 ) -> dict[str, dict[str, Any]]:
-    """One batched ``SELECT`` for every id in ``ids`` — never one per row.
+    """Batched ``SELECT``s for every id in ``ids`` — never one per row.
 
     Returns ``{id: row}`` for whatever currently exists (scoped to
     ``tenant_id``, so a row from another tenant can never be read back as
-    "existing" here even if an id collided). Best-effort: an engine with no
-    read surface, or a query failure, degrades to "nothing exists yet" (every
-    row in the caller's batch is then treated as new) rather than raising —
-    consistent with this module never blocking the write path it supports.
+    "existing" here even if an id collided). Issued in chunks of
+    :data:`_MAX_ROWS_PER_STATEMENT` ids — see that constant. Best-effort: an
+    engine with no read surface, or a query failure, degrades to "nothing
+    exists yet" (every row in the caller's batch is then treated as new)
+    rather than raising — consistent with this module never blocking the
+    write path it supports.
     """
     gc = _graph_compute(engine)
     if gc is None or not hasattr(gc, "sql_exec") or not ids:
         return {}
     tbl = _safe_ident(table)
     col = _safe_ident(id_col)
-    id_list = ", ".join(_sql_literal(row_id) for row_id in ids)
-    stmt = (
-        f"SELECT * FROM {tbl} WHERE tenant_id = {_sql_literal(tenant_id)} "
-        f"AND {col} IN ({id_list})"
-    )
-    try:
-        rows = gc.sql_exec(stmt)
-    except Exception:  # noqa: BLE001 — CAS read is best-effort
-        logger.debug("fleet catalog CAS read failed for %s", table)
-        return {}
     existing: dict[str, dict[str, Any]] = {}
-    for row in rows or []:
-        if isinstance(row, dict) and row.get(id_col) is not None:
-            existing[str(row[id_col])] = row
+    for chunk in _chunks(ids):
+        id_list = ", ".join(_sql_literal(row_id) for row_id in chunk)
+        stmt = (
+            f"SELECT * FROM {tbl} WHERE tenant_id = {_sql_literal(tenant_id)} "
+            f"AND {col} IN ({id_list})"
+        )
+        try:
+            rows = gc.sql_exec(stmt)
+        except Exception:  # noqa: BLE001 — CAS read is best-effort
+            logger.debug("fleet catalog CAS read failed for %s", table)
+            return {}
+        for row in rows or []:
+            if isinstance(row, dict) and row.get(id_col) is not None:
+                existing[str(row[id_col])] = row
     return existing
 
 
@@ -1465,12 +1608,13 @@ def _cas_batch_upsert(
     written = 0
     if to_insert:
         columns = _bounded_columns(list(to_insert[0].keys()))
-        values_sql = ", ".join(
-            "(" + ", ".join(_sql_literal(row.get(c)) for c in columns) + ")"
-            for row in to_insert
-        )
-        gc.sql_exec(f"INSERT INTO {tbl} ({', '.join(columns)}) VALUES {values_sql}")
-        written += len(to_insert)
+        for chunk in _chunks(to_insert):
+            values_sql = ", ".join(
+                "(" + ", ".join(_sql_literal(row.get(c)) for c in columns) + ")"
+                for row in chunk
+            )
+            gc.sql_exec(f"INSERT INTO {tbl} ({', '.join(columns)}) VALUES {values_sql}")
+            written += len(chunk)
     for row in to_update:
         columns = _bounded_columns([c for c in row if c != conflict_col])
         set_clause = ", ".join(f"{c} = {_sql_literal(row[c])}" for c in columns)
@@ -1912,6 +2056,49 @@ def write_fleet_catalog(
         # bound to either the exact OAuth grant or the process-owned tenant
         # local visibility contract; legacy/unbound writes are skipped rather
         # than creating globally visible rows.
+        #
+        # BUG-PE-056 — the ONE exception, and it is not an authority
+        # loosening: a server whose probe FAILED never gets a binding
+        # (``MCPMultiplexer._bind_local_discovery_bindings`` mints one only
+        # for ``info["error"] is None``), so it used to fall out here with no
+        # discovery row at all — making "unavailable" indistinguishable from
+        # "empty" to the dashboard, the exact confusion this function's own
+        # docstring promises never to create. A failure observation exposes
+        # NO discovered capability (an errored probe has no tools/skills/
+        # prompts), so recording it needs no grant — only the verified tenant
+        # scope :func:`_resolve_tenant_id` already established. Record it
+        # under the process-owned tenant-local visibility contract, with the
+        # same empty principal/grant fields a local child's successful probe
+        # carries, and fall through to the ``continue`` below so no derived
+        # row is ever written for it.
+        if not server_discovery_authority_ready and not reachable and tenant_id:
+            discovery_authority_kind = DISCOVERY_AUTHORITY_TENANT_LOCAL
+            discovery_principal = ""
+            discovery_grant_digest = ""
+            unreachable_content = {
+                "server_id": server_id,
+                "server_name": server_name,
+                "reachable": False,
+                "last_error": _privacy_safe(str(err or "")),
+                "tool_count": 0,
+                "skill_count": 0,
+                "prompt_count": 0,
+                "resource_count": 0,
+                "discovery_authority_kind": discovery_authority_kind,
+                "discovery_principal": discovery_principal,
+                "discovery_grant_digest": discovery_grant_digest,
+            }
+            unreachable_key = idempotency_key or _content_signature(unreachable_content)
+            discovery_rows.append(
+                {
+                    "id": f"disc_{server_id}_{unreachable_key[:24]}",
+                    "tenant_id": tenant_id,
+                    **unreachable_content,
+                    "observed_at": now,
+                    "revision": write_revision,
+                    "idempotency_key": unreachable_key,
+                }
+            )
         if not server_discovery_authority_ready:
             continue
 

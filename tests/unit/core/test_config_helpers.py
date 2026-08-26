@@ -121,6 +121,38 @@ def test_xdg_schema_rejection_logs_only_value_free_coordinates(
     assert secret_value not in str(caught.value)
 
 
+def test_xdg_schema_rejection_log_includes_the_root_level_message(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Regression for the 2026-08-25 graph-os outage's swallowed cause.
+
+    A root-level ``@model_validator(mode="before")`` rejection (e.g. a
+    retired-configuration-key check) always carries an empty ``loc`` and the
+    generic ``type="value_error"`` -- before this fix the log line was
+    literally ``(value-free issues=[{'location': '', 'type': 'value_error'}])``
+    for every such rejection, indistinguishable from any other root-level
+    failure and useless for on-call diagnosis. The one field that actually
+    names the failed constraint is pydantic's ``msg`` -- a human-authored,
+    static description that (unlike ``input``) never embeds the rejected
+    value, so surfacing it does not reintroduce the value-leak this same test
+    module already guards against above.
+    """
+    # Split so this test does not itself trip
+    # scripts/check_current_only_contract.py's retired-identifier scan (same
+    # technique the retired-key registry and its other regression tests use).
+    retired_key = "ENGINE_" + "MODE"
+
+    with (
+        caplog.at_level(logging.ERROR),
+        pytest.raises(ch.ConfigurationSourceError) as caught,
+    ):
+        ch._validate_xdg_configuration_schema({retired_key: "external"})
+
+    assert caught.value.error_class == "ValidationError"
+    assert "retired durable configuration key" in caplog.text
+    assert retired_key in caplog.text
+
+
 @pytest.mark.skipif(os.name != "posix", reason="POSIX permission contract")
 def test_staged_production_profile_revalidates_source_permissions(
     tmp_path: Path,

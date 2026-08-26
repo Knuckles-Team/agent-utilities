@@ -147,8 +147,7 @@ def register_media_sidecar_tools(mcp) -> None:
                         "the sidecar contract is declared in "
                         "agent_utilities/media/sidecar_contract.py "
                         f"(SIDECAR_CAPABILITIES[{modality!r}]) but no adapter is "
-                        "wired yet; see reports/issue-register.md for the "
-                        "tracked follow-up."
+                        "wired yet; no tracking issue exists for this follow-up."
                     ),
                 }
             )
