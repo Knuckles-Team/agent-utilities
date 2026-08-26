@@ -459,19 +459,40 @@ class KnowledgeGraph:
         if store is None:
             raise PermissionError("Graph read store is unavailable")
         from .core.secured_reads import audit_read, filter_rows, scope, visible
+        from .core.tenant_sharing import push_down_visibility
 
         # D-W2T-2: `scope()` returns (query, extra_params) — the tenant id is a
         # bound `$_tenant_scope_id` Cypher parameter now, not a string-literal
         # splice. Merge it into this call's own params dict.
         scoped_cypher, tenant_params = scope(cypher, session.actor)
         merged_params = {**(params or {}), **tenant_params}
+        # Best-effort owner/scope visibility pushdown INTO the query text
+        # (mirrors `QueryMixin.query_cypher`'s identical non-aggregate-branch
+        # fix): when it demonstrably succeeds (or the actor is privileged),
+        # `pushed_down` lets a row with no governed id — a plain
+        # `RETURN n.name AS name` projection, which carries no `id` column at
+        # all — be trusted by the post-hoc classifiers below instead of
+        # rejecting the WHOLE read (the bug this closes: every non-aggregate
+        # projection lacking an `id` column raised `PermissionError`, which
+        # `read_union`/callers upstream had been silently swallowing into an
+        # empty `[]`). Best-effort and fails closed on any pushdown failure —
+        # the post-hoc row filters below remain the enforcement backstop
+        # either way.
+        scoped_cypher, visibility_params, pushed_down = push_down_visibility(
+            scoped_cypher, session.actor
+        )
+        merged_params.update(visibility_params)
         rows = store.execute_read(scoped_cypher, merged_params) or []
-        rows = visible(filter_rows(rows, session.actor), session.actor)
+        rows = visible(
+            filter_rows(rows, session.actor, trust_pushdown=pushed_down),
+            session.actor,
+        )
         # Fine-grained object permissioning is mandatory: rows without governed
-        # markings/ACLs are denied and enforcement failures propagate.
+        # markings/ACLs are denied and enforcement failures propagate — unless
+        # `pushed_down`, see `push_down_visibility`/`filter_rows` above.
         from .ontology.permissioning import enforce as enforce_fine_grained
 
-        rows = enforce_fine_grained(rows, session.actor)
+        rows = enforce_fine_grained(rows, session.actor, trust_pushdown=pushed_down)
         audit_read([], summary="query", actor=session.actor)
         if include_epistemic:
             return self._attach_epistemic(rows)  # type: ignore[return-value]

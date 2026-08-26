@@ -3,11 +3,11 @@
     "orphan_modules": 2,
     "dead_definitions": 520,
     "never_executed": 0,
-    "untyped_seams": 1766,
+    "untyped_seams": 1767,
     "orphan_read_keys": 76,
     "facade_handlers": 98,
     "placeholder_markers": 502
   },
-  "taken_at": "2026-08-26T13:15:14+00:00",
-  "taken_against": "cabd4259f970c5affde1230889070402e762d465"
+  "taken_at": "2026-08-26T15:03:17+00:00",
+  "taken_against": "483a5881e38d07bc21e93e8298de482914a25f4f"
 }

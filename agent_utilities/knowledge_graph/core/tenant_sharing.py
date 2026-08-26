@@ -518,6 +518,44 @@ def apply_visibility(
     return inject_and_predicate(cypher, cond), extra_params
 
 
+def push_down_visibility(
+    cypher: str, actor: ActorContext | None = None
+) -> tuple[str, dict[str, Any], bool]:
+    """Best-effort :func:`apply_visibility` wrapper that also reports success.
+
+    This closes the same class of defect BUG-PE-039/BUG-PE-040
+    (:func:`read_union`, ``QueryMixin.query_cypher``'s aggregate branch) fixed
+    for the commons-catalog restriction, applied to the owner/scope
+    visibility boundary: a caller that pushes owner/scope INTO the query
+    text for THIS call can trust that any row the query returns — even a
+    row a post-hoc classifier cannot read an identity from at all, e.g. a
+    bare ``RETURN n.name AS name`` projection with no ``id`` column — was
+    already bounded by that predicate before it was ever produced. Without
+    this, the post-hoc classifier (``secured_reads.row_node_ids`` /
+    ``ontology.permissioning.restricted_view``) cannot tell "a row with no
+    id because the query legitimately never selected one" apart from "a row
+    smuggled past governance", and historically refused the WHOLE read
+    rather than guess — see ``secured_reads.filter_rows``'s and
+    ``permissioning.restricted_view``'s own ``trust_pushdown`` parameter,
+    which this return value feeds.
+
+    Returns ``(scoped_cypher, extra_params, pushed_down)``. ``pushed_down``
+    is ``True`` when a privileged actor was queried (no restriction was ever
+    needed) or :func:`apply_visibility` demonstrably changed the query text;
+    ``False`` — with ``cypher``/``params`` returned UNCHANGED — for every
+    failure mode (no derivable bound variable, ``UnscopableQueryError``, or
+    any other error): this is best-effort and must never fail open. The
+    caller's own post-hoc row-level enforcement remains the backstop
+    regardless of this result.
+    """
+    try:
+        scoped, extra = apply_visibility(cypher, actor)
+    except Exception as exc:  # noqa: BLE001 — pushdown is best-effort; the caller's post-hoc row filter is the enforcement backstop and this must never fail open
+        logger.debug("push_down_visibility: pushdown unavailable: %s", exc)
+        return cypher, {}, False
+    return scoped, extra, is_privileged(actor) or scoped != cypher
+
+
 # ---------------------------------------------------------------------------
 # Read-union across the actor's accessible graphs (commons + org)
 # ---------------------------------------------------------------------------
@@ -637,13 +675,32 @@ def read_union(
             rows, actor, graph, config, trust_pushdown=pushed_down
         )
 
+    # NOTE (fix/empty-projection investigation): this per-graph catch-all is
+    # a deliberate "one graph down ≠ whole read down" degrade, NOT an
+    # authorization decision — but it previously logged at DEBUG, so a
+    # genuine failure (a hard Cypher parse error, or — before the
+    # `trust_pushdown` fix above — an identity-less non-aggregate
+    # projection's PermissionError) was indistinguishable, in the server
+    # log, from the documented "commons graph not configured" case, and the
+    # caller (`read_union`'s return value) has no way to tell them apart
+    # either: both silently contribute zero rows to the union. Raised to
+    # WARNING with the exception type/message so an operator can grep for
+    # it; the degrade-gracefully BEHAVIOR is intentionally unchanged here —
+    # narrowing it further (e.g. re-raising a non-PermissionError) risks
+    # turning a legitimately-partial multi-graph union into a hard failure
+    # and was out of scope for this fix.
     rows_by_graph: dict[str, list[dict[str, Any]]] = {}
     if len(graphs) <= 1:
         for graph in graphs:
             try:
                 rows_by_graph[graph] = _one(graph)
             except Exception as exc:  # noqa: BLE001 — one graph down ≠ whole read down
-                logger.debug("read_union: graph %s unavailable: %s", graph, exc)
+                logger.warning(
+                    "read_union: graph %s unavailable (failure_type=%s): %s",
+                    graph,
+                    type(exc).__name__,
+                    exc,
+                )
     else:
         max_workers = min(len(graphs), _READ_UNION_MAX_WORKERS)
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -656,7 +713,12 @@ def read_union(
                 try:
                     rows_by_graph[graph] = future.result()
                 except Exception as exc:  # noqa: BLE001 — one graph down ≠ whole read down
-                    logger.debug("read_union: graph %s unavailable: %s", graph, exc)
+                    logger.warning(
+                        "read_union: graph %s unavailable (failure_type=%s): %s",
+                        graph,
+                        type(exc).__name__,
+                        exc,
+                    )
 
     seen: set[str] = set()
     merged: list[dict[str, Any]] = []

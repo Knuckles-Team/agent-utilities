@@ -667,15 +667,29 @@ def _row_node_id(row: dict[str, Any]) -> str | None:
     return None
 
 
-def row_node_ids(rows: list[dict[str, Any]]) -> list[str]:
+def row_node_ids(
+    rows: list[dict[str, Any]], *, trust_pushdown: bool = False
+) -> list[str]:
     """Return the governed node id carried by every result row.
 
     Public graph projections must retain an ``id`` (or a node mapping that
     contains one) so authorization and audit refer to the same objects. A
-    projection that removes identity is not governable and is denied.
+    projection that removes identity is normally not governable and is
+    denied — UNLESS ``trust_pushdown`` is set, meaning the CALLER has already
+    pushed tenant scope + owner/scope visibility into the query text for
+    this specific read (:func:`~.tenant_sharing.push_down_visibility`; see
+    ``QueryMixin.query_cypher``/``KnowledgeGraph.query``). In that case an
+    identity-less row (e.g. ``RETURN n.name AS name``) is a legitimate
+    projection shape, not evidence of a bypass — the same trade-off already
+    made for aggregate/scalar rows, which never carry a per-row id either —
+    and is simply omitted from the returned id list (nothing governable to
+    name for the audit trail) rather than rejecting the whole read.
+
+    ``trust_pushdown`` defaults to ``False``: every EXISTING caller that
+    does not pass it keeps the exact prior fail-closed behavior.
     """
     ids = [_row_node_id(row) for row in rows]
-    if any(node_id is None for node_id in ids):
+    if not trust_pushdown and any(node_id is None for node_id in ids):
         raise PermissionError("Graph result contains a row without a governed node id")
     return [node_id for node_id in ids if node_id is not None]
 
@@ -683,19 +697,39 @@ def row_node_ids(rows: list[dict[str, Any]]) -> list[str]:
 def filter_rows(
     rows: list[dict[str, Any]],
     actor: ActorContext | None = None,
+    *,
+    trust_pushdown: bool = False,
 ) -> list[dict[str, Any]]:
     """Drop result rows whose identifiable node id is ACL-denied for ``actor``.
 
-    Every row must expose a governable node id. Unclassifiable rows are rejected
-    so a projection cannot bypass ACL evaluation.
+    A row that DOES carry a governable node id is always classified against
+    the fine-grained node ACL exactly as before, kept only if ``permit()``
+    allows it. A row with NO identifiable node id (e.g. a plain
+    ``RETURN n.name AS name`` projection, which carries no ``id`` column at
+    all) cannot be evaluated against a per-node ACL — there is nothing to
+    look up. Rejecting such a row is a POST-HOC authorization decision on
+    data tenant ``scope()`` already bounded; whether that is safe depends on
+    ``trust_pushdown``:
+
+    * ``trust_pushdown=False`` (the default — every existing caller that
+      does not pass it) — unclassifiable rows are rejected and the whole
+      read raises, the historical behavior, preserved byte-for-byte.
+    * ``trust_pushdown=True`` — the caller has ALREADY pushed owner/scope
+      visibility into the query text for this specific read
+      (:func:`~.tenant_sharing.push_down_visibility`), so an unclassifiable
+      row is trusted and kept unfiltered rather than raised or silently
+      dropped — mirroring :func:`~.tenant_sharing.filter_visible`'s own
+      documented stance ("rows whose properties can't be located are kept —
+      we never silently drop data we can't classify") and
+      :func:`~.tenant_sharing.filter_commons_catalog`'s ``trust_pushdown``
+      escape, the reference shape for this fix.
     """
     actor = _verified_actor(actor)
     if not rows:
         return []
-    governed_ids = row_node_ids(rows)
-    allowed = set(permit(governed_ids, actor))
-    return [
-        row
-        for row, node_id in zip(rows, governed_ids, strict=True)
-        if node_id in allowed
-    ]
+    pairs = [(row, _row_node_id(row)) for row in rows]
+    if not trust_pushdown and any(node_id is None for _, node_id in pairs):
+        raise PermissionError("Graph result contains a row without a governed node id")
+    governed_ids = [node_id for _, node_id in pairs if node_id is not None]
+    allowed = set(permit(governed_ids, actor)) if governed_ids else set()
+    return [row for row, node_id in pairs if node_id is None or node_id in allowed]

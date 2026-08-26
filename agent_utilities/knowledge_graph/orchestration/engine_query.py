@@ -202,6 +202,17 @@ class QueryMixin(_Base):
         # (`tenant_sharing.read_union`, BUG-PE-039) and is threaded through
         # to `filter_commons_catalog(..., trust_pushdown=...)` below.
         commons_pushed_down = False
+        # fix/empty-projection: set when owner/scope visibility was
+        # demonstrably pushed into the query text for THIS call (non
+        # -aggregate path only — the aggregate branch above already pushes
+        # it unconditionally). Threaded through to `filter_rows(...,
+        # trust_pushdown=...)` / `permissioning.enforce(..., trust_pushdown
+        # =...)` below so a row with no governed id (e.g. a plain
+        # `RETURN n.name AS name` projection, which never carries an `id`
+        # column) is trusted rather than rejecting the WHOLE read — the root
+        # cause of `MATCH (n:Skill) RETURN n.name AS name` answering `[]` on
+        # a graph that demonstrably has matching rows.
+        visibility_pushed_down = False
 
         # Tenant scoping + owner/scope visibility on the MCP/orchestration read
         # chokepoint (CONCEPT:AU-KG.query.skip-assimilated-papers + KG-2.60). Mandatory
@@ -315,6 +326,26 @@ class QueryMixin(_Base):
                         scoped_query = candidate_query
                         params.update(catalog_params)
                         commons_pushed_down = True
+
+                # fix/empty-projection: owner/scope visibility pushdown for
+                # the non-aggregate path — best-effort, same shape as the
+                # commons-catalog pushdown just above (and the aggregate
+                # branch's mandatory equivalent). MUST NOT fail open: any
+                # failure (no derivable bound variable, `UnscopableQueryError`,
+                # or any other error) leaves `scoped_query` unchanged and
+                # `visibility_pushed_down` False, and the post-hoc
+                # `visible()`/`filter_rows()` pass below (which never needed
+                # this flag to run correctly — only to decide what to do
+                # with an UNCLASSIFIABLE row) stays exactly the pre-existing
+                # fail-closed behavior.
+                from agent_utilities.knowledge_graph.core.tenant_sharing import (
+                    push_down_visibility,
+                )
+
+                scoped_query, vis_params, visibility_pushed_down = push_down_visibility(
+                    scoped_query, session.actor
+                )
+                params.update(vis_params)
         except PermissionError as exc:
             # A genuine, already-typed fail-closed scoping/authorization
             # decision reached here — e.g. `cypher_scoping.UnscopableQueryError`
@@ -411,7 +442,22 @@ class QueryMixin(_Base):
                     actor=session.actor,
                 )
             else:
-                rows = visible(filter_rows(rows, session.actor), session.actor)
+                # fix/empty-projection: `trust_pushdown=visibility_pushed_down`
+                # — set above only when `push_down_visibility` demonstrably
+                # narrowed `scoped_query` for this call (or the actor is
+                # privileged) — lets a row with NO governed id at all (e.g. a
+                # plain `RETURN n.name AS name` projection, which carries no
+                # `id` column full stop) survive here instead of raising for
+                # the WHOLE read, exactly mirroring `filter_commons_catalog`'s
+                # own `trust_pushdown` escape just below. A row that DOES
+                # carry a governed id is still classified against the
+                # fine-grained ACL exactly as before, regardless of this flag.
+                rows = visible(
+                    filter_rows(
+                        rows, session.actor, trust_pushdown=visibility_pushed_down
+                    ),
+                    session.actor,
+                )
 
                 # GOC-61 phase 1 (2026-08-09 owner ruling, read/write split):
                 # the commons catalog READ restriction, Python-side. Runs
@@ -448,7 +494,7 @@ class QueryMixin(_Base):
                 # record proves the guarded GraphSession/query boundary ran without
                 # persisting raw query text or parameters.
                 audit_read(
-                    row_node_ids(rows),
+                    row_node_ids(rows, trust_pushdown=visibility_pushed_down),
                     summary="native-cypher-read",
                     actor=session.actor,
                 )
