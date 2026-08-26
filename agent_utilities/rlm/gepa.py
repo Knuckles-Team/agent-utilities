@@ -732,11 +732,18 @@ class GEPAOptimizer:
         import json as _json
 
         try:
-            from ..graph.client import get_process_graph_backend
+            # CONCEPT:AU-KG.query.single-governed-read-path — routed through
+            # `graph.client.query_cypher` (tenant scope + owner/scope ACL +
+            # audit) instead of a raw `backend.execute_read` bypass, so a
+            # resumed frontier can't be read across tenant/session boundaries.
+            # `n.id AS id` is load-bearing: the governed path's post-hoc
+            # row-visibility layer fail-closed denies any row it can't
+            # attribute to a governed node id.
+            from ..graph.client import query_cypher as _governed_query_cypher
 
-            backend = await get_process_graph_backend()
-            rows = backend.execute_read(
-                "MATCH (n:GEPAFrontier {run_id: $rid}) RETURN n.snapshot_json AS snap",
+            rows = await _governed_query_cypher(
+                "MATCH (n:GEPAFrontier {run_id: $rid}) "
+                "RETURN n.id AS id, n.snapshot_json AS snap",
                 {"rid": run_id},
             )
             if not rows:

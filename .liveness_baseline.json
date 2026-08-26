@@ -1,13 +1,13 @@
 {
   "counts": {
     "orphan_modules": 2,
-    "dead_definitions": 521,
+    "dead_definitions": 520,
     "never_executed": 0,
-    "untyped_seams": 1765,
+    "untyped_seams": 1766,
     "orphan_read_keys": 76,
     "facade_handlers": 98,
     "placeholder_markers": 502
   },
-  "taken_at": "2026-08-24T20:19:28+00:00",
-  "taken_against": "8f540b93b2e0f211890a7a630cd487dd67360067"
+  "taken_at": "2026-08-26T13:15:14+00:00",
+  "taken_against": "cabd4259f970c5affde1230889070402e762d465"
 }

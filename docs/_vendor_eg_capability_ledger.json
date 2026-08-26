@@ -1,6 +1,6 @@
 {
-  "cached_at": "2026-08-26T13:27:26Z",
-  "row_count": 401,
+  "cached_at": "2026-08-26T14:01:01Z",
+  "row_count": 404,
   "rows": {
     "AcquireCapacity": {
       "audited": "true",
@@ -628,6 +628,39 @@
       "mutates": "true",
       "note": "opaque prepared/committed session-control MutationBatch",
       "txn_participation": "Saga"
+    },
+    "ClusterHierarchyClusters": {
+      "audited": "false",
+      "authz_action": "compute:graph-algo",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "ClusterHierarchyClusters",
+      "mutates": "false",
+      "note": "VIZ-1: GET clusters(graph, level, parent_cluster_id?) from the cached hierarchy",
+      "txn_participation": "Snapshot"
+    },
+    "ClusterHierarchyExpand": {
+      "audited": "false",
+      "authz_action": "compute:graph-algo",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "ClusterHierarchyExpand",
+      "mutates": "false",
+      "note": "VIZ-1: GET expand(graph, cluster_id) -- a level-1 cluster's member nodes/edges read live off the graph",
+      "txn_participation": "Snapshot"
+    },
+    "ClusterHierarchyRefresh": {
+      "audited": "false",
+      "authz_action": "compute:graph-algo",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "ClusterHierarchyRefresh",
+      "mutates": "false",
+      "note": "VIZ-1 hierarchical Leiden clustering for million-node graph visualization: (re)computes and durably caches the cluster hierarchy in its own non-authoritative store (server::persistence::cluster_hierarchy_store), never as graph nodes/edges -- see ClusterHierarchyClusters/ClusterHierarchyExpand",
+      "txn_participation": "Snapshot"
     },
     "ClusterMembers": {
       "audited": "false",
