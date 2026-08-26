@@ -50,10 +50,12 @@ action exists in the live fleet yet** (verified against both repos'
 checked-in tool surfaces as of this wave) — the wire contracts below
 (:data:`SIDECAR_CAPABILITIES`' ``action``s and the ``artifact_b64``/``digest``/
 ``media_type`` request shape :func:`~agent_utilities.media.sidecar_delegate.delegate_extract`
-builds) are what those tools should implement; this is an open dependency on
-``stirlingpdf-mcp``/``data-science-mcp`` shipping those actions — no tracking
-issue for it exists in this repo or those repos as of this writing. This wave
-proves the AU-side contract +
+builds) are what those tools should implement; tracked as W4.6 follow-ups #1
+(``stirlingpdf-mcp``'s ``ocr_pdf``) and #3 (``data-science-mcp``'s
+``image_decode``/``analyze_image``) in
+``plans/_archive/au-eg-program/issue-register.md`` — a workspace-level
+planning archive outside this repo (not reachable via this repo's own git
+history), not a repo-local tracker. This wave proves the AU-side contract +
 write-back with the fleet call MOCKED at the seam (no live sidecar required),
 per the task's own acceptance bar.
 
@@ -66,9 +68,14 @@ STALE NOTE UPDATED: ``audio-transcriber``'s ``transcribe_media`` action has
 since shipped (see the ``audio`` entry in :data:`SIDECAR_CAPABILITIES` below —
 GOC-07/BUG-271); ``data-science-mcp``'s ``video_keyframes`` action still does
 not exist in the live fleet as of this writing (verified against that repo's
-checked-in tool surface) — an open dependency on that repo shipping it, with
-no tracking issue for it in either repo, same posture pdf/jpeg's
-own not-yet-live sidecar actions were shipped under).
+checked-in tool surface) — an open dependency on that repo shipping it. The
+underlying gap (data-science-mcp lacking a video decode/keyframe capability)
+was originally registered as W4.6 follow-up #4 in
+``plans/_archive/au-eg-program/issue-register.md`` (workspace-level planning
+archive, outside this repo) before GOC-07 wired this module's AU-side
+adapter; no repo-local tracking issue exists under the ``video_keyframes``
+name specifically, same posture pdf/jpeg's own not-yet-live sidecar actions
+were shipped under).
 """
 
 from __future__ import annotations
@@ -234,8 +241,11 @@ SIDECAR_CAPABILITIES: dict[str, SidecarCapability] = {
             "GOC-07: adapter wired in video_sidecar.py; the fleet tool "
             "action (data-science-mcp's video_keyframes) is not yet live "
             "(verified against that repo's checked-in tool surface) — an "
-            "open dependency on data-science-mcp shipping it; no tracking "
-            "issue exists for this."
+            "open dependency on data-science-mcp shipping it. The "
+            "underlying gap is W4.6 follow-up #4 in "
+            "plans/_archive/au-eg-program/issue-register.md (workspace-level "
+            "planning archive, outside this repo); no repo-local tracking "
+            "issue exists under this action name specifically."
         ),
     ),
 }

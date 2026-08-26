@@ -345,8 +345,10 @@ def test_root_cause_action_materializes_claims_by_default(monkeypatch):
     )
     assert claim_id in engine.registered
 
-    # W2.7 CLOSED (CONCEPT:AU-AHE.harness.unified-promotion-gate; no separate
-    # tracking issue exists for this item, see ops_causal_tools.py's module docstring):
+    # B3 CLOSED (program issue register, CONCEPT:AU-AHE.harness.unified-promotion-gate;
+    # tracked at the workspace level in
+    # plans/_archive/au-eg-program/issue-register.md, not in this repo — see
+    # ops_causal_tools.py's module docstring):
     # the claim was ALSO proposed through the ClaimFlywheel and run through the
     # unified promote() gate under kind=promote_mined_claim — the shipped
     # default tier (approval_required) queues it, never silently auto-verifies.
