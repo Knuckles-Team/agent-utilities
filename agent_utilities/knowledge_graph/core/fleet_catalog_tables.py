@@ -1200,6 +1200,39 @@ def _finalize_ledger(gc: Any, columns: dict[str, set[str]], *, claimant: str) ->
     )
 
 
+# How long a migration claim stays valid. The claim is a LEASE, not a
+# permanent lock: a migrator that dies mid-step (measured live 2026-08-25 —
+# the graph-os container was OOM-killed while applying step 0004) leaves its
+# ``migrating`` row behind forever, and treating that as a live claim wedges
+# the store permanently, with a HALF-APPLIED schema and every subsequent
+# fleet-catalog write skipped. Generous enough that a genuinely running
+# migration is never stolen (a step is a handful of ``ALTER TABLE``s plus a
+# bounded backfill), short enough that a crash self-heals on the next sync.
+_MIGRATION_CLAIM_LEASE_SEC = 900.0
+
+
+def _claim_is_live(lock_row: dict[str, Any]) -> bool:
+    """Is this ``migrating`` ledger row a claim another process still holds?
+
+    A claim whose ``claimed_at`` is older than
+    :data:`_MIGRATION_CLAIM_LEASE_SEC`, or whose timestamp cannot be read at
+    all, is treated as ABANDONED and may be taken over — being wedged
+    forever behind a dead migrator is strictly worse than the bounded risk
+    of two migrators overlapping, which the re-read after the claim already
+    detects and which every step is independently idempotent against
+    (``_steps_needed`` re-derives what is outstanding from the store's real
+    columns on every attempt).
+    """
+    claimed_at = str(lock_row.get("claimed_at") or "")
+    try:
+        claimed = datetime.fromisoformat(claimed_at)
+    except ValueError:
+        return False
+    if claimed.tzinfo is None:
+        claimed = claimed.replace(tzinfo=UTC)
+    return (datetime.now(UTC) - claimed).total_seconds() < _MIGRATION_CLAIM_LEASE_SEC
+
+
 def _claim_and_migrate(engine: Any) -> bool:
     """Detect, migrate (if needed), verify, and record the fleet-catalog schema.
 
@@ -1251,12 +1284,17 @@ def _claim_and_migrate(engine: Any) -> bool:
         return True
 
     if lock_row is not None and str(lock_row.get("status")) == "migrating":
-        # Another process holds a LIVE claim — never take that over.
-        logger.info(
-            "fleet catalog schema migration already claimed by another "
-            "process; skipping this attempt (will retry on the next call)"
+        if _claim_is_live(lock_row):
+            # Another process holds a LIVE claim — never take that over.
+            logger.info(
+                "fleet catalog schema migration already claimed by another "
+                "process; skipping this attempt (will retry on the next call)"
+            )
+            return False
+        logger.warning(
+            "fleet catalog schema migration claim from %s has expired; taking it over",
+            lock_row.get("claimed_at"),
         )
-        return False
 
     token = uuid.uuid4().hex
     # ``overwrite=True``, deliberately: a ``schema_state`` row marked

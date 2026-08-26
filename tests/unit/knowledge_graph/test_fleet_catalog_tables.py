@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import contextvars
 import re
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -961,11 +962,13 @@ def test_losing_claim_while_another_process_still_migrating_is_a_noop_not_an_err
     gc = eng.graph_compute
     gc.sql_exec(fct._LEDGER_DDL)
     # Another process already claimed the migration and has not finished.
+    # The claim is a LEASE (`_MIGRATION_CLAIM_LEASE_SEC`), so a LIVE claim
+    # must be stamped now — a fixed past date would model an ABANDONED one.
     gc.tables[fct._MIGRATION_LEDGER][fct._LOCK_ROW_ID] = {
         "id": fct._LOCK_ROW_ID,
         "status": "migrating",
         "claimant": "other-process-token",
-        "claimed_at": "2026-08-20T00:00:00+00:00",
+        "claimed_at": datetime.now(UTC).isoformat(),
         "version": 0,
         "migration_id": "",
         "checksum": "",
@@ -1452,6 +1455,39 @@ def test_fresh_created_pre_acl_store_is_migrated_not_reported_diverged():
         result = _write_fleet_catalog(eng, _server_catalog())
     assert result["status"] == "ok"
     assert result["tools_written"] == 1
+
+
+def test_an_abandoned_migration_claim_is_taken_over_not_waited_on_forever():
+    """A migrator that dies mid-step leaves its `migrating` ledger row
+    behind. Measured live 2026-08-25: the graph-os container was OOM-killed
+    while applying step 0004, leaving a half-applied schema AND a claim no
+    process held. Treating that as live wedges the store permanently and
+    every fleet-catalog write stays skipped, so the claim is a lease."""
+    eng = _FakeEngine()
+    _seed_legacy_store(eng)
+    gc = eng.graph_compute
+    gc.sql_exec(fct._LEDGER_DDL)
+    stale = datetime.now(UTC) - timedelta(seconds=fct._MIGRATION_CLAIM_LEASE_SEC + 60)
+    gc.tables[fct._MIGRATION_LEDGER][fct._LOCK_ROW_ID] = {
+        "id": fct._LOCK_ROW_ID,
+        "status": "migrating",
+        "claimant": "token-of-a-process-that-died",
+        "claimed_at": stale.isoformat(),
+        "version": 0,
+        "migration_id": "",
+        "checksum": "",
+        "applied_at": "",
+    }
+    assert fct._claim_and_migrate(eng) is True
+    assert any(s.startswith("ALTER TABLE") for s in gc.statements)
+    assert gc.tables[fct._MIGRATION_LEDGER][fct._LOCK_ROW_ID]["status"] == "complete"
+
+
+def test_an_unreadable_claim_timestamp_is_treated_as_abandoned():
+    """Never wedge on a value that cannot be interpreted."""
+    assert fct._claim_is_live({"claimed_at": ""}) is False
+    assert fct._claim_is_live({"claimed_at": "not-a-timestamp"}) is False
+    assert fct._claim_is_live({"claimed_at": datetime.now(UTC).isoformat()}) is True
 
 
 def test_large_batches_are_chunked_not_one_giant_statement_nor_one_per_row():
