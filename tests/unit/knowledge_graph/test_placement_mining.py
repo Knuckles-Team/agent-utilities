@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 
+from agent_utilities.knowledge_graph.core import engine_tasks
 from agent_utilities.knowledge_graph.research.placement_mining import (
     CONFIDENCE_FLOOR,
     TOOL_CALL_LABEL,
@@ -1523,3 +1524,140 @@ def test_placement_mining_subscription_unavailable_source_is_noop():
     sub = placement_mining_subscription(object())
     assert sub.available is False
     assert sub.poll(block_ms=0) == 0
+
+
+# ---------------------------------------------------------------------------
+# ``placement_mining_reactive`` schedule wiring (D-OP-13) — this schedule was
+# registered by ``_register_maintenance_schedules`` but absent from
+# ``_MAINTENANCE_REF_ALLOWLIST``, so ``run_scheduled_job`` rejected every tick
+# with ``maintenance_not_allowed`` -- a permanently dead schedule. Fixed by
+# adding it to the allowlist; these tests prove (a) the schedule is now
+# actually dispatchable end-to-end through ``run_scheduled_job`` (the same
+# path a live scheduler tick uses) and (b) what the tick itself DOES when it
+# runs, on both the "no change since last poll" and "a ToolCall changed"
+# paths -- required evidence for enabling a schedule that had never run.
+# ---------------------------------------------------------------------------
+
+
+class _FakeReactiveSubscription:
+    """Minimal double for the ``EngineSubscription`` the tick reads."""
+
+    def __init__(self, *, available: bool, pending: int) -> None:
+        self.available = available
+        self.pending_state = {"pending": pending}
+        self.polled = 0
+
+    def poll(self, block_ms: int = 0) -> int:
+        self.polled += 1
+        return self.pending_state["pending"]
+
+
+class _FakeTickHost:
+    """A bare host exposing exactly what ``_tick_placement_mining_reactive``
+    needs (``_placement_mining_subscription``) -- avoids instantiating the
+    full ``TaskManagerMixin``/engine, which pulls in worker threads and
+    optional heavy imports unrelated to this tick's own logic."""
+
+    def __init__(self, sub: _FakeReactiveSubscription) -> None:
+        self._sub = sub
+
+    def _placement_mining_subscription(self):
+        return self._sub
+
+    # Bind the real method under test onto this lightweight double.
+    _tick_placement_mining_reactive = (
+        engine_tasks.TaskManagerMixin._tick_placement_mining_reactive
+    )
+
+
+def test_tick_placement_mining_reactive_noop_when_nothing_pending(monkeypatch):
+    """No ``:ToolCall`` change since the last poll -> the tick returns without
+    ever importing/calling ``placement_control_loop`` (the cheap-poll half of
+    X-5, independent of whether ``PLACEMENT_CONTROL_LOOP_ENABLED`` is set)."""
+    import agent_utilities.knowledge_graph.research.placement_mining as pm_module
+
+    calls: list[Any] = []
+    monkeypatch.setattr(
+        pm_module, "placement_control_loop", lambda engine: calls.append(engine)
+    )
+
+    sub = _FakeReactiveSubscription(available=True, pending=0)
+    host = _FakeTickHost(sub)
+    host._tick_placement_mining_reactive()
+
+    assert sub.polled == 1
+    assert calls == []
+
+
+def test_tick_placement_mining_reactive_runs_a_pass_on_pending_change(monkeypatch):
+    """A pending ``:ToolCall`` change -> the tick clears the pending counter
+    and runs exactly one ``placement_control_loop`` pass, on the SAME engine
+    the tick was invoked with -- this is what enabling the schedule actually
+    causes to happen on a live tick."""
+    import agent_utilities.knowledge_graph.research.placement_mining as pm_module
+
+    calls: list[Any] = []
+
+    def _fake_control_loop(engine):
+        calls.append(engine)
+        return {"enabled": True, "persisted": True, "applied": False, "proposals": 2}
+
+    monkeypatch.setattr(pm_module, "placement_control_loop", _fake_control_loop)
+
+    sub = _FakeReactiveSubscription(available=True, pending=1)
+    host = _FakeTickHost(sub)
+    host._tick_placement_mining_reactive()
+
+    assert sub.polled == 1
+    assert calls == [host]
+    assert sub.pending_state["pending"] == 0  # consumed, not left pending forever
+
+
+def test_tick_placement_mining_reactive_unavailable_subscription_is_noop(
+    monkeypatch,
+):
+    """No engine streaming surface (``available=False``) -> the tick returns
+    immediately without polling for a pending count or calling
+    ``placement_control_loop`` -- matches every other reactive tick's
+    (``_tick_fleet_autoscale_reactive``) no-streaming-surface behavior."""
+    import agent_utilities.knowledge_graph.research.placement_mining as pm_module
+
+    calls: list[Any] = []
+    monkeypatch.setattr(
+        pm_module, "placement_control_loop", lambda engine: calls.append(engine)
+    )
+
+    sub = _FakeReactiveSubscription(available=False, pending=1)
+    host = _FakeTickHost(sub)
+    host._tick_placement_mining_reactive()
+
+    assert calls == []
+
+
+def test_placement_mining_reactive_is_in_the_maintenance_allowlist():
+    """D-OP-13: the registered schedule ref must actually be dispatchable --
+    this is the exact gap that made the schedule permanently dead (every
+    tick returned ``maintenance_not_allowed`` instead of running)."""
+    from agent_utilities.core.schedule_engine import _MAINTENANCE_REF_ALLOWLIST
+
+    assert "placement_mining_reactive" in _MAINTENANCE_REF_ALLOWLIST
+
+
+def test_placement_mining_reactive_dispatches_through_run_scheduled_job(
+    monkeypatch,
+):
+    """End-to-end through the SAME dispatcher a live scheduler tick uses
+    (``run_scheduled_job({"kind": "maint", "ref": "placement_mining_reactive"})``)
+    -- proves the allowlist fix actually reaches the tick, not just that the
+    name is present in a set."""
+    from agent_utilities.core.schedule_engine import run_scheduled_job
+
+    sub = _FakeReactiveSubscription(available=True, pending=0)
+    host = _FakeTickHost(sub)
+
+    result = run_scheduled_job(
+        host, {"kind": "maint", "ref": "placement_mining_reactive"}
+    )
+
+    assert result["status"] == "ok"
+    assert sub.polled == 1

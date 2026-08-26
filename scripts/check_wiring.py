@@ -769,6 +769,15 @@ def find_test_only_symbols(
 
     total_test_idents: Counter[str] = Counter()
     total_test_calls: Counter[str] = Counter()
+    # Per-file test counters + import sets, kept alongside the aggregate
+    # totals above (D-OP-12): the aggregate is still the fast path for a
+    # symbol name that is only ever defined once in the whole repo, but a
+    # COLLIDING name (see below) needs per-file scoping, which requires
+    # knowing which specific test files reference the name and which
+    # module(s) each of those files actually imports.
+    test_idents_by_file: dict[str, Counter[str]] = {}
+    test_calls_by_file: dict[str, Counter[str]] = {}
+    test_imports_by_file: dict[str, set[str]] = {}
     if tests_dir.exists():
         for py in _tracked_or_walked(tests_dir, "*.py"):
             if "__pycache__" in py.parts:
@@ -780,6 +789,110 @@ def find_test_only_symbols(
             idents, calls = _index_file(text)
             total_test_idents.update(idents)
             total_test_calls.update(calls)
+            trel = py.relative_to(display_root).as_posix()
+            test_idents_by_file[trel] = idents
+            test_calls_by_file[trel] = calls
+            try:
+                ttree = ast.parse(text, filename=trel)
+            except SyntaxError:
+                continue
+            test_imports_by_file[trel] = collect_imports(trel, ttree)
+
+    # D-OP-12: caller resolution below is bare-symbol-name text matching,
+    # not a type-resolved call graph (see the module/function docstrings).
+    # For the overwhelming majority of symbols — unique names across the
+    # whole repo — that is harmless: there is only ever one possible
+    # definition a reference could mean. But when TWO DIFFERENT symbols
+    # share a bare name in different files (e.g. two unrelated classes each
+    # defining ``parent_of``), the aggregate ``total_test_*`` counters pool
+    # every TEST reference to EITHER definition into one number, so adding
+    # a test for symbol A's ``parent_of`` silently CREATES a finding for
+    # unrelated symbol B, in a file the change never touched. Confirmed by
+    # construction: adding a test-only caller for ``tenant_registry``'s
+    # ``parent_of`` produced a NEW finding on ``concept_lineage.py``'s
+    # unrelated ``Lineage.parent_of`` — a module that change never opened —
+    # purely because both counted against the same pooled bare-name test
+    # bucket.
+    #
+    # Fix: pre-detect which top-level names / method names are DEFINED more
+    # than once across ``agent_utilities/`` (a "collision"). Non-colliding
+    # names keep the fast pooled-counter path unchanged (identical output
+    # to before this fix for the overwhelming majority of symbols). For a
+    # colliding name, the TEST side is resolved with import-scoped counting
+    # instead of the pooled total: a test file's reference only counts
+    # toward a specific definition if that test file actually imports the
+    # definition's own module (``collect_imports``) — i.e. caller
+    # resolution respects the definition's own file/scope instead of a name
+    # pooled across every test file that happens to share it. Because a
+    # scoped count is always <= the pooled count it replaces, this can only
+    # ever REMOVE a spurious finding, never add one.
+    #
+    # The production (``other_au``) side deliberately stays pooled/unscoped
+    # even for colliding names: agent_utilities leans heavily on factory
+    # functions / dependency injection and composed/inherited concrete
+    # classes that never import the concrete symbol by name (see the
+    # module docstring's "Three broader alternatives" note — import-
+    # qualifying the production side was already tried and reverted because
+    # it flipped >140 genuinely-wired methods to false positives). Reusing
+    # that same import-qualifying approach here, even scoped to collisions
+    # only, reproduces the identical regression (measured: 285 new false
+    # positives against the real repo, e.g. ``SemanticCache.invalidate``,
+    # ``ChannelRegistry.register``, the ``*Backend.plan`` family — all
+    # reached only via DI/factory, never a direct import of the concrete
+    # class). The reported defect's "misdirection" harm — a lane blocked by
+    # a finding in a file it never opened — comes entirely from the TEST
+    # side (a lane's own new test polluting an unrelated symbol's count);
+    # scoping that side closes the defect without reintroducing the
+    # previously-reverted production-side regression.
+    au_trees: dict[str, ast.Module] = {}
+    for rel, source in au_sources.items():
+        if rel.endswith("__init__.py"):
+            continue
+        try:
+            au_trees[rel] = ast.parse(source, filename=rel)
+        except SyntaxError:
+            continue
+
+    top_level_defs_by_file: dict[str, list[tuple[str, str, int]]] = {
+        rel: _public_top_level_defs(tree) for rel, tree in au_trees.items()
+    }
+    methods_by_file: dict[str, list[tuple[str, str, int, bool]]] = {
+        rel: _public_methods(tree) for rel, tree in au_trees.items()
+    }
+
+    top_level_name_files: dict[str, set[str]] = defaultdict(set)
+    for rel, defs in top_level_defs_by_file.items():
+        for _kind, name, _lineno in defs:
+            top_level_name_files[name].add(rel)
+    colliding_top_level_names = {
+        name for name, files in top_level_name_files.items() if len(files) > 1
+    }
+
+    method_name_files: dict[str, set[str]] = defaultdict(set)
+    for rel, methods in methods_by_file.items():
+        for _cls_name, meth_name, _m_lineno, _is_property in methods:
+            method_name_files[meth_name].add(rel)
+    colliding_method_names = {
+        name for name, files in method_name_files.items() if len(files) > 1
+    }
+
+    def _scoped_test_count(name: str, defining_rel: str) -> int:
+        defining_module = path_to_module_name(defining_rel)
+        total = 0
+        for trel, idents in test_idents_by_file.items():
+            if defining_module not in test_imports_by_file.get(trel, set()):
+                continue
+            total += idents.get(name, 0)
+        return total
+
+    def _scoped_test_call_count(name: str, defining_rel: str) -> int:
+        defining_module = path_to_module_name(defining_rel)
+        total = 0
+        for trel, calls in test_calls_by_file.items():
+            if defining_module not in test_imports_by_file.get(trel, set()):
+                continue
+            total += calls.get(name, 0)
+        return total
 
     findings: list[dict] = []
     # (file, symbol) -> next ordinal (D-OP-11: the baseline key must be
@@ -796,18 +909,14 @@ def find_test_only_symbols(
         ordinals[key] = ordinal + 1
         return ordinal
 
-    for rel, source in au_sources.items():
-        if rel.endswith("__init__.py"):
-            continue
-        try:
-            tree = ast.parse(source, filename=rel)
-        except SyntaxError:
-            continue
-
-        for kind, name, lineno in _public_top_level_defs(tree):
+    for rel in au_trees:
+        for kind, name, lineno in top_level_defs_by_file.get(rel, []):
             other_au = total_au_idents.get(name, 0) - au_idents[rel].get(name, 0)
+            if name in colliding_top_level_names:
+                test_refs = _scoped_test_count(name, rel)
+            else:
+                test_refs = total_test_idents.get(name, 0)
             same_file = au_idents[rel].get(name, 0) - 1  # minus the def line itself
-            test_refs = total_test_idents.get(name, 0)
             if other_au == 0 and same_file <= 0 and test_refs > 0:
                 findings.append(
                     {
@@ -820,7 +929,7 @@ def find_test_only_symbols(
                     }
                 )
 
-        for cls_name, meth_name, m_lineno, is_property in _public_methods(tree):
+        for cls_name, meth_name, m_lineno, is_property in methods_by_file.get(rel, []):
             if meth_name in _GENERIC_METHOD_STOPLIST:
                 continue
             if is_property:
@@ -852,8 +961,11 @@ def find_test_only_symbols(
             other_au = total_au_calls.get(meth_name, 0) - au_calls[rel].get(
                 meth_name, 0
             )
+            if meth_name in colliding_method_names:
+                test_refs = _scoped_test_call_count(meth_name, rel)
+            else:
+                test_refs = total_test_calls.get(meth_name, 0)
             same_file = au_calls[rel].get(meth_name, 0)
-            test_refs = total_test_calls.get(meth_name, 0)
             if other_au == 0 and same_file <= 0 and test_refs > 0:
                 symbol = f"{cls_name}.{meth_name}"
                 findings.append(

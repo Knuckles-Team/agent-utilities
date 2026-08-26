@@ -340,6 +340,92 @@ def test_symbol_gate_still_trips_on_a_genuine_test_only_method(tmp_path):
     assert "OrphanPolicy.evaluate_distinctively" in symbols
 
 
+def test_symbol_gate_does_not_cross_attribute_a_same_named_method_in_another_file(
+    tmp_path,
+):
+    """D-OP-12: two UNRELATED classes in two DIFFERENT files each define a
+    method with the same bare name (``parent_of``). Only one of them
+    (``TenantRegistry.parent_of``) is ever actually called, and only from a
+    test — the genuine D-OB-9 shape, which must be flagged. The other
+    (``Lineage.parent_of``) has ZERO references anywhere, in production OR
+    tests, and must NOT be flagged merely because a same-named method in an
+    entirely different module gained a test caller.
+
+    Reproduces the real defect by construction: before caller resolution
+    was scoped to the defining file's own module, the bare-name pooled
+    counters (``total_au_calls``/``total_test_calls``) meant a test calling
+    ``TenantRegistry().parent_of()`` bumped ``test_refs`` for BOTH methods
+    (they share the token ``parent_of``), producing a spurious "NEW
+    finding" on ``Lineage.parent_of`` in a file this fixture's test file
+    never imports and never opens."""
+    src_dir = tmp_path / "agent_utilities"
+    src_dir.mkdir()
+    (src_dir / "tenant_registry.py").write_text(
+        "class TenantRegistry:\n"
+        "    def parent_of(self, tenant_id):\n"
+        "        return tenant_id\n"
+    )
+    (src_dir / "concept_lineage.py").write_text(
+        "class Lineage:\n"
+        "    def parent_of(self, concept_id):\n"
+        "        return concept_id\n"
+    )
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_tenant_registry.py").write_text(
+        "from agent_utilities.tenant_registry import TenantRegistry\n\n"
+        "def test_x():\n"
+        "    assert TenantRegistry().parent_of('t1') == 't1'\n"
+    )
+
+    findings = check_wiring.find_test_only_symbols(
+        src_dir=src_dir, tests_dir=tests_dir, display_root=tmp_path
+    )
+    symbols = {f["symbol"] for f in findings}
+    assert "TenantRegistry.parent_of" in symbols
+    assert "Lineage.parent_of" not in symbols
+
+
+def test_symbol_gate_scoped_resolution_still_trips_when_the_collision_partner_has_no_test_either(
+    tmp_path,
+):
+    """Companion to the fixture above: if BOTH same-named methods are
+    genuinely test-only (each reached only from a test file that imports
+    its own module), scoped resolution must still flag both — proving the
+    fix narrows false attribution without narrowing genuine detection."""
+    src_dir = tmp_path / "agent_utilities"
+    src_dir.mkdir()
+    (src_dir / "tenant_registry2.py").write_text(
+        "class TenantRegistry2:\n"
+        "    def parent_of(self, tenant_id):\n"
+        "        return tenant_id\n"
+    )
+    (src_dir / "concept_lineage2.py").write_text(
+        "class Lineage2:\n"
+        "    def parent_of(self, concept_id):\n"
+        "        return concept_id\n"
+    )
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_tenant_registry2.py").write_text(
+        "from agent_utilities.tenant_registry2 import TenantRegistry2\n\n"
+        "def test_x():\n"
+        "    assert TenantRegistry2().parent_of('t1') == 't1'\n"
+    )
+    (tests_dir / "test_concept_lineage2.py").write_text(
+        "from agent_utilities.concept_lineage2 import Lineage2\n\n"
+        "def test_y():\n"
+        "    assert Lineage2().parent_of('c1') == 'c1'\n"
+    )
+
+    findings = check_wiring.find_test_only_symbols(
+        src_dir=src_dir, tests_dir=tests_dir, display_root=tmp_path
+    )
+    symbols = {f["symbol"] for f in findings}
+    assert "TenantRegistry2.parent_of" in symbols
+    assert "Lineage2.parent_of" in symbols
+
+
 # ---------------------------------------------------------------------------
 # Regression lock — the real repo's ratchet must stay green
 # ---------------------------------------------------------------------------
