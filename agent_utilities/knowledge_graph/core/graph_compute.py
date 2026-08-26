@@ -16,6 +16,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from types import ModuleType
 from typing import Any, cast
 
@@ -1233,6 +1234,53 @@ def _read_private_engine_encryption_key(path: Any) -> str:
             os.close(descriptor)
 
 
+def _engine_persist_dir_holds_data() -> bool:
+    """Does the engine's durable store already exist and hold files?
+
+    Answered WITHOUT interpolating any path into a log record; the caller turns the
+    boolean into one of two fully STATIC messages.
+    """
+    try:
+        persist_dir = _resolve_engine_persist_dir()
+        if not persist_dir:
+            return False
+        return any(Path(persist_dir).iterdir())
+    except Exception:
+        return False
+
+
+def _warn_new_engine_encryption_key() -> None:
+    """Never mint an encryption-at-rest key silently (BUG-PE-055).
+
+    Same hazard family as the unset-GRAPH_SERVICE_PERSIST_DIR warning above, and the
+    same message discipline: the literal paths are deliberately NOT interpolated,
+    because agent_utilities.core.log_privacy redacts filesystem locations from every
+    agent_utilities.* record (it sanitizes record.msg too). The SETTING NAMES carry
+    the meaning.
+    """
+    if _engine_persist_dir_holds_data():
+        logger.warning(
+            "EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF is not set, so a NEW engine "
+            "encryption-at-rest key was just generated under AGENT_UTILITIES_DATA_DIR "
+            "-- but the durable store resolved from GRAPH_SERVICE_PERSIST_DIR ALREADY "
+            "HOLDS DATA. If that store was written under a different key the engine "
+            "will REFUSE to open it and the data is unreachable without the original "
+            "key; if it was written in plaintext the engine will REFUSE to encrypt "
+            "over it. Set EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF to the KMS reference for "
+            "this deployment."
+        )
+        return
+    logger.warning(
+        "EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF is not set, so a NEW engine "
+        "encryption-at-rest key was generated under AGENT_UTILITIES_DATA_DIR. If that "
+        "location is not durable storage (e.g. a container emptyDir) a different key "
+        "will be generated on every restart, and once the engine binds a key to the "
+        "durable store resolved from GRAPH_SERVICE_PERSIST_DIR it will REFUSE to open "
+        "under any other key. Set EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF to make the key "
+        "durable and silence this warning."
+    )
+
+
 def _load_or_create_engine_encryption_key() -> str:
     """Load or atomically create the stable private key for local tiny mode.
 
@@ -1287,6 +1335,7 @@ def _load_or_create_engine_encryption_key() -> str:
         with contextlib.suppress(OSError):
             path.unlink()
         raise RuntimeError("local engine encryption key is unavailable") from exc
+    _warn_new_engine_encryption_key()
     return _read_private_engine_encryption_key(path)
 
 
