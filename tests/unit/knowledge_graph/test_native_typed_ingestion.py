@@ -91,7 +91,14 @@ def test_native_capability_ingestion_uses_outer_typed_policy_seam() -> None:
                 # creator. See docs/architecture/acl_registration_convergence.md.
                 "tenant_id": "tenant:test",
                 "_owner_id": "service:agent-utilities-test-suite",
-                "_shared_scope": "private",
+                # `org`, not `private`: the ambient test actor is
+                # `ActorType.AUTOMATED_SERVICE` (`tests/conftest.py`, `TEST_AGENT_ID`),
+                # and `tenant_sharing.stamp_ownership` now scopes a service write to
+                # the org by ACTOR TYPE instead of by the writer's current `kg:admin`
+                # role. The `_owner_id` provenance marker above is unchanged; only the
+                # visibility default widened. See
+                # `test_tenant_sharing.py::test_stamp_ownership_service_is_org_scoped_regardless_of_privilege`.
+                "_shared_scope": "org",
                 "classification": "confidential",
                 "node_type": "Skill",
             },
@@ -109,7 +116,14 @@ def test_native_capability_ingestion_uses_outer_typed_policy_seam() -> None:
                 # half simply lagged, because edges were ungoverned until now.
                 "tenant_id": "tenant:test",
                 "_owner_id": "service:agent-utilities-test-suite",
-                "_shared_scope": "private",
+                # `org`, not `private`: the ambient test actor is
+                # `ActorType.AUTOMATED_SERVICE` (`tests/conftest.py`, `TEST_AGENT_ID`),
+                # and `tenant_sharing.stamp_ownership` now scopes a service write to
+                # the org by ACTOR TYPE instead of by the writer's current `kg:admin`
+                # role. The `_owner_id` provenance marker above is unchanged; only the
+                # visibility default widened. See
+                # `test_tenant_sharing.py::test_stamp_ownership_service_is_org_scoped_regardless_of_privilege`.
+                "_shared_scope": "org",
                 "classification": "confidential",
                 "relationship": "BINDS_RUNNABLE",
             },
@@ -177,7 +191,14 @@ def test_graph_compute_declares_and_executes_the_typed_node_contract() -> None:
                 # IS self.graph/self.graph_compute in the standard topology.
                 "tenant_id": "tenant:test",
                 "_owner_id": "service:agent-utilities-test-suite",
-                "_shared_scope": "private",
+                # `org`, not `private`: the ambient test actor is
+                # `ActorType.AUTOMATED_SERVICE` (`tests/conftest.py`, `TEST_AGENT_ID`),
+                # and `tenant_sharing.stamp_ownership` now scopes a service write to
+                # the org by ACTOR TYPE instead of by the writer's current `kg:admin`
+                # role. The `_owner_id` provenance marker above is unchanged; only the
+                # visibility default widened. See
+                # `test_tenant_sharing.py::test_stamp_ownership_service_is_org_scoped_regardless_of_privilege`.
+                "_shared_scope": "org",
                 "classification": "confidential",
                 "node_type": "Skill",
             },

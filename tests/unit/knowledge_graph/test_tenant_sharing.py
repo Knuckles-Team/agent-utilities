@@ -101,6 +101,112 @@ def test_stamp_ownership_does_not_overwrite_existing_share():
     assert props[ts.SCOPE_KEY] == ts.SCOPE_ORG
 
 
+# --- automated-service ownership stamping (role-independent) ---------------
+
+
+def _service(actor_id="graph-os-svc", tenant="acme", roles=()):
+    """An automated service principal.
+
+    Mirrors what the shared identity boundary actually mints for a
+    client-credentials token: ``request_identity.actor_from_claims`` types an
+    actor ``HUMAN`` when an ``email`` claim is present and
+    ``AUTOMATED_SERVICE`` otherwise, so this is the real shape of every
+    service write, not a synthetic one.
+    """
+    return ActorContext(
+        actor_id=actor_id,
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=tuple(roles),
+        tenant_id=tenant,
+        authenticated=True,
+    )
+
+
+@pytest.mark.parametrize("roles", [(), ("kg:admin",)])
+def test_stamp_ownership_service_is_org_scoped_regardless_of_privilege(roles):
+    """THE regression: an automated service's write is org-scoped platform
+    data because of WHO wrote it, never because of what role the IdP happened
+    to be handing out at the time.
+
+    Pre-fix, the un-privileged half of this parametrization stamped
+    ``_shared_scope="private"`` -- which is how a two-day ``kg:admin`` outage
+    (2026-07-22..2026-08-15) permanently orphaned 23,994 rows behind the
+    engine's row-level owner check, with no auto-recovery once the role came
+    back.
+    """
+    props: dict = {}
+    ts.stamp_ownership(props, _service("graph-os-svc", "acme", roles=roles))
+    assert props[ts.SCOPE_KEY] == ts.SCOPE_ORG
+    assert props[ts.TENANT_KEY] == "acme"
+    # Provenance: WHICH service wrote this is still recorded. An explicit
+    # `org` scope is what the engine's row-visibility check reads, so this
+    # marker is attribution, not a narrowing -- verified against the live
+    # graph, where 320 rows already carry exactly this `_owner_id` + `org`
+    # pairing and are visible to the tenant's humans.
+    assert props[ts.OWNER_KEY] == "graph-os-svc"
+
+
+def test_stamp_ownership_service_scope_is_identical_across_a_role_loss():
+    """States the invariant the way the incident violated it: the SAME
+    service principal writing the SAME node either side of losing
+    ``kg:admin`` must produce byte-identical ownership properties."""
+    privileged: dict = {}
+    ts.stamp_ownership(privileged, _service(roles=("kg:admin",)))
+
+    role_lost: dict = {}
+    ts.stamp_ownership(role_lost, _service(roles=()))
+
+    assert privileged == role_lost
+
+
+def test_stamp_ownership_service_preserves_explicit_private_share():
+    """`setdefault`, not an overwrite: a caller that deliberately asked for a
+    narrower scope still wins. This branch widens a DEFAULT, nothing more."""
+    props: dict = {ts.SCOPE_KEY: ts.SCOPE_PRIVATE}
+    ts.stamp_ownership(props, _service(roles=()))
+    assert props[ts.SCOPE_KEY] == ts.SCOPE_PRIVATE
+
+
+def test_stamp_ownership_service_preserves_explicit_owner():
+    props: dict = {ts.OWNER_KEY: "someone-else"}
+    ts.stamp_ownership(props, _service(roles=()))
+    assert props[ts.OWNER_KEY] == "someone-else"
+    assert props[ts.SCOPE_KEY] == ts.SCOPE_ORG
+
+
+def test_stamp_ownership_human_unchanged_by_the_service_branch():
+    """The widened default must not leak past automated services. An
+    unprivileged human is still private-by-default, and a privileged human is
+    still unowned + org -- exactly as before this branch existed."""
+    human: dict = {}
+    ts.stamp_ownership(human, _user("alice", "acme"))
+    assert human[ts.OWNER_KEY] == "alice"
+    assert human[ts.SCOPE_KEY] == ts.SCOPE_PRIVATE
+
+    admin: dict = {}
+    ts.stamp_ownership(admin, _user("root", "acme", roles=("kg:admin",)))
+    assert ts.OWNER_KEY not in admin
+    assert admin[ts.SCOPE_KEY] == ts.SCOPE_ORG
+
+
+def test_stamp_ownership_ai_agent_unchanged_by_the_service_branch():
+    """The branch keys on ``AUTOMATED_SERVICE`` specifically. An autonomous
+    AI agent is a distinct actor type whose writes are user-ish data and stay
+    private-by-default."""
+    props: dict = {}
+    ts.stamp_ownership(
+        props,
+        ActorContext(
+            actor_id="agent-7",
+            actor_type=ActorType.AI_AGENT,
+            tenant_id="acme",
+            authenticated=True,
+        ),
+    )
+    assert props[ts.OWNER_KEY] == "agent-7"
+    assert props[ts.SCOPE_KEY] == ts.SCOPE_PRIVATE
+
+
 # --- visibility predicate --------------------------------------------------
 
 

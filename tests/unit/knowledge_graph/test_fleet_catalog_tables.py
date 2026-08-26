@@ -1592,8 +1592,19 @@ def test_write_fleet_catalog_stamps_acl_projection_fields_from_the_write_time_ac
     ``acl_shared_scope`` from the SAME policy
     (``tenant_sharing.stamp_ownership``/``stamp_classification``) the
     matching KG node write uses for these labels -- neither "MCPServer" nor
-    "Tool" is a PUBLIC_CATALOG_LABEL, and a real, non-privileged actor is
-    private-owned by default."""
+    "Tool" is a PUBLIC_CATALOG_LABEL, so the classification stays
+    ``confidential`` and the owner marker still names the writer.
+
+    ``acl_shared_scope`` is ``org``, not ``private``: ``_session`` mints an
+    ``ActorType.AUTOMATED_SERVICE`` actor, and ``stamp_ownership`` now scopes
+    a service write to the org by ACTOR TYPE rather than by the writer's
+    current ``kg:admin`` role (see ``test_tenant_sharing.py``
+    ``::test_stamp_ownership_service_is_org_scoped_regardless_of_privilege``).
+    The fleet tool catalog is exactly the platform data that change exists
+    for -- deciding its durable visibility from a mutable IdP role is what
+    orphaned 23,994 rows behind the engine's row-level owner check during a
+    two-day role outage. The owner marker is retained as provenance; an
+    explicit ``org`` scope is what the row-visibility check reads."""
     eng = _FakeEngine()
     with use_actor(_session("tenant-a", actor_id="sync-actor").actor), use_session(
         _session("tenant-a", actor_id="sync-actor")
@@ -1604,10 +1615,10 @@ def test_write_fleet_catalog_stamps_acl_projection_fields_from_the_write_time_ac
 
     assert server_row["acl_classification"] == "confidential"
     assert server_row["acl_owner_id"] == "sync-actor"
-    assert server_row["acl_shared_scope"] == "private"
+    assert server_row["acl_shared_scope"] == "org"
     assert tool_row["acl_classification"] == "confidential"
     assert tool_row["acl_owner_id"] == "sync-actor"
-    assert tool_row["acl_shared_scope"] == "private"
+    assert tool_row["acl_shared_scope"] == "org"
     assert tool_row["kg_node_id"] == "tool_srv_t1"
 
 

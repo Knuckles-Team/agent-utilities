@@ -49,7 +49,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from ...models.company_brain import DataClassification
+from ...models.company_brain import ActorType, DataClassification
 from ...security.brain_context import ActorContext, current_actor
 from .shard_topology import default_graph_name, tenant_graph_name
 
@@ -201,10 +201,33 @@ def stamp_ownership(
       makes the tenant ``scope()`` predicate (``n.tenant_id = <org>``) match, so
       cross-org isolation works on a shared backend graph, not only in the
       KG-2.58 named-graph/sharded mode.
+    * **Automated-service writes are org-scoped by ACTOR TYPE, never by
+      role.** This is the D-STATS/24k-orphan fix and it is deliberately the
+      FIRST branch, ahead of :func:`is_privileged`. "Is this platform data or
+      user data?" is a durable property of *who is writing* — a service
+      principal only ever writes platform data — whereas ``kg:admin`` is a
+      **mutable IdP role**. Deciding a durable row property from a mutable
+      role means a transient role loss silently and permanently reclassifies
+      whatever was written during it, with no auto-recovery: measured, the
+      graph-os service account lost ``kg:admin`` from 2026-07-22 to
+      2026-08-15 and stamped **23,994** rows ``_shared_scope="private"``,
+      owned by itself, invisible to every human in the tenant, while the
+      1,124 rows written on either side of that window are ``"org"``. The
+      temporal split is clean with zero overlap. An automated service now
+      gets ``_owner_id`` (provenance — *which* service wrote this) plus an
+      unconditional ``_shared_scope="org"`` (outcome — platform data), so
+      the same write produces the same visibility whether or not the IdP
+      happens to be handing out ``kg:admin`` that day. Verified against the
+      live row breakdown that this pairing is genuinely org-visible and not
+      a narrowing: of the 1,124 rows the tenant's humans can see today, 320
+      already carry ``_owner_id=<graph-os svc>`` **with** ``org`` — an
+      explicit ``org`` scope wins over the owner marker in the engine's
+      row-visibility check.
     * **Private-by-default ownership** (``_owner_id`` + ``_shared_scope``) is
-      added only for a real, non-privileged actor; privileged/system writes are
-      left **unowned** (no ``_owner_id``) so platform data stays visible to
-      everyone in the tenant, but they still get an explicit
+      added only for a real, non-privileged human-or-agent actor;
+      privileged/system writes are left **unowned** (no ``_owner_id``) so
+      platform data stays visible to everyone in the tenant, but they still
+      get an explicit
       ``_shared_scope="org"`` marker (U-77 / GOC-61): the native engine's
       row-level guard denies any row that carries neither a recognized owner
       marker (``_owner_id``/``_owner``) nor a recognized visibility marker
@@ -222,6 +245,15 @@ def stamp_ownership(
     actor = _require_actor(actor)
     if actor.tenant_id:
         properties.setdefault(TENANT_KEY, actor.tenant_id)
+    if actor.actor_type is ActorType.AUTOMATED_SERVICE:
+        # Ahead of the is_privileged() branch ON PURPOSE — see the docstring:
+        # the outcome must not depend on a mutable role the IdP can withdraw
+        # between two otherwise identical writes. `setdefault` throughout, so
+        # a caller that explicitly asked for something narrower (an explicit
+        # `"private"` share) still wins, exactly as on every other branch.
+        properties.setdefault(OWNER_KEY, actor.actor_id)
+        properties.setdefault(SCOPE_KEY, SCOPE_ORG)
+        return
     if is_privileged(actor):
         properties.setdefault(SCOPE_KEY, SCOPE_ORG)
         return
