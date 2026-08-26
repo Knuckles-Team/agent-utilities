@@ -350,6 +350,17 @@ agents/keycloak-agent/connector_manifest.yml:
   signer: UNSIGNED-PREVIEW
   signing_public_key: ''
   triple_count: 61
+agents/lakekeeper-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  certification_file_sha256: 72baeb4fd9f8d14a55e1e5bebcf209e3ebf1461ac4cf867d78e59ee5908511fa
+  certification_hash: 4ff68275c9c474dcbb5ba285af70e92f77c41c1e49d0704e4482ce492a1fec5c
+  hash: 3375260071917533f57dbacb029e320dce95548fbf3c70a5ac62bf9db4121109
+  manifest_hash: d0513abfea02e8bd03b721702de7b762285e20fbeea246ac20cf7dc0dca27067
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
+  triple_count: 46
 agents/langfuse-agent/connector_manifest.yml:
   algorithm: urdna2015-sha256
   certification_file_sha256: 2a8eb5d80c0779f5f9de37f30bf397e278f5eaa52c4f3bff38fdbc15c30f742e
@@ -592,10 +603,10 @@ agents/qbittorrent-agent/connector_manifest.yml:
   triple_count: 49
 agents/repository-manager/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 14fb8e4b0f25e3160a9c5da1ec0c11db82f2e2692905953c4f2c5c8fb6b21faa
-  certification_hash: e67711b99d3faa1b2cd336c0afa01fc00d4e2946bc2f3b295304715df6692ac9
+  certification_file_sha256: 76fb1a5817c9e4c9795e5fe36978c4bd7bc252781743b41a7181970ba5188032
+  certification_hash: d4c53a2174c96a96ba837c23558eb9d24487195d86f73b8abb945afd1d719dd5
   hash: b133677226f0bc9b6587f591f74ca86f03143f51c716b557f988f51a10e58fa1
-  manifest_hash: a78acae29032d68c870002fb7e3e44841c6346d48457cc7ea2ae725769dffbce
+  manifest_hash: 95a687c2129c1ef0b7876d361b64978b5f194730a02936dd777ead05ac0244f2
   signature: null
   signature_algorithm: none
   signer: UNSIGNED-PREVIEW

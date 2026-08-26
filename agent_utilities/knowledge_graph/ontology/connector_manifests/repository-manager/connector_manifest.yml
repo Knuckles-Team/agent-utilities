@@ -127,7 +127,7 @@ sync:
     doc_type: repository
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-26T13:42:55Z'
+  generated_at: '2026-08-26T20:29:54Z'
   source_artifacts:
   - repository_manager/connectors/mcp_source_presets.json
   - repository_manager/connectors/tool_schema_fingerprints.json
