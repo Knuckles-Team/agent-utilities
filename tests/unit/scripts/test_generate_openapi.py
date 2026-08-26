@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -127,6 +128,104 @@ def test_render_page_states_the_incompleteness_honestly():
         assert str(count) in page
     else:  # pragma: no cover - only true once every surface is typed
         assert "covers the whole served surface" in page
+
+
+class TestFailClosedOnTruncatedSurface:
+    """Regression tests for the "silent partial write, exit 0" defect.
+
+    `create_agent_web_app` mounts several distinct route groups (the
+    optional service dashboard API, the mandatory canonical KG REST
+    surface via ``register_graph_routes``) behind their own
+    import/registration guards. A guard that fails soft still returns a
+    *working* app -- just one missing an entire surface -- so
+    ``build_app()``/``openapi_spec()`` here can succeed with a
+    well-formed spec that is nonetheless missing 50+ paths. Before this
+    fix, that truncated spec got written to
+    ``docs/reference/openapi.json`` and the script exited 0, so a lane
+    running the documented refresh command without diffing the output
+    would commit a large, plausible-looking documentation regression.
+    """
+
+    def test_assert_surface_complete_raises_below_the_floor(self):
+        spec = {"paths": {f"/x{i}": {} for i in range(gen._MIN_EXPECTED_PATHS - 1)}}
+        with pytest.raises(gen.IncompleteSurfaceError):
+            gen._assert_surface_complete(spec)
+
+    def test_assert_surface_complete_passes_at_the_floor(self):
+        spec = {"paths": {f"/x{i}": {} for i in range(gen._MIN_EXPECTED_PATHS)}}
+        gen._assert_surface_complete(spec)  # must not raise
+
+    def test_write_refuses_a_truncated_spec_and_leaves_the_artifact_untouched(
+        self, monkeypatch
+    ):
+        """Force the exact condition Defect 2 exploited: a spec with far
+        fewer paths than the served app actually carries (as happens when
+        a mounted surface silently fails to register) -- ``write()`` must
+        raise instead of committing it, and the real, already-committed
+        artifact on disk must be left completely unmodified.
+        """
+        original = gen.SPEC_PATH.read_text(encoding="utf-8")
+
+        def _truncated_spec():
+            return {
+                "info": {"title": "Agent Web Dashboard"},
+                "openapi": "3.1.0",
+                "paths": {f"/x{i}": {} for i in range(5)},
+            }
+
+        monkeypatch.setattr(gen, "openapi_spec", _truncated_spec)
+
+        with pytest.raises(gen.IncompleteSurfaceError):
+            gen.write()
+
+        with pytest.raises(gen.IncompleteSurfaceError):
+            gen.check()
+
+        assert gen.SPEC_PATH.read_text(encoding="utf-8") == original, (
+            "a failed --write must never modify the committed artifact"
+        )
+
+    def test_main_exits_nonzero_and_reports_failure_on_a_truncated_surface(
+        self, monkeypatch, capsys
+    ):
+        def _truncated_spec():
+            return {
+                "info": {"title": "Agent Web Dashboard"},
+                "openapi": "3.1.0",
+                "paths": {f"/x{i}": {} for i in range(3)},
+            }
+
+        monkeypatch.setattr(gen, "openapi_spec", _truncated_spec)
+        monkeypatch.setattr("sys.argv", ["generate_openapi.py", "--write"])
+
+        exit_code = gen.main()
+
+        assert exit_code == 1, (
+            "the CLI must exit non-zero on a truncated surface, not silently "
+            "report success"
+        )
+        out = capsys.readouterr().out
+        assert "FAILED" in out
+        assert "truncated" in out.lower() or "Refusing" in out
+
+    def test_generator_errors_when_the_canonical_kg_surface_fails_to_import(
+        self, monkeypatch
+    ):
+        """End-to-end: the SAME failure condition Defect 1 forces (a broken
+        ``agent_utilities.gateway.graph_api`` import) must make the
+        generator error out rather than silently writing whatever spec the
+        (now headless) app happens to produce.
+
+        Post-fix, ``agent_webui.server.create_agent_web_app`` itself
+        refuses to build a headless app and raises ``RuntimeError`` --
+        this proves the generator does not swallow that failure either.
+        """
+        monkeypatch.setitem(sys.modules, "agent_utilities.gateway.graph_api", None)
+
+        original = gen.SPEC_PATH.read_text(encoding="utf-8")
+        with pytest.raises(RuntimeError):
+            gen.write()
+        assert gen.SPEC_PATH.read_text(encoding="utf-8") == original
 
 
 def test_committed_artifacts_are_not_stale():
