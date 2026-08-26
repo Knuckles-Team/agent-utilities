@@ -1454,6 +1454,45 @@ def test_fresh_created_pre_acl_store_is_migrated_not_reported_diverged():
     assert result["tools_written"] == 1
 
 
+def test_large_batches_are_chunked_not_one_giant_statement_nor_one_per_row():
+    """Batched writing must stay batched, but bounded. The live fleet probes
+    ~9,600 tools; rendering all of them into ONE `INSERT ... VALUES` built a
+    multi-megabyte statement that OOM-killed the graph-os container
+    (measured 2026-08-25). Chunking keeps it a handful of statements, never
+    one per row."""
+    eng = _FakeEngine()
+    n = fct._MAX_ROWS_PER_STATEMENT * 2 + 7
+    catalog = {
+        "srv": {
+            "error": None,
+            "tools": [
+                {"name": f"t{i}", "description": "d", "inputSchema": {}}
+                for i in range(n)
+            ],
+            "skills": [],
+            "prompts": [],
+        }
+    }
+    with use_actor(_session("tenant-a").actor), use_session(_session("tenant-a")):
+        result = _write_fleet_catalog(eng, catalog)
+    assert result["tools_written"] == n
+
+    tool_inserts = [
+        s
+        for s in eng.graph_compute.statements
+        if s.startswith(f"INSERT INTO {fct.TABLE_MCP_TOOLS} ")
+    ]
+    tool_selects = [
+        s
+        for s in eng.graph_compute.statements
+        if s.startswith(f"SELECT * FROM {fct.TABLE_MCP_TOOLS} ")
+    ]
+    assert len(tool_inserts) == 3
+    assert len(tool_selects) == 3
+    for statement in tool_inserts:
+        assert statement.count("), (") + 1 <= fct._MAX_ROWS_PER_STATEMENT
+
+
 def test_a_completed_ledger_row_does_not_veto_the_next_migration_step():
     """SECOND ROOT CAUSE (measured live 2026-08-25 on platform/graph-os).
 

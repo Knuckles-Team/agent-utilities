@@ -227,7 +227,7 @@ import hashlib
 import json
 import logging
 import uuid
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -1342,6 +1342,26 @@ def ensure_fleet_catalog_tables(engine: Any) -> bool:
     return ok
 
 
+# Rows per SQL statement. Batched writing is required (the
+# ``check-no-per-element-ingest-loop`` gate, and the module docstring's
+# "batched, never per-element" contract), but a batch of UNBOUNDED size is a
+# different failure: the live fleet probes ~9,600 tools, and rendering all of
+# them into one ``INSERT ... VALUES`` (each carrying a full ``input_schema``
+# JSON blob) built a multi-megabyte statement that had to be held in memory
+# by this process, serialized to the engine, and parsed there all at once.
+# Measured live 2026-08-25: doing that inside the graph-os container
+# OOM-killed it (10Gi limit). Chunking keeps the write batched — ~20
+# statements for the whole fleet's tools instead of ~9,600 — while bounding
+# peak statement size.
+_MAX_ROWS_PER_STATEMENT = 500
+
+
+def _chunks(items: list[Any], size: int = _MAX_ROWS_PER_STATEMENT) -> Iterator[list]:
+    """Split ``items`` into consecutive lists of at most ``size`` entries."""
+    for start in range(0, len(items), size):
+        yield items[start : start + size]
+
+
 def _select_existing(
     engine: Any,
     table: str,
@@ -1350,34 +1370,37 @@ def _select_existing(
     *,
     id_col: str = "id",
 ) -> dict[str, dict[str, Any]]:
-    """One batched ``SELECT`` for every id in ``ids`` — never one per row.
+    """Batched ``SELECT``s for every id in ``ids`` — never one per row.
 
     Returns ``{id: row}`` for whatever currently exists (scoped to
     ``tenant_id``, so a row from another tenant can never be read back as
-    "existing" here even if an id collided). Best-effort: an engine with no
-    read surface, or a query failure, degrades to "nothing exists yet" (every
-    row in the caller's batch is then treated as new) rather than raising —
-    consistent with this module never blocking the write path it supports.
+    "existing" here even if an id collided). Issued in chunks of
+    :data:`_MAX_ROWS_PER_STATEMENT` ids — see that constant. Best-effort: an
+    engine with no read surface, or a query failure, degrades to "nothing
+    exists yet" (every row in the caller's batch is then treated as new)
+    rather than raising — consistent with this module never blocking the
+    write path it supports.
     """
     gc = _graph_compute(engine)
     if gc is None or not hasattr(gc, "sql_exec") or not ids:
         return {}
     tbl = _safe_ident(table)
     col = _safe_ident(id_col)
-    id_list = ", ".join(_sql_literal(row_id) for row_id in ids)
-    stmt = (
-        f"SELECT * FROM {tbl} WHERE tenant_id = {_sql_literal(tenant_id)} "
-        f"AND {col} IN ({id_list})"
-    )
-    try:
-        rows = gc.sql_exec(stmt)
-    except Exception:  # noqa: BLE001 — CAS read is best-effort
-        logger.debug("fleet catalog CAS read failed for %s", table)
-        return {}
     existing: dict[str, dict[str, Any]] = {}
-    for row in rows or []:
-        if isinstance(row, dict) and row.get(id_col) is not None:
-            existing[str(row[id_col])] = row
+    for chunk in _chunks(ids):
+        id_list = ", ".join(_sql_literal(row_id) for row_id in chunk)
+        stmt = (
+            f"SELECT * FROM {tbl} WHERE tenant_id = {_sql_literal(tenant_id)} "
+            f"AND {col} IN ({id_list})"
+        )
+        try:
+            rows = gc.sql_exec(stmt)
+        except Exception:  # noqa: BLE001 — CAS read is best-effort
+            logger.debug("fleet catalog CAS read failed for %s", table)
+            return {}
+        for row in rows or []:
+            if isinstance(row, dict) and row.get(id_col) is not None:
+                existing[str(row[id_col])] = row
     return existing
 
 
@@ -1585,12 +1608,13 @@ def _cas_batch_upsert(
     written = 0
     if to_insert:
         columns = _bounded_columns(list(to_insert[0].keys()))
-        values_sql = ", ".join(
-            "(" + ", ".join(_sql_literal(row.get(c)) for c in columns) + ")"
-            for row in to_insert
-        )
-        gc.sql_exec(f"INSERT INTO {tbl} ({', '.join(columns)}) VALUES {values_sql}")
-        written += len(to_insert)
+        for chunk in _chunks(to_insert):
+            values_sql = ", ".join(
+                "(" + ", ".join(_sql_literal(row.get(c)) for c in columns) + ")"
+                for row in chunk
+            )
+            gc.sql_exec(f"INSERT INTO {tbl} ({', '.join(columns)}) VALUES {values_sql}")
+            written += len(chunk)
     for row in to_update:
         columns = _bounded_columns([c for c in row if c != conflict_col])
         set_clause = ", ".join(f"{c} = {_sql_literal(row[c])}" for c in columns)
