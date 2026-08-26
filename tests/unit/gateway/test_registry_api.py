@@ -214,11 +214,18 @@ class _FakeGraphCompute:
         # Simulates a broken engine that ignores the requested LIMIT — used
         # to prove the route's own bound-exceeded guard fires.
         self.ignore_limit = False
+        # Per-table failure, for multi-kind "one kind degrades independently"
+        # tests — `fail` (above) fails every table uniformly; this fails only
+        # the named table(s), leaving the rest healthy.
+        self.fail_tables: set[str] = set()
 
     def sql_exec(self, statement: str):
         self.statements.append(statement)
         if self.fail:
             raise OSError("catalog backend unavailable")
+        table_match = re.match(r"SELECT .+? FROM (\S+)", statement)
+        if table_match and table_match.group(1) in self.fail_tables:
+            raise OSError("catalog backend unavailable for this table")
         match = _STATEMENT_RE.match(statement)
         assert match, statement
         table = match.group("table")
@@ -259,6 +266,20 @@ class _FakeGraphCompute:
 class _FakeEngine:
     def __init__(self, rows: dict[str, list[dict[str, Any]]] | None = None):
         self.graph_compute = _FakeGraphCompute(rows)
+        # Backs `get_toggle_states_batch`'s `engine.query_cypher(...)` call —
+        # a minimal in-memory Preference-node store keyed exactly the way the
+        # real toggle store keys it: `preference:toggle:<type>:<id>`.
+        self.preferences: dict[str, str] = {}
+        self.query_cypher_calls: list[tuple[str, dict[str, Any]]] = []
+
+    def query_cypher(self, query: str, params: dict[str, Any] | None = None):
+        self.query_cypher_calls.append((query, dict(params or {})))
+        pref_ids = (params or {}).get("pref_ids", [])
+        return [
+            {"id": pref_id, "value": self.preferences[pref_id]}
+            for pref_id in pref_ids
+            if pref_id in self.preferences
+        ]
 
 
 class _AuthorityMiddleware:
@@ -1320,3 +1341,295 @@ def test_success_path_response_shape_is_unchanged_by_the_offload(monkeypatch):
         "count": 1,
         "next_cursor": None,
     }
+
+
+# --- Multi-kind: GET /api/registry?kinds=... -------------------------------
+
+
+def _rows_with_skills() -> dict[str, list[dict[str, Any]]]:
+    rows = _rows()
+    rows["skills"] = [
+        {
+            "id": "skill_alpha",
+            "tenant_id": "tenant-a",
+            "name": "alpha-skill",
+            "description": "",
+            "uri": "",
+            "skill_type": "skill",
+            "classification": "Skill",
+            "provider": "",
+            "mcp_server": "",
+            "enabled": True,
+            "discovery_authority_kind": "tenant_local",
+            "discovery_principal": "",
+            "discovery_grant_digest": "",
+        },
+    ]
+    return rows
+
+
+def test_multi_kind_matches_single_kind_reads_exactly(monkeypatch):
+    """No drift: the multi-kind envelope's per-kind slice must equal what the
+    equivalent standalone `/api/registry/{kind}` call returns, because both
+    paths reuse the exact same `_authorized_page`/`_authorized_count`
+    predicate — never a second, forked implementation."""
+
+    engine = _FakeEngine(_rows_with_skills())
+    client = _authority_app(monkeypatch, engine=engine)
+
+    multi = client.get("/api/registry", params={"kinds": "servers,tools,skills"})
+    assert multi.status_code == 200, multi.text
+    body = multi.json()
+    assert body["status"] == "ok"
+    assert set(body["kinds"]) == {"servers", "tools", "skills"}
+
+    for kind in ("servers", "tools", "skills"):
+        single = client.get(f"/api/registry/{kind}")
+        assert single.status_code == 200, single.text
+        single_body = single.json()
+        multi_kind = body["kinds"][kind]
+        assert multi_kind["status"] == "ok"
+        assert multi_kind["items"] == single_body["items"]
+        assert multi_kind["count"] == single_body["count"]
+
+
+def test_multi_kind_one_failing_kind_does_not_discard_others(monkeypatch):
+    engine = _FakeEngine(_rows_with_skills())
+    engine.graph_compute.fail_tables = {"mcp_tools"}
+    client = _authority_app(monkeypatch, engine=engine)
+
+    response = client.get("/api/registry", params={"kinds": "servers,tools,skills"})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["kinds"]["tools"]["status"] == "unavailable"
+    assert body["kinds"]["tools"]["reason"] == "catalog_unavailable"
+    assert body["kinds"]["tools"]["items"] == []
+    # The healthy kinds are NOT discarded by the failing one.
+    assert body["kinds"]["servers"]["status"] == "ok"
+    assert body["kinds"]["servers"]["count"] >= 1
+    assert body["kinds"]["skills"]["status"] == "ok"
+    assert body["kinds"]["skills"]["count"] == 1
+
+
+def test_multi_kind_missing_kinds_param_is_422(monkeypatch):
+    engine = _FakeEngine(_rows())
+    client = _authority_app(monkeypatch, engine=engine)
+
+    assert client.get("/api/registry").status_code == 422
+    assert client.get("/api/registry", params={"kinds": ""}).status_code == 422
+
+
+def test_multi_kind_unknown_kind_is_422(monkeypatch):
+    engine = _FakeEngine(_rows())
+    client = _authority_app(monkeypatch, engine=engine)
+
+    response = client.get("/api/registry", params={"kinds": "servers,bogus"})
+
+    assert response.status_code == 422
+
+
+def test_multi_kind_cursor_is_per_kind_not_global(monkeypatch):
+    """Each kind's `next_cursor` advances only THAT kind's page; feeding it
+    back as `cursor_<kind>` must not perturb a sibling kind requested in the
+    same call, and a cursor minted for one kind is rejected if replayed
+    under a different kind's `cursor_<kind>` parameter name."""
+
+    rows = _rows_with_skills()
+    source = rows["mcp_servers"][0]
+    rows["mcp_servers"] = [
+        {**source, "id": f"mcp_server_{i:02d}", "name": f"server-{i:02d}"}
+        for i in range(3)
+    ]
+    engine = _FakeEngine(rows)
+    client = _authority_app(monkeypatch, engine=engine)
+
+    first = client.get("/api/registry", params={"kinds": "servers,skills", "limit": 1})
+    assert first.status_code == 200, first.text
+    first_body = first.json()
+    servers_cursor = first_body["kinds"]["servers"]["next_cursor"]
+    assert servers_cursor
+    # `skills` has only one row at limit=1, so it is already exhausted.
+    assert first_body["kinds"]["skills"]["next_cursor"] is None
+    assert first_body["kinds"]["skills"]["items"][0]["name"] == "alpha-skill"
+
+    second = client.get(
+        "/api/registry",
+        params={
+            "kinds": "servers,skills",
+            "limit": 1,
+            "cursor_servers": servers_cursor,
+        },
+    )
+    assert second.status_code == 200, second.text
+    second_body = second.json()
+    # `servers` advanced to its next page...
+    assert second_body["kinds"]["servers"]["items"][0]["name"] != "server-00"
+    # ...while `skills` (no cursor supplied for it) served its own first
+    # page again, unaffected by the `servers` cursor riding along.
+    assert second_body["kinds"]["skills"]["items"][0]["name"] == "alpha-skill"
+
+    # A cursor minted for `servers` is bound to that kind; replaying it under
+    # a different kind's parameter name must be rejected, not silently
+    # accepted against the wrong kind's predicate.
+    wrong_kind = client.get(
+        "/api/registry",
+        params={
+            "kinds": "servers,skills",
+            "limit": 1,
+            "cursor_skills": servers_cursor,
+        },
+    )
+    assert wrong_kind.status_code == 400
+
+
+def test_multi_kind_include_toggle_issues_one_batched_query_and_reflects_disabled(
+    monkeypatch,
+):
+    engine = _FakeEngine(_rows_with_skills())
+    # Force the server "alpha" and skill "alpha-skill" toggle preference to
+    # disabled — the catalog rows themselves both say `enabled: true`, so
+    # this can ONLY be reflected via the toggle-store merge, not the
+    # catalog's own `enabled` column.
+    engine.preferences["preference:toggle:mcp_server:alpha"] = "disabled"
+    engine.preferences["preference:toggle:skill:alpha-skill"] = "disabled"
+    client = _authority_app(monkeypatch, engine=engine)
+
+    response = client.get(
+        "/api/registry",
+        params={"kinds": "servers,skills", "include": "toggle"},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    server_items = {item["name"]: item for item in body["kinds"]["servers"]["items"]}
+    assert server_items["alpha"]["enabled"] is False  # toggled off
+    # "beta" has no toggle preference recorded (defaults on) but is
+    # config-disabled in the catalog itself (`enabled: false`) — the AND
+    # override keeps it disabled either way.
+    assert server_items["beta"]["enabled"] is False
+    skill_item = body["kinds"]["skills"]["items"][0]
+    assert skill_item["enabled"] is False
+    # ONE batched engine round trip covering every item across every kind —
+    # never one call per item, and never one call per kind either.
+    assert len(engine.query_cypher_calls) == 1
+    _, call_params = engine.query_cypher_calls[0]
+    assert set(call_params["pref_ids"]) == {
+        "preference:toggle:mcp_server:alpha",
+        "preference:toggle:mcp_server:beta",
+        "preference:toggle:skill:alpha-skill",
+    }
+
+
+def test_multi_kind_without_include_toggle_issues_no_toggle_query(monkeypatch):
+    engine = _FakeEngine(_rows_with_skills())
+    client = _authority_app(monkeypatch, engine=engine)
+
+    response = client.get("/api/registry", params={"kinds": "servers,skills"})
+
+    assert response.status_code == 200, response.text
+    assert engine.query_cypher_calls == []
+
+
+def test_multi_kind_toggle_does_not_apply_to_kinds_without_a_convention(monkeypatch):
+    """`discoveries` has no evidenced toggle key convention and no `enabled`
+    field — `include=toggle` must not fabricate one; the kind's items are
+    unchanged."""
+
+    engine = _FakeEngine(_rows())
+    client = _authority_app(monkeypatch, engine=engine)
+
+    response = client.get(
+        "/api/registry",
+        params={"kinds": "discoveries", "include": "toggle"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert engine.query_cypher_calls == []
+    assert (
+        "enabled" not in (response.json()["kinds"]["discoveries"]["items"] or [{}])[0]
+    )
+
+
+def test_existing_single_kind_routes_are_unaffected_by_the_new_route(monkeypatch):
+    """Regression guard: mounting the new `/api/registry` route alongside the
+    existing per-kind routes changes neither their shape nor their
+    behavior."""
+
+    engine = _FakeEngine(_rows())
+    client = _authority_app(monkeypatch, engine=engine)
+
+    response = client.get("/api/registry/servers", params={"q": "alpha"})
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "status": "ok",
+        "kind": "servers",
+        "items": [
+            {
+                "id": "mcp_server_alpha",
+                "name": "alpha",
+                "transport": "http",
+                "url": "",
+                "enabled": True,
+            }
+        ],
+        "count": 1,
+        "next_cursor": None,
+    }
+    routes = _registry_routes(client.app.app)
+    paths = {path for path, _methods in routes}
+    assert "/registry" in paths  # the new multi-kind route is mounted...
+    assert "/registry/servers" in paths  # ...alongside every old one
+    assert all(methods == {"GET"} for _, methods in routes)  # still read-only
+
+
+async def test_multi_kind_does_not_block_the_event_loop(monkeypatch):
+    """Reading N kinds concurrently must not serialize N blocking engine
+    calls onto the loop -- each kind's count+page pair runs on its own
+    worker thread via `_offload_catalog_call`, so a slow engine leaves the
+    loop free to keep servicing the heartbeat coroutine throughout."""
+
+    engine = _FakeEngine(_rows_with_skills())
+    real_sql_exec = engine.graph_compute.sql_exec
+
+    def slow_sql_exec(statement: str):
+        time.sleep(0.2)
+        return real_sql_exec(statement)
+
+    engine.graph_compute.sql_exec = slow_sql_exec
+
+    actor, session = _direct_authority()
+    monkeypatch.setattr(registry_api, "_get_catalog_engine", lambda: engine)
+    monkeypatch.setattr(
+        registry_api,
+        "_resolve_current_discovery_grants",
+        lambda actor: (_grant_digest(actor.actor_id, actor.tenant_id),),
+    )
+
+    request = Request(
+        {
+            "type": "http",
+            "query_string": b"kinds=servers,tools,skills",
+            "headers": [],
+        }
+    )
+    ticks: list[float] = []
+
+    async def heartbeat() -> None:
+        start = time.monotonic()
+        for _ in range(60):
+            await asyncio.sleep(0.02)
+            ticks.append(time.monotonic() - start)
+
+    with use_actor(actor), use_session(session):
+        result, _ = await asyncio.gather(
+            registry_api._list_multi_kind(request),
+            heartbeat(),
+        )
+
+    assert isinstance(result, registry_api.RegistryMultiKindPage)
+    assert set(result.kinds) == {"servers", "tools", "skills"}
+    assert len(ticks) >= 20, ticks
+    gaps = [b - a for a, b in zip(ticks, ticks[1:], strict=False)]
+    assert max(gaps) < 0.2, gaps

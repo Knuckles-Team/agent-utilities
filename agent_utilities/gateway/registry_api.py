@@ -149,6 +149,44 @@ class RegistryItemEnvelope(BaseModel, Generic[RegistryItem]):
     item: RegistryItem
 
 
+class RegistryKindResult(BaseModel):
+    """One kind's slice of a multi-kind page — degrades independently.
+
+    ``status="unavailable"`` (with ``reason`` set) means THIS kind's catalog
+    read failed; it is never conflated with "zero items", which is a
+    genuine, successful empty page (``status="ok"``, ``items=[]``). Mirrors
+    ``agent_webui.api_extensions._read_fleet_catalog``'s own per-kind
+    ``None``-on-failure contract, translated into this route's typed
+    envelope shape instead of a raw ``None``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["ok", "unavailable"] = "ok"
+    items: list[dict[str, Any]] = Field(default_factory=list)
+    count: int = Field(default=0, ge=0)
+    next_cursor: str | None = None
+    reason: str | None = None
+
+
+class RegistryMultiKindPage(BaseModel):
+    """``GET /api/registry?kinds=...`` envelope: one request, N kinds.
+
+    ``kinds`` is keyed by the requested kind name. Pagination is PER KIND —
+    each ``RegistryKindResult.next_cursor`` is fed back independently as
+    that same kind's ``cursor_<kind>`` query parameter on the next request;
+    there is no single global cursor advancing every kind in lockstep (a
+    caller may be on page 3 of ``skills`` while still on page 1 of
+    ``servers``). See ``_parse_multi_kind_request`` for the exact query
+    parameter contract.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["ok"] = "ok"
+    kinds: dict[str, RegistryKindResult]
+
+
 class _KindSpec:
     __slots__ = (
         "table",
@@ -184,6 +222,48 @@ class _KindSpec:
         self.grant_column = _safe_ident(grant_column) if grant_column else None
 
 
+#
+# PHASE A investigation — three sections `/api/enhanced/tools` still serves
+# from the filesystem/KG (`builtin_tools`, `skill_graphs`, `skill_workflows`,
+# see `agent_utilities.mcp.kg_server._build_tools_payload_sync`'s own
+# docstring, "FIX LANE (collapse-tool-endpoints)") were evaluated as
+# candidate additional `_KindSpec` entries here. None were added. Evidence:
+#
+# * ``builtin_tools`` — no SQL table exists at all. These are native,
+#   in-process Python callables under ``agent_utilities/tools/*.py``, never
+#   MCP-discovered and never written to any fleet-catalog table. Adding a
+#   `_KindSpec` for this would require fabricating a table, which is exactly
+#   what this task was told not to do.
+# * ``skill_graphs`` — the ``skills`` table's schema *can* represent a
+#   skill-graph row (``skill_type='graph'``), but
+#   ``knowledge_graph/ingestion/skill_workflow_ingest.py`` explicitly SKIPS
+#   ``skill_type: graph`` files during ingestion ("left for its own
+#   ingester"), and nothing schedules that ingester automatically (only a
+#   manual, explicit-``root`` on-demand action reaches it). In a typical
+#   deployment the catalog rows for this kind are simply absent even though
+#   the on-disk ``skill-graphs`` corpus is real and populated — serving this
+#   kind from the catalog would silently show an empty page for a genuinely
+#   non-empty corpus, the "losing freshness" failure mode this task called
+#   out by name. Left out.
+# * ``skill_workflows`` — the ``skills`` table CAN represent
+#   id/name/description/enabled for a ``skill_type='workflow'`` row (these
+#   DO get ingested on the automatic ``package_install`` tick, unlike
+#   ``skill_graphs``), but the table itself
+#   (``knowledge_graph/core/fleet_catalog_tables.py``'s ``TABLE_SKILLS`` DDL)
+#   has no ``domain``/``tags`` columns at all — real fields on the existing
+#   filesystem-sourced payload, parsed from each ``SKILL.md``'s frontmatter.
+#   Adding this kind would silently blank those two fields for every caller
+#   that switches to it. A prior lane evaluated this EXACT trade-off for
+#   this EXACT data (`_build_tools_payload_sync`'s own docstring, "Moving
+#   these two sections would silently blank domain/tags ... exactly the
+#   'fabricate or silently drop' failure mode this fix lane was told to
+#   avoid") and chose to keep it filesystem-sourced; no new evidence here
+#   overturns that call, so it stays out too.
+#
+# All three remain reachable only through the existing filesystem/KG path
+# (`GET /tools` / `/api/enhanced/tools`) until a real ingester exists for
+# skill-graphs and the `skills` table grows `domain`/`tags` columns.
+#
 _KIND_SPECS: dict[str, _KindSpec] = {
     "servers": _KindSpec(
         "mcp_servers",
@@ -415,6 +495,62 @@ def _parse_request(request: Request) -> tuple[int, str, str | None]:
     if cursor is not None and len(cursor.encode("utf-8")) > _MAX_CURSOR_BYTES:
         raise HTTPException(status_code=400, detail="invalid registry cursor")
     return limit, query, cursor
+
+
+def _parse_multi_kind_request(
+    request: Request,
+) -> tuple[list[str], int, str, dict[str, str], bool]:
+    """Parse the bounded multi-kind controls: ``kinds`` (required,
+    comma-separated, validated against ``_KIND_SPECS``), a ``limit``/``q``
+    shared across every requested kind (same bounds as the single-kind
+    route), one cursor PER kind via ``cursor_<kind>`` query parameters (e.g.
+    ``?kinds=tools,skills&cursor_tools=...&cursor_skills=...`` — never a
+    single combined cursor, since each kind's keyset position is
+    independent), and ``include=toggle``.
+    """
+
+    params = request.query_params
+    raw_kinds = str(params.get("kinds", "") or "").strip()
+    kinds: list[str] = []
+    for token in raw_kinds.split(","):
+        kind = token.strip()
+        if not kind:
+            continue
+        if kind not in _KIND_SPECS:
+            raise HTTPException(
+                status_code=422, detail=f"unknown registry kind: {kind}"
+            )
+        if kind not in kinds:
+            kinds.append(kind)
+    if not kinds:
+        raise HTTPException(status_code=422, detail="registry kinds is required")
+
+    raw_limit = params.get("limit", str(_DEFAULT_LIMIT))
+    try:
+        limit = int(raw_limit)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="invalid registry limit") from exc
+    if not 1 <= limit <= _MAX_LIMIT:
+        raise HTTPException(status_code=422, detail="registry limit is out of bounds")
+
+    query = str(params.get("q", "") or "").strip()
+    if len(query.encode("utf-8")) > _MAX_QUERY_BYTES:
+        raise HTTPException(status_code=422, detail="registry filter is too long")
+
+    cursors: dict[str, str] = {}
+    for kind in kinds:
+        cursor = params.get(f"cursor_{kind}") or None
+        if cursor is None:
+            continue
+        if len(cursor.encode("utf-8")) > _MAX_CURSOR_BYTES:
+            raise HTTPException(status_code=400, detail="invalid registry cursor")
+        cursors[kind] = cursor
+
+    include_raw = str(params.get("include", "") or "")
+    include_toggle = "toggle" in {
+        part.strip() for part in include_raw.split(",") if part.strip()
+    }
+    return kinds, limit, query, cursors, include_toggle
 
 
 def _cursor_token(
@@ -1098,6 +1234,200 @@ async def _get_kind(
     return RegistryItemEnvelope[Any](item=item)
 
 
+# Toggle-store item_type/key convention per kind, evidenced from the two
+# places that already write/read this preference store today:
+# ``agent_utilities.mcp.kg_server._build_tools_payload_sync`` (servers,
+# keyed by name — ``("mcp_server", name)``; skills, keyed by the skill's
+# frontmatter name, which is the same value as this catalog's ``name``
+# column — ``("skill", name)``) and
+# ``agent_webui.api_extensions``'s per-tool inventory enrichment (tools,
+# keyed by ``f"{server_name}:{tool_name}"`` — ``("mcp_tool",
+# f"{server_name}:{name}")"``). ``discoveries``/``prompts``/``resources``
+# have no evidenced toggle convention and no ``enabled`` field on their
+# models, so they are intentionally absent here — ``include=toggle`` is a
+# no-op for those kinds rather than a guess.
+_TOGGLE_KEY_BUILDERS: dict[str, Callable[[dict[str, Any]], tuple[str, str]]] = {
+    "servers": lambda item: ("mcp_server", str(item.get("name") or "")),
+    "tools": lambda item: (
+        "mcp_tool",
+        f"{item.get('server_name') or ''}:{item.get('name') or ''}",
+    ),
+    "skills": lambda item: ("skill", str(item.get("name") or "")),
+}
+
+
+async def _merge_toggle_states(
+    kinds_map: dict[str, RegistryKindResult], *, engine: Any
+) -> None:
+    """Merge live user-toggle preference into every ``enabled`` item field,
+    across every requested kind, in ONE batched engine round trip total —
+    never one call per item (the exact N+1 pattern that cost 350+ sequential
+    round trips in production; see ``get_toggle_states_batch``'s own
+    docstring) and never one call per kind either.
+
+    Deliberately reads from ``get_toggle_states_batch`` — the SAME
+    Preference-node store ``/api/enhanced/tools`` and ``POST
+    /api/tools/toggle`` already read and write — NOT this catalog's own
+    ``enabled`` column. The catalog's ``enabled`` reflects CONFIG (a server
+    marked disabled, a skill disabled in its source), not this per-user
+    runtime toggle preference; substituting one for the other would make
+    toggling an item in the UI silently stop being reflected on the next
+    GET. A config-level disable still wins over an "on" toggle preference
+    (ANDed below), matching ``_build_tools_payload_sync``'s existing
+    precedent for ``mcp_tools``/servers.
+    """
+
+    from agent_utilities.mcp.kg_server import get_toggle_states_batch
+
+    keys: list[tuple[str, str]] = []
+    for kind, result in kinds_map.items():
+        builder = _TOGGLE_KEY_BUILDERS.get(kind)
+        if builder is None or result.status != "ok":
+            continue
+        for item in result.items:
+            if "enabled" in item:
+                keys.append(builder(item))
+    if not keys:
+        return
+
+    toggle_states = await _offload_catalog_call(get_toggle_states_batch, engine, keys)
+
+    for kind, result in kinds_map.items():
+        builder = _TOGGLE_KEY_BUILDERS.get(kind)
+        if builder is None or result.status != "ok":
+            continue
+        for item in result.items:
+            if "enabled" not in item:
+                continue
+            key = builder(item)
+            toggled = bool(toggle_states.get(key, True))
+            item["enabled"] = toggled and bool(item.get("enabled", True))
+
+
+async def _list_multi_kind(request: Request) -> RegistryMultiKindPage:
+    """``GET /api/registry?kinds=a,b,c[&limit=][&q=][&cursor_<kind>=][&include=toggle]``.
+
+    Reuses ``_authorized_page``/``_authorized_count``/``_build_where`` — the
+    EXACT same predicate the single-kind ``GET /api/registry/{kind}`` route
+    uses — via the same ``_offload_catalog_call`` off-loop wrapper, so there
+    is exactly one predicate implementation for both surfaces (no forked
+    second copy to drift out of sync).
+
+    Every requested kind is read CONCURRENTLY, each on its own worker thread
+    (``asyncio.gather`` over per-kind coroutines that each call
+    ``_offload_catalog_call``): N kinds cost roughly as much wall-clock time
+    as the single slowest kind, not N sequential ~1.2-2.8s round trips, and
+    the event loop is never blocked by any of them.
+
+    One kind's catalog failure never discards another's success: a failing
+    kind reports ``RegistryKindResult(status="unavailable", reason=...)``,
+    matching ``agent_webui.api_extensions._read_fleet_catalog``'s own
+    per-kind degrade contract. The top-level ``status`` stays ``"ok"``
+    whenever ANY per-kind read was attempted; only a total authority failure
+    (no verified session/scope at all) 403s the whole request, before any
+    per-kind read is attempted — the same authority gate the single-kind
+    route enforces.
+    """
+
+    kinds, limit, query, cursors, include_toggle = _parse_multi_kind_request(request)
+    require_discovery_binding = any(
+        _KIND_SPECS[kind].principal_column is not None for kind in kinds
+    )
+    try:
+        tenant, principal, grant_digests = _require_catalog_authority(
+            require_discovery_binding=require_discovery_binding
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail="registry access denied") from exc
+
+    # Cursors are decoded up front (before any dispatch) so a tampered or
+    # expired cursor for one kind 400s the whole request early, exactly like
+    # the single-kind route -- a caller cannot silently keep paginating past
+    # a rejected cursor for just that one kind.
+    afters: dict[str, tuple[str, str] | None] = {}
+    for kind in kinds:
+        cursor = cursors.get(kind)
+        afters[kind] = (
+            _decode_cursor(
+                cursor,
+                kind=kind,
+                query=query,
+                tenant=tenant,
+                principal=principal,
+                grant_digests=grant_digests,
+            )
+            if cursor
+            else None
+        )
+
+    engine = _get_catalog_engine()
+
+    async def _read_one(kind: str) -> tuple[str, RegistryKindResult]:
+        spec = _KIND_SPECS[kind]
+        try:
+            total = await _offload_catalog_call(
+                _authorized_count,
+                kind,
+                tenant=tenant,
+                principal=principal,
+                grant_digests=grant_digests,
+                query=query,
+                engine=engine,
+            )
+            rows = await _offload_catalog_call(
+                _authorized_page,
+                kind,
+                tenant=tenant,
+                principal=principal,
+                grant_digests=grant_digests,
+                query=query,
+                after=afters[kind],
+                limit=limit,
+                engine=engine,
+            )
+        except Exception as exc:  # noqa: BLE001 - explicit per-kind unavailable
+            logger.warning("registry %s unavailable (multi-kind): %s", kind, exc)
+            return kind, RegistryKindResult(
+                status="unavailable", reason="catalog_unavailable"
+            )
+
+        has_more = len(rows) > limit
+        page_rows = rows[:limit]
+        next_cursor = None
+        if has_more and page_rows:
+            last = _row_key(spec, page_rows[-1])
+            next_cursor = _cursor_token(
+                kind=kind,
+                query=query,
+                after=last,
+                tenant=tenant,
+                principal=principal,
+                grant_digests=grant_digests,
+            )
+        try:
+            items = [_validate_item(kind, spec.model, row) for row in page_rows]
+        except CatalogUnavailable as exc:
+            logger.warning(
+                "registry %s response shape unavailable (multi-kind): %s", kind, exc
+            )
+            return kind, RegistryKindResult(
+                status="unavailable", reason="catalog_unavailable"
+            )
+        return kind, RegistryKindResult(
+            items=[item.model_dump() for item in items],
+            count=total,
+            next_cursor=next_cursor,
+        )
+
+    results = await asyncio.gather(*(_read_one(kind) for kind in kinds))
+    kinds_map: dict[str, RegistryKindResult] = dict(results)
+
+    if include_toggle:
+        await _merge_toggle_states(kinds_map, engine=engine)
+
+    return RegistryMultiKindPage(kinds=kinds_map)
+
+
 def _make_list_handler(kind: str, model: type[BaseModel]) -> Callable[..., Any]:
     async def handler(request: Request) -> Any:
         return await _list_kind(request, kind=kind, model=model)
@@ -1112,6 +1442,15 @@ def _make_get_handler(kind: str, model: type[BaseModel]) -> Callable[..., Any]:
 
     handler.__name__ = f"get_registry_{kind}"
     return handler
+
+
+registry_router.add_api_route(
+    "/registry",
+    _list_multi_kind,
+    methods=["GET"],
+    response_model=RegistryMultiKindPage,
+    name="list_registry_multi_kind",
+)
 
 
 for _kind, _spec in _KIND_SPECS.items():
@@ -1155,6 +1494,8 @@ __all__ = [
     "CatalogUnavailable",
     "RegistryDiscovery",
     "RegistryItemEnvelope",
+    "RegistryKindResult",
+    "RegistryMultiKindPage",
     "RegistryPage",
     "RegistryPrompt",
     "RegistryResource",
