@@ -58,6 +58,68 @@ record) rather than this module reading it back first; ``RegisterIdentity`` is
 an upsert (replaces the whole identity), so re-registering the SAME shape plus
 the tenant role is what makes this idempotent, not a get-then-merge round trip.
 
+**Incident: a successful admission destroyed the capability admission itself
+depends on.** ``TenantPrincipal.existing_roles`` was defined from the start,
+and :func:`provision_tenant_access` always merged it correctly — the defect
+was that ``existing_roles`` also had an *empty-tuple* default, which is
+indistinguishable, at the call site, from "confirmed this principal holds
+nothing else." A real caller (``agent-webui``'s ``ensure_tenant_admission``)
+called this module for a principal that ALSO held ``control:system`` (granted
+separately by :mod:`agent_utilities.security.system_rbac_admission`) without
+populating ``existing_roles`` — so it silently registered ``roles=
+['tenant:homelab']`` only, dropping ``control:system`` (which itself carries
+``security:admin``) from underneath a principal that needed it to keep
+functioning. The next admission pass then failed
+``ACCESS_DENIED: ... lacks admin capability required for 'security:admin'``
+end to end. Since this module has no read-back RPC (above) and therefore no
+way to independently confirm which case it is, the empty-tuple default is
+now gone: ``existing_roles`` defaults to ``None`` — an explicit "unknown,"
+distinct from a caller-confirmed empty tuple — and :func:`provision_tenant_access`
+raises :class:`TenantAdmissionError` immediately for any principal whose
+``existing_roles`` is ``None``, rather than writing a role set that might be
+silently short one. This can never widen privilege (it never invents a role),
+only ever refuses to write when the truth is unknown — see AGENTS.md
+"Fail closed."
+
+**Self-admission is a no-op — the fix that makes the above safe to actually
+ship.** Failing loud on unknown ``existing_roles`` fixes the destructive
+write, but ``agent-webui``'s live ``ensure_tenant_admission`` calls this
+module exactly the way the incident above describes — ``TenantPrincipal
+(agent_id=agent_id)``, no ``existing_roles`` — for every authenticated
+request, admitting the CALLER's own principal into its own tenant. Left as
+just "fail loud," that turns a self-destructing success into an immediate,
+permanent 503 on every request: strictly worse. Two ways a caller could avoid
+that were considered:
+
+1. *Have the caller pass an explicit* ``existing_roles=()``. Sound for a
+   genuinely fresh identity (a first-time browser user has nothing to lose),
+   but it cannot be the general answer for THIS caller: the very fact that
+   ``resolve_admission_authority()`` produced a signer for this ``agent_id``
+   already proves the engine has previously validated a signature for it —
+   asserting ``()`` would be asserting a specific, unverified fact
+   (``existing_roles`` is a claim about the ENGINE's RBAC identity store,
+   which this module still cannot read), not a safe default. It also requires
+   a change in ``agent-webui`` — a different repository, out of scope here.
+2. **Recognize self-admission structurally and skip it — the fix taken.**
+   When ``principal.agent_id == admin_authority.signer_id``, the principal is
+   admitting itself, signing as itself. The engine's own rule
+   (``signer == context.principal()``, see :mod:`admission_authority`) means
+   this call could only be SIGNED at all by a principal that already exists.
+   There is therefore nothing this call could legitimately add: either the
+   principal already carries the tenant role (no-op) or it doesn't yet, but
+   granting it here — with no verified knowledge of what else it holds — risks
+   exactly the destructive overwrite this whole fix exists to stop. The only
+   sound action is neither "write the merge" nor "fail loud" but **skip**:
+   report success, make no RPC call, change nothing. This is deliberately
+   narrower than "trust any caller admitting itself" — it fires only on an
+   EXACT match against ``admin_authority.signer_id`` (never a heuristic on
+   role name or agent-id shape), so an actually-unprovisioned principal being
+   admitted BY a different, already-provisioned caller (the ``provisioner:
+   deploy`` / N-distinct-end-users shape the rest of this module supports)
+   still gets the normal merge-or-fail-loud treatment above; it is
+   distinguished, not bypassed. This does not contradict "never widen
+   privilege": a skip grants nothing.
+
 **Never mints, prints, logs, or persists a signer key or a secret value** —
 mirrors ``engine_rbac_admission.py``'s own doctrine exactly (this repo's
 "Secrets & credential retrieval" standard, AGENTS.md).
@@ -114,12 +176,19 @@ class TenantPrincipal:
     ``teams``/``existing_roles`` are this principal's CURRENT full identity
     shape as the caller's own provisioning source of truth knows it — never
     guessed by this module (see the module docstring: the engine exposes no
-    identity read-back RPC)."""
+    identity read-back RPC).
+
+    ``existing_roles`` carries one of two meanings, and they are NOT
+    interchangeable: an explicit ``()`` means the caller has CONFIRMED this
+    principal currently holds no other roles; the default, ``None``, means
+    the caller does not know. :func:`provision_tenant_access` merges the
+    former and refuses the latter (see the module docstring, "Incident") —
+    never treat "I didn't check" the same as "I checked and it's empty"."""
 
     agent_id: str
     role: str = "Agent"
     teams: tuple[str, ...] = ()
-    existing_roles: tuple[str, ...] = ()
+    existing_roles: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
         if not self.agent_id.strip():
@@ -367,8 +436,17 @@ def provision_tenant_access(
     that has no graph yet is a legitimate no-op ordering — the grant activates
     the moment the tenant's first graph is created, whichever happens first).
 
-    For each principal: a no-op (``already_held=True``) when
-    ``tenant_role in principal.existing_roles``; otherwise re-registers the
+    For each principal: a self-admission (``principal.agent_id ==
+    admin_authority.signer_id`` — the principal admitting itself into its own
+    tenant, signing as itself) is always a no-op, skipped before
+    ``existing_roles`` is even inspected — see the module docstring,
+    "Self-admission is a no-op". This is exactly ``agent-webui``'s
+    ``ensure_tenant_admission`` shape, and it is safe precisely because the
+    caller there could NOT establish ``existing_roles`` for itself. For every
+    OTHER principal: raises immediately if ``principal.existing_roles`` is
+    ``None`` (unknown — see the module docstring, "Incident"; never guesses
+    an empty set). Otherwise: a no-op (``already_held=True``) when
+    ``tenant_role in principal.existing_roles``; else re-registers the
     identity with its EXACT existing ``role``/``teams`` plus the tenant role
     appended to ``existing_roles`` — never dropping a role/team the caller
     didn't ask to change (``RegisterIdentity`` replaces the whole identity, so
@@ -388,6 +466,42 @@ def provision_tenant_access(
     role = tenant_role_name(tenant_slug)
     outcomes: list[TenantAccessOutcome] = []
     for principal in principals:
+        if principal.agent_id == admin_authority.signer_id:
+            # Self-admission: this principal is admitting ITSELF (the engine
+            # requires signer == the admitted principal's own key, so this
+            # call could only have been signed at all because the principal
+            # already exists and is the one calling). Skip unconditionally,
+            # regardless of what existing_roles says -- see the module
+            # docstring, "Self-admission is a no-op": there is nothing to
+            # enrol, and a write here could only ever DESTROY a role
+            # (RegisterIdentity replaces, never merges from an unknown prior
+            # state), never usefully grant one.
+            outcomes.append(
+                TenantAccessOutcome(
+                    agent_id=principal.agent_id,
+                    tenant_slug=tenant_slug,
+                    role=role,
+                    already_held=True,
+                    detail=(
+                        f"{principal.agent_id!r} is the admitting principal "
+                        "itself (self-admission) — skipped, no "
+                        "register_identity call made"
+                    ),
+                )
+            )
+            continue
+        if principal.existing_roles is None:
+            raise TenantAdmissionError(
+                f"cannot admit {principal.agent_id!r} into {role!r}: "
+                "existing_roles is unknown (None). RegisterIdentity REPLACES "
+                "a principal's whole role set and this module has no "
+                "identity read-back RPC, so writing an unknown role set risks "
+                "silently dropping roles the principal already holds — see "
+                "the module docstring, 'Incident'. The caller MUST supply "
+                "TenantPrincipal.existing_roles as the principal's full, "
+                "currently-known role set, or an explicit empty tuple () to "
+                "affirmatively confirm it holds none."
+            )
         if role in principal.existing_roles:
             outcomes.append(
                 TenantAccessOutcome(

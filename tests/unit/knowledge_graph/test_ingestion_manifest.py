@@ -77,6 +77,111 @@ class TestDeltaManifest:
         }
 
 
+# ── Engine-mode write priority propagation (D-au priority-tagging audit) ──
+#
+# ``DeltaManifest.record`` (graph mode) issues its
+# ``MERGE (m:IngestManifest {id: $id}) SET …`` write via a bare
+# ``self._backend.execute(...)`` — it never builds or threads a wire context
+# itself. The audit traced how that write nonetheless carries the ambient
+# ``PriorityClass`` (CONCEPT:AU-KG.compute.priority-class-propagation): the real
+# engine-mode backend chain (``FanOutBackend`` → ``EpistemicGraphBackend`` →
+# ``GraphComputeEngine`` → the process-shared, session-routed client
+# ``_sync_client_view``/``_SessionRoutedAsyncClient._send_routed``) resolves
+# ``core.session.current_session()`` PER CALL and joins ``current_priority()``
+# into the wire context via ``GraphSession.engine_verified_context()`` — see
+# ``core/graph_compute.py`` (``self._client = wrap_client_with_breaker(
+# _sync_client_view(transport_client), breaker)``) and
+# ``core/session.py``'s ``engine_verified_context``. So ``DeltaManifest`` does
+# NOT need (and must not invent) its own priority carrier or an explicit
+# ``session=`` parameter; it only needs the ambient ``priority_scope`` to still
+# be in effect at the moment ``execute()`` runs. This fake backend's
+# ``execute()`` captures ``session.engine_verified_context()`` exactly as the
+# real chain would, to assert on the actual wire context — not an internal
+# flag.
+class _DurableFakeBackend:
+    """A fake whose class name is NOT in ``_NON_DURABLE_BACKENDS`` (so
+    ``DeltaManifest`` selects graph mode) and whose ``execute()`` records the
+    engine-verified wire context in effect at call time."""
+
+    def __init__(self, session):
+        self._session = session
+        self.calls: list[dict] = []
+
+    def execute(self, query, params=None):
+        self.calls.append(self._session.engine_verified_context())
+        return []
+
+
+def _priority_test_session():
+    from agent_utilities.knowledge_graph.core.session import GraphSession
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.brain_context import ActorContext
+
+    actor = ActorContext(
+        actor_id="principal:ingest-manifest-test",
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=("kg:write",),
+        tenant_id="tenant-a",
+        authenticated=True,
+    )
+    return GraphSession(
+        actor=actor,
+        tenant="tenant-a",
+        scopes=frozenset({"kg:write"}),
+        graph="tenant-a-graph",
+        policy_version="policy-1",
+        audience="agent-services",
+    )
+
+
+class TestDeltaManifestEnginePriorityPropagation:
+    def test_record_selects_graph_mode_for_a_durable_backend(self):
+        session = _priority_test_session()
+        m = DeltaManifest(backend=_DurableFakeBackend(session))
+        assert m.mode == "graph"
+
+    def test_record_wire_context_carries_background_ingestion_priority(self):
+        from agent_utilities.core.resource_priority import (
+            PriorityClass,
+            priority_scope,
+        )
+
+        session = _priority_test_session()
+        backend = _DurableFakeBackend(session)
+        m = DeltaManifest(backend=backend)
+
+        with priority_scope(PriorityClass.BACKGROUND_INGESTION):
+            m.record("__commons__", "codebase", "/x.py", "h1")
+
+        assert backend.calls[-1]["priority"] == "background_ingestion"
+
+    def test_record_wire_context_carries_interactive_priority(self):
+        from agent_utilities.core.resource_priority import (
+            PriorityClass,
+            priority_scope,
+        )
+
+        session = _priority_test_session()
+        backend = _DurableFakeBackend(session)
+        m = DeltaManifest(backend=backend)
+
+        with priority_scope(PriorityClass.INTERACTIVE):
+            m.record("__commons__", "codebase", "/x.py", "h1")
+
+        assert backend.calls[-1]["priority"] == "interactive"
+
+    def test_record_wire_context_omits_priority_when_untagged(self):
+        """Byte-compatible with a pre-W2.4 engine (session.py's documented
+        contract): an untagged ambient context must NOT synthesize a claim."""
+        session = _priority_test_session()
+        backend = _DurableFakeBackend(session)
+        m = DeltaManifest(backend=backend)
+
+        m.record("__commons__", "codebase", "/x.py", "h1")
+
+        assert "priority" not in backend.calls[-1]
+
+
 # ── Centralized engine-level delta skip ────────────────────────────────
 
 

@@ -76,7 +76,7 @@ class BackgroundAgentSpawner:
         try:
             results = self.engine.backend.execute(
                 "MATCH (e:Event) WHERE e.resolved = false AND e.impact_score > 0.8 "
-                "RETURN e.id AS event_id, e.description AS descriptionription "
+                "RETURN e.id AS event_id, e.description AS description "
                 "LIMIT 1"
             )
 

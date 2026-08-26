@@ -611,10 +611,30 @@ def _public_top_level_defs(tree: ast.Module) -> list[tuple[str, str, int]]:
     return out
 
 
-def _public_methods(tree: ast.Module) -> list[tuple[str, str, int]]:
-    """``(class_name, method_name, lineno)`` for public methods of public
-    top-level classes."""
-    out: list[tuple[str, str, int]] = []
+_PROPERTY_DECORATOR_NAMES = {"property", "cached_property"}
+
+
+def _decorator_name(node: ast.expr) -> str:
+    """Best-effort dotted/bare name of a decorator expression — handles
+    ``@property``, ``@functools.cached_property``, and a bare call form
+    like ``@some_decorator(...)`` by unwrapping to its ``.func``."""
+    if isinstance(node, ast.Call):
+        node = node.func
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    if isinstance(node, ast.Name):
+        return node.id
+    return ""
+
+
+def _public_methods(tree: ast.Module) -> list[tuple[str, str, int, bool]]:
+    """``(class_name, method_name, lineno, is_property)`` for public methods
+    of public top-level classes. ``is_property`` flags ``@property`` /
+    ``@cached_property`` accessors, whose only legitimate reference syntax
+    is bare attribute access (``obj.name``) — never a call (``obj.name()``)
+    — see ``find_test_only_symbols`` for why that changes how a reference
+    is counted."""
+    out: list[tuple[str, str, int, bool]] = []
     for node in tree.body:
         if not isinstance(node, ast.ClassDef) or node.name.startswith("_"):
             continue
@@ -622,7 +642,11 @@ def _public_methods(tree: ast.Module) -> list[tuple[str, str, int]]:
             if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)) and not (
                 sub.name.startswith("_")
             ):
-                out.append((node.name, sub.name, sub.lineno))
+                is_property = any(
+                    _decorator_name(d) in _PROPERTY_DECORATOR_NAMES
+                    for d in sub.decorator_list
+                )
+                out.append((node.name, sub.name, sub.lineno, is_property))
     return out
 
 
@@ -682,6 +706,43 @@ def find_test_only_symbols(
     counts) rather than re-scanning every file's text once per candidate
     symbol — the naive O(files x symbols) version is minutes-slow on a
     codebase this size; this is O(total source size).
+
+    ``@property``/``@cached_property`` accessors are excluded from the
+    method-level ``.name(``-call check (D-OB-9 method-name collision, see
+    ``dual_principal_validation.py``'s module-level ``fingerprint()`` vs.
+    three unrelated ``*.fingerprint`` properties on
+    ``PromptCacheKey``/``SemanticCacheKey``/``OAuthGrantBinding``): a
+    property's only legitimate reference syntax is bare attribute access
+    (``obj.name``) — it is never validly invoked with call syntax
+    (``obj.name()``), so a real ``.name(`` occurrence elsewhere can never
+    actually be a reference to it. Without this exclusion any unrelated
+    symbol sharing a property's bare name and invoked with call syntax
+    (e.g. a same-named module-level function called as ``mod.fingerprint(
+    ...)``) inflates that property's apparent test-reference count with
+    zero genuine signal either way — exactly the false positive this fixes.
+
+    Three broader alternatives were tried during development of this fix
+    and reverted because each regressed *genuine* D-OB-9 detections:
+    import-qualifying the production side of the ``.name(``-call match
+    (a file only "reaches" a class if it imports it) flipped >140
+    genuinely-wired methods to false positives, because agent_utilities
+    leans heavily on factory functions / dependency injection that never
+    import the concrete class by name (``get_semantic_cache().
+    invalidate(...)``); import-qualifying only the test side still flipped
+    dozens more, reached only through a composed/inherited concrete class
+    (``engine.add_prompt(...)`` on an ``IntelligenceGraphEngine`` that
+    mixes in ``RegistryMixin`` — the test never imports ``RegistryMixin``
+    by name); and routing properties to identifier-occurrence counting
+    (like top-level defs) instead of skipping them outright is accurate but
+    newly *surfaces* ~35 genuinely test-only properties this gate has never
+    been able to see before (no ``.name(`` call syntax exists for them to
+    match on) — real D-OB-9 backlog, but not the false positive this change
+    is scoped to fix; expanding coverage to properties is a deliberate,
+    separate change for another day. Skipping properties entirely for this
+    one check needs neither import resolution nor a class hierarchy and
+    changes nothing about regular (non-property) method matching (same
+    precedent as ``_GENERIC_METHOD_STOPLIST``: fall back to the class-level
+    finding).
 
     ``src_dir``/``tests_dir``/``display_root`` are overridable (default: the
     real repo) so ``tests/gates/test_wire_first_gate.py`` can prove this
@@ -759,8 +820,34 @@ def find_test_only_symbols(
                     }
                 )
 
-        for cls_name, meth_name, m_lineno in _public_methods(tree):
+        for cls_name, meth_name, m_lineno, is_property in _public_methods(tree):
             if meth_name in _GENERIC_METHOD_STOPLIST:
+                continue
+            if is_property:
+                # A property's only legitimate reference is bare attribute
+                # access (``obj.name``) — it is never validly invoked with
+                # call syntax (``obj.name()``; that would call whatever
+                # value the property returns, not the property itself). The
+                # ``.name(``-call pass this method loop otherwise relies on
+                # therefore cannot produce a genuine reference to a
+                # property in EITHER direction: a real ``.name(`` call
+                # elsewhere in agent_utilities/tests is never actually this
+                # property (so ``other_au``/``test_refs`` can only be
+                # inflated by an unrelated same-named symbol — exactly the
+                # D-OB-9 ``fingerprint`` false positive, three properties
+                # flipped to "test-only" by an unrelated module-level
+                # ``fingerprint()`` helper invoked as ``mod.fingerprint()``
+                # in a new test file). Skip properties from this
+                # call-syntax check entirely rather than switch them to
+                # identifier counting: identifier counting is accurate but
+                # newly surfaces genuinely-latent test-only properties this
+                # gate has never been able to see (no ``.name(`` call
+                # syntax exists for them to match on), which is real D-OB-9
+                # backlog but NOT part of the false positive being fixed
+                # here — expanding detection coverage is a separate,
+                # deliberate change for another day. (Same precedent as
+                # ``_GENERIC_METHOD_STOPLIST``: fall back to the class-level
+                # finding.)
                 continue
             other_au = total_au_calls.get(meth_name, 0) - au_calls[rel].get(
                 meth_name, 0

@@ -170,7 +170,7 @@ Key modules: `mcp/server_factory.py`, `mcp/kg_server.py` (incl. `kg_launch_termi
 | `AU-OS.deployment.platform-journey` | OS-Level Hardened Tool Sandbox Executor | 1 | 1 | [AU-OS.deployment.platform-journey](pillars/5_agent_os_infrastructure/OS-5.7-Hardened_WASM_Executor.md) |
 | `OS-5.8` | Epistemic Resource Scheduler 🔬 | 1 | 1 | [OS-5.8](pillars/5_agent_os_infrastructure/OS-5.8-Epistemic_Resource_Scheduler.md) |
 
-Key modules: `core/paths.py`, `security/guardrails.py`, `security/tool_guard.py`, `core/cognitive_scheduler.py`, `observability/token_tracker.py`, `observability/audit_logger.py`, `graph/reactive/budget.py`, `core/wasm_runner.py`, `gateway/aggregator.py`, `gateway/registry.py`, `gateway/config.py`, `gateway/api.py`, `gateway/ws.py`
+Key modules: `core/paths.py`, `security/guardrails.py`, `security/tool_guard.py`, `core/cognitive_scheduler.py`, `observability/token_tracker.py`, `observability/audit_logger.py`, `graph/reactive/budget.py`, `core/wasm_runner.py`, `gateway/aggregator.py`, `gateway/registry.py`, `gateway/config.py`, `gateway/api.py`
 
 ---
 
@@ -180,7 +180,7 @@ Key modules: `core/paths.py`, `security/guardrails.py`, `security/tool_guard.py`
 |----|----------------|:------------:|:-----:|----------|
 | `AU-OS.config.gateway-service-dashboard` | Gateway Service Dashboard | 58 | 7 | [AU-OS.config.gateway-service-dashboard](pillars/5_agent_os_infrastructure/OS-5.9-Gateway_Service_Dashboard.md) |
 
-Key modules: `gateway/__init__.py`, `gateway/models.py`, `gateway/registry.py`, `gateway/config.py`, `gateway/aggregator.py`, `gateway/api.py`, `gateway/ws.py`, `gateway/widgets/base.py`, `gateway/widgets/*.py` (50 widget modules)
+Key modules: `gateway/__init__.py`, `gateway/models.py`, `gateway/registry.py`, `gateway/config.py`, `gateway/aggregator.py`, `gateway/api.py`, `gateway/widgets/base.py`, `gateway/widgets/*.py` (50 widget modules) — the WebSocket half (`/ws/dashboard`) lives inline in agent-webui's `server.py` (`_dashboard_ws`), not `gateway/ws.py` (unused dead code, removed by BUG-PE-006)
 
 ---
 

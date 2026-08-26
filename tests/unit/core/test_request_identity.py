@@ -935,15 +935,22 @@ class TestStdioProcessIdentity:
             assert acquire_process_identity_token(cfg) == "header.payload.signature"
 
     def test_process_identity_acquisition_error_is_transport_neutral(self):
+        """BUG-PE-028: the outer message must stay sanitised (never echo the
+        real transport/config detail), but -- unlike the `from None` this
+        function used to raise with -- the real cause must still be reachable
+        as ``__cause__`` for server-side logs/tracebacks. Same contract
+        ``test_mint_actor_from_token_sync_preserves_cause`` already locks in
+        for the sibling JWT-validation path."""
         from agent_utilities.security.request_identity import (
             acquire_process_identity_token,
         )
 
+        underlying = RuntimeError("private backend detail")
         cfg = _make_config(kg_auth_token_ref="secret://graph/process-token")
         with (
             mock.patch(
                 "agent_utilities.security.cli_secrets.resolve_runtime_secret_reference",
-                side_effect=RuntimeError("private backend detail"),
+                side_effect=underlying,
             ),
             pytest.raises(RuntimeError) as error,
         ):
@@ -952,6 +959,7 @@ class TestStdioProcessIdentity:
         assert str(error.value) == "Graph process identity acquisition failed"
         assert "Stdio" not in str(error.value)
         assert "private backend detail" not in str(error.value)
+        assert error.value.__cause__ is underlying
 
     @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_mint_actor_from_token_sync_preserves_cause(self):

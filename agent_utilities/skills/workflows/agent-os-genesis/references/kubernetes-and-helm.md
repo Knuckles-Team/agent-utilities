@@ -50,10 +50,34 @@ The chart deliberately accepts only references to an existing Secret. Create or
 synchronize that Secret through the selected secret provider before installation.
 Production values must pin image digests.
 
-`topology=unified-in-process` creates one durable graph-os workload and no separate
-engine. `topology=out-of-process-shared` creates a durable engine StatefulSet and
-stateless graph-os clients that can use an HPA. Never scale the unified workload
-above one writer.
+### Topology — `unified-in-process` is the standard
+
+`topology=unified-in-process` (the chart default) creates **one** durable graph-os
+workload with the engine in-process and no separate engine workload. This is the
+standard deployment. graph-os is a single MCP + API + webui server; the dashboard
+already runs as an in-process co-service under `ENABLE_WEB_UI`, so a second workload
+buys nothing and costs a config contract that must be kept identical on both sides.
+
+That contract is not theoretical. Splitting graph-os into a client and a `KG_DAEMON_ROLE=host`
+peer is what allowed the engine signer identity to be provisioned on one side and not the
+other, which surfaces as `503 engine_admission_unavailable` across every panel of the
+webui rather than as anything resembling a topology problem (see
+`engine-identity-admission.md`). Env keys that are meaningful on exactly one of the two —
+`MESSAGING_INTAKE_ENABLED` is the canonical example — silently do nothing when set on the
+wrong one.
+
+Collapsing the split means summing both containers' resource requests and limits onto the
+single one, and moving any host-only settings (`KG_DAEMON_ROLE=host`, the loop-engine keys,
+`MESSAGING_INTAKE_ENABLED`) onto it. Never scale the unified workload above one writer.
+
+`topology=out-of-process-shared` creates a durable engine StatefulSet and stateless
+graph-os clients that can use an HPA. Choose it only when those replicas are genuinely
+required.
+
+**Metrics.** Export from graph-os natively by binding the engine's metrics listener to the
+pod address (`--metrics-addr 0.0.0.0:<port>`). Do not add a sidecar to forward a
+loopback-bound listener to the pod address — that is a second container solving a
+one-argument problem.
 
 Connectors and optional components are data-driven lists in values. Dependency
 closure and application-specific configuration are produced by

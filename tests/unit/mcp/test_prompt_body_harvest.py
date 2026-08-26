@@ -140,3 +140,45 @@ async def test_an_oversized_body_is_rejected_with_a_named_reason():
 
     assert "body" not in prompts[0]
     assert prompts[0]["harvest_error"] == "prompt body exceeded its size boundary"
+
+
+@pytest.mark.asyncio
+async def test_harvest_cannot_outlive_the_enclosing_probe_deadline():
+    """BUG-PE-054: an OPTIONAL harvest may never spend the tool probe's own
+    deadline.
+
+    ``_PROMPT_HARVEST_BUDGET_SEC`` is 120s but every harvest runs inside
+    ``probe_server``'s ``asyncio.wait_for(_probe(), timeout=probe_to)``, and
+    ``probe_to`` is the per-server ``mcp_config.json`` timeout — 10-15s in
+    production. Measured live 2026-08-25, ``fan-manager-mcp``'s prompt
+    harvest burned 16.3s retrying two unservable bodies and blew the 15s
+    probe deadline, discarding the 14 tools ``list_tools`` had already
+    returned. Six fleet servers failed that way on EVERY sweep.
+
+    With a probe deadline already in the past the harvest must give up
+    immediately with a named reason, having read nothing — the tools stay.
+    Revert the ``_harvest_deadline`` clamp and the retry loop runs to its own
+    120s budget instead.
+    """
+    import time
+
+    session = _Session({"prompt://p/x": '{"name": "x"}'}, fail_times=99)
+
+    prompts = await _mux()._probe_prompts(
+        "child-mcp", session, probe_deadline=time.monotonic() - 1.0
+    )
+
+    assert prompts[0]["harvest_error"].startswith("prompt body harvest budget exceeded")
+    assert session.reads == []
+
+
+@pytest.mark.asyncio
+async def test_harvest_keeps_its_own_budget_when_there_is_no_probe_deadline():
+    """A caller outside ``probe_server`` (no enclosing deadline) is unchanged:
+    the standalone ``_PROMPT_HARVEST_BUDGET_SEC`` still applies."""
+    session = _Session({"prompt://p/x": '{"name": "x"}'})
+
+    prompts = await _mux()._probe_prompts("child-mcp", session)
+
+    assert prompts[0]["body"] == '{"name": "x"}'
+    assert session.reads == ["prompt://p/x"]

@@ -206,4 +206,4 @@ shard topology, 2 ingest queue, 4 MCP child, 3 dispatch, 4 agent bus, 4 ContextC
 this pass. `gateway_metrics.py` registers additional series not yet catalogued here
 (`KVCACHE_CLIENT_REQUESTS`, `LANE_IN_FLIGHT`/`LANE_QUEUE_DEPTH`, `MCP_TOOL_*`,
 `SCHEDULED_JOB_*`, `SKILL_CALLS`, `TOOL_CALLS`, `DB_CALLS`) — a pre-existing
-documentation gap, out of scope for this pass; see `reports/issue-register.md`.
+documentation gap, out of scope for this pass and not tracked anywhere else.

@@ -824,7 +824,7 @@ def _voice_model(args: argparse.Namespace) -> dict[str, Any]:
             source = voice_acq.PinnedVoiceSource(
                 repo_id=args.repo_id,
                 revision=args.revision,
-                path=args.path,
+                repo_path=args.path,
                 expected_sha256=args.sha256,
                 expected_byte_length=args.byte_length,
             )

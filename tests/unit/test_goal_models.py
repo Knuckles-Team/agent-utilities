@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from agent_utilities.models.goal import (
     GoalCheckpoint,
     GoalIteration,
@@ -244,6 +246,39 @@ class TestGoalKGIntegration:
         spec = GoalSpec(objective="test")
         result = kg.validate_against_rules(spec)
         assert result.kg_rules == []
+
+    def test_validate_against_rules_populates_kg_rules_from_description(self):
+        """Regression test for the descriptionription alias typo.
+
+        ``validate_against_rules`` builds ``kg_rules`` by reading the
+        ``"description"`` key off each returned row
+        (``r.get("description", ...)``). The Cypher query must alias
+        ``r.description`` to that exact key or every row is silently
+        dropped and ``kg_rules`` stays empty forever. This fake backend
+        derives the row key from the *actual* query text (via the same
+        ``AS <alias>`` the real backend would honor) so the test fails
+        if the alias in the source drifts from what the consumer reads.
+        """
+
+        class FakeBackend:
+            def execute(self, query, params=None):
+                if "ConstitutionRule" not in query:
+                    return []
+                alias_match = re.search(r"r\.description AS (\w+)", query)
+                assert alias_match, "query must alias r.description"
+                alias = alias_match.group(1)
+                return [{"id": "rule:1", alias: "Never delete production data"}]
+
+        class FakeEngine:
+            backend = FakeBackend()
+
+        kg = GoalKGIntegration(engine=FakeEngine())
+        spec = GoalSpec(objective="test")
+        result = kg.validate_against_rules(spec)
+
+        # Proves the description VALUE reaches kg_rules, not just that
+        # the alias string in the query changed.
+        assert result.kg_rules == ["Never delete production data"]
 
     def test_find_related_no_engine(self):
         kg = GoalKGIntegration(engine=None)

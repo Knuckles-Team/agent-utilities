@@ -3,6 +3,21 @@
 Application logs retain event names, status codes, counts, and exception types.
 They do not retain runtime endpoints, filesystem locations, email-shaped caller
 identifiers, or traceback/stack data (which embeds host paths).
+
+A caller that needs a log line to convey WHICH of several possible values a
+redacted field held (e.g. "which implicit directory did a fallback resolve
+to") must not rely on that value surviving this boundary -- it never will,
+by design. Put a stable, non-path identifier in the STATIC message text
+instead of interpolating the resolved value: name the config knob that
+controls the choice (e.g. "the implicit fallback resolved under
+AGENT_UTILITIES_DATA_DIR" rather than logging the directory itself). That
+conveys which branch of configuration drove the outcome and what to set to
+change it, without ever emitting a location. See BUG-PE-023: a WARNING for
+an unset ``GRAPH_SERVICE_PERSIST_DIR`` fallback interpolated the resolved
+path via ``%s``, so this boundary correctly redacted it to ``<path>`` --
+correct behavior, but it left the operator unable to tell from the log
+alone whether the fallback was durable. The fix belongs in the message
+text at the call site, not in loosening this boundary.
 """
 
 from __future__ import annotations

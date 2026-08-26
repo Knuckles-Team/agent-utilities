@@ -145,6 +145,43 @@ def test_system_write_session_mint_is_cached_across_calls(monkeypatch):
     assert first is second
 
 
+def test_system_write_session_re_mints_an_expired_cached_session(monkeypatch):
+    """BUG-PE-053: the cache is revalidated, not permanent.
+
+    The minted session wraps a bearer JWT with a finite lifetime. Before the
+    fix the cache returned that session forever, so once the first minted
+    token aged out EVERY consumer failed closed with ``SessionExpiredError:
+    Verified graph authority has expired`` for the life of the process --
+    which is exactly how ``gateway/registry_api.py``'s catalog reads (and
+    with them the whole agent-webui MCP tools surface) went to a permanent
+    ``503 catalog_unavailable`` a token-lifetime after every pod start.
+
+    Revert the ``_session_authority_usable`` guard and this test fails: the
+    stale session is handed straight back.
+    """
+    _force_local_process_authority(monkeypatch)
+    from agent_utilities.knowledge_graph.core.session import SessionExpiredError
+    from agent_utilities.security import request_identity as ri
+
+    class _Expired:
+        def ensure_authority_current(self, **_kwargs):
+            raise SessionExpiredError("Verified graph authority has expired")
+
+    stale = _Expired()
+    monkeypatch.setattr(ri, "_system_write_session", stale)
+
+    def isolated():
+        return ri.system_write_session()
+
+    session = contextvars.Context().run(isolated)
+
+    assert session is not stale
+    assert session.actor.authenticated is True
+    # The freshly minted session replaced the stale one in the cache, so the
+    # next caller does not pay the mint again.
+    assert ri._system_write_session is session
+
+
 def test_system_write_session_never_returns_unauthenticated(monkeypatch):
     """A genuine minting failure (external identity configured but
     unreachable) must propagate loudly -- never degrade to an

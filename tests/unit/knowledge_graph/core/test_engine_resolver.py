@@ -22,6 +22,7 @@ no-collision contract) without depending on the Rust wheel.
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import socket
 import sys
@@ -203,8 +204,14 @@ def test_loopback_tcp_resolves_local_autostart(monkeypatch):
     assert resolved.autostart_allowed is True
 
 
-def test_autostart_passes_loopback_tcp_address(monkeypatch):
-    """The spawned server must bind the same loopback address as its client."""
+def _spawn_autostart(monkeypatch, config):
+    """Drive ``_autostart_engine`` with a fake ``subprocess`` and report the spawn.
+
+    Returns ``(commands, environments, retained_environments)`` — the argv, a
+    SNAPSHOT of the child environment as ``Popen`` saw it, and the live dict the
+    launcher keeps a reference to (so a caller can assert the material was
+    scrubbed from it after the spawn).
+    """
     from epistemic_graph.client import SyncEpistemicGraphClient
 
     from agent_utilities.knowledge_graph.core import graph_compute as gc
@@ -242,11 +249,7 @@ def test_autostart_passes_loopback_tcp_address(monkeypatch):
         },
         None,
         "test-secret",
-        SimpleNamespace(
-            epistemic_graph_max_resident_graphs=1024,
-            epistemic_graph_lazy_open_page_size=4096,
-            epistemic_graph_max_nodes_per_graph=250_000,
-        ),
+        config,
         fake_subprocess,
         sys,
         SimpleNamespace(sleep=lambda _seconds: None, monotonic=time.monotonic),
@@ -257,6 +260,42 @@ def test_autostart_passes_loopback_tcp_address(monkeypatch):
 
     assert result == "connected"
     assert commands
+    return commands, environments, retained_environments
+
+
+def _autostart_config(**overrides):
+    base = {
+        "epistemic_graph_max_resident_graphs": 1024,
+        "epistemic_graph_lazy_open_page_size": 4096,
+        "epistemic_graph_max_nodes_per_graph": 250_000,
+        "app_profile": "dev",
+        "deployment_profile": "tiny",
+    }
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+def test_autostart_passes_loopback_tcp_address(monkeypatch):
+    """The spawned server must bind the same loopback address as its client.
+
+    Also pins the CONFIGURED-key-reference path: with
+    ``epistemic_graph_encryption_key_ref`` set, the resolved material reaches
+    the child environment and only the child environment.
+    """
+    from agent_utilities.security import cli_secrets
+
+    monkeypatch.setattr(
+        cli_secrets,
+        "resolve_runtime_secret_reference",
+        lambda _reference: "resolved-engine-encryption-key-material-0001",
+    )
+
+    commands, environments, retained_environments = _spawn_autostart(
+        monkeypatch,
+        _autostart_config(
+            epistemic_graph_encryption_key_ref="env://TEST_ENGINE_DATA_KEY"
+        ),
+    )
     tcp_index = commands[0].index("--tcp-addr")
     assert commands[0][tcp_index : tcp_index + 2] == [
         "--tcp-addr",
@@ -276,11 +315,71 @@ def test_autostart_passes_loopback_tcp_address(monkeypatch):
     assert environments[0]["EPISTEMIC_GRAPH_MAX_MSGPACK_ITEMS"] == "1000000"
     assert (
         environments[0]["EPISTEMIC_GRAPH_ENCRYPTION_KEY"]
-        == "test-engine-encryption-key-material-0001"
+        == "resolved-engine-encryption-key-material-0001"
     )
     assert "EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF" not in environments[0]
     assert "EPISTEMIC_GRAPH_ENCRYPTION_KEY" not in retained_environments[0]
     assert "UNRELATED_PROVIDER_API_KEY" not in environments[0]
+
+
+def test_autostart_omits_the_encryption_key_when_no_reference_is_configured(
+    monkeypatch, caplog
+):
+    """No ``..._KEY_REF`` -> the child gets NO encryption key at all.
+
+    Encryption-at-rest is opt-in. Passing a minted key regardless is what would
+    seal an existing plaintext durable store under a key that lives in an
+    ephemeral data dir -- unopenable after the next restart. Absence of the
+    variable is the contract, not an empty string: the ambient value set by
+    ``_spawn_autostart`` must not leak through either.
+    """
+    from agent_utilities.knowledge_graph.core import graph_compute as gc
+
+    with caplog.at_level(logging.INFO, logger=gc.__name__):
+        _commands, environments, _retained = _spawn_autostart(
+            monkeypatch, _autostart_config(epistemic_graph_encryption_key_ref=None)
+        )
+
+    assert "EPISTEMIC_GRAPH_ENCRYPTION_KEY" not in environments[0]
+    assert "EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF" not in environments[0]
+    # The other engine settings still arrive, so this is an omission, not a
+    # collapsed child environment.
+    assert environments[0]["GRAPH_SERVICE_AUTH_SECRET"] == "test-secret"
+
+    notices = [
+        record
+        for record in caplog.records
+        if "EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF" in record.getMessage()
+    ]
+    assert len(notices) == 1
+    assert notices[0].levelno == logging.INFO
+    message = notices[0].getMessage()
+    assert "encryption-at-rest is NOT configured" in message
+    # Static text only -- log_privacy would redact any interpolated path, so the
+    # SETTING NAMES have to carry the meaning.
+    assert "/" not in message
+
+
+def test_autostart_encryption_key_still_fails_closed_outside_dev_tiny(monkeypatch):
+    """Omitting the key must not become a silent downgrade in production."""
+    from agent_utilities.knowledge_graph.core import graph_compute as gc
+
+    with pytest.raises(RuntimeError, match="reference is required"):
+        gc._autostart_engine_encryption_key(
+            SimpleNamespace(
+                epistemic_graph_encryption_key_ref=None,
+                app_profile="production",
+                deployment_profile="tiny",
+            )
+        )
+    with pytest.raises(RuntimeError, match="reference is required"):
+        gc._autostart_engine_encryption_key(
+            SimpleNamespace(
+                epistemic_graph_encryption_key_ref=None,
+                app_profile="dev",
+                deployment_profile="enterprise",
+            )
+        )
 
 
 def test_engine_encryption_reference_resolves_only_for_child(monkeypatch):
@@ -1078,3 +1177,435 @@ def test_concurrent_autostart_shares_one_engine(monkeypatch, tmp_path):
 
     spawned = [ln for ln in count_file.read_text().splitlines() if ln.strip()]
     assert len(spawned) == 1, f"expected ONE engine spawned, got {len(spawned)}"
+
+
+# ---------------------------------------------------------------------------
+# Single-container collapse: adopting an EXISTING store (BUG-PE-049..052)
+# ---------------------------------------------------------------------------
+
+
+def test_local_graph_readiness_adopts_a_graph_the_engine_says_exists():
+    """An "already exists" rejection IS the seam's guarantee — adopt it.
+
+    Reproduces the collapse blocker (BUG-PE-049): against a production-shaped
+    store the engine rejects the create, while ``tenants.list()`` under this
+    bootstrap context does NOT report the graph, so the list-only
+    reconciliation could never settle it and boot died. ``list()`` is pinned
+    empty here for exactly that reason.
+    """
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+
+    graph_name = "tenant__homelab__:__commons__"
+    listed = 0
+
+    class _Placement:
+        @staticmethod
+        def route(_tenant, _sub_key, *, client_epoch):
+            assert client_epoch == 0
+
+    class _Tenants:
+        @staticmethod
+        def list():
+            nonlocal listed
+            listed += 1
+            return []
+
+        @staticmethod
+        def create(name, _graph_type):
+            raise RuntimeError(f"Graph '{name}' already exists")
+
+    class _Client:
+        placement = _Placement()
+        tenants = _Tenants()
+
+        @contextlib.contextmanager
+        def use_verified_context(self, _context):
+            yield self
+
+    GraphComputeEngine._ensure_local_session_graph(
+        _Client(),
+        graph_name,
+        _local_graph_session({"principal": "subject:verified"}),
+    )
+
+    # The pre-check listed once; the error-based path settled it without
+    # needing a second (still non-authoritative) list.
+    assert listed == 1
+
+
+def test_local_graph_readiness_adopts_an_existing_secrets_graph():
+    """The same adoption covers ``__secrets__``, which boot opens first."""
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+
+    graph_name = "tenant__homelab__:__secrets__"
+
+    class _Placement:
+        @staticmethod
+        def route(_tenant, _sub_key, *, client_epoch):
+            assert client_epoch == 0
+
+    class _Tenants:
+        @staticmethod
+        def list():
+            return []
+
+        @staticmethod
+        def create(name, _graph_type):
+            raise RuntimeError(f"Graph '{name}' already exists")
+
+    class _Client:
+        placement = _Placement()
+        tenants = _Tenants()
+
+        @contextlib.contextmanager
+        def use_verified_context(self, _context):
+            yield self
+
+    GraphComputeEngine._ensure_local_session_graph(
+        _Client(),
+        graph_name,
+        _local_graph_session({"principal": "subject:verified"}),
+    )
+
+
+def test_local_graph_readiness_propagates_an_unrelated_create_failure():
+    """Adoption is NOT a blanket ``except Exception: pass``.
+
+    A durable-store failure carries no "already exists" sentence, the list is
+    non-authoritative, so the original exception must still escape unchanged.
+    """
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+
+    class _Placement:
+        @staticmethod
+        def route(_tenant, _sub_key, *, client_epoch):
+            assert client_epoch == 0
+
+    class _Tenants:
+        @staticmethod
+        def list():
+            return []
+
+        @staticmethod
+        def create(_name, _graph_type):
+            raise RuntimeError("DB corrupted: failed to open durable graph store")
+
+    class _Client:
+        placement = _Placement()
+        tenants = _Tenants()
+
+        @contextlib.contextmanager
+        def use_verified_context(self, _context):
+            yield self
+
+    with pytest.raises(RuntimeError, match="DB corrupted"):
+        GraphComputeEngine._ensure_local_session_graph(
+            _Client(),
+            "tenant-verified:graph",
+            _local_graph_session({"principal": "subject:verified"}),
+        )
+
+
+def test_local_graph_readiness_rejects_an_exists_error_for_another_graph():
+    """The match is pinned to THIS graph's name, not to the phrase alone."""
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+
+    class _Placement:
+        @staticmethod
+        def route(_tenant, _sub_key, *, client_epoch):
+            assert client_epoch == 0
+
+    class _Tenants:
+        @staticmethod
+        def list():
+            return []
+
+        @staticmethod
+        def create(_name, _graph_type):
+            raise RuntimeError("Graph 'some-other-graph' already exists")
+
+    class _Client:
+        placement = _Placement()
+        tenants = _Tenants()
+
+        @contextlib.contextmanager
+        def use_verified_context(self, _context):
+            yield self
+
+    with pytest.raises(RuntimeError, match="some-other-graph"):
+        GraphComputeEngine._ensure_local_session_graph(
+            _Client(),
+            "tenant-verified:graph",
+            _local_graph_session({"principal": "subject:verified"}),
+        )
+
+
+def test_engine_path_ref_resolves_env_scheme_without_reaching_the_engine():
+    """``env://`` needs no engine — the circular secrets client is not used.
+
+    BUG-PE-050: autostart resolved these references while it was still
+    spawning the engine, and ``create_secrets_client()`` opens ``__secrets__``
+    on that very engine, so an open breaker aborted the spawn.
+    """
+    from agent_utilities.security import secrets_client as secrets_client_module
+
+    def _forbidden():
+        raise AssertionError("env:// reference reached the engine-backed client")
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(secrets_client_module, "create_secrets_client", _forbidden)
+        patch.setenv("PE_TEST_BACKUP_ROOT", "/var/lib/eg/backups")
+
+        assert (
+            gc._resolve_engine_path_ref("env://PE_TEST_BACKUP_ROOT")
+            == "/var/lib/eg/backups"
+        )
+
+
+def test_engine_path_ref_still_uses_the_secrets_client_for_store_schemes():
+    """Only schemes that genuinely need the engine fall through to it."""
+    from agent_utilities.security import secrets_client as secrets_client_module
+
+    requested: list[str] = []
+
+    def _client():
+        return SimpleNamespace(
+            resolve_ref=lambda reference: (
+                requested.append(reference),
+                "/srv/vault-root",
+            )[-1]
+        )
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(secrets_client_module, "create_secrets_client", _client)
+
+        assert gc._resolve_engine_path_ref("vault://apps/eg#backup") == "/srv/vault-root"
+
+    assert requested == ["vault://apps/eg#backup"]
+
+
+def test_engine_path_ref_reports_an_unresolvable_env_reference():
+    """A missing env var stays fail-closed, and never names the reference."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.delenv("PE_TEST_ABSENT_ROOT", raising=False)
+
+        with pytest.raises(RuntimeError, match="reference is invalid") as raised:
+            gc._resolve_engine_path_ref("env://PE_TEST_ABSENT_ROOT")
+
+    assert "PE_TEST_ABSENT_ROOT" not in str(raised.value)
+
+
+def test_autostart_prefers_an_interpreter_adjacent_engine_binary(monkeypatch, tmp_path):
+    """A venv-local build is the more specific match and still wins."""
+    from epistemic_graph.client import SyncEpistemicGraphClient
+
+    adjacent = tmp_path / "bin" / "epistemic-graph-server"
+    adjacent.parent.mkdir(parents=True)
+    adjacent.write_text("#!/bin/sh\n")
+    monkeypatch.setattr(gc.shutil, "which", lambda _name: "/usr/local/bin/decoy")
+
+    commands = _spawn_and_capture_argv(
+        monkeypatch,
+        SyncEpistemicGraphClient,
+        interpreter=str(adjacent.parent / "python3"),
+    )
+
+    assert commands[0][0] == str(adjacent)
+
+
+def test_autostart_falls_back_to_the_engine_binary_on_path(monkeypatch, tmp_path):
+    """The packaged image runs /usr/bin/python3 with the engine on PATH."""
+    from epistemic_graph.client import SyncEpistemicGraphClient
+
+    monkeypatch.setattr(
+        gc.shutil, "which", lambda _name: "/usr/local/bin/epistemic-graph-server"
+    )
+
+    commands = _spawn_and_capture_argv(
+        monkeypatch,
+        SyncEpistemicGraphClient,
+        interpreter=str(tmp_path / "absent" / "python3"),
+    )
+
+    assert commands[0][0] == "/usr/local/bin/epistemic-graph-server"
+
+
+def test_autostart_keeps_the_interpreter_adjacent_path_when_nothing_is_on_path(
+    monkeypatch, tmp_path
+):
+    """With neither present the message still names the adjacent guess."""
+    from epistemic_graph.client import SyncEpistemicGraphClient
+
+    monkeypatch.setattr(gc.shutil, "which", lambda _name: None)
+    interpreter = tmp_path / "absent" / "python3"
+
+    commands = _spawn_and_capture_argv(
+        monkeypatch,
+        SyncEpistemicGraphClient,
+        interpreter=str(interpreter),
+    )
+
+    assert commands[0][0] == str(interpreter.parent / "epistemic-graph-server")
+
+
+def _spawn_and_capture_argv(monkeypatch, client_class, *, interpreter: str):
+    """Run one autostart with a fake child and return the argv it would spawn."""
+
+    commands: list[list[str]] = []
+    fake_subprocess = SimpleNamespace(
+        DEVNULL=-1,
+        Popen=lambda cmd, **_kwargs: (
+            commands.append(list(cmd)),
+            SimpleNamespace(poll=lambda: None),
+        )[-1],
+    )
+    monkeypatch.setattr(
+        client_class, "connect", staticmethod(lambda **_kwargs: "connected")
+    )
+
+    engine = object.__new__(gc.GraphComputeEngine)
+    engine._autostart_engine(
+        {
+            "tcp_addr": "127.0.0.1:8765",
+            "graph_name": "__commons__",
+            "verified_context": gc._transport_only_verified_context(),
+        },
+        None,
+        "test-secret",
+        SimpleNamespace(
+            epistemic_graph_max_resident_graphs=256,
+            epistemic_graph_lazy_open_page_size=4096,
+            epistemic_graph_max_nodes_per_graph=250_000,
+        ),
+        fake_subprocess,
+        SimpleNamespace(executable=interpreter),
+        SimpleNamespace(sleep=lambda _seconds: None, monotonic=time.monotonic),
+        Path,
+        coupled=False,
+        idle_shutdown_secs=0,
+    )
+    return commands
+
+
+def test_autostart_surfaces_a_failed_child_startup_output(monkeypatch, caplog):
+    """The engine's own fatal diagnostic reaches the log, not /dev/null.
+
+    BUG-PE-052: both spawn branches sent stdout AND stderr to DEVNULL, so an
+    engine that died at startup left only ``exited during startup (status 1)``
+    and the real cause had to be rediscovered by re-running the binary by hand.
+    """
+    import logging
+
+    from epistemic_graph.client import SyncEpistemicGraphClient
+
+    def _popen(_cmd, **kwargs):
+        kwargs["stderr"].write(
+            b"error: failed to open durable graph store: DB corrupted\n"
+        )
+        return SimpleNamespace(poll=lambda: 1)
+
+    monkeypatch.setattr(
+        SyncEpistemicGraphClient,
+        "connect",
+        staticmethod(lambda **_kwargs: (_ for _ in ()).throw(ConnectionRefusedError())),
+    )
+
+    engine = object.__new__(gc.GraphComputeEngine)
+    with caplog.at_level(logging.ERROR, logger=gc.__name__):
+        with pytest.raises(ConnectionError, match=r"exited during startup"):
+            engine._autostart_engine(
+                {
+                    "tcp_addr": "127.0.0.1:8765",
+                    "graph_name": "__commons__",
+                    "verified_context": gc._transport_only_verified_context(),
+                },
+                None,
+                "test-secret",
+                SimpleNamespace(
+                    epistemic_graph_max_resident_graphs=256,
+                    epistemic_graph_lazy_open_page_size=4096,
+                    epistemic_graph_max_nodes_per_graph=250_000,
+                ),
+                SimpleNamespace(DEVNULL=-1, Popen=_popen),
+                sys,
+                SimpleNamespace(sleep=lambda _seconds: None, monotonic=time.monotonic),
+                Path,
+                coupled=False,
+                idle_shutdown_secs=0,
+            )
+
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    assert "DB corrupted" in logged
+
+
+def test_engine_startup_capture_is_bounded_to_its_tail(tmp_path):
+    """A large capture is truncated instead of shipped whole."""
+    import logging
+
+    capture = (tmp_path / "capture").open("w+b")
+    capture.write(b"x" * (gc._ENGINE_STARTUP_CAPTURE_BYTES * 3))
+    capture.write(b"\nerror: the only line that matters\n")
+
+    logger = logging.getLogger(gc.__name__)
+    records: list[logging.LogRecord] = []
+    handler = logging.Handler()
+    handler.emit = records.append  # type: ignore[method-assign]
+    logger.addHandler(handler)
+    try:
+        gc._log_engine_startup_failure(capture)
+    finally:
+        logger.removeHandler(handler)
+        capture.close()
+
+    assert len(records) == 1
+    emitted = records[0].getMessage()
+    assert "the only line that matters" in emitted
+    assert len(emitted) < gc._ENGINE_STARTUP_CAPTURE_BYTES * 2
+
+
+# ---------------------------------------------------------------------------
+# Inertness for the 3-container production topology
+# ---------------------------------------------------------------------------
+
+
+def test_configured_endpoints_disable_autostart_and_graph_bootstrap(monkeypatch):
+    """With GRAPH_SERVICE_ENDPOINTS set, none of the collapse code runs.
+
+    This is the production 3-container configuration. ``resolve_engine``'s
+    remote leg returns ``autostart_allowed=False``, and that ONE flag gates
+    both the spawn (``_autostart_engine`` — FIX 2/3/4) and the local graph
+    bootstrap (``_ensure_local_session_graph`` — FIX 1). Nothing is stubbed
+    but the socket itself: the real setting drives the real resolver and the
+    real ``GraphComputeEngine`` chokepoint.
+    """
+    from epistemic_graph.client import SyncEpistemicGraphClient
+
+    graph_name = "tenant__homelab__:__commons__"
+    monkeypatch.setenv("GRAPH_SERVICE_ENDPOINTS", "tcp://example-engine.internal:9100")
+
+    # (a) The resolver: a configured topology is connect-only.
+    real_config = AgentConfig()
+    assert er.setting_autostart(real_config) is False
+    resolved = er.resolve_engine(real_config, graph_name)
+    assert resolved.mode == "remote"
+    assert resolved.autostart_allowed is False
+
+    # (b) The chokepoint: neither collapse-only path is reachable.
+    def _unexpected_spawn(*_args, **_kwargs):
+        raise AssertionError("configured topology attempted a local engine spawn")
+
+    def _unexpected_bootstrap(*_args, **_kwargs):
+        raise AssertionError("configured topology attempted a local graph create")
+
+    monkeypatch.setattr(gc.GraphComputeEngine, "_autostart_engine", _unexpected_spawn)
+    monkeypatch.setattr(
+        gc.GraphComputeEngine, "_ensure_local_session_graph", _unexpected_bootstrap
+    )
+    monkeypatch.setattr(
+        SyncEpistemicGraphClient,
+        "connect",
+        staticmethod(lambda **_kwargs: (_ for _ in ()).throw(ConnectionRefusedError())),
+    )
+
+    with pytest.raises(ConnectionError):
+        gc.GraphComputeEngine(graph_name=graph_name)

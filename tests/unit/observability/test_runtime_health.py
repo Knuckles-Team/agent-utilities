@@ -137,6 +137,20 @@ def _isolated_mirror_build_status():
     B._MIRROR_BUILD_STATUS.clear()
 
 
+@pytest.fixture(autouse=True)
+def _isolated_fleet_supervision_cache():
+    """The ``fleet_supervision`` readiness cache is a process-wide singleton
+    (CONCEPT: this is exactly why it saves the expensive query) — reset it
+    around every test so one test's cached verdict can never leak into the
+    next, and reset the readiness authority to the un-set default too.
+    """
+    rh._FLEET_SUPERVISION_CACHE.invalidate()
+    rh.set_readiness_authority(None)
+    yield
+    rh._FLEET_SUPERVISION_CACHE.invalidate()
+    rh.set_readiness_authority(None)
+
+
 # --------------------------------------------------------------------------- #
 # 1. engine reachability — the core bug this task fixes
 # --------------------------------------------------------------------------- #
@@ -772,3 +786,217 @@ def test_collect_health_payload_never_carries_raw_endpoint_strings(
     assert "hunter2" not in payload_text
     assert dead_sock not in payload_text
     assert "secretuser" not in payload_text
+
+
+# --------------------------------------------------------------------------- #
+# 5. fleet_supervision: cached, bounded-staleness readiness verdict
+#
+# Traced on the live pod: readinessProbe (periodSeconds=10) -> _check_fleet_
+# supervision -> collect_fleet_health() -> full-scan Cypher reads averaging
+# 800ms-1.7s and peaking at 3.4s. That made this ONE check 45% of all
+# slow-query log lines, forever, every 10 seconds. The tests below prove the
+# fix actually removes the repeated full scan (not just hides its latency),
+# that a real outage still surfaces as unhealthy, that staleness is bounded
+# and observable, and that a slow-but-working read is no longer misreported
+# as down (the false-positive regression the hardcoded 2.0s bound produced).
+# --------------------------------------------------------------------------- #
+def _fake_ready_snapshot():
+    """A minimal stand-in for ``FleetHealthSnapshot`` with a healthy, ready
+    ``evidence.model_dump(mode="json")`` — enough for ``_check_fleet_
+    supervision``'s consumption of the collector's return value."""
+
+    class _Evidence:
+        ready = True
+        status = "healthy"
+
+        @staticmethod
+        def model_dump(mode="json"):  # noqa: ARG004 - matches pydantic's call shape
+            return {"status": "healthy", "ready": True}
+
+    class _Snapshot:
+        evidence = _Evidence()
+
+    return _Snapshot()
+
+
+def _fake_unavailable_snapshot():
+    class _Evidence:
+        ready = False
+        status = "unavailable"
+
+        @staticmethod
+        def model_dump(mode="json"):  # noqa: ARG004 - matches pydantic's call shape
+            return {"status": "unavailable", "ready": False}
+
+    class _Snapshot:
+        evidence = _Evidence()
+
+    return _Snapshot()
+
+
+def test_readiness_path_does_not_rescan_the_goal_registry_per_probe(monkeypatch):
+    """Requirement 1: the readiness path issues no unbounded/full-scan query
+    per probe. Simulates kubelet hitting ``/health/ready`` on its normal
+    10-second cadence several times in a row (well inside the cache TTL) and
+    asserts the expensive collector — the thing that issued the unindexable
+    ``MATCH (c:Concept) WHERE c.loop_kind = 'develop' ...`` full scan — is
+    invoked exactly ONCE, not once per probe. Query COUNT is the assertion,
+    never wall-clock.
+    """
+    from agent_utilities.orchestration import fleet_health as fh
+
+    calls = {"n": 0}
+
+    def _counting_collect(**_kwargs):
+        calls["n"] += 1
+        return _fake_ready_snapshot()
+
+    monkeypatch.setattr(fh, "collect_fleet_health", _counting_collect)
+
+    for _ in range(5):  # 5 simulated probe ticks inside one TTL window
+        result = rh._check_fleet_supervision(None)
+        assert result["status"] == "ok"
+
+    assert calls["n"] == 1, (
+        "each of the 5 simulated probe ticks re-ran the full-scan collector; "
+        "the cache did not suppress the repeated query"
+    )
+
+
+def test_fleet_supervision_genuinely_down_still_reports_unhealthy(monkeypatch):
+    """Requirement 2: prove the check can still fail. A real dependency
+    outage — the collector itself reporting ``unavailable`` evidence — must
+    still surface as ``unhealthy`` through the cache, not get laundered into
+    "ok" because caching exists. The gate must still be a gate.
+    """
+    from agent_utilities.orchestration import fleet_health as fh
+
+    monkeypatch.setattr(
+        fh, "collect_fleet_health", lambda **_kwargs: _fake_unavailable_snapshot()
+    )
+
+    result = rh._check_fleet_supervision(None)
+
+    assert result["status"] == "unhealthy"
+    assert "unavailable" in result["reason"]
+
+
+def test_fleet_supervision_cache_expires_and_staleness_is_bounded_and_observable():
+    """Requirement 3: a cached verdict expires, and staleness is bounded and
+    observable. Uses a dedicated cache instance (not the shared singleton)
+    with a tiny TTL/max-staleness so the test is fast and deterministic
+    without asserting on wall-clock behavior of the checked SYSTEM — only on
+    the cache's own documented age/staleness bookkeeping.
+    """
+    cache = rh._FleetSupervisionCache(ttl_s=0.05, max_staleness_s=0.5)
+    calls = {"n": 0}
+
+    def _compute():
+        calls["n"] += 1
+        return {"name": "fleet_supervision", "status": "ok"}
+
+    first = cache._get(_compute)
+    assert first["detail"]["_cache"]["stale"] is False
+    assert first["detail"]["_cache"]["age_s"] == 0.0
+    assert calls["n"] == 1
+
+    time.sleep(0.08)  # cross the 0.05s TTL, stay well under 0.5s max_staleness
+
+    second = cache._get(_compute)
+    # Still under max_staleness, so the stale entry is served immediately...
+    assert second["detail"]["_cache"]["stale"] is True
+    assert second["detail"]["_cache"]["age_s"] > 0.0
+    assert second["detail"]["_cache"]["ttl_s"] == 0.05
+    assert second["detail"]["_cache"]["max_staleness_s"] == 0.5
+
+    # ...while a background refresh was kicked off exactly once. Poll with a
+    # bounded loop (never an unconditional sleep) for the refresh to land.
+    deadline = time.monotonic() + 2.0
+    while calls["n"] < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert calls["n"] == 2, "a stale-but-live entry never triggered its background refresh"
+
+    # A verdict is never served forever: past max_staleness a caller forces a
+    # synchronous recompute rather than trusting arbitrarily old data.
+    time.sleep(0.6)
+    third = cache._get(_compute)
+    assert third["detail"]["_cache"]["age_s"] == 0.0
+    assert calls["n"] == 3
+
+
+def test_fleet_supervision_slow_but_working_is_not_reported_unhealthy(monkeypatch):
+    """Requirement 4: the false-positive regression. Before this fix,
+    ``_check_fleet_supervision`` shared the generic 2.0s wall-clock bound with
+    every cheap TCP-connect check, and the collector's OBSERVED real latency
+    on the live pod peaked at 3.4s — so a slow-but-working read was reported
+    "probe exceeded its 2.0s bound" -> unhealthy -> the pod pulled from
+    Service, exactly while it was busy actually serving. Reproduce a 3.0s
+    real (but successful) collector read through the SAME bounded-timeout
+    path readiness uses (``_run_bounded`` with the per-check override) and
+    assert it is NOT misreported as unhealthy.
+    """
+
+    def _slow_but_working():
+        time.sleep(3.0)
+        return {"name": "fleet_supervision", "status": "ok", "detail": {}}
+
+    result = rh._run_bounded(
+        "fleet_supervision",
+        _slow_but_working,
+        timeout=rh._CHECK_TIMEOUT_OVERRIDES["fleet_supervision"],
+    )
+
+    assert result["status"] == "ok"
+    assert rh._CHECK_TIMEOUT_OVERRIDES["fleet_supervision"] > 2.0, (
+        "the override must exceed the generic 2.0s bound that produced the "
+        "observed false positive, or this test proves nothing"
+    )
+
+
+def test_collect_health_wires_the_fleet_supervision_timeout_override(monkeypatch):
+    """``collect_health()`` must actually pass the per-check override through
+    to ``_run_bounded`` — not just define it and never use it. A 3.0s
+    ``fleet_supervision`` read (slower than the generic 2.0s default, faster
+    than the 5.0s override) must survive end-to-end through the real
+    ``collect_health()`` rollup, not just the unit-level ``_run_bounded`` call.
+    """
+
+    def _slow_but_working(_cfg):
+        time.sleep(3.0)
+        return {"name": "fleet_supervision", "status": "ok", "detail": {}}
+
+    monkeypatch.setattr(
+        rh,
+        "_CHECKS",
+        (("fleet_supervision", _slow_but_working),),
+    )
+
+    report = rh.collect_health()
+
+    assert report["status"] == "healthy"
+    assert report["checks"][0]["status"] == "ok"
+
+
+def test_set_readiness_authority_invalidates_the_cache(monkeypatch):
+    """A cache entry computed under one authority must never be served after
+    the process's readiness authority changes — otherwise readiness could
+    keep answering for an identity that is no longer bound.
+    """
+    from agent_utilities.orchestration import fleet_health as fh
+
+    calls = {"n": 0}
+
+    def _counting_collect(**_kwargs):
+        calls["n"] += 1
+        return _fake_ready_snapshot()
+
+    monkeypatch.setattr(fh, "collect_fleet_health", _counting_collect)
+
+    rh._check_fleet_supervision(None)
+    rh._check_fleet_supervision(None)
+    assert calls["n"] == 1  # second call served from cache
+
+    rh.set_readiness_authority(None)  # simulate a (re)bind -- invalidates
+
+    rh._check_fleet_supervision(None)
+    assert calls["n"] == 2, "the cache survived a readiness-authority change"

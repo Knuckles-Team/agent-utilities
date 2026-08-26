@@ -610,12 +610,22 @@ def _write_fleet_nodes(
     harvest.update(_promote_fleet_prompts(engine, catalog))
 
     rejected: list[str] = []
+    materialization_pending: list[str] = []
     if entities:
-        rejected = _write_fleet_slice(engine, entities, relationships)
+        rejected, materialization_pending = _write_fleet_slice(
+            engine, entities, relationships
+        )
 
     return {
+        # Genuinely rejected — the engine judged the row's content unacceptable
+        # (privacy policy, validation); cached so future syncs skip re-deriving it.
         "catalog_rows_rejected": len(rejected),
         "catalog_rejected_ids": rejected,
+        # Retried against a still-materializing engine and gave up within the
+        # bounded budget (envelope_ingest.ingest_envelope) — a THIS-SYNC-ONLY
+        # omission, never cached, distinct from a genuine rejection above.
+        "catalog_rows_materialization_pending": len(materialization_pending),
+        "catalog_materialization_pending_ids": materialization_pending,
         "servers_written": sum(1 for item in entities if item["type"] == "MCPServer"),
         "tools_written": sum(1 for item in entities if item["type"] == "Tool"),
         "skills_written": sum(1 for item in entities if item["type"] == "Skill"),
@@ -671,7 +681,7 @@ def _save_rejected_row_cache(cache: dict[str, str]) -> None:
 
 def _write_fleet_slice(
     engine: Any, entities: list[dict[str, Any]], relationships: list[dict[str, Any]]
-) -> list[str]:
+) -> tuple[list[str], list[str]]:
     """Write the fleet catalog slice, isolating rows the engine rejects.
 
     The native ``ApplyChangeEnvelope`` commit is ATOMIC, so one unacceptable row
@@ -694,13 +704,32 @@ def _write_fleet_slice(
     NEW offender at the same O(k log n) cost this always had — just no longer
     PAID every sync for offenders already known about.
 
-    On rejection this halves the slice and retries, isolating each offending
-    row, dropping ONLY those, and returning their ids (known-bad rows from the
-    cache are included in the return value too, so callers see the full
-    current exclusion set). Cost is O(k log n) commits for k *newly*
-    discovered offenders. A rejected row is logged at error so it is never a
-    silent omission.
+    On a GENUINE rejection this halves the slice and retries, isolating each
+    offending row, dropping ONLY those. Cost is O(k log n) commits for k
+    *newly* discovered offenders. A rejected row is logged at error so it is
+    never a silent omission.
+
+    A row the engine could not commit only because it was still
+    mid-materialization (``ingest_envelope``'s own bounded resume, see
+    ``envelope_ingest.PARTIAL_MATERIALIZATION_RETRIES_EXHAUSTED_MARKER``, gave
+    up within its budget) is a DIFFERENT outcome from a genuine content
+    rejection and is handled without bisecting further: splitting would only
+    re-pay the same bounded wait against the same still-materializing engine
+    state for every half, turning one shared, transient condition into
+    O(k log n) repeats of it. Instead the WHOLE batch still pending at that
+    point is logged once (at warning, not error — it was never judged
+    unacceptable) and reported back separately; it is never written to the
+    known-bad cache, so the next sync re-attempts it with a clean slate.
+
+    Returns ``(rejected_ids, materialization_pending_ids)``: ``rejected_ids``
+    are rows genuinely rejected (known-bad rows from the cache are included,
+    so callers see the full current exclusion set); ``materialization_pending_ids``
+    are rows retried and given up on for THIS sync only.
     """
+    from ..ingestion.envelope_ingest import (
+        PARTIAL_MATERIALIZATION_RETRIES_EXHAUSTED_MARKER,
+    )
+
     cache = _load_rejected_row_cache()
     known_bad: list[dict[str, Any]] = []
     to_attempt: list[dict[str, Any]] = []
@@ -711,7 +740,8 @@ def _write_fleet_slice(
         else:
             to_attempt.append(row)
 
-    def _attempt(rows: list[dict[str, Any]]) -> bool:
+    def _attempt(rows: list[dict[str, Any]]) -> tuple[bool, bool]:
+        """Returns ``(succeeded, gave_up_on_materialization)``."""
         by_id = {row["id"] for row in rows}
         edges = [
             edge
@@ -724,19 +754,38 @@ def _write_fleet_slice(
             )
         except Exception as exc:  # noqa: BLE001 — retried by bisection below;
             # the final per-row failure is logged with its reason by the caller.
+            gave_up_on_materialization = (
+                PARTIAL_MATERIALIZATION_RETRIES_EXHAUSTED_MARKER in str(exc)
+            )
             logger.debug(
                 "fleet catalog slice of %d row(s) rejected (%s: %s)",
                 len(rows),
                 type(exc).__name__,
                 exc,
             )
-            return False
-        return True
+            return False, gave_up_on_materialization
+        return True, False
 
     newly_rejected: list[str] = []
+    materialization_pending: list[str] = []
 
     def _bisect(rows: list[dict[str, Any]]) -> None:
-        if not rows or _attempt(rows):
+        if not rows:
+            return
+        succeeded, gave_up_on_materialization = _attempt(rows)
+        if succeeded:
+            return
+        if gave_up_on_materialization:
+            for row in rows:
+                row_id = str(row.get("id"))
+                logger.warning(
+                    "fleet catalog row %s retried against a still-materializing "
+                    "engine and gave up within its bounded budget; it is "
+                    "omitted from THIS sync only (not cached as rejected) and "
+                    "will be re-attempted next sync",
+                    row_id,
+                )
+                materialization_pending.append(row_id)
             return
         if len(rows) == 1:
             row_id = str(rows[0].get("id"))
@@ -765,7 +814,7 @@ def _write_fleet_slice(
         _save_rejected_row_cache(cache)
 
     known_bad_ids = [str(row.get("id")) for row in known_bad]
-    return known_bad_ids + newly_rejected
+    return known_bad_ids + newly_rejected, materialization_pending
 
 
 def _promote_fleet_skills(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:

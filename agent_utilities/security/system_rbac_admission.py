@@ -112,6 +112,32 @@ Design mirrors three already-reviewed precedents exactly
   operator fixes it; concurrent callers for the same key collapse onto one
   attempt via a per-key lock.
 
+Mirror-image defect (fixed alongside ``tenant_rbac_admission``'s own incident)
+-------------------------------------------------------------------------------
+``ensure_system_principal_access``'s only caller (``kg_server.py``'s
+daemon-role boot path, below) constructed ``SystemPrincipal(agent_id=agent_id)``
+with no ``existing_roles`` at all. Combined with the empty-tuple default that
+field used to carry, that silently told :func:`provision_system_principal_access`
+"this principal holds nothing else" — which is exactly the ``ensure_tenant_admission``
+defect (see ``tenant_rbac_admission``'s module docstring, "Incident"), aimed at
+the SAME principal in the opposite direction: if ``ensure_tenant_admission`` had
+already granted ``tenant:homelab``, this boot path would silently overwrite it
+down to ``roles=['control:system']`` alone. Two independently-triggered,
+auto-at-boot admission passes for one principal, each blind to the other's
+grant, each an upsert that replaces rather than merges — they clobber each
+other regardless of which runs first or second. Fixed the same way: the
+``existing_roles`` default is ``None`` (unknown), never an implicit empty
+tuple, and :func:`provision_system_principal_access` refuses to write when it
+is ``None`` rather than guess. ``kg_server.py`` has no more reliable a source
+for this principal's already-granted engine RBAC roles than
+``ensure_tenant_admission`` did (the JWT-derived ``ActorContext.roles`` AU
+authenticates it with is a *different*, AU-side ACL concept, not the engine's
+own RBAC identity registry, and trusting it here would risk exactly the wrong
+kind of guess) — so, absent a caller that can supply the real prior set,
+:func:`ensure_system_principal_access` now fails loudly and degrades exactly
+like the NE-021 missing-credential case already does, instead of silently
+bricking the OTHER admission module's grant.
+
 Auto-admission at boot, not operator-gated — the explicit choice, and why
 -----------------------------------------------------------------------------
 Unlike a WebUI end-user principal (minted dynamically, one per signed-in
@@ -236,12 +262,21 @@ class SystemPrincipal:
     document. ``role``/``teams``/``existing_roles`` are this principal's
     current full identity shape, sent in full on every
     ``RegisterIdentity`` upsert (the engine exposes no identity read-back
-    RPC — see the module docstring)."""
+    RPC — see the module docstring).
+
+    ``existing_roles`` carries one of two meanings, and they are NOT
+    interchangeable — mirrors
+    :attr:`~agent_utilities.security.tenant_rbac_admission.TenantPrincipal.existing_roles`
+    exactly, for the same reason (see this module's docstring, "Mirror-image
+    defect"): an explicit ``()`` means the caller has CONFIRMED this
+    principal currently holds no other roles; the default, ``None``, means
+    the caller does not know. :func:`provision_system_principal_access`
+    merges the former and refuses the latter."""
 
     agent_id: str
     role: str = "Agent"
     teams: tuple[str, ...] = ()
-    existing_roles: tuple[str, ...] = ()
+    existing_roles: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
         if not self.agent_id.strip():
@@ -490,21 +525,24 @@ def provision_system_principal_access(
        ``"Write"`` — see the module docstring for the source trace proving
        the scheduler tick genuinely mutates the control graph, so Write is
        not granted speculatively.
-    2. For each principal: a no-op (``already_held=True``) when ``role in
-       principal.existing_roles``; otherwise re-registers the identity with
-       its EXACT existing ``role``/``teams`` plus ``role`` appended to
-       ``existing_roles`` — never dropping a role/team the caller did not
-       ask to change (``RegisterIdentity`` replaces the whole identity, so
-       this always sends the FULL desired shape — see the module docstring
-       for why no read-back is attempted).
+    2. For each principal: raises immediately if ``principal.existing_roles``
+       is ``None`` (unknown — see the module docstring, "Mirror-image
+       defect"; never guesses an empty set). Otherwise: a no-op
+       (``already_held=True``) when ``role in principal.existing_roles``;
+       else re-registers the identity with its EXACT existing
+       ``role``/``teams`` plus ``role`` appended to ``existing_roles`` —
+       never dropping a role/team the caller did not ask to change
+       (``RegisterIdentity`` replaces the whole identity, so this always
+       sends the FULL desired shape — see the module docstring for why no
+       read-back is attempted).
 
     Refuses ``role="System"`` outright with a :class:`ValueError` (see
     module docstring, "Two designs rejected") — a caller programming error,
     not an RPC failure, so it is never conflated with
     :class:`SystemAdmissionError`.
 
-    A failure on any RPC raises immediately — fail closed, never leave a
-    partial admission unreported.
+    A failure on any RPC, or on an unknown ``existing_roles``, raises
+    immediately — fail closed, never leave a partial admission unreported.
     """
 
     if role == "System":
@@ -522,6 +560,19 @@ def provision_system_principal_access(
 
     outcomes: list[SystemAccessOutcome] = []
     for principal in principals:
+        if principal.existing_roles is None:
+            raise SystemAdmissionError(
+                f"cannot admit {principal.agent_id!r} into {role!r}: "
+                "existing_roles is unknown (None). RegisterIdentity REPLACES "
+                "a principal's whole role set and this module has no "
+                "identity read-back RPC, so writing an unknown role set risks "
+                "silently dropping roles another admission pass already "
+                "granted (e.g. tenant_rbac_admission's tenant role) — see "
+                "the module docstring, 'Mirror-image defect'. The caller "
+                "MUST supply SystemPrincipal.existing_roles as the "
+                "principal's full, currently-known role set, or an explicit "
+                "empty tuple () to affirmatively confirm it holds none."
+            )
         if role in principal.existing_roles:
             outcomes.append(
                 SystemAccessOutcome(
@@ -592,6 +643,7 @@ def ensure_system_principal_access(
     *,
     role: str = CONTROL_ROLE_NAME,
     client: SystemAdmissionClient | None = None,
+    existing_roles: tuple[str, ...] | None = None,
 ) -> SystemAccessOutcome:
     """Ensure au's own process principal ``agent_id`` is admitted into the
     control-graph role, idempotently — the boot-time auto-admission
@@ -601,14 +653,25 @@ def ensure_system_principal_access(
       lifetime). A returning call for the same ``(role, agent_id)`` is a
       dict lookup, never a round trip.
     * **Negative outcome** (missing provisioner credential — NE-021 today
-      — or an engine RPC failure) — cached for
-      :data:`_FAILURE_BACKOFF_SECONDS`, so a still-broken precondition is
-      not retried on every call, while the next call after the backoff
-      window retries automatically — an operator fixing NE-021 is picked
-      up without a process restart.
+      — an engine RPC failure — or ``existing_roles`` unknown, see below)
+      — cached for :data:`_FAILURE_BACKOFF_SECONDS`, so a still-broken
+      precondition is not retried on every call, while the next call after
+      the backoff window retries automatically — an operator fixing NE-021
+      is picked up without a process restart.
     * Concurrent callers for the same key collapse onto one attempt via a
       per-key lock (double-checked against the cache once the lock is
       held).
+
+    ``existing_roles`` is threaded straight to
+    :class:`SystemPrincipal` — this principal's full, currently-known
+    engine-RBAC role set, or an explicit ``()`` to confirm it holds none.
+    Defaults to ``None`` (unknown): today's one caller (``kg_server.py``'s
+    daemon bootstrap path) has no reliable source for it either (see the
+    module docstring, "Mirror-image defect" — the JWT-derived
+    ``ActorContext.roles`` this principal authenticated with is a
+    different, AU-side concept, not the engine's own RBAC registry), so a
+    default call fails loud rather than risk clobbering a role another
+    admission pass already granted this same principal.
 
     Raises :class:`SystemAdmissionError` on a negative outcome — never
     silently proceeds and never returns a value that looks like success.
@@ -657,7 +720,7 @@ def ensure_system_principal_access(
             )
             result = provision_system_principal_access(
                 live_client,
-                [SystemPrincipal(agent_id=agent_id)],
+                [SystemPrincipal(agent_id=agent_id, existing_roles=existing_roles)],
                 admin_authority=authority,
                 role=role,
             )
