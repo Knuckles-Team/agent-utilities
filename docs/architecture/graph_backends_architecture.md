@@ -622,6 +622,30 @@ on `__commons__` can never starve it (distinct graphs already isolate — each
 5. Add optional dependency group to `pyproject.toml`
 6. Add integration tests
 
+## Compute/read surfaces that are NOT `GraphBackend` mirrors (CA-27)
+
+`TrinoQueryBackend` (`backends/trino_backend.py`) and `spark_jobs.py`
+(`backends/spark_jobs.py`) read the Iceberg lakehouse (`services/trino`,
+`services/spark`) as the calling principal. They deliberately do **not**
+implement `GraphBackend` — Trino/Spark return tabular result pages, not
+Cypher-shaped rows, and per the Company Architecture program's invariant I3
+("Provenance on every hop") a compute result is not a KG fact until it
+carries a lineage fence (run id, input snapshot id(s), code version,
+confidence). `TrinoQueryBackend` implements the narrower `QueryBackend`
+protocol instead (`query()` / `as_of()` -> paged `KnowledgeBatch`), and
+`ChangeEnvelopeBuilder` (in `trino_backend.py`, reused by `spark_jobs.py`)
+is the one place that fence is assembled before a result may reach the
+existing `ApplyChangeEnvelope` door (`knowledge_graph/ingestion/
+change_envelope.py`). eg redb remains the only authoritative store (I1);
+Trino/Spark are read/compute surfaces over the Iceberg projection, never a
+competing writer — both modules refuse any write/DDL statement (grep
+`trino_backend.py`/`spark_jobs.py` for `iceberg`: read/catalog-list
+mentions only, zero write/commit calls). See
+`plans/company-architecture/lanes/CA-27-trino-spark-adapters.md` for the
+full design note, including the measured gap that principal-scoped OIDC
+cannot yet be proven end-to-end against the current (no-TLS, no-auth)
+Trino deployment.
+
 ## Related
 
 - [KG as Bidirectional ETL Hub](kg_etl_hub.md) — how these backends serve as ETL load
