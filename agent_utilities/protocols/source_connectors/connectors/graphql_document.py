@@ -523,38 +523,54 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
         self.last_plan: dict[str, Any] | None = None
 
     def _resolve_profile(self) -> dict[str, Any]:
+        profile = self._load_profile_document()
+        self._validate_endpoint(profile)
+        headers, operations = self._validate_profile_shape(profile)
+        self._validate_headers(headers)
+        op = self._select_operation(operations)
+        validated_query = self._validate_operation_paths_and_query(op)
+        self._validate_identity_and_limits(profile)
+        pagination = self._validate_pagination(op, validated_query)
+        self._validate_read_bound(op, validated_query, pagination)
+        self._validate_partial_errors(op)
+        self._validate_fallbacks(op)
+        mappings = self._validate_snapshot_policy_and_mappings(op)
+        self._validate_governance(profile, mappings)
+        self._validate_discovery(profile)
+        return profile
+
+    def _load_profile_document(self) -> dict[str, Any]:
         if self._inline_profile is not None:
-            profile = dict(self._inline_profile)
-        else:
-            resolver = self._profile_resolver
-            if resolver is None:
-                from agent_utilities.security.secrets_client import (
-                    create_secrets_client,
-                )
+            return dict(self._inline_profile)
+        resolver = self._profile_resolver
+        if resolver is None:
+            from agent_utilities.security.secrets_client import (
+                create_secrets_client,
+            )
 
-                resolver = create_secrets_client().resolve_ref
-            try:
-                raw = resolver(self.profile_ref)
-            except Exception as exc:
-                raise GraphQLDocumentError(
-                    f"GraphQL profile resolution failed ({type(exc).__name__})"
-                ) from None
-            if (
-                not isinstance(raw, str)
-                or not raw
-                or len(raw.encode("utf-8")) > _MAX_PROFILE_BYTES
-            ):
-                raise GraphQLDocumentError("GraphQL profile could not be resolved")
-            try:
-                parsed = json.loads(raw, parse_constant=_reject_json_constant)
-            except (TypeError, ValueError, RecursionError):
-                raise GraphQLDocumentError(
-                    "GraphQL profile is not valid JSON"
-                ) from None
-            if not isinstance(parsed, dict):
-                raise GraphQLDocumentError("GraphQL profile must be a JSON object")
-            profile = parsed
+            resolver = create_secrets_client().resolve_ref
+        try:
+            raw = resolver(self.profile_ref)
+        except Exception as exc:
+            raise GraphQLDocumentError(
+                f"GraphQL profile resolution failed ({type(exc).__name__})"
+            ) from None
+        if (
+            not isinstance(raw, str)
+            or not raw
+            or len(raw.encode("utf-8")) > _MAX_PROFILE_BYTES
+        ):
+            raise GraphQLDocumentError("GraphQL profile could not be resolved")
+        try:
+            parsed = json.loads(raw, parse_constant=_reject_json_constant)
+        except (TypeError, ValueError, RecursionError):
+            raise GraphQLDocumentError("GraphQL profile is not valid JSON") from None
+        if not isinstance(parsed, dict):
+            raise GraphQLDocumentError("GraphQL profile must be a JSON object")
+        return parsed
 
+    @staticmethod
+    def _validate_endpoint(profile: dict[str, Any]) -> None:
         endpoint = str(profile.get("endpoint") or "")
         parsed_endpoint = urlparse(endpoint)
         if (
@@ -566,32 +582,51 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             or parsed_endpoint.fragment
         ):
             raise GraphQLDocumentError("GraphQL endpoint must use HTTPS")
+
+    @staticmethod
+    def _validate_profile_shape(profile: dict[str, Any]) -> tuple[Any, Any]:
         headers = profile.get("headers") or {}
         operations = profile.get("operations") or {}
         if not isinstance(headers, dict) or not isinstance(operations, dict):
             raise GraphQLDocumentError("GraphQL profile has an invalid shape")
+        return headers, operations
+
+    @staticmethod
+    def _validate_header_entry(
+        name: Any, value: Any, normalized_names: set[str]
+    ) -> None:
+        if not isinstance(name, str) or not isinstance(value, str):
+            raise GraphQLDocumentError("GraphQL profile headers are invalid")
+        rendered_name = str(name)
+        rendered_value = str(value)
+        normalized_name = rendered_name.lower()
+        if (
+            not _HEADER_RE.fullmatch(rendered_name)
+            or len(rendered_value.encode("utf-8")) > 16_384
+            or "\r" in rendered_value
+            or "\n" in rendered_value
+            or normalized_name in _BLOCKED_REQUEST_HEADERS
+            or normalized_name in normalized_names
+        ):
+            raise GraphQLDocumentError("GraphQL profile headers are invalid")
+        normalized_names.add(normalized_name)
+
+    @classmethod
+    def _validate_headers(cls, headers: dict[str, Any]) -> None:
         if len(headers) > 32:
             raise GraphQLDocumentError("GraphQL profile headers are invalid")
         normalized_names: set[str] = set()
         for name, value in headers.items():
-            if not isinstance(name, str) or not isinstance(value, str):
-                raise GraphQLDocumentError("GraphQL profile headers are invalid")
-            rendered_name = str(name)
-            rendered_value = str(value)
-            normalized_name = rendered_name.lower()
-            if (
-                not _HEADER_RE.fullmatch(rendered_name)
-                or len(rendered_value.encode("utf-8")) > 16_384
-                or "\r" in rendered_value
-                or "\n" in rendered_value
-                or normalized_name in _BLOCKED_REQUEST_HEADERS
-                or normalized_name in normalized_names
-            ):
-                raise GraphQLDocumentError("GraphQL profile headers are invalid")
-            normalized_names.add(normalized_name)
+            cls._validate_header_entry(name, value, normalized_names)
+
+    def _select_operation(self, operations: dict[str, Any]) -> dict[str, Any]:
         op = operations.get(self.operation)
         if not isinstance(op, dict):
             raise GraphQLDocumentError("Requested GraphQL operation is not configured")
+        return op
+
+    @staticmethod
+    def _validate_operation_paths_and_query(op: dict[str, Any]) -> Any:
         validated_query = _validate_query_document(op.get("query"))
         if not _valid_field_path(op.get("root_path")):
             raise GraphQLDocumentError("GraphQL operation has no response root mapping")
@@ -608,6 +643,10 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
         ):
             if key in op and not _valid_field_name(op[key]):
                 raise GraphQLDocumentError("GraphQL operation field name is invalid")
+        return validated_query
+
+    @staticmethod
+    def _validate_identity_and_limits(profile: dict[str, Any]) -> None:
         identity_key = str(profile.get("identity_hmac_key") or "")
         if len(identity_key) < 32:
             raise GraphQLDocumentError(
@@ -617,6 +656,8 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
         if not isinstance(limits, dict):
             raise GraphQLDocumentError("GraphQL profile limits are invalid")
 
+    @staticmethod
+    def _validate_pagination(op: dict[str, Any], validated_query: Any) -> Any:
         pagination = op.get("pagination")
         if pagination is not None:
             if not isinstance(pagination, dict):
@@ -635,7 +676,12 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
                 raise GraphQLDocumentError(
                     "GraphQL pagination query does not enforce its row bound"
                 )
+        return pagination
 
+    @staticmethod
+    def _validate_read_bound(
+        op: dict[str, Any], validated_query: Any, pagination: Any
+    ) -> None:
         read_bound = op.get("read_bound")
         if read_bound is not None:
             if pagination is not None or not isinstance(read_bound, dict):
@@ -651,6 +697,8 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             ):
                 raise GraphQLDocumentError("GraphQL read bound is invalid")
 
+    @staticmethod
+    def _validate_partial_errors(op: dict[str, Any]) -> None:
         partial = op.get("partial_errors")
         if partial is not None:
             if not isinstance(partial, dict):
@@ -662,6 +710,8 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
                 partial.get("paths"), label="partial-error path", pattern=_FIELD_PATH_RE
             )
 
+    @staticmethod
+    def _validate_fallbacks(op: dict[str, Any]) -> None:
         fallbacks = op.get("optional_field_fallbacks") or []
         if not isinstance(fallbacks, list) or len(fallbacks) > 3:
             raise GraphQLDocumentError("GraphQL optional-field fallbacks are invalid")
@@ -676,7 +726,46 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
                 fallback.get("paths"), label="fallback path", pattern=_FIELD_PATH_RE
             )
 
-        mappings = op.get("mappings")
+    @staticmethod
+    def _validate_entity_mapping_paths(mapping: dict[str, Any]) -> None:
+        id_path = str(mapping.get("id_path") or "id")
+        if not _valid_field_path(id_path):
+            raise GraphQLDocumentError("GraphQL entity identity mapping is invalid")
+        records_path = str(mapping.get("records_path") or "")
+        if records_path and not _valid_field_path(records_path):
+            raise GraphQLDocumentError("GraphQL entity records mapping is invalid")
+        if any(
+            not _valid_field_path(value)
+            for key, value in mapping.items()
+            if key.endswith("_path") and value not in (None, "")
+        ):
+            raise GraphQLDocumentError("GraphQL entity field path is invalid")
+
+    @staticmethod
+    def _validate_entity_allowlist(mapping: dict[str, Any]) -> None:
+        allowlist = mapping.get("property_allowlist")
+        if not isinstance(allowlist, list) or len(allowlist) > 256:
+            raise GraphQLDocumentError("GraphQL entity property allowlist is required")
+        if any(not _valid_field_path(field) for field in allowlist):
+            raise GraphQLDocumentError("GraphQL entity property allowlist is invalid")
+
+    @staticmethod
+    def _validate_hierarchy_children_path(mapping: dict[str, Any]) -> None:
+        children_path = str(mapping.get("children_path") or "")
+        if children_path and not _valid_field_path(children_path):
+            raise GraphQLDocumentError("GraphQL hierarchy children mapping is invalid")
+
+    @classmethod
+    def _validate_entity_mapping(cls, kind: str, mapping: Any) -> None:
+        if not isinstance(mapping, dict):
+            raise GraphQLDocumentError("GraphQL entity mapping is invalid")
+        cls._validate_entity_mapping_paths(mapping)
+        cls._validate_entity_allowlist(mapping)
+        if kind == "hierarchy":
+            cls._validate_hierarchy_children_path(mapping)
+
+    @staticmethod
+    def _validate_snapshot_authority_flags(op: dict[str, Any]) -> None:
         for key in ("snapshot_authoritative", "allow_empty_snapshot"):
             if key in op and not isinstance(op[key], bool):
                 raise GraphQLDocumentError(
@@ -688,55 +777,34 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             raise GraphQLDocumentError(
                 "GraphQL empty snapshot approval requires authoritative mode"
             )
-        if mappings is not None:
-            if not isinstance(mappings, dict):
-                raise GraphQLDocumentError("GraphQL entity mappings are invalid")
-            recognized = False
-            for kind, aliases in _MAPPING_KEYS.items():
-                mapping = next(
-                    (mappings.get(alias) for alias in aliases if alias in mappings),
-                    None,
-                )
-                if mapping is None:
-                    continue
-                recognized = True
-                if not isinstance(mapping, dict):
-                    raise GraphQLDocumentError("GraphQL entity mapping is invalid")
-                id_path = str(mapping.get("id_path") or "id")
-                if not _valid_field_path(id_path):
-                    raise GraphQLDocumentError(
-                        "GraphQL entity identity mapping is invalid"
-                    )
-                records_path = str(mapping.get("records_path") or "")
-                if records_path and not _valid_field_path(records_path):
-                    raise GraphQLDocumentError(
-                        "GraphQL entity records mapping is invalid"
-                    )
-                if any(
-                    not _valid_field_path(value)
-                    for key, value in mapping.items()
-                    if key.endswith("_path") and value not in (None, "")
-                ):
-                    raise GraphQLDocumentError("GraphQL entity field path is invalid")
-                allowlist = mapping.get("property_allowlist")
-                if not isinstance(allowlist, list) or len(allowlist) > 256:
-                    raise GraphQLDocumentError(
-                        "GraphQL entity property allowlist is required"
-                    )
-                if any(not _valid_field_path(field) for field in allowlist):
-                    raise GraphQLDocumentError(
-                        "GraphQL entity property allowlist is invalid"
-                    )
-                if kind == "hierarchy":
-                    children_path = str(mapping.get("children_path") or "")
-                    if children_path and not _valid_field_path(children_path):
-                        raise GraphQLDocumentError(
-                            "GraphQL hierarchy children mapping is invalid"
-                        )
-            if not recognized:
-                raise GraphQLDocumentError("GraphQL profile has no entity mappings")
 
-        governance = profile.get("governance") or {}
+    @classmethod
+    def _validate_mappings(cls, mappings: Any) -> None:
+        if not isinstance(mappings, dict):
+            raise GraphQLDocumentError("GraphQL entity mappings are invalid")
+        recognized = False
+        for kind, aliases in _MAPPING_KEYS.items():
+            mapping = next(
+                (mappings.get(alias) for alias in aliases if alias in mappings),
+                None,
+            )
+            if mapping is None:
+                continue
+            recognized = True
+            cls._validate_entity_mapping(kind, mapping)
+        if not recognized:
+            raise GraphQLDocumentError("GraphQL profile has no entity mappings")
+
+    @classmethod
+    def _validate_snapshot_policy_and_mappings(cls, op: dict[str, Any]) -> Any:
+        mappings = op.get("mappings")
+        cls._validate_snapshot_authority_flags(op)
+        if mappings is not None:
+            cls._validate_mappings(mappings)
+        return mappings
+
+    @staticmethod
+    def _validate_governance_shape(governance: Any) -> None:
         if not isinstance(governance, dict):
             raise GraphQLDocumentError("GraphQL governance mapping is invalid")
         _classification(governance.get("classification"))
@@ -744,6 +812,9 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             governance["legal_hold"], bool
         ):
             raise GraphQLDocumentError("GraphQL governance legal hold is invalid")
+
+    @staticmethod
+    def _validate_governance_retention(governance: dict[str, Any], mappings: Any) -> str:
         retention = str(governance.get("retention") or "").strip()
         if mappings is not None and not retention:
             raise GraphQLDocumentError(
@@ -751,6 +822,10 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             )
         if retention and not _RETENTION_RE.fullmatch(retention):
             raise GraphQLDocumentError("GraphQL governance retention is invalid")
+        return retention
+
+    @staticmethod
+    def _validate_governance_versions(governance: dict[str, Any]) -> None:
         tenant = str(governance.get("tenant") or "").strip()
         if tenant:
             _safe_alias(tenant, label="tenant")
@@ -759,7 +834,17 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
                 str(governance[key] or "")
             ):
                 raise GraphQLDocumentError("GraphQL governance version is invalid")
+
+    @classmethod
+    def _validate_governance(cls, profile: dict[str, Any], mappings: Any) -> None:
+        governance = profile.get("governance") or {}
+        cls._validate_governance_shape(governance)
+        cls._validate_governance_retention(governance, mappings)
+        cls._validate_governance_versions(governance)
         _access_from_config(governance.get("access", profile.get("access")))
+
+    @staticmethod
+    def _validate_discovery(profile: dict[str, Any]) -> None:
         discovery = profile.get("discovery")
         if discovery is not None and not isinstance(discovery, Mapping):
             raise GraphQLDocumentError("GraphQL discovery policy is invalid")
@@ -767,7 +852,6 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             for key in ("enabled", "allow_introspection"):
                 if key in discovery and not isinstance(discovery[key], bool):
                     raise GraphQLDocumentError("GraphQL discovery policy is invalid")
-        return profile
 
     def _transport_security(self, profile: dict[str, Any]) -> Any:
         """Resolve a runtime-only TLS profile without exposing it downstream."""
@@ -1479,7 +1563,51 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
         snapshot_authoritative: bool,
         allow_empty_snapshot: bool,
     ) -> GraphQLHierarchyBatch:
-        prior_state = checkpoint.state if checkpoint else {}
+        prior_state, baseline, prior_sequence = self._load_prior_checkpoint_state(
+            checkpoint
+        )
+        self._validate_snapshot_completeness(
+            diagnostics, snapshot_authoritative, baseline, versions, allow_empty_snapshot
+        )
+        governance_state = self._governance_state_dict(governance)
+        changed, changed_documents, changed_envelopes = self._changed_entities(
+            documents,
+            envelopes,
+            versions,
+            baseline,
+            prior_state,
+            profile_digest,
+            governance_state,
+        )
+        tombstones = self._build_tombstones(
+            baseline,
+            versions,
+            prior_state,
+            snapshot_authoritative,
+            allow_empty_snapshot,
+            prior_sequence,
+        )
+        next_checkpoint = self._build_next_checkpoint(
+            prior_state,
+            baseline,
+            versions,
+            profile_digest,
+            governance_state,
+            snapshot_authoritative,
+            allow_empty_snapshot,
+            prior_sequence,
+        )
+        diagnostics = self._finalize_diagnostics(
+            diagnostics, versions, documents, changed, changed_documents, tombstones
+        )
+        return GraphQLHierarchyBatch(
+            documents=tuple(changed_documents),
+            envelopes=tuple((*changed_envelopes, *tombstones)),
+            checkpoint=next_checkpoint,
+            diagnostics=diagnostics,
+        )
+
+    def _validate_checkpoint_scope(self, prior_state: dict[str, Any]) -> None:
         if prior_state and prior_state.get("checkpoint_format") != _CHECKPOINT_FORMAT:
             raise GraphQLDocumentError("GraphQL checkpoint format is invalid")
         if prior_state and (
@@ -1487,6 +1615,8 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             or prior_state.get("operation") != self.operation
         ):
             raise GraphQLDocumentError("GraphQL checkpoint scope is invalid")
+
+    def _validate_checkpoint_baseline(self, prior_state: dict[str, Any]) -> dict[str, str]:
         baseline_raw = prior_state.get("versions")
         baseline = baseline_raw if isinstance(baseline_raw, dict) else {}
         if len(baseline) > max(self.max_entities, self.max_documents) or any(
@@ -1497,13 +1627,35 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             for node_id, version in baseline.items()
         ):
             raise GraphQLDocumentError("GraphQL checkpoint state is invalid")
+        return baseline
+
+    @staticmethod
+    def _validate_checkpoint_sequence(prior_state: dict[str, Any]) -> int:
         try:
             prior_sequence = int(prior_state.get("snapshot_sequence") or 0)
         except (TypeError, ValueError):
             raise GraphQLDocumentError("GraphQL checkpoint state is invalid") from None
         if prior_sequence < 0:
             raise GraphQLDocumentError("GraphQL checkpoint state is invalid")
+        return prior_sequence
 
+    def _load_prior_checkpoint_state(
+        self, checkpoint: ConnectorCheckpoint | None
+    ) -> tuple[dict[str, Any], dict[str, str], int]:
+        prior_state = checkpoint.state if checkpoint else {}
+        self._validate_checkpoint_scope(prior_state)
+        baseline = self._validate_checkpoint_baseline(prior_state)
+        prior_sequence = self._validate_checkpoint_sequence(prior_state)
+        return prior_state, baseline, prior_sequence
+
+    @staticmethod
+    def _validate_snapshot_completeness(
+        diagnostics: dict[str, Any],
+        snapshot_authoritative: bool,
+        baseline: dict[str, str],
+        versions: dict[str, str],
+        allow_empty_snapshot: bool,
+    ) -> None:
         incomplete_reasons = sum(
             int(diagnostics.get(key) or 0)
             for key in ("truncated", "partial_errors", "invalid_records")
@@ -1521,6 +1673,19 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             raise GraphQLDocumentError(
                 "GraphQL empty authoritative snapshot requires explicit approval"
             )
+
+    @staticmethod
+    def _governance_state_dict(
+        governance: tuple[
+            ExternalAccess,
+            DataClassification,
+            str | None,
+            bool,
+            str,
+            str,
+            str,
+        ],
+    ) -> dict[str, Any]:
         (
             access,
             classification,
@@ -1530,7 +1695,7 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             schema_version,
             mapping_version,
         ) = governance
-        governance_state = {
+        return {
             "access": access.model_dump(mode="json"),
             "classification": classification.value,
             "retention": retention,
@@ -1539,6 +1704,15 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             "schema_version": schema_version,
             "ontology_mapping_version": mapping_version,
         }
+
+    @staticmethod
+    def _changed_node_ids(
+        versions: dict[str, str],
+        baseline: dict[str, str],
+        prior_state: dict[str, Any],
+        profile_digest: str,
+        governance_state: dict[str, Any],
+    ) -> set[str]:
         changed = {
             node_id
             for node_id, version in versions.items()
@@ -1549,6 +1723,21 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             or prior_state.get("governance") != governance_state
         ):
             changed.update(versions)
+        return changed
+
+    @staticmethod
+    def _changed_entities(
+        documents: list[SourceDocument],
+        envelopes: list[ChangeEnvelope],
+        versions: dict[str, str],
+        baseline: dict[str, str],
+        prior_state: dict[str, Any],
+        profile_digest: str,
+        governance_state: dict[str, Any],
+    ) -> tuple[set[str], list[SourceDocument], list[ChangeEnvelope]]:
+        changed = GraphQLDocumentConnector._changed_node_ids(
+            versions, baseline, prior_state, profile_digest, governance_state
+        )
         changed_documents = [
             document
             for document in documents
@@ -1557,79 +1746,151 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
         changed_envelopes = [
             envelope for envelope in envelopes if envelope.source_object_id in changed
         ]
-        tombstones: list[ChangeEnvelope] = []
-        missing = sorted(set(baseline).difference(versions))
-        previous_governance = prior_state.get("governance")
-        if snapshot_authoritative and missing:
-            if not isinstance(previous_governance, Mapping):
-                raise GraphQLDocumentError(
-                    "GraphQL checkpoint governance state is invalid"
-                )
-            try:
-                previous_access = _access_from_config(previous_governance.get("access"))
-                previous_classification = _classification(
-                    previous_governance.get("classification")
-                )
-                previous_retention = (
-                    str(previous_governance.get("retention") or "").strip() or None
-                )
-                previous_legal_hold = bool(previous_governance.get("legal_hold", False))
-                previous_tenant = str(previous_governance.get("tenant") or "")
-                previous_schema = str(previous_governance.get("schema_version") or "1")
-                previous_mapping = str(
-                    previous_governance.get("ontology_mapping_version") or "1"
-                )
-            except (TypeError, ValueError, GraphQLDocumentError):
-                raise GraphQLDocumentError(
-                    "GraphQL checkpoint governance state is invalid"
-                ) from None
-            if previous_tenant:
-                _safe_alias(previous_tenant, label="tenant")
-            if previous_retention and not _RETENTION_RE.fullmatch(previous_retention):
-                raise GraphQLDocumentError(
-                    "GraphQL checkpoint governance state is invalid"
-                )
-            next_snapshot_digest = _digest(
-                self.source_alias,
-                self.operation,
-                prior_sequence + 1,
-                sorted(versions.items()),
-            )
-            for node_id in missing:
-                delete_version = _digest(
-                    "graphql-snapshot-delete",
-                    baseline[node_id],
-                    next_snapshot_digest,
-                )
-                tombstones.append(
-                    ChangeEnvelope(
-                        connector="graphql_document",
-                        operation="delete",
-                        tenant=previous_tenant,
-                        source_instance=self.source_alias,
-                        source_object_id=node_id,
-                        source_version=delete_version,
-                        schema_version=previous_schema,
-                        ontology_mapping_version=previous_mapping,
-                        source_acl=previous_access,
-                        classification=previous_classification,
-                        retention=previous_retention,
-                        legal_hold=previous_legal_hold,
-                        provenance={
-                            "profile_digest": str(
-                                prior_state.get("profile_digest") or ""
-                            ),
-                            "privacy_gate": True,
-                            "identity_scheme": "hmac-sha256",
-                            "snapshot_reconciliation": True,
-                            "authoritative_empty_approved": bool(
-                                not versions and allow_empty_snapshot
-                            ),
-                        },
-                        checkpoint=delete_version,
-                    )
-                )
+        return changed, changed_documents, changed_envelopes
 
+    @staticmethod
+    def _parse_previous_governance_fields(
+        previous_governance: Mapping[str, Any],
+    ) -> tuple[ExternalAccess, DataClassification, str | None, bool, str, str, str]:
+        try:
+            previous_access = _access_from_config(previous_governance.get("access"))
+            previous_classification = _classification(
+                previous_governance.get("classification")
+            )
+            previous_retention = (
+                str(previous_governance.get("retention") or "").strip() or None
+            )
+            previous_legal_hold = bool(previous_governance.get("legal_hold", False))
+            previous_tenant = str(previous_governance.get("tenant") or "")
+            previous_schema = str(previous_governance.get("schema_version") or "1")
+            previous_mapping = str(
+                previous_governance.get("ontology_mapping_version") or "1"
+            )
+        except (TypeError, ValueError, GraphQLDocumentError):
+            raise GraphQLDocumentError(
+                "GraphQL checkpoint governance state is invalid"
+            ) from None
+        return (
+            previous_access,
+            previous_classification,
+            previous_retention,
+            previous_legal_hold,
+            previous_tenant,
+            previous_schema,
+            previous_mapping,
+        )
+
+    @classmethod
+    def _resolve_previous_governance(
+        cls,
+        previous_governance: Any,
+    ) -> tuple[ExternalAccess, DataClassification, str | None, bool, str, str, str]:
+        if not isinstance(previous_governance, Mapping):
+            raise GraphQLDocumentError("GraphQL checkpoint governance state is invalid")
+        fields = cls._parse_previous_governance_fields(previous_governance)
+        previous_retention = fields[2]
+        previous_tenant = fields[4]
+        if previous_tenant:
+            _safe_alias(previous_tenant, label="tenant")
+        if previous_retention and not _RETENTION_RE.fullmatch(previous_retention):
+            raise GraphQLDocumentError("GraphQL checkpoint governance state is invalid")
+        return fields
+
+    def _tombstone_for_node(
+        self,
+        node_id: str,
+        baseline: dict[str, str],
+        next_snapshot_digest: str,
+        previous_fields: tuple[
+            ExternalAccess, DataClassification, str | None, bool, str, str, str
+        ],
+        prior_state: dict[str, Any],
+        versions: dict[str, str],
+        allow_empty_snapshot: bool,
+    ) -> ChangeEnvelope:
+        (
+            previous_access,
+            previous_classification,
+            previous_retention,
+            previous_legal_hold,
+            previous_tenant,
+            previous_schema,
+            previous_mapping,
+        ) = previous_fields
+        delete_version = _digest(
+            "graphql-snapshot-delete",
+            baseline[node_id],
+            next_snapshot_digest,
+        )
+        return ChangeEnvelope(
+            connector="graphql_document",
+            operation="delete",
+            tenant=previous_tenant,
+            source_instance=self.source_alias,
+            source_object_id=node_id,
+            source_version=delete_version,
+            schema_version=previous_schema,
+            ontology_mapping_version=previous_mapping,
+            source_acl=previous_access,
+            classification=previous_classification,
+            retention=previous_retention,
+            legal_hold=previous_legal_hold,
+            provenance={
+                "profile_digest": str(prior_state.get("profile_digest") or ""),
+                "privacy_gate": True,
+                "identity_scheme": "hmac-sha256",
+                "snapshot_reconciliation": True,
+                "authoritative_empty_approved": bool(
+                    not versions and allow_empty_snapshot
+                ),
+            },
+            checkpoint=delete_version,
+        )
+
+    def _build_tombstones(
+        self,
+        baseline: dict[str, str],
+        versions: dict[str, str],
+        prior_state: dict[str, Any],
+        snapshot_authoritative: bool,
+        allow_empty_snapshot: bool,
+        prior_sequence: int,
+    ) -> list[ChangeEnvelope]:
+        missing = sorted(set(baseline).difference(versions))
+        if not (snapshot_authoritative and missing):
+            return []
+        previous_governance = prior_state.get("governance")
+        previous_fields = self._resolve_previous_governance(previous_governance)
+        next_snapshot_digest = _digest(
+            self.source_alias,
+            self.operation,
+            prior_sequence + 1,
+            sorted(versions.items()),
+        )
+        return [
+            self._tombstone_for_node(
+                node_id,
+                baseline,
+                next_snapshot_digest,
+                previous_fields,
+                prior_state,
+                versions,
+                allow_empty_snapshot,
+            )
+            for node_id in missing
+        ]
+
+    def _build_next_checkpoint(
+        self,
+        prior_state: dict[str, Any],
+        baseline: dict[str, str],
+        versions: dict[str, str],
+        profile_digest: str,
+        governance_state: dict[str, Any],
+        snapshot_authoritative: bool,
+        allow_empty_snapshot: bool,
+        prior_sequence: int,
+    ) -> ConnectorCheckpoint:
         checkpoint_changed = not prior_state or any(
             (
                 baseline != versions,
@@ -1646,7 +1907,7 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             sequence,
             sorted(versions.items()),
         )
-        next_checkpoint = ConnectorCheckpoint(
+        return ConnectorCheckpoint(
             has_more=False,
             watermark=watermark,
             seen_ids=sorted(versions)[-self.max_entities :],
@@ -1662,7 +1923,17 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
                 "versions": dict(sorted(versions.items())),
             },
         )
-        diagnostics = {
+
+    @staticmethod
+    def _finalize_diagnostics(
+        diagnostics: dict[str, Any],
+        versions: dict[str, str],
+        documents: list[SourceDocument],
+        changed: set[str],
+        changed_documents: list[SourceDocument],
+        tombstones: list[ChangeEnvelope],
+    ) -> dict[str, Any]:
+        return {
             **diagnostics,
             "entities": len(versions),
             "documents": len(documents),
@@ -1670,12 +1941,6 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             "changed_documents": len(changed_documents),
             "tombstones": len(tombstones),
         }
-        return GraphQLHierarchyBatch(
-            documents=tuple(changed_documents),
-            envelopes=tuple((*changed_envelopes, *tombstones)),
-            checkpoint=next_checkpoint,
-            diagnostics=diagnostics,
-        )
 
     def _document_batch(
         self,
