@@ -36,6 +36,46 @@ def _matches(designation: Any, rule: dict[str, Any]) -> bool:
     return False
 
 
+def _evaluate_rules_for_one(
+    designation: Any, rules: list[dict[str, Any]]
+) -> tuple[bool, float]:
+    """Fold ``rules`` against a single ``designation``.
+
+    Returns ``(forbidden, delta)``. A matching ``forbid`` rule short-circuits
+    the fold immediately (``break``), so any ``delta`` already accumulated
+    from earlier matching ``prefer``/``demote`` rules is abandoned along with
+    it -- the caller drops a forbidden designation outright and never applies
+    a partial delta.
+    """
+    forbidden = False
+    delta = 0.0
+    for rule in rules:
+        if not _matches(designation, rule):
+            continue
+        kind = str(rule.get("kind", "")).lower()
+        weight = float(rule.get("weight", 0.2))
+        if kind == "forbid":
+            forbidden = True
+            break
+        if kind == "prefer":
+            delta += weight
+        elif kind == "demote":
+            delta -= weight
+    return forbidden, delta
+
+
+def _apply_score_delta(designation: Any, delta: float) -> None:
+    """Best-effort ``designation.score += delta``; some designation types have
+    no settable ``score`` attribute, which is tolerated (score is an
+    enhancement to ranking, never a hard requirement of a designation)."""
+    if not delta:
+        return
+    try:
+        designation.score = float(getattr(designation, "score", 0.0)) + delta
+    except Exception:  # pragma: no cover - score is always numeric
+        pass
+
+
 def apply_governance_rules(
     designations: list[Any], rules: list[dict[str, Any]] | None
 ) -> list[Any]:
@@ -44,27 +84,10 @@ def apply_governance_rules(
         return designations
     kept: list[Any] = []
     for d in designations:
-        forbidden = False
-        delta = 0.0
-        for rule in rules:
-            if not _matches(d, rule):
-                continue
-            kind = str(rule.get("kind", "")).lower()
-            weight = float(rule.get("weight", 0.2))
-            if kind == "forbid":
-                forbidden = True
-                break
-            if kind == "prefer":
-                delta += weight
-            elif kind == "demote":
-                delta -= weight
+        forbidden, delta = _evaluate_rules_for_one(d, rules)
         if forbidden:
             continue
-        if delta:
-            try:
-                d.score = float(getattr(d, "score", 0.0)) + delta
-            except Exception:  # pragma: no cover - score is always numeric
-                pass
+        _apply_score_delta(d, delta)
         kept.append(d)
     kept.sort(key=lambda x: getattr(x, "score", 0.0), reverse=True)
     return kept
