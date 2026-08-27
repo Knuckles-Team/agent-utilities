@@ -754,6 +754,469 @@ class ContextCompiler:
     # ------------------------------------------------------------------
     # Compilation
     # ------------------------------------------------------------------
+    def _compile_quality_gate(self, quality_report: Any) -> tuple[bool, str]:
+        quality_gate_failed = bool(
+            quality_report is not None
+            and not getattr(quality_report, "gate_passed", True)
+        )
+        quality_reason = (
+            ",".join(
+                m.value if hasattr(m, "value") else str(m)
+                for m in getattr(quality_report, "failure_modes_detected", None) or ()
+            )
+            if quality_gate_failed
+            else ""
+        )
+        # D-EGD-5: when the gate's own SPARSE_INDEX check fired, fold the
+        # sampled population ratio into the reason string too — "sparse_index"
+        # alone tells a caller THAT the index is empty, but "sparse_index(0.5%)"
+        # tells them by how much, without needing to re-derive it from a
+        # separate diagnostic. index_population_ratio is only ever set when the
+        # gate already sampled it (see RetrievalQualityGate._sample_index_population).
+        if quality_gate_failed and "sparse_index" in quality_reason:
+            ratio = getattr(quality_report, "index_population_ratio", None)
+            if ratio is not None:
+                quality_reason = quality_reason.replace(
+                    "sparse_index", f"sparse_index({ratio * 100:.1f}%)"
+                )
+        return quality_gate_failed, quality_reason
+
+    def _compile_policy_filter(
+        self,
+        candidates: list[dict[str, Any]],
+        session: GraphSession,
+        mask_redactions: bool,
+        decisions: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], set[str], int]:
+        # ---- 6. POLICY — the SAME fine-grained gate the live read path uses.
+        allowed = enforce(candidates, session.actor, mask=mask_redactions)
+        allowed_ids = {_node_id(n) for n in allowed}
+        dropped_policy = 0
+        for cand in candidates:
+            nid = _node_id(cand)
+            if nid not in allowed_ids:
+                dropped_policy += 1
+                decisions.append(
+                    {
+                        "id": nid,
+                        "stage": "policy",
+                        "included": False,
+                        "reason": "policy_denied",
+                    }
+                )
+        return allowed, allowed_ids, dropped_policy
+
+    def _compile_deserialize_cached_bundle(
+        self, cache_key: str, cached_bytes: bytes, query: str
+    ) -> ContextBundle | None:
+        """Returns None (never raises) on a corrupt/incompatible cached blob --
+        treated as a cache MISS, falling through to recompute."""
+        try:
+            cached_text = cached_bytes.decode("utf-8")
+            cached_value = json.loads(cached_text)
+            _clean_cached, cached_privacy = sanitize_for_persistence(cached_value)
+            if cached_privacy.changed or (
+                query and query.casefold() in cached_text.casefold()
+            ):
+                raise ValueError(
+                    "cached bundle violates the persistence privacy contract"
+                )
+            cached_bundle = ContextBundle.from_dict(cached_value)
+        except (  # noqa: BLE001 — a corrupt/incompatible cached bundle is treated as a cache MISS (falls through to recompute below) rather than a hard failure — the safe direction for a KV cache seam
+            json.JSONDecodeError,
+            UnicodeDecodeError,
+            TypeError,
+            ValueError,
+            KeyError,
+        ) as exc:
+            logger.debug(
+                "[CONCEPT:AU-KG.retrieval.context-compiler-kv-seam] cache hit for "
+                "key=%s failed to deserialize, recomputing: %s",
+                cache_key,
+                exc,
+            )
+            return None
+        # The durable shape carries only an opaque query reference. Restore the
+        # live prompt in memory after governance/cache identity checks; never
+        # make the opaque ref user-visible.
+        cached_bundle.query = query
+        cached_bundle.cache_key = cache_key
+        cached_bundle.kv_cache_hit = True
+        logger.info(
+            "[CONCEPT:AU-KG.retrieval.context-compiler-kv-seam] kv-cache hit "
+            "key=%s items=%d (assembly skipped)",
+            cache_key,
+            len(cached_bundle.items),
+        )
+        return cached_bundle
+
+    def _compile_kv_cache_lookup(
+        self,
+        kv_backend: Any | None,
+        allowed_ids: set[str],
+        session: GraphSession,
+        *,
+        query: str,
+        top_k: int,
+        diversity_lambda: float,
+        freshness_half_life_days: float,
+        weights: tuple[float, float, float],
+        as_of: str | None,
+        mask_redactions: bool,
+        token_budget: int,
+        evidence_ordering_version: str,
+        model_version: str,
+        redaction_version: str,
+        snapshot: str,
+    ) -> tuple[str, ContextBundle | None]:
+        """Seam 6: KV-cache lookup, keyed on the post-policy evidence-id set
+        (the pool this bundle would be assembled from) + policy_version +
+        token_budget — see compute_bundle_cache_key. Computed here (after
+        retrieval+policy, BEFORE the expensive scoring/MMR/budget/proof-graph
+        work) so a hit can skip straight past all of it.
+
+        Returns ``(cache_key, cached_bundle)`` — ``cache_key`` is ``""`` when
+        ``kv_backend`` is None; a non-None ``cached_bundle`` means the caller
+        must return it immediately without re-assembling.
+        """
+        if kv_backend is None:
+            return "", None
+        cache_key = compute_bundle_cache_key(
+            allowed_ids,
+            policy_version=session.policy_version,
+            token_budget=token_budget,
+            tenant=session.tenant,
+            principal=session.actor.actor_id if session.actor else "",
+            graph=session.graph,
+            query=query,
+            evidence_ordering_version=evidence_ordering_version,
+            model_version=model_version,
+            redaction_version=redaction_version,
+            snapshot=snapshot or str(as_of or ""),
+            catalog_epoch=session.catalog_epoch,
+            extra={
+                "top_k": top_k,
+                "diversity_lambda": diversity_lambda,
+                "freshness_half_life_days": freshness_half_life_days,
+                "weights": list(weights),
+                "as_of": as_of,
+                "mask_redactions": mask_redactions,
+            },
+        )
+        cached_bytes = kv_backend.get(cache_key)
+        if cached_bytes is None:
+            # A miss falls through to the normal assembly path below.
+            _record_kv_cache_outcome("miss")
+            return cache_key, None
+        cached_bundle = self._compile_deserialize_cached_bundle(
+            cache_key, cached_bytes, query
+        )
+        if cached_bundle is None:
+            _record_kv_cache_outcome("miss")
+            return cache_key, None
+        _record_kv_cache_outcome("hit")
+        return cache_key, cached_bundle
+
+    def _compile_score_candidates(
+        self,
+        allowed: list[dict[str, Any]],
+        *,
+        weights: tuple[float, float, float],
+        as_of: str | None,
+        freshness_half_life_days: float,
+    ) -> list[dict[str, Any]]:
+        # ---- 1/3/4. RELEVANCE (normalized) + EVIDENCE QUALITY + FRESHNESS.
+        raw_scores = [self._raw_relevance(n) for n in allowed]
+        lo = min(raw_scores) if raw_scores else 0.0
+        hi = max(raw_scores) if raw_scores else 0.0
+        spread = hi - lo
+
+        w_sum = sum(weights) or 1.0
+        w_rel, w_ev, w_fresh = (w / w_sum for w in weights)
+
+        records: list[dict[str, Any]] = []
+        for node, raw in zip(allowed, raw_scores, strict=False):
+            relevance = (raw - lo) / spread if spread > 0 else 1.0
+            evidence_quality = self._evidence_quality(node)
+            freshness = self._freshness(
+                node, as_of=as_of, half_life_days=freshness_half_life_days
+            )
+            composite = (
+                w_rel * relevance + w_ev * evidence_quality + w_fresh * freshness
+            )
+            records.append(
+                {
+                    "node": node,
+                    "nid": _node_id(node),
+                    "relevance": relevance,
+                    "evidence_quality": evidence_quality,
+                    "freshness": freshness,
+                    "composite": composite,
+                }
+            )
+        # Deterministic base order: composite desc, id asc tie-break.
+        records.sort(key=lambda r: (-r["composite"], r["nid"]))
+        return records
+
+    def _compile_mmr_best(
+        self,
+        remaining: list[dict[str, Any]],
+        selected_nodes: list[dict[str, Any]],
+        diversity_lambda: float,
+    ) -> tuple[dict[str, Any], float]:
+        best_rec: dict[str, Any] | None = None
+        best_mmr = float("-inf")
+        best_div = 0.0
+        for rec in remaining:
+            sim = self._max_similarity(rec["node"], selected_nodes)
+            mmr_score = (
+                diversity_lambda * rec["composite"] - (1 - diversity_lambda) * sim
+            )
+            if (
+                best_rec is None
+                or mmr_score > best_mmr + 1e-12
+                or (
+                    abs(mmr_score - best_mmr) <= 1e-12
+                    and rec["nid"] < best_rec["nid"]
+                )
+            ):
+                best_rec = rec
+                best_mmr = mmr_score
+                best_div = sim
+        assert best_rec is not None
+        return best_rec, best_div
+
+    def _compile_mmr_select(
+        self,
+        records: list[dict[str, Any]],
+        *,
+        top_k: int,
+        diversity_lambda: float,
+    ) -> list[dict[str, Any]]:
+        # ---- 2. DIVERSITY — greedy MMR selection.
+        selected: list[dict[str, Any]] = []
+        selected_nodes: list[dict[str, Any]] = []
+        remaining = list(records)
+        while remaining and len(selected) < top_k:
+            best_rec, best_div = self._compile_mmr_best(
+                remaining, selected_nodes, diversity_lambda
+            )
+            best_rec = dict(best_rec)
+            best_rec["diversity_penalty"] = best_div
+            selected.append(best_rec)
+            selected_nodes.append(best_rec["node"])
+            remaining.remove(
+                next(r for r in remaining if r["nid"] == best_rec["nid"])
+            )
+        return selected
+
+    def _compile_record_mmr_decisions(
+        self,
+        records: list[dict[str, Any]],
+        selected: list[dict[str, Any]],
+        decisions: list[dict[str, Any]],
+    ) -> int:
+        dropped_redundant = len(records) - len(selected)
+        selected_ids = {r["nid"] for r in selected}
+        for rec in records:
+            if rec["nid"] not in selected_ids:
+                decisions.append(
+                    {
+                        "id": rec["nid"],
+                        "stage": "select",
+                        "included": False,
+                        "reason": "mmr_not_selected",
+                        "composite_score": round(rec["composite"], 4),
+                    }
+                )
+        return dropped_redundant
+
+    def _compile_budget_fit(
+        self,
+        selected: list[dict[str, Any]],
+        *,
+        token_budget: int,
+        decisions: list[dict[str, Any]],
+    ) -> tuple[Any, int]:
+        # WS-4: "tokens-in" for the efficiency metrics below — the token cost of
+        # the MMR-ranked pool as handed to the budget fit, i.e. before any
+        # budget-driven truncation (the selection-efficiency signal is
+        # tokens_selected / tokens_in).
+        tokens_in = sum(
+            _estimate_item_tokens(self._text_of(r["node"])) for r in selected
+        )
+
+        # ---- 5. TOKEN COST — fit the MMR-ranked selection within budget.
+        mgr = RetrievalBudgetManager(token_budget)
+        budget_result = mgr.fit(selected, text_of=lambda r: self._text_of(r["node"]))
+        kept_ids = {r["nid"] for r in budget_result.kept}
+        for rec in selected:
+            if rec["nid"] not in kept_ids:
+                decisions.append(
+                    {
+                        "id": rec["nid"],
+                        "stage": "budget",
+                        "included": False,
+                        "reason": "token_budget",
+                        "composite_score": round(rec["composite"], 4),
+                    }
+                )
+        return budget_result, tokens_in
+
+    def _compile_build_items(
+        self, budget_result: Any, decisions: list[dict[str, Any]]
+    ) -> tuple[list[ContextItem], dict[str, dict[str, Any]]]:
+        items: list[ContextItem] = []
+        records_by_id: dict[str, dict[str, Any]] = {}
+        for rec in budget_result.kept:
+            node = rec["node"]
+            text = self._text_of(node)
+            citation = Citation(
+                node_id=rec["nid"],
+                kind=str(node.get("type") or node.get("label") or "Unknown"),
+                evidence_kind=node.get("evidence_kind"),
+                source_refs=tuple(
+                    node.get("source_refs") or node.get("sources") or ()
+                ),
+                span=text[:240],
+                confidence=float(node.get("confidence", _NEUTRAL_CONFIDENCE) or 0.0),
+            )
+            item = ContextItem(
+                id=rec["nid"],
+                kind=citation.kind,
+                text=text,
+                tokens=_estimate_item_tokens(text),
+                relevance=rec["relevance"],
+                evidence_quality=rec["evidence_quality"],
+                freshness=rec["freshness"],
+                diversity_penalty=rec["diversity_penalty"],
+                composite_score=rec["composite"],
+                citation=citation,
+            )
+            items.append(item)
+            records_by_id[rec["nid"]] = node
+            decisions.append(
+                {
+                    "id": rec["nid"],
+                    "stage": "select",
+                    "included": True,
+                    "relevance": round(rec["relevance"], 4),
+                    "evidence_quality": round(rec["evidence_quality"], 4),
+                    "freshness": round(rec["freshness"], 4),
+                    "diversity_penalty": round(rec["diversity_penalty"], 4),
+                    "composite_score": round(rec["composite"], 4),
+                }
+            )
+        return items, records_by_id
+
+    def _compile_assemble_bundle(
+        self,
+        *,
+        query: str,
+        items: list[ContextItem],
+        proof_graph: Any,
+        decisions: list[dict[str, Any]],
+        token_budget: int,
+        budget_result: Any,
+        dropped_policy: int,
+        dropped_redundant: int,
+        session: GraphSession,
+        cache_key: str,
+        quality_gate_failed: bool,
+        quality_reason: str,
+        tokens_in: int,
+    ) -> ContextBundle:
+        bundle = ContextBundle(
+            query=query,
+            items=items,
+            citations=[it.citation for it in items],
+            proof_graph=proof_graph,
+            decisions=decisions,
+            token_budget=token_budget,
+            tokens_used=budget_result.tokens_used,
+            dropped_policy=dropped_policy,
+            dropped_redundant=max(0, dropped_redundant),
+            dropped_budget=budget_result.dropped,
+            session_tenant=persistence_reference(
+                "tenant", session.tenant, namespace="context-bundle"
+            ),
+            session_actor=persistence_reference(
+                "principal",
+                session.actor.actor_id if session.actor else "",
+                namespace="context-bundle",
+            ),
+            policy_version=session.policy_version,
+            cache_key=cache_key,
+            retrieval_quality_gate_failed=quality_gate_failed,
+            retrieval_quality_reason=quality_reason,
+        )
+        logger.info(
+            "[CONCEPT:AU-KG.retrieval.context-compiler] context compiled: query_ref=%s items=%d tokens=%d/%d "
+            "dropped(policy=%d redundant=%d budget=%d)",
+            persistence_reference("query", query, namespace="context-log"),
+            len(items),
+            bundle.tokens_used,
+            token_budget,
+            dropped_policy,
+            bundle.dropped_redundant,
+            budget_result.dropped,
+        )
+        _record_compile_metrics(bundle, tokens_in)
+        return bundle
+
+    def _compile_store_in_kv_cache(
+        self,
+        kv_backend: Any | None,
+        cache_key: str,
+        bundle: ContextBundle,
+        query: str,
+    ) -> None:
+        # ---- Seam 6: register the freshly-assembled bundle with the KV-cache
+        # layer under the SAME key just computed, so the next caller with an
+        # identical evidence set/policy_version/token_budget gets the reuse
+        # path above. Best-effort — a failed store never fails compilation.
+        if kv_backend is None or not cache_key:
+            return
+        try:
+            durable_source = bundle.to_dict()
+            # Replace the prompt before inspecting the remaining shape. A
+            # candidate can echo the prompt in its evidence text; persisting
+            # that would silently defeat the top-level opaque reference.
+            durable_source["query"] = persistence_reference(
+                "query", query, namespace="context-bundle"
+            )
+            durable_bundle, _privacy_report = sanitize_for_persistence(
+                durable_source
+            )
+            encoded = json.dumps(durable_bundle, default=str).encode("utf-8")
+            prompt_copied = (
+                bool(query) and query.casefold() in encoded.decode("utf-8").casefold()
+            )
+            # Do not cache a redacted/degraded evidence bundle and do not
+            # persist any detected sensitive value. A miss changes only
+            # performance; mandatory compilation still returns the complete
+            # policy-filtered in-memory bundle to this invocation.
+            if prompt_copied or _privacy_report.changed:
+                stored = False
+            else:
+                stored = kv_backend.put(cache_key, encoded)
+        except Exception as exc:  # noqa: BLE001 — store is best-effort
+            logger.debug(
+                "[CONCEPT:AU-KG.retrieval.context-compiler-kv-seam] kv-cache store "
+                "for key=%s failed, continuing without caching: %s",
+                cache_key,
+                exc,
+            )
+        else:
+            logger.debug(
+                "[CONCEPT:AU-KG.retrieval.context-compiler-kv-seam] kv-cache store "
+                "key=%s stored=%s",
+                cache_key,
+                stored,
+            )
+            if stored:
+                self._register_bundle_materialization(bundle, cache_key)
+
     def compile(
         self,
         query: str,
@@ -821,351 +1284,69 @@ class ContextCompiler:
         candidates, quality_report = self._retrieve(
             query, pool, as_of=as_of, session=session
         )
-        quality_gate_failed = bool(
-            quality_report is not None
-            and not getattr(quality_report, "gate_passed", True)
+        quality_gate_failed, quality_reason = self._compile_quality_gate(
+            quality_report
         )
-        quality_reason = (
-            ",".join(
-                m.value if hasattr(m, "value") else str(m)
-                for m in getattr(quality_report, "failure_modes_detected", None) or ()
-            )
-            if quality_gate_failed
-            else ""
-        )
-        # D-EGD-5: when the gate's own SPARSE_INDEX check fired, fold the
-        # sampled population ratio into the reason string too — "sparse_index"
-        # alone tells a caller THAT the index is empty, but "sparse_index(0.5%)"
-        # tells them by how much, without needing to re-derive it from a
-        # separate diagnostic. index_population_ratio is only ever set when the
-        # gate already sampled it (see RetrievalQualityGate._sample_index_population).
-        if quality_gate_failed and "sparse_index" in quality_reason:
-            ratio = getattr(quality_report, "index_population_ratio", None)
-            if ratio is not None:
-                quality_reason = quality_reason.replace(
-                    "sparse_index", f"sparse_index({ratio * 100:.1f}%)"
-                )
         decisions: list[dict[str, Any]] = []
 
-        # ---- 6. POLICY — the SAME fine-grained gate the live read path uses.
-        allowed = enforce(candidates, session.actor, mask=mask_redactions)
-        allowed_ids = {_node_id(n) for n in allowed}
-        dropped_policy = 0
-        for cand in candidates:
-            nid = _node_id(cand)
-            if nid not in allowed_ids:
-                dropped_policy += 1
-                decisions.append(
-                    {
-                        "id": nid,
-                        "stage": "policy",
-                        "included": False,
-                        "reason": "policy_denied",
-                    }
-                )
-
-        # ---- Seam 6: KV-cache lookup, keyed on the post-policy evidence-id set
-        # (the pool this bundle would be assembled from) + policy_version +
-        # token_budget — see compute_bundle_cache_key. Computed here (after
-        # retrieval+policy, BEFORE the expensive scoring/MMR/budget/proof-graph
-        # work below) so a hit can skip straight past all of it.
-        cache_key = ""
-        if kv_backend is not None:
-            cache_key = compute_bundle_cache_key(
-                allowed_ids,
-                policy_version=session.policy_version,
-                token_budget=token_budget,
-                tenant=session.tenant,
-                principal=session.actor.actor_id if session.actor else "",
-                graph=session.graph,
-                query=query,
-                evidence_ordering_version=evidence_ordering_version,
-                model_version=model_version,
-                redaction_version=redaction_version,
-                snapshot=snapshot or str(as_of or ""),
-                catalog_epoch=session.catalog_epoch,
-                extra={
-                    "top_k": top_k,
-                    "diversity_lambda": diversity_lambda,
-                    "freshness_half_life_days": freshness_half_life_days,
-                    "weights": list(weights),
-                    "as_of": as_of,
-                    "mask_redactions": mask_redactions,
-                },
-            )
-            cached_bytes = kv_backend.get(cache_key)
-            if cached_bytes is not None:
-                try:
-                    cached_text = cached_bytes.decode("utf-8")
-                    cached_value = json.loads(cached_text)
-                    _clean_cached, cached_privacy = sanitize_for_persistence(
-                        cached_value
-                    )
-                    if cached_privacy.changed or (
-                        query and query.casefold() in cached_text.casefold()
-                    ):
-                        raise ValueError(
-                            "cached bundle violates the persistence privacy contract"
-                        )
-                    cached_bundle = ContextBundle.from_dict(cached_value)
-                except (  # noqa: BLE001 — a corrupt/incompatible cached bundle is treated as a cache MISS (falls through to recompute below) rather than a hard failure — the safe direction for a KV cache seam
-                    json.JSONDecodeError,
-                    UnicodeDecodeError,
-                    TypeError,
-                    ValueError,
-                    KeyError,
-                ) as exc:
-                    logger.debug(
-                        "[CONCEPT:AU-KG.retrieval.context-compiler-kv-seam] cache hit for "
-                        "key=%s failed to deserialize, recomputing: %s",
-                        cache_key,
-                        exc,
-                    )
-                else:
-                    # The durable shape carries only an opaque query reference.
-                    # Restore the live prompt in memory after governance/cache
-                    # identity checks; never make the opaque ref user-visible.
-                    cached_bundle.query = query
-                    cached_bundle.cache_key = cache_key
-                    cached_bundle.kv_cache_hit = True
-                    logger.info(
-                        "[CONCEPT:AU-KG.retrieval.context-compiler-kv-seam] kv-cache hit "
-                        "key=%s items=%d (assembly skipped)",
-                        cache_key,
-                        len(cached_bundle.items),
-                    )
-                    _record_kv_cache_outcome("hit")
-                    return cached_bundle
-            # A miss (no cached bytes, or a cached blob that failed to
-            # deserialize) falls through to the normal assembly path below.
-            _record_kv_cache_outcome("miss")
-
-        # ---- 1/3/4. RELEVANCE (normalized) + EVIDENCE QUALITY + FRESHNESS.
-        raw_scores = [self._raw_relevance(n) for n in allowed]
-        lo = min(raw_scores) if raw_scores else 0.0
-        hi = max(raw_scores) if raw_scores else 0.0
-        spread = hi - lo
-
-        w_sum = sum(weights) or 1.0
-        w_rel, w_ev, w_fresh = (w / w_sum for w in weights)
-
-        records: list[dict[str, Any]] = []
-        for node, raw in zip(allowed, raw_scores, strict=False):
-            relevance = (raw - lo) / spread if spread > 0 else 1.0
-            evidence_quality = self._evidence_quality(node)
-            freshness = self._freshness(
-                node, as_of=as_of, half_life_days=freshness_half_life_days
-            )
-            composite = (
-                w_rel * relevance + w_ev * evidence_quality + w_fresh * freshness
-            )
-            records.append(
-                {
-                    "node": node,
-                    "nid": _node_id(node),
-                    "relevance": relevance,
-                    "evidence_quality": evidence_quality,
-                    "freshness": freshness,
-                    "composite": composite,
-                }
-            )
-        # Deterministic base order: composite desc, id asc tie-break.
-        records.sort(key=lambda r: (-r["composite"], r["nid"]))
-
-        # ---- 2. DIVERSITY — greedy MMR selection.
-        selected: list[dict[str, Any]] = []
-        selected_nodes: list[dict[str, Any]] = []
-        remaining = list(records)
-        while remaining and len(selected) < top_k:
-            best_rec: dict[str, Any] | None = None
-            best_mmr = float("-inf")
-            best_div = 0.0
-            for rec in remaining:
-                sim = self._max_similarity(rec["node"], selected_nodes)
-                mmr_score = (
-                    diversity_lambda * rec["composite"] - (1 - diversity_lambda) * sim
-                )
-                if (
-                    best_rec is None
-                    or mmr_score > best_mmr + 1e-12
-                    or (
-                        abs(mmr_score - best_mmr) <= 1e-12
-                        and rec["nid"] < best_rec["nid"]
-                    )
-                ):
-                    best_rec = rec
-                    best_mmr = mmr_score
-                    best_div = sim
-            assert best_rec is not None
-            best_rec = dict(best_rec)
-            best_rec["diversity_penalty"] = best_div
-            selected.append(best_rec)
-            selected_nodes.append(best_rec["node"])
-            remaining.remove(next(r for r in remaining if r["nid"] == best_rec["nid"]))
-
-        dropped_redundant = len(records) - len(selected)
-        selected_ids = {r["nid"] for r in selected}
-        for rec in records:
-            if rec["nid"] not in selected_ids:
-                decisions.append(
-                    {
-                        "id": rec["nid"],
-                        "stage": "select",
-                        "included": False,
-                        "reason": "mmr_not_selected",
-                        "composite_score": round(rec["composite"], 4),
-                    }
-                )
-
-        # WS-4: "tokens-in" for the efficiency metrics below — the token cost of
-        # the MMR-ranked pool as handed to the budget fit, i.e. before any
-        # budget-driven truncation (the selection-efficiency signal is
-        # tokens_selected / tokens_in).
-        tokens_in = sum(
-            _estimate_item_tokens(self._text_of(r["node"])) for r in selected
+        allowed, allowed_ids, dropped_policy = self._compile_policy_filter(
+            candidates, session, mask_redactions, decisions
         )
 
-        # ---- 5. TOKEN COST — fit the MMR-ranked selection within budget.
-        mgr = RetrievalBudgetManager(token_budget)
-        budget_result = mgr.fit(selected, text_of=lambda r: self._text_of(r["node"]))
-        kept_ids = {r["nid"] for r in budget_result.kept}
-        dropped_budget = budget_result.dropped
-        for rec in selected:
-            if rec["nid"] not in kept_ids:
-                decisions.append(
-                    {
-                        "id": rec["nid"],
-                        "stage": "budget",
-                        "included": False,
-                        "reason": "token_budget",
-                        "composite_score": round(rec["composite"], 4),
-                    }
-                )
+        cache_key, cached_bundle = self._compile_kv_cache_lookup(
+            kv_backend,
+            allowed_ids,
+            session,
+            query=query,
+            top_k=top_k,
+            diversity_lambda=diversity_lambda,
+            freshness_half_life_days=freshness_half_life_days,
+            weights=weights,
+            as_of=as_of,
+            mask_redactions=mask_redactions,
+            token_budget=token_budget,
+            evidence_ordering_version=evidence_ordering_version,
+            model_version=model_version,
+            redaction_version=redaction_version,
+            snapshot=snapshot,
+        )
+        if cached_bundle is not None:
+            return cached_bundle
 
-        items: list[ContextItem] = []
-        records_by_id: dict[str, dict[str, Any]] = {}
-        for rec in budget_result.kept:
-            node = rec["node"]
-            text = self._text_of(node)
-            citation = Citation(
-                node_id=rec["nid"],
-                kind=str(node.get("type") or node.get("label") or "Unknown"),
-                evidence_kind=node.get("evidence_kind"),
-                source_refs=tuple(node.get("source_refs") or node.get("sources") or ()),
-                span=text[:240],
-                confidence=float(node.get("confidence", _NEUTRAL_CONFIDENCE) or 0.0),
-            )
-            item = ContextItem(
-                id=rec["nid"],
-                kind=citation.kind,
-                text=text,
-                tokens=_estimate_item_tokens(text),
-                relevance=rec["relevance"],
-                evidence_quality=rec["evidence_quality"],
-                freshness=rec["freshness"],
-                diversity_penalty=rec["diversity_penalty"],
-                composite_score=rec["composite"],
-                citation=citation,
-            )
-            items.append(item)
-            records_by_id[rec["nid"]] = node
-            decisions.append(
-                {
-                    "id": rec["nid"],
-                    "stage": "select",
-                    "included": True,
-                    "relevance": round(rec["relevance"], 4),
-                    "evidence_quality": round(rec["evidence_quality"], 4),
-                    "freshness": round(rec["freshness"], 4),
-                    "diversity_penalty": round(rec["diversity_penalty"], 4),
-                    "composite_score": round(rec["composite"], 4),
-                }
-            )
-
+        records = self._compile_score_candidates(
+            allowed,
+            weights=weights,
+            as_of=as_of,
+            freshness_half_life_days=freshness_half_life_days,
+        )
+        selected = self._compile_mmr_select(
+            records, top_k=top_k, diversity_lambda=diversity_lambda
+        )
+        dropped_redundant = self._compile_record_mmr_decisions(
+            records, selected, decisions
+        )
+        budget_result, tokens_in = self._compile_budget_fit(
+            selected, token_budget=token_budget, decisions=decisions
+        )
+        items, records_by_id = self._compile_build_items(budget_result, decisions)
         proof_graph = self._proof_graph(records_by_id, query)
 
-        bundle = ContextBundle(
+        bundle = self._compile_assemble_bundle(
             query=query,
             items=items,
-            citations=[it.citation for it in items],
             proof_graph=proof_graph,
             decisions=decisions,
             token_budget=token_budget,
-            tokens_used=budget_result.tokens_used,
+            budget_result=budget_result,
             dropped_policy=dropped_policy,
-            dropped_redundant=max(0, dropped_redundant),
-            dropped_budget=dropped_budget,
-            session_tenant=persistence_reference(
-                "tenant", session.tenant, namespace="context-bundle"
-            ),
-            session_actor=persistence_reference(
-                "principal",
-                session.actor.actor_id if session.actor else "",
-                namespace="context-bundle",
-            ),
-            policy_version=session.policy_version,
+            dropped_redundant=dropped_redundant,
+            session=session,
             cache_key=cache_key,
-            retrieval_quality_gate_failed=quality_gate_failed,
-            retrieval_quality_reason=quality_reason,
+            quality_gate_failed=quality_gate_failed,
+            quality_reason=quality_reason,
+            tokens_in=tokens_in,
         )
-        logger.info(
-            "[CONCEPT:AU-KG.retrieval.context-compiler] context compiled: query_ref=%s items=%d tokens=%d/%d "
-            "dropped(policy=%d redundant=%d budget=%d)",
-            persistence_reference("query", query, namespace="context-log"),
-            len(items),
-            bundle.tokens_used,
-            token_budget,
-            dropped_policy,
-            bundle.dropped_redundant,
-            dropped_budget,
-        )
-        _record_compile_metrics(bundle, tokens_in)
-
-        # ---- Seam 6: register the freshly-assembled bundle with the KV-cache
-        # layer under the SAME key just computed, so the next caller with an
-        # identical evidence set/policy_version/token_budget gets the reuse
-        # path above. Best-effort — a failed store never fails compilation.
-        if kv_backend is not None and cache_key:
-            try:
-                durable_source = bundle.to_dict()
-                # Replace the prompt before inspecting the remaining shape. A
-                # candidate can echo the prompt in its evidence text; persisting
-                # that would silently defeat the top-level opaque reference.
-                durable_source["query"] = persistence_reference(
-                    "query", query, namespace="context-bundle"
-                )
-                durable_bundle, _privacy_report = sanitize_for_persistence(
-                    durable_source
-                )
-                encoded = json.dumps(durable_bundle, default=str).encode("utf-8")
-                prompt_copied = (
-                    bool(query)
-                    and query.casefold() in encoded.decode("utf-8").casefold()
-                )
-                # Do not cache a redacted/degraded evidence bundle and do not
-                # persist any detected sensitive value. A miss changes only
-                # performance; mandatory compilation still returns the complete
-                # policy-filtered in-memory bundle to this invocation.
-                if prompt_copied or _privacy_report.changed:
-                    stored = False
-                else:
-                    stored = kv_backend.put(cache_key, encoded)
-            except Exception as exc:  # noqa: BLE001 — store is best-effort
-                logger.debug(
-                    "[CONCEPT:AU-KG.retrieval.context-compiler-kv-seam] kv-cache store "
-                    "for key=%s failed, continuing without caching: %s",
-                    cache_key,
-                    exc,
-                )
-            else:
-                logger.debug(
-                    "[CONCEPT:AU-KG.retrieval.context-compiler-kv-seam] kv-cache store "
-                    "key=%s stored=%s",
-                    cache_key,
-                    stored,
-                )
-                if stored:
-                    self._register_bundle_materialization(bundle, cache_key)
+        self._compile_store_in_kv_cache(kv_backend, cache_key, bundle, query)
         return bundle
 
     def _register_bundle_materialization(

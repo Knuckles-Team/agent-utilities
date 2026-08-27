@@ -541,6 +541,97 @@ def test_generic_opencypher_uses_the_hardened_bolt_read_transport(
     assert live.backend_kind("external-source") == "opencypher"
 
 
+_VERIFIED_CONTEXT = {
+    "principal": "service:external-reader",
+    "tenant": "tenant:test",
+    "audience": "epistemic-graph-test",
+    "agent_id": "service:external-reader",
+    "roles": ["reader"],
+    "scopes": ["kg:read"],
+    "policy_version": "policy:test",
+    "delegation": [],
+}
+
+
+def test_remote_epistemic_graph_connection_builds_a_read_adapter(
+    default_engine, monkeypatch
+) -> None:
+    """WB1-AU-03 characterization: before this, `_build_engine`'s
+    'epistemic_graph' branch (real ConnectionRegistry dispatch, as opposed to
+    RemoteEpistemicGraphReadAdapter's own constructor tests in
+    test_external_graph_schema.py) had no direct coverage."""
+    from agent_utilities.knowledge_graph.core import graph_compute
+    from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
+        RemoteEpistemicGraphReadAdapter,
+    )
+
+    captured: dict[str, object] = {}
+
+    class _Client:
+        closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    def _connect(**kwargs):
+        captured.update(kwargs)
+        return _Client()
+
+    monkeypatch.setattr(graph_compute, "connect_external_read_transport", _connect)
+    live = ConnectionRegistry(default_engine_provider=lambda: default_engine)
+    live.register(
+        "remote-eg",
+        {
+            "backend": "epistemic_graph",
+            "role": "read",
+            "endpoint": "tls://engine.example.test:9100",
+            "auth_secret": "runtime-only",
+            "graph_name": "source-graph",
+            "verified_context": _VERIFIED_CONTEXT,
+        },
+    )
+
+    source = live.get_engine("remote-eg")
+
+    assert isinstance(source, RemoteEpistemicGraphReadAdapter)
+    assert captured["endpoint"] == "tls://engine.example.test:9100"
+    assert captured["graph_name"] == "source-graph"
+    assert captured["verified_context"] == _VERIFIED_CONTEXT
+
+
+def test_remote_epistemic_graph_connection_requires_read_role(default_engine) -> None:
+    live = ConnectionRegistry(default_engine_provider=lambda: default_engine)
+    live.register(
+        "remote-eg",
+        {
+            "backend": "epistemic_graph",
+            "role": "mirror",
+            "endpoint": "tls://engine.example.test:9100",
+            "auth_secret": "runtime-only",
+            "verified_context": _VERIFIED_CONTEXT,
+        },
+    )
+    with pytest.raises(ValueError, match="role='read'"):
+        live.get_engine("remote-eg")
+
+
+def test_remote_epistemic_graph_connection_requires_current_auth_material(
+    default_engine,
+) -> None:
+    live = ConnectionRegistry(default_engine_provider=lambda: default_engine)
+    live.register(
+        "remote-eg",
+        {
+            "backend": "epistemic_graph",
+            "role": "read",
+            "endpoint": "tls://engine.example.test:9100",
+            # No auth_secret/verified_context.
+        },
+    )
+    with pytest.raises(ValueError, match="current auth material"):
+        live.get_engine("remote-eg")
+
+
 def test_resolve_names_modes(registry):
     registry.register("a", {"backend": "memory"})
     registry.register("b", {"backend": "memory"})

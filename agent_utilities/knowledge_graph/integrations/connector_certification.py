@@ -536,176 +536,271 @@ class RuntimeCommandCertificationDriver:
         return tuple(value)
 
 
-async def certify_connector(
-    bundle: CertificationBundle,
-    *,
-    mode: str,
-    signer: ontology_integrity.ReleaseSigner,
-    driver: CertificationDriver | None = None,
-    policy: CertificationPolicy | None = None,
-    limits: CertificationLimits | None = None,
-    now: datetime | None = None,
-) -> dict[str, Any]:
-    """Exercise one bundle and return a signed, content-free certification record."""
-
-    if mode not in {"offline-fixture", "external-live"}:
-        raise ValueError("certification mode is invalid")
-    limits = limits or CertificationLimits()
-    policy = policy or CertificationPolicy()
+def _certify_connector_resolve_driver(
+    mode: str, driver: CertificationDriver | None
+) -> CertificationDriver:
     if mode == "offline-fixture":
         if driver is not None and not isinstance(driver, ReferenceCertificationDriver):
             raise ValueError("offline certification accepts only the reference driver")
-        driver = driver or ReferenceCertificationDriver()
-    elif driver is None or isinstance(driver, ReferenceCertificationDriver):
+        return driver or ReferenceCertificationDriver()
+    if driver is None or isinstance(driver, ReferenceCertificationDriver):
         raise ValueError(
             "external-live certification requires an external runtime driver"
         )
+    return driver
 
-    started = (now or datetime.now(UTC)).astimezone(UTC)
-    checks = {name: "not-run" for name in REQUIRED_CHECKS}
-    checks["bundle_integrity"] = "passed"
-    counts: dict[str, int] = {}
-    evidence: dict[str, str] = {}
-    semantic_validator = "not-run"
-    failure_class: str | None = None
-    fixtures = bundle.fixtures[: limits.max_records]
-    if bundle.manifest.sync and len(fixtures) < len(bundle.manifest.sync):
-        failure_class = "FixtureBoundaryError"
 
-    run_key = uuid.uuid4().hex
-    source_instance = f"certification-{run_key}"
-    scope = {
-        "tenant": policy.tenant,
-        "connector": bundle.manifest.connector,
-        "source_instance": source_instance,
-    }
-    envelopes: list[ChangeEnvelope] = []
+async def _certify_connector_live_tool_schema(
+    driver: CertificationDriver,
+    bundle: CertificationBundle,
+    checks: dict[str, str],
+    evidence: dict[str, str],
+) -> None:
+    result = await driver.invoke(
+        {
+            "api_version": "graphos.connector-certification/v1",
+            "action": "list_tools",
+            "connector": bundle.manifest.connector,
+            "required_tools": sorted({sync.tool for sync in bundle.manifest.sync}),
+        }
+    )
+    _verify_live_tools(result, bundle.manifest.sync)
+    checks["live_tool_schema"] = "passed"
+    evidence["live_tool_schema"] = _evidence_digest(
+        {"tools": sorted({sync.tool for sync in bundle.manifest.sync})}
+    )
+
+
+async def _certify_connector_ingest_fixtures(
+    driver: CertificationDriver,
+    bundle: CertificationBundle,
+    fixtures: Sequence[Any],
+    *,
+    run_key: str,
+    source_instance: str,
+    policy: CertificationPolicy,
+    envelopes: list[ChangeEnvelope],
+    scope: Mapping[str, Any],
+    counts: dict[str, int],
+    checks: dict[str, str],
+) -> None:
+    for index, fixture in enumerate(fixtures):
+        envelope = _fixture_envelope(
+            bundle,
+            fixture,
+            index=index,
+            run_key=run_key,
+            source_instance=source_instance,
+            policy=policy,
+            version="1",
+        )
+        envelopes.append(envelope)
+        await _apply(driver, envelope, expect_replay=False)
+        await _assert_governance(driver, envelope)
+    counts["after_ingest"] = await _count(driver, scope)
+    if counts["after_ingest"] != len(envelopes):
+        raise CertificationError("fixture ingest count does not reconcile")
+    checks["fixture_ingest"] = "passed"
+
+
+async def _certify_connector_replay(
+    driver: CertificationDriver,
+    envelopes: list[ChangeEnvelope],
+    scope: Mapping[str, Any],
+    counts: dict[str, int],
+    checks: dict[str, str],
+) -> None:
+    for envelope in envelopes:
+        await _apply(driver, envelope, expect_replay=True)
+    counts["after_replay"] = await _count(driver, scope)
+    if counts["after_replay"] != len(envelopes):
+        raise CertificationError("replay changed the live record count")
+    checks["replay_idempotency"] = "passed"
+
+
+async def _certify_connector_update(
+    driver: CertificationDriver,
+    envelopes: list[ChangeEnvelope],
+    scope: Mapping[str, Any],
+    counts: dict[str, int],
+    checks: dict[str, str],
+) -> ChangeEnvelope:
+    first = envelopes[0]
+    updated = _next_envelope(first, version="2", operation="upsert")
+    await _apply(driver, updated, expect_replay=False)
+    await _assert_governance(driver, updated)
+    counts["after_update"] = await _count(driver, scope)
+    if counts["after_update"] != len(envelopes):
+        raise CertificationError("update changed the live record count")
+    checks["update"] = "passed"
+    return updated
+
+
+async def _certify_connector_delete(
+    driver: CertificationDriver,
+    updated: ChangeEnvelope,
+    envelopes: list[ChangeEnvelope],
+    scope: Mapping[str, Any],
+    counts: dict[str, int],
+    checks: dict[str, str],
+) -> None:
+    deleted = _next_envelope(updated, version="3", operation="delete")
+    await _apply(driver, deleted, expect_replay=False)
+    counts["after_delete"] = await _count(driver, scope)
+    if counts["after_delete"] != len(envelopes) - 1:
+        raise CertificationError("delete count does not reconcile")
+    await _assert_tombstone_governance(driver, deleted)
+    await _apply(driver, deleted, expect_replay=True)
+    counts["after_delete_replay"] = await _count(driver, scope)
+    if counts["after_delete_replay"] != len(envelopes) - 1:
+        raise CertificationError("delete replay changed the live record count")
+    checks["delete"] = "passed"
+    checks["governance_preservation"] = "passed"
+
+
+async def _certify_connector_cleanup(
+    driver: CertificationDriver,
+    envelopes: list[ChangeEnvelope],
+    scope: Mapping[str, Any],
+    counts: dict[str, int],
+    checks: dict[str, str],
+) -> None:
+    for envelope in envelopes[1:]:
+        cleanup = _next_envelope(envelope, version="cleanup", operation="delete")
+        await _apply(driver, cleanup, expect_replay=False)
+    counts["after_cleanup"] = await _count(driver, scope)
+    if counts["after_cleanup"] != 0:
+        raise CertificationError("certification cleanup count does not reconcile")
+    checks["cleanup"] = "passed"
+
+
+async def _certify_connector_run(
+    driver: CertificationDriver,
+    bundle: CertificationBundle,
+    fixtures: Sequence[Any],
+    *,
+    mode: str,
+    run_key: str,
+    source_instance: str,
+    policy: CertificationPolicy,
+    scope: Mapping[str, Any],
+    envelopes: list[ChangeEnvelope],
+    counts: dict[str, int],
+    checks: dict[str, str],
+    evidence: dict[str, str],
+    failure_class: str | None,
+) -> str:
+    """The full ingest/replay/update/delete/cleanup lifecycle. Raises
+    `CertificationError` on any reconciliation failure; returns the
+    semantic-validation mode string on success."""
+    if failure_class:
+        raise CertificationError("fixture boundary omits a signed preset")
+    if not bundle.manifest.sync:
+        raise CertificationError("connector declares no certifiable source presets")
+    if mode == "external-live":
+        await _certify_connector_live_tool_schema(driver, bundle, checks, evidence)
+
+    counts["initial"] = await _count(driver, scope)
+    if counts["initial"] != 0:
+        raise CertificationError("isolated certification scope is not empty")
+    await _certify_connector_ingest_fixtures(
+        driver,
+        bundle,
+        fixtures,
+        run_key=run_key,
+        source_instance=source_instance,
+        policy=policy,
+        envelopes=envelopes,
+        scope=scope,
+        counts=counts,
+        checks=checks,
+    )
+    await _certify_connector_replay(driver, envelopes, scope, counts, checks)
+    updated = await _certify_connector_update(driver, envelopes, scope, counts, checks)
+    await _certify_connector_delete(driver, updated, envelopes, scope, counts, checks)
+
+    semantic_validator = _semantic_validation(
+        bundle, envelopes, require_pyshacl=mode == "external-live"
+    )
+    checks["semantic_validation"] = "passed"
+    checks["count_reconciliation"] = "passed"
+
+    await _certify_connector_cleanup(driver, envelopes, scope, counts, checks)
+    return semantic_validator
+
+
+async def _certify_connector_failure_cleanup(
+    driver: CertificationDriver,
+    envelopes: list[ChangeEnvelope],
+    scope: Mapping[str, Any],
+    checks: dict[str, str],
+) -> None:
     try:
-        if failure_class:
-            raise CertificationError("fixture boundary omits a signed preset")
-        if not bundle.manifest.sync:
-            raise CertificationError("connector declares no certifiable source presets")
-        if mode == "external-live":
-            result = await driver.invoke(
+        for envelope in envelopes:
+            cleanup = _next_envelope(
+                envelope, version=f"cleanup-{uuid.uuid4().hex}", operation="delete"
+            )
+            await driver.invoke(
                 {
                     "api_version": "graphos.connector-certification/v1",
-                    "action": "list_tools",
-                    "connector": bundle.manifest.connector,
-                    "required_tools": sorted(
-                        {sync.tool for sync in bundle.manifest.sync}
-                    ),
+                    "action": "apply",
+                    "envelope": cleanup.as_dict(),
                 }
             )
-            _verify_live_tools(result, bundle.manifest.sync)
-            checks["live_tool_schema"] = "passed"
-            evidence["live_tool_schema"] = _evidence_digest(
-                {"tools": sorted({sync.tool for sync in bundle.manifest.sync})}
-            )
+        if await _count(driver, scope) == 0:
+            checks["cleanup"] = "passed"
+    except Exception:
+        checks["cleanup"] = "failed"
 
-        counts["initial"] = await _count(driver, scope)
-        if counts["initial"] != 0:
-            raise CertificationError("isolated certification scope is not empty")
-        for index, fixture in enumerate(fixtures):
-            envelope = _fixture_envelope(
-                bundle,
-                fixture,
-                index=index,
-                run_key=run_key,
-                source_instance=source_instance,
-                policy=policy,
-                version="1",
-            )
-            envelopes.append(envelope)
-            await _apply(driver, envelope, expect_replay=False)
-            await _assert_governance(driver, envelope)
-        counts["after_ingest"] = await _count(driver, scope)
-        if counts["after_ingest"] != len(envelopes):
-            raise CertificationError("fixture ingest count does not reconcile")
-        checks["fixture_ingest"] = "passed"
 
-        for envelope in envelopes:
-            await _apply(driver, envelope, expect_replay=True)
-        counts["after_replay"] = await _count(driver, scope)
-        if counts["after_replay"] != len(envelopes):
-            raise CertificationError("replay changed the live record count")
-        checks["replay_idempotency"] = "passed"
-
-        first = envelopes[0]
-        updated = _next_envelope(first, version="2", operation="upsert")
-        await _apply(driver, updated, expect_replay=False)
-        await _assert_governance(driver, updated)
-        counts["after_update"] = await _count(driver, scope)
-        if counts["after_update"] != len(envelopes):
-            raise CertificationError("update changed the live record count")
-        checks["update"] = "passed"
-
-        deleted = _next_envelope(updated, version="3", operation="delete")
-        await _apply(driver, deleted, expect_replay=False)
-        counts["after_delete"] = await _count(driver, scope)
-        if counts["after_delete"] != len(envelopes) - 1:
-            raise CertificationError("delete count does not reconcile")
-        await _assert_tombstone_governance(driver, deleted)
-        await _apply(driver, deleted, expect_replay=True)
-        counts["after_delete_replay"] = await _count(driver, scope)
-        if counts["after_delete_replay"] != len(envelopes) - 1:
-            raise CertificationError("delete replay changed the live record count")
-        checks["delete"] = "passed"
-        checks["governance_preservation"] = "passed"
-
-        semantic_validator = _semantic_validation(
-            bundle, envelopes, require_pyshacl=mode == "external-live"
-        )
-        checks["semantic_validation"] = "passed"
-        checks["count_reconciliation"] = "passed"
-
-        for envelope in envelopes[1:]:
-            cleanup = _next_envelope(envelope, version="cleanup", operation="delete")
-            await _apply(driver, cleanup, expect_replay=False)
-        counts["after_cleanup"] = await _count(driver, scope)
-        if counts["after_cleanup"] != 0:
-            raise CertificationError("certification cleanup count does not reconcile")
-        checks["cleanup"] = "passed"
-    except Exception as exc:  # signed aggregate failure; no source/error text retained
-        failure_class = type(exc).__name__
-        try:
-            for envelope in envelopes:
-                cleanup = _next_envelope(
-                    envelope, version=f"cleanup-{uuid.uuid4().hex}", operation="delete"
-                )
-                await driver.invoke(
-                    {
-                        "api_version": "graphos.connector-certification/v1",
-                        "action": "apply",
-                        "envelope": cleanup.as_dict(),
-                    }
-                )
-            if await _count(driver, scope) == 0:
-                checks["cleanup"] = "passed"
-        except Exception:
-            checks["cleanup"] = "failed"
-
+def _certify_connector_finalize_checks(mode: str, checks: dict[str, str]) -> None:
     if mode == "external-live" and checks["live_tool_schema"] == "not-run":
         checks["live_tool_schema"] = "failed"
     for name, status in tuple(checks.items()):
         if status == "not-run" and name != "live_tool_schema":
             checks[name] = "failed"
+
+
+def _certify_connector_status(
+    mode: str, checks: dict[str, str], failure_class: str | None
+) -> tuple[str, bool]:
+    _certify_connector_finalize_checks(mode, checks)
     if mode == "offline-fixture" and failure_class is None:
         checks["live_tool_schema"] = "not-run"
-        status = "offline-validated"
-        live_certified = False
-    elif failure_class is None and all(value == "passed" for value in checks.values()):
-        status = "certified"
-        live_certified = True
-    else:
-        status = "failed"
-        live_certified = False
+        return "offline-validated", False
+    if failure_class is None and all(value == "passed" for value in checks.values()):
+        return "certified", True
+    return "failed", False
+
+
+def _certify_connector_backfill_evidence(
+    evidence: dict[str, str], checks: dict[str, str], mode: str
+) -> dict[str, str]:
     for name in REQUIRED_CHECKS:
         evidence.setdefault(
             name,
             _evidence_digest({"check": name, "status": checks[name], "mode": mode}),
         )
+    return evidence
 
-    record: dict[str, Any] = {
+
+def _certify_connector_build_record(
+    *,
+    bundle: CertificationBundle,
+    started: datetime,
+    mode: str,
+    status: str,
+    live_certified: bool,
+    checks: dict[str, str],
+    counts: dict[str, int],
+    semantic_validator: str,
+    evidence: dict[str, str],
+    failure_class: str | None,
+    fixtures: Sequence[Any],
+    policy: CertificationPolicy,
+    signer: ontology_integrity.ReleaseSigner,
+) -> dict[str, Any]:
+    return {
         "api_version": "graphos.io/v1",
         "kind": "ConnectorLiveCertification",
         "schema_version": "1",
@@ -738,6 +833,83 @@ async def certify_connector(
         "signing_public_key": signer.public_key,
         "signature": None,
     }
+
+
+async def certify_connector(
+    bundle: CertificationBundle,
+    *,
+    mode: str,
+    signer: ontology_integrity.ReleaseSigner,
+    driver: CertificationDriver | None = None,
+    policy: CertificationPolicy | None = None,
+    limits: CertificationLimits | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Exercise one bundle and return a signed, content-free certification record."""
+
+    if mode not in {"offline-fixture", "external-live"}:
+        raise ValueError("certification mode is invalid")
+    limits = limits or CertificationLimits()
+    policy = policy or CertificationPolicy()
+    driver = _certify_connector_resolve_driver(mode, driver)
+
+    started = (now or datetime.now(UTC)).astimezone(UTC)
+    checks = {name: "not-run" for name in REQUIRED_CHECKS}
+    checks["bundle_integrity"] = "passed"
+    counts: dict[str, int] = {}
+    evidence: dict[str, str] = {}
+    semantic_validator = "not-run"
+    failure_class: str | None = None
+    fixtures = bundle.fixtures[: limits.max_records]
+    if bundle.manifest.sync and len(fixtures) < len(bundle.manifest.sync):
+        failure_class = "FixtureBoundaryError"
+
+    run_key = uuid.uuid4().hex
+    source_instance = f"certification-{run_key}"
+    scope = {
+        "tenant": policy.tenant,
+        "connector": bundle.manifest.connector,
+        "source_instance": source_instance,
+    }
+    envelopes: list[ChangeEnvelope] = []
+    try:
+        semantic_validator = await _certify_connector_run(
+            driver,
+            bundle,
+            fixtures,
+            mode=mode,
+            run_key=run_key,
+            source_instance=source_instance,
+            policy=policy,
+            scope=scope,
+            envelopes=envelopes,
+            counts=counts,
+            checks=checks,
+            evidence=evidence,
+            failure_class=failure_class,
+        )
+    except Exception as exc:  # signed aggregate failure; no source/error text retained
+        failure_class = type(exc).__name__
+        await _certify_connector_failure_cleanup(driver, envelopes, scope, checks)
+
+    status, live_certified = _certify_connector_status(mode, checks, failure_class)
+    evidence = _certify_connector_backfill_evidence(evidence, checks, mode)
+
+    record = _certify_connector_build_record(
+        bundle=bundle,
+        started=started,
+        mode=mode,
+        status=status,
+        live_certified=live_certified,
+        checks=checks,
+        counts=counts,
+        semantic_validator=semantic_validator,
+        evidence=evidence,
+        failure_class=failure_class,
+        fixtures=fixtures,
+        policy=policy,
+        signer=signer,
+    )
     # An UNSIGNED in-repo certification is the intended shape, not a failure to
     # sign: git already supplies integrity and authorship for everything committed
     # here, so the record carries no signature and the placeholder's `sign()`
@@ -750,6 +922,174 @@ async def certify_connector(
     return record
 
 
+def _verify_cert_identity(record: Mapping[str, Any]) -> list[str]:
+    if (
+        record.get("api_version") != "graphos.io/v1"
+        or record.get("kind") != "ConnectorLiveCertification"
+        or record.get("schema_version") != "1"
+        or not _SAFE_CONNECTOR.fullmatch(str(record.get("connector") or ""))
+    ):
+        return ["certification record identity is invalid"]
+    return []
+
+
+def _verify_cert_timestamp(record: Mapping[str, Any]) -> list[str]:
+    try:
+        parsed_time = datetime.strptime(
+            str(record.get("certified_at") or ""), "%Y-%m-%dT%H:%M:%SZ"
+        ).replace(tzinfo=UTC)
+        if parsed_time.year < 2020:
+            raise ValueError
+    except ValueError:
+        return ["certification timestamp is invalid"]
+    return []
+
+
+def _verify_cert_bundle(bundle: Any) -> list[str]:
+    if not isinstance(bundle, dict) or set(bundle) != {
+        "manifest_sha256",
+        "fixtures_sha256",
+        "shapes_sha256",
+        "schema_version",
+    }:
+        return ["certification bundle binding is invalid"]
+    if any(
+        not _HEX_DIGEST.fullmatch(str(bundle.get(name) or ""))
+        for name in ("manifest_sha256", "fixtures_sha256", "shapes_sha256")
+    ):
+        return ["certification bundle digest is invalid"]
+    if not re.fullmatch(
+        r"[A-Za-z0-9._-]{1,64}", str(bundle.get("schema_version") or "")
+    ):
+        return ["certification bundle schema version is invalid"]
+    return []
+
+
+def _verify_cert_scope(scope: Any) -> list[str]:
+    if not isinstance(scope, dict) or set(scope) != {
+        "sync_presets",
+        "fixtures_declared",
+        "fixtures_exercised",
+        "tenant_bound",
+        "retention_bound",
+    }:
+        return ["certification scope is invalid"]
+    if (
+        any(
+            not isinstance(scope.get(name), int)
+            or isinstance(scope.get(name), bool)
+            or not 0 <= scope[name] <= 256
+            for name in ("sync_presets", "fixtures_declared", "fixtures_exercised")
+        )
+        or scope.get("tenant_bound") is not True
+        or scope.get("retention_bound") is not True
+    ):
+        return ["certification scope values are invalid"]
+    return []
+
+
+def _verify_cert_checks(checks: Any) -> list[str]:
+    if not isinstance(checks, dict) or set(checks) != set(REQUIRED_CHECKS):
+        return ["certification check catalog is invalid"]
+    if any(value not in {"passed", "failed", "not-run"} for value in checks.values()):
+        return ["certification check status is invalid"]
+    return []
+
+
+def _verify_cert_evidence(evidence: Any) -> list[str]:
+    if not isinstance(evidence, dict) or set(evidence) != set(REQUIRED_CHECKS):
+        return ["certification evidence catalog is invalid"]
+    if any(
+        not _HEX_DIGEST.fullmatch(str(value or "")) for value in evidence.values()
+    ):
+        return ["certification evidence digest is invalid"]
+    return []
+
+
+def _verify_cert_counts(counts: Any) -> list[str]:
+    allowed_counts = {
+        "initial",
+        "after_ingest",
+        "after_replay",
+        "after_update",
+        "after_delete",
+        "after_delete_replay",
+        "after_cleanup",
+    }
+    if not isinstance(counts, dict) or not set(counts).issubset(allowed_counts):
+        return ["certification count catalog is invalid"]
+    if any(
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or not 0 <= value <= 1_000_000
+        for value in counts.values()
+    ):
+        return ["certification count value is invalid"]
+    return []
+
+
+def _verify_cert_markers(record: Mapping[str, Any]) -> list[str]:
+    violations: list[str] = []
+    if record.get("semantic_validator") not in {
+        "not-run",
+        "declared-shacl-contract",
+        "pyshacl",
+    }:
+        violations.append("certification semantic validator is invalid")
+    failure_class = record.get("failure_class")
+    if failure_class is not None and not re.fullmatch(
+        r"[A-Za-z_][A-Za-z0-9_]{0,127}", str(failure_class)
+    ):
+        violations.append("certification failure class is invalid")
+    if record.get("runtime_configuration") not in {"none", "externalized"}:
+        violations.append("certification runtime configuration marker is invalid")
+    return violations
+
+
+def _verify_cert_signature(
+    record: Mapping[str, Any], trusted_public_keys: Sequence[str]
+) -> list[str]:
+    digest = ontology_integrity.canonical_signed_document_hash(dict(record))
+    if not ontology_integrity.verify_release_signature(
+        digest,
+        record.get("signature"),
+        signer_id=record.get("signer"),
+        algorithm=record.get("signature_algorithm"),
+        public_key=record.get("signing_public_key"),
+        trusted_public_keys=tuple(trusted_public_keys),
+    ):
+        return ["certification release signature is invalid"]
+    return []
+
+
+def _verify_cert_require_live(record: Mapping[str, Any], checks: Any) -> list[str]:
+    if (
+        record.get("mode") != "external-live"
+        or record.get("status") != "certified"
+        or record.get("live_certified") is not True
+        or not isinstance(checks, dict)
+        or any(checks.get(name) != "passed" for name in REQUIRED_CHECKS)
+        or record.get("runtime_configuration") != "externalized"
+        or record.get("failure_class") is not None
+    ):
+        return ["connector has no passing external live certification"]
+    return []
+
+
+def _verify_cert_status_without_live(record: Mapping[str, Any]) -> list[str]:
+    if record.get("status") not in {"certified", "offline-validated", "failed"}:
+        return ["certification status is invalid"]
+    return []
+
+
+def _verify_cert_live_status(
+    record: Mapping[str, Any], checks: Any, require_live: bool
+) -> list[str]:
+    if require_live:
+        return _verify_cert_require_live(record, checks)
+    return _verify_cert_status_without_live(record)
+
+
 def verify_certification_record(
     record: Mapping[str, Any],
     *,
@@ -758,7 +1098,6 @@ def verify_certification_record(
 ) -> list[str]:
     """Verify signature, exact aggregate schema, and pass/fail semantics."""
 
-    violations: list[str] = []
     required = {
         "api_version",
         "kind",
@@ -783,129 +1122,19 @@ def verify_certification_record(
     }
     if set(record) != required:
         return ["certification record fields are not exact"]
-    if (
-        record.get("api_version") != "graphos.io/v1"
-        or record.get("kind") != "ConnectorLiveCertification"
-        or record.get("schema_version") != "1"
-        or not _SAFE_CONNECTOR.fullmatch(str(record.get("connector") or ""))
-    ):
-        violations.append("certification record identity is invalid")
-    try:
-        parsed_time = datetime.strptime(
-            str(record.get("certified_at") or ""), "%Y-%m-%dT%H:%M:%SZ"
-        ).replace(tzinfo=UTC)
-        if parsed_time.year < 2020:
-            raise ValueError
-    except ValueError:
-        violations.append("certification timestamp is invalid")
-    bundle = record.get("bundle")
-    if not isinstance(bundle, dict) or set(bundle) != {
-        "manifest_sha256",
-        "fixtures_sha256",
-        "shapes_sha256",
-        "schema_version",
-    }:
-        violations.append("certification bundle binding is invalid")
-    elif any(
-        not _HEX_DIGEST.fullmatch(str(bundle.get(name) or ""))
-        for name in ("manifest_sha256", "fixtures_sha256", "shapes_sha256")
-    ):
-        violations.append("certification bundle digest is invalid")
-    elif not re.fullmatch(
-        r"[A-Za-z0-9._-]{1,64}", str(bundle.get("schema_version") or "")
-    ):
-        violations.append("certification bundle schema version is invalid")
-    scope = record.get("scope")
-    if not isinstance(scope, dict) or set(scope) != {
-        "sync_presets",
-        "fixtures_declared",
-        "fixtures_exercised",
-        "tenant_bound",
-        "retention_bound",
-    }:
-        violations.append("certification scope is invalid")
-    elif (
-        any(
-            not isinstance(scope.get(name), int)
-            or isinstance(scope.get(name), bool)
-            or not 0 <= scope[name] <= 256
-            for name in ("sync_presets", "fixtures_declared", "fixtures_exercised")
-        )
-        or scope.get("tenant_bound") is not True
-        or scope.get("retention_bound") is not True
-    ):
-        violations.append("certification scope values are invalid")
-    checks = record.get("checks")
-    if not isinstance(checks, dict) or set(checks) != set(REQUIRED_CHECKS):
-        violations.append("certification check catalog is invalid")
-    elif any(value not in {"passed", "failed", "not-run"} for value in checks.values()):
-        violations.append("certification check status is invalid")
-    evidence = record.get("evidence")
-    if not isinstance(evidence, dict) or set(evidence) != set(REQUIRED_CHECKS):
-        violations.append("certification evidence catalog is invalid")
-    elif any(
-        not _HEX_DIGEST.fullmatch(str(value or "")) for value in evidence.values()
-    ):
-        violations.append("certification evidence digest is invalid")
-    counts = record.get("counts")
-    allowed_counts = {
-        "initial",
-        "after_ingest",
-        "after_replay",
-        "after_update",
-        "after_delete",
-        "after_delete_replay",
-        "after_cleanup",
-    }
-    if not isinstance(counts, dict) or not set(counts).issubset(allowed_counts):
-        violations.append("certification count catalog is invalid")
-    elif any(
-        not isinstance(value, int)
-        or isinstance(value, bool)
-        or not 0 <= value <= 1_000_000
-        for value in counts.values()
-    ):
-        violations.append("certification count value is invalid")
-    if record.get("semantic_validator") not in {
-        "not-run",
-        "declared-shacl-contract",
-        "pyshacl",
-    }:
-        violations.append("certification semantic validator is invalid")
-    failure_class = record.get("failure_class")
-    if failure_class is not None and not re.fullmatch(
-        r"[A-Za-z_][A-Za-z0-9_]{0,127}", str(failure_class)
-    ):
-        violations.append("certification failure class is invalid")
-    if record.get("runtime_configuration") not in {"none", "externalized"}:
-        violations.append("certification runtime configuration marker is invalid")
 
-    digest = ontology_integrity.canonical_signed_document_hash(dict(record))
-    if not ontology_integrity.verify_release_signature(
-        digest,
-        record.get("signature"),
-        signer_id=record.get("signer"),
-        algorithm=record.get("signature_algorithm"),
-        public_key=record.get("signing_public_key"),
-        trusted_public_keys=tuple(trusted_public_keys),
-    ):
-        violations.append("certification release signature is invalid")
-    if require_live and (
-        record.get("mode") != "external-live"
-        or record.get("status") != "certified"
-        or record.get("live_certified") is not True
-        or not isinstance(checks, dict)
-        or any(checks.get(name) != "passed" for name in REQUIRED_CHECKS)
-        or record.get("runtime_configuration") != "externalized"
-        or record.get("failure_class") is not None
-    ):
-        violations.append("connector has no passing external live certification")
-    if not require_live and record.get("status") not in {
-        "certified",
-        "offline-validated",
-        "failed",
-    }:
-        violations.append("certification status is invalid")
+    checks = record.get("checks")
+    violations: list[str] = []
+    violations.extend(_verify_cert_identity(record))
+    violations.extend(_verify_cert_timestamp(record))
+    violations.extend(_verify_cert_bundle(record.get("bundle")))
+    violations.extend(_verify_cert_scope(record.get("scope")))
+    violations.extend(_verify_cert_checks(checks))
+    violations.extend(_verify_cert_evidence(record.get("evidence")))
+    violations.extend(_verify_cert_counts(record.get("counts")))
+    violations.extend(_verify_cert_markers(record))
+    violations.extend(_verify_cert_signature(record, trusted_public_keys))
+    violations.extend(_verify_cert_live_status(record, checks, require_live))
     return violations
 
 

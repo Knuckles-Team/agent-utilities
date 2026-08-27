@@ -550,67 +550,60 @@ def migrate_config_file(
     }
 
 
-def config_doctor(
-    profile: str | None = None,
-    config_path: str | Path | None = None,
-    *,
-    migrate: bool = False,
-) -> dict[str, Any]:
-    """Validate config completeness/health for ``profile``.
+def _config_doctor_retired_keys_check(
+    profile: str | None, config_path: str | Path | None, migrate: bool
+) -> dict[str, Any] | None:
+    """Pre-validation: a stale config.json carrying retired keys fails the load
+    outright, so detect them on the raw JSON first and (when migrate=True) strip
+    them before the AgentConfig validation ever sees them."""
+    if config_path is None or not Path(config_path).exists():
+        return None
+    from agent_utilities.core.config import strip_retired_configuration_keys
 
-    Loads config from ``config_path`` (a generated ``config.json``) if given, else
-    evaluates the **live** process config. Checks: required-for-profile keys are set,
-    secret refs are resolvable, and durability rules hold (reusing
-    :func:`collect_production_violations`). Returns a structured report; never raises.
-    """
-    from agent_utilities.core.config import AgentConfig
-    from agent_utilities.core.profile_guard import collect_production_violations
-
-    # Pre-validation: a stale config.json carrying retired keys fails the load
-    # outright, so detect them on the raw JSON first and (when migrate=True) strip
-    # them before the AgentConfig validation below ever sees them.
-    if config_path is not None and Path(config_path).exists():
-        from agent_utilities.core.config import strip_retired_configuration_keys
-
-        try:
-            _raw = json.loads(Path(config_path).read_text(encoding="utf-8"))
-            _, retired_present = (
-                strip_retired_configuration_keys(_raw)
-                if isinstance(_raw, dict)
-                else ({}, [])
-            )
-        except Exception:  # noqa: BLE001
-            retired_present = []
-        if retired_present and migrate:
-            migrate_config_file(config_path)
-            retired_present = []
-        if retired_present:
-            return {
-                "status": "needs_migration",
-                "profile": profile,
-                "healthy": False,
-                "checks": [
-                    {
-                        "check": "retired_configuration_keys",
-                        "ok": False,
-                        "keys": retired_present,
-                        "remediation": (
-                            "call config_doctor(config_path=..., migrate=True) or "
-                            "`agent-utilities-doctor --migrate-config` to remove them"
-                        ),
-                    }
-                ],
-                "summary": (
-                    f"{len(retired_present)} retired configuration key(s) present — "
-                    "migrate to load cleanly"
+    try:
+        _raw = json.loads(Path(config_path).read_text(encoding="utf-8"))
+        _, retired_present = (
+            strip_retired_configuration_keys(_raw)
+            if isinstance(_raw, dict)
+            else ({}, [])
+        )
+    except Exception:  # noqa: BLE001
+        retired_present = []
+    if retired_present and migrate:
+        migrate_config_file(config_path)
+        retired_present = []
+    if not retired_present:
+        return None
+    return {
+        "status": "needs_migration",
+        "profile": profile,
+        "healthy": False,
+        "checks": [
+            {
+                "check": "retired_configuration_keys",
+                "ok": False,
+                "keys": retired_present,
+                "remediation": (
+                    "call config_doctor(config_path=..., migrate=True) or "
+                    "`agent-utilities-doctor --migrate-config` to remove them"
                 ),
             }
+        ],
+        "summary": (
+            f"{len(retired_present)} retired configuration key(s) present — "
+            "migrate to load cleanly"
+        ),
+    }
 
-    # Pre-validation: an inline plaintext secret (a *_TOKEN/_SECRET/_PASSWORD/…
-    # value that is not a *_REF) makes the durable-secret policy reject the whole
-    # config at load (DurableSecretError) before any field validates. Detect it on
-    # the raw JSON and name the offending keys — the doctor cannot auto-migrate a
-    # secret value (credential access is human-gated), so it reports and guides.
+
+def _config_doctor_plaintext_secrets_check(
+    profile: str | None, config_path: str | Path | None
+) -> dict[str, Any] | None:
+    """Pre-validation: an inline plaintext secret (a *_TOKEN/_SECRET/_PASSWORD/…
+    value that is not a *_REF) makes the durable-secret policy reject the whole
+    config at load (DurableSecretError) before any field validates. Detect it on
+    the raw JSON and name the offending keys — the doctor cannot auto-migrate a
+    secret value (credential access is human-gated), so it reports and guides."""
     try:
         from agent_utilities.core.config import plaintext_secret_keys
         from agent_utilities.core.paths import config_dir
@@ -630,110 +623,122 @@ def config_doctor(
         )
     except Exception:  # noqa: BLE001 - privacy-safe: never surface a value or path
         _plaintext_secrets = []
-    if _plaintext_secrets:
-        return {
-            "status": "needs_migration",
-            "profile": profile,
-            "healthy": False,
-            "checks": [
-                {
-                    "check": "durable_secret_policy",
-                    "ok": False,
-                    "keys": _plaintext_secrets,
-                    "remediation": (
-                        "these keys hold an inline plaintext secret and will be "
-                        "rejected at load; move each value into the secret store "
-                        "(OpenBao apps/<service>) and replace the key with its "
-                        "<KEY>_REF reference (e.g. vault://…). The doctor cannot "
-                        "migrate a secret value automatically — credential access "
-                        "is human-gated. See docs/architecture/configuration.md."
-                    ),
-                }
-            ],
-            "summary": (
-                f"{len(_plaintext_secrets)} configuration key(s) hold a plaintext "
-                "secret — relocate to a durable *_REF to load cleanly"
-            ),
-        }
+    if not _plaintext_secrets:
+        return None
+    return {
+        "status": "needs_migration",
+        "profile": profile,
+        "healthy": False,
+        "checks": [
+            {
+                "check": "durable_secret_policy",
+                "ok": False,
+                "keys": _plaintext_secrets,
+                "remediation": (
+                    "these keys hold an inline plaintext secret and will be "
+                    "rejected at load; move each value into the secret store "
+                    "(OpenBao apps/<service>) and replace the key with its "
+                    "<KEY>_REF reference (e.g. vault://…). The doctor cannot "
+                    "migrate a secret value automatically — credential access "
+                    "is human-gated. See docs/architecture/configuration.md."
+                ),
+            }
+        ],
+        "summary": (
+            f"{len(_plaintext_secrets)} configuration key(s) hold a plaintext "
+            "secret — relocate to a durable *_REF to load cleanly"
+        ),
+    }
 
-    # Build the AgentConfig under evaluation.
-    if config_path:
-        try:
-            from agent_utilities.core.config import (
-                _canonicalize_xdg_configuration,
-                _mapping_selects_production,
-                _read_configuration_mapping,
-                _validate_agent_config_without_settings,
-            )
 
+def _config_doctor_load_from_path(
+    profile: str | None, config_path: str | Path
+) -> tuple[Any, str | None, str, str] | dict[str, Any]:
+    try:
+        from agent_utilities.core.config import (
+            _canonicalize_xdg_configuration,
+            _mapping_selects_production,
+            _read_configuration_mapping,
+            _validate_agent_config_without_settings,
+        )
+
+        raw = _read_configuration_mapping(
+            config_path,
+            source_type="xdg",
+            strict=False,
+        )
+        raw = _canonicalize_xdg_configuration(raw)
+        if _mapping_selects_production(raw):
             raw = _read_configuration_mapping(
                 config_path,
                 source_type="xdg",
-                strict=False,
+                strict=True,
             )
             raw = _canonicalize_xdg_configuration(raw)
-            if _mapping_selects_production(raw):
-                raw = _read_configuration_mapping(
-                    config_path,
-                    source_type="xdg",
-                    strict=True,
-                )
-                raw = _canonicalize_xdg_configuration(raw)
-        except Exception as exc:  # noqa: BLE001
-            return {
-                "status": "error",
-                "healthy": False,
-                "error": "configuration_source_unreadable",
-                "error_class": type(exc).__name__,
-            }
-        # config.json keys are env aliases; AgentConfig accepts them via populate.
-        try:
-            cfg = _validate_agent_config_without_settings(
-                {k: v for k, v in raw.items() if v not in (None, "")}
-            )
-        except Exception as exc:  # noqa: BLE001
-            return {
-                "status": "error",
-                "healthy": False,
-                "error": "configuration_schema_invalid",
-                "error_class": type(exc).__name__,
-                "checks": [{"check": "schema", "ok": False}],
-            }
-        prof = profile or raw.get("DEPLOYMENT_PROFILE")
-        app_profile = str(raw.get("APP_PROFILE") or cfg.app_profile).strip().casefold()
-        profile_source = (
-            "argument"
-            if profile
-            else ("configuration" if raw.get("DEPLOYMENT_PROFILE") else "default")
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "status": "error",
+            "healthy": False,
+            "error": "configuration_source_unreadable",
+            "error_class": type(exc).__name__,
+        }
+    # config.json keys are env aliases; AgentConfig accepts them via populate.
+    try:
+        cfg = _validate_agent_config_without_settings(
+            {k: v for k, v in raw.items() if v not in (None, "")}
         )
-    else:
-        try:
-            cfg = AgentConfig()
-        except Exception as exc:  # noqa: BLE001
-            return {
-                "status": "error",
-                "healthy": False,
-                "error": "configuration_schema_invalid",
-                "error_class": type(exc).__name__,
-                "checks": [{"check": "schema", "ok": False}],
-            }
-        from agent_utilities.core.config import setting
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "status": "error",
+            "healthy": False,
+            "error": "configuration_schema_invalid",
+            "error_class": type(exc).__name__,
+            "checks": [{"check": "schema", "ok": False}],
+        }
+    prof = profile or raw.get("DEPLOYMENT_PROFILE")
+    app_profile = str(raw.get("APP_PROFILE") or cfg.app_profile).strip().casefold()
+    profile_source = (
+        "argument"
+        if profile
+        else ("configuration" if raw.get("DEPLOYMENT_PROFILE") else "default")
+    )
+    return cfg, prof, app_profile, profile_source
 
-        configured_profile = setting("DEPLOYMENT_PROFILE", "")
-        prof = profile or configured_profile
-        app_profile = (
-            str(setting("APP_PROFILE", cfg.app_profile) or "").strip().casefold()
-        )
-        profile_source = (
-            "argument"
-            if profile
-            else ("configuration" if configured_profile else "default")
-        )
 
-    # APP_PROFILE is a runtime posture, not a deployment-topology identity. A
-    # production posture is deliberately ambiguous between single-node and
-    # enterprise and therefore requires DEPLOYMENT_PROFILE (or an explicit
-    # function argument). The zero-configuration development posture remains tiny.
+def _config_doctor_load_live(
+    profile: str | None,
+) -> tuple[Any, str | None, str, str] | dict[str, Any]:
+    from agent_utilities.core.config import AgentConfig
+
+    try:
+        cfg = AgentConfig()
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "status": "error",
+            "healthy": False,
+            "error": "configuration_schema_invalid",
+            "error_class": type(exc).__name__,
+            "checks": [{"check": "schema", "ok": False}],
+        }
+    from agent_utilities.core.config import setting
+
+    configured_profile = setting("DEPLOYMENT_PROFILE", "")
+    prof = profile or configured_profile
+    app_profile = str(setting("APP_PROFILE", cfg.app_profile) or "").strip().casefold()
+    profile_source = (
+        "argument" if profile else ("configuration" if configured_profile else "default")
+    )
+    return cfg, prof, app_profile, profile_source
+
+
+def _config_doctor_profile_check(
+    prof: str | None, app_profile: str
+) -> str | dict[str, Any]:
+    """APP_PROFILE is a runtime posture, not a deployment-topology identity. A
+    production posture is deliberately ambiguous between single-node and
+    enterprise and therefore requires DEPLOYMENT_PROFILE (or an explicit
+    function argument). The zero-configuration development posture remains tiny.
+    """
     if not prof and app_profile in {"prod", "production"}:
         return {
             "status": "error",
@@ -755,107 +760,116 @@ def config_doctor(
             "error": "deployment_profile_invalid",
             "checks": [{"check": "deployment_profile", "ok": False}],
         }
+    return norm
 
-    checks: list[dict[str, Any]] = [
-        {
-            "check": "deployment_profile",
-            "profile": norm,
-            "source": profile_source,
-            "ok": True,
-        }
-    ]
+
+def _config_doctor_check_required_keys(cfg: Any, norm: str) -> dict[str, Any]:
+    """1. Required-for-profile keys."""
 
     def _set(env: str) -> bool:
         val = getattr(cfg, _alias_to_field(env), None)
         return bool(str(val).strip()) if val not in (None, False) else False
 
-    # 1. Required-for-profile keys.
     missing = [k for k in _PROFILE_REQUIRED.get(norm, ()) if not _set(k)]
-    checks.append(
-        {
-            "check": "required_keys",
-            "profile": norm,
-            "ok": not missing,
-            "missing": missing,
-        }
-    )
+    return {
+        "check": "required_keys",
+        "profile": norm,
+        "ok": not missing,
+        "missing": missing,
+    }
 
-    # 2. Durability / production-safety rules (always evaluated, advisory for tiny).
+
+def _config_doctor_check_durability(cfg: Any, norm: str) -> dict[str, Any]:
+    """2. Durability / production-safety rules (always evaluated, advisory for tiny)."""
+    from agent_utilities.core.profile_guard import collect_production_violations
+
     violations = collect_production_violations(cfg)
-    checks.append(
-        {
-            "check": "durability",
-            "ok": not violations or norm == "tiny",
-            "violations": violations,
-            "advisory": norm == "tiny",
-        }
-    )
+    return {
+        "check": "durability",
+        "ok": not violations or norm == "tiny",
+        "violations": violations,
+        "advisory": norm == "tiny",
+    }
 
-    # 3. Secret references resolvable (vault://, secret://, env://).
+
+def _config_doctor_check_secret_refs(cfg: Any, config_path: Any) -> dict[str, Any]:
+    """3. Secret references resolvable (vault://, secret://, env://)."""
     try:
         unresolved = _unresolved_secret_refs(cfg, resolve=config_path is None)
     except Exception as exc:  # noqa: BLE001 - aggregate, privacy-safe boundary
-        checks.append(
-            {
-                "check": "secret_refs",
-                "ok": False,
-                "evaluation_error": type(exc).__name__,
-                "unresolved_count": 0,
-                "redacted": True,
-            }
-        )
-    else:
-        checks.append(
-            {
-                "check": "secret_refs",
-                "ok": not unresolved,
-                "unresolved_count": len(unresolved),
-                "redacted": True,
-            }
-        )
+        return {
+            "check": "secret_refs",
+            "ok": False,
+            "evaluation_error": type(exc).__name__,
+            "unresolved_count": 0,
+            "redacted": True,
+        }
+    return {
+        "check": "secret_refs",
+        "ok": not unresolved,
+        "unresolved_count": len(unresolved),
+        "redacted": True,
+    }
 
-    # 4. Outbound fleet identity is declaration-only here. Doctor validates
-    # metadata and a secret reference, never resolves or reports the secret.
-    outbound_mode = cfg.mcp_client_auth
-    outbound_missing: list[str] = []
-    if outbound_mode == "oidc-client-credentials":
+
+def _config_doctor_outbound_oidc_missing(cfg: Any) -> list[str]:
+    missing = [
+        env
         for env, value in (
             ("OIDC_CLIENT_ID", cfg.oidc_client_id),
             ("OIDC_CLIENT_SECRET_REF", cfg.oidc_client_secret_ref),
             ("OIDC_AUDIENCE", cfg.oidc_audience),
-        ):
-            if not value:
-                outbound_missing.append(env)
-        if not (cfg.oidc_token_url or cfg.oidc_issuer):
-            outbound_missing.append("OIDC_TOKEN_URL_OR_OIDC_ISSUER")
-    elif outbound_mode == "basic":
+        )
+        if not value
+    ]
+    if not (cfg.oidc_token_url or cfg.oidc_issuer):
+        missing.append("OIDC_TOKEN_URL_OR_OIDC_ISSUER")
+    return missing
+
+
+def _config_doctor_outbound_basic_missing(cfg: Any) -> list[str]:
+    return [
+        env
         for env, value in (
             ("MCP_BASIC_AUTH_USERNAME", cfg.mcp_basic_auth_username),
             ("MCP_BASIC_AUTH_PASSWORD_REF", cfg.mcp_basic_auth_password_ref),
-        ):
-            if not value:
-                outbound_missing.append(env)
+        )
+        if not value
+    ]
+
+
+def _config_doctor_check_outbound_auth(cfg: Any) -> dict[str, Any]:
+    """4. Outbound fleet identity is declaration-only here. Doctor validates
+    metadata and a secret reference, never resolves or reports the secret."""
+    outbound_mode = cfg.mcp_client_auth
+    if outbound_mode == "oidc-client-credentials":
+        outbound_missing = _config_doctor_outbound_oidc_missing(cfg)
+    elif outbound_mode == "basic":
+        outbound_missing = _config_doctor_outbound_basic_missing(cfg)
     elif outbound_mode == "rotating-file-bearer":
         # BUG-051: without this branch a deployment preflight would silently
         # report ok=True/missing=[] for a mode that in fact has no token
         # source configured — the exact "reports success it cannot verify"
         # shape this fix exists to close, reproduced here by omission if left
         # unhandled.
-        if not cfg.mcp_bearer_token_file:
-            outbound_missing.append("MCP_BEARER_TOKEN_FILE")
-    checks.append(
-        {
-            "check": "outbound_mcp_auth",
-            "ok": not outbound_missing,
-            "mode": outbound_mode,
-            "missing": sorted(outbound_missing),
-            "redacted": True,
-        }
-    )
+        outbound_missing = (
+            [] if cfg.mcp_bearer_token_file else ["MCP_BEARER_TOKEN_FILE"]
+        )
+    else:
+        outbound_missing = []
+    return {
+        "check": "outbound_mcp_auth",
+        "ok": not outbound_missing,
+        "mode": outbound_mode,
+        "missing": sorted(outbound_missing),
+        "redacted": True,
+    }
 
-    # 5. Raw Memento retention has no permissive/partial configuration. The runtime also enforces
-    # this gate, while doctor makes the reason visible before deployment without exposing a key or
-    # secret reference in its report.
+
+def _config_doctor_check_memento_retention(cfg: Any) -> dict[str, Any]:
+    """5. Raw Memento retention has no permissive/partial configuration. The
+    runtime also enforces this gate, while doctor makes the reason visible
+    before deployment without exposing a key or secret reference."""
     retention_enabled = bool(getattr(cfg, "memento_raw_retention_enabled", False))
     retention_issues: list[str] = []
     if retention_enabled:
@@ -866,61 +880,115 @@ def config_doctor(
             retention_issues.append("approved_policy_required")
         if not str(getattr(cfg, "memento_raw_encryption_key_ref", "") or "").strip():
             retention_issues.append("encryption_key_reference_required")
-    checks.append(
-        {
-            "check": "memento_raw_retention",
-            "ok": not retention_issues,
-            "enabled": retention_enabled,
-            "issues": retention_issues,
-        }
-    )
+    return {
+        "check": "memento_raw_retention",
+        "ok": not retention_issues,
+        "enabled": retention_enabled,
+        "issues": retention_issues,
+    }
 
-    # 6. Dispatch crash recovery must remain inside the published five-minute
-    # workload RTO, and renewal must happen before the lease expires.
+
+def _config_doctor_check_dispatch_lease(cfg: Any) -> dict[str, Any]:
+    """6. Dispatch crash recovery must remain inside the published five-minute
+    workload RTO, and renewal must happen before the lease expires."""
     dispatch_claim_ttl_s = float(cfg.agent_dispatch_claim_ttl_s)
     dispatch_renew_interval_s = float(cfg.agent_dispatch_renew_interval_s)
-    checks.append(
-        {
-            "check": "dispatch_lease_recovery",
-            "ok": (
-                dispatch_claim_ttl_s <= 300.0
-                and dispatch_renew_interval_s < dispatch_claim_ttl_s
-            ),
-            "claim_ttl_seconds": dispatch_claim_ttl_s,
-            "renew_interval_seconds": dispatch_renew_interval_s,
-            "rto_target_seconds": 300.0,
-        }
-    )
+    return {
+        "check": "dispatch_lease_recovery",
+        "ok": (
+            dispatch_claim_ttl_s <= 300.0
+            and dispatch_renew_interval_s < dispatch_claim_ttl_s
+        ),
+        "claim_ttl_seconds": dispatch_claim_ttl_s,
+        "renew_interval_seconds": dispatch_renew_interval_s,
+        "rto_target_seconds": 300.0,
+    }
 
-    # 7. Production feature posture. Report only setting names, never configured
-    # values, endpoints, identities, secret references, or trace content.
+
+def _config_doctor_check_readiness(cfg: Any, norm: str) -> dict[str, Any]:
+    """7. Production feature posture. Report only setting names, never
+    configured values, endpoints, identities, secret references, or trace
+    content."""
     readiness_mismatches: list[str] = []
     if norm != "tiny":
         for env, expected in _PRODUCTION_READINESS_EXPECTED.items():
             actual = getattr(cfg, _alias_to_field(env), None)
             if actual is not expected:
                 readiness_mismatches.append(env)
-    checks.append(
-        {
-            "check": "propose_only_observability",
-            "ok": not readiness_mismatches,
-            "applicable": norm != "tiny",
-            "mismatched": sorted(readiness_mismatches),
-            "redacted": True,
-        }
-    )
+    return {
+        "check": "propose_only_observability",
+        "ok": not readiness_mismatches,
+        "applicable": norm != "tiny",
+        "mismatched": sorted(readiness_mismatches),
+        "redacted": True,
+    }
 
-    # 8. Declared-only note (never fails): genesis.yaml's engine_topology axis for
-    # this profile. No AgentConfig field or runtime switch consumes ENGINE_TOPOLOGY
-    # yet — see _ENGINE_TOPOLOGY_DEFAULTS — so this is informational, not a gate.
-    checks.append(
-        {
-            "check": "engine_topology",
-            "ok": True,
-            "declared_default": _ENGINE_TOPOLOGY_DEFAULTS.get(norm),
-            "wired": False,
-        }
+
+def _config_doctor_check_engine_topology(norm: str) -> dict[str, Any]:
+    """8. Declared-only note (never fails): genesis.yaml's engine_topology
+    axis for this profile. No AgentConfig field or runtime switch consumes
+    ENGINE_TOPOLOGY yet — see _ENGINE_TOPOLOGY_DEFAULTS — so this is
+    informational, not a gate."""
+    return {
+        "check": "engine_topology",
+        "ok": True,
+        "declared_default": _ENGINE_TOPOLOGY_DEFAULTS.get(norm),
+        "wired": False,
+    }
+
+
+def config_doctor(
+    profile: str | None = None,
+    config_path: str | Path | None = None,
+    *,
+    migrate: bool = False,
+) -> dict[str, Any]:
+    """Validate config completeness/health for ``profile``.
+
+    Loads config from ``config_path`` (a generated ``config.json``) if given, else
+    evaluates the **live** process config. Checks: required-for-profile keys are set,
+    secret refs are resolvable, and durability rules hold (reusing
+    :func:`collect_production_violations`). Returns a structured report; never raises.
+    """
+    retired = _config_doctor_retired_keys_check(profile, config_path, migrate)
+    if retired is not None:
+        return retired
+
+    plaintext = _config_doctor_plaintext_secrets_check(profile, config_path)
+    if plaintext is not None:
+        return plaintext
+
+    # Build the AgentConfig under evaluation.
+    loaded = (
+        _config_doctor_load_from_path(profile, config_path)
+        if config_path
+        else _config_doctor_load_live(profile)
     )
+    if isinstance(loaded, dict):
+        return loaded
+    cfg, prof, app_profile, profile_source = loaded
+
+    norm_or_error = _config_doctor_profile_check(prof, app_profile)
+    if isinstance(norm_or_error, dict):
+        return norm_or_error
+    norm = norm_or_error
+
+    checks: list[dict[str, Any]] = [
+        {
+            "check": "deployment_profile",
+            "profile": norm,
+            "source": profile_source,
+            "ok": True,
+        },
+        _config_doctor_check_required_keys(cfg, norm),
+        _config_doctor_check_durability(cfg, norm),
+        _config_doctor_check_secret_refs(cfg, config_path),
+        _config_doctor_check_outbound_auth(cfg),
+        _config_doctor_check_memento_retention(cfg),
+        _config_doctor_check_dispatch_lease(cfg),
+        _config_doctor_check_readiness(cfg, norm),
+        _config_doctor_check_engine_topology(norm),
+    ]
 
     ok = all(c["ok"] for c in checks)
     return {
