@@ -205,8 +205,7 @@ def _validate_skill(skill_dir: Path) -> list[str]:
     return errors
 
 
-def _validate_forward_matrix() -> list[str]:
-    errors: list[str] = []
+def _forward_matrix_domain_wraps() -> tuple[dict[str, set[str]], set[str]]:
     domain_wraps: dict[str, set[str]] = {}
     for skill in EXPECTED_SKILLS:
         meta = parse_graph_os_sidecar(
@@ -215,114 +214,175 @@ def _validate_forward_matrix() -> list[str]:
         if meta.tier == "domain" and not meta.errors:
             domain_wraps[skill] = set(meta.wraps)
     all_domain_wraps = set().union(*domain_wraps.values()) if domain_wraps else set()
-    data = yaml.safe_load(FORWARD_MATRIX.read_text(encoding="utf-8")) or {}
+    return domain_wraps, all_domain_wraps
+
+
+def _validate_forward_matrix_defaults(data: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
     if data.get("schema_version") != 2:
         errors.append("forward matrix: schema_version must be 2")
     defaults = data.get("runtime_defaults")
     if not isinstance(defaults, dict):
         errors.append("forward matrix: runtime_defaults must be a mapping")
-    else:
-        max_steps = defaults.get("max_steps")
-        token_budget = defaults.get("token_budget")
-        trace_timeout = defaults.get("trace_timeout_seconds")
-        if not isinstance(max_steps, int) or not 1 <= max_steps <= 8:
-            errors.append("forward matrix: max_steps must be between 1 and 8")
-        if not isinstance(token_budget, int) or not 256 <= token_budget <= 16384:
-            errors.append("forward matrix: token_budget must be between 256 and 16384")
-        if not isinstance(trace_timeout, int) or not 1 <= trace_timeout <= 60:
-            errors.append(
-                "forward matrix: trace_timeout_seconds must be between 1 and 60"
-            )
-        if defaults.get("sequential") is not True:
-            errors.append("forward matrix: runtime validation must be sequential")
-    cases = data.get("cases")
-    if not isinstance(cases, list):
-        return [*errors, "forward matrix: cases must be a list"]
-
-    seen: set[tuple[str, str]] = set()
-    ids: set[str] = set()
-    for case in cases:
-        if not isinstance(case, dict):
-            errors.append("forward matrix: every case must be a mapping")
-            continue
-        case_id = str(case.get("id") or "")
-        skill = str(case.get("skill") or "")
-        mode = str(case.get("mode") or "")
-        if not case_id or case_id in ids:
-            errors.append(f"forward matrix: duplicate or empty id {case_id!r}")
-        ids.add(case_id)
-        if skill not in EXPECTED_SKILLS:
-            errors.append(f"{case_id}: unknown skill {skill!r}")
-        if mode not in {"direct", "delegated"}:
-            errors.append(f"{case_id}: mode must be direct or delegated")
-        seen.add((skill, mode))
-        if "skill_path" in case:
-            errors.append(f"{case_id}: filesystem skill_path is forbidden")
-        task = str(case.get("task") or "")
-        if f"${skill}" not in task or f"skill://{skill}" not in task:
-            errors.append(
-                f"{case_id}: task must identify the skill by neutral skill:// reference"
-            )
-        if case.get("model_class") not in {"economy", "standard"}:
-            errors.append(f"{case_id}: unsupported model_class")
-        if case.get("read_only") is not True:
-            errors.append(f"{case_id}: validation cases must be read-only")
-        routes = case.get("expected_routes")
-        if not isinstance(routes, list) or not routes:
-            errors.append(f"{case_id}: expected_routes must be non-empty")
-        elif skill in domain_wraps:
-            route_set = set(routes)
-            invalid = route_set - domain_wraps[skill] - {"graph_orchestrate"}
-            if invalid:
-                errors.append(
-                    f"{case_id}: routes not owned by the domain skill: {sorted(invalid)}"
-                )
-            if mode == "direct" and "graph_orchestrate" in route_set:
-                errors.append(f"{case_id}: a direct case cannot use graph_orchestrate")
-            if mode == "delegated" and "graph_orchestrate" not in route_set:
-                errors.append(
-                    f"{case_id}: a delegated domain case must use graph_orchestrate"
-                )
-        elif mode == "delegated" and (
-            not isinstance(routes, list) or "graph_orchestrate" not in routes
-        ):
-            errors.append(f"{case_id}: delegated cases must use graph_orchestrate")
-
-        allowed_tools = case.get("allowed_tools")
-        if not isinstance(allowed_tools, list):
-            errors.append(f"{case_id}: allowed_tools must be a list")
-        elif mode == "direct":
-            if allowed_tools:
-                errors.append(f"{case_id}: direct semantic cases cannot receive tools")
-        else:
-            if not allowed_tools or not all(
-                isinstance(tool, str) and tool for tool in allowed_tools
-            ):
-                errors.append(f"{case_id}: delegated allowed_tools must be non-empty")
-                continue
-            if len(allowed_tools) != len(set(allowed_tools)):
-                errors.append(f"{case_id}: allowed_tools must not contain duplicates")
-            if allowed_tools != sorted(allowed_tools):
-                errors.append(f"{case_id}: allowed_tools must be sorted")
-            unknown_tools = set(allowed_tools) - all_domain_wraps
-            if unknown_tools:
-                errors.append(
-                    f"{case_id}: allowed_tools contain unknown Graph-OS verbs: "
-                    f"{sorted(unknown_tools)}"
-                )
-            if "graph_orchestrate" in allowed_tools:
-                errors.append(
-                    f"{case_id}: delegated child cannot recursively orchestrate"
-                )
-
-    expected_pairs = {
-        (skill, mode) for skill in EXPECTED_SKILLS for mode in ("direct", "delegated")
-    }
-    if seen != expected_pairs:
+        return errors
+    max_steps = defaults.get("max_steps")
+    token_budget = defaults.get("token_budget")
+    trace_timeout = defaults.get("trace_timeout_seconds")
+    if not isinstance(max_steps, int) or not 1 <= max_steps <= 8:
+        errors.append("forward matrix: max_steps must be between 1 and 8")
+    if not isinstance(token_budget, int) or not 256 <= token_budget <= 16384:
+        errors.append("forward matrix: token_budget must be between 256 and 16384")
+    if not isinstance(trace_timeout, int) or not 1 <= trace_timeout <= 60:
         errors.append(
-            "forward matrix: each skill needs one direct and one delegated case"
+            "forward matrix: trace_timeout_seconds must be between 1 and 60"
         )
+    if defaults.get("sequential") is not True:
+        errors.append("forward matrix: runtime validation must be sequential")
+    return errors
 
+
+def _validate_forward_matrix_case_domain_routes(
+    case_id: str, mode: str, route_set: set[str], owned: set[str]
+) -> list[str]:
+    errors: list[str] = []
+    invalid = route_set - owned - {"graph_orchestrate"}
+    if invalid:
+        errors.append(
+            f"{case_id}: routes not owned by the domain skill: {sorted(invalid)}"
+        )
+    if mode == "direct" and "graph_orchestrate" in route_set:
+        errors.append(f"{case_id}: a direct case cannot use graph_orchestrate")
+    if mode == "delegated" and "graph_orchestrate" not in route_set:
+        errors.append(
+            f"{case_id}: a delegated domain case must use graph_orchestrate"
+        )
+    return errors
+
+
+def _validate_forward_matrix_case_routes(
+    case_id: str,
+    mode: str,
+    skill: str,
+    routes: Any,
+    domain_wraps: dict[str, set[str]],
+) -> list[str]:
+    if not isinstance(routes, list) or not routes:
+        return [f"{case_id}: expected_routes must be non-empty"]
+    if skill in domain_wraps:
+        return _validate_forward_matrix_case_domain_routes(
+            case_id, mode, set(routes), domain_wraps[skill]
+        )
+    if mode == "delegated" and (
+        not isinstance(routes, list) or "graph_orchestrate" not in routes
+    ):
+        return [f"{case_id}: delegated cases must use graph_orchestrate"]
+    return []
+
+
+def _validate_forward_matrix_case_delegated_tools(
+    case_id: str, allowed_tools: list[Any], all_domain_wraps: set[str]
+) -> list[str]:
+    errors: list[str] = []
+    if not allowed_tools or not all(
+        isinstance(tool, str) and tool for tool in allowed_tools
+    ):
+        errors.append(f"{case_id}: delegated allowed_tools must be non-empty")
+        return errors
+    if len(allowed_tools) != len(set(allowed_tools)):
+        errors.append(f"{case_id}: allowed_tools must not contain duplicates")
+    if allowed_tools != sorted(allowed_tools):
+        errors.append(f"{case_id}: allowed_tools must be sorted")
+    unknown_tools = set(allowed_tools) - all_domain_wraps
+    if unknown_tools:
+        errors.append(
+            f"{case_id}: allowed_tools contain unknown Graph-OS verbs: "
+            f"{sorted(unknown_tools)}"
+        )
+    if "graph_orchestrate" in allowed_tools:
+        errors.append(f"{case_id}: delegated child cannot recursively orchestrate")
+    return errors
+
+
+def _validate_forward_matrix_case_tools(
+    case_id: str, mode: str, allowed_tools: Any, all_domain_wraps: set[str]
+) -> list[str]:
+    if not isinstance(allowed_tools, list):
+        return [f"{case_id}: allowed_tools must be a list"]
+    if mode == "direct":
+        if allowed_tools:
+            return [f"{case_id}: direct semantic cases cannot receive tools"]
+        return []
+    return _validate_forward_matrix_case_delegated_tools(
+        case_id, allowed_tools, all_domain_wraps
+    )
+
+
+def _validate_forward_matrix_case_identity(
+    case_id: str,
+    skill: str,
+    mode: str,
+    ids: set[str],
+    seen: set[tuple[str, str]],
+) -> list[str]:
+    errors: list[str] = []
+    if not case_id or case_id in ids:
+        errors.append(f"forward matrix: duplicate or empty id {case_id!r}")
+    ids.add(case_id)
+    if skill not in EXPECTED_SKILLS:
+        errors.append(f"{case_id}: unknown skill {skill!r}")
+    if mode not in {"direct", "delegated"}:
+        errors.append(f"{case_id}: mode must be direct or delegated")
+    seen.add((skill, mode))
+    return errors
+
+
+def _validate_forward_matrix_case_content(
+    case: dict[str, Any], case_id: str, skill: str
+) -> list[str]:
+    errors: list[str] = []
+    if "skill_path" in case:
+        errors.append(f"{case_id}: filesystem skill_path is forbidden")
+    task = str(case.get("task") or "")
+    if f"${skill}" not in task or f"skill://{skill}" not in task:
+        errors.append(
+            f"{case_id}: task must identify the skill by neutral skill:// reference"
+        )
+    if case.get("model_class") not in {"economy", "standard"}:
+        errors.append(f"{case_id}: unsupported model_class")
+    if case.get("read_only") is not True:
+        errors.append(f"{case_id}: validation cases must be read-only")
+    return errors
+
+
+def _validate_forward_matrix_case(
+    case: Any,
+    ids: set[str],
+    seen: set[tuple[str, str]],
+    domain_wraps: dict[str, set[str]],
+    all_domain_wraps: set[str],
+) -> list[str]:
+    if not isinstance(case, dict):
+        return ["forward matrix: every case must be a mapping"]
+    case_id = str(case.get("id") or "")
+    skill = str(case.get("skill") or "")
+    mode = str(case.get("mode") or "")
+    errors = _validate_forward_matrix_case_identity(case_id, skill, mode, ids, seen)
+    errors.extend(_validate_forward_matrix_case_content(case, case_id, skill))
+    errors.extend(
+        _validate_forward_matrix_case_routes(
+            case_id, mode, skill, case.get("expected_routes"), domain_wraps
+        )
+    )
+    errors.extend(
+        _validate_forward_matrix_case_tools(
+            case_id, mode, case.get("allowed_tools"), all_domain_wraps
+        )
+    )
+    return errors
+
+
+def _validate_forward_matrix_privacy(data: dict[str, Any], raw_matrix: str) -> list[str]:
+    errors: list[str] = []
     privacy = data.get("privacy_assertions") or {}
     forbidden = set(privacy.get("forbid_persisted") or [])
     required = {
@@ -341,10 +401,40 @@ def _validate_forward_matrix() -> list[str]:
         errors.append("forward matrix: synthetic inputs must be required")
     if privacy.get("require_metadata_only_observability") is not True:
         errors.append("forward matrix: metadata-only observability must be required")
-    raw_matrix = FORWARD_MATRIX.read_text(encoding="utf-8")
     for label, pattern in _PRIVATE_PATTERNS:
         if pattern.search(raw_matrix):
             errors.append(f"forward matrix: contains {label}")
+    return errors
+
+
+def _validate_forward_matrix() -> list[str]:
+    errors: list[str] = []
+    domain_wraps, all_domain_wraps = _forward_matrix_domain_wraps()
+    data = yaml.safe_load(FORWARD_MATRIX.read_text(encoding="utf-8")) or {}
+    errors.extend(_validate_forward_matrix_defaults(data))
+    cases = data.get("cases")
+    if not isinstance(cases, list):
+        return [*errors, "forward matrix: cases must be a list"]
+
+    seen: set[tuple[str, str]] = set()
+    ids: set[str] = set()
+    for case in cases:
+        errors.extend(
+            _validate_forward_matrix_case(
+                case, ids, seen, domain_wraps, all_domain_wraps
+            )
+        )
+
+    expected_pairs = {
+        (skill, mode) for skill in EXPECTED_SKILLS for mode in ("direct", "delegated")
+    }
+    if seen != expected_pairs:
+        errors.append(
+            "forward matrix: each skill needs one direct and one delegated case"
+        )
+
+    raw_matrix = FORWARD_MATRIX.read_text(encoding="utf-8")
+    errors.extend(_validate_forward_matrix_privacy(data, raw_matrix))
     return errors
 
 
