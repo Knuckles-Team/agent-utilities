@@ -1979,7 +1979,6 @@ def _graph_mine_process_ocel_json(action: str, params: dict, graph: str) -> str 
     response["ocel"] = exported
     response["tekg"] = evidence
     return json.dumps(response, default=_json_default)
-    return None
 
 
 def _graph_mine_process_conformance(action: str, params: dict, graph: str) -> str | None:
@@ -2129,7 +2128,6 @@ def _graph_mine_process_conformance(action: str, params: dict, graph: str) -> st
         },
         default=_json_default,
     )
-    return None
 
 
 def _graph_mine_process_events(action: str, params: dict, graph: str) -> str | None:
@@ -2193,7 +2191,6 @@ def _graph_mine_process_events(action: str, params: dict, graph: str) -> str | N
     )
     response["projection"] = projection.public_metadata()
     return json.dumps(response, default=_json_default)
-    return None
 
 
 def register_engine_surface_tools(mcp) -> None:
