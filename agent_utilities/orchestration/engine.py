@@ -168,6 +168,608 @@ def _is_agent_error(output: str) -> bool:
         return False
 
 
+async def _connect_mcp_toolsets(
+    stack: AsyncExitStack, deps: Any
+) -> None:
+    """Connect every MCP toolset in ``deps.mcp_toolsets``, tolerating failures.
+
+    Extracted verbatim from ``AgentOrchestrationEngine.execute_graph`` (pure
+    extract-method, no behaviour change). Mutates ``deps.mcp_toolsets`` in
+    place to the connected subset, exactly as the original inline code did;
+    has no return value.
+    """
+    failed_servers: list[tuple[str, str]] = []
+    connected_toolsets: list = []
+    _already_connected: set[int] = set()
+
+    for ts in deps.mcp_toolsets:
+        if not hasattr(ts, "__aenter__"):
+            connected_toolsets.append(ts)
+            continue
+        if id(ts) in _already_connected:
+            connected_toolsets.append(ts)
+            continue
+
+        srv_id = getattr(ts, "id", getattr(ts, "name", repr(ts)))
+        try:
+            logger.debug(f"run_graph: Connecting to MCP server '{srv_id}'...")
+            # Use asyncio.timeout() (not asyncio.wait_for) to bound the connect:
+            # wait_for runs the coroutine in a NEW task, so a stdio toolset's anyio
+            # cancel scope would be ENTERED in that child task while the AsyncExitStack
+            # EXITS it in this (outer) task → "Attempted to exit cancel scope in a
+            # different task than it was entered in". asyncio.timeout() applies to the
+            # current task, keeping enter/exit on the same task.
+            async with asyncio.timeout(60.0):
+                connected = await stack.enter_async_context(ts)
+            _already_connected.add(id(ts))
+            connected_toolsets.append(connected)
+            logger.info(f"run_graph: ✅ MCP server '{srv_id}' connected")
+        except Exception as e:
+            err_msg = str(e)
+            logger.error(
+                f"run_graph: ❌ MCP server '{srv_id}' FAILED to connect: {err_msg}"
+            )
+            failed_servers.append((srv_id, err_msg))
+
+    deps.mcp_toolsets = [ts for ts in connected_toolsets if ts is not None]
+
+    if failed_servers:
+        logger.warning(
+            f"run_graph: {len(failed_servers)} MCP server(s) failed to connect — "
+            f"graph will proceed without them:\n"
+            + "\n".join(f"  ❌ {sid}: {err}" for sid, err in failed_servers)
+        )
+
+
+def _run_security_preflight(query: str, run_id: str) -> dict | None:
+    """Prompt-injection scan; block the query or warn, best-effort.
+
+    Extracted verbatim from ``AgentOrchestrationEngine.execute_graph`` (pure
+    extract-method, no behaviour change). Returns a blocked-response dict when
+    the scanner flags the query as malicious (the caller must return it
+    immediately), else ``None`` to let the run proceed -- exactly like the
+    original inline ``return GraphResponse(...).model_dump()`` from this same
+    try block.
+    """
+    # --- Security Guard Pre-Flight (OS-5.4, OS-5.5) ---
+    try:
+        from ..security.prompt_scanner import PromptInjectionScanner
+
+        scanner = PromptInjectionScanner()
+        scan_result = scanner.scan_text(query)
+        if scan_result.is_malicious:
+            logger.warning(
+                "run_graph: Query blocked by prompt scanner: %s",
+                scan_result.explanation,
+            )
+            return GraphResponse(
+                status="blocked",
+                error=f"Security: {scan_result.explanation}",
+                metadata={
+                    "run_id": run_id,
+                    "is_error": True,
+                    "execution_mode": "graph_preflight",
+                    "security": {
+                        "confidence": scan_result.confidence,
+                        "finding_id": scan_result.finding_id,
+                    },
+                },
+            ).model_dump()
+        if scan_result.matches:
+            logger.info(
+                "run_graph: Prompt scanner warnings: %d patterns below threshold",
+                len(scan_result.matches),
+            )
+    except ImportError:  # noqa: BLE001 — optional prompt scanner is not installed
+        pass  # Scanner not available
+    except Exception as e:
+        # D-DST-6: Security Guard Pre-Flight (OS-5.4/5.5) — a scanner crash here
+        # was previously indistinguishable from "the scan ran clean and found
+        # nothing" (the exact guardrail-crash-reads-as-clean-pass cousin), and
+        # the query proceeds UNSCANNED either way. Raised to warning (matching
+        # this lane's DoomLoopDetector/adversarial-verification precedent) so a
+        # persistently-failing scanner is diagnosable rather than invisible.
+        logger.warning(
+            "run_graph: prompt scanner failed (query proceeding UNSCANNED): %s",
+            e,
+        )
+    return None
+
+
+async def _run_graph_with_evidence(
+    graph: Any,
+    run_id: str,
+    query: str,
+    topology: str,
+    state: Any,
+    deps: Any,
+    graph_evidence: Any,
+) -> tuple[Any, float, dict | None]:
+    """Run the graph under the evidence collector; unwrap the raw result.
+
+    Extracted verbatim from ``AgentOrchestrationEngine.execute_graph`` (pure
+    extract-method, no behaviour change). Returns ``(result, graph_run_start,
+    None)`` on success (mirroring the original's fall-through -- the caller
+    needs ``graph_run_start`` for the telemetry duration calculations further
+    down, which the original inline code computed at this same point and
+    reused from the enclosing scope), or ``(None, graph_run_start,
+    error_response_dict)`` when the graph run itself raised -- the caller must
+    return ``error_response_dict`` immediately, exactly like the original's
+    inline ``return GraphResponse(...).model_dump()`` from inside this same
+    except block.
+    """
+    result = None
+    _graph_run_start = time.perf_counter()
+    try:
+        if tracer is None:
+            logger.info("run_graph: Running pydantic_graph.run (no tracer)...")
+        with _pydantic_graph_span(
+            run_id=run_id,
+            query=query,
+            topology=topology,
+            evidence=graph_evidence,
+        ) as span:
+            graph_evidence.attach_span(span)
+            try:
+                with anyio.move_on_after(
+                    DEFAULT_GRAPH_TIMEOUT / 1000.0
+                ) as scope:
+                    result = await run_with_execution_evidence(
+                        graph,
+                        state=state,
+                        deps=deps,
+                        collector=graph_evidence,
+                    )
+                if scope.cancel_called:
+                    logger.error(
+                        "run_graph: Graph execution TIMEOUT after %sms",
+                        DEFAULT_GRAPH_TIMEOUT,
+                    )
+                    result = "timeout"
+            finally:
+                graph_evidence.finish_span(state=state)
+            if span is not None:
+                span.set_status(
+                    trace.Status(
+                        trace.StatusCode.OK
+                        if result
+                        else trace.StatusCode.ERROR
+                    )
+                )
+    except Exception as e:
+        logger.error(
+            "run_graph: critical graph execution failure: %s",
+            e,
+        )
+        emit_graph_event(
+            deps.event_queue, "graph_complete", run_id=run_id, status="error"
+        )
+        return None, _graph_run_start, GraphResponse(
+            status="error",
+            error=str(e),
+            metadata={
+                "run_id": run_id,
+                "is_error": True,
+                "execution_mode": "pydantic_graph",
+            },
+            # A budget, timeout, or model failure can happen after a
+            # real tool completed.  Preserve the calls accumulated by
+            # graph nodes so the outer required-tool gate and durable
+            # RunTrace record what actually happened instead of
+            # reporting zero provenance.
+            tool_calls=list(getattr(state, "tool_calls", []) or []),
+            execution_evidence=graph_evidence.evidence(state=state),
+        ).model_dump()
+
+    # CONCEPT:AU-ORCH.execution.node-direct-end — a node may END the run directly with End[GraphResponse]
+    # (the router's direct-completion shape). pydantic-graph returns the End wrapper,
+    # so unwrap it to the GraphResponse here; otherwise the result handling below
+    # falls through to ``str(result)`` and the reply becomes "End(data=GraphResponse(…))".
+    from pydantic_graph import End
+
+    if isinstance(result, End):
+        result = result.data
+
+    logger.info(
+        f"run_graph: graph.run finished. Result type: {type(result)}, Result: {result}"
+    )
+    emit_graph_event(
+        deps.event_queue,
+        "graph_complete",
+        run_id=run_id,
+        status="success" if result else "timeout",
+    )
+    logger.info(
+        f"run_graph: Final state: routed_domain={state.routed_domain}, "
+        f"registry_keys={list(state.results_registry.keys())}"
+    )
+    return result, _graph_run_start, None
+
+
+async def _emit_execute_graph_telemetry(
+    run_id: str,
+    query: str,
+    result: Any,
+    state: Any,
+    graph_evidence: Any,
+    config: dict,
+    _graph_run_start: float,
+) -> tuple[dict[str, int], str]:
+    """Cost-plane usage snapshot + best-effort observability exports.
+
+    Extracted verbatim from ``AgentOrchestrationEngine.execute_graph`` (pure
+    extract-method, no behaviour change): Langfuse auto-export, self-ingest
+    RunTrace, usage-recorder persistence, and the OTel gen_ai span attrs. Every
+    sub-block is independently try/except-wrapped in the original and stays
+    that way here -- none of them may crash a run.
+
+    Returns the ``(_usage, _run_model)`` snapshot computed at the top of this
+    block -- the original inline code left those two names in the enclosing
+    ``execute_graph`` scope for the response-shaping code further down to
+    reuse (``result.metadata["token_usage"]``); the caller must now pass them
+    through explicitly.
+    """
+    # --- Cost-plane usage snapshot (CONCEPT:AU-OS.observability.usage-analytics-store, D-54c-1) ---
+    # ``state.session_usage`` is the ONE accumulator every specialist node already
+    # feeds via ``GraphState._update_usage`` (including provider cache read/write +
+    # reasoning tokens) — build the ``token_usage`` dict every downstream consumer
+    # below reads FROM IT, not from ``result.metadata["token_usage"]`` (nothing ever
+    # wrote that key, so it was always ``{}``: cost attribution and cache-savings
+    # telemetry were structurally hollow regardless of what any node returned).
+    _usage: dict[str, int] = {
+        "input_tokens": state.session_usage.input_tokens,
+        "output_tokens": state.session_usage.output_tokens,
+        "cache_creation_input_tokens": state.session_usage.cache_creation_input_tokens,
+        "cache_read_input_tokens": state.session_usage.cache_read_input_tokens,
+        "reasoning_tokens": state.session_usage.reasoning_tokens,
+    }
+    _run_model = str(config.get("agent_model") or "")
+
+    # --- Langfuse auto-export (CONCEPT:AU-OS.observability.langfuse-exporter) ---
+    # Default-on: ships this graph run as a Langfuse trace + token-usage
+    # generation when LANGFUSE_* keys are configured. No-ops cleanly when
+    # the keys/dep are absent so the live path is never affected.
+    try:
+        from ..observability.langfuse_exporter import get_langfuse_exporter
+
+        _exporter = get_langfuse_exporter()
+        if _exporter is not None:
+            await _offload_sync(
+                _exporter.export_graph_run,
+                run_id=run_id,
+                query=query,
+                status="success" if result else "timeout",
+                duration_ms=(time.perf_counter() - _graph_run_start) * 1000.0,
+                token_usage=_usage,
+                model=_run_model,
+                metadata={
+                    "domain": state.routed_domain,
+                    "execution_mode": "pydantic_graph",
+                    "graph_topology_digest": graph_evidence.topology_digest,
+                    "graph_version_digest": graph_evidence.version_digest,
+                    "graph_transition_count": len(graph_evidence.transitions),
+                },
+                evidence=(
+                    config.get("trace_evidence")
+                    if isinstance(config.get("trace_evidence"), dict)
+                    else None
+                ),
+            )
+    except Exception as _lf_exc:  # noqa: BLE001 — export must never crash a run
+        logger.debug(
+            "run_graph: Langfuse export skipped (%s).",
+            type(_lf_exc).__name__,
+        )
+
+    # --- Self-ingest RunTrace telemetry (CONCEPT:AU-KG.ingest.attaching-this-root-logger) ---
+    # Dogfooding: ship this graph run's RunTrace into the epistemic-graph
+    # engine obs store. Opt-in (default-off); clean no-op when disabled.
+    try:
+        from ..observability.self_ingest import emit_run_trace
+
+        await _offload_sync(
+            emit_run_trace,
+            run_id=run_id,
+            status="success" if result else "timeout",
+            duration_ms=(time.perf_counter() - _graph_run_start) * 1000.0,
+            query=query,
+            attributes={
+                "domain": state.routed_domain,
+                "execution_mode": "pydantic_graph",
+                "graph_topology_digest": graph_evidence.topology_digest,
+                "graph_version_digest": graph_evidence.version_digest,
+                "graph_transition_count": len(graph_evidence.transitions),
+            },
+        )
+    except Exception as _si_exc:  # noqa: BLE001 — telemetry must never crash a run
+        logger.debug("run_graph: self-ingest run_trace skipped: %s", _si_exc)
+
+    # CONCEPT:AU-OS.observability.persist-this-graph-run — persist this graph run as a runtime usage row so
+    # token counts/cost feed the same /api/observability surface the
+    # ingested agent logs do. Best-effort; never affects the run.
+    try:
+        from agent_utilities.security.brain_context import current_actor
+        from agent_utilities.usage.recorder import get_usage_recorder
+
+        await _offload_sync(
+            get_usage_recorder().record_run,
+            run_id=run_id,
+            query=query,
+            status="success" if result else "timeout",
+            duration_ms=(time.perf_counter() - _graph_run_start) * 1000.0,
+            token_usage=_usage,
+            model=_run_model,
+            project=str(state.routed_domain or ""),
+            tenant_id=current_actor().tenant_id,
+        )
+    except Exception as _ur_exc:  # noqa: BLE001 — recorder must never crash a run
+        logger.debug(
+            "run_graph_usage_record_skipped error_type=%s",
+            type(_ur_exc).__name__,
+        )
+
+    # --- OTel gen_ai span attrs (CONCEPT:AU-OS.observability.telemetry-observability, X2) ---
+    # Reuses the SAME ``_usage``/``_run_model`` snapshot built above — stamps them
+    # onto run_agent's own span (opened by ``on_graph_start`` in
+    # ``agent_runner.run_agent``) as ``gen_ai.request.model``/``gen_ai.usage.*``.
+    # Best-effort; a run with no tracked span (OTel unconfigured) is a clean no-op.
+    try:
+        from ..observability import get_telemetry_engine
+
+        get_telemetry_engine().on_response(
+            run_id=run_id, usage=_usage, model=_run_model
+        )
+    except Exception as _otel_exc:  # noqa: BLE001 — tracing must never crash a run
+        logger.debug(
+            "run_graph_otel_response_skipped error_type=%s",
+            type(_otel_exc).__name__,
+        )
+
+    return _usage, _run_model
+
+
+def _shape_response_for_none_result(
+    run_id: str, state: Any, graph_evidence: Any, mermaid_prefix: str
+) -> dict:
+    """Decision-node "no output" termination -- graph.run() returned bare None.
+
+    Extracted verbatim from ``_shape_graph_execute_response`` (pure extract-method,
+    no behaviour change).
+    """
+    logger.error(
+        "run_graph: graph terminated with no output — a decision branch routed "
+        "directly to the end node with no End[GraphResponse] payload, so no "
+        "specialist/verifier/synthesizer node (and no model) ever ran. "
+        "Registry keys: %s state.error=%s",
+        list(state.results_registry.keys()),
+        getattr(state, "error", None),
+    )
+    # D-RTR-3 (engine side): ``dispatcher_step``'s empty-plan branch (and
+    # ``router_step``'s total-planning-failure path) now stamp a concrete,
+    # actionable reason onto ``ctx.state.error`` before this ``None`` termination
+    # — but that state is otherwise discarded here, so the caller always saw the
+    # same hardcoded generic apology no matter *why* the turn produced nothing.
+    # Surface the real reason instead. ``state.error`` is a typed ``str | None``
+    # (``graph/state.py``), but it is free text assembled from an exception's
+    # ``str(e)`` upstream, so it is sanitised — stripped, and length-capped so a
+    # stray raw traceback/repr can never reach the user as a wall of text — before
+    # use. Fail-closed is preserved exactly as before: a missing/blank/non-string
+    # ``state.error`` (the "stringified None" bug this guard exists to prevent)
+    # falls back to the same non-empty generic text that shipped before this
+    # change — never ``None``, never an empty string, never the literal "None".
+    raw_error = getattr(state, "error", None)
+    sanitized_error = raw_error.strip() if isinstance(raw_error, str) else ""
+    if sanitized_error:
+        _MAX_ERROR_LEN = 500
+        if len(sanitized_error) > _MAX_ERROR_LEN:
+            sanitized_error = sanitized_error[:_MAX_ERROR_LEN].rstrip() + "…"
+        error_text = sanitized_error
+        output_text = (
+            f"I couldn't produce a response for this turn: {sanitized_error} "
+            "Please try again."
+        )
+    else:
+        error_text = (
+            "The orchestration graph completed without invoking any specialist "
+            "or model for this turn — no answer was generated."
+        )
+        output_text = (
+            "I couldn't produce a response for this turn: the orchestration "
+            "graph ended before any model ran. Please try again."
+        )
+    return GraphResponse(
+        status="failed",
+        error=error_text,
+        results={"output": output_text},
+        mermaid=mermaid_prefix if mermaid_prefix else None,
+        metadata={
+            "run_id": run_id,
+            "domain": state.routed_domain,
+            "degraded": True,
+            "outcome": "empty_graph_termination",
+            "execution_mode": "pydantic_graph",
+        },
+        tool_calls=list(getattr(state, "tool_calls", []) or []),
+        execution_evidence=graph_evidence.evidence(state=state),
+    ).model_dump()
+
+
+def _shape_response_for_error_dict(
+    result: dict, run_id: str, state: Any, graph_evidence: Any, mermaid_prefix: str
+) -> dict:
+    """Unrecovered ``error_recovery_step`` termination dict -> a failed GraphResponse.
+
+    Extracted verbatim from ``_shape_graph_execute_response`` (pure extract-method,
+    no behaviour change).
+    """
+    err_text = str(result.get("error") or "")
+    logger.error(
+        "run_graph: graph terminated via error_recovery with an unrecovered error: %s",
+        err_text[:300],
+    )
+    # CONCEPT:AU-ORCH.execution.execution-budget-caps — termination is an
+    # explicit, classified condition, not a bare "something went wrong": a
+    # budget exhaustion (node transitions, tool calls, tokens, cost, or
+    # duration — ``error_recovery_step`` stamps ``budget_exceeded`` for all
+    # five) is reported as its own outcome/dimension rather than folded into
+    # the generic "graph_terminal_error" every other terminal failure shares.
+    budget_exceeded = bool(result.get("budget_exceeded"))
+    budget_dimension = None
+    if budget_exceeded:
+        for dim in (
+            "max node transitions",
+            "max tool calls",
+            "max total tokens",
+            "max cost usd",
+            "max duration",
+        ):
+            if dim in err_text.lower():
+                budget_dimension = dim.replace("max ", "").replace(" ", "_")
+                break
+    partial_results = result.get("results")
+    failure_results: dict[str, Any] = {
+        "output": f"The task could not be completed: {err_text}"
+    }
+    if isinstance(partial_results, dict) and partial_results:
+        # Preserve everything completed so far -- a budget/error
+        # termination must not discard partial specialist output that was
+        # already produced before the cap tripped.
+        failure_results["partial_results"] = partial_results
+    return GraphResponse(
+        status="failed",
+        error=err_text,
+        results=failure_results,
+        mermaid=mermaid_prefix if mermaid_prefix else None,
+        metadata={
+            "run_id": run_id,
+            "domain": state.routed_domain,
+            "degraded": True,
+            "outcome": "budget_exceeded"
+            if budget_exceeded
+            else "graph_terminal_error",
+            **(
+                {"budget_dimension": budget_dimension}
+                if budget_dimension
+                else {}
+            ),
+            "execution_mode": "pydantic_graph",
+        },
+        tool_calls=list(getattr(state, "tool_calls", []) or []),
+        execution_evidence=graph_evidence.evidence(state=state),
+    ).model_dump()
+
+
+def _shape_graph_execute_response(
+    result: Any,
+    run_id: str,
+    state: Any,
+    graph_evidence: Any,
+    mermaid_prefix: str,
+    _usage: dict[str, int],
+    _run_model: str,
+) -> dict:
+    """Shape the final ``execute_graph`` return value from the raw graph result.
+
+    Extracted verbatim from ``AgentOrchestrationEngine.execute_graph`` (pure
+    extract-method, no behaviour change). Handles every shape ``graph.run()``
+    can hand back: a real ``GraphResponse``, a bare ``None`` (decision-node
+    no-output termination), a stray node-label ``str``, an unrecovered
+    ``error_recovery_step`` dict, or the plain completed-string fallback.
+    """
+    if isinstance(result, GraphResponse):
+        result.mermaid = mermaid_prefix if mermaid_prefix else None
+        result.execution_evidence = graph_evidence.evidence(state=state)
+        result.metadata.update(
+            {
+                "run_id": run_id,
+                "domain": state.routed_domain,
+                "execution_mode": "pydantic_graph",
+                # D-54c-1: stamp the real accumulated usage (incl. cache read/write +
+                # reasoning tokens) onto the response too, not just the side-channel
+                # exporters above — any other reader of GraphResponse.metadata now
+                # sees real cost-plane data instead of a permanently-empty dict.
+                "token_usage": _usage,
+                "model": _run_model,
+            }
+        )
+        # Surface the graph run's accumulated tool calls so run_agent persists them
+        # as :ToolCall provenance (CONCEPT:AU-KG.temporal.message-history-read) — the multi-agent path
+        # previously wrote none, unlike the direct single-server loop.
+        if not result.tool_calls and getattr(state, "tool_calls", None):
+            result.tool_calls = list(state.tool_calls)
+        return result.model_dump()
+
+    # Guard: graph.run() returned bare ``None`` instead of an End[GraphResponse] or a
+    # node-label string. This is the decision-node "no results" termination —
+    # ``dispatcher_step`` returns ``None`` when the plan is complete but both
+    # ``results_registry`` and ``exploration_notes`` are empty (its own "Plan completed
+    # but NO execution results found in registry" case, `_router_impl.py`), and
+    # ``dispatcher_route``'s ``type(None)`` branch sends that straight to ``g.end_node``
+    # with no payload. pydantic-graph then returns ``End(data=None)``, which unwraps to
+    # ``result is None`` above — NOT a string, so it must be caught here, before the
+    # catch-all at the bottom of this function, which used to stringify it into
+    # ``results.output == "None"`` under ``status="completed"``. That reported a turn
+    # where NO specialist/verifier/synthesizer node — and therefore no model — ever ran
+    # as an ordinary successful reply whose answer happened to be the four characters
+    # "None". Per this repo's fail-closed doctrine (AGENTS.md "Fail closed — a degraded
+    # read must never grant permission": make failure a distinct value, never an empty
+    # success), report it as a genuine, honest failure instead.
+    if result is None:
+        return _shape_response_for_none_result(run_id, state, graph_evidence, mermaid_prefix)
+
+    # Guard: graph.run() returned a plain string (node label) instead of GraphResponse.
+    # This happens when the graph exits without hitting End[GraphResponse] via some other
+    # decision branch whose matched node has no further outgoing edge (the ``None``
+    # termination above is the one documented case of this; this guard is the general
+    # fallback for any other stray string result). Extract the best available result
+    # from state before wrapping.
+    if isinstance(result, str):
+        logger.error(
+            f"run_graph: graph.run() returned node label '{result}' instead of GraphResponse. "
+            f"This indicates the graph terminated unexpectedly. "
+            f"Registry keys: {list(state.results_registry.keys())}"
+        )
+        output = (
+            next(iter(state.results_registry.values()), None)
+            or f"Graph terminated unexpectedly at node '{result}'. No results were generated."
+        )
+        return GraphResponse(
+            status="partial",
+            results={"output": output},
+            mermaid=mermaid_prefix if mermaid_prefix else None,
+            metadata={
+                "run_id": run_id,
+                "domain": state.routed_domain,
+                "terminated_at": result,
+                "execution_mode": "pydantic_graph",
+            },
+            tool_calls=list(getattr(state, "tool_calls", []) or []),
+            execution_evidence=graph_evidence.evidence(state=state),
+        ).model_dump()
+
+    # Guard: a terminal error_recovery_step End({"error": ..., "results": {...}}) is a
+    # REAL failure, not a completed answer (CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency).
+    # Without this branch it fell through to the catch-all below, which stringified this
+    # dict into `results.output` under status="completed" — presenting a raw Python-dict
+    # repr (e.g. "{'error': 'Execution budget exceeded...', 'results': {...}}") as if it
+    # were a normal reply. Surface the real cause in `error` + a coherent output instead.
+    if isinstance(result, dict) and result.get("error"):
+        return _shape_response_for_error_dict(result, run_id, state, graph_evidence, mermaid_prefix)
+
+    return GraphResponse(
+        status="completed",
+        results={"output": str(result)},
+        mermaid=mermaid_prefix if mermaid_prefix else None,
+        metadata={
+            "run_id": run_id,
+            "domain": state.routed_domain,
+            "execution_mode": "pydantic_graph",
+        },
+        tool_calls=list(getattr(state, "tool_calls", []) or []),
+        execution_evidence=graph_evidence.evidence(state=state),
+    ).model_dump()
+
+
 # implements core.execution.ExecutionEngine
 class AgentOrchestrationEngine:
     """The singular orchestration engine for the agent ecosystem.
@@ -559,53 +1161,9 @@ class AgentOrchestrationEngine:
             state.max_steps = int(_ms)
             state.execution_budget.max_node_transitions = graph_node_transition_cap(_ms)
 
-        # Track which MCP servers fail to connect so we can report them clearly.
-        failed_servers: list[tuple[str, str]] = []
-        connected_toolsets: list = []
-
-        # Track which toolsets have already been connected by the global
-        # lifespan (server.py pre-connects them at startup).  Use object
-        # identity instead of mutating toolset attributes.
-        _already_connected: set[int] = set()
-
         async with AsyncExitStack() as stack:
-            for ts in deps.mcp_toolsets:
-                if not hasattr(ts, "__aenter__"):
-                    connected_toolsets.append(ts)
-                    continue
-                if id(ts) in _already_connected:
-                    connected_toolsets.append(ts)
-                    continue
+            await _connect_mcp_toolsets(stack, deps)
 
-                srv_id = getattr(ts, "id", getattr(ts, "name", repr(ts)))
-                try:
-                    logger.debug(f"run_graph: Connecting to MCP server '{srv_id}'...")
-                    # Use asyncio.timeout() (not asyncio.wait_for) to bound the connect:
-                    # wait_for runs the coroutine in a NEW task, so a stdio toolset's anyio
-                    # cancel scope would be ENTERED in that child task while the AsyncExitStack
-                    # EXITS it in this (outer) task → "Attempted to exit cancel scope in a
-                    # different task than it was entered in". asyncio.timeout() applies to the
-                    # current task, keeping enter/exit on the same task.
-                    async with asyncio.timeout(60.0):
-                        connected = await stack.enter_async_context(ts)
-                    _already_connected.add(id(ts))
-                    connected_toolsets.append(connected)
-                    logger.info(f"run_graph: ✅ MCP server '{srv_id}' connected")
-                except Exception as e:
-                    err_msg = str(e)
-                    logger.error(
-                        f"run_graph: ❌ MCP server '{srv_id}' FAILED to connect: {err_msg}"
-                    )
-                    failed_servers.append((srv_id, err_msg))
-
-            deps.mcp_toolsets = [ts for ts in connected_toolsets if ts is not None]
-
-            if failed_servers:
-                logger.warning(
-                    f"run_graph: {len(failed_servers)} MCP server(s) failed to connect — "
-                    f"graph will proceed without them:\n"
-                    + "\n".join(f"  ❌ {sid}: {err}" for sid, err in failed_servers)
-                )
 
             # Standardize tag_prompts from the registry for high-fidelity routing.
             # We merge existing prompts with registry-provided domain tags.
@@ -640,451 +1198,23 @@ class AgentOrchestrationEngine:
             except Exception as e:  # noqa: BLE001 — svc_registry/svc_count are never referenced again in this function; ServiceRegistry.instance() is a lazy singleton re-initialized elsewhere (agent_runner.py's dispatch path), this is pure redundant warm-up
                 logger.debug("run_graph: Service registry init skipped: %s", e)
 
-            # --- Security Guard Pre-Flight (OS-5.4, OS-5.5) ---
-            try:
-                from ..security.prompt_scanner import PromptInjectionScanner
+            _preflight_block = _run_security_preflight(query, run_id)
+            if _preflight_block is not None:
+                return _preflight_block
 
-                scanner = PromptInjectionScanner()
-                scan_result = scanner.scan_text(query)
-                if scan_result.is_malicious:
-                    logger.warning(
-                        "run_graph: Query blocked by prompt scanner: %s",
-                        scan_result.explanation,
-                    )
-                    return GraphResponse(
-                        status="blocked",
-                        error=f"Security: {scan_result.explanation}",
-                        metadata={
-                            "run_id": run_id,
-                            "is_error": True,
-                            "execution_mode": "graph_preflight",
-                            "security": {
-                                "confidence": scan_result.confidence,
-                                "finding_id": scan_result.finding_id,
-                            },
-                        },
-                    ).model_dump()
-                if scan_result.matches:
-                    logger.info(
-                        "run_graph: Prompt scanner warnings: %d patterns below threshold",
-                        len(scan_result.matches),
-                    )
-            except ImportError:  # noqa: BLE001 — optional prompt scanner is not installed
-                pass  # Scanner not available
-            except Exception as e:
-                # D-DST-6: Security Guard Pre-Flight (OS-5.4/5.5) — a scanner crash here
-                # was previously indistinguishable from "the scan ran clean and found
-                # nothing" (the exact guardrail-crash-reads-as-clean-pass cousin), and
-                # the query proceeds UNSCANNED either way. Raised to warning (matching
-                # this lane's DoomLoopDetector/adversarial-verification precedent) so a
-                # persistently-failing scanner is diagnosable rather than invisible.
-                logger.warning(
-                    "run_graph: prompt scanner failed (query proceeding UNSCANNED): %s",
-                    e,
-                )
-            result = None
-            _graph_run_start = time.perf_counter()
-            try:
-                if tracer is None:
-                    logger.info("run_graph: Running pydantic_graph.run (no tracer)...")
-                with _pydantic_graph_span(
-                    run_id=run_id,
-                    query=query,
-                    topology=topology,
-                    evidence=graph_evidence,
-                ) as span:
-                    graph_evidence.attach_span(span)
-                    try:
-                        with anyio.move_on_after(
-                            DEFAULT_GRAPH_TIMEOUT / 1000.0
-                        ) as scope:
-                            result = await run_with_execution_evidence(
-                                graph,
-                                state=state,
-                                deps=deps,
-                                collector=graph_evidence,
-                            )
-                        if scope.cancel_called:
-                            logger.error(
-                                "run_graph: Graph execution TIMEOUT after %sms",
-                                DEFAULT_GRAPH_TIMEOUT,
-                            )
-                            result = "timeout"
-                    finally:
-                        graph_evidence.finish_span(state=state)
-                    if span is not None:
-                        span.set_status(
-                            trace.Status(
-                                trace.StatusCode.OK
-                                if result
-                                else trace.StatusCode.ERROR
-                            )
-                        )
-            except Exception as e:
-                logger.error(
-                    "run_graph: critical graph execution failure: %s",
-                    e,
-                )
-                emit_graph_event(
-                    deps.event_queue, "graph_complete", run_id=run_id, status="error"
-                )
-                return GraphResponse(
-                    status="error",
-                    error=str(e),
-                    metadata={
-                        "run_id": run_id,
-                        "is_error": True,
-                        "execution_mode": "pydantic_graph",
-                    },
-                    # A budget, timeout, or model failure can happen after a
-                    # real tool completed.  Preserve the calls accumulated by
-                    # graph nodes so the outer required-tool gate and durable
-                    # RunTrace record what actually happened instead of
-                    # reporting zero provenance.
-                    tool_calls=list(getattr(state, "tool_calls", []) or []),
-                    execution_evidence=graph_evidence.evidence(state=state),
-                ).model_dump()
-
-            # CONCEPT:AU-ORCH.execution.node-direct-end — a node may END the run directly with End[GraphResponse]
-            # (the router's direct-completion shape). pydantic-graph returns the End wrapper,
-            # so unwrap it to the GraphResponse here; otherwise the result handling below
-            # falls through to ``str(result)`` and the reply becomes "End(data=GraphResponse(…))".
-            from pydantic_graph import End
-
-            if isinstance(result, End):
-                result = result.data
-
-            logger.info(
-                f"run_graph: graph.run finished. Result type: {type(result)}, Result: {result}"
+            result, _graph_run_start, _early_error = await _run_graph_with_evidence(
+                graph, run_id, query, topology, state, deps, graph_evidence
             )
-            emit_graph_event(
-                deps.event_queue,
-                "graph_complete",
-                run_id=run_id,
-                status="success" if result else "timeout",
-            )
-            logger.info(
-                f"run_graph: Final state: routed_domain={state.routed_domain}, "
-                f"registry_keys={list(state.results_registry.keys())}"
+            if _early_error is not None:
+                return _early_error
+
+            _usage, _run_model = await _emit_execute_graph_telemetry(
+                run_id, query, result, state, graph_evidence, config, _graph_run_start
             )
 
-            # --- Cost-plane usage snapshot (CONCEPT:AU-OS.observability.usage-analytics-store, D-54c-1) ---
-            # ``state.session_usage`` is the ONE accumulator every specialist node already
-            # feeds via ``GraphState._update_usage`` (including provider cache read/write +
-            # reasoning tokens) — build the ``token_usage`` dict every downstream consumer
-            # below reads FROM IT, not from ``result.metadata["token_usage"]`` (nothing ever
-            # wrote that key, so it was always ``{}``: cost attribution and cache-savings
-            # telemetry were structurally hollow regardless of what any node returned).
-            _usage: dict[str, int] = {
-                "input_tokens": state.session_usage.input_tokens,
-                "output_tokens": state.session_usage.output_tokens,
-                "cache_creation_input_tokens": state.session_usage.cache_creation_input_tokens,
-                "cache_read_input_tokens": state.session_usage.cache_read_input_tokens,
-                "reasoning_tokens": state.session_usage.reasoning_tokens,
-            }
-            _run_model = str(config.get("agent_model") or "")
-
-            # --- Langfuse auto-export (CONCEPT:AU-OS.observability.langfuse-exporter) ---
-            # Default-on: ships this graph run as a Langfuse trace + token-usage
-            # generation when LANGFUSE_* keys are configured. No-ops cleanly when
-            # the keys/dep are absent so the live path is never affected.
-            try:
-                from ..observability.langfuse_exporter import get_langfuse_exporter
-
-                _exporter = get_langfuse_exporter()
-                if _exporter is not None:
-                    await _offload_sync(
-                        _exporter.export_graph_run,
-                        run_id=run_id,
-                        query=query,
-                        status="success" if result else "timeout",
-                        duration_ms=(time.perf_counter() - _graph_run_start) * 1000.0,
-                        token_usage=_usage,
-                        model=_run_model,
-                        metadata={
-                            "domain": state.routed_domain,
-                            "execution_mode": "pydantic_graph",
-                            "graph_topology_digest": graph_evidence.topology_digest,
-                            "graph_version_digest": graph_evidence.version_digest,
-                            "graph_transition_count": len(graph_evidence.transitions),
-                        },
-                        evidence=(
-                            config.get("trace_evidence")
-                            if isinstance(config.get("trace_evidence"), dict)
-                            else None
-                        ),
-                    )
-            except Exception as _lf_exc:  # noqa: BLE001 — export must never crash a run
-                logger.debug(
-                    "run_graph: Langfuse export skipped (%s).",
-                    type(_lf_exc).__name__,
-                )
-
-            # --- Self-ingest RunTrace telemetry (CONCEPT:AU-KG.ingest.attaching-this-root-logger) ---
-            # Dogfooding: ship this graph run's RunTrace into the epistemic-graph
-            # engine obs store. Opt-in (default-off); clean no-op when disabled.
-            try:
-                from ..observability.self_ingest import emit_run_trace
-
-                await _offload_sync(
-                    emit_run_trace,
-                    run_id=run_id,
-                    status="success" if result else "timeout",
-                    duration_ms=(time.perf_counter() - _graph_run_start) * 1000.0,
-                    query=query,
-                    attributes={
-                        "domain": state.routed_domain,
-                        "execution_mode": "pydantic_graph",
-                        "graph_topology_digest": graph_evidence.topology_digest,
-                        "graph_version_digest": graph_evidence.version_digest,
-                        "graph_transition_count": len(graph_evidence.transitions),
-                    },
-                )
-            except Exception as _si_exc:  # noqa: BLE001 — telemetry must never crash a run
-                logger.debug("run_graph: self-ingest run_trace skipped: %s", _si_exc)
-
-            # CONCEPT:AU-OS.observability.persist-this-graph-run — persist this graph run as a runtime usage row so
-            # token counts/cost feed the same /api/observability surface the
-            # ingested agent logs do. Best-effort; never affects the run.
-            try:
-                from agent_utilities.security.brain_context import current_actor
-                from agent_utilities.usage.recorder import get_usage_recorder
-
-                await _offload_sync(
-                    get_usage_recorder().record_run,
-                    run_id=run_id,
-                    query=query,
-                    status="success" if result else "timeout",
-                    duration_ms=(time.perf_counter() - _graph_run_start) * 1000.0,
-                    token_usage=_usage,
-                    model=_run_model,
-                    project=str(state.routed_domain or ""),
-                    tenant_id=current_actor().tenant_id,
-                )
-            except Exception as _ur_exc:  # noqa: BLE001 — recorder must never crash a run
-                logger.debug(
-                    "run_graph_usage_record_skipped error_type=%s",
-                    type(_ur_exc).__name__,
-                )
-
-            # --- OTel gen_ai span attrs (CONCEPT:AU-OS.observability.telemetry-observability, X2) ---
-            # Reuses the SAME ``_usage``/``_run_model`` snapshot built above — stamps them
-            # onto run_agent's own span (opened by ``on_graph_start`` in
-            # ``agent_runner.run_agent``) as ``gen_ai.request.model``/``gen_ai.usage.*``.
-            # Best-effort; a run with no tracked span (OTel unconfigured) is a clean no-op.
-            try:
-                from ..observability import get_telemetry_engine
-
-                get_telemetry_engine().on_response(
-                    run_id=run_id, usage=_usage, model=_run_model
-                )
-            except Exception as _otel_exc:  # noqa: BLE001 — tracing must never crash a run
-                logger.debug(
-                    "run_graph_otel_response_skipped error_type=%s",
-                    type(_otel_exc).__name__,
-                )
-
-        if isinstance(result, GraphResponse):
-            result.mermaid = mermaid_prefix if mermaid_prefix else None
-            result.execution_evidence = graph_evidence.evidence(state=state)
-            result.metadata.update(
-                {
-                    "run_id": run_id,
-                    "domain": state.routed_domain,
-                    "execution_mode": "pydantic_graph",
-                    # D-54c-1: stamp the real accumulated usage (incl. cache read/write +
-                    # reasoning tokens) onto the response too, not just the side-channel
-                    # exporters above — any other reader of GraphResponse.metadata now
-                    # sees real cost-plane data instead of a permanently-empty dict.
-                    "token_usage": _usage,
-                    "model": _run_model,
-                }
-            )
-            # Surface the graph run's accumulated tool calls so run_agent persists them
-            # as :ToolCall provenance (CONCEPT:AU-KG.temporal.message-history-read) — the multi-agent path
-            # previously wrote none, unlike the direct single-server loop.
-            if not result.tool_calls and getattr(state, "tool_calls", None):
-                result.tool_calls = list(state.tool_calls)
-            return result.model_dump()
-
-        # Guard: graph.run() returned bare ``None`` instead of an End[GraphResponse] or a
-        # node-label string. This is the decision-node "no results" termination —
-        # ``dispatcher_step`` returns ``None`` when the plan is complete but both
-        # ``results_registry`` and ``exploration_notes`` are empty (its own "Plan completed
-        # but NO execution results found in registry" case, `_router_impl.py`), and
-        # ``dispatcher_route``'s ``type(None)`` branch sends that straight to ``g.end_node``
-        # with no payload. pydantic-graph then returns ``End(data=None)``, which unwraps to
-        # ``result is None`` above — NOT a string, so it must be caught here, before the
-        # catch-all at the bottom of this function, which used to stringify it into
-        # ``results.output == "None"`` under ``status="completed"``. That reported a turn
-        # where NO specialist/verifier/synthesizer node — and therefore no model — ever ran
-        # as an ordinary successful reply whose answer happened to be the four characters
-        # "None". Per this repo's fail-closed doctrine (AGENTS.md "Fail closed — a degraded
-        # read must never grant permission": make failure a distinct value, never an empty
-        # success), report it as a genuine, honest failure instead.
-        if result is None:
-            logger.error(
-                "run_graph: graph terminated with no output — a decision branch routed "
-                "directly to the end node with no End[GraphResponse] payload, so no "
-                "specialist/verifier/synthesizer node (and no model) ever ran. "
-                "Registry keys: %s state.error=%s",
-                list(state.results_registry.keys()),
-                getattr(state, "error", None),
-            )
-            # D-RTR-3 (engine side): ``dispatcher_step``'s empty-plan branch (and
-            # ``router_step``'s total-planning-failure path) now stamp a concrete,
-            # actionable reason onto ``ctx.state.error`` before this ``None`` termination
-            # — but that state is otherwise discarded here, so the caller always saw the
-            # same hardcoded generic apology no matter *why* the turn produced nothing.
-            # Surface the real reason instead. ``state.error`` is a typed ``str | None``
-            # (``graph/state.py``), but it is free text assembled from an exception's
-            # ``str(e)`` upstream, so it is sanitised — stripped, and length-capped so a
-            # stray raw traceback/repr can never reach the user as a wall of text — before
-            # use. Fail-closed is preserved exactly as before: a missing/blank/non-string
-            # ``state.error`` (the "stringified None" bug this guard exists to prevent)
-            # falls back to the same non-empty generic text that shipped before this
-            # change — never ``None``, never an empty string, never the literal "None".
-            raw_error = getattr(state, "error", None)
-            sanitized_error = raw_error.strip() if isinstance(raw_error, str) else ""
-            if sanitized_error:
-                _MAX_ERROR_LEN = 500
-                if len(sanitized_error) > _MAX_ERROR_LEN:
-                    sanitized_error = sanitized_error[:_MAX_ERROR_LEN].rstrip() + "…"
-                error_text = sanitized_error
-                output_text = (
-                    f"I couldn't produce a response for this turn: {sanitized_error} "
-                    "Please try again."
-                )
-            else:
-                error_text = (
-                    "The orchestration graph completed without invoking any specialist "
-                    "or model for this turn — no answer was generated."
-                )
-                output_text = (
-                    "I couldn't produce a response for this turn: the orchestration "
-                    "graph ended before any model ran. Please try again."
-                )
-            return GraphResponse(
-                status="failed",
-                error=error_text,
-                results={"output": output_text},
-                mermaid=mermaid_prefix if mermaid_prefix else None,
-                metadata={
-                    "run_id": run_id,
-                    "domain": state.routed_domain,
-                    "degraded": True,
-                    "outcome": "empty_graph_termination",
-                    "execution_mode": "pydantic_graph",
-                },
-                tool_calls=list(getattr(state, "tool_calls", []) or []),
-                execution_evidence=graph_evidence.evidence(state=state),
-            ).model_dump()
-
-        # Guard: graph.run() returned a plain string (node label) instead of GraphResponse.
-        # This happens when the graph exits without hitting End[GraphResponse] via some other
-        # decision branch whose matched node has no further outgoing edge (the ``None``
-        # termination above is the one documented case of this; this guard is the general
-        # fallback for any other stray string result). Extract the best available result
-        # from state before wrapping.
-        if isinstance(result, str):
-            logger.error(
-                f"run_graph: graph.run() returned node label '{result}' instead of GraphResponse. "
-                f"This indicates the graph terminated unexpectedly. "
-                f"Registry keys: {list(state.results_registry.keys())}"
-            )
-            output = (
-                next(iter(state.results_registry.values()), None)
-                or f"Graph terminated unexpectedly at node '{result}'. No results were generated."
-            )
-            return GraphResponse(
-                status="partial",
-                results={"output": output},
-                mermaid=mermaid_prefix if mermaid_prefix else None,
-                metadata={
-                    "run_id": run_id,
-                    "domain": state.routed_domain,
-                    "terminated_at": result,
-                    "execution_mode": "pydantic_graph",
-                },
-                tool_calls=list(getattr(state, "tool_calls", []) or []),
-                execution_evidence=graph_evidence.evidence(state=state),
-            ).model_dump()
-
-        # Guard: a terminal error_recovery_step End({"error": ..., "results": {...}}) is a
-        # REAL failure, not a completed answer (CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency).
-        # Without this branch it fell through to the catch-all below, which stringified this
-        # dict into `results.output` under status="completed" — presenting a raw Python-dict
-        # repr (e.g. "{'error': 'Execution budget exceeded...', 'results': {...}}") as if it
-        # were a normal reply. Surface the real cause in `error` + a coherent output instead.
-        if isinstance(result, dict) and result.get("error"):
-            err_text = str(result.get("error") or "")
-            logger.error(
-                "run_graph: graph terminated via error_recovery with an unrecovered error: %s",
-                err_text[:300],
-            )
-            # CONCEPT:AU-ORCH.execution.execution-budget-caps — termination is an
-            # explicit, classified condition, not a bare "something went wrong": a
-            # budget exhaustion (node transitions, tool calls, tokens, cost, or
-            # duration — ``error_recovery_step`` stamps ``budget_exceeded`` for all
-            # five) is reported as its own outcome/dimension rather than folded into
-            # the generic "graph_terminal_error" every other terminal failure shares.
-            budget_exceeded = bool(result.get("budget_exceeded"))
-            budget_dimension = None
-            if budget_exceeded:
-                for dim in (
-                    "max node transitions",
-                    "max tool calls",
-                    "max total tokens",
-                    "max cost usd",
-                    "max duration",
-                ):
-                    if dim in err_text.lower():
-                        budget_dimension = dim.replace("max ", "").replace(" ", "_")
-                        break
-            partial_results = result.get("results")
-            failure_results: dict[str, Any] = {
-                "output": f"The task could not be completed: {err_text}"
-            }
-            if isinstance(partial_results, dict) and partial_results:
-                # Preserve everything completed so far -- a budget/error
-                # termination must not discard partial specialist output that was
-                # already produced before the cap tripped.
-                failure_results["partial_results"] = partial_results
-            return GraphResponse(
-                status="failed",
-                error=err_text,
-                results=failure_results,
-                mermaid=mermaid_prefix if mermaid_prefix else None,
-                metadata={
-                    "run_id": run_id,
-                    "domain": state.routed_domain,
-                    "degraded": True,
-                    "outcome": "budget_exceeded"
-                    if budget_exceeded
-                    else "graph_terminal_error",
-                    **(
-                        {"budget_dimension": budget_dimension}
-                        if budget_dimension
-                        else {}
-                    ),
-                    "execution_mode": "pydantic_graph",
-                },
-                tool_calls=list(getattr(state, "tool_calls", []) or []),
-                execution_evidence=graph_evidence.evidence(state=state),
-            ).model_dump()
-
-        return GraphResponse(
-            status="completed",
-            results={"output": str(result)},
-            mermaid=mermaid_prefix if mermaid_prefix else None,
-            metadata={
-                "run_id": run_id,
-                "domain": state.routed_domain,
-                "execution_mode": "pydantic_graph",
-            },
-            tool_calls=list(getattr(state, "tool_calls", []) or []),
-            execution_evidence=graph_evidence.evidence(state=state),
-        ).model_dump()
+        return _shape_graph_execute_response(
+            result, run_id, state, graph_evidence, mermaid_prefix, _usage, _run_model
+        )
 
     @_foreground_execution
     async def stream_graph(
