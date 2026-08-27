@@ -248,6 +248,13 @@ services:
     container_port: 8000
     host_port: 8222
     profiles: [enterprise]
+  - name: lakekeeper-mcp
+    package: lakekeeper-mcp
+    console_script: lakekeeper-mcp
+    image: example/lakekeeper-mcp:latest
+    container_port: 8000
+    host_port: 8268
+    profiles: [enterprise]
   - name: langfuse-mcp
     package: langfuse-agent
     console_script: langfuse-mcp
@@ -346,6 +353,13 @@ services:
     container_port: 8000
     host_port: 8233
     profiles: [single-node-prod, enterprise]
+  - name: opensearch-mcp
+    package: opensearch-mcp
+    console_script: opensearch-mcp
+    image: example/opensearch-mcp:latest
+    container_port: 8000
+    host_port: 8269
+    profiles: [enterprise]
   - name: owncast-mcp
     package: owncast-agent
     console_script: owncast-mcp
@@ -436,6 +450,13 @@ services:
     image: example/servicenow-api:latest
     container_port: 8000
     host_port: 8243
+    profiles: [enterprise]
+  - name: spark-mcp
+    package: spark-mcp
+    console_script: spark-mcp
+    image: example/spark-mcp:latest
+    container_port: 8000
+    host_port: 8270
     profiles: [enterprise]
   - name: sql-mcp
     package: sql-mcp

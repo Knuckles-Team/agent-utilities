@@ -139,7 +139,7 @@ sync:
     doc_type: database_table
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-26T13:42:55Z'
+  generated_at: '2026-08-27T02:44:50Z'
   source_artifacts:
   - sql_mcp/connectors/mcp_source_presets.json
   - sql_mcp/connectors/tool_schema_fingerprints.json
