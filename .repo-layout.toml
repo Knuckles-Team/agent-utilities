@@ -1,0 +1,55 @@
+# Repository-root directory-justification manifest, read by
+# scripts/check_root_hygiene.py.
+#
+# This is NOT a ratchet. A ratchet (a "baseline" a gate compares against
+# instead of an absolute standard) hides existing findings from view and only
+# ever grows by a gate silently re-recording whatever is currently true. This
+# file does the opposite on both counts:
+#   * it hides no finding -- every tracked root entry not listed here is a
+#     gate FAILURE, not a suppressed one;
+#   * it grows only by a deliberate human (or human-reviewed) edit that adds
+#     a one-line reason, never by a tool re-writing it to match the tree;
+#   * a listed entry that stops being tracked is ALSO a gate failure (see
+#     check_root_hygiene.py's stale-entry check) -- so unlike a baseline, this
+#     file cannot rot into fiction by silently outliving what it describes.
+#
+# Every tracked root directory, and every tracked non-dot root file, must have
+# a line here. Conventional, self-describing dot-FILES (.gitignore,
+# .pre-commit-config.yaml, ...) are instead enumerated in
+# scripts/check_root_hygiene.py's ALLOWED_DOTFILES -- see that module's
+# docstring for why the split.
+
+[dirs]
+agent_utilities = "the importable library package itself (kg_server.py MCP entry point, agent.py, skills/, core/, ...)"
+deploy = "k8s/Compose deployment manifests, the fleet MCP registry, action-policy defaults, and release/schedule config read by the deploy tooling"
+docker = "Dockerfile + docker-compose stacks (graph-os, engine-shards, falkordb, jena_fuseki, kafka, egeria, ...) for image build and local dev"
+docs = "mkdocs documentation source"
+examples = "runnable reference material: action-policies, an ontology workflow, and a reference agent"
+scripts = "gate scripts (check_*.py) and release tooling invoked by pre-commit/CI"
+tests = "the test suite"
+".github" = "GitHub Actions workflow definitions"
+".security" = "adversarial security-gate scripts (authenticated_negative.py, repository_fuzz.py) and security-contract.json read by the security CI gate"
+".specify" = "spec-kit state for SDD-governed feature work: design/evidence/memory/reports/specs/triage"
+
+[files]
+"AGENTS.head.md" = "fragment merged into the generated AGENTS.md by the agents-md-generator skill"
+"AGENTS.md" = "generated agent-facing repo guide"
+"CHANGELOG.md" = "release changelog, updated by the bump2version release flow"
+"CLAUDE.md" = "Claude Code project instructions"
+"CONTRIBUTING.md" = "contributor guide"
+"LICENSE" = "license text"
+"README.md" = "project readme"
+"llms.txt" = "LLM-facing site index (llms.txt convention), served alongside the docs site"
+"MANIFEST.in" = "sdist inclusion rules for the packaging build"
+"build_backend.py" = "custom PEP 517 build backend hook"
+"pyproject.toml" = "package metadata plus tool config (pytest, ruff, mypy, ...)"
+"requirements.txt" = "pinned runtime deps for non-uv installs (e.g. a plain `pip install -r` in a Docker COPY step)"
+"uv.lock" = "uv lockfile"
+"overrides.txt" = "mirrors the workspace root's [tool.uv].override-dependencies for a standalone image build, which resolves from this package alone; consumed by docker/Dockerfile via UV_OVERRIDE (uv honours override-dependencies only from a workspace root)"
+"genesis.yaml" = "agent-os-genesis provisioning manifest"
+"mcp_config.bus.json" = "MCP client config wiring the multiplexer bus"
+"mcp_config.example.json" = "example MCP client config"
+"mkdocs.yml" = "mkdocs site config"
+"opencode.json" = "opencode tool config"
+"pytest.ini" = "pytest configuration"
+"vulture_whitelist.py" = "vulture dead-code false-positive whitelist, referenced by .pre-commit-config.yaml"

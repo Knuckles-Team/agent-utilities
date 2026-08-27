@@ -318,3 +318,15 @@ scratch/
 
 # stray in-repo worktree symlink (never track)
 .wave-worktrees/
+
+# CX-HYG-01 (check_gitignore_convergence.py, fleet-shared REQUIRED set):
+# node_modules/ -- this repo has no committed package.json today, but the
+# convergence gate treats it as a fleet-wide convention rather than a
+# per-repo opt-in, so a future JS/TS tool added here doesn't silently
+# reintroduce the "committed dependency tree" class of incident.
+node_modules/
+# `kiss check` writes a self-calibrating .kissconfig the first time it runs --
+# a ratchet that installs itself the moment it is trackable. Twin of
+# check_root_hygiene.py's FORBIDDEN_ANYWHERE (which catches it if it is ever
+# tracked anyway); this stops it from becoming stageable in the first place.
+.kissconfig
