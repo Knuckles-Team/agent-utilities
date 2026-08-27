@@ -526,33 +526,133 @@ def _validate_placement_contract(data: Mapping[str, Any], errors: list[str]) -> 
     )
 
 
-def validation_errors(
-    data: Mapping[str, Any] | None = None,
+def _validate_table_entry(
+    raw_table: Any,
+    table_path: str,
     *,
-    schemas: Mapping[str, Mapping[str, frozenset[str]]] | None = None,
-) -> list[str]:
-    """Return every structural authority-map violation.
+    domain_name: str,
+    errors: list[str],
+    table_names: set[str],
+    authority_fields: dict[tuple[str, str, str], str],
+) -> None:
+    if not isinstance(raw_table, dict):
+        errors.append(f"{table_path} must be an object")
+        return
+    table = raw_table.get("name")
+    if not isinstance(table, str) or _IDENTIFIER.fullmatch(table) is None:
+        errors.append(f"{table_path}.name is invalid")
+        return
+    if table in table_names:
+        errors.append(f"duplicate authority table: {domain_name}.{table}")
+    table_names.add(table)
+    authoritative = _string_list(
+        raw_table.get("authoritative_fields"),
+        path=f"{table_path}.authoritative_fields",
+        errors=errors,
+    )
+    derived = _string_list(
+        raw_table.get("derived_fields"),
+        path=f"{table_path}.derived_fields",
+        errors=errors,
+    )
+    if set(authoritative) & set(derived):
+        errors.append(f"conflicting field roles: {domain_name}.{table}")
+    if len(authoritative) != len(set(authoritative)):
+        errors.append(f"duplicate authoritative fields: {domain_name}.{table}")
+    if len(derived) != len(set(derived)):
+        errors.append(f"duplicate derived fields: {domain_name}.{table}")
+    prohibited = set(
+        _string_list(
+            raw_table.get("prohibited_dual_write_domains"),
+            path=f"{table_path}.prohibited_dual_write_domains",
+            errors=errors,
+        )
+    )
+    expected_prohibited = _DOMAIN_NAMES - {domain_name}
+    if prohibited != expected_prohibited:
+        errors.append(
+            f"{domain_name}.{table} does not prohibit every other write domain"
+        )
+    for field in authoritative:
+        if _is_sensitive_field(field):
+            errors.append(
+                f"secret-bearing declared column: {domain_name}.{table}.{field}"
+            )
+        key = (domain_name, table, field)
+        if key in authority_fields:
+            errors.append(f"duplicate field authority: {'.'.join(key)}")
+        authority_fields[key] = "authoritative"
+    for field in derived:
+        if _is_sensitive_field(field):
+            errors.append(
+                f"secret-bearing declared column: {domain_name}.{table}.{field}"
+            )
+        key = (domain_name, table, field)
+        if key in authority_fields:
+            errors.append(f"duplicate field authority: {'.'.join(key)}")
+        authority_fields[key] = "derived"
 
-    ``schemas`` is injectable for adversarial tests; production callers use
-    :func:`declared_schemas`.  A non-empty result is a security failure and
-    must be treated as unavailable rather than as a partial map.
-    """
 
-    errors: list[str] = []
-    if data is None:
-        try:
-            data = load_authority_map()
-        except AuthorityMapError as exc:
-            return [str(exc)]
-    if data.get("version") != 1:
-        errors.append("unsupported or missing authority-map version")
-    if data.get("contract") != "one-writer-per-domain":
-        errors.append("authority map does not declare the one-writer contract")
-    _validate_placement_contract(data, errors)
+def _validate_domain_entry(
+    raw_domain: Any,
+    path: str,
+    *,
+    errors: list[str],
+    seen_domains: set[str],
+    seen_authorities: set[str],
+    seen_schema_sources: set[str],
+    domain_tables: dict[str, set[str]],
+    authority_fields: dict[tuple[str, str, str], str],
+) -> None:
+    if not isinstance(raw_domain, dict):
+        errors.append(f"{path} must be an object")
+        return
+    name = raw_domain.get("name")
+    if not isinstance(name, str) or name not in _DOMAIN_NAMES:
+        errors.append(f"{path}.name is not a supported authority domain")
+        return
+    if name in seen_domains:
+        errors.append(f"duplicate authority domain: {name}")
+    seen_domains.add(name)
+    if not isinstance(raw_domain.get("authority"), str) or not raw_domain.get(
+        "authority"
+    ):
+        errors.append(f"{path}.authority is missing")
+    elif raw_domain["authority"] != _EXPECTED_AUTHORITIES.get(name):
+        errors.append(f"{path}.authority conflicts with the owning domain")
+    elif raw_domain["authority"] in seen_authorities:
+        errors.append(f"duplicate authority owner: {raw_domain['authority']}")
+    else:
+        seen_authorities.add(raw_domain["authority"])
+    if not isinstance(raw_domain.get("schema_source"), str):
+        errors.append(f"{path}.schema_source is missing")
+    elif raw_domain["schema_source"] != _EXPECTED_SCHEMA_SOURCES.get(name):
+        errors.append(f"{path}.schema_source conflicts with the owning module")
+    elif raw_domain["schema_source"] in seen_schema_sources:
+        errors.append(f"duplicate schema source: {raw_domain['schema_source']}")
+    else:
+        seen_schema_sources.add(raw_domain["schema_source"])
+    tables = raw_domain.get("tables")
+    if not isinstance(tables, list) or not tables:
+        errors.append(f"{path}.tables must be a non-empty list")
+        return
+    table_names: set[str] = set()
+    domain_tables[name] = table_names
+    for table_index, raw_table in enumerate(tables):
+        table_path = f"{path}.tables[{table_index}]"
+        _validate_table_entry(
+            raw_table,
+            table_path,
+            domain_name=name,
+            errors=errors,
+            table_names=table_names,
+            authority_fields=authority_fields,
+        )
 
-    raw_domains = data.get("domains")
-    if not isinstance(raw_domains, list):
-        return errors + ["domains must be a list"]
+
+def _validate_domains(
+    raw_domains: list[Any], errors: list[str]
+) -> tuple[set[str], dict[str, set[str]]]:
     seen_domains: set[str] = set()
     seen_authorities: set[str] = set()
     seen_schema_sources: set[str] = set()
@@ -560,104 +660,25 @@ def validation_errors(
     authority_fields: dict[tuple[str, str, str], str] = {}
     for domain_index, raw_domain in enumerate(raw_domains):
         path = f"domains[{domain_index}]"
-        if not isinstance(raw_domain, dict):
-            errors.append(f"{path} must be an object")
-            continue
-        name = raw_domain.get("name")
-        if not isinstance(name, str) or name not in _DOMAIN_NAMES:
-            errors.append(f"{path}.name is not a supported authority domain")
-            continue
-        if name in seen_domains:
-            errors.append(f"duplicate authority domain: {name}")
-        seen_domains.add(name)
-        if not isinstance(raw_domain.get("authority"), str) or not raw_domain.get(
-            "authority"
-        ):
-            errors.append(f"{path}.authority is missing")
-        elif raw_domain["authority"] != _EXPECTED_AUTHORITIES.get(name):
-            errors.append(f"{path}.authority conflicts with the owning domain")
-        elif raw_domain["authority"] in seen_authorities:
-            errors.append(f"duplicate authority owner: {raw_domain['authority']}")
-        else:
-            seen_authorities.add(raw_domain["authority"])
-        if not isinstance(raw_domain.get("schema_source"), str):
-            errors.append(f"{path}.schema_source is missing")
-        elif raw_domain["schema_source"] != _EXPECTED_SCHEMA_SOURCES.get(name):
-            errors.append(f"{path}.schema_source conflicts with the owning module")
-        elif raw_domain["schema_source"] in seen_schema_sources:
-            errors.append(f"duplicate schema source: {raw_domain['schema_source']}")
-        else:
-            seen_schema_sources.add(raw_domain["schema_source"])
-        tables = raw_domain.get("tables")
-        if not isinstance(tables, list) or not tables:
-            errors.append(f"{path}.tables must be a non-empty list")
-            continue
-        table_names: set[str] = set()
-        domain_tables[name] = table_names
-        for table_index, raw_table in enumerate(tables):
-            table_path = f"{path}.tables[{table_index}]"
-            if not isinstance(raw_table, dict):
-                errors.append(f"{table_path} must be an object")
-                continue
-            table = raw_table.get("name")
-            if not isinstance(table, str) or _IDENTIFIER.fullmatch(table) is None:
-                errors.append(f"{table_path}.name is invalid")
-                continue
-            if table in table_names:
-                errors.append(f"duplicate authority table: {name}.{table}")
-            table_names.add(table)
-            authoritative = _string_list(
-                raw_table.get("authoritative_fields"),
-                path=f"{table_path}.authoritative_fields",
-                errors=errors,
-            )
-            derived = _string_list(
-                raw_table.get("derived_fields"),
-                path=f"{table_path}.derived_fields",
-                errors=errors,
-            )
-            if set(authoritative) & set(derived):
-                errors.append(f"conflicting field roles: {name}.{table}")
-            if len(authoritative) != len(set(authoritative)):
-                errors.append(f"duplicate authoritative fields: {name}.{table}")
-            if len(derived) != len(set(derived)):
-                errors.append(f"duplicate derived fields: {name}.{table}")
-            prohibited = set(
-                _string_list(
-                    raw_table.get("prohibited_dual_write_domains"),
-                    path=f"{table_path}.prohibited_dual_write_domains",
-                    errors=errors,
-                )
-            )
-            expected_prohibited = _DOMAIN_NAMES - {name}
-            if prohibited != expected_prohibited:
-                errors.append(
-                    f"{name}.{table} does not prohibit every other write domain"
-                )
-            for field in authoritative:
-                if _is_sensitive_field(field):
-                    errors.append(
-                        f"secret-bearing declared column: {name}.{table}.{field}"
-                    )
-                key = (name, table, field)
-                if key in authority_fields:
-                    errors.append(f"duplicate field authority: {'.'.join(key)}")
-                authority_fields[key] = "authoritative"
-            for field in derived:
-                if _is_sensitive_field(field):
-                    errors.append(
-                        f"secret-bearing declared column: {name}.{table}.{field}"
-                    )
-                key = (name, table, field)
-                if key in authority_fields:
-                    errors.append(f"duplicate field authority: {'.'.join(key)}")
-                authority_fields[key] = "derived"
+        _validate_domain_entry(
+            raw_domain,
+            path,
+            errors=errors,
+            seen_domains=seen_domains,
+            seen_authorities=seen_authorities,
+            seen_schema_sources=seen_schema_sources,
+            domain_tables=domain_tables,
+            authority_fields=authority_fields,
+        )
+    return seen_domains, domain_tables
 
-    missing_domains = _DOMAIN_NAMES - seen_domains
-    errors.extend(
-        f"missing authority domain: {name}" for name in sorted(missing_domains)
-    )
 
+def _validate_schema_drift(
+    raw_domains: list[Any],
+    domain_tables: dict[str, set[str]],
+    schemas: Mapping[str, Mapping[str, frozenset[str]]] | None,
+    errors: list[str],
+) -> None:
     if schemas is None:
         try:
             schemas = declared_schemas()
@@ -698,6 +719,10 @@ def validation_errors(
                     f"declared={sorted(columns)}"
                 )
 
+
+def _validate_engine_discovery_bindings(
+    raw_domains: list[Any], errors: list[str]
+) -> None:
     engine_domain = next(
         (
             raw_domain
@@ -735,49 +760,95 @@ def validation_errors(
                     "desired mcp_servers must not carry discovery binding fields"
                 )
 
+
+def _validate_read_models(
+    data: Mapping[str, Any],
+    domain_tables: dict[str, set[str]],
+    errors: list[str],
+) -> None:
     read_models = data.get("read_models")
     if not isinstance(read_models, list):
         errors.append("read_models must be a list")
-    else:
-        seen_models: set[str] = set()
-        for index, model in enumerate(read_models):
-            path = f"read_models[{index}]"
-            if not isinstance(model, dict):
-                errors.append(f"{path} must be an object")
-                continue
-            name = model.get("name")
-            if not isinstance(name, str) or not name or name in seen_models:
-                errors.append(f"duplicate or missing read model: {name!r}")
-            seen_models.add(str(name))
-            owner = model.get("owner_domain")
-            if owner not in _DOMAIN_NAMES:
-                errors.append(f"{path}.owner_domain is invalid")
-            if model.get("write_forbidden") is not True:
-                errors.append(f"{path}.write_forbidden must be true")
-            fields = _string_list(
-                model.get("fields"), path=f"{path}.fields", errors=errors
-            )
-            if len(fields) != len(set(fields)):
-                errors.append(f"duplicate read-model fields: {path}")
-            if isinstance(name, str) and set(fields) != _EXPECTED_READ_MODEL_FIELDS.get(
-                name, set()
-            ):
-                errors.append(f"read-model field drift: {name}")
-            sources = _string_list(
-                model.get("source_tables"),
-                path=f"{path}.source_tables",
-                errors=errors,
-            )
-            if not sources:
-                errors.append(f"{path}.source_tables must not be empty")
-            if owner in domain_tables and any(
-                source not in domain_tables[owner] for source in sources
-            ):
-                errors.append(f"{path} references a table outside its owner domain")
-        missing_models = _EXPECTED_READ_MODEL_NAMES - seen_models
-        extra_models = seen_models - _EXPECTED_READ_MODEL_NAMES
-        errors.extend(f"missing read model: {name}" for name in sorted(missing_models))
-        errors.extend(f"unknown read model: {name}" for name in sorted(extra_models))
+        return
+    seen_models: set[str] = set()
+    for index, model in enumerate(read_models):
+        path = f"read_models[{index}]"
+        if not isinstance(model, dict):
+            errors.append(f"{path} must be an object")
+            continue
+        name = model.get("name")
+        if not isinstance(name, str) or not name or name in seen_models:
+            errors.append(f"duplicate or missing read model: {name!r}")
+        seen_models.add(str(name))
+        owner = model.get("owner_domain")
+        if owner not in _DOMAIN_NAMES:
+            errors.append(f"{path}.owner_domain is invalid")
+        if model.get("write_forbidden") is not True:
+            errors.append(f"{path}.write_forbidden must be true")
+        fields = _string_list(
+            model.get("fields"), path=f"{path}.fields", errors=errors
+        )
+        if len(fields) != len(set(fields)):
+            errors.append(f"duplicate read-model fields: {path}")
+        if isinstance(name, str) and set(fields) != _EXPECTED_READ_MODEL_FIELDS.get(
+            name, set()
+        ):
+            errors.append(f"read-model field drift: {name}")
+        sources = _string_list(
+            model.get("source_tables"),
+            path=f"{path}.source_tables",
+            errors=errors,
+        )
+        if not sources:
+            errors.append(f"{path}.source_tables must not be empty")
+        if owner in domain_tables and any(
+            source not in domain_tables[owner] for source in sources
+        ):
+            errors.append(f"{path} references a table outside its owner domain")
+    missing_models = _EXPECTED_READ_MODEL_NAMES - seen_models
+    extra_models = seen_models - _EXPECTED_READ_MODEL_NAMES
+    errors.extend(f"missing read model: {name}" for name in sorted(missing_models))
+    errors.extend(f"unknown read model: {name}" for name in sorted(extra_models))
+
+
+def validation_errors(
+    data: Mapping[str, Any] | None = None,
+    *,
+    schemas: Mapping[str, Mapping[str, frozenset[str]]] | None = None,
+) -> list[str]:
+    """Return every structural authority-map violation.
+
+    ``schemas`` is injectable for adversarial tests; production callers use
+    :func:`declared_schemas`.  A non-empty result is a security failure and
+    must be treated as unavailable rather than as a partial map.
+    """
+
+    errors: list[str] = []
+    if data is None:
+        try:
+            data = load_authority_map()
+        except AuthorityMapError as exc:
+            return [str(exc)]
+    if data.get("version") != 1:
+        errors.append("unsupported or missing authority-map version")
+    if data.get("contract") != "one-writer-per-domain":
+        errors.append("authority map does not declare the one-writer contract")
+    _validate_placement_contract(data, errors)
+
+    raw_domains = data.get("domains")
+    if not isinstance(raw_domains, list):
+        return errors + ["domains must be a list"]
+
+    seen_domains, domain_tables = _validate_domains(raw_domains, errors)
+
+    missing_domains = _DOMAIN_NAMES - seen_domains
+    errors.extend(
+        f"missing authority domain: {name}" for name in sorted(missing_domains)
+    )
+
+    _validate_schema_drift(raw_domains, domain_tables, schemas, errors)
+    _validate_engine_discovery_bindings(raw_domains, errors)
+    _validate_read_models(data, domain_tables, errors)
     return errors
 
 
