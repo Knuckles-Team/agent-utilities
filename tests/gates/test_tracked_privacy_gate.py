@@ -168,15 +168,17 @@ def test_svc_cluster_local_bare_and_schemed_both_fail() -> None:
 
 
 def test_full_corpus_scan_is_clean() -> None:
-    """The whole tracked tree must scan clean against the frozen baseline.
+    """The whole tracked tree must scan clean against the absolute ``MAX``.
 
-    Mirrors ``main()``'s own new-vs-baseline diff without invoking the CLI,
-    so a regression here fails as a normal pytest assertion (with the
-    offending findings in the message) instead of only showing up as a
-    pre-commit/CI gate failure.
+    CX-RAT-09: the baseline/ratchet mechanism this test used to diff against
+    is deleted -- a count-based allowance is the wrong instrument for a
+    leak-prevention gate on a repo that publishes to a public GitHub org (see
+    ``scripts/check_tracked_privacy.py``'s module-level comment). Mirrors
+    ``main()``'s own MAX comparison without invoking the CLI, so a
+    regression here fails as a normal pytest assertion (with the offending
+    findings in the message) instead of only showing up as a pre-commit/CI
+    gate failure.
     """
     gate = _gate_module()
     violations = gate.scan()
-    baseline = gate._load_baseline()
-    new = [v for v in violations if gate._baseline_key(v) not in baseline]
-    assert new == [], [v.render() for v in new]
+    assert len(violations) <= gate.MAX, [v.render() for v in violations]

@@ -234,7 +234,7 @@ def test_engine_open_breaker_is_unhealthy_even_when_transport_reachable(
 # 2. co-service semantics: not_configured (healthy) vs configured-but-down
 # --------------------------------------------------------------------------- #
 def test_kg_host_daemon_not_configured_for_remote_engine(monkeypatch):
-    monkeypatch.setenv("GRAPH_SERVICE_ENDPOINTS", "tcp://remote-engine.internal:9100")
+    monkeypatch.setenv("GRAPH_SERVICE_ENDPOINTS", "tcp://example-remote-engine.internal:9100")
     result = rh._check_kg_host_daemon(AgentConfig())
     assert result["status"] == "not_configured"
 

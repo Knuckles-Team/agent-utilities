@@ -97,13 +97,13 @@ class _UDSServer:
 
 def test_remote_endpoint_resolves_remote_no_autostart(monkeypatch):
     """Configured topology is connect-only; autostart is impossible."""
-    monkeypatch.setenv("GRAPH_SERVICE_ENDPOINTS", "tcp://engine.internal:9100")
+    monkeypatch.setenv("GRAPH_SERVICE_ENDPOINTS", "tcp://example-engine.internal:9100")
     cfg = AgentConfig()
 
     resolved = er.resolve_engine(cfg, "__commons__")
 
     assert resolved.mode == "remote"
-    assert resolved.endpoint == "tcp://engine.internal:9100"
+    assert resolved.endpoint == "tcp://example-engine.internal:9100"
     assert resolved.autostart_allowed is False
     # Remote is inherently persistent — the resolver never passes idle-shutdown.
     assert resolved.idle_shutdown_secs == 0

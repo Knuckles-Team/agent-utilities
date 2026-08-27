@@ -234,7 +234,7 @@ def advertised_self_hosts() -> set[str]:
     domain — so it adapts to any graph-os shape:
 
     * ``MCP_ALLOWED_HOSTS`` — the server-side allowlist of host headers this process
-      answers to (e.g. ``graph-os.arpa,graph-os.platform.svc[.cluster.local],graph-os,
+      answers to (e.g. ``graph-os.example,graph-os.platform.svc[.cluster.local],graph-os,
       localhost,127.0.0.1``). These are, by definition, the names that route back to us.
     * the process bind ``HOST`` when it is a concrete name (not a wildcard bind).
 

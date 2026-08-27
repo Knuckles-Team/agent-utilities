@@ -32,7 +32,7 @@ def test_alert_intake_bind_and_payload_bounds():
     assert _loopback_bind("::1")
     assert _loopback_bind("localhost")
     assert not _loopback_bind("0.0.0.0")
-    assert not _loopback_bind("service.internal")
+    assert not _loopback_bind("example-service.internal")
 
     assert len(_extract_text("x" * (_MAX_ALERT_CHARS + 100))) == _MAX_ALERT_CHARS
     assert _extract_text({"alerts": [None, {"labels": "invalid"}]})

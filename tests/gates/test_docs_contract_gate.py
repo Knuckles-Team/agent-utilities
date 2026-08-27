@@ -112,7 +112,7 @@ def test_privacy_gate_detects_machine_host_id_pattern():
 def test_privacy_gate_detects_internal_deployment_endpoint():
     privacy = _load_script("check_tracked_privacy.py")
     categories = privacy.classify_line(
-        "broker.apps.svc.cluster.local:9092",
+        "example-broker.apps.svc.cluster.local:9092",
         identifiers=frozenset(),
         deployment_doc=True,
     )
@@ -227,72 +227,14 @@ def test_privacy_gate_scans_immutable_no_git_snapshot(tmp_path):
     assert privacy._runtime_source_artifacts(tmp_path) == [runtime]
 
 
-def test_privacy_baseline_excuses_only_listed_leaks_and_never_a_new_one(tmp_path):
-    """The D-CIP-10 baseline must be a ratchet, not an exemption.
-
-    The scope fix took the gate from 7 reported leaks to 37, all of them
-    pre-existing but previously invisible. They are baselined so `main` stays
-    green while the debt is tracked — which is only defensible if a *new* leak
-    still fails. That is what this pins, in both directions.
-
-    D-W2P: the baseline key used to be ``(path, line, category)``. A leak
-    whose LINE moved because unrelated code was inserted above it (the
-    ordinary case — nothing about the leak itself changed) then reported as
-    a phantom NEW finding, indistinguishable from a genuinely new leak. The
-    key is now ``(path, category, content_hash, ordinal)`` — this pins both
-    halves: line motion of the SAME content must stay baselined, and
-    genuinely DIFFERENT content must still fail even at an already-baselined
-    line number.
-    """
-    privacy = _load_script("check_tracked_privacy.py")
-    same_content = "path: /home/some-account/build/state"
-    baselined = privacy.Violation(
-        "docker/job.yaml",
-        12,
-        "machine-specific home path in runtime source",
-        privacy._content_hash(same_content),
-        0,
-    )
-    # The identical leak, unchanged, just pushed to a later line by unrelated
-    # edits earlier in the file — must resolve to the SAME baseline key.
-    shifted = privacy.Violation(
-        "docker/job.yaml",
-        99,
-        "machine-specific home path in runtime source",
-        privacy._content_hash(same_content),
-        0,
-    )
-    # A different leak, coincidentally landing on the previously-baselined
-    # line number — must NOT be excused by a line-number match alone.
-    different_content = "path: /home/a-different-account/other/state"
-    fresh = privacy.Violation(
-        "docker/job.yaml",
-        12,
-        "machine-specific home path in runtime source",
-        privacy._content_hash(different_content),
-        0,
-    )
-
-    baseline_file = tmp_path / "tracked_privacy_baseline.txt"
-    baseline_file.write_text(
-        "# header comment is skipped\n"
-        f"{baselined.path}\t{baselined.line}\t{baselined.category}"
-        f"\t{baselined.content_hash}\t{baselined.ordinal}\n",
-        encoding="utf-8",
-    )
-    privacy.BASELINE = baseline_file
-    loaded = privacy._load_baseline()
-
-    assert privacy._baseline_key(baselined) in loaded
-    # Pure line motion of the SAME leak must still read as already-baselined.
-    assert privacy._baseline_key(shifted) in loaded
-    assert privacy._baseline_key(baselined) == privacy._baseline_key(shifted)
-    # A genuinely different leak at the SAME old line number is still new.
-    assert privacy._baseline_key(fresh) not in loaded
-
-    # A missing baseline must read as EMPTY, i.e. stricter — never laxer.
-    privacy.BASELINE = tmp_path / "does_not_exist.txt"
-    assert privacy._load_baseline() == set()
+# CX-RAT-09: the D-CIP-10 baseline/ratchet mechanism this test pinned
+# (``privacy.BASELINE``/``_load_baseline``/``_baseline_key``) is deleted --
+# see ``scripts/check_tracked_privacy.py``'s module-level comment. A
+# count-based allowance is the wrong instrument for a leak-prevention gate on
+# a repo that publishes to a public GitHub org, and it let a NEW leak hide
+# behind a pre-existing FIXED one. The gate is now an absolute ``MAX = 0``;
+# ``test_full_corpus_scan_is_clean`` in ``tests/gates/test_tracked_privacy_
+# gate.py`` is the corpus-wide regression test for that invariant now.
 
 
 def test_privacy_gate_ordinal_disambiguates_duplicate_lines_in_one_file(tmp_path):
@@ -329,9 +271,9 @@ def test_privacy_gate_ordinal_disambiguates_duplicate_lines_in_one_file(tmp_path
     assert len(matches) == 2
     assert matches[0].content_hash == matches[1].content_hash
     assert {v.ordinal for v in matches} == {0, 1}
-    # Distinct ordinals -> distinct baseline keys, so each site is tracked
-    # independently.
-    assert privacy._baseline_key(matches[0]) != privacy._baseline_key(matches[1])
+    # Distinct ordinals -> each site is still individually identifiable in
+    # the printed findings list, even though both share one content hash.
+    assert matches[0].ordinal != matches[1].ordinal
 
 
 def test_privacy_gate_scans_unchanged_runtime_source_not_only_the_diff(tmp_path):
