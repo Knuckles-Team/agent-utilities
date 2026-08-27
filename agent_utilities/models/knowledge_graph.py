@@ -404,6 +404,10 @@ class RegistryNodeType(StrEnum):
     OFFER = "offer"
     PROVENANCE_ACTIVITY = "provenance_activity"
     PROVENANCE_AGENT = "provenance_agent"
+    # prov:Entity marker (CA-25/DEC-CA-05) — the sibling of PROVENANCE_ACTIVITY/
+    # PROVENANCE_AGENT this module's etl/lineage.py docstring already anticipates,
+    # used for OpenLineage dataset entities (e.g. an Iceberg table@snapshot).
+    PROVENANCE_ENTITY = "provenance_entity"
 
     # Domain: Life Sciences / Healthcare
     GENE = "gene"
@@ -645,6 +649,9 @@ class RegistryEdgeType(StrEnum):
     # Standard Ontology Edges (PROV-O, SKOS, Dublin Core, FIBO)
     WAS_GENERATED_BY = "was_generated_by"
     WAS_DERIVED_FROM = "was_derived_from"
+    # prov:used (CA-25/DEC-CA-05) — Activity -> Entity it consumed; distinct from
+    # USED_TOOL (RunTrace -> ToolCall, observability/trace_ontology.py).
+    USED = "used"
     WAS_ATTRIBUTED_TO = "was_attributed_to"
     HAS_TEMPORAL_EXTENT = "has_temporal_extent"
     BROADER = "broader"

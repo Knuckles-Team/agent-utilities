@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1227
+total_concepts: 1228
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -4474,6 +4474,14 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/pipeline/phases/owl_reasoning.py
   doc: the self-bootstrapping ontology agent applied to ingest
+- id: AU-KG.ingest.openlineage-consumer
+  name: the
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/etl/lineage.py
+  - agent_utilities/knowledge_graph/etl/openlineage_consumer.py
+  doc: the
 - id: AU-KG.ingest.over-same-tree-fan
   name: over this tree AFTER the structural
   pillar: AU-KG

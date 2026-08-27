@@ -45,6 +45,20 @@ claim, whose id every per-locus ``store_<locus>_evidence`` write-back links
 via ``claim_id`` so ``evidence_citations``'s SUPPORTS-walk resolves every
 sidecar-produced locus through this one claim,
 CONCEPT:AU-KG.identity.evidence-spine-convergence).
+
+**OpenLineage RunEvent consumption (CA-25, DEC-CA-05, CONCEPT:AU-KG.ingest.openlineage-consumer).**
+:func:`record_openlineage_run_event` is the graph-write half of the
+``knowledge_graph.etl.openlineage_consumer`` Kafka consumer: ONE
+``PROVENANCE_ACTIVITY`` node per logical run (``kind="openlineage_run"``,
+keyed deterministically on ``run.runId`` so redelivery merge-upserts rather
+than duplicates), with ``prov:used``/``prov:wasGeneratedBy`` edges to
+``PROVENANCE_ENTITY`` dataset marker nodes (:func:`_dataset_marker`, the
+dataset twin of :func:`_system_marker`) for every OpenLineage
+``inputs[]``/``outputs[]`` entry, and a best-effort link back to an existing
+``:RunTrace`` (``observability.trace_ontology.correlate_lineage_run_trace``)
+when the run correlates to a tool-originated one. Same best-effort,
+engine-guarded, never-raises contract as every function above; a RunEvent
+that fails to map is quarantined (logged), never guessed.
 """
 
 import hashlib
@@ -62,6 +76,8 @@ _RUN_KIND = "etl_run"
 _CONNECTOR_SYNC_KIND = "connector_sync"
 _CONNECTOR_SYNC_CLAIM_TYPE = "observation"
 _SYSTEM_KIND = "system"
+_OPENLINEAGE_ACTIVITY_KIND = "openlineage_run"
+_DATASET_MARKER_KIND = "dataset"
 
 
 def _system_marker(engine: Any, system: str, *, role: str) -> str:
@@ -76,6 +92,29 @@ def _system_marker(engine: Any, system: str, *, role: str) -> str:
     except Exception:  # noqa: BLE001 - marker creation is best-effort
         logger.debug("lineage: marker %s failed", node_id, exc_info=True)
     return node_id
+
+
+def _dataset_marker(engine: Any, dataset_id: str) -> str:
+    """Ensure a ``prov:Entity`` dataset marker node exists; return its id.
+
+    CA-25/DEC-CA-05 — the dataset-entity twin of :func:`_system_marker`,
+    reusing its exact create-if-absent pattern rather than a new lookup
+    mechanism. ``dataset_id`` is the caller-supplied
+    ``iceberg://<catalog>/<ns>/<table>@<snapshot>`` string itself (per
+    ``openlineage_consumer.dataset_entity_id``) — used directly as the node
+    id, matching DEC-CA-05's "this string IS the prov:Entity id" rule; no
+    additional hashing (an infra identifier, not user content, exactly like
+    the existing ``urn:source:<system>``/``urn:sink:<system>`` markers).
+    """
+    try:
+        engine.add_node(
+            dataset_id,
+            RegistryNodeType.PROVENANCE_ENTITY,
+            {"kind": _DATASET_MARKER_KIND, "name": dataset_id},
+        )
+    except Exception:  # noqa: BLE001 - marker creation is best-effort
+        logger.debug("lineage: dataset marker %s failed", dataset_id, exc_info=True)
+    return dataset_id
 
 
 def record_etl_run(
@@ -433,3 +472,100 @@ def record_media_sidecar_claim(
         logger.debug("lineage: media sidecar claim %s failed", claim_id, exc_info=True)
         return None
     return claim_id
+
+
+def record_openlineage_run_event(engine: Any, event: dict[str, Any]) -> str | None:
+    """Map one OpenLineage RunEvent into ``prov:Activity``/``prov:Entity``/
+    ``prov:used``/``prov:wasGeneratedBy`` and return the Activity node id.
+
+    CA-25/DEC-CA-05 (CONCEPT:AU-KG.ingest.openlineage-consumer) — the
+    OpenLineage-fed twin of :func:`record_connector_sync_activity`: ONE
+    :class:`RegistryNodeType.PROVENANCE_ACTIVITY` node per logical run
+    (``kind="openlineage_run"``), keyed deterministically on ``run.runId`` so
+    a redelivered event (same ``runId``) merge-upserts the SAME node rather
+    than creating a duplicate — ``engine.add_node`` is upsert, and a later
+    lifecycle event (e.g. ``START`` then ``COMPLETE`` for the same run)
+    naturally advances the SAME node's ``status`` rather than needing a
+    separate dedupe table.
+
+    Validation/classification is :func:`~.openlineage_consumer.map_openlineage_event`'s
+    job (imported locally to avoid a module-load cycle with
+    ``openlineage_consumer``, which itself calls this function). A
+    :class:`~.openlineage_consumer.QuarantinedLineageEvent` result is logged
+    and this returns ``None`` — no ``prov:Entity``/``prov:Activity`` is ever
+    fabricated for an event that failed to map (DEC-CA-05's Authority
+    section). Otherwise best-effort and engine-guarded, exactly like
+    :func:`record_connector_sync_activity`: any write failure is tolerated —
+    a failure to record lineage must never break the run it describes.
+    """
+    if engine is None:
+        return None
+    add_node = getattr(engine, "add_node", None)
+    if not callable(add_node):
+        return None
+
+    from .openlineage_consumer import QuarantinedLineageEvent, map_openlineage_event
+
+    mapped = map_openlineage_event(event)
+    if isinstance(mapped, QuarantinedLineageEvent):
+        logger.warning(
+            "lineage: quarantined openlineage event run=%s job=%s (%s)",
+            mapped.run_id,
+            mapped.job_name,
+            mapped.reason,
+        )
+        return None
+
+    digest = hashlib.sha256(mapped.run_id.encode()).hexdigest()
+    activity_id = f"activity:{_OPENLINEAGE_ACTIVITY_KIND}:{digest}"
+    try:
+        add_node(
+            activity_id,
+            RegistryNodeType.PROVENANCE_ACTIVITY,
+            {
+                "kind": _OPENLINEAGE_ACTIVITY_KIND,
+                "job": mapped.job_name,
+                "jobNamespace": mapped.job_namespace,
+                "eventType": mapped.event_type,
+                "status": mapped.activity_status,
+                "at": time.time(),
+            },
+        )
+        for dataset_id in mapped.input_dataset_ids:
+            marker = _dataset_marker(engine, dataset_id)
+            engine.link_nodes(activity_id, marker, RegistryEdgeType.USED)
+        for dataset_id in mapped.output_dataset_ids:
+            marker = _dataset_marker(engine, dataset_id)
+            engine.link_nodes(marker, activity_id, RegistryEdgeType.WAS_GENERATED_BY)
+    except Exception:  # noqa: BLE001 - lineage must never break the run it describes
+        logger.debug(
+            "lineage: record_openlineage_run_event failed for run=%s",
+            mapped.run_id,
+            exc_info=True,
+        )
+        return None
+
+    # RunTrace correlation is a nice-to-have, isolated from the write above:
+    # a correlation failure (or the run simply not being tool-originated)
+    # must never void an otherwise-successful Activity/Entity write.
+    try:
+        from agent_utilities.observability.trace_ontology import (
+            TRACE_LINEAGE_ACTIVITY_EDGE,
+            correlate_lineage_run_trace,
+        )
+
+        trace_node_id = correlate_lineage_run_trace(engine, mapped.run_id) or (
+            correlate_lineage_run_trace(engine, mapped.parent_run_id)
+            if mapped.parent_run_id
+            else None
+        )
+        if trace_node_id:
+            engine.link_nodes(trace_node_id, activity_id, TRACE_LINEAGE_ACTIVITY_EDGE)
+    except Exception:  # noqa: BLE001 - correlation is best-effort
+        logger.debug(
+            "lineage: RunTrace correlation failed for run=%s",
+            mapped.run_id,
+            exc_info=True,
+        )
+
+    return activity_id

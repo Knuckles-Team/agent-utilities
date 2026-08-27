@@ -33,6 +33,11 @@ OUTCOME_NODE_LABEL = "OutcomeEvaluation"
 TRACE_CURSOR_NODE_LABEL = "TraceConsumerCursor"
 TRACE_USED_TOOL_EDGE = "USED_TOOL"
 TRACE_PRODUCED_OUTCOME_EDGE = "PRODUCED_OUTCOME"
+# CA-25/DEC-CA-05 — additive: links an OpenLineage-originated prov:Activity
+# (knowledge_graph.etl.lineage.record_openlineage_run_event) back to an
+# existing RunTrace when the run correlates to a tool-originated one. Never
+# changes USED_TOOL/PRODUCED_OUTCOME semantics.
+TRACE_LINEAGE_ACTIVITY_EDGE = "HAS_LINEAGE_ACTIVITY"
 
 _sequence_lock = threading.Lock()
 _cursor_lock = threading.Lock()
@@ -195,6 +200,39 @@ def trace_id(run_id: str) -> str:
 
 def outcome_id(run_id: str) -> str:
     return "outcome:" + trace_id(run_id).removeprefix("trace:")
+
+
+def correlate_lineage_run_trace(engine: Any, candidate_run_id: str) -> str | None:
+    """Return the existing ``:RunTrace`` node id for ``candidate_run_id``, or
+    ``None`` when no such trace exists (CA-25/DEC-CA-05).
+
+    Read-only correlation lookup for an OpenLineage-originated ``prov:Activity``:
+    a Spark/Trino-originated run has no prior tool call, so this legitimately
+    returns ``None`` for it — the caller must never fabricate a ``:RunTrace``
+    link in that case (``knowledge_graph.etl.lineage.record_openlineage_run_event``
+    only links when this returns a real id). Best-effort: any lookup failure
+    (no engine, empty id, unavailable backend) returns ``None`` rather than
+    raising, matching ``etl/lineage.py``'s own never-block-the-caller contract.
+    """
+
+    if engine is None:
+        return None
+    try:
+        tid = trace_id(candidate_run_id)
+    except ValueError:
+        return None
+    try:
+        rows = engine.query_cypher(
+            f"MATCH (t:{TRACE_NODE_LABEL} {{run_id: $run_id}}) "
+            "RETURN t.run_id AS run_id LIMIT 1",
+            {"run_id": tid},
+        )
+    except Exception:  # noqa: BLE001 - correlation lookup is best-effort
+        return None
+    for row in rows or []:
+        if isinstance(row, Mapping) and row.get("run_id"):
+            return tid
+    return None
 
 
 def _privacy_safe(value: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -436,12 +474,14 @@ __all__ = [
     "TRACE_CURSOR_NODE_LABEL",
     "TRACE_USED_TOOL_EDGE",
     "TRACE_PRODUCED_OUTCOME_EDGE",
+    "TRACE_LINEAGE_ACTIVITY_EDGE",
     "TraceCursor",
     "load_trace_cursor",
     "save_trace_cursor",
     "next_event_sequence",
     "trace_id",
     "outcome_id",
+    "correlate_lineage_run_trace",
     "trace_properties",
     "tool_call_properties",
     "outcome_properties",
