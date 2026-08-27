@@ -123,7 +123,7 @@ secrets:
         - OTEL_EXPORTER_OTLP_HEADERS
 
 network:
-  ingress_host: graph-os.arpa
+  ingress_host: graph-os.example
   service_port: 8000
   network_policy_enabled: true
   allowed_namespaces:

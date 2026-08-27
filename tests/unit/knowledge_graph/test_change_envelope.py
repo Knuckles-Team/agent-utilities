@@ -33,13 +33,13 @@ def test_defaults_are_safe_and_minimal():
 def test_idempotency_key_is_deterministic_and_scoped():
     a = ChangeEnvelope(
         connector="gitlab-api",
-        source_instance="gl.corp",
+        source_instance="example-gl.corp",
         source_object_id="42",
         source_version="v1",
     )
     b = ChangeEnvelope(
         connector="gitlab-api",
-        source_instance="gl.corp",
+        source_instance="example-gl.corp",
         source_object_id="42",
         source_version="v1",
     )
@@ -48,7 +48,7 @@ def test_idempotency_key_is_deterministic_and_scoped():
 
     c = ChangeEnvelope(
         connector="gitlab-api",
-        source_instance="gl.corp",
+        source_instance="example-gl.corp",
         source_object_id="42",
         source_version="v2",  # different version -> different key
     )
@@ -56,7 +56,7 @@ def test_idempotency_key_is_deterministic_and_scoped():
 
     d = ChangeEnvelope(
         connector="gitlab-api",
-        source_instance="gl.corp",
+        source_instance="example-gl.corp",
         source_object_id="42",
         source_version="v1",
         operation="delete",  # different operation -> different key

@@ -22,7 +22,7 @@ metadata:
   name: epistemic-graph-mtls
   namespace: graphos-control
 spec:
-  host: epistemic-graph-coordinator.graphos-cell.svc.cluster.local
+  host: example-engine-coordinator.mesh-cell.svc.cluster.local
   trafficPolicy:
     tls: {mode: ISTIO_MUTUAL}
 ---
@@ -74,6 +74,6 @@ metadata:
   name: epistemic-graph-coordinator-mtls
   namespace: graphos-cell
 spec:
-  host: epistemic-graph-coordinator.graphos-cell.svc.cluster.local
+  host: example-engine-coordinator.mesh-cell.svc.cluster.local
   trafficPolicy:
     tls: {mode: ISTIO_MUTUAL}

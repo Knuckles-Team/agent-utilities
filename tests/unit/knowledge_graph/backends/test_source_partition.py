@@ -24,8 +24,8 @@ from agent_utilities.knowledge_graph.backends.sparql.source_partition import (
 
 def test_make_source_id_hierarchy_and_slugging():
     assert make_source_id("leanix") == "leanix"
-    assert make_source_id("gitlab", "gl.corp") == "gitlab:gl.corp"
-    assert make_source_id("gitlab", "gl.corp", "code") == "gitlab:gl.corp:code"
+    assert make_source_id("gitlab", "example-gl.corp") == "gitlab:example-gl.corp"
+    assert make_source_id("gitlab", "example-gl.corp", "code") == "gitlab:example-gl.corp:code"
     assert make_source_id("code", "Agent-Utilities") == "code:agent-utilities"
     # Non-slug chars (spaces, punctuation) collapse to '-'; colons can't smuggle a part.
     assert make_source_id("confluence", "Eng Wiki!") == "confluence:eng-wiki"

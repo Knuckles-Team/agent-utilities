@@ -605,14 +605,14 @@ def test_vector_connections_are_typed_and_secret_ref_only() -> None:
         QDRANT_API_KEY_REF="vault://vector/api-key",
         QDRANT_TLS_PROFILE="private-trust",
         QDRANT_TLS_PROFILE_REF="secret://vector/tls-profile",
-        QDRANT_HTTP_ALLOWED_PRIVATE_HOSTS=["VECTOR.INTERNAL", "vector.internal"],
+        QDRANT_HTTP_ALLOWED_PRIVATE_HOSTS=["EXAMPLE-VECTOR.INTERNAL", "example-vector.internal"],
         POSTGRES_TLS_PROFILE="database-trust",
         POSTGRES_TLS_PROFILE_REF="secret://vector/postgres-tls",
     )
 
     assert config.vector_database_type == "qdrant"
     assert config.vector_db_port == 7443
-    assert config.qdrant_http_allowed_private_hosts == ["vector.internal"]
+    assert config.qdrant_http_allowed_private_hosts == ["example-vector.internal"]
     environment = tls_environment_from_config(config, base_environ={})
     assert environment["QDRANT_TLS_PROFILE"] == "private-trust"
     assert environment["QDRANT_TLS_PROFILE_REF"] == "secret://vector/tls-profile"

@@ -147,8 +147,8 @@ def test_filtered_env_strips_inherited_uv_project_environment():
     through this harness cannot repeat that."""
     source_env = {
         "PATH": "/usr/bin",
-        "HOME": "/home/x",
-        "UV_PROJECT_ENVIRONMENT": "/home/x/some/other/lane/.venv",
+        "HOME": "/home/u",
+        "UV_PROJECT_ENVIRONMENT": "/home/u/some/other/lane/.venv",
         "SOME_RANDOM_SECRET": "shh",
     }
     child_env, rejected = filtered_env(

@@ -45,7 +45,7 @@ MARKDOWN_TABLE = (
 )
 
 KV_CONFIG = (
-    "host: db.internal\n"
+    "host: example-db.internal\n"
     "port: 5432\n"
     "user: app\n"
     "pool_size: 20\n"
@@ -185,7 +185,7 @@ def test_route_kv_config_to_single_record() -> None:
     assert plan["mode"] == "structured"
     assert plan["records"] == [
         {
-            "host": "db.internal",
+            "host": "example-db.internal",
             "port": "5432",
             "user": "app",
             "pool_size": "20",

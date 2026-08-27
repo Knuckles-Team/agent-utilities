@@ -86,12 +86,12 @@ def test_metrics_fetch_uses_bounded_model_egress(monkeypatch):
         return "metric 1"
 
     monkeypatch.setattr(http_safety, "safe_get_text", fake_get)
-    monkeypatch.setattr(config, "model_http_allowed_private_hosts", ["model.internal"])
+    monkeypatch.setattr(config, "model_http_allowed_private_hosts", ["example-model.internal"])
 
     assert subject._http_get("https://model.example.invalid/metrics") == "metric 1"
     assert captured["max_bytes"] == 2 * 1024 * 1024
     assert captured["max_redirects"] == 0
-    assert captured["allowed_private_hosts"] == ["model.internal"]
+    assert captured["allowed_private_hosts"] == ["example-model.internal"]
 
 
 # --- gauge parsing ----------------------------------------------------------

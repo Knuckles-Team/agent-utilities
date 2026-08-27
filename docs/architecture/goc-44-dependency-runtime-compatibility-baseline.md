@@ -6,13 +6,13 @@ Lane: `plans/graph-os-completion-program/lanes/GOC-44-dependency-runtime-compati
 (`OWNER-DEPENDENCY-GREEN`). This is the GOC-44-W01 output: a timestamped revalidation
 of the lane's 13 imported AU–EG IDs against `main` as it stood on 2026-08-16
 (`agent-utilities` HEAD `b60e5b439`, worktree
-`/home/genius/.local/state/repository-worktrees/agent-utilities/goc-44`,
+`/home/app/.local/state/repository-worktrees/agent-utilities/goc-44`,
 branch `goc/goc-44-dependency-runtime-compat`). Every row below records the command
 or artifact used to revalidate — no disposition here is inferred from the imported
 ledger text alone. Environment: interpreter `cpython-3.14.4-linux-x86_64-gnu`
-(uv-managed, `python-build-standalone`), host `RW710`
+(uv-managed, `python-build-standalone`), host `<build-host>`
 (`Linux 7.0.0-28-generic`), venv used for live checks:
-`/home/genius/.local/state/repository-worktrees/agent-utilities/goc-87/.venv`
+`/home/app/.local/state/repository-worktrees/agent-utilities/goc-87/.venv`
 (this worktree, `goc-44`, has no installed venv of its own — see "What is
 unverified" below).
 
@@ -147,7 +147,7 @@ before an allow-list can be written and tested without full-gate access.
 
 Both resolved — not by intercepting bare `uv sync`, but by removing the shared
 `[tool.uv.workspace]` root that made a bare sync's behavior depend on sibling
-repos in the first place. `/home/apps/workspace/pyproject.toml` (the former
+repos in the first place. `/home/app/workspace/pyproject.toml` (the former
 ecosystem workspace root) now carries an explicit `D-EGSFT-1` header dated
 **2026-08-14** ("owner-approved architecture change"): it is "intentionally NOT a
 `[tool.uv.workspace]` root anymore." Every repo (69/69 `agents/*` + `agent-utilities`
@@ -244,7 +244,7 @@ STALE-PREMISE per its own original disposition, not a new finding.
 
 The capability gap itself is confirmed, live, on the current interpreter:
 `python3 -c "import os; print('memfd_create' in dir(os))"` under
-`/home/genius/.local/share/uv/python/cpython-3.14.4-linux-x86_64-gnu/bin/python3.14`
+`/home/app/.local/share/uv/python/cpython-3.14.4-linux-x86_64-gnu/bin/python3.14`
 prints `False`, even though the same host/kernel's distro interpreter has it
 (this is a `python-build-standalone` build artifact, not a real platform
 limitation — the host is Linux 7.0.0-28, which supports the syscall).

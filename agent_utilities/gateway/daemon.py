@@ -70,7 +70,7 @@ def start_daemon_metrics_listener() -> bool:
     the exposure itself differs:
 
     * graph-os's ``/metrics`` (port 8000) lives on the SAME listener as the
-      public/Ingress-facing MCP tool-call surface (``graph-os.arpa``) — an
+      public/Ingress-facing MCP tool-call surface (``graph-os.example``) — an
       unauthenticated route there is reachable by anyone who can reach that
       hostname, hence the bearer gate.
     * This listener has no Service port and no Ingress route. Its only

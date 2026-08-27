@@ -93,7 +93,7 @@ secrets:
         - ENGINE_HMAC_KEY
 
 network:
-  ingress_host: graph-os-dev.arpa
+  ingress_host: graph-os-dev.example
   service_port: 8000
   network_policy_enabled: false
   allowed_namespaces: []
