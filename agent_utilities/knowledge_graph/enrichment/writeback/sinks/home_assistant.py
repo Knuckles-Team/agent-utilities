@@ -31,6 +31,41 @@ class HomeAssistantSink:
             logger.debug("home assistant write client unavailable", exc_info=True)
             return None
 
+    def _call_creation(
+        self,
+        call: Any,
+        creation: dict[str, Any],
+        *,
+        dry_run: bool,
+        result: WritebackResult,
+    ) -> None:
+        """Handle one ``creations`` item -- the per-item body of :meth:`run`."""
+        svc_domain = creation.get("domain")
+        service = creation.get("service")
+        if not (svc_domain and service):
+            result.skipped += 1
+            return
+        if dry_run:
+            # ".".join(...) rather than an f-string: a human-readable
+            # dry-run preview string (the real call below passes
+            # svc_domain/service as separate arguments, never a spliced
+            # query) — this two-part dotted shape is otherwise
+            # indistinguishable from a schema-qualified table cast at the
+            # AST level.
+            result.proposals.append(
+                {"op": "call_service", "service": ".".join((svc_domain, service))}
+            )
+            return
+        if not callable(call):
+            result.errors += 1
+            return
+        try:
+            call(svc_domain, service, creation.get("data") or {})
+            result.created += 1
+        except Exception:  # noqa: BLE001
+            logger.debug("home assistant call_service failed", exc_info=True)
+            result.errors += 1
+
     def run(
         self, ctx: WritebackContext, ops: dict[str, Any], *, dry_run: bool
     ) -> WritebackResult:
@@ -42,31 +77,7 @@ class HomeAssistantSink:
 
         call = getattr(client, "call_service", None)
         for c in ops.get("creations") or []:
-            svc_domain = c.get("domain")
-            service = c.get("service")
-            if not (svc_domain and service):
-                result.skipped += 1
-                continue
-            if dry_run:
-                # ".".join(...) rather than an f-string: a human-readable
-                # dry-run preview string (the real call below passes
-                # svc_domain/service as separate arguments, never a spliced
-                # query) — this two-part dotted shape is otherwise
-                # indistinguishable from a schema-qualified table cast at the
-                # AST level.
-                result.proposals.append(
-                    {"op": "call_service", "service": ".".join((svc_domain, service))}
-                )
-                continue
-            if not callable(call):
-                result.errors += 1
-                continue
-            try:
-                call(svc_domain, service, c.get("data") or {})
-                result.created += 1
-            except Exception:  # noqa: BLE001
-                logger.debug("home assistant call_service failed", exc_info=True)
-                result.errors += 1
+            self._call_creation(call, c, dry_run=dry_run, result=result)
 
         return result
 

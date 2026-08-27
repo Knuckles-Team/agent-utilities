@@ -25,17 +25,12 @@ def _base_set(c: CodeEntity) -> set[str]:
     return out
 
 
-def detect_class_patterns(c: CodeEntity) -> list[str]:
-    """Return design-pattern / style tags for a class entity."""
-    if c.kind != "class":
-        return []
+def _class_tags_structural(
+    bases: set[str], decos: set[str], name: str, is_abstract: bool
+) -> list[str]:
+    """AbstractBaseClass / DataModel / Enumeration / Exception tags."""
     tags: list[str] = []
-    bases = _base_set(c)
-    methods = set(c.methods)
-    decos = {d.split("(")[0].rsplit(".", 1)[-1] for d in c.decorators}
-    name = c.name
-
-    if c.is_abstract or bases & _ABC_BASES:
+    if is_abstract or bases & _ABC_BASES:
         tags.append("AbstractBaseClass")
     if bases & _MODEL_BASES or "dataclass" in decos:
         tags.append("DataModel")
@@ -43,6 +38,12 @@ def detect_class_patterns(c: CodeEntity) -> list[str]:
         tags.append("Enumeration")
     if bases & _EXC_BASES or name.endswith(("Error", "Exception")):
         tags.append("Exception")
+    return tags
+
+
+def _class_tags_behavioral(methods: set[str], name: str) -> list[str]:
+    """ContextManager / Singleton / Iterator / Callable tags (protocol methods)."""
+    tags: list[str] = []
     if {"__enter__", "__exit__"} <= methods or {"__aenter__", "__aexit__"} <= methods:
         tags.append("ContextManager")
     if "__new__" in methods or name.endswith("Singleton") or "instance" in methods:
@@ -51,6 +52,12 @@ def detect_class_patterns(c: CodeEntity) -> list[str]:
         tags.append("Iterator")
     if "__call__" in methods:
         tags.append("Callable")
+    return tags
+
+
+def _class_tags_role_creational(methods: set[str], name: str) -> list[str]:
+    """Factory / Strategy / Repository / Manager tags (naming convention)."""
+    tags: list[str] = []
     if name.endswith(("Factory", "Builder")) or any(
         m.startswith(("create_", "build_", "make_")) for m in methods
     ):
@@ -61,6 +68,12 @@ def detect_class_patterns(c: CodeEntity) -> list[str]:
         tags.append("Repository")
     if name.endswith(("Manager", "Coordinator", "Orchestrator")):
         tags.append("Manager")
+    return tags
+
+
+def _class_tags_role_structural(methods: set[str], name: str) -> list[str]:
+    """Adapter / Observer / Mixin tags (naming convention)."""
+    tags: list[str] = []
     if name.endswith(("Adapter", "Wrapper", "Proxy")):
         tags.append("Adapter")
     if name.endswith(("Observer", "Listener", "Subscriber")) or any(
@@ -72,13 +85,33 @@ def detect_class_patterns(c: CodeEntity) -> list[str]:
     return tags
 
 
-def detect_function_patterns(c: CodeEntity) -> list[str]:
-    """Return style tags for a function entity."""
-    if c.kind != "function":
+def _class_tags_role(methods: set[str], name: str) -> list[str]:
+    """Factory / Strategy / Repository / Manager / Adapter / Observer / Mixin
+    tags, from naming convention + a handful of method-name heuristics."""
+    return _class_tags_role_creational(methods, name) + _class_tags_role_structural(
+        methods, name
+    )
+
+
+def detect_class_patterns(c: CodeEntity) -> list[str]:
+    """Return design-pattern / style tags for a class entity."""
+    if c.kind != "class":
         return []
-    tags: list[str] = []
+    bases = _base_set(c)
+    methods = set(c.methods)
     decos = {d.split("(")[0].rsplit(".", 1)[-1] for d in c.decorators}
     name = c.name
+
+    return (
+        _class_tags_structural(bases, decos, name, c.is_abstract)
+        + _class_tags_behavioral(methods, name)
+        + _class_tags_role(methods, name)
+    )
+
+
+def _function_tags_decorator(decos: set[str]) -> list[str]:
+    """Property / ContextManager / Memoized / StaticMethod / ClassMethod tags."""
+    tags: list[str] = []
     if "property" in decos:
         tags.append("Property")
     if "contextmanager" in decos or "asynccontextmanager" in decos:
@@ -89,11 +122,25 @@ def detect_function_patterns(c: CodeEntity) -> list[str]:
         tags.append("StaticMethod")
     if "classmethod" in decos:
         tags.append("ClassMethod")
+    return tags
+
+
+def _function_tags_naming(name: str) -> list[str]:
+    """Factory / Accessor tags (naming convention)."""
+    tags: list[str] = []
     if name.startswith(("create_", "build_", "make_", "from_")):
         tags.append("Factory")
     if name.startswith(("get_", "fetch_", "load_", "read_")):
         tags.append("Accessor")
     return tags
+
+
+def detect_function_patterns(c: CodeEntity) -> list[str]:
+    """Return style tags for a function entity."""
+    if c.kind != "function":
+        return []
+    decos = {d.split("(")[0].rsplit(".", 1)[-1] for d in c.decorators}
+    return _function_tags_decorator(decos) + _function_tags_naming(c.name)
 
 
 def detect_patterns(c: CodeEntity) -> list[str]:

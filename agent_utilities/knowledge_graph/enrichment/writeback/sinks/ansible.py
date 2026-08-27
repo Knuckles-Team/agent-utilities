@@ -31,6 +31,31 @@ class AnsibleSink:
             logger.debug("ansible write client unavailable", exc_info=True)
             return None
 
+    def _launch_creation(
+        self,
+        launch: Any,
+        creation: dict[str, Any],
+        *,
+        dry_run: bool,
+        result: WritebackResult,
+    ) -> None:
+        """Handle one ``creations`` item -- the per-item body of :meth:`run`."""
+        template = creation.get("template_id") or creation.get("name")
+        if not template:
+            return
+        if dry_run:
+            result.proposals.append({"op": "launch_job", "template": template})
+            return
+        if not callable(launch):
+            result.errors += 1
+            return
+        try:
+            launch(template, creation.get("extra_vars") or {})
+            result.created += 1
+        except Exception:  # noqa: BLE001
+            logger.debug("ansible launch_job failed", exc_info=True)
+            result.errors += 1
+
     def run(
         self, ctx: WritebackContext, ops: dict[str, Any], *, dry_run: bool
     ) -> WritebackResult:
@@ -42,21 +67,7 @@ class AnsibleSink:
 
         launch = getattr(client, "launch_job", None)
         for c in ops.get("creations") or []:
-            template = c.get("template_id") or c.get("name")
-            if not template:
-                continue
-            if dry_run:
-                result.proposals.append({"op": "launch_job", "template": template})
-                continue
-            if not callable(launch):
-                result.errors += 1
-                continue
-            try:
-                launch(template, c.get("extra_vars") or {})
-                result.created += 1
-            except Exception:  # noqa: BLE001
-                logger.debug("ansible launch_job failed", exc_info=True)
-                result.errors += 1
+            self._launch_creation(launch, c, dry_run=dry_run, result=result)
 
         return result
 
