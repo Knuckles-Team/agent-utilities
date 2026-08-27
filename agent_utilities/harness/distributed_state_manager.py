@@ -201,6 +201,73 @@ class BranchMergeStateLocker(OptimisticStateLocker):
             self._local_branches[branch_key] = branch_state
         return True
 
+    @staticmethod
+    def _coerce_int_version(value: Any) -> int:
+        return int(value) if isinstance(value, int | float) else 0
+
+    def _delete_branch(self, base_key: str, branch_name: str) -> None:
+        branch_key = self.get_branch_key(base_key, branch_name)
+        if self.use_redis and self._redis_client:
+            self._redis_client.delete(branch_key)
+        elif branch_key in self._local_branches:
+            del self._local_branches[branch_key]
+
+    def _finalize_merge(
+        self,
+        base_key: str,
+        branch_name: str,
+        merged_data: dict[str, Any],
+        base_version: int,
+    ) -> bool:
+        success = self.update_state(base_key, merged_data, base_version)
+        if success:
+            self._delete_branch(base_key, branch_name)
+            return True
+        return False
+
+    def _fast_forward_merge(
+        self,
+        base_key: str,
+        branch_name: str,
+        branch_state: dict[str, Any],
+        base_version: int,
+    ) -> bool:
+        branch_data = branch_state.get("data", {})
+        if not isinstance(branch_data, dict):
+            branch_data = {}
+        return self._finalize_merge(base_key, branch_name, branch_data, base_version)
+
+    def _default_dict_merge(
+        self, base_data: dict[str, Any], branch_data: dict[str, Any]
+    ) -> dict[str, Any]:
+        # Smart default dictionary merge
+        merged_data = dict(base_data)
+        for k, v in branch_data.items():
+            if k not in merged_data:
+                merged_data[k] = v
+            elif isinstance(merged_data[k], dict) and isinstance(v, dict):
+                merged_data[k] = self._recursive_merge(merged_data[k], v)
+            elif merged_data[k] == base_data.get(k):
+                merged_data[k] = v
+            elif v == base_data.get(k):
+                pass
+            else:
+                merged_data[k] = v
+        return merged_data
+
+    def _resolve_conflict_merge(
+        self,
+        resolver: Any,
+        base_data: dict[str, Any],
+        branch_data: dict[str, Any],
+    ) -> tuple[dict[str, Any] | None, bool]:
+        if resolver:
+            try:
+                return resolver(base_data, branch_data), True
+            except Exception:
+                return None, False
+        return self._default_dict_merge(base_data, branch_data), True
+
     def merge_state(
         self, base_key: str, branch_name: str, resolver: Any = None
     ) -> bool:
@@ -217,30 +284,16 @@ class BranchMergeStateLocker(OptimisticStateLocker):
         if not base_state or not isinstance(base_state, dict):
             base_state = {"data": {}, "version": 0, "timestamp": time.time()}
 
-        b_version_val = base_state.get("version", 0)
-        base_version = (
-            int(b_version_val) if isinstance(b_version_val, int | float) else 0
-        )
-
-        fb_version_val = branch_state.get("base_version", 0)
-        forked_base_version = (
-            int(fb_version_val) if isinstance(fb_version_val, int | float) else 0
+        base_version = self._coerce_int_version(base_state.get("version", 0))
+        forked_base_version = self._coerce_int_version(
+            branch_state.get("base_version", 0)
         )
 
         # Case 1: Fast-forward (no concurrent changes on base_key)
         if base_version == forked_base_version:
-            branch_data = branch_state.get("data", {})
-            if not isinstance(branch_data, dict):
-                branch_data = {}
-            success = self.update_state(base_key, branch_data, base_version)
-            if success:
-                branch_key = self.get_branch_key(base_key, branch_name)
-                if self.use_redis and self._redis_client:
-                    self._redis_client.delete(branch_key)
-                elif branch_key in self._local_branches:
-                    del self._local_branches[branch_key]
-                return True
-            return False
+            return self._fast_forward_merge(
+                base_key, branch_name, branch_state, base_version
+            )
 
         # Case 2: Three-way merge / conflict resolution
         base_data = base_state.get("data", {})
@@ -250,38 +303,11 @@ class BranchMergeStateLocker(OptimisticStateLocker):
         if not isinstance(branch_data, dict):
             branch_data = {}
 
-        merged_data = dict(base_data)
+        merged_data, ok = self._resolve_conflict_merge(resolver, base_data, branch_data)
+        if not ok:
+            return False
 
-        if resolver:
-            try:
-                merged_data = resolver(base_data, branch_data)
-            except Exception:
-                return False
-        else:
-            # Smart default dictionary merge
-            for k, v in branch_data.items():
-                if k not in merged_data:
-                    merged_data[k] = v
-                else:
-                    if isinstance(merged_data[k], dict) and isinstance(v, dict):
-                        merged_data[k] = self._recursive_merge(merged_data[k], v)
-                    elif merged_data[k] == base_data.get(k):
-                        merged_data[k] = v
-                    elif v == base_data.get(k):
-                        pass
-                    else:
-                        merged_data[k] = v
-
-        success = self.update_state(base_key, merged_data, base_version)
-        if success:
-            branch_key = self.get_branch_key(base_key, branch_name)
-            if self.use_redis and self._redis_client:
-                self._redis_client.delete(branch_key)
-            elif branch_key in self._local_branches:
-                del self._local_branches[branch_key]
-            return True
-
-        return False
+        return self._finalize_merge(base_key, branch_name, merged_data, base_version)
 
     def _recursive_merge(
         self, d1: dict[str, Any], d2: dict[str, Any]

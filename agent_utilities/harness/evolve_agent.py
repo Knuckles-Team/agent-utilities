@@ -36,6 +36,326 @@ from .manifest import ChangeManifest, ComponentEdit, ComponentType
 logger = logging.getLogger(__name__)
 
 
+def _program_reference(namespace: str, value: Any) -> str:
+    from .optimization_backend import (
+        is_opaque_program_reference,
+        opaque_program_reference,
+    )
+
+    rendered = str(value or "")
+    if is_opaque_program_reference(rendered):
+        return rendered
+    return opaque_program_reference(namespace, rendered or namespace)
+
+
+def _program_reference_list(namespace: str, values: Any) -> list[str]:
+    if not isinstance(values, list | tuple):
+        return []
+    return list(
+        dict.fromkeys(_program_reference(namespace, value) for value in values)
+    )[:1_000]
+
+
+def _finite_metric(value: Any) -> float | None:
+    import math
+
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isfinite(number) and abs(number) <= 1_000_000_000:
+        return number
+    return None
+
+
+def _valid_timestamp(value: Any) -> str:
+    import re
+
+    rendered = str(value or "")
+    return (
+        rendered
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", rendered)
+        else ""
+    )
+
+
+def _compiled_ref_and_bool_fields(edit_metadata: dict[str, Any]) -> dict[str, Any]:
+    from .optimization_backend import is_opaque_program_reference
+
+    metadata: dict[str, Any] = {}
+    for key in ("agent_ref", "component_ref", "proposal_ref"):
+        value = edit_metadata.get(key)
+        if is_opaque_program_reference(value):
+            metadata[key] = str(value)
+    for key in ("promote", "auto_apply_eligible"):
+        value = edit_metadata.get(key)
+        if isinstance(value, bool):
+            metadata[key] = value
+    return metadata
+
+
+def _compiled_score_fields(edit_metadata: dict[str, Any]) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    for key in ("baseline_score", "candidate_score"):
+        value = _finite_metric(edit_metadata.get(key))
+        if value is not None:
+            metadata[key] = value
+    return metadata
+
+
+def _compiled_trainset_hash_status_fields(
+    edit_metadata: dict[str, Any],
+) -> dict[str, Any]:
+    import re
+
+    metadata: dict[str, Any] = {}
+    trainset_size = edit_metadata.get("trainset_size")
+    if isinstance(trainset_size, int) and not isinstance(trainset_size, bool):
+        metadata["trainset_size"] = min(max(trainset_size, 0), 1_000_000)
+    candidate_hash = str(edit_metadata.get("candidate_version_hash") or "")
+    if re.fullmatch(r"[0-9a-f]{16}", candidate_hash):
+        metadata["candidate_version_hash"] = candidate_hash
+    apply_status = edit_metadata.get("apply_status")
+    if apply_status in {"applied", "proposed", "rejected", "error"}:
+        metadata["apply_status"] = apply_status
+    return metadata
+
+
+def _compiled_program_state_field(edit_metadata: dict[str, Any]) -> dict[str, Any]:
+    from agent_utilities.prompting.structured import ProgramCompiledState
+
+    metadata: dict[str, Any] = {}
+    compiled = edit_metadata.get("program_compiled_state")
+    if compiled is not None:
+        metadata["program_compiled_state"] = ProgramCompiledState.model_validate(
+            compiled
+        ).model_dump()
+    return metadata
+
+
+def _compiled_metadata_allowlist(edit_metadata: dict[str, Any]) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    metadata.update(_compiled_ref_and_bool_fields(edit_metadata))
+    metadata.update(_compiled_score_fields(edit_metadata))
+    metadata.update(_compiled_trainset_hash_status_fields(edit_metadata))
+    metadata.update(_compiled_program_state_field(edit_metadata))
+    return metadata
+
+
+def _add_optional_edit_refs(row: dict[str, Any], edit: ComponentEdit) -> None:
+    import json
+
+    if edit.diff_content:
+        row["diff_ref"] = _program_reference("diff", edit.diff_content)
+    if edit.git_commit_sha:
+        row["commit_ref"] = _program_reference("commit", edit.git_commit_sha)
+    if edit.attribution_signature:
+        row["attribution_ref"] = _program_reference(
+            "attribution",
+            json.dumps(
+                edit.attribution_signature,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            ),
+        )
+    if edit.capability_evidence:
+        row["capability_evidence_refs"] = [
+            _program_reference(
+                "capability_evidence",
+                json.dumps(item, sort_keys=True, separators=(",", ":"), default=str),
+            )
+            for item in edit.capability_evidence[:1_000]
+        ]
+
+
+def _persisted_edit_row(edit: ComponentEdit) -> dict[str, Any]:
+    from .optimization_backend import (
+        is_opaque_program_reference,
+        opaque_program_reference,
+    )
+
+    component_ref = edit.metadata.get("component_ref")
+    if not is_opaque_program_reference(component_ref):
+        component_ref = opaque_program_reference("component", edit.file_path)
+    else:
+        component_ref = str(component_ref)
+    row: dict[str, Any] = {
+        "edit_ref": _program_reference("edit", edit.id),
+        "component_type": edit.component_type.value,
+        "component_ref": component_ref,
+        "summary_ref": _program_reference("summary", edit.edit_summary),
+        "predicted_fix_refs": _program_reference_list("task", edit.predicted_fixes),
+        "predicted_regression_refs": _program_reference_list(
+            "task", edit.predicted_regressions
+        ),
+        "evidence_refs": _program_reference_list("evidence", edit.evidence_references),
+        "timestamp": _valid_timestamp(edit.timestamp),
+        "smoke_passed": edit.smoke_passed,
+    }
+    _add_optional_edit_refs(row, edit)
+    metadata = _compiled_metadata_allowlist(edit.metadata)
+    if metadata:
+        row["compiled_metadata"] = metadata
+    return row
+
+
+def _build_persisted_edits(manifest: ChangeManifest) -> list[dict[str, Any]]:
+    return [_persisted_edit_row(edit) for edit in manifest.edits[:1_000]]
+
+
+def _verification_section(result: Any) -> dict[str, Any]:
+    return {
+        "fix_precision": _finite_metric(result.fix_precision),
+        "fix_recall": _finite_metric(result.fix_recall),
+        "regression_precision": _finite_metric(result.regression_precision),
+        "overall_delta": _finite_metric(result.overall_delta),
+        "random_baseline_precision": _finite_metric(result.random_baseline_precision),
+        "attribution_lift": _finite_metric(result.attribution_lift),
+        "attribution_reliable": bool(result.attribution_reliable),
+        "recommendation": (
+            result.recommendation
+            if result.recommendation in {"confirm", "partial_revert", "full_revert"}
+            else ""
+        ),
+        "unexpected_regression_refs": _program_reference_list(
+            "task", result.unexpected_regressions
+        ),
+        "confirmed_fix_refs": _program_reference_list("task", result.confirmed_fixes),
+        "confirmed_regression_refs": _program_reference_list(
+            "task", result.confirmed_regressions
+        ),
+        "false_positive_fix_refs": _program_reference_list(
+            "task", result.false_positive_fixes
+        ),
+        "unattributed_edit_refs": _program_reference_list(
+            "edit", result.unattributed_edits
+        ),
+    }
+
+
+def _validate_proposal_evidence(
+    evidence_refs: list[str], status: str, before: float, after: float
+) -> None:
+    import math
+
+    from .optimization_backend import is_opaque_program_reference
+
+    if any(not is_opaque_program_reference(reference) for reference in evidence_refs):
+        raise ValueError("proposal evidence references are invalid")
+    if status not in {"applied", "proposed", "rejected", "error"}:
+        raise ValueError("proposal status is invalid")
+    if (
+        not math.isfinite(before)
+        or not math.isfinite(after)
+        or not 0.0 <= before <= 1.0
+        or not 0.0 <= after <= 1.0
+    ):
+        raise ValueError("proposal scores must be bounded")
+
+
+def _resolve_agent_ref(meta: dict[str, Any], compiled_state: dict[str, Any]) -> str:
+    from .optimization_backend import (
+        is_opaque_program_reference,
+        opaque_program_reference,
+    )
+
+    agent_ref = str(meta.get("agent_ref") or "")
+    if not is_opaque_program_reference(agent_ref, namespace="agent"):
+        agent_ref = opaque_program_reference(
+            "agent", agent_ref or compiled_state["program_ref"]
+        )
+    return agent_ref
+
+
+def _resolve_component_ref(meta: dict[str, Any], file_path: str) -> str:
+    from .optimization_backend import (
+        is_opaque_program_reference,
+        opaque_program_reference,
+    )
+
+    component_ref = str(meta.get("component_ref") or file_path)
+    if not is_opaque_program_reference(component_ref, namespace="component"):
+        component_ref = opaque_program_reference("component", component_ref)
+    return component_ref
+
+
+def _resolve_version_hash(meta: dict[str, Any], compiled_state: dict[str, Any]) -> str:
+    import re
+
+    version_hash = str(meta.get("candidate_version_hash") or "")
+    if re.fullmatch(r"[0-9a-f]{16}", version_hash) is None:
+        version_hash = compiled_state["id"].rsplit(":", 1)[-1][:16]
+    return version_hash
+
+
+def _resolve_trainset_size(meta: dict[str, Any]) -> int:
+    try:
+        return min(max(int(meta.get("trainset_size", 0)), 0), 1_000_000)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _build_proposal_record(
+    *,
+    proposal_id: str,
+    edit: ComponentEdit,
+    manifest: ChangeManifest,
+    status: str,
+    before: float,
+    after: float,
+    applied: bool,
+    compiled_state: dict[str, Any],
+    evidence_refs: list[str],
+    agent_ref: str,
+    component_ref: str,
+    version_hash: str,
+    trainset_size: int,
+) -> dict[str, Any]:
+    from .optimization_backend import opaque_program_reference
+
+    meta = edit.metadata
+    return {
+        "id": proposal_id,
+        "node_type": "ProposedPromptChange",
+        "agent_ref": agent_ref,
+        "component_ref": component_ref,
+        "round_ref": opaque_program_reference("round", manifest.round_id),
+        "edit_ref": opaque_program_reference("edit", edit.id),
+        "status": status,
+        "applied": bool(applied),
+        "baseline_score": round(before, 4),
+        "candidate_score": round(after, 4),
+        "delta": round(after - before, 4),
+        "optimizer": compiled_state["optimizer"],
+        "trainset_size": trainset_size,
+        "candidate_version_hash": version_hash,
+        "auto_apply_eligible": bool(meta.get("auto_apply_eligible", True)),
+        # The action_policy veto's verdict (CONCEPT:AU-AHE.harness.unified-promotion-gate)
+        # — "" when the candidate never beat baseline (the gate was never
+        # consulted; mirrors run_reflact_cycle's "a benchmark loss never
+        # reaches action_policy").
+        "action_decision": str(meta.get("action_decision") or ""),
+        "program_compiled_state": compiled_state,
+        "evidence_refs": evidence_refs,
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+
+
+def _with_integrity_ref(record: dict[str, Any]) -> dict[str, Any]:
+    import json
+
+    from .optimization_backend import opaque_program_reference
+
+    integrity_material = json.dumps(record, sort_keys=True, separators=(",", ":"))
+    record["integrity_ref"] = opaque_program_reference(
+        "proposal_integrity", integrity_material
+    )
+    return record
+
+
 class EvolveAgent:
     """AHE Evolve Agent — proposes and applies harness improvements.
 
@@ -700,6 +1020,39 @@ class EvolveAgent:
         edit.metadata["apply_status"] = status
         self._record_proposed_change(edit, manifest, status, before, after, applied)
 
+    def _write_proposal_record(self, proposal_id: str, record: dict[str, Any]) -> None:
+        import json
+        import os
+
+        proposals_dir = self._resolve_component_path(".specify/proposals")
+        os.makedirs(proposals_dir, exist_ok=True)
+        proposal_token = proposal_id.rsplit(":", 1)[-1]
+        proposal_path = os.path.join(
+            proposals_dir, f"prompt-proposal-{proposal_token}.json"
+        )
+        with open(proposal_path, "w", encoding="utf-8") as f:
+            json.dump(record, f, indent=2)
+
+    def _persist_proposal_to_kg(self, proposal_id: str, record: dict[str, Any]) -> None:
+        import json
+
+        if self.knowledge_engine is None or not hasattr(
+            self.knowledge_engine, "add_node"
+        ):
+            return
+        props = {k: v for k, v in record.items() if k != "program_compiled_state"}
+        props["program_compiled_state_json"] = json.dumps(
+            record["program_compiled_state"], sort_keys=True
+        )
+        try:
+            self.knowledge_engine.add_node(
+                proposal_id, "ProposedPromptChange", properties=props
+            )
+        except Exception as exc:  # noqa: BLE001 - persistence best-effort
+            logger.debug(
+                "ProposedPromptChange KG persist failed (%s)", type(exc).__name__
+            )
+
     def _record_proposed_change(
         self,
         edit: ComponentEdit,
@@ -717,112 +1070,43 @@ class EvolveAgent:
         a reviewer can inspect the before/after metric and compiled references and approve
         them (:meth:`approve_proposed_change`) rather than have them land silently.
         """
-        import json
-        import math
-        import os
-        import re
-
         from agent_utilities.prompting.structured import ProgramCompiledState
 
-        from .optimization_backend import (
-            is_opaque_program_reference,
-            opaque_program_reference,
-        )
+        from .optimization_backend import opaque_program_reference
 
         meta = edit.metadata
         compiled_state = ProgramCompiledState.model_validate(
             meta.get("program_compiled_state") or {}
         ).model_dump()
         evidence_refs = list(dict.fromkeys(edit.evidence_references))
-        if any(
-            not is_opaque_program_reference(reference) for reference in evidence_refs
-        ):
-            raise ValueError("proposal evidence references are invalid")
-        if status not in {"applied", "proposed", "rejected", "error"}:
-            raise ValueError("proposal status is invalid")
-        if (
-            not math.isfinite(before)
-            or not math.isfinite(after)
-            or not 0.0 <= before <= 1.0
-            or not 0.0 <= after <= 1.0
-        ):
-            raise ValueError("proposal scores must be bounded")
+        _validate_proposal_evidence(evidence_refs, status, before, after)
+
         proposal_id = opaque_program_reference("proposal", edit.id)
-        agent_ref = str(meta.get("agent_ref") or "")
-        if not is_opaque_program_reference(agent_ref, namespace="agent"):
-            agent_ref = opaque_program_reference(
-                "agent", agent_ref or compiled_state["program_ref"]
-            )
-        component_ref = str(meta.get("component_ref") or edit.file_path)
-        if not is_opaque_program_reference(component_ref, namespace="component"):
-            component_ref = opaque_program_reference("component", component_ref)
-        version_hash = str(meta.get("candidate_version_hash") or "")
-        if re.fullmatch(r"[0-9a-f]{16}", version_hash) is None:
-            version_hash = compiled_state["id"].rsplit(":", 1)[-1][:16]
-        try:
-            trainset_size = min(max(int(meta.get("trainset_size", 0)), 0), 1_000_000)
-        except (TypeError, ValueError):
-            trainset_size = 0
-        record = {
-            "id": proposal_id,
-            "node_type": "ProposedPromptChange",
-            "agent_ref": agent_ref,
-            "component_ref": component_ref,
-            "round_ref": opaque_program_reference("round", manifest.round_id),
-            "edit_ref": opaque_program_reference("edit", edit.id),
-            "status": status,
-            "applied": bool(applied),
-            "baseline_score": round(before, 4),
-            "candidate_score": round(after, 4),
-            "delta": round(after - before, 4),
-            "optimizer": compiled_state["optimizer"],
-            "trainset_size": trainset_size,
-            "candidate_version_hash": version_hash,
-            "auto_apply_eligible": bool(meta.get("auto_apply_eligible", True)),
-            # The action_policy veto's verdict (CONCEPT:AU-AHE.harness.unified-promotion-gate)
-            # — "" when the candidate never beat baseline (the gate was never
-            # consulted; mirrors run_reflact_cycle's "a benchmark loss never
-            # reaches action_policy").
-            "action_decision": str(meta.get("action_decision") or ""),
-            "program_compiled_state": compiled_state,
-            "evidence_refs": evidence_refs,
-            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        }
-        integrity_material = json.dumps(
-            record,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        record["integrity_ref"] = opaque_program_reference(
-            "proposal_integrity", integrity_material
-        )
+        agent_ref = _resolve_agent_ref(meta, compiled_state)
+        component_ref = _resolve_component_ref(meta, edit.file_path)
+        version_hash = _resolve_version_hash(meta, compiled_state)
+        trainset_size = _resolve_trainset_size(meta)
 
-        proposals_dir = self._resolve_component_path(".specify/proposals")
-        os.makedirs(proposals_dir, exist_ok=True)
-        proposal_token = proposal_id.rsplit(":", 1)[-1]
-        proposal_path = os.path.join(
-            proposals_dir, f"prompt-proposal-{proposal_token}.json"
+        record = _build_proposal_record(
+            proposal_id=proposal_id,
+            edit=edit,
+            manifest=manifest,
+            status=status,
+            before=before,
+            after=after,
+            applied=applied,
+            compiled_state=compiled_state,
+            evidence_refs=evidence_refs,
+            agent_ref=agent_ref,
+            component_ref=component_ref,
+            version_hash=version_hash,
+            trainset_size=trainset_size,
         )
-        with open(proposal_path, "w", encoding="utf-8") as f:
-            json.dump(record, f, indent=2)
+        record = _with_integrity_ref(record)
+
+        self._write_proposal_record(proposal_id, record)
         self._proposal_targets[proposal_id] = edit.file_path
-
-        if self.knowledge_engine is not None and hasattr(
-            self.knowledge_engine, "add_node"
-        ):
-            props = {k: v for k, v in record.items() if k != "program_compiled_state"}
-            props["program_compiled_state_json"] = json.dumps(
-                record["program_compiled_state"], sort_keys=True
-            )
-            try:
-                self.knowledge_engine.add_node(
-                    proposal_id, "ProposedPromptChange", properties=props
-                )
-            except Exception as exc:  # noqa: BLE001 - persistence best-effort
-                logger.debug(
-                    "ProposedPromptChange KG persist failed (%s)",
-                    type(exc).__name__,
-                )
+        self._persist_proposal_to_kg(proposal_id, record)
 
         meta["proposal_ref"] = proposal_id
         return proposal_id
@@ -1161,179 +1445,33 @@ class EvolveAgent:
     @staticmethod
     def _manifest_persistence_payload(manifest: ChangeManifest) -> dict[str, Any]:
         """Project an operational manifest into its reference-only durable form."""
-        import json
-        import math
-        import re
-
-        from agent_utilities.prompting.structured import ProgramCompiledState
-
-        from .optimization_backend import (
-            is_opaque_program_reference,
-            opaque_program_reference,
-        )
-
-        def reference(namespace: str, value: Any) -> str:
-            rendered = str(value or "")
-            if is_opaque_program_reference(rendered):
-                return rendered
-            return opaque_program_reference(namespace, rendered or namespace)
-
-        def reference_list(namespace: str, values: Any) -> list[str]:
-            if not isinstance(values, list | tuple):
-                return []
-            return list(dict.fromkeys(reference(namespace, value) for value in values))[
-                :1_000
-            ]
-
-        def finite(value: Any) -> float | None:
-            if value is None or isinstance(value, bool):
-                return None
-            try:
-                number = float(value)
-            except (TypeError, ValueError):
-                return None
-            if math.isfinite(number) and abs(number) <= 1_000_000_000:
-                return number
-            return None
-
-        def timestamp(value: Any) -> str:
-            rendered = str(value or "")
-            return (
-                rendered
-                if re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", rendered)
-                else ""
-            )
-
-        persisted_edits: list[dict[str, Any]] = []
-        for edit in manifest.edits[:1_000]:
-            component_ref = edit.metadata.get("component_ref")
-            if not is_opaque_program_reference(component_ref):
-                component_ref = opaque_program_reference("component", edit.file_path)
-            else:
-                component_ref = str(component_ref)
-            row: dict[str, Any] = {
-                "edit_ref": reference("edit", edit.id),
-                "component_type": edit.component_type.value,
-                "component_ref": component_ref,
-                "summary_ref": reference("summary", edit.edit_summary),
-                "predicted_fix_refs": reference_list("task", edit.predicted_fixes),
-                "predicted_regression_refs": reference_list(
-                    "task", edit.predicted_regressions
-                ),
-                "evidence_refs": reference_list("evidence", edit.evidence_references),
-                "timestamp": timestamp(edit.timestamp),
-                "smoke_passed": edit.smoke_passed,
-            }
-            if edit.diff_content:
-                row["diff_ref"] = reference("diff", edit.diff_content)
-            if edit.git_commit_sha:
-                row["commit_ref"] = reference("commit", edit.git_commit_sha)
-            if edit.attribution_signature:
-                row["attribution_ref"] = reference(
-                    "attribution",
-                    json.dumps(
-                        edit.attribution_signature,
-                        sort_keys=True,
-                        separators=(",", ":"),
-                        default=str,
-                    ),
-                )
-            if edit.capability_evidence:
-                row["capability_evidence_refs"] = [
-                    reference(
-                        "capability_evidence",
-                        json.dumps(
-                            item,
-                            sort_keys=True,
-                            separators=(",", ":"),
-                            default=str,
-                        ),
-                    )
-                    for item in edit.capability_evidence[:1_000]
-                ]
-
-            metadata: dict[str, Any] = {}
-            for key in ("agent_ref", "component_ref", "proposal_ref"):
-                value = edit.metadata.get(key)
-                if is_opaque_program_reference(value):
-                    metadata[key] = str(value)
-            for key in ("promote", "auto_apply_eligible"):
-                value = edit.metadata.get(key)
-                if isinstance(value, bool):
-                    metadata[key] = value
-            for key in ("baseline_score", "candidate_score"):
-                value = finite(edit.metadata.get(key))
-                if value is not None:
-                    metadata[key] = value
-            trainset_size = edit.metadata.get("trainset_size")
-            if isinstance(trainset_size, int) and not isinstance(trainset_size, bool):
-                metadata["trainset_size"] = min(max(trainset_size, 0), 1_000_000)
-            candidate_hash = str(edit.metadata.get("candidate_version_hash") or "")
-            if re.fullmatch(r"[0-9a-f]{16}", candidate_hash):
-                metadata["candidate_version_hash"] = candidate_hash
-            apply_status = edit.metadata.get("apply_status")
-            if apply_status in {"applied", "proposed", "rejected", "error"}:
-                metadata["apply_status"] = apply_status
-            compiled = edit.metadata.get("program_compiled_state")
-            if compiled is not None:
-                metadata["program_compiled_state"] = (
-                    ProgramCompiledState.model_validate(compiled).model_dump()
-                )
-            if metadata:
-                row["compiled_metadata"] = metadata
-            persisted_edits.append(row)
+        persisted_edits = _build_persisted_edits(manifest)
 
         payload: dict[str, Any] = {
             "schema_version": 1,
             "type": "ChangeManifest",
-            "round_ref": reference("round", manifest.round_id),
+            "round_ref": _program_reference("round", manifest.round_id),
             "parent_round_ref": (
-                reference("round", manifest.parent_round_id)
+                _program_reference("round", manifest.parent_round_id)
                 if manifest.parent_round_id
                 else None
             ),
             "edits": persisted_edits,
-            "baseline_score": finite(manifest.baseline_score),
-            "predicted_score": finite(manifest.predicted_score),
-            "actual_score": finite(manifest.actual_score),
+            "baseline_score": _finite_metric(manifest.baseline_score),
+            "predicted_score": _finite_metric(manifest.predicted_score),
+            "actual_score": _finite_metric(manifest.actual_score),
             "verification_status": (
                 manifest.verification_status
                 if manifest.verification_status
                 in {"pending", "confirmed", "reverted", "error"}
                 else "error"
             ),
-            "timestamp": timestamp(manifest.timestamp),
+            "timestamp": _valid_timestamp(manifest.timestamp),
         }
         if manifest.verification_result is not None:
-            result = manifest.verification_result
-            payload["verification"] = {
-                "fix_precision": finite(result.fix_precision),
-                "fix_recall": finite(result.fix_recall),
-                "regression_precision": finite(result.regression_precision),
-                "overall_delta": finite(result.overall_delta),
-                "random_baseline_precision": finite(result.random_baseline_precision),
-                "attribution_lift": finite(result.attribution_lift),
-                "attribution_reliable": bool(result.attribution_reliable),
-                "recommendation": (
-                    result.recommendation
-                    if result.recommendation
-                    in {"confirm", "partial_revert", "full_revert"}
-                    else ""
-                ),
-                "unexpected_regression_refs": reference_list(
-                    "task", result.unexpected_regressions
-                ),
-                "confirmed_fix_refs": reference_list("task", result.confirmed_fixes),
-                "confirmed_regression_refs": reference_list(
-                    "task", result.confirmed_regressions
-                ),
-                "false_positive_fix_refs": reference_list(
-                    "task", result.false_positive_fixes
-                ),
-                "unattributed_edit_refs": reference_list(
-                    "edit", result.unattributed_edits
-                ),
-            }
+            payload["verification"] = _verification_section(
+                manifest.verification_result
+            )
         return payload
 
     async def persist_manifest(self, manifest: ChangeManifest) -> str:

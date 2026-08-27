@@ -295,6 +295,257 @@ def _evidence_address(modality: str, seed: str) -> dict[str, Any]:
     raise ValueError("program example contains an unsupported modality")
 
 
+def _validate_optimization_request(
+    data: Mapping[str, Any], optimizer: str
+) -> tuple[list[dict[str, Any]], str, str, list[str]]:
+    """Validate rows/optimizer/tool-refs and return them normalized.
+
+    Raises exactly one of ``OptimizationDataUnavailable``,
+    ``OptimizationCapabilityUnavailable``, or ``ValueError`` in that order.
+    """
+    rows = _training_rows(data)
+    if not rows:
+        raise OptimizationDataUnavailable(
+            "no governed training examples are available yet"
+        )
+    normalized_optimizer = str(optimizer).strip().casefold()
+    execution = _OPTIMIZER_EXECUTIONS.get(normalized_optimizer)
+    if execution is None:
+        raise OptimizationCapabilityUnavailable(
+            f"native program optimizer {normalized_optimizer!r} has no execution mapping"
+        )
+    tool_refs = _tool_references(data)
+    if normalized_optimizer == "avatar" and not tool_refs:
+        raise ValueError("Avatar optimization requires a governed tool reference")
+    return rows, normalized_optimizer, execution, tool_refs
+
+
+def _build_example_input_refs(context: Any, task: Any) -> list[str]:
+    inputs: list[str] = []
+    for field_name, value in (("context", context), ("task", task)):
+        if value not in (None, ""):
+            reference = _opaque("content", _canonical({field_name: value}))
+            if reference not in inputs:
+                inputs.append(reference)
+    return inputs
+
+
+def _build_example_evidence(
+    *,
+    row_seed: str,
+    artifact_ref: str,
+    modalities: tuple[str, ...],
+    policy: dict[str, Any],
+    modality_scores: dict[str, list[float]],
+    score: float,
+) -> list[dict[str, Any]]:
+    evidence: list[dict[str, Any]] = []
+    for modality in modalities:
+        modality_seed = _canonical({"row": row_seed, "modality": modality})
+        modality_scores.setdefault(modality, []).append(score)
+        evidence.append(
+            {
+                "modality": modality,
+                "locus": {
+                    "id": _opaque("locus", modality_seed),
+                    "subject": {"kind": "artifact", "id": artifact_ref},
+                    "address": _evidence_address(modality, modality_seed),
+                    "policy_ref": policy["access_policy_ref"],
+                    "derivation_ref": _opaque("derivation", modality_seed),
+                },
+                "policy": policy,
+            }
+        )
+    return evidence
+
+
+def _build_one_example(
+    index: int,
+    row: dict[str, Any],
+    policy: dict[str, Any],
+    modality_scores: dict[str, list[float]],
+) -> dict[str, Any]:
+    row_seed = _canonical({"index": index, "row": row})
+    success = bool(row.get("success", True))
+    context = row.get("context", "")
+    task = row.get("task", row.get("task_text", ""))
+    response = row.get(
+        "response", row.get("expected_output", row.get("primitive_used", ""))
+    )
+    inputs = _build_example_input_refs(context, task)
+    if not inputs:
+        inputs.append(_opaque("content", row_seed))
+    observed = _opaque(
+        "content",
+        _canonical({"response": response, "row": row_seed}),
+    )
+    expected = (
+        _opaque("content", _canonical({"expected": response}))
+        if response not in (None, "")
+        else None
+    )
+    artifact_ref = _opaque("artifact", row_seed)
+    score = _score(row)
+    modalities = _row_modalities(row)
+    evidence = _build_example_evidence(
+        row_seed=row_seed,
+        artifact_ref=artifact_ref,
+        modalities=modalities,
+        policy=policy,
+        modality_scores=modality_scores,
+        score=score,
+    )
+    return {
+        "example_ref": _opaque("example", row.get("example_ref") or row_seed),
+        "input_refs": inputs,
+        "expected_output_ref": expected,
+        "observed_output_ref": observed if success else None,
+        "feedback_ref": (
+            _opaque("feedback", row_seed) if row.get("failure_reason") else None
+        ),
+        "trace_ref": (
+            _opaque("trace", row_seed)
+            if row.get("source") == "kg_trace" or row.get("trace_ref")
+            else None
+        ),
+        "split": "train",
+        "outcome": "success" if success else "failure",
+        "score": score,
+        "weight": 1.0,
+        "evidence": evidence,
+    }
+
+
+def _build_examples(
+    rows: list[dict[str, Any]], policy: dict[str, Any]
+) -> tuple[list[dict[str, Any]], dict[str, list[float]]]:
+    examples: list[dict[str, Any]] = []
+    modality_scores: dict[str, list[float]] = {}
+    for index, row in enumerate(rows):
+        examples.append(_build_one_example(index, row, policy, modality_scores))
+    return examples, modality_scores
+
+
+def _require_avatar_contrastive_pair(
+    optimizer: str, examples: list[dict[str, Any]]
+) -> None:
+    if optimizer != "avatar":
+        return
+    positive = any(
+        example["outcome"] == "success" and example["trace_ref"] is not None
+        for example in examples
+    )
+    negative = any(
+        example["outcome"] == "failure"
+        and example["trace_ref"] is not None
+        and example["feedback_ref"] is not None
+        for example in examples
+    )
+    if not positive or not negative:
+        raise ValueError(
+            "Avatar optimization requires positive and negative governed traces"
+        )
+
+
+def _build_program_section(
+    *,
+    schema_version: int,
+    program_ref: str,
+    seed: str,
+    optimizer: str,
+    tool_refs: list[str],
+    policy: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "schema_version": schema_version,
+        "program_ref": program_ref,
+        "revision": 1,
+        "parent_ref": None,
+        "signature": {
+            "signature_ref": _opaque("signature", seed),
+            "instruction_ref": _opaque("instruction", seed),
+            "fields": [
+                {
+                    "name": "context",
+                    "role": "input",
+                    "schema_ref": _opaque("schema", "text-context-v1"),
+                    "description_ref": None,
+                    "required": False,
+                },
+                {
+                    "name": "task",
+                    "role": "input",
+                    "schema_ref": _opaque("schema", "text-task-v1"),
+                    "description_ref": None,
+                    "required": True,
+                },
+                {
+                    "name": "response",
+                    "role": "output",
+                    "schema_ref": _opaque("schema", "text-response-v1"),
+                    "description_ref": None,
+                    "required": True,
+                },
+            ],
+        },
+        "module": "react" if optimizer == "avatar" else "predict",
+        "adapter": "chat",
+        "tool_refs": tool_refs,
+        "policy": policy,
+    }
+
+
+def _build_corpus_section(
+    *, request_seed: str, examples: list[dict[str, Any]]
+) -> dict[str, Any]:
+    return {
+        "corpus_ref": _opaque("corpus", request_seed),
+        "snapshot_version": 1,
+        "privacy": {
+            "scanner_ref": _opaque("scanner", "persistence-privacy-v1"),
+            "policy_version_ref": _opaque("privacy_policy", "persistence-privacy-v1"),
+            "raw_pii_persisted": False,
+            "local_identifiers_persisted": False,
+        },
+        "examples": examples,
+    }
+
+
+def _build_budget_section(
+    *, examples_count: int, modality_count: int, execution: str
+) -> dict[str, Any]:
+    return {
+        "max_candidates": 8,
+        "max_demonstrations": _demonstration_budget(examples_count, modality_count),
+        "max_model_calls": (
+            8 if execution in {"model_transport_plan", "composite_plan"} else 0
+        ),
+        "max_evaluator_calls": 0,
+        "max_training_steps": (
+            32 if execution in {"trainer_plan", "composite_plan"} else 0
+        ),
+        "seed": 0,
+    }
+
+
+def _build_baseline_section(
+    *,
+    program_ref: str,
+    baseline_score: float,
+    modality_scores: dict[str, list[float]],
+    request_seed: str,
+) -> dict[str, Any]:
+    return {
+        "subject_ref": program_ref,
+        "aggregate_score": baseline_score,
+        "modality_scores": {
+            modality: sum(scores) / len(scores)
+            for modality, scores in sorted(modality_scores.items())
+        },
+        "evidence_refs": [_opaque("evaluation", request_seed)],
+    }
+
+
 @dataclass(frozen=True)
 class OptimizationRequest:
     """High-level optimization input converted to the exact eg-program v1 map."""
@@ -306,20 +557,9 @@ class OptimizationRequest:
     schema_version: int = 1
 
     def to_payload(self) -> dict[str, Any]:
-        rows = _training_rows(self.data)
-        if not rows:
-            raise OptimizationDataUnavailable(
-                "no governed training examples are available yet"
-            )
-        optimizer = str(self.optimizer).strip().casefold()
-        execution = _OPTIMIZER_EXECUTIONS.get(optimizer)
-        if execution is None:
-            raise OptimizationCapabilityUnavailable(
-                f"native program optimizer {optimizer!r} has no execution mapping"
-            )
-        tool_refs = _tool_references(self.data)
-        if optimizer == "avatar" and not tool_refs:
-            raise ValueError("Avatar optimization requires a governed tool reference")
+        rows, optimizer, execution, tool_refs = _validate_optimization_request(
+            self.data, self.optimizer
+        )
 
         seed = _canonical(
             {
@@ -331,94 +571,8 @@ class OptimizationRequest:
         )
         policy = _policy(seed)
         program_ref = _opaque("program", seed)
-        examples: list[dict[str, Any]] = []
-        modality_scores: dict[str, list[float]] = {}
-        for index, row in enumerate(rows):
-            row_seed = _canonical({"index": index, "row": row})
-            success = bool(row.get("success", True))
-            context = row.get("context", "")
-            task = row.get("task", row.get("task_text", ""))
-            response = row.get(
-                "response", row.get("expected_output", row.get("primitive_used", ""))
-            )
-            inputs = []
-            for field_name, value in (("context", context), ("task", task)):
-                if value not in (None, ""):
-                    reference = _opaque("content", _canonical({field_name: value}))
-                    if reference not in inputs:
-                        inputs.append(reference)
-            if not inputs:
-                inputs.append(_opaque("content", row_seed))
-            observed = _opaque(
-                "content",
-                _canonical({"response": response, "row": row_seed}),
-            )
-            expected = (
-                _opaque("content", _canonical({"expected": response}))
-                if response not in (None, "")
-                else None
-            )
-            artifact_ref = _opaque("artifact", row_seed)
-            score = _score(row)
-            modalities = _row_modalities(row)
-            evidence = []
-            for modality in modalities:
-                modality_seed = _canonical({"row": row_seed, "modality": modality})
-                modality_scores.setdefault(modality, []).append(score)
-                evidence.append(
-                    {
-                        "modality": modality,
-                        "locus": {
-                            "id": _opaque("locus", modality_seed),
-                            "subject": {"kind": "artifact", "id": artifact_ref},
-                            "address": _evidence_address(modality, modality_seed),
-                            "policy_ref": policy["access_policy_ref"],
-                            "derivation_ref": _opaque("derivation", modality_seed),
-                        },
-                        "policy": policy,
-                    }
-                )
-            examples.append(
-                {
-                    "example_ref": _opaque(
-                        "example", row.get("example_ref") or row_seed
-                    ),
-                    "input_refs": inputs,
-                    "expected_output_ref": expected,
-                    "observed_output_ref": observed if success else None,
-                    "feedback_ref": (
-                        _opaque("feedback", row_seed)
-                        if row.get("failure_reason")
-                        else None
-                    ),
-                    "trace_ref": (
-                        _opaque("trace", row_seed)
-                        if row.get("source") == "kg_trace" or row.get("trace_ref")
-                        else None
-                    ),
-                    "split": "train",
-                    "outcome": "success" if success else "failure",
-                    "score": score,
-                    "weight": 1.0,
-                    "evidence": evidence,
-                }
-            )
-
-        if optimizer == "avatar":
-            positive = any(
-                example["outcome"] == "success" and example["trace_ref"] is not None
-                for example in examples
-            )
-            negative = any(
-                example["outcome"] == "failure"
-                and example["trace_ref"] is not None
-                and example["feedback_ref"] is not None
-                for example in examples
-            )
-            if not positive or not negative:
-                raise ValueError(
-                    "Avatar optimization requires positive and negative governed traces"
-                )
+        examples, modality_scores = _build_examples(rows, policy)
+        _require_avatar_contrastive_pair(optimizer, examples)
 
         baseline_score = sum(example["score"] for example in examples) / len(examples)
         request_seed = _canonical(
@@ -431,86 +585,35 @@ class OptimizationRequest:
         return {
             "schema_version": self.schema_version,
             "request_ref": _opaque("optimization", request_seed),
-            "program": {
-                "schema_version": self.schema_version,
-                "program_ref": program_ref,
-                "revision": 1,
-                "parent_ref": None,
-                "signature": {
-                    "signature_ref": _opaque("signature", seed),
-                    "instruction_ref": _opaque("instruction", seed),
-                    "fields": [
-                        {
-                            "name": "context",
-                            "role": "input",
-                            "schema_ref": _opaque("schema", "text-context-v1"),
-                            "description_ref": None,
-                            "required": False,
-                        },
-                        {
-                            "name": "task",
-                            "role": "input",
-                            "schema_ref": _opaque("schema", "text-task-v1"),
-                            "description_ref": None,
-                            "required": True,
-                        },
-                        {
-                            "name": "response",
-                            "role": "output",
-                            "schema_ref": _opaque("schema", "text-response-v1"),
-                            "description_ref": None,
-                            "required": True,
-                        },
-                    ],
-                },
-                "module": "react" if optimizer == "avatar" else "predict",
-                "adapter": "chat",
-                "tool_refs": tool_refs,
-                "policy": policy,
-            },
-            "corpus": {
-                "corpus_ref": _opaque("corpus", request_seed),
-                "snapshot_version": 1,
-                "privacy": {
-                    "scanner_ref": _opaque("scanner", "persistence-privacy-v1"),
-                    "policy_version_ref": _opaque(
-                        "privacy_policy", "persistence-privacy-v1"
-                    ),
-                    "raw_pii_persisted": False,
-                    "local_identifiers_persisted": False,
-                },
-                "examples": examples,
-            },
+            "program": _build_program_section(
+                schema_version=self.schema_version,
+                program_ref=program_ref,
+                seed=seed,
+                optimizer=optimizer,
+                tool_refs=tool_refs,
+                policy=policy,
+            ),
+            "corpus": _build_corpus_section(
+                request_seed=request_seed, examples=examples
+            ),
             "optimizer": optimizer,
-            "budget": {
-                "max_candidates": 8,
-                "max_demonstrations": _demonstration_budget(
-                    len(examples), len(modality_scores)
-                ),
-                "max_model_calls": (
-                    8 if execution in {"model_transport_plan", "composite_plan"} else 0
-                ),
-                "max_evaluator_calls": 0,
-                "max_training_steps": (
-                    32 if execution in {"trainer_plan", "composite_plan"} else 0
-                ),
-                "seed": 0,
-            },
+            "budget": _build_budget_section(
+                examples_count=len(examples),
+                modality_count=len(modality_scores),
+                execution=execution,
+            ),
             "promotion": {
                 "min_score_delta": 0.0,
                 "max_modality_regression": 0.0,
                 "require_all_observed_modalities": True,
                 "min_evidence_refs": 1,
             },
-            "baseline": {
-                "subject_ref": program_ref,
-                "aggregate_score": baseline_score,
-                "modality_scores": {
-                    modality: sum(scores) / len(scores)
-                    for modality, scores in sorted(modality_scores.items())
-                },
-                "evidence_refs": [_opaque("evaluation", request_seed)],
-            },
+            "baseline": _build_baseline_section(
+                program_ref=program_ref,
+                baseline_score=baseline_score,
+                modality_scores=modality_scores,
+                request_seed=request_seed,
+            ),
             "optimizer_artifacts": [],
             "candidate_evaluations": [],
         }

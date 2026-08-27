@@ -869,6 +869,56 @@ class FileTraceBackend(TraceBackend):
         return self._read_fixture("cost_latency_anomalies.json")
 
 
+def _record_event_identifiers_safe(
+    privacy: Any, trace_id: str, span_id: str, parent_span_id: str | None
+) -> bool:
+    # CONCEPT:AU-KG.audit.trace-id-assigned-at-emission (GOC-09) — a span/event with no
+    # trace identity must be REJECTED, never silently indexed under an empty/``None``
+    # key: that would merge every unattributed caller into one shared bucket instead of
+    # failing loudly. ``span_id`` has no such requirement (a root trace event's own
+    # ``span_id`` legitimately keys the trace itself), so only ``trace_id`` is checked.
+    if not trace_id:
+        logger.warning(
+            "KGTraceBackend event rejected: missing trace_id (span_id=%r) — refusing "
+            "to fabricate or merge into an unattributed bucket",
+            span_id,
+        )
+        return False
+    for identifier in (trace_id, span_id, parent_span_id):
+        if identifier is None:
+            continue
+        _, identifier_report = privacy.sanitize_text(identifier)
+        if identifier_report.changed:
+            logger.debug("KGTraceBackend event skipped: unsafe identifier")
+            return False
+    return True
+
+
+def _sanitize_event_fields(
+    privacy: Any,
+    *,
+    name: str,
+    session_id: str | None,
+    error: str | None,
+    model: str | None,
+    provider: str | None,
+    tags: list[str] | None,
+    input_text: str,
+    output_text: str,
+) -> tuple[str, str | None, str | None, str | None, str | None, list[str], str, str]:
+    name = privacy.sanitize_text(name)[0]
+    session_id = (
+        privacy.sanitize_text(session_id)[0] if session_id is not None else None
+    )
+    error = privacy.sanitize_text(error)[0] if error is not None else None
+    model = privacy.sanitize_text(model)[0] if model is not None else None
+    provider = privacy.sanitize_text(provider)[0] if provider is not None else None
+    tags = [privacy.sanitize_text(tag)[0] for tag in (tags or [])]
+    input_text = privacy.sanitize_text(input_text)[0]
+    output_text = privacy.sanitize_text(output_text)[0]
+    return name, session_id, error, model, provider, tags, input_text, output_text
+
+
 class KGTraceBackend(TraceBackend):
     """KG-native trace sink (CONCEPT:AU-OS.config.model-factory-passthrough) — the moat over an opaque trace store.
 
@@ -941,73 +991,15 @@ class KGTraceBackend(TraceBackend):
             return node.model_copy(update=clean)
         return clean
 
-    def record_event(
+    def _get_or_create_entry(
         self,
-        *,
         trace_id: str,
-        span_id: str,
         name: str,
         is_root: bool,
-        kind: str = "general",  # general | llm | tool
-        parent_span_id: str | None = None,
-        session_id: str | None = None,
-        latency_ms: float | None = None,
-        error: str | None = None,
-        model: str | None = None,
-        provider: str | None = None,
-        input_tokens: int = 0,
-        output_tokens: int = 0,
-        cache_read_tokens: int = 0,
-        cache_write_tokens: int = 0,
-        tags: list[str] | None = None,
-        input_text: str = "",
-        output_text: str = "",
-    ) -> None:
-        """Incrementally record ONE trace/span/generation event (CONCEPT:AU-OS.config.model-factory-passthrough).
-
-        The decorator path (``@trace``/``@generation``) emits events one at a time — a
-        root trace, then child spans/generations — so this upserts the TraceNode bucket
-        and appends the child node, persisting + linking each immediately. The
-        always-on tracing sink uses this; ``emit_trace`` remains the batch path.
-        """
-        privacy = self._privacy
-
-        # CONCEPT:AU-KG.audit.trace-id-assigned-at-emission (GOC-09) — a span/event with no
-        # trace identity must be REJECTED, never silently indexed under an empty/``None``
-        # key: that would merge every unattributed caller into one shared bucket instead of
-        # failing loudly. ``span_id`` has no such requirement (a root trace event's own
-        # ``span_id`` legitimately keys the trace itself), so only ``trace_id`` is checked.
-        if not trace_id:
-            logger.warning(
-                "KGTraceBackend event rejected: missing trace_id (span_id=%r) — refusing "
-                "to fabricate or merge into an unattributed bucket",
-                span_id,
-            )
-            return
-        for identifier in (trace_id, span_id, parent_span_id):
-            if identifier is None:
-                continue
-            _, identifier_report = privacy.sanitize_text(identifier)
-            if identifier_report.changed:
-                logger.debug("KGTraceBackend event skipped: unsafe identifier")
-                return
-        name = privacy.sanitize_text(name)[0]
-        session_id = (
-            privacy.sanitize_text(session_id)[0] if session_id is not None else None
-        )
-        error = privacy.sanitize_text(error)[0] if error is not None else None
-        model = privacy.sanitize_text(model)[0] if model is not None else None
-        provider = privacy.sanitize_text(provider)[0] if provider is not None else None
-        tags = [privacy.sanitize_text(tag)[0] for tag in (tags or [])]
-        input_text = privacy.sanitize_text(input_text)[0]
-        output_text = privacy.sanitize_text(output_text)[0]
-
-        from agent_utilities.models.knowledge_graph import (
-            GenerationNode,
-            RegistryEdgeType,
-            SpanNode,
-            TraceNode,
-        )
+        session_id: str | None,
+        tags: list[str] | None,
+    ) -> tuple[dict[str, Any], bool]:
+        from agent_utilities.models.knowledge_graph import TraceNode
 
         entry = self._traces.get(trace_id)
         new_trace = entry is None
@@ -1022,7 +1014,18 @@ class KGTraceBackend(TraceBackend):
             self._traces[trace_id] = entry
             self._evict_if_needed()
         assert entry is not None  # set above when new_trace; else the cache hit
-        trace = entry["trace"]
+        return entry, new_trace
+
+    def _update_trace_state(
+        self,
+        trace: Any,
+        *,
+        error: str | None,
+        is_root: bool,
+        latency_ms: float | None,
+        input_text: str,
+        output_text: str,
+    ) -> None:
         if error:
             trace.status = "error"
         if is_root:
@@ -1032,33 +1035,63 @@ class KGTraceBackend(TraceBackend):
             if output_text:
                 trace.output = output_text[:4000]
 
+    def _maybe_persist_trace(
+        self,
+        trace_id: str,
+        trace: Any,
+        *,
+        new_trace: bool,
+        error: str | None,
+        is_root: bool,
+    ) -> None:
         # Persist/refresh the trace node on creation OR when the root completes (status
         # flip / input-output now known), so the snapshot reflects the final state.
-        if (
+        if not (
             (new_trace or error or is_root)
             and self.backend is not None
             and hasattr(self.backend, "add_node")
         ):
-            try:
-                self._write_node(trace_id, self._node_props(trace))
-            except Exception as exc:  # pragma: no cover - best-effort
-                logger.debug(
-                    "KGTraceBackend trace persist failed (%s)", type(exc).__name__
-                )
-
-        if is_root:
-            # Root span = trace finished. Fire the completion hook (best-effort, fast —
-            # the hook only schedules/enqueues; it must NOT run the judge inline, so a
-            # traced call never pays scoring latency). CONCEPT:AU-AHE.harness.receives-trace-id-must.
-            cb = getattr(self, "on_trace_complete", None)
-            if callable(cb):
-                try:
-                    cb(trace_id)
-                except Exception as exc:  # pragma: no cover - best-effort
-                    logger.debug(
-                        "on_trace_complete hook failed (%s)", type(exc).__name__
-                    )
             return
+        try:
+            self._write_node(trace_id, self._node_props(trace))
+        except Exception as exc:  # pragma: no cover - best-effort
+            logger.debug("KGTraceBackend trace persist failed (%s)", type(exc).__name__)
+
+    def _fire_trace_complete_hook(self, trace_id: str) -> None:
+        # Root span = trace finished. Fire the completion hook (best-effort, fast —
+        # the hook only schedules/enqueues; it must NOT run the judge inline, so a
+        # traced call never pays scoring latency). CONCEPT:AU-AHE.harness.receives-trace-id-must.
+        cb = getattr(self, "on_trace_complete", None)
+        if callable(cb):
+            try:
+                cb(trace_id)
+            except Exception as exc:  # pragma: no cover - best-effort
+                logger.debug("on_trace_complete hook failed (%s)", type(exc).__name__)
+
+    def _build_child_node(
+        self,
+        *,
+        kind: str,
+        entry: dict[str, Any],
+        trace: Any,
+        span_id: str,
+        name: str,
+        trace_id: str,
+        parent_span_id: str | None,
+        model: str | None,
+        provider: str | None,
+        input_tokens: int,
+        output_tokens: int,
+        cache_read_tokens: int,
+        cache_write_tokens: int,
+        latency_ms: float | None,
+        error: str | None,
+    ) -> tuple[Any, Any]:
+        from agent_utilities.models.knowledge_graph import (
+            GenerationNode,
+            RegistryEdgeType,
+            SpanNode,
+        )
 
         if kind == "llm":
             node: Any = GenerationNode(
@@ -1101,17 +1134,120 @@ class KGTraceBackend(TraceBackend):
                 # total_cost_usd/input_tokens/output_tokens rollups above).
                 trace.tool_calls += 1
             edge = RegistryEdgeType.HAS_SPAN
+        return node, edge
 
-        if self.backend is not None and hasattr(self.backend, "add_node"):
-            try:
-                self._write_node(span_id, self._node_props(node))
-                link = getattr(self.backend, "link_nodes", None)
-                if callable(link):
-                    link(parent_span_id or trace_id, span_id, edge)
-            except Exception as exc:  # pragma: no cover - best-effort
-                logger.debug(
-                    "KGTraceBackend event persist failed (%s)", type(exc).__name__
-                )
+    def _persist_child_node(
+        self,
+        *,
+        span_id: str,
+        node: Any,
+        parent_span_id: str | None,
+        trace_id: str,
+        edge: Any,
+    ) -> None:
+        if self.backend is None or not hasattr(self.backend, "add_node"):
+            return
+        try:
+            self._write_node(span_id, self._node_props(node))
+            link = getattr(self.backend, "link_nodes", None)
+            if callable(link):
+                link(parent_span_id or trace_id, span_id, edge)
+        except Exception as exc:  # pragma: no cover - best-effort
+            logger.debug("KGTraceBackend event persist failed (%s)", type(exc).__name__)
+
+    def record_event(
+        self,
+        *,
+        trace_id: str,
+        span_id: str,
+        name: str,
+        is_root: bool,
+        kind: str = "general",  # general | llm | tool
+        parent_span_id: str | None = None,
+        session_id: str | None = None,
+        latency_ms: float | None = None,
+        error: str | None = None,
+        model: str | None = None,
+        provider: str | None = None,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
+        tags: list[str] | None = None,
+        input_text: str = "",
+        output_text: str = "",
+    ) -> None:
+        """Incrementally record ONE trace/span/generation event (CONCEPT:AU-OS.config.model-factory-passthrough).
+
+        The decorator path (``@trace``/``@generation``) emits events one at a time — a
+        root trace, then child spans/generations — so this upserts the TraceNode bucket
+        and appends the child node, persisting + linking each immediately. The
+        always-on tracing sink uses this; ``emit_trace`` remains the batch path.
+        """
+        privacy = self._privacy
+
+        if not _record_event_identifiers_safe(
+            privacy, trace_id, span_id, parent_span_id
+        ):
+            return
+        name, session_id, error, model, provider, tags, input_text, output_text = (
+            _sanitize_event_fields(
+                privacy,
+                name=name,
+                session_id=session_id,
+                error=error,
+                model=model,
+                provider=provider,
+                tags=tags,
+                input_text=input_text,
+                output_text=output_text,
+            )
+        )
+
+        entry, new_trace = self._get_or_create_entry(
+            trace_id, name, is_root, session_id, tags
+        )
+        trace = entry["trace"]
+        self._update_trace_state(
+            trace,
+            error=error,
+            is_root=is_root,
+            latency_ms=latency_ms,
+            input_text=input_text,
+            output_text=output_text,
+        )
+        self._maybe_persist_trace(
+            trace_id, trace, new_trace=new_trace, error=error, is_root=is_root
+        )
+
+        if is_root:
+            self._fire_trace_complete_hook(trace_id)
+            return
+
+        node, edge = self._build_child_node(
+            kind=kind,
+            entry=entry,
+            trace=trace,
+            span_id=span_id,
+            name=name,
+            trace_id=trace_id,
+            parent_span_id=parent_span_id,
+            model=model,
+            provider=provider,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
+            latency_ms=latency_ms,
+            error=error,
+        )
+        self._persist_child_node(
+            span_id=span_id,
+            node=node,
+            parent_span_id=parent_span_id,
+            trace_id=trace_id,
+            edge=edge,
+        )
 
     def record_routing_decision(
         self,
