@@ -934,35 +934,10 @@ async def router_step(
         return "dispatcher"
 
 
-async def dispatcher_step(
-    ctx: StepContext,
-) -> str | None:
-    """Orchestrate the execution flow of a GraphPlan session.
+_NOT_DONE = object()
 
-    The dispatcher manages the state machine transitions between plan steps,
-    handling state validation, integration of deferred user events, and
-    identification of sequential vs parallel execution batches for barrier
-    synchronization.
 
-    Args:
-        ctx: The pydantic-graph step context containing the current plan.
-
-    Returns:
-        The next node identifier (e.g., 'parallel_batch_processor', 'verifier')
-        or None if the plan is complete and no synthesis is required.
-
-    """
-    logger.info(
-        f"[LAYER:GRAPH:DISPATCHER] Transitioning. Current cursor: {ctx.state.step_cursor}"
-    )
-
-    # Infinite-loop guard: force-terminate if the graph has exceeded the
-    # maximum allowed node transitions.
-    ctx.state.node_transitions += 1
-
-    # CONCEPT:AU-ORCH.execution.execution-budget-caps — Execution Budget (Cost Governor) enforcement
-    import time
-
+def _check_transitions_calls_tokens_budgets(ctx: StepContext) -> str | None:
     budget = ctx.state.execution_budget
 
     if (
@@ -992,6 +967,14 @@ async def dispatcher_step(
         ctx.state.error = "Execution budget exceeded: max total tokens."
         return "error_recovery"
 
+    return None
+
+
+def _check_cost_and_duration_budgets(ctx: StepContext) -> str | None:
+    import time
+
+    budget = ctx.state.execution_budget
+
     if (
         budget.max_cost_usd
         and ctx.state.session_usage.estimated_cost_usd > budget.max_cost_usd
@@ -1011,6 +994,18 @@ async def dispatcher_step(
             ctx.state.error = "Execution budget exceeded: max duration."
             return "error_recovery"
 
+    return None
+
+
+def _check_cost_governor_budgets(ctx: StepContext) -> str | None:
+    """CONCEPT:AU-ORCH.execution.execution-budget-caps — Execution Budget (Cost Governor) enforcement."""
+    result = _check_transitions_calls_tokens_budgets(ctx)
+    if result is not None:
+        return result
+    return _check_cost_and_duration_budgets(ctx)
+
+
+def _check_hard_transition_cap(ctx: StepContext) -> str | None:
     if ctx.state.node_transitions > ctx.state.MAX_NODE_TRANSITIONS:
         logger.error(
             f"Dispatcher: Max node transitions ({ctx.state.MAX_NODE_TRANSITIONS}) exceeded. "
@@ -1025,7 +1020,20 @@ async def dispatcher_step(
         )
         ctx.state.error = "Graph terminated: maximum node transitions exceeded."
         return "error_recovery"
+    return None
 
+
+def _check_execution_budgets(ctx: StepContext) -> str | None:
+    """CONCEPT:AU-ORCH.execution.execution-budget-caps — Execution Budget (Cost Governor) enforcement,
+    plus the MAX_NODE_TRANSITIONS hard cap. Returns "error_recovery" (with
+    ctx.state.error set) if any budget is exceeded, else None."""
+    result = _check_cost_governor_budgets(ctx)
+    if result is not None:
+        return result
+    return _check_hard_transition_cap(ctx)
+
+
+def _check_state_invariant(ctx: StepContext) -> str | None:
     # HSM: State invariant check at transition boundary
     try:
         assert_state_valid(ctx.state, "dispatcher_step")
@@ -1033,7 +1041,10 @@ async def dispatcher_step(
         logger.error(f"State invariant violation: {e}")
         ctx.state.error = str(e)
         return "error_recovery"
+    return None
 
+
+def _check_doom_loop(ctx: StepContext) -> str | None:
     # CONCEPT:AU-OS.safety.doom-loop-detection — Doom Loop Detection at transition boundary
     try:
         from ..security.execution_stability_engine import DoomLoopDetector
@@ -1058,12 +1069,17 @@ async def dispatcher_step(
         # visible signal. Raised to warning so a persistently-failing detector is
         # diagnosable instead of invisible.
         logger.warning("Doom loop detection failed (safety check skipped): %s", e)
+    return None
 
+
+async def _checkpoint_transition_state(ctx: StepContext) -> None:
     # CONCEPT:AU-ORCH.routing.transition-state-checkpoint — State checkpoint at transition boundary.
     # Routes through the consolidated CheckpointManager (KG backend). The old
     # graph/state_checkpoint.StateCheckpointer was merged into core/checkpoint
     # (Plan 03 Step 8); the prior import silently failed, dropping this
     # capability — restored here.
+    import time
+
     try:
         from ..core.checkpoint.manager import CheckpointManager
 
@@ -1083,6 +1099,8 @@ async def dispatcher_step(
     except Exception as e:  # noqa: BLE001 — ctx.state.checkpoint_ids.append() only executes inside the try after a successful save (guarded by the isinstance check above), so a failure here never records a checkpoint id that doesn't exist; this is best-effort HSM state durability, not the primary transition flow
         logger.debug("State checkpointing skipped: %s", e)
 
+
+def _integrate_deferred_events(ctx: StepContext) -> None:
     # HSM: Process deferred events (user follows-up received mid-execution)
     if ctx.state.deferred_events:
         for event in ctx.state.deferred_events:
@@ -1093,6 +1111,8 @@ async def dispatcher_step(
                 )
         ctx.state.deferred_events.clear()
 
+
+def _maybe_route_to_memory_selection(ctx: StepContext) -> str | None:
     # Context enrichment: route to memory_selection on the first entry so historical context
     # is available before any plan steps execute — UNLESS the job's shape says this is a lean
     # turn that does not need pre-LLM context gathering (CONCEPT:AU-ORCH.execution.direct-completion-shape). memory_selection
@@ -1105,26 +1125,33 @@ async def dispatcher_step(
             "Dispatcher: First entry — routing to memory_selection for context enrichment."
         )
         return "memory_selection"
+    return None
 
+
+def _reorder_research_steps_first(ctx: StepContext) -> None:
+    _RESEARCH_NODES = {"researcher", "architect"}
+    research = [s for s in ctx.state.plan.steps if s.id in _RESEARCH_NODES]
+    execution = [s for s in ctx.state.plan.steps if s.id not in _RESEARCH_NODES]
+    if research and execution:
+        reordered = research + execution
+        if [s.id for s in reordered] != [s.id for s in ctx.state.plan.steps]:
+            logger.info(
+                f"Dispatcher: Reordered plan — {len(research)} research step(s) "
+                f"moved before {len(execution)} execution step(s)."
+            )
+            ctx.state.plan.steps = reordered
+
+
+def _reorder_research_before_execution(ctx: StepContext) -> None:
     # Phase-ordering guard: ensure research steps precede execution steps.
     # The LLM router may interleave them; we enforce discovery-first so that
     # research results are available to all execution adaptive_agent_router.
-    _RESEARCH_NODES = {"researcher", "architect"}
     if (
         ctx.state.step_cursor == 0
         and hasattr(ctx.state.plan, "steps")
         and len(ctx.state.plan.steps) > 1
     ):
-        research = [s for s in ctx.state.plan.steps if s.id in _RESEARCH_NODES]
-        execution = [s for s in ctx.state.plan.steps if s.id not in _RESEARCH_NODES]
-        if research and execution:
-            reordered = research + execution
-            if [s.id for s in reordered] != [s.id for s in ctx.state.plan.steps]:
-                logger.info(
-                    f"Dispatcher: Reordered plan — {len(research)} research step(s) "
-                    f"moved before {len(execution)} execution step(s)."
-                )
-                ctx.state.plan.steps = reordered
+        _reorder_research_steps_first(ctx)
 
         # Emit plan_created event for UI transparency
         emit_graph_event(
@@ -1137,6 +1164,61 @@ async def dispatcher_step(
             step_count=len(ctx.state.plan.steps),
         )
 
+
+async def _finish_completed_plan(ctx: StepContext) -> str | None:
+    # All plan steps have been executed.  Mark every step completed
+    # and sync to ACP before handing off to the verifier.
+    if hasattr(ctx.state.plan, "steps"):
+        for step in ctx.state.plan.steps:
+            step.status = "completed"
+    if ctx.deps.plan_sync:
+        with contextlib.suppress(Exception):
+            await ctx.deps.plan_sync(
+                "step_completed", ctx.state.plan.to_acp_plan_entries()
+            )
+
+    logger.info(
+        f"Dispatcher: Plan completed. Results registry keys: {list(ctx.state.results_registry.keys())}"
+    )
+    if ctx.state.results_registry or ctx.state.exploration_notes:
+        logger.info(
+            f"Dispatcher: Results found in registry ({len(ctx.state.results_registry)} items). Routing to Verifier."
+        )
+        return "verifier"
+    logger.warning(
+        f"Dispatcher: Plan completed but NO execution results found in registry. State: routed_domain={ctx.state.routed_domain}"
+    )
+    # D-RTR-3: this branch used to ``return None`` unconditionally, and
+    # ``dispatcher_route``'s ``type(None)`` branch (graph/builder.py) forwards that
+    # bare ``None`` straight to ``g.end_node`` with no payload — the exact "graph
+    # terminated with no output" case ``orchestration/engine.py`` has to guard
+    # against. Verified empirically (a minimal pydantic-graph reproduction) that
+    # this function CANNOT instead return ``End(...)`` here: ``dispatcher_step``'s
+    # return value is routed through the ``dispatcher_route`` Decision node
+    # (graph/builder.py), whose branches are an exhaustive Literal/type match with
+    # no ``End``-shaped branch — an unmatched value raises ``RuntimeError: No
+    # branch matched inputs End(...) for decision node dispatcher_route`` (a hard
+    # crash), so ``None`` via the ``type(None)`` branch is the only value this
+    # function can return that reaches ``g.end_node`` without a builder.py change
+    # (out of this file's scope — see handoff notes). What stays in scope: make
+    # sure the *reason* is not lost. Stamp a concrete, actionable message on
+    # ``ctx.state.error`` (preserving one already set by the router on a planning
+    # failure) so the failure is diagnosable from graph state, and so that once
+    # ``orchestration/engine.py``'s ``result is None`` guard (~line 925) is updated
+    # to surface ``state.error`` instead of its current hardcoded generic string,
+    # the user sees *why*, not just that the turn produced nothing.
+    if not ctx.state.error:
+        ctx.state.error = (
+            "The orchestration plan completed with no execution results and no "
+            "exploration notes to synthesize a response from "
+            f"(routed_domain={ctx.state.routed_domain or 'none'})."
+        )
+    return None
+
+
+async def _handle_plan_completion_if_done(ctx: StepContext) -> Any:
+    """Returns _NOT_DONE if the plan still has steps left to dispatch.
+    Otherwise returns the (str | None) value dispatcher_step should return."""
     plan_len = len(ctx.state.plan.steps) if hasattr(ctx.state.plan, "steps") else 0
     logger.info(
         f"Dispatcher: Handling graph execution (Step {ctx.state.step_cursor}/{plan_len})"
@@ -1144,61 +1226,13 @@ async def dispatcher_step(
     if not hasattr(ctx.state.plan, "steps") or ctx.state.step_cursor >= len(
         ctx.state.plan.steps
     ):
-        # All plan steps have been executed.  Mark every step completed
-        # and sync to ACP before handing off to the verifier.
-        if hasattr(ctx.state.plan, "steps"):
-            for step in ctx.state.plan.steps:
-                step.status = "completed"
-        if ctx.deps.plan_sync:
-            with contextlib.suppress(Exception):
-                await ctx.deps.plan_sync(
-                    "step_completed", ctx.state.plan.to_acp_plan_entries()
-                )
+        return await _finish_completed_plan(ctx)
+    return _NOT_DONE
 
-        logger.info(
-            f"Dispatcher: Plan completed. Results registry keys: {list(ctx.state.results_registry.keys())}"
-        )
-        if ctx.state.results_registry or ctx.state.exploration_notes:
-            logger.info(
-                f"Dispatcher: Results found in registry ({len(ctx.state.results_registry)} items). Routing to Verifier."
-            )
-            return "verifier"
-        logger.warning(
-            f"Dispatcher: Plan completed but NO execution results found in registry. State: routed_domain={ctx.state.routed_domain}"
-        )
-        # D-RTR-3: this branch used to ``return None`` unconditionally, and
-        # ``dispatcher_route``'s ``type(None)`` branch (graph/builder.py) forwards that
-        # bare ``None`` straight to ``g.end_node`` with no payload — the exact "graph
-        # terminated with no output" case ``orchestration/engine.py`` has to guard
-        # against. Verified empirically (a minimal pydantic-graph reproduction) that
-        # this function CANNOT instead return ``End(...)`` here: ``dispatcher_step``'s
-        # return value is routed through the ``dispatcher_route`` Decision node
-        # (graph/builder.py), whose branches are an exhaustive Literal/type match with
-        # no ``End``-shaped branch — an unmatched value raises ``RuntimeError: No
-        # branch matched inputs End(...) for decision node dispatcher_route`` (a hard
-        # crash), so ``None`` via the ``type(None)`` branch is the only value this
-        # function can return that reaches ``g.end_node`` without a builder.py change
-        # (out of this file's scope — see handoff notes). What stays in scope: make
-        # sure the *reason* is not lost. Stamp a concrete, actionable message on
-        # ``ctx.state.error`` (preserving one already set by the router on a planning
-        # failure) so the failure is diagnosable from graph state, and so that once
-        # ``orchestration/engine.py``'s ``result is None`` guard (~line 925) is updated
-        # to surface ``state.error`` instead of its current hardcoded generic string,
-        # the user sees *why*, not just that the turn produced nothing.
-        if not ctx.state.error:
-            ctx.state.error = (
-                "The orchestration plan completed with no execution results and no "
-                "exploration notes to synthesize a response from "
-                f"(routed_domain={ctx.state.routed_domain or 'none'})."
-            )
-        return None
 
-    # Sequential execution case (default for first step or non-parallel)
-    if not hasattr(ctx.state.plan, "steps"):
-        logger.error("Dispatcher: Plan is not a valid GraphPlan object.")
-        return "error_recovery"
-
-    current_step = ctx.state.plan.steps[ctx.state.step_cursor]
+async def _dispatch_sequential_step(ctx: StepContext, current_step: Any) -> str:
+    ctx.state.step_cursor += 1
+    ctx.state.pending_parallel_count = 1
 
     # Internal/Meta nodes should remain as strings for direct routing
     meta_nodes = {
@@ -1210,54 +1244,49 @@ async def dispatcher_step(
         "memory_selection",
     }
 
-    # Check if this is the start of a parallel batch
-    if not current_step.parallel:
-        ctx.state.step_cursor += 1
-        ctx.state.pending_parallel_count = 1
+    # If it's a meta-node, return the ID string directly
+    if current_step.id in meta_nodes:
+        logger.info(f"Dispatcher: Routing to meta-node: {current_step.id}")
+        return current_step.id
 
-        # If it's a meta-node, return the ID string directly
-        if current_step.id in meta_nodes:
-            logger.info(f"Dispatcher: Routing to meta-node: {current_step.id}")
-            return current_step.id
+    logger.info(f"Dispatcher: Dispatching sequential expert task: {current_step.id}")
+    emit_graph_event(
+        ctx.deps.event_queue,
+        "step_dispatched",
+        id=current_step.id,
+        step_index=ctx.state.step_cursor - 1,
+        parallel=False,
+    )
 
-        logger.info(
-            f"Dispatcher: Dispatching sequential expert task: {current_step.id}"
+    # CONCEPT:AU-ORCH.execution.inject-signal-board-observations — Stigmergy Signal Board injection
+    # If prior adaptive_agent_router left signals, emit them so downstream
+    # adaptive_agent_router and the UI are aware of cross-node observations.
+    if ctx.state.signal_board:
+        signal_summary = "; ".join(
+            f"{sig_type}: {', '.join(msgs[:3])}"
+            for sig_type, msgs in ctx.state.signal_board.items()
         )
         emit_graph_event(
             ctx.deps.event_queue,
-            "step_dispatched",
+            "signal_board_context",
             id=current_step.id,
-            step_index=ctx.state.step_cursor - 1,
-            parallel=False,
+            signals=dict(ctx.state.signal_board),
+            summary=signal_summary[:500],
         )
 
-        # CONCEPT:AU-ORCH.execution.inject-signal-board-observations — Stigmergy Signal Board injection
-        # If prior adaptive_agent_router left signals, emit them so downstream
-        # adaptive_agent_router and the UI are aware of cross-node observations.
-        if ctx.state.signal_board:
-            signal_summary = "; ".join(
-                f"{sig_type}: {', '.join(msgs[:3])}"
-                for sig_type, msgs in ctx.state.signal_board.items()
-            )
-            emit_graph_event(
-                ctx.deps.event_queue,
-                "signal_board_context",
-                id=current_step.id,
-                signals=dict(ctx.state.signal_board),
-                summary=signal_summary[:500],
+    # Bridge: mark the step as in_progress in ACP plan state.
+    if ctx.deps.plan_sync:
+        with contextlib.suppress(Exception):
+            current_step.status = "in_progress"
+            await ctx.deps.plan_sync(
+                "step_started", ctx.state.plan.to_acp_plan_entries()
             )
 
-        # Bridge: mark the step as in_progress in ACP plan state.
-        if ctx.deps.plan_sync:
-            with contextlib.suppress(Exception):
-                current_step.status = "in_progress"
-                await ctx.deps.plan_sync(
-                    "step_started", ctx.state.plan.to_acp_plan_entries()
-                )
+    ctx.state.pending_batch = ParallelBatch(tasks=[current_step])
+    return "parallel_batch_processor"
 
-        ctx.state.pending_batch = ParallelBatch(tasks=[current_step])
-        return "parallel_batch_processor"
 
+def _dispatch_parallel_batch(ctx: StepContext) -> str:
     # Gather all subsequent steps marked for parallel execution
     batch = []
     while (
@@ -1280,6 +1309,76 @@ async def dispatcher_step(
 
     ctx.state.pending_batch = ParallelBatch(tasks=batch)
     return "parallel_batch_processor"
+
+
+async def _dispatch_next_step(ctx: StepContext) -> str:
+    # Sequential execution case (default for first step or non-parallel)
+    if not hasattr(ctx.state.plan, "steps"):
+        logger.error("Dispatcher: Plan is not a valid GraphPlan object.")
+        return "error_recovery"
+
+    current_step = ctx.state.plan.steps[ctx.state.step_cursor]
+
+    # Check if this is the start of a parallel batch
+    if not current_step.parallel:
+        return await _dispatch_sequential_step(ctx, current_step)
+
+    return _dispatch_parallel_batch(ctx)
+
+
+async def dispatcher_step(
+    ctx: StepContext,
+) -> str | None:
+    """Orchestrate the execution flow of a GraphPlan session.
+
+    The dispatcher manages the state machine transitions between plan steps,
+    handling state validation, integration of deferred user events, and
+    identification of sequential vs parallel execution batches for barrier
+    synchronization.
+
+    Args:
+        ctx: The pydantic-graph step context containing the current plan.
+
+    Returns:
+        The next node identifier (e.g., 'parallel_batch_processor', 'verifier')
+        or None if the plan is complete and no synthesis is required.
+
+    """
+    logger.info(
+        f"[LAYER:GRAPH:DISPATCHER] Transitioning. Current cursor: {ctx.state.step_cursor}"
+    )
+
+    # Infinite-loop guard: force-terminate if the graph has exceeded the
+    # maximum allowed node transitions.
+    ctx.state.node_transitions += 1
+
+    result = _check_execution_budgets(ctx)
+    if result is not None:
+        return result
+
+    result = _check_state_invariant(ctx)
+    if result is not None:
+        return result
+
+    result = _check_doom_loop(ctx)
+    if result is not None:
+        return result
+
+    await _checkpoint_transition_state(ctx)
+
+    _integrate_deferred_events(ctx)
+
+    result = _maybe_route_to_memory_selection(ctx)
+    if result is not None:
+        return result
+
+    _reorder_research_before_execution(ctx)
+
+    result = await _handle_plan_completion_if_done(ctx)
+    if result is not _NOT_DONE:
+        return result
+
+    return await _dispatch_next_step(ctx)
 
 
 async def parallel_batch_processor(
