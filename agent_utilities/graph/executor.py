@@ -792,39 +792,14 @@ def get_step_descriptions() -> str:
     return "\n".join([f"- {k}: {v}" for k, v in steps.items()])
 
 
-async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> str:
-    """Execute a dynamically generated specialist agent from an MCP server registry.
+async def _check_specialist_precondition_or_fallback(
+    ctx: StepContext, agent_info: MCPAgent, agent_name: str, server_name: str | None
+) -> str | None:
+    """Precondition guard for a dynamic MCP specialist.
 
-    This implements a resilient execution protocol including:
-    1. Precondition checks and circuit breaker validation.
-    2. Dynamic binding of tagged MCP tools for the specific domain.
-    3. LLM execution with per-node timeouts and exponential backoff retries.
-    4. Data synthesis from raw tool results in case of partial success.
-    5. Sideband event emission for real-time UI monitoring and transparency.
-
-    Args:
-        ctx: The pydantic-graph step context containing state and deps.
-        agent_info: Metadata for the specialist to be executed (Registry entry).
-
-    Returns:
-        The identifier of the next graph node to execute (usually 'execution_joiner').
-
-    Raises:
-        RuntimeError: If all retries are exhausted or preconditions fail.
-
+    Returns a fallback result to return immediately, or None if the
+    specialist may proceed.
     """
-    server_name = agent_info.mcp_server
-    agent_name = agent_info.name
-
-    # HSM: Entry action
-    await on_enter_specialist(
-        ctx_deps=ctx.deps,
-        ctx_state=ctx.state,
-        agent_name=agent_name,
-        server_name=server_name or "unknown",
-    )
-
-    # BT: Precondition guard - Check before committing to this specialist
     can_proceed, reason = check_specialist_preconditions(agent_info, ctx.deps)
     if not can_proceed:
         logger.warning(
@@ -844,9 +819,10 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
             return fallback_result
         ctx.state.error = f"Precondition failed for '{agent_name}': {reason}"
         raise RuntimeError(ctx.state.error)
+    return None
 
-    logger.info(f"[LAYER:GRAPH:EXPERT] Running dynamic MCP agent '{agent_name}'")
 
+def _resolve_specialist_tool_list(ctx: StepContext, agent_info: MCPAgent) -> list[str]:
     # 1. Look up discovery metadata for this server to help the agent "know" what it has
     discovered_tools = []
     logger.debug(
@@ -867,8 +843,13 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
     registry_tools = agent_info.tools or []
     total_tools = list(set(discovered_tools) | set(registry_tools))
 
-    tool_list_str = ", ".join(total_tools) if total_tools else "NONE"
+    return total_tools
 
+
+def _build_specialist_system_prompt(
+    ctx: StepContext, agent_info: MCPAgent, agent_name: str, total_tools: list[str]
+) -> str:
+    tool_list_str = ", ".join(total_tools) if total_tools else "NONE"
     # Build agent
     agent_sys_prompt = (
         f"{agent_info.system_prompt}\n\n"
@@ -931,7 +912,12 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
                 len(step_input_for_access.access_list),
                 agent_name,
             )
+    return agent_sys_prompt
 
+
+def _emit_specialist_startup_event(
+    ctx: StepContext, agent_info: MCPAgent, total_tools: list[str]
+) -> None:
     # Emit startup event with detailed metadata for UI transparency
     emit_graph_event(
         ctx.deps.event_queue,
@@ -944,10 +930,15 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
         id=getattr(ctx, "node_id", "unknown"),
     )
 
+
+async def _activate_specialist_capabilities(ctx: StepContext, agent_name: str) -> None:
+    """Auto-activate any registered specialist capabilities (write-only
+    telemetry -- see the noqa comment below; no downstream read in the
+    caller either before or after this extraction)."""
+    activated_capabilities: list[str] = []
     # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Capability Auto-Activation
     # Check if this specialist has registered capabilities (e.g., RLM, critic)
     # and activate them before execution.
-    activated_capabilities: list[str] = []
     if ctx.deps.knowledge_engine:
         try:
             cap_rows = []
@@ -987,8 +978,13 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
         except Exception as e:  # noqa: BLE001 — activated_capabilities is write-only telemetry (no downstream read of the list in this function); a lookup failure means zero capabilities auto-activate/log for this step, degrading to pre-feature behavior
             logger.debug(f"Capability auto-activation lookup failed: {e}")
 
-    # CONCEPT:AU-KG.compute.workspace-attention-scoring — WorkspaceAttention scoring for specialist priority
+
+async def _score_specialist_attention(ctx: StepContext, agent_name: str) -> None:
+    """Best-effort WorkspaceAttention scoring (write-only priority signal --
+    see the noqa comment below; the result is logged only, never read by the
+    caller before or after this extraction)."""
     attention_score: float | None = None
+    # CONCEPT:AU-KG.compute.workspace-attention-scoring — WorkspaceAttention scoring for specialist priority
     if ctx.deps.knowledge_engine:
         try:
             from .workspace_attention import WorkspaceAttention
@@ -1003,6 +999,60 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
                 )
         except Exception as e:  # noqa: BLE001 — attention_score is a best-effort priority signal (stays None on failure); the specialist dispatch below does not gate on it
             logger.debug(f"WorkspaceAttention scoring failed for '{agent_name}': {e}")
+
+
+async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> str:
+    """Execute a dynamically generated specialist agent from an MCP server registry.
+
+    This implements a resilient execution protocol including:
+    1. Precondition checks and circuit breaker validation.
+    2. Dynamic binding of tagged MCP tools for the specific domain.
+    3. LLM execution with per-node timeouts and exponential backoff retries.
+    4. Data synthesis from raw tool results in case of partial success.
+    5. Sideband event emission for real-time UI monitoring and transparency.
+
+    Args:
+        ctx: The pydantic-graph step context containing state and deps.
+        agent_info: Metadata for the specialist to be executed (Registry entry).
+
+    Returns:
+        The identifier of the next graph node to execute (usually 'execution_joiner').
+
+    Raises:
+        RuntimeError: If all retries are exhausted or preconditions fail.
+
+    """
+    server_name = agent_info.mcp_server
+    agent_name = agent_info.name
+
+    # HSM: Entry action
+    await on_enter_specialist(
+        ctx_deps=ctx.deps,
+        ctx_state=ctx.state,
+        agent_name=agent_name,
+        server_name=server_name or "unknown",
+    )
+
+    # BT: Precondition guard - Check before committing to this specialist
+    precondition_result = await _check_specialist_precondition_or_fallback(
+        ctx, agent_info, agent_name, server_name
+    )
+    if precondition_result is not None:
+        return precondition_result
+
+    logger.info(f"[LAYER:GRAPH:EXPERT] Running dynamic MCP agent '{agent_name}'")
+
+    total_tools = _resolve_specialist_tool_list(ctx, agent_info)
+
+    agent_sys_prompt = _build_specialist_system_prompt(
+        ctx, agent_info, agent_name, total_tools
+    )
+
+    _emit_specialist_startup_event(ctx, agent_info, total_tools)
+
+    await _activate_specialist_capabilities(ctx, agent_name)
+
+    await _score_specialist_attention(ctx, agent_name)
 
     agent = create_context_agent(
         model=ctx.deps.agent_model,

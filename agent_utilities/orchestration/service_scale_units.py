@@ -922,35 +922,13 @@ def surface_profile(surface: SurfaceKind) -> SurfaceProfile:
     return _SURFACE_PROFILES[surface]
 
 
-def evaluate_scale(
-    contract: ScaleUnitContract,
-    *,
-    current_replicas: int,
+def _check_signal(
     signal: SignalObservation | None,
-    capacities: Iterable[CapacityObservation],
-    quotas: Iterable[QuotaObservation],
-    continuity: ContinuityObservation | None,
-    safety: LoadSafetyObservation | None,
-    now: datetime,
-    last_action_at: datetime | None = None,
-) -> ScaleDecision:
-    """Evaluate one target-tracking decision for any declared service surface.
-
-    Missing/stale dependencies produce ``blocked`` rather than optimistic scale
-    actions.  In particular, MCP replicas never multiply a provider-global quota,
-    and query readers never claim to fix a saturated engine authority.
-    """
-
-    current = _utc(now, name="now")
-    if current_replicas < 0 or current_replicas > MAX_REPLICAS:
-        raise ScaleContractError("current_replicas is outside bounds")
-    if current_replicas < contract.policy.min_replicas:
-        raise ScaleContractError("current_replicas is below the contract floor")
-    cap_map = _capacity_map(capacities)
-    quota_map = _quota_map(quotas)
-    evidence: list[DecisionEvidence] = []
-    reasons: list[DecisionReason] = []
-
+    contract: "ScaleUnitContract",
+    current: datetime,
+    evidence: list[DecisionEvidence],
+    reasons: list[DecisionReason],
+) -> None:
     if signal is None:
         reasons.append("signal_missing")
         evidence.append(
@@ -995,6 +973,14 @@ def evaluate_scale(
             )
         )
 
+
+def _check_capacity_axes(
+    contract: "ScaleUnitContract",
+    cap_map: dict[str, CapacityObservation],
+    current: datetime,
+    evidence: list[DecisionEvidence],
+    reasons: list[DecisionReason],
+) -> None:
     missing_capacity = False
     stale_capacity = False
     for axis in contract.required_capacity_axes:
@@ -1036,6 +1022,15 @@ def evaluate_scale(
     if stale_capacity:
         reasons.append("capacity_stale")
 
+
+def _check_quotas(
+    contract: "ScaleUnitContract",
+    quota_map: dict[str, QuotaObservation],
+    current: datetime,
+    evidence: list[DecisionEvidence],
+    reasons: list[DecisionReason],
+) -> tuple[bool, bool]:
+    """Returns (provider_quota_exhausted, local_quota_exhausted)."""
     missing_provider_quota = False
     stale_provider_quota = False
     missing_local_quota = False
@@ -1117,7 +1112,16 @@ def evaluate_scale(
         reasons.append("quota_stale")
     if quota_scope_mismatch:
         reasons.append("quota_scope_mismatch")
+    return provider_quota_exhausted, local_quota_exhausted
 
+
+def _check_continuity(
+    contract: "ScaleUnitContract",
+    continuity: ContinuityObservation | None,
+    current: datetime,
+    evidence: list[DecisionEvidence],
+    reasons: list[DecisionReason],
+) -> None:
     if contract.continuity.mode != "stateless":
         if continuity is None:
             reasons.append("continuity_missing")
@@ -1167,6 +1171,14 @@ def evaluate_scale(
     ):
         reasons.append("continuity_stale")
 
+
+def _check_safety(
+    contract: "ScaleUnitContract",
+    safety: LoadSafetyObservation | None,
+    current: datetime,
+    evidence: list[DecisionEvidence],
+    reasons: list[DecisionReason],
+) -> None:
     if contract.safety_required:
         if safety is None:
             reasons.append("overload_shedding_active")
@@ -1205,14 +1217,51 @@ def evaluate_scale(
             if safety.noisy_neighbor:
                 reasons.append("noisy_neighbor")
 
-    if last_action_at is not None:
-        previous = _utc(last_action_at, name="last_action_at")
-        if previous > current:
-            reasons.append("cooldown")
 
+def _check_scale_up_feasibility(
+    contract: "ScaleUnitContract",
+    cap_map: dict[str, CapacityObservation],
+    quota_map: dict[str, QuotaObservation],
+    *,
+    desired: int,
+    current_replicas: int,
+    current: datetime,
+    evidence: list[DecisionEvidence],
+    provider_quota_exhausted: bool,
+    local_quota_exhausted: bool,
+) -> "ScaleDecision | None":
+    """Returns a blocked ScaleDecision if scale-up is infeasible, else None."""
+    reasons: list[DecisionReason] = []
+    additional = desired - current_replicas
+    for demand in contract.replica_demands:
+        observation = cap_map[demand.axis]
+        if additional * demand.per_replica > observation.available:
+            reasons.append("capacity_exhausted")
+            break
+    if provider_quota_exhausted:
+        reasons.append("provider_quota_exhausted")
+    if local_quota_exhausted:
+        reasons.append("capacity_exhausted")
+    for binding in contract.quotas:
+        quota_observation = quota_map[binding.quota_ref]
+        if binding.scope == "provider_global":
+            if binding.multiplicative:
+                reasons.append("provider_quota_not_multiplicative")
+            if (
+                quota_observation.used + additional * binding.per_replica
+                > quota_observation.limit
+            ):
+                reasons.append("provider_quota_exhausted")
+        elif (
+            quota_observation.used + additional * binding.per_replica
+            > quota_observation.limit
+        ):
+            reasons.append("capacity_exhausted")
+    for axis in contract.engine_authority_axes:
+        if cap_map[axis].available <= 0:
+            reasons.append("engine_authority_saturated")
+            break
     if reasons:
-        # Dependencies that are not trustworthy block both growth and shrinkage;
-        # a controller must not shrink a surface based on stale safety evidence.
         return _decision(
             contract,
             current=current_replicas,
@@ -1223,7 +1272,24 @@ def evaluate_scale(
             drain_required=False,
             evaluated_at=current,
         )
+    return None
 
+
+def _compute_scale_decision(
+    contract: "ScaleUnitContract",
+    *,
+    current_replicas: int,
+    signal: SignalObservation | None,
+    cap_map: dict[str, CapacityObservation],
+    quota_map: dict[str, QuotaObservation],
+    continuity: ContinuityObservation | None,
+    last_action_at: datetime | None,
+    current: datetime,
+    evidence: list[DecisionEvidence],
+    provider_quota_exhausted: bool,
+    local_quota_exhausted: bool,
+) -> "ScaleDecision":
+    reasons: list[DecisionReason] = []
     if signal is None:
         raise ScaleContractError(
             "signal validation unexpectedly completed without a signal"
@@ -1313,46 +1379,19 @@ def evaluate_scale(
             )
 
     if action == "scale_up":
-        additional = desired - current_replicas
-        for demand in contract.replica_demands:
-            observation = cap_map[demand.axis]
-            if additional * demand.per_replica > observation.available:
-                reasons.append("capacity_exhausted")
-                break
-        if provider_quota_exhausted:
-            reasons.append("provider_quota_exhausted")
-        if local_quota_exhausted:
-            reasons.append("capacity_exhausted")
-        for binding in contract.quotas:
-            quota_observation = quota_map[binding.quota_ref]
-            if binding.scope == "provider_global":
-                if binding.multiplicative:
-                    reasons.append("provider_quota_not_multiplicative")
-                if (
-                    quota_observation.used + additional * binding.per_replica
-                    > quota_observation.limit
-                ):
-                    reasons.append("provider_quota_exhausted")
-            elif (
-                quota_observation.used + additional * binding.per_replica
-                > quota_observation.limit
-            ):
-                reasons.append("capacity_exhausted")
-        for axis in contract.engine_authority_axes:
-            if cap_map[axis].available <= 0:
-                reasons.append("engine_authority_saturated")
-                break
-        if reasons:
-            return _decision(
-                contract,
-                current=current_replicas,
-                desired=current_replicas,
-                action="blocked",
-                reasons=reasons,
-                evidence=evidence,
-                drain_required=False,
-                evaluated_at=current,
-            )
+        blocked = _check_scale_up_feasibility(
+            contract,
+            cap_map,
+            quota_map,
+            desired=desired,
+            current_replicas=current_replicas,
+            current=current,
+            evidence=evidence,
+            provider_quota_exhausted=provider_quota_exhausted,
+            local_quota_exhausted=local_quota_exhausted,
+        )
+        if blocked is not None:
+            return blocked
 
     drain_required = action == "scale_down" and contract.continuity.drain_required
     if (
@@ -1378,6 +1417,77 @@ def evaluate_scale(
         evidence=evidence,
         drain_required=drain_required,
         evaluated_at=current,
+    )
+
+
+def evaluate_scale(
+    contract: ScaleUnitContract,
+    *,
+    current_replicas: int,
+    signal: SignalObservation | None,
+    capacities: Iterable[CapacityObservation],
+    quotas: Iterable[QuotaObservation],
+    continuity: ContinuityObservation | None,
+    safety: LoadSafetyObservation | None,
+    now: datetime,
+    last_action_at: datetime | None = None,
+) -> ScaleDecision:
+    """Evaluate one target-tracking decision for any declared service surface.
+
+    Missing/stale dependencies produce ``blocked`` rather than optimistic scale
+    actions.  In particular, MCP replicas never multiply a provider-global quota,
+    and query readers never claim to fix a saturated engine authority.
+    """
+
+    current = _utc(now, name="now")
+    if current_replicas < 0 or current_replicas > MAX_REPLICAS:
+        raise ScaleContractError("current_replicas is outside bounds")
+    if current_replicas < contract.policy.min_replicas:
+        raise ScaleContractError("current_replicas is below the contract floor")
+    cap_map = _capacity_map(capacities)
+    quota_map = _quota_map(quotas)
+    evidence: list[DecisionEvidence] = []
+    reasons: list[DecisionReason] = []
+
+    _check_signal(signal, contract, current, evidence, reasons)
+    _check_capacity_axes(contract, cap_map, current, evidence, reasons)
+    provider_quota_exhausted, local_quota_exhausted = _check_quotas(
+        contract, quota_map, current, evidence, reasons
+    )
+    _check_continuity(contract, continuity, current, evidence, reasons)
+    _check_safety(contract, safety, current, evidence, reasons)
+
+    if last_action_at is not None:
+        previous = _utc(last_action_at, name="last_action_at")
+        if previous > current:
+            reasons.append("cooldown")
+
+    if reasons:
+        # Dependencies that are not trustworthy block both growth and shrinkage;
+        # a controller must not shrink a surface based on stale safety evidence.
+        return _decision(
+            contract,
+            current=current_replicas,
+            desired=current_replicas,
+            action="blocked",
+            reasons=reasons,
+            evidence=evidence,
+            drain_required=False,
+            evaluated_at=current,
+        )
+
+    return _compute_scale_decision(
+        contract,
+        current_replicas=current_replicas,
+        signal=signal,
+        cap_map=cap_map,
+        quota_map=quota_map,
+        continuity=continuity,
+        last_action_at=last_action_at,
+        current=current,
+        evidence=evidence,
+        provider_quota_exhausted=provider_quota_exhausted,
+        local_quota_exhausted=local_quota_exhausted,
     )
 
 

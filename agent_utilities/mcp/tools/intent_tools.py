@@ -1167,247 +1167,295 @@ async def dispatch_intent(
     learning consumes only the verified tool result of an unpinned,
     unambiguous execution in the current tenant/policy partition.
     """
-    try:
-        raw_hints = _normalize_documented_hint_aliases(dict(hints or {}))
-    except ValueError as exc:
-        # ``exc.args[0]`` (not ``str(exc)``/``repr(exc)``): see the identical
-        # comment on the second _normalize_documented_hint_aliases call site
-        # below.
-        return {
-            "error": exc.args[0] if exc.args else type(exc).__name__,
-            "executed": False,
-        }
-    if verb not in _DISPATCH_VERBS:
-        return {
-            "error": "Unsupported GraphOS intent verb.",
-            "executed": False,
-            "routing": {"verb": verb, "candidates": []},
-        }
-    security_failure = _intent_security_failure(intent, raw_hints)
-    if security_failure is not None:
-        return security_failure
-    supplied_outcomes = sorted(set(raw_hints) & _CALLER_OUTCOME_FIELDS)
-    if supplied_outcomes:
-        return {
-            "error": "Caller-supplied routing outcomes are forbidden.",
-            "executed": False,
-            "security": {
-                "decision": "deny",
-                "fields": supplied_outcomes,
-                "reason": "Only verified execution results update routing rewards.",
-            },
-        }
+    raw_hints: dict[str, Any] = {}
+
+    def _intake() -> dict[str, Any] | None:
+        nonlocal raw_hints
+        try:
+            raw_hints = _normalize_documented_hint_aliases(dict(hints or {}))
+        except ValueError as exc:
+            # ``exc.args[0]`` (not ``str(exc)``/``repr(exc)``): see the identical
+            # comment on the second _normalize_documented_hint_aliases call site
+            # below.
+            return {
+                "error": exc.args[0] if exc.args else type(exc).__name__,
+                "executed": False,
+            }
+        if verb not in _DISPATCH_VERBS:
+            return {
+                "error": "Unsupported GraphOS intent verb.",
+                "executed": False,
+                "routing": {"verb": verb, "candidates": []},
+            }
+        security_failure = _intent_security_failure(intent, raw_hints)
+        if security_failure is not None:
+            return security_failure
+        supplied_outcomes = sorted(set(raw_hints) & _CALLER_OUTCOME_FIELDS)
+        if supplied_outcomes:
+            return {
+                "error": "Caller-supplied routing outcomes are forbidden.",
+                "executed": False,
+                "security": {
+                    "decision": "deny",
+                    "fields": supplied_outcomes,
+                    "reason": "Only verified execution results update routing rewards.",
+                },
+            }
+        return None
+
+    _intake_outcome = _intake()
+    if _intake_outcome is not None:
+        return _intake_outcome
 
     should_execute = verb in _READ_ONLY_VERBS if execute is None else bool(execute)
     intent_ref = persistence_reference("intent", intent)
     outcome_scope_ref = _outcome_scope_ref()
     supplied_plan_ref = str(raw_hints.get("plan_ref") or "")
-    if verb in _NON_READ_VERBS and should_execute and supplied_plan_ref:
-        restored_hints = _restore_preview_hints(
-            supplied_plan_ref,
-            verb=verb,
-            intent_ref=intent_ref,
-            outcome_scope_ref=outcome_scope_ref,
-        )
-        if restored_hints is None:
-            return {
-                "error": (
-                    "Unknown, expired, or context-mismatched plan_ref; request a "
-                    "new preview before execution."
-                ),
-                "executed": False,
-                "routing": {"verb": verb, "intent_ref": intent_ref},
+
+    def _restore_from_plan_ref() -> dict[str, Any] | None:
+        nonlocal raw_hints
+        if verb in _NON_READ_VERBS and should_execute and supplied_plan_ref:
+            restored_hints = _restore_preview_hints(
+                supplied_plan_ref,
+                verb=verb,
+                intent_ref=intent_ref,
+                outcome_scope_ref=outcome_scope_ref,
+            )
+            if restored_hints is None:
+                return {
+                    "error": (
+                        "Unknown, expired, or context-mismatched plan_ref; request a "
+                        "new preview before execution."
+                    ),
+                    "executed": False,
+                    "routing": {"verb": verb, "intent_ref": intent_ref},
+                }
+            # D-GIS-1: the equality check below exists so a caller resubmitting the
+            # SAME hints they previewed (plus plan_ref) is provably replaying what was
+            # reviewed. But `_remember_preview_plan` stores `raw_hints` from AFTER the
+            # resolver's own `chosen_tool` merge (below, "if chosen_tool in
+            # _DOCUMENTED_HINT_ALIASES"), which injects a "tool"/"_tool" key the
+            # caller never supplied and has no way to know in advance (it is the
+            # resolver's inferred routing target, e.g. an unpinned skill-delegation
+            # intent auto-resolving to `graph_orchestrate`). Comparing against that
+            # resolver-injected key made every unpinned non-read `act` reject its own
+            # documented "resubmit the same hints plus plan_ref" flow unconditionally
+            # -- the caller's hints could never contain a key they were never told to
+            # supply. Excluding it here does not weaken the check: everything the
+            # CALLER actually controls must still match exactly, and the resolver
+            # will independently re-derive the identical `tool` value from the
+            # (matched) remaining hints during dispatch below, so nothing forged by
+            # a caller can smuggle a different tool through this path.
+            _RESOLVER_INJECTED_HINT_FIELDS = ("tool", "_tool")
+            replayed_hints = {
+                k: v
+                for k, v in raw_hints.items()
+                if k != "plan_ref" and k not in _RESOLVER_INJECTED_HINT_FIELDS
             }
-        # D-GIS-1: the equality check below exists so a caller resubmitting the
-        # SAME hints they previewed (plus plan_ref) is provably replaying what was
-        # reviewed. But `_remember_preview_plan` stores `raw_hints` from AFTER the
-        # resolver's own `chosen_tool` merge (below, "if chosen_tool in
-        # _DOCUMENTED_HINT_ALIASES"), which injects a "tool"/"_tool" key the
-        # caller never supplied and has no way to know in advance (it is the
-        # resolver's inferred routing target, e.g. an unpinned skill-delegation
-        # intent auto-resolving to `graph_orchestrate`). Comparing against that
-        # resolver-injected key made every unpinned non-read `act` reject its own
-        # documented "resubmit the same hints plus plan_ref" flow unconditionally
-        # -- the caller's hints could never contain a key they were never told to
-        # supply. Excluding it here does not weaken the check: everything the
-        # CALLER actually controls must still match exactly, and the resolver
-        # will independently re-derive the identical `tool` value from the
-        # (matched) remaining hints during dispatch below, so nothing forged by
-        # a caller can smuggle a different tool through this path.
-        _RESOLVER_INJECTED_HINT_FIELDS = ("tool", "_tool")
-        replayed_hints = {
-            k: v
-            for k, v in raw_hints.items()
-            if k != "plan_ref" and k not in _RESOLVER_INJECTED_HINT_FIELDS
-        }
-        comparable_restored_hints = {
-            k: v
-            for k, v in restored_hints.items()
-            if k not in _RESOLVER_INJECTED_HINT_FIELDS
-        }
-        if replayed_hints and replayed_hints != comparable_restored_hints:
-            return {
-                "error": "Supplied hints do not match the reviewed preview plan.",
-                "executed": False,
-                "routing": {"verb": verb, "intent_ref": intent_ref},
+            comparable_restored_hints = {
+                k: v
+                for k, v in restored_hints.items()
+                if k not in _RESOLVER_INJECTED_HINT_FIELDS
             }
-        raw_hints = {**restored_hints, "plan_ref": supplied_plan_ref}
+            if replayed_hints and replayed_hints != comparable_restored_hints:
+                return {
+                    "error": "Supplied hints do not match the reviewed preview plan.",
+                    "executed": False,
+                    "routing": {"verb": verb, "intent_ref": intent_ref},
+                }
+            raw_hints = {**restored_hints, "plan_ref": supplied_plan_ref}
+        return None
+
+    _restore_outcome = _restore_from_plan_ref()
+    if _restore_outcome is not None:
+        return _restore_outcome
 
     pinned_name = str(raw_hints.get("tool") or raw_hints.get("_tool") or "")
     explicit_tool = bool(pinned_name)
     explicit_action = raw_hints.get("action")
     call_kwargs = {k: v for k, v in raw_hints.items() if k not in _CONTROL_HINT_FIELDS}
 
-    candidates = resolve_intent(verb, intent, hints=raw_hints, top_k=max(2, int(top_k)))
-    if not candidates:
-        if explicit_tool:
-            # Two DIFFERENT failure reasons collapse to the same empty
-            # `candidates` from `resolve_intent` — distinguish them so the
-            # error is actionable instead of implying a verb-specific policy
-            # restriction that doesn't exist. A tool the intent surface has
-            # never heard of (most commonly a FLEET tool mounted dynamically
-            # via load_tools — it carries no Capability Power Descriptor and
-            # was never a candidate at all) is not "disallowed for this verb";
-            # it was never routable through the intent surface in the first
-            # place and must be called directly.
-            known_to_intent_surface = any(
-                candidate.tool == pinned_name for candidate in _build_candidates()
-            )
-            error = (
-                "Pinned capability is not allowed for this intent verb."
-                if known_to_intent_surface
-                else (
-                    f"'{pinned_name}' is not a GraphOS intent-routable capability "
-                    "(no Capability Power Descriptor is registered for it). "
-                    "Fleet tools mounted dynamically via load_tools() are not "
-                    "part of the intent-verb surface — call them directly by "
-                    f"name after loading (e.g. {pinned_name}(...)) instead of "
-                    "pinning them through ask/write/act/manage hints_json."
+    candidates: list[CapabilityCandidate] = []
+    top: CapabilityCandidate | None = None
+    chosen_tool: str = ""
+
+    def _resolve_candidates() -> dict[str, Any] | None:
+        nonlocal candidates, top, chosen_tool
+        candidates = resolve_intent(verb, intent, hints=raw_hints, top_k=max(2, int(top_k)))
+        if not candidates:
+            if explicit_tool:
+                # Two DIFFERENT failure reasons collapse to the same empty
+                # `candidates` from `resolve_intent` — distinguish them so the
+                # error is actionable instead of implying a verb-specific policy
+                # restriction that doesn't exist. A tool the intent surface has
+                # never heard of (most commonly a FLEET tool mounted dynamically
+                # via load_tools — it carries no Capability Power Descriptor and
+                # was never a candidate at all) is not "disallowed for this verb";
+                # it was never routable through the intent surface in the first
+                # place and must be called directly.
+                known_to_intent_surface = any(
+                    candidate.tool == pinned_name for candidate in _build_candidates()
                 )
-            )
-        else:
-            error = "No GraphOS capability matched the requested intent verb."
-        return {
-            "error": error,
-            "executed": False,
-            "routing": {
-                "verb": verb,
-                "intent_ref": intent_ref,
-                "candidates": [],
-            },
-        }
-
-    top = candidates[0]
-    chosen_tool = top.tool
-    # A non-pinned resolver result can still be the orchestration façade.  It
-    # is safe to normalize its two documented target aliases only after the
-    # resolver has selected that tool.
-    if chosen_tool in _DOCUMENTED_HINT_ALIASES:
-        try:
-            raw_hints = _normalize_documented_hint_aliases(
-                {**raw_hints, "tool": chosen_tool}
-            )
-        except ValueError as exc:
-            # ``exc.args[0]`` (not ``str(exc)``/``repr(exc)``): this ValueError's
-            # message is a developer-authored, non-sensitive validation
-            # explanation (see _normalize_documented_hint_aliases) that callers
-            # need to self-correct their hints -- test_orchestration_target_
-            # alias_conflict_fails_closed and test_intent_rejects_unknown_hint_
-            # before_creating_preview assert on the exact text. Collapsing to
-            # the exception TYPE name here would satisfy the served-boundary
-            # exception-surface gate's letter while losing the caller-facing
-            # detail those tests require; .args[0] satisfies both.
+                error = (
+                    "Pinned capability is not allowed for this intent verb."
+                    if known_to_intent_surface
+                    else (
+                        f"'{pinned_name}' is not a GraphOS intent-routable capability "
+                        "(no Capability Power Descriptor is registered for it). "
+                        "Fleet tools mounted dynamically via load_tools() are not "
+                        "part of the intent-verb surface — call them directly by "
+                        f"name after loading (e.g. {pinned_name}(...)) instead of "
+                        "pinning them through ask/write/act/manage hints_json."
+                    )
+                )
+            else:
+                error = "No GraphOS capability matched the requested intent verb."
             return {
-                "error": exc.args[0] if exc.args else type(exc).__name__,
+                "error": error,
                 "executed": False,
+                "routing": {
+                    "verb": verb,
+                    "intent_ref": intent_ref,
+                    "candidates": [],
+                },
             }
-    available_actions = _actions_by_tool().get(chosen_tool, [])
-    if explicit_action is not None and explicit_action not in available_actions:
-        return {
-            "error": "Requested action is not declared for the selected capability.",
-            "executed": False,
-            "routing": {
-                "verb": verb,
-                "chosen_tool": chosen_tool,
-                "declared_actions": sorted(available_actions),
-            },
-        }
-    ranked_actions = _rank_actions(chosen_tool, intent)
-    read_actions = READ_ONLY_ACTIONS.get(chosen_tool)
-    if verb in _READ_ONLY_VERBS and read_actions is not None:
-        if explicit_action is not None and explicit_action not in read_actions:
+
+        top = candidates[0]
+        chosen_tool = top.tool
+        return None
+
+    _candidates_outcome = _resolve_candidates()
+    if _candidates_outcome is not None:
+        return _candidates_outcome
+
+    chosen_action: str | None = None
+    ranked_actions: list[tuple[str, float]] = []
+
+    def _select_tool_and_action() -> dict[str, Any] | None:
+        nonlocal raw_hints, chosen_tool, chosen_action, ranked_actions
+        # A non-pinned resolver result can still be the orchestration façade.  It
+        # is safe to normalize its two documented target aliases only after the
+        # resolver has selected that tool.
+        if chosen_tool in _DOCUMENTED_HINT_ALIASES:
+            try:
+                raw_hints = _normalize_documented_hint_aliases(
+                    {**raw_hints, "tool": chosen_tool}
+                )
+            except ValueError as exc:
+                # ``exc.args[0]`` (not ``str(exc)``/``repr(exc)``): this ValueError's
+                # message is a developer-authored, non-sensitive validation
+                # explanation (see _normalize_documented_hint_aliases) that callers
+                # need to self-correct their hints -- test_orchestration_target_
+                # alias_conflict_fails_closed and test_intent_rejects_unknown_hint_
+                # before_creating_preview assert on the exact text. Collapsing to
+                # the exception TYPE name here would satisfy the served-boundary
+                # exception-surface gate's letter while losing the caller-facing
+                # detail those tests require; .args[0] satisfies both.
+                return {
+                    "error": exc.args[0] if exc.args else type(exc).__name__,
+                    "executed": False,
+                }
+        available_actions = _actions_by_tool().get(chosen_tool, [])
+        if explicit_action is not None and explicit_action not in available_actions:
             return {
-                "error": "Read-only intent action is not declared read-only.",
+                "error": "Requested action is not declared for the selected capability.",
                 "executed": False,
                 "routing": {
                     "verb": verb,
                     "chosen_tool": chosen_tool,
-                    "declared_read_actions": sorted(read_actions),
+                    "declared_actions": sorted(available_actions),
                 },
             }
-        ranked_actions = [
-            (action, score)
-            for action, score in ranked_actions
-            if action in read_actions
-        ]
-        read_action_ambiguity = _action_ambiguity_evidence(
-            ranked_actions, explicit=explicit_action is not None
+        ranked_actions = _rank_actions(chosen_tool, intent)
+        read_actions = READ_ONLY_ACTIONS.get(chosen_tool)
+        if verb in _READ_ONLY_VERBS and read_actions is not None:
+            if explicit_action is not None and explicit_action not in read_actions:
+                return {
+                    "error": "Read-only intent action is not declared read-only.",
+                    "executed": False,
+                    "routing": {
+                        "verb": verb,
+                        "chosen_tool": chosen_tool,
+                        "declared_read_actions": sorted(read_actions),
+                    },
+                }
+            ranked_actions = [
+                (action, score)
+                for action, score in ranked_actions
+                if action in read_actions
+            ]
+            read_action_ambiguity = _action_ambiguity_evidence(
+                ranked_actions, explicit=explicit_action is not None
+            )
+            if explicit_action is None and read_action_ambiguity["ambiguous"]:
+                return {
+                    "error": "Ambiguous read-only action requires an explicit action.",
+                    "executed": False,
+                    "routing": {
+                        "verb": verb,
+                        "chosen_tool": chosen_tool,
+                        "declared_read_actions": sorted(read_actions),
+                        "ambiguity": {"action": read_action_ambiguity},
+                    },
+                }
+        chosen_action = (
+            explicit_action
+            or top.action
+            or (ranked_actions[0][0] if ranked_actions else None)
         )
-        if explicit_action is None and read_action_ambiguity["ambiguous"]:
+        return None
+
+    _select_outcome = _select_tool_and_action()
+    if _select_outcome is not None:
+        return _select_outcome
+
+    fell_back = False
+
+    def _finalize_call_kwargs() -> dict[str, Any] | None:
+        nonlocal chosen_tool, chosen_action, call_kwargs, ranked_actions, fell_back
+        text_param = _PRIMARY_TEXT_PARAM.get(chosen_tool)
+        fell_back = False
+        if text_param and text_param not in call_kwargs:
+            call_kwargs[text_param] = intent
+        elif (
+            not call_kwargs
+            and chosen_tool not in _PRIMARY_TEXT_PARAM
+            and verb == "ask"
+            and not raw_hints.get("tool")
+            and not raw_hints.get("_tool")
+            and explicit_action is None
+        ):
+            # No structured hints AND the winning tool has no known free-text param:
+            # fall back to the NL planner rather than dispatch a call we know is
+            # missing required args (CONCEPT:AU-KG.query.ask-gateway-rest-twin).
+            # An explicit pin/action never falls back because that would silently
+            # replace the caller's declared route.
+            fell_back = True
+            chosen_tool = _ASK_FALLBACK_TOOL
+            chosen_action = None
+            call_kwargs = {_PRIMARY_TEXT_PARAM[_ASK_FALLBACK_TOOL]: intent}
+            ranked_actions = []
+
+        if chosen_action is not None and _tool_accepts_argument(chosen_tool, "action"):
+            call_kwargs.setdefault("action", chosen_action)
+
+        unsupported_hints = _unsupported_hint_arguments(chosen_tool, call_kwargs)
+        if unsupported_hints:
             return {
-                "error": "Ambiguous read-only action requires an explicit action.",
+                "error": _hint_argument_error(chosen_tool, unsupported_hints),
                 "executed": False,
                 "routing": {
                     "verb": verb,
+                    "intent_ref": intent_ref,
                     "chosen_tool": chosen_tool,
-                    "declared_read_actions": sorted(read_actions),
-                    "ambiguity": {"action": read_action_ambiguity},
+                    "unsupported_hint_arguments": unsupported_hints,
                 },
             }
-    chosen_action = (
-        explicit_action
-        or top.action
-        or (ranked_actions[0][0] if ranked_actions else None)
-    )
+        return None
 
-    text_param = _PRIMARY_TEXT_PARAM.get(chosen_tool)
-    fell_back = False
-    if text_param and text_param not in call_kwargs:
-        call_kwargs[text_param] = intent
-    elif (
-        not call_kwargs
-        and chosen_tool not in _PRIMARY_TEXT_PARAM
-        and verb == "ask"
-        and not raw_hints.get("tool")
-        and not raw_hints.get("_tool")
-        and explicit_action is None
-    ):
-        # No structured hints AND the winning tool has no known free-text param:
-        # fall back to the NL planner rather than dispatch a call we know is
-        # missing required args (CONCEPT:AU-KG.query.ask-gateway-rest-twin).
-        # An explicit pin/action never falls back because that would silently
-        # replace the caller's declared route.
-        fell_back = True
-        chosen_tool = _ASK_FALLBACK_TOOL
-        chosen_action = None
-        call_kwargs = {_PRIMARY_TEXT_PARAM[_ASK_FALLBACK_TOOL]: intent}
-        ranked_actions = []
-
-    if chosen_action is not None and _tool_accepts_argument(chosen_tool, "action"):
-        call_kwargs.setdefault("action", chosen_action)
-
-    unsupported_hints = _unsupported_hint_arguments(chosen_tool, call_kwargs)
-    if unsupported_hints:
-        return {
-            "error": _hint_argument_error(chosen_tool, unsupported_hints),
-            "executed": False,
-            "routing": {
-                "verb": verb,
-                "intent_ref": intent_ref,
-                "chosen_tool": chosen_tool,
-                "unsupported_hint_arguments": unsupported_hints,
-            },
-        }
+    _kwargs_outcome = _finalize_call_kwargs()
+    if _kwargs_outcome is not None:
+        return _kwargs_outcome
 
     candidate_ambiguity = _ambiguity_evidence(candidates, explicit=explicit_tool)
     action_ambiguity = _action_ambiguity_evidence(
@@ -1432,123 +1480,134 @@ async def dispatch_intent(
         and not candidate_ambiguity["ambiguous"]
         and not action_ambiguity["ambiguous"]
     )
-    routing: dict[str, Any] = {
-        "verb": verb,
-        "intent_ref": intent_ref,
-        "chosen_tool": chosen_tool,
-        "action": chosen_action,
-        "score": round(top.score, 4),
-        "matched_terms": top.matched_terms,
-        "fell_back_to_nl_planner": fell_back,
-        "why": (
-            f"'{top.tool}' best matched the {verb!r} intent on descriptor terms "
-            f"{top.matched_terms!r}"
-            if top.matched_terms
-            else f"'{top.tool}' is the highest-ranked capability for verb {verb!r}"
-        )
-        + (
-            f"; routed through '{_ASK_FALLBACK_TOOL}' because the selected "
-            f"capability requires structured arguments."
-            if fell_back
-            else "."
-        ),
-        "alternatives": [
-            {"tool": c.tool, "action": c.action, "score": round(c.score, 4)}
-            for c in candidates[1:]
-        ],
-        "capability_source": "packaged_graphos_cpd",
-        "calibrated_outcome_reward": round(reward, 4),
-        "ambiguity": {
-            "capability": candidate_ambiguity,
-            "action": action_ambiguity,
-        },
-        "plan": plan,
-        "decision_trace": {
-            "evidence": {
-                "matched_terms": top.matched_terms,
-                "candidate_count": len(candidates),
-                "capability_source": "packaged_graphos_cpd",
-            },
-            "policy": {
-                "verb_class": ("read_only" if verb in _READ_ONLY_VERBS else "non_read"),
-                "read_only_enforced": verb in _READ_ONLY_VERBS,
-                "preview_required": plan["preview_required"],
-                "approval": plan["approval"],
-            },
-            "route": {
-                "tool": chosen_tool,
-                "action": chosen_action,
-                "fallback": fell_back,
-            },
-            "result_provenance": {
-                "execution_core": "graphos_verified_execute_tool",
-                "status": "preview",
-            },
-        },
-        "learning": {
-            "eligible": learning_eligible,
-            "partition_ref": outcome_scope_ref or "unverified",
-            "source": "verified_execution_result_only",
-        },
-    }
 
-    read_policy_violation = verb in _READ_ONLY_VERBS and plan["mutates"] is not False
-    if not should_execute:
-        if verb in _NON_READ_VERBS:
-            _remember_preview_plan(
-                plan_ref,
-                verb=verb,
-                intent_ref=intent_ref,
-                outcome_scope_ref=outcome_scope_ref,
-                hints=raw_hints,
+    def _build_routing() -> dict[str, Any]:
+        routing: dict[str, Any] = {
+            "verb": verb,
+            "intent_ref": intent_ref,
+            "chosen_tool": chosen_tool,
+            "action": chosen_action,
+            "score": round(top.score, 4),
+            "matched_terms": top.matched_terms,
+            "fell_back_to_nl_planner": fell_back,
+            "why": (
+                f"'{top.tool}' best matched the {verb!r} intent on descriptor terms "
+                f"{top.matched_terms!r}"
+                if top.matched_terms
+                else f"'{top.tool}' is the highest-ranked capability for verb {verb!r}"
             )
-        return {"routing": routing, "executed": False}
+            + (
+                f"; routed through '{_ASK_FALLBACK_TOOL}' because the selected "
+                f"capability requires structured arguments."
+                if fell_back
+                else "."
+            ),
+            "alternatives": [
+                {"tool": c.tool, "action": c.action, "score": round(c.score, 4)}
+                for c in candidates[1:]
+            ],
+            "capability_source": "packaged_graphos_cpd",
+            "calibrated_outcome_reward": round(reward, 4),
+            "ambiguity": {
+                "capability": candidate_ambiguity,
+                "action": action_ambiguity,
+            },
+            "plan": plan,
+            "decision_trace": {
+                "evidence": {
+                    "matched_terms": top.matched_terms,
+                    "candidate_count": len(candidates),
+                    "capability_source": "packaged_graphos_cpd",
+                },
+                "policy": {
+                    "verb_class": ("read_only" if verb in _READ_ONLY_VERBS else "non_read"),
+                    "read_only_enforced": verb in _READ_ONLY_VERBS,
+                    "preview_required": plan["preview_required"],
+                    "approval": plan["approval"],
+                },
+                "route": {
+                    "tool": chosen_tool,
+                    "action": chosen_action,
+                    "fallback": fell_back,
+                },
+                "result_provenance": {
+                    "execution_core": "graphos_verified_execute_tool",
+                    "status": "preview",
+                },
+            },
+            "learning": {
+                "eligible": learning_eligible,
+                "partition_ref": outcome_scope_ref or "unverified",
+                "source": "verified_execution_result_only",
+            },
+        }
+        return routing
 
-    if read_policy_violation:
-        return {
-            "error": "Read-only intent policy rejected a mutating or unclassified route.",
-            "routing": routing,
-            "executed": False,
-        }
-    if plan["execution_class"] == "unclassified":
-        return {
-            "error": "Operation effect metadata is unclassified; execution denied.",
-            "routing": routing,
-            "executed": False,
-        }
-    if verb in _NON_READ_VERBS and (
-        candidate_ambiguity["ambiguous"] or action_ambiguity["ambiguous"]
-    ):
-        return {
-            "error": "Ambiguous non-read intent requires an explicit tool and action.",
-            "routing": routing,
-            "executed": False,
-        }
-    if verb in _NON_READ_VERBS and supplied_plan_ref != plan_ref:
-        return {
-            "error": (
-                "Preview required: call with execute=false, review the plan, then "
-                "resubmit its plan_ref with execute=true."
-            ),
-            "routing": routing,
-            "executed": False,
-        }
-    if plan["approval"]["required"] and not _approval_satisfied_by_session_load(
-        mcp, chosen_tool
-    ):
-        return {
-            "error": (
-                "Approval-required operation: call "
-                f"manage(intent='load {chosen_tool}', hints_json="
-                f'\'{{"action": "load", "tools": ["{chosen_tool}"]}}\') to '
-                "explicitly acknowledge the approval policy for THIS exact "
-                "tool, then resubmit this plan_ref with execute=true."
-            ),
-            "routing": routing,
-            "executed": False,
-            "approval_required": True,
-            "required_load_tools": [chosen_tool],
-        }
+    routing = _build_routing()
+
+    def _policy_gate() -> dict[str, Any] | None:
+        read_policy_violation = verb in _READ_ONLY_VERBS and plan["mutates"] is not False
+        if not should_execute:
+            if verb in _NON_READ_VERBS:
+                _remember_preview_plan(
+                    plan_ref,
+                    verb=verb,
+                    intent_ref=intent_ref,
+                    outcome_scope_ref=outcome_scope_ref,
+                    hints=raw_hints,
+                )
+            return {"routing": routing, "executed": False}
+
+        if read_policy_violation:
+            return {
+                "error": "Read-only intent policy rejected a mutating or unclassified route.",
+                "routing": routing,
+                "executed": False,
+            }
+        if plan["execution_class"] == "unclassified":
+            return {
+                "error": "Operation effect metadata is unclassified; execution denied.",
+                "routing": routing,
+                "executed": False,
+            }
+        if verb in _NON_READ_VERBS and (
+            candidate_ambiguity["ambiguous"] or action_ambiguity["ambiguous"]
+        ):
+            return {
+                "error": "Ambiguous non-read intent requires an explicit tool and action.",
+                "routing": routing,
+                "executed": False,
+            }
+        if verb in _NON_READ_VERBS and supplied_plan_ref != plan_ref:
+            return {
+                "error": (
+                    "Preview required: call with execute=false, review the plan, then "
+                    "resubmit its plan_ref with execute=true."
+                ),
+                "routing": routing,
+                "executed": False,
+            }
+        if plan["approval"]["required"] and not _approval_satisfied_by_session_load(
+            mcp, chosen_tool
+        ):
+            return {
+                "error": (
+                    "Approval-required operation: call "
+                    f"manage(intent='load {chosen_tool}', hints_json="
+                    f'\'{{"action": "load", "tools": ["{chosen_tool}"]}}\') to '
+                    "explicitly acknowledge the approval policy for THIS exact "
+                    "tool, then resubmit this plan_ref with execute=true."
+                ),
+                "routing": routing,
+                "executed": False,
+                "approval_required": True,
+                "required_load_tools": [chosen_tool],
+            }
+        return None
+
+    _policy_outcome = _policy_gate()
+    if _policy_outcome is not None:
+        return _policy_outcome
 
     try:
         result = await kg_server._execute_tool(chosen_tool, **call_kwargs)

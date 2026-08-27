@@ -185,6 +185,45 @@ _PROGRAM_PLAN_STEP_KINDS = frozenset(
 _PROGRAM_PLAN_EXECUTORS = frozenset(
     {"native_kernel", "graph_similarity", "model_transport", "evaluator", "trainer"}
 )
+_PROGRAM_RESULT_LIST_FIELDS = frozenset(
+    {
+        "evidence_refs",
+        "source_refs",
+        "proof_ids",
+        "contradiction_ids",
+        "demonstration_refs",
+        "artifact_refs",
+        "composition_refs",
+        "modalities",
+        "plan_step_kinds",
+        "plan_executors",
+        "plan_input_refs",
+        "plan_output_refs",
+        "plan_depends_on",
+    }
+)
+_PROGRAM_RESULT_OPTIONAL_REFS = frozenset(
+    {
+        "instruction_ref",
+        "tool_policy_ref",
+        "model_profile_ref",
+        "plan_ref",
+    }
+)
+_PROGRAM_RESULT_REF_LISTS = frozenset(
+    {
+        "evidence_refs",
+        "source_refs",
+        "proof_ids",
+        "contradiction_ids",
+        "demonstration_refs",
+        "artifact_refs",
+        "composition_refs",
+        "plan_input_refs",
+        "plan_output_refs",
+        "plan_depends_on",
+    }
+)
 
 # A native client validates authority at construction even though opening the
 # socket sends no request.  The process transport therefore starts with one
@@ -3405,8 +3444,7 @@ class GraphComputeEngine:
         return status
 
     @staticmethod
-    def program_optimization_result(job: Mapping[str, Any]) -> dict[str, Any]:
-        """Validate and return a succeeded job's typed program result rows."""
+    def _validate_program_job_success(job: Mapping[str, Any]) -> str:
         state = job.get("state")
         if not isinstance(state, Mapping) or set(state) != {"Succeeded"}:
             raise RuntimeError("program optimization job did not succeed")
@@ -3418,7 +3456,10 @@ class GraphComputeEngine:
             result_ref
         ):
             raise RuntimeError("program optimization result reference is invalid")
+        return result_ref
 
+    @staticmethod
+    def _validate_program_job_output(job: Mapping[str, Any]) -> list[Any]:
         output = job.get("output")
         if not isinstance(output, Mapping):
             raise RuntimeError("program optimization output is missing")
@@ -3441,154 +3482,177 @@ class GraphComputeEngine:
         rows = output.get("rows")
         if not isinstance(rows, list) or not rows:
             raise RuntimeError("program optimization rows are missing")
+        return rows
 
-        list_fields = {
-            "evidence_refs",
-            "source_refs",
-            "proof_ids",
-            "contradiction_ids",
-            "demonstration_refs",
-            "artifact_refs",
-            "composition_refs",
-            "modalities",
-            "plan_step_kinds",
-            "plan_executors",
-            "plan_input_refs",
-            "plan_output_refs",
-            "plan_depends_on",
-        }
-        optional_refs = {
-            "instruction_ref",
-            "tool_policy_ref",
-            "model_profile_ref",
-            "plan_ref",
-        }
-        ref_lists = {
-            "evidence_refs",
-            "source_refs",
-            "proof_ids",
-            "contradiction_ids",
-            "demonstration_refs",
-            "artifact_refs",
-            "composition_refs",
-            "plan_input_refs",
-            "plan_output_refs",
-            "plan_depends_on",
-        }
-        normalized: list[dict[str, Any]] = []
-        for row in rows:
-            if not isinstance(row, Mapping) or set(row) != _PROGRAM_RESULT_FIELDS:
-                raise RuntimeError("program optimization row schema is invalid")
-            kind = row.get("kind")
-            if kind not in {
-                "program_candidate",
-                "program_optimization_plan_step",
-            }:
-                raise RuntimeError("program optimization row kind is invalid")
-            confidence = row.get("confidence")
-            if (
-                not isinstance(confidence, int | float)
-                or isinstance(confidence, bool)
-                or not 0.0 <= float(confidence) <= 1.0
-            ):
-                raise RuntimeError("program optimization confidence is invalid")
-            for field in ("id", "program_ref"):
-                value = row.get(field)
-                if not isinstance(value, str) or not _OPAQUE_PROGRAM_REF.fullmatch(
-                    value
-                ):
-                    raise RuntimeError("program optimization reference is invalid")
-            for field in optional_refs:
-                value = row.get(field)
-                if value is not None and (
-                    not isinstance(value, str)
-                    or not _OPAQUE_PROGRAM_REF.fullmatch(value)
-                ):
-                    raise RuntimeError(
-                        "program optimization optional reference is invalid"
-                    )
-            for field in list_fields:
-                values = row.get(field)
-                if not isinstance(values, list) or not all(
-                    isinstance(value, str) for value in values
-                ):
-                    raise RuntimeError("program optimization list field is invalid")
-                if field in ref_lists and not all(
-                    _OPAQUE_PROGRAM_REF.fullmatch(value) for value in values
-                ):
-                    raise RuntimeError("program optimization reference list is invalid")
-            if not row.get("evidence_refs") or not row.get("source_refs"):
-                raise RuntimeError(
-                    "program optimization lineage references are missing"
+    @staticmethod
+    def _validate_program_candidate_row(
+        row: Mapping[str, Any],
+        *,
+        optimizer: str,
+        candidate_role: str | None,
+        max_operations: int | None,
+    ) -> None:
+        tool_policy_ref = row.get("tool_policy_ref")
+        valid_tool_policy_binding = (
+            optimizer == "avatar"
+            and tool_policy_ref is not None
+            and tool_policy_ref in row.get("artifact_refs", [])
+            and row.get("instruction_ref") is None
+        ) or (optimizer != "avatar" and tool_policy_ref is None)
+        if (
+            candidate_role not in _PROGRAM_CANDIDATE_ROLES
+            or not valid_tool_policy_binding
+            or row.get("plan_ref") is not None
+            or not row.get("demonstration_refs")
+            or any(
+                row.get(field)
+                for field in (
+                    "plan_step_kinds",
+                    "plan_executors",
+                    "plan_input_refs",
+                    "plan_output_refs",
+                    "plan_depends_on",
                 )
-            if not isinstance(row.get("selected"), bool):
-                raise RuntimeError("program optimization selection flag is invalid")
-            optimizer = row.get("optimizer")
-            execution = row.get("execution")
-            if (
-                not isinstance(optimizer, str)
-                or not isinstance(execution, str)
-                or _PROGRAM_OPTIMIZER_EXECUTIONS.get(optimizer) != execution
+            )
+            or max_operations is not None
+        ):
+            raise RuntimeError(
+                "program optimization candidate shape is invalid"
+            )
+
+    @staticmethod
+    def _validate_program_plan_step_row(
+        row: Mapping[str, Any],
+        *,
+        candidate_role: str | None,
+        max_operations: int | None,
+    ) -> None:
+        if (
+            candidate_role is not None
+            or row.get("instruction_ref") is not None
+            or row.get("tool_policy_ref") is not None
+            or row.get("model_profile_ref") is not None
+            or row.get("plan_ref") is None
+            or row.get("selected") is not False
+            or len(row.get("plan_step_kinds") or []) != 1
+            or row["plan_step_kinds"][0] not in _PROGRAM_PLAN_STEP_KINDS
+            or len(row.get("plan_executors") or []) != 1
+            or row["plan_executors"][0] not in _PROGRAM_PLAN_EXECUTORS
+            or not row.get("plan_input_refs")
+            or not row.get("plan_output_refs")
+            or max_operations is None
+        ):
+            raise RuntimeError("program optimization plan shape is invalid")
+    @staticmethod
+    def _validate_program_row_identity(row: Any) -> str:
+        if not isinstance(row, Mapping) or set(row) != _PROGRAM_RESULT_FIELDS:
+            raise RuntimeError("program optimization row schema is invalid")
+        kind = row.get("kind")
+        if kind not in {
+            "program_candidate",
+            "program_optimization_plan_step",
+        }:
+            raise RuntimeError("program optimization row kind is invalid")
+        confidence = row.get("confidence")
+        if (
+            not isinstance(confidence, int | float)
+            or isinstance(confidence, bool)
+            or not 0.0 <= float(confidence) <= 1.0
+        ):
+            raise RuntimeError("program optimization confidence is invalid")
+        for field in ("id", "program_ref"):
+            value = row.get(field)
+            if not isinstance(value, str) or not _OPAQUE_PROGRAM_REF.fullmatch(
+                value
             ):
-                raise RuntimeError("program optimization lineage is invalid")
-            candidate_role = row.get("candidate_role")
-            if candidate_role is not None and not isinstance(candidate_role, str):
-                raise RuntimeError("program optimization candidate role is invalid")
-            modalities = row.get("modalities")
-            if not modalities or not set(modalities) <= _PROGRAM_MODALITIES:
-                raise RuntimeError("program optimization modalities are invalid")
-            max_operations = row.get("max_operations")
-            if max_operations is not None and (
-                not isinstance(max_operations, int)
-                or isinstance(max_operations, bool)
-                or max_operations <= 0
+                raise RuntimeError("program optimization reference is invalid")
+        for field in _PROGRAM_RESULT_OPTIONAL_REFS:
+            value = row.get(field)
+            if value is not None and (
+                not isinstance(value, str)
+                or not _OPAQUE_PROGRAM_REF.fullmatch(value)
             ):
-                raise RuntimeError("program optimization operation bound is invalid")
-            if kind == "program_candidate":
-                tool_policy_ref = row.get("tool_policy_ref")
-                valid_tool_policy_binding = (
-                    optimizer == "avatar"
-                    and tool_policy_ref is not None
-                    and tool_policy_ref in row.get("artifact_refs", [])
-                    and row.get("instruction_ref") is None
-                ) or (optimizer != "avatar" and tool_policy_ref is None)
-                if (
-                    candidate_role not in _PROGRAM_CANDIDATE_ROLES
-                    or not valid_tool_policy_binding
-                    or row.get("plan_ref") is not None
-                    or not row.get("demonstration_refs")
-                    or any(
-                        row.get(field)
-                        for field in (
-                            "plan_step_kinds",
-                            "plan_executors",
-                            "plan_input_refs",
-                            "plan_output_refs",
-                            "plan_depends_on",
-                        )
-                    )
-                    or max_operations is not None
-                ):
-                    raise RuntimeError(
-                        "program optimization candidate shape is invalid"
-                    )
-            elif (
-                candidate_role is not None
-                or row.get("instruction_ref") is not None
-                or row.get("tool_policy_ref") is not None
-                or row.get("model_profile_ref") is not None
-                or row.get("plan_ref") is None
-                or row.get("selected") is not False
-                or len(row.get("plan_step_kinds") or []) != 1
-                or row["plan_step_kinds"][0] not in _PROGRAM_PLAN_STEP_KINDS
-                or len(row.get("plan_executors") or []) != 1
-                or row["plan_executors"][0] not in _PROGRAM_PLAN_EXECUTORS
-                or not row.get("plan_input_refs")
-                or not row.get("plan_output_refs")
-                or max_operations is None
+                raise RuntimeError(
+                    "program optimization optional reference is invalid"
+                )
+        return kind
+
+    @staticmethod
+    def _validate_program_row_lists(row: Mapping[str, Any]) -> None:
+        for field in _PROGRAM_RESULT_LIST_FIELDS:
+            values = row.get(field)
+            if not isinstance(values, list) or not all(
+                isinstance(value, str) for value in values
             ):
-                raise RuntimeError("program optimization plan shape is invalid")
-            normalized.append(dict(row))
+                raise RuntimeError("program optimization list field is invalid")
+            if field in _PROGRAM_RESULT_REF_LISTS and not all(
+                _OPAQUE_PROGRAM_REF.fullmatch(value) for value in values
+            ):
+                raise RuntimeError("program optimization reference list is invalid")
+        if not row.get("evidence_refs") or not row.get("source_refs"):
+            raise RuntimeError(
+                "program optimization lineage references are missing"
+            )
+
+    @staticmethod
+    def _validate_program_row_semantics(
+        row: Mapping[str, Any],
+    ) -> tuple[str, str | None, int | None]:
+        if not isinstance(row.get("selected"), bool):
+            raise RuntimeError("program optimization selection flag is invalid")
+        optimizer = row.get("optimizer")
+        execution = row.get("execution")
+        if (
+            not isinstance(optimizer, str)
+            or not isinstance(execution, str)
+            or _PROGRAM_OPTIMIZER_EXECUTIONS.get(optimizer) != execution
+        ):
+            raise RuntimeError("program optimization lineage is invalid")
+        candidate_role = row.get("candidate_role")
+        if candidate_role is not None and not isinstance(candidate_role, str):
+            raise RuntimeError("program optimization candidate role is invalid")
+        modalities = row.get("modalities")
+        if not modalities or not set(modalities) <= _PROGRAM_MODALITIES:
+            raise RuntimeError("program optimization modalities are invalid")
+        max_operations = row.get("max_operations")
+        if max_operations is not None and (
+            not isinstance(max_operations, int)
+            or isinstance(max_operations, bool)
+            or max_operations <= 0
+        ):
+            raise RuntimeError("program optimization operation bound is invalid")
+        return optimizer, candidate_role, max_operations
+
+    @staticmethod
+    def _validate_program_result_row(row: Any) -> dict[str, Any]:
+        kind = GraphComputeEngine._validate_program_row_identity(row)
+        GraphComputeEngine._validate_program_row_lists(row)
+        optimizer, candidate_role, max_operations = (
+            GraphComputeEngine._validate_program_row_semantics(row)
+        )
+        if kind == "program_candidate":
+            GraphComputeEngine._validate_program_candidate_row(
+                row,
+                optimizer=optimizer,
+                candidate_role=candidate_role,
+                max_operations=max_operations,
+            )
+        else:
+            GraphComputeEngine._validate_program_plan_step_row(
+                row,
+                candidate_role=candidate_role,
+                max_operations=max_operations,
+            )
+        return dict(row)
+
+    @staticmethod
+    def program_optimization_result(job: Mapping[str, Any]) -> dict[str, Any]:
+        """Validate and return a succeeded job's typed program result rows."""
+        result_ref = GraphComputeEngine._validate_program_job_success(job)
+        rows = GraphComputeEngine._validate_program_job_output(job)
+        normalized = [
+            GraphComputeEngine._validate_program_result_row(row) for row in rows
+        ]
         return {"result_ref": result_ref, "rows": normalized}
 
     def optimize_program(
