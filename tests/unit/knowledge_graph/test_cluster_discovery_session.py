@@ -203,3 +203,101 @@ def test_transport_drain_stops_admission_and_reports_timeout_explicitly() -> Non
             with gate.admit():
                 pass
     assert gate.status().active_requests == 0
+
+
+def _parse_direct(authority: ClusterTopologyAuthority, answer: Any, *, context: dict[str, str], prior: Any = None) -> Any:
+    return authority._parse(
+        answer,
+        verified_context=context,
+        client_context=None,
+        expected_cluster_id=None,
+        min_membership_epoch=None,
+        min_placement_epoch=None,
+        prior=prior,
+    )
+
+
+def test_parse_rejects_malformed_top_level_shape() -> None:
+    """CXA-AU-03-04 characterization: envelope-section rejection (missing field)."""
+    authority = ClusterTopologyAuthority(
+        monotonic=lambda: 10.0, wall_clock_ms=lambda: 1_700_000_000_000
+    )
+    context = _context()
+    answer = _answer(context)
+    del answer["signature"]
+    with pytest.raises(ClusterDiscoveryRejected):
+        _parse_direct(authority, answer, context=context)
+
+
+def test_parse_rejects_binding_mismatch() -> None:
+    """CXA-AU-03-04 characterization: binding-section rejection (digest mismatch)."""
+    authority = ClusterTopologyAuthority(
+        monotonic=lambda: 10.0, wall_clock_ms=lambda: 1_700_000_000_000
+    )
+    context = _context()
+    answer = _answer(context)
+    answer["auth_binding"]["tenant_digest"] = _digest("someone-else")
+    with pytest.raises(ClusterDiscoveryRejected):
+        _parse_direct(authority, answer, context=context)
+
+
+def test_parse_rejects_group_with_unknown_leader() -> None:
+    """CXA-AU-03-04 characterization: groups-section rejection (leader not a member)."""
+    authority = ClusterTopologyAuthority(
+        monotonic=lambda: 10.0, wall_clock_ms=lambda: 1_700_000_000_000
+    )
+    context = _context()
+    answer = _answer(context)
+    answer["groups"][0]["leader_id"] = 99
+    with pytest.raises(ClusterDiscoveryRejected):
+        _parse_direct(authority, answer, context=context)
+
+
+def test_parse_rejects_leaders_list_inconsistent_with_groups() -> None:
+    """CXA-AU-03-04 characterization: leaders-section rejection (top-level/group mismatch)."""
+    authority = ClusterTopologyAuthority(
+        monotonic=lambda: 10.0, wall_clock_ms=lambda: 1_700_000_000_000
+    )
+    context = _context()
+    answer = _answer(context)
+    answer["leaders"] = []
+    with pytest.raises(ClusterDiscoveryRejected):
+        _parse_direct(authority, answer, context=context)
+
+
+def test_parse_rejects_malformed_signature() -> None:
+    """CXA-AU-03-04 characterization: signature-section rejection (bad shape)."""
+    authority = ClusterTopologyAuthority(
+        monotonic=lambda: 10.0, wall_clock_ms=lambda: 1_700_000_000_000
+    )
+    context = _context()
+    answer = _answer(context)
+    answer["signature"] = "not-a-real-signature"
+    with pytest.raises(ClusterDiscoveryRejected):
+        _parse_direct(authority, answer, context=context)
+
+
+def test_parse_rejects_epoch_moving_backwards_against_prior() -> None:
+    """CXA-AU-03-04 characterization: prior-section rejection (epoch regression)."""
+    authority = ClusterTopologyAuthority(
+        monotonic=lambda: 10.0, wall_clock_ms=lambda: 1_700_000_000_000
+    )
+    context = _context()
+    prior_answer = _answer(context, membership_epoch=4, placement_epoch=7)
+    prior = _parse_direct(authority, prior_answer, context=context)
+    regressed = _answer(context, membership_epoch=3, placement_epoch=7)
+    with pytest.raises(ClusterDiscoveryRejected):
+        _parse_direct(authority, regressed, context=context, prior=prior)
+
+
+def test_parse_accepts_well_formed_answer() -> None:
+    """CXA-AU-03-04 characterization: full-pipeline positive path returns a snapshot."""
+    authority = ClusterTopologyAuthority(
+        monotonic=lambda: 10.0, wall_clock_ms=lambda: 1_700_000_000_000
+    )
+    context = _context()
+    answer = _answer(context)
+    snapshot = _parse_direct(authority, answer, context=context)
+    assert snapshot.cluster_id == answer["cluster_id"]
+    assert snapshot.membership_epoch == 4
+    assert len(snapshot.groups) == 1
