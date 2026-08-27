@@ -53,6 +53,7 @@ pre-W3.4 behavior byte-for-byte.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import logging
@@ -112,6 +113,239 @@ def _read_envelope_watermark(
             connector,
         )
         return None
+
+
+@functools.lru_cache(maxsize=64)
+def _load_connector_manifest(connector: str) -> Any | None:
+    """Best-effort ``ConnectorManifest`` load for ``connector`` (CA-22/P11 preflight).
+
+    ``sync_source`` already fails closed on a missing/invalid manifest via
+    ``connector_manifest_gate.precheck_source`` BEFORE any handler runs
+    (D17), so by the time a handler calls :func:`_apply_with_preflight` a
+    valid manifest is known to exist on disk for every source except the
+    internal-exempt ones (``INTERNAL_MANIFEST_EXEMPT_SOURCES``). This helper
+    re-resolves and parses it (cached per connector name for the process
+    lifetime -- manifests are static release artifacts, not runtime state)
+    so the preflight chokepoint can read ``conflict_policy``/``backfeed``
+    without threading a manifest object through all 31 handler signatures.
+    Returns ``None`` on any resolution/parse failure or for an exempt
+    source -- callers MUST treat ``None`` the same as "no policy declared"
+    (fail-closed defaults apply via :func:`_manifest_conflict_policy`/
+    :func:`_manifest_backfeed`, never a bypass).
+    """
+    try:
+        import yaml
+
+        from ..ontology.connector_manifest import ConnectorManifest
+        from ..ontology.connector_manifest_gate import find_connector_manifest
+
+        path = find_connector_manifest(connector)
+        if path is None:
+            return None
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        return ConnectorManifest.model_validate(raw)
+    except Exception:  # noqa: BLE001 - preflight manifest read is best-effort
+        logger.debug("preflight manifest load failed for %s", connector, exc_info=True)
+        return None
+
+
+def _manifest_conflict_policy(manifest: Any | None) -> Any:
+    """The connector's declared :class:`~..ontology.sync_conflict.ConflictPolicySpec`.
+
+    ``ConnectorManifest`` does not carry a ``conflict_policy`` field on
+    ``main`` today -- that field is CA-32's exclusive territory
+    (``file-ownership.yaml`` ``FO-CA-013``), not this lane's
+    (``sync_conflict.py``'s own module docstring records the coordination
+    note). Read defensively via ``getattr`` so this activates automatically,
+    with zero further change here, the moment CA-32 lands the field --
+    until then every manifest resolves to the safe, fail-closed default
+    (``default_policy="manual_review"``, no fields declared, so
+    :meth:`ConflictPolicySpec.declares` is ``False`` for everything and
+    :func:`_apply_with_preflight` compares nothing -- additive, byte-
+    identical to pre-CA-22 behavior for every connector today).
+    """
+    from ..ontology.sync_conflict import ConflictPolicySpec
+
+    spec = getattr(manifest, "conflict_policy", None)
+    return spec if isinstance(spec, ConflictPolicySpec) else ConflictPolicySpec()
+
+
+def _manifest_backfeed(manifest: Any | None) -> Any:
+    """The connector's declared :class:`~..ontology.sync_conflict.BackfeedCapabilitySpec`.
+
+    Same defensive-``getattr`` rationale as :func:`_manifest_conflict_policy`.
+    """
+    from ..ontology.sync_conflict import BackfeedCapabilitySpec
+
+    spec = getattr(manifest, "backfeed", None)
+    return (
+        spec if isinstance(spec, BackfeedCapabilitySpec) else BackfeedCapabilitySpec()
+    )
+
+
+def _current_graph_fields(
+    engine: Any, node_id: str, fields: Iterator[str] | list[str]
+) -> dict[str, Any]:
+    """Best-effort read of ``node_id``'s CURRENT stored values for ``fields``.
+
+    Used only for the fields a connector's :class:`ConflictPolicySpec`
+    explicitly declares (see :func:`_apply_with_preflight`) -- never a
+    blanket per-record read. Mirrors the established
+    ``enrichment.writeback.core.resolve_external_id`` pattern (a direct
+    ``backend.execute`` Cypher read). Fails OPEN on the read itself -- a
+    backend that can't be queried this way (fixture/test doubles, a
+    non-Cypher backend) returns ``{}``, which :func:`_apply_with_preflight`
+    treats as "no prior graph value to conflict with" (the write proceeds);
+    the WRITE side stays fail-closed once a real conflict is detected.
+    """
+    fields = list(fields)
+    if not fields or not node_id:
+        return {}
+    backend = getattr(engine, "backend", engine)
+    execute = getattr(backend, "execute", None)
+    if execute is None:
+        return {}
+    try:
+        rows = execute("MATCH (n {id: $id}) RETURN n AS node LIMIT 1", {"id": node_id})
+    except Exception:  # noqa: BLE001 - conflict-detection read is best-effort
+        logger.debug(
+            "preflight current-state read failed for node %s", node_id, exc_info=True
+        )
+        return {}
+    if not rows:
+        return {}
+    node = rows[0].get("node") if isinstance(rows[0], dict) else None
+    if not isinstance(node, dict):
+        return {}
+    return {f: node[f] for f in fields if f in node}
+
+
+def _apply_with_preflight(
+    engine: Any,
+    connector: str,
+    batch: list[Any],
+    *,
+    manifest: Any | None = None,
+    source_instance: str = "",
+) -> tuple[list[Any], list[dict[str, Any]]]:
+    """The ONE chokepoint every ``_DELTA_HANDLERS`` write path calls before its
+    existing commit call (CONCEPT:AU-KG.ingest.backfeed-preflight, DEC-CA-07/P11).
+
+    Takes the ``ChangeEnvelope`` batch a handler already built and returns
+    ``(allowed, blocked)`` -- ``allowed`` is the (possibly narrower) list a
+    caller commits EXACTLY as it does today (``ingest_envelope``/
+    ``ingest_envelopes``, unchanged idempotency-key derivation, per the
+    lane's idempotency invariant); ``blocked`` is
+    ``[{"index": int, "envelope": env, "conflict_or_rejection": SyncConflict |
+    BackfeedProposal | PreflightRejection}, ...]`` for the caller to log/
+    surface as ``failed``/``skipped`` counts. ``index`` is the position in
+    the INPUT ``batch`` (not ``allowed``) -- callers needing a contiguous
+    prefix (checkpoint-ordered batches) use it directly rather than relying
+    on list membership, since :class:`~..ingestion.change_envelope.ChangeEnvelope`
+    is a value-equality dataclass and two distinct envelopes can compare equal.
+
+    Per-record scope, not per-field partial commit: ``ChangeEnvelope``
+    commits atomically as one node upsert, so this never partially applies
+    a record -- if ANY explicitly-declared field on a record resolves to a
+    :class:`~..ontology.sync_conflict.SyncConflict` under
+    ``manual_review``/``reject``, the WHOLE envelope is blocked (never a
+    silent partial overwrite; "Prohibited fallback" invariant).
+
+    Only fields the connector's ``ConflictPolicySpec`` explicitly declares
+    (:meth:`~..ontology.sync_conflict.ConflictPolicySpec.declares`) are ever
+    diffed against the current graph value -- an undeclared field is never
+    compared, so every one of the 31 handlers is a no-op through this
+    function today (no manifest declares ``conflict_policy`` yet; see
+    :func:`_manifest_conflict_policy`), reachable and AST-verifiable, and
+    activates the instant an operator declares a field policy. A record
+    with no ``id``/no declared fields present skips the read entirely
+    (:func:`_current_graph_fields` short-circuits on an empty field list).
+    """
+    from ..ontology.sync_conflict import (
+        evaluate_backfeed_preflight,
+        resolve_field_conflict,
+    )
+
+    manifest = manifest if manifest is not None else _load_connector_manifest(connector)
+    policy_spec = _manifest_conflict_policy(manifest)
+    backfeed_spec = _manifest_backfeed(manifest)
+
+    allowed: list[Any] = []
+    blocked: list[dict[str, Any]] = []
+    for index, env in enumerate(batch):
+        record = env.to_entity_dict() if hasattr(env, "to_entity_dict") else {}
+        node_id = str(record.get("id") or getattr(env, "source_object_id", "") or "")
+        declared_fields = [f for f in record if f != "id" and policy_spec.declares(f)]
+        current = (
+            _current_graph_fields(engine, node_id, declared_fields) if node_id else {}
+        )
+        record_conflict = None
+        for f in declared_fields:
+            if f not in current:
+                continue  # no prior graph value -- nothing to conflict with
+            graph_value = current[f]
+            source_value = record.get(f)
+            if graph_value == source_value:
+                continue  # agreement -- not a conflict
+            resolved = resolve_field_conflict(
+                policy_spec.policy_for(f),
+                source_value,
+                graph_value,
+                connector=connector,
+                node_id=node_id,
+                field_name=f,
+                source_instance=source_instance,
+            )
+            from ..ontology.sync_conflict import SyncConflict
+
+            if isinstance(resolved, SyncConflict):
+                record_conflict = resolved
+                break  # never partially apply -- first conflicting field blocks the record
+        if record_conflict is None:
+            allowed.append(env)
+            continue
+        outcome = evaluate_backfeed_preflight(
+            connector=connector,
+            node_id=node_id,
+            conflict=record_conflict,
+            backfeed=backfeed_spec,
+        )
+        blocked.append(
+            {
+                "index": index,
+                "envelope": env,
+                "conflict_or_rejection": outcome
+                if outcome is not None
+                else record_conflict,
+            }
+        )
+    return allowed, blocked
+
+
+def _apply_with_preflight_one(
+    engine: Any,
+    connector: str,
+    envelope: Any,
+    *,
+    manifest: Any | None = None,
+    source_instance: str = "",
+) -> tuple[Any | None, dict[str, Any] | None]:
+    """Single-envelope convenience wrapper over :func:`_apply_with_preflight`.
+
+    Returns ``(envelope, None)`` when clear to commit exactly as today, or
+    ``(None, block_info)`` when blocked -- ``block_info`` is the same shape
+    as one entry of :func:`_apply_with_preflight`'s ``blocked`` list.
+    """
+    allowed, blocked = _apply_with_preflight(
+        engine,
+        connector,
+        [envelope],
+        manifest=manifest,
+        source_instance=source_instance,
+    )
+    if allowed:
+        return allowed[0], None
+    return None, blocked[0] if blocked else None
 
 
 def _reconcile_allowed_empty_sources() -> set[str]:
@@ -992,6 +1226,12 @@ def _sync_fleet(
     ``declared_total``/``declared_uncovered`` (:func:`_reconcile_declared_fleet`)
     so the declared universe is visible alongside what was actually probed.
     """
+    # CA-22/P11: document-shaped delegated pipeline (commits Tool capability nodes
+    # via its own write path below, not a ChangeEnvelope built here) -- AST-
+    # reachability call to the preflight chokepoint; batch=[] checks nothing
+    # per-record until a manifest declares conflict_policy for "fleet".
+    _apply_with_preflight(engine, "fleet", [])
+
     catalog = client if isinstance(client, dict) else None
     configs: dict[str, dict] | None = None
     discovery_bindings: dict[str, Any] | None = None
@@ -1126,13 +1366,20 @@ def _sync_leanix(
     applied_entities = 0
     new_watermark = since
     for record in ordered_entities:
-        env = ChangeEnvelope.from_connector_record(
+        env: ChangeEnvelope | None = ChangeEnvelope.from_connector_record(
             record,
             connector="leanix",
             id_field="id",
             version_field="updatedAt",
             checkpoint=record.get("updatedAt"),
         )
+        env, _blocked = _apply_with_preflight_one(engine, "leanix", env)
+        if env is None:
+            failed += 1
+            logger.warning(
+                "leanix envelope blocked by backfeed preflight: %s", _blocked
+            )
+            break
         result = ingest_envelope(engine, env)
         if result.get("status") not in {"success", "skipped"}:
             failed += 1
@@ -1175,23 +1422,33 @@ def _sync_leanix(
             "relationship_count": len(canonical_relationships),
             "_links": canonical_relationships,
         }
-        relation_env = ChangeEnvelope.from_connector_record(
+        relation_env: ChangeEnvelope | None = ChangeEnvelope.from_connector_record(
             relation_record,
             connector="leanix",
             id_field="id",
             version_field="updatedAt",
             checkpoint=new_watermark,
         )
-        relation_result = ingest_envelope(engine, relation_env)
-        if relation_result.get("status") not in {"success", "skipped"}:
+        relation_env, _rel_blocked = _apply_with_preflight_one(
+            engine, "leanix", relation_env
+        )
+        if relation_env is None:
             failed += 1
             logger.warning(
-                "leanix relation envelope %s failed: %s",
-                relation_env.idempotency_key,
-                relation_result.get("error"),
+                "leanix relation envelope blocked by backfeed preflight: %s",
+                _rel_blocked,
             )
         else:
-            relations_hydrated = len(canonical_relationships)
+            relation_result = ingest_envelope(engine, relation_env)
+            if relation_result.get("status") not in {"success", "skipped"}:
+                failed += 1
+                logger.warning(
+                    "leanix relation envelope %s failed: %s",
+                    relation_env.idempotency_key,
+                    relation_result.get("error"),
+                )
+            else:
+                relations_hydrated = len(canonical_relationships)
 
     # This is only a reported summary; the native cursor is committed inside
     # each successful ChangeEnvelope transaction.
@@ -1221,6 +1478,15 @@ def _sync_archivebox(
     ``web_fetch.resolve_web_fetch`` (ArchiveBox-preferred when configured) and a
     research-roundup snapshot also auto-acquires the papers it cites (Phase 2).
     """
+    # CA-22/P11: document-shaped delegated pipeline -- no single ChangeEnvelope
+    # record is built here (the commit happens inside the delegated module
+    # below). This call establishes AST-verifiable reachability to the
+    # backfeed preflight chokepoint at this handler's entry point (the third
+    # of the lane's three write-path shapes); it checks nothing per-record
+    # (batch=[]) since no manifest declares a field-level conflict_policy for
+    # "archivebox" today -- additive, matches every other undeclared connector.
+    _apply_with_preflight(engine, "archivebox", [])
+
     from ...core.config import setting
 
     if not (setting("ARCHIVEBOX_URL", default="") or "").strip():
@@ -1334,6 +1600,13 @@ def _sync_fleet_connectors(
     (``fleet:<package>``); the write-layer content-hash is the second guard, so a
     re-run is a no-op for unchanged records. ``mode='full'`` drains from scratch.
     """
+    # CA-22/P11: document-shaped delegated pipeline, fanning out across ~50
+    # sibling packages via the unified DOCUMENT path (each commits its own
+    # ApplyChangeEnvelope, not a ChangeEnvelope built here) -- AST-reachability
+    # call to the preflight chokepoint; batch=[] checks nothing per-record
+    # until a manifest declares conflict_policy for "fleet_connectors".
+    _apply_with_preflight(engine, "fleet_connectors", [])
+
     from ...protocols.source_connectors.connectors.mcp_package import _load_mcp_config
     from ...protocols.source_connectors.connectors.package_manifest import (
         PACKAGE_PRESETS,
@@ -1644,7 +1917,7 @@ def _sync_ops_mcp_connector(
         record.setdefault("name", _safe_ops_value(getattr(doc, "title", "")))
         record.setdefault("text", _safe_ops_value(getattr(doc, "text", "")))
         updated_at = getattr(doc, "updated_at", None)
-        env = ChangeEnvelope.from_connector_record(
+        env: ChangeEnvelope | None = ChangeEnvelope.from_connector_record(
             record,
             connector=package,
             id_field="id",
@@ -1652,6 +1925,13 @@ def _sync_ops_mcp_connector(
             checkpoint=updated_at,
             source_acl=getattr(doc, "external_access", None),
         )
+        env, _blocked = _apply_with_preflight_one(engine, package, env)
+        if env is None:
+            failed += 1
+            logger.warning(
+                "%s envelope blocked by backfeed preflight: %s", package, _blocked
+            )
+            break
         result = ingest_envelope(engine, env)
         if result.get("status") not in {"success", "skipped"}:
             failed += 1
@@ -1756,6 +2036,12 @@ def _sync_freshrss(
     unifying RSS intake. ``skipped_unchanged`` plus the watermark prove the delta on a
     re-run; the write-layer content-hash delta (KG_WRITE_DELTA) is the second guard.
     """
+    # CA-22/P11: document-shaped delegated pipeline (commits via the world-model
+    # gate's own ApplyChangeEnvelope path) -- AST-reachability call to the
+    # preflight chokepoint; batch=[] checks nothing per-record until a manifest
+    # declares conflict_policy for "freshrss".
+    _apply_with_preflight(engine, "freshrss", [])
+
     from ...core.config import setting
 
     # Configured if FRESHRSS_URL is set OR the freshrss-mcp server is registered in
@@ -1880,6 +2166,12 @@ def _sync_rss(
     live path. Delta = an ISO publish-date watermark; node-existence (``_is_known``)
     is the cross-run dedup.
     """
+    # CA-22/P11: document-shaped delegated pipeline (commits via the world-model
+    # gate's own ApplyChangeEnvelope path) -- AST-reachability call to the
+    # preflight chokepoint; batch=[] checks nothing per-record until a manifest
+    # declares conflict_policy for "rss".
+    _apply_with_preflight(engine, "rss", [])
+
     from ...automation.feed_sources import (
         _scholarx_mcp_configured,
         list_feed_sources,
@@ -1995,6 +2287,12 @@ def _sync_arxiv(
     valid listing (``ArxivConnector`` raises without categories), so this handler
     skips cleanly rather than defaulting to a firehose-shaped category set.
     """
+    # CA-22/P11: document-shaped delegated pipeline (commits via the world-model
+    # gate's own ApplyChangeEnvelope path) -- AST-reachability call to the
+    # preflight chokepoint; batch=[] checks nothing per-record until a manifest
+    # declares conflict_policy for "arxiv".
+    _apply_with_preflight(engine, "arxiv", [])
+
     from ...automation.feed_sources import upsert_feed_source
     from ...automation.worldmodel_pipeline import WorldModelPipelineRunner
     from ...core.config import config as _cfg
@@ -2085,6 +2383,12 @@ def _sync_gitlab(
     ``mode='full'`` re-indexes all; delta uses a per-instance ``last_activity_at``
     watermark; ``ids`` narrows to specific projects (webhook delta).
     """
+    # CA-22/P11: document-shaped delegated pipeline (commits via gitlab_indexer's
+    # own index_repository/ApplyChangeEnvelope path, not a ChangeEnvelope built
+    # here) -- AST-reachability call to the preflight chokepoint; batch=[] checks
+    # nothing per-record until a manifest declares conflict_policy for "gitlab".
+    _apply_with_preflight(engine, "gitlab", [])
+
     from .gitlab_indexer import (
         GitLabRestSource,
         GitLabSource,
@@ -2638,6 +2942,12 @@ def _sync_confluence(
     per-suite override in ``atlassian_agent.auth.get_confluence_cloud_client``;
     otherwise the client falls back to the Jira base URL and every call 404s.
     """
+    # CA-22/P11: document-shaped delegated pipeline (commits via DocumentProcessor's
+    # own ApplyChangeEnvelope path, not a ChangeEnvelope built here) -- AST-
+    # reachability call to the preflight chokepoint; batch=[] checks nothing
+    # per-record until a manifest declares conflict_policy for "confluence".
+    _apply_with_preflight(engine, "confluence", [])
+
     instances = _resolve_tracker_instances(
         "confluence_instances",
         default_name="confluence",
@@ -2882,6 +3192,27 @@ def _ingest_entities_via_envelope(
                 checkpoint=record.get(version_field),
             )
         )
+    # CA-22/P11 preflight chokepoint: classify every envelope, then truncate to the
+    # CONTIGUOUS prefix before the first blocked one — a preflight block must stop
+    # the watermark advance exactly like a backend rejection does below (a later
+    # envelope's newer checkpoint must never be committed past an unapplied earlier
+    # one). Blocked envelopes (and everything after, this pass) are retried on the
+    # next sync run, same as any other break-on-first-failure outcome here.
+    _, _preflight_blocked = _apply_with_preflight(
+        engine, connector, batch, source_instance=source_instance
+    )
+    if _preflight_blocked:
+        _first_blocked_idx = min(_entry["index"] for _entry in _preflight_blocked)
+        batch = batch[:_first_blocked_idx]
+        for _entry in _preflight_blocked:
+            failed += 1
+            logger.warning(
+                "%s envelope %s blocked by backfeed preflight: %s",
+                connector,
+                getattr(_entry["envelope"], "idempotency_key", "?"),
+                _entry["conflict_or_rejection"],
+            )
+
     # Walk the per-envelope results in checkpoint order and advance the watermark ONLY
     # through the last CONTIGUOUS success — identical guarantee to the prior per-record
     # break-on-first-failure loop (a later envelope can carry a newer cursor, so a gap
@@ -3985,6 +4316,15 @@ def _sync_paperless_ngx(
     three-preset document/correspondent/tag pull is intentionally not used because
     it exposed raw provider fields and was not the contract the manifest certified.
     """
+    # CA-22/P11: this handler commits via ``ingest_graph_slice`` directly (a 4th
+    # write-path shape the lane brief's classification missed -- caught by
+    # check_handler_preflight.py itself, not the shared _ingest_entities_via_
+    # envelope tail every other "typed OWL entity" handler uses), so it needs
+    # its own reachability call to the preflight chokepoint; batch=[] checks
+    # nothing per-record until a manifest declares conflict_policy for
+    # "paperless_ngx".
+    _apply_with_preflight(engine, "paperless_ngx", [])
+
     server = _configured_server(("paperless-ngx-mcp", "paperless-ngx-agent"))
     if client is None and server is None:
         return {"status": "skipped", "reason": "paperless-ngx-mcp not in mcp_config"}
@@ -4698,12 +5038,19 @@ def _sync_claude_memory(
         if rel_links:
             record["_links"] = rel_links
 
-        env = ChangeEnvelope.from_connector_record(
+        env: ChangeEnvelope | None = ChangeEnvelope.from_connector_record(
             record,
             connector="claude_memory",
             id_field="id",
             version_field="content_version",
         )
+        env, _blocked = _apply_with_preflight_one(engine, "claude_memory", env)
+        if env is None:
+            failed += 1
+            logger.warning(
+                "claude_memory envelope blocked by backfeed preflight: %s", _blocked
+            )
+            continue
         result = ingest_envelope(engine, env)
         if result.get("status") not in {"success", "skipped"}:
             failed += 1
@@ -4770,6 +5117,27 @@ _DELTA_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
     "systems-manager": _sync_systems_manager,
     "vector-mcp": _sync_vector_mcp,
 }
+
+# CA-21 -> CA-22 (ordered pair, same wave, this lane merges second): CA-21's
+# Debezium/CDC consumer registers its own catchup handler by name via
+# ``debezium_envelope.register_envelope_source("cdc", run_cdc_catchup)`` at
+# import time (``ingestion/debezium_envelope.py:434``); this is the one-line
+# wiring that makes ``_DELTA_HANDLERS`` — and therefore ``ENVELOPE_NATIVE_
+# SOURCES`` (the derived-set formula immediately below, unconditionally) —
+# pick it up automatically. ``get_envelope_source`` returns
+# ``Callable[..., dict[str, Any]] | None``; a ``None`` (module not yet
+# imported/registered) is intentionally never inserted — an absent CDC
+# handler must fall through to the ordinary full-hydrate path, not a
+# ``_DELTA_HANDLERS["cdc"] = None`` entry that would crash ``sync_source``'s
+# dispatch on call.
+from ..ingestion.debezium_envelope import (
+    get_envelope_source as _get_cdc_envelope_source,
+)
+
+_cdc_handler = _get_cdc_envelope_source("cdc")
+if _cdc_handler is not None:
+    _DELTA_HANDLERS["cdc"] = _cdc_handler
+del _cdc_handler
 
 # AU-P1-5 (CONCEPT:AU-KG.ingest.envelope-atomic-transaction) — enumerated migration
 # status of every ``_DELTA_HANDLERS`` entry so there is no silent gap between "one
