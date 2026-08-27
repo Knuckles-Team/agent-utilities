@@ -536,6 +536,3800 @@ def _register_mcp_server(name: str, raw_definition: str) -> None:
 logger = logging.getLogger(__name__)
 
 
+# CX-AU-03: _run_analysis_action's if/elif action-dispatch chain (CCN 289)
+# extracted into one module-level async handler per action, called through
+# a dict dispatch table. Mechanical extract-method: each handler's body is
+# the original branch body, moved verbatim (reindented) with a uniform
+# (engine, action, query, top_k, node_id, depth, target) signature so the
+# dispatcher needs no per-branch call-site logic. Behaviour-preserving;
+# see tests/characterization/test_run_analysis_action_characterization.py.
+
+
+async def _analysis_action_synthesize(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'synthesize', 'deep_extract', 'background_research', 'relevance_sweep'
+    job_id = await run_blocking_ordered(
+        engine.submit_task,
+        target_path=query or target or "none",
+        is_codebase=False,
+        task_type=action,
+        provenance={
+            "top_k": top_k,
+            "node_id": node_id,
+            "depth": depth,
+            "target": target,
+        },
+        skip_dedupe=True,
+    )
+    return f"Job submitted as '{job_id}'. Use graph_ingest(action='status', job_id='{job_id}') to check the result."
+
+
+async def _analysis_action_blast_radius(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'blast_radius'
+    if not node_id:
+        return "Error: node_id required for blast_radius"
+    radius = await run_blocking_ordered(engine.get_blast_radius, node_id, depth)
+    if not radius:
+        return f"No dependencies found for {node_id} within depth {depth}."
+    return "\n".join(
+        [f"[{n['node_type']}] {n['id']} (Depth: {n['depth']})" for n in radius]
+    )
+
+
+async def _analysis_inspect_props(engine, ident):
+    # extracted from 'inspect' (CX-AU-03: split for CCN) — property lookup,
+    # preferring a parameterized Cypher read, falling back to bounded_read.
+    props: dict[str, Any] = {}
+    try:
+        rows = await run_blocking_ordered(
+            engine.query_cypher,
+            "MATCH (n {id: $ident}) RETURN n AS node, labels(n) AS labels LIMIT 1",
+            {"ident": ident},
+        )
+    except Exception as e:  # noqa: BLE001 — fall back below
+        logger.warning(
+            "inspect: query_cypher lookup failed for %s (exception_type=%s)",
+            ident,
+            type(e).__name__,
+        )
+        rows = None
+    if rows:
+        node = rows[0].get("node")
+        if isinstance(node, dict):
+            props = dict(node)
+        labels = rows[0].get("labels") or []
+        if labels and "node_type" not in props:
+            props["node_type"] = labels[0]
+    if not props:
+        from agent_utilities.knowledge_graph.core.bounded_read import (
+            get_node_data,
+        )
+
+        props = get_node_data(engine.graph_compute, ident) or {}
+    return props
+
+
+async def _analysis_inspect_neighbors(engine, ident):
+    # extracted from 'inspect' (CX-AU-03: split for CCN) — O(1) neighbor/
+    # degree lookup, best-effort.
+    neighbors: list[str] = []
+    degree = 0
+    try:
+        neighbors = list(engine.graph_compute.neighbors(ident))
+        degree = engine.graph_compute.degree(ident)
+    except Exception as e:  # noqa: BLE001 — best-effort structural read
+        logger.warning(
+            "inspect: neighbor/degree lookup failed for %s (exception_type=%s)",
+            ident,
+            type(e).__name__,
+        )
+    return neighbors, degree
+
+
+async def _analysis_action_inspect(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'inspect'
+    import json as _json
+
+    ident = (target or query or node_id or "").strip()
+    if not ident:
+        return "Error: target (or query/node_id) required for inspect"
+
+    props = await _analysis_inspect_props(engine, ident)
+    neighbors, degree = await _analysis_inspect_neighbors(engine, ident)
+
+    if not props and not neighbors:
+        return f"No node found for {ident!r}."
+
+    limit = top_k if isinstance(top_k, int) and top_k > 0 else 10
+    return _json.dumps(
+        {
+            "id": ident,
+            "properties": props,
+            "degree": degree,
+            "neighbor_count": len(neighbors),
+            "neighbors": neighbors[:limit],
+        },
+        indent=2,
+        default=str,
+    )
+
+
+async def _analysis_action_enrichment_coverage(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'enrichment_coverage'
+    import json as _json
+
+    from agent_utilities.knowledge_graph.enrichment.query import (
+        enrichment_coverage,
+    )
+
+    backend = getattr(engine, "backend", None)
+    if backend is None:
+        return "Error: no graph backend available."
+    gname = getattr(getattr(engine, "graph_compute", None), "graph_name", None)
+    return _json.dumps(enrichment_coverage(backend, graph_name=gname), indent=2)
+
+
+async def _analysis_action_process_writeback(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'process_writeback'
+    import json as _json
+
+    from agent_utilities.knowledge_graph.enrichment.writeback import (
+        run_writeback,
+    )
+
+    scope = (target or "both").strip().lower()
+    process_ids = [p.strip() for p in query.split(",") if p.strip()] if query else None
+    backend = getattr(engine, "backend", None)
+    return _json.dumps(
+        run_writeback(
+            "process",
+            backend=backend,
+            engine=engine,
+            dry_run=False,
+            scope=scope,
+            process_ids=process_ids,
+        )
+    )
+
+
+async def _analysis_action_context(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'context'
+    try:
+        from agent_utilities.knowledge_graph.memory import (
+            build_startup_payload,
+        )
+
+        payload = build_startup_payload(
+            engine,
+            agent=target or None,
+            cwd=query or None,
+            budget_chars=top_k * 1000 if top_k != 10 else 24000,
+        )
+        return payload.text
+    except Exception as e:
+        return public_error_text(e)
+
+
+async def _analysis_action_evaluate_alpha(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'evaluate_alpha'
+    from agent_utilities.knowledge_graph.core.quant_tasks import (
+        execute_quant_task,
+    )
+
+    res = execute_quant_task(engine, "run_qlib_backtest", {"target": target or query})
+    return json.dumps(res)
+
+
+async def _analysis_action_evaluate(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'evaluate', 'evolve_model', 'forecast', 'causal', 'invariant'
+    _NOT_IMPLEMENTED_HINT = {
+        "evaluate": (
+            "'evaluate_alpha' (quant backtests), 'evaluate_harness', "
+            "or 'check_constraints' on this same graph_evaluate/graph_analyze surface"
+        ),
+        "evolve_model": (
+            "the data-science-mcp model-training/evolution surface "
+            "(heavy ML training does not belong in agent-utilities)"
+        ),
+        "forecast": (
+            "engine_timeseries (native TSDB) or "
+            "graph_mine_deep(action='deep_forecast'), which delegates to data-science-mcp"
+        ),
+        "causal": (
+            "graph_ops_causal (agent_utilities/mcp/tools/ops_causal_tools.py) — "
+            "a real root-cause/causal-graph implementation already exists there"
+        ),
+        "invariant": (
+            "agent_utilities.knowledge_graph.core.formal_reasoning_core."
+            "FiniteStateMachine (add_invariant/validate_invariants) directly, "
+            "or 'check_constraints' on this surface for a different kind of check"
+        ),
+    }
+    return json.dumps(
+        {
+            "status": "not_implemented",
+            "error": (
+                f"Action '{action}' is not implemented on this surface — "
+                f"use {_NOT_IMPLEMENTED_HINT[action]}."
+            ),
+            "action": action,
+        }
+    )
+
+
+async def _analysis_action_security_scan(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'security_scan'
+    return json.dumps(
+        {
+            "status": "not_implemented",
+            "error": (
+                "Action 'security_scan' is not implemented on this surface — "
+                "use the security-vulnerability-scan / security-patch-sweep "
+                "skill, or engine_rbac / graph_audit for KG-native access and "
+                "integrity checks."
+            ),
+            "action": action,
+            "target": target,
+        }
+    )
+
+
+async def _analysis_action_placement_plan(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'placement_plan'
+    import json as _json
+
+    from agent_utilities.knowledge_graph.infra import optimize_from_graph
+
+    return _json.dumps(optimize_from_graph(engine), indent=2, default=str)
+
+
+async def _analysis_action_infra_sweep(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'infra_sweep'
+    import json as _json
+
+    from agent_utilities.knowledge_graph.infra import collect_and_persist
+
+    host_ids = [h.strip() for h in (target or query or "").split(",") if h.strip()]
+    return _json.dumps(collect_and_persist(engine, host_ids), indent=2, default=str)
+
+
+async def _analysis_action_specialize(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'specialize'
+    import json as _json
+
+    from agent_utilities.harness.superhuman_gate import SuperhumanCertifier
+    from agent_utilities.harness.world_model_task import (
+        specialize_world_model_from_engine,
+    )
+
+    summary = specialize_world_model_from_engine(
+        engine, certifier=SuperhumanCertifier()
+    )
+    if summary is None:
+        return _json.dumps(
+            {
+                "status": "noop",
+                "reason": "insufficient WorldModelTransition history to specialize",
+            }
+        )
+    return _json.dumps({"status": "ok", **summary}, default=str)
+
+
+async def _analysis_action_world_model_rollout(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'world_model_rollout'
+    from agent_utilities.knowledge_graph.core.world_model import WorldModel
+
+    world_model = WorldModel.from_engine(engine, latent=True)
+    start = (query or "").strip()
+    horizon = int(top_k) if top_k else 8
+    repeat_action = "advance"
+    traj = world_model.rollout(start, lambda _s: repeat_action, horizon)
+    rollout_id = world_model.persist_rollout(traj)
+    return json.dumps(
+        {
+            "status": "ok",
+            "start": start,
+            "horizon": horizon,
+            "rollout_id": rollout_id,
+            "expected_return": round(world_model.expected_return(traj), 4),
+            "total_drift": round(sum(t.drift for t in traj), 4),
+            "steps": [t.as_dict() for t in traj],
+        },
+        default=str,
+    )
+
+
+async def _analysis_action_research_ingest(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'research_ingest'
+    from agent_utilities.knowledge_graph.research.research_intelligence_engine import (  # noqa: E501
+        ResearchIntelligenceEngine,
+    )
+
+    if not query:
+        return "Error: research_ingest needs a URL/paper id in `query`."
+    rie = ResearchIntelligenceEngine(engine)
+    return await rie.ingest_url(query)
+
+
+async def _analysis_action_evolve_variants(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'evolve_variants'
+    from agent_utilities.harness.agentic_evolution_engine import (
+        AgenticEvolutionEngine,
+    )
+
+    if not query:
+        return "Error: evolve_variants needs a base_id in `query`."
+    aee = AgenticEvolutionEngine(engine)
+    result = aee.run_evolution_cycle(
+        base_id=query,
+        task_text=node_id or "",
+        top_k=top_k if top_k else 3,
+    )
+    return json.dumps(result, default=str)
+
+
+async def _analysis_action_spawn_background(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'spawn_background'
+    from agent_utilities.harness.background_spawner import (
+        BackgroundAgentSpawner,
+    )
+
+    if not engine:
+        return "Error: spawn_background requires an active engine."
+    if not query:
+        return "Error: spawn_background needs a task description in `query`."
+    spawner = BackgroundAgentSpawner(engine)
+    team = spawner.orchestrator.synthesize_team(
+        query=query,
+        domain=target or "background_operations",
+        complexity=depth if depth > 0 else 4,
+    )
+    return json.dumps(
+        {
+            "status": "ok",
+            "team_id": team.team_id,
+            "team_name": getattr(team, "team_name", "background_team"),
+            "agent_count": len(getattr(team, "agents", [])),
+        },
+        default=str,
+    )
+
+
+async def _analysis_action_track_citations(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'track_citations'
+    from agent_utilities.harness.citation_tracker import CitationTracker
+
+    if not query:
+        return "Error: track_citations needs agent response text in `query`."
+    tracker = CitationTracker()
+    citations = tracker.extract_citations(query)
+    if not citations:
+        return json.dumps({"status": "no_citations", "total": 0, "citations": []})
+    citation_data = [
+        {
+            "source_id": c.source_id,
+            "citation_type": c.citation_type,
+            "raw_text": c.raw_text,
+            "confidence": c.confidence,
+        }
+        for c in citations
+    ]
+    report = tracker.evaluate_citations(
+        citations,
+        retrieved_doc_ids=set(json.loads(target)) if target else None,
+        gold_doc_ids=set(json.loads(node_id)) if node_id else None,
+    )
+    return json.dumps(
+        {
+            "status": "extracted",
+            "total_citations": report.total_citations,
+            "precision": report.precision,
+            "recall": report.recall,
+            "f1": report.f1,
+            "citations": citation_data,
+            "hallucinated_citations": report.hallucinated_citations,
+            "uncited_evidence": report.uncited_evidence,
+            "citation_types": report.citation_types,
+        },
+        default=str,
+    )
+
+
+async def _analysis_action_check_constraints(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'check_constraints'
+    from agent_utilities.harness.constraint_engine import (
+        ConstraintEngine,
+    )
+
+    if not query:
+        return "Error: check_constraints needs a tool_name in `query`."
+    if not engine:
+        return "Error: check_constraints requires a knowledge engine to instantiate ConstraintEngine."
+    ce = ConstraintEngine(knowledge_engine=engine)
+    allowed, violations = ce.check_tool_call(
+        tool_name=query,
+        args={"target": target} if target else None,
+    )
+    result = {
+        "allowed": allowed,
+        "tool_name": query,
+        "violations": [
+            {
+                "constraint_id": v.constraint_id,
+                "violation_context": v.violation_context,
+                "timestamp": v.timestamp,
+                "auto_blocked": v.auto_blocked,
+            }
+            for v in violations
+        ],
+    }
+    return json.dumps(result, default=str)
+
+
+async def _analysis_action_guard_corpus(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'guard_corpus'
+    from agent_utilities.harness.corpus_collapse_guard import (
+        CorpusCollapseGuard,
+    )
+
+    guard = CorpusCollapseGuard()
+    return json.dumps(guard.diagnostics(), default=str)
+
+
+async def _analysis_action_evaluate_harness(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'evaluate_harness'
+    from agent_utilities.harness.evaluation_engine import EvaluationEngine
+
+    if not query:
+        return "Error: evaluate_harness needs a trajectory_id in `query`."
+    eval_engine = EvaluationEngine(engine)
+    result = eval_engine.evaluate_and_decompose(
+        trajectory_id=query,
+        steps=[],
+        goal_achieved=True,
+        reasoning_effort=0.5,
+    )
+    return json.dumps(result, default=str)
+
+
+async def _analysis_action_evolve_agent(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'evolve_agent'
+    from agent_utilities.harness.evidence_corpus import EvidenceCorpus
+    from agent_utilities.harness.evolve_agent import EvolveAgent
+
+    if not query:
+        return "Error: evolve_agent needs an evidence corpus ID or path in `query`."
+    try:
+        workspace_path = os.getcwd()  # Fallback; ideally passed as param
+        evolve = EvolveAgent(
+            workspace_path=workspace_path,
+            registry=None,
+            knowledge_engine=engine,
+        )
+        # Best-effort: construct minimal EvidenceCorpus from query.
+        # In real usage, this would load from .specify/ or KG.
+        evidence = EvidenceCorpus(
+            round_id=query,
+            benchmark_score=0.5,
+            pass_rate=0.5,
+            total_tasks=0,
+        )
+        manifest = await evolve.evolve(evidence)
+        return json.dumps(manifest.model_dump(), default=str)
+    except Exception as e:
+        return public_error_text(e)
+
+
+async def _analysis_action_recursive_distill(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'recursive_distill'
+    from agent_utilities.harness.recursive_distill import RecursiveDistiller
+
+    if not engine:
+        return "Error: recursive_distill requires an active engine."
+    # RecursiveDistiller needs external-compute injections (corpus_source,
+    # trainer, evaluate_model, promote). Report what it expects so the
+    # caller can wire a distillation daemon (CONCEPT:AU-AHE.optimization.recursive-distillation-loop).
+    return json.dumps(
+        {
+            "status": "needs_injection",
+            "entry": "RecursiveDistiller.maybe_distill",
+            "requires": [
+                "corpus_source",
+                "trainer",
+                "evaluate_model",
+                "promote",
+            ],
+            "available": RecursiveDistiller is not None,
+        }
+    )
+
+
+async def _analysis_action_distill_search(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'distill_search'
+    from agent_utilities.harness.search_distillation import (
+        SearchDistillationHarvester,
+    )
+
+    if not query:
+        return "Error: distill_search needs a prompt in `query`."
+    harvester = SearchDistillationHarvester(engine)
+    candidates = [
+        (f"candidate_{i}", float(i) / max(1, top_k)) for i in range(1, top_k + 1)
+    ]
+    rows, pairs = harvester.harvest_candidates(query, candidates)
+    result = {
+        "sft_rows": [
+            {
+                "prompt": r.prompt,
+                "completion": r.completion,
+                "score": r.score,
+                "source": r.source,
+                "synthetic": r.synthetic,
+            }
+            for r in rows
+        ],
+        "preference_pairs": [
+            {"prompt": p.prompt, "chosen": p.chosen, "rejected": p.rejected}
+            for p in pairs
+        ],
+    }
+    return json.dumps(result, default=str)
+
+
+async def _analysis_action_extract_claims(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'extract_claims'
+    from agent_utilities.knowledge_graph.kb.entity_claim_extractor import (
+        EntityClaimExtractor,
+    )
+
+    if not query:
+        return "Error: extract_claims needs document content in `query`."
+    ece = EntityClaimExtractor(engine)
+    ext_result = ece.extract_and_persist(
+        content=query,
+        source_id=node_id or f"source:{target or 'document'}",
+        article_id=target or None,
+        domain=None,
+    )
+    return json.dumps(ext_result.model_dump(), default=str)
+
+
+def _analysis_contradiction_claims(neighbours, claim_cls):
+    # extracted from 'contradictions' (CX-AU-03: split for CCN) — build the
+    # existing-Claim list from search_hybrid neighbour rows.
+    return [
+        claim_cls(
+            id=str(n.get("id") or (n.get("node", {}) or {}).get("id") or i),
+            text=str(
+                n.get("description")
+                or n.get("name")
+                or (n.get("node", {}) or {}).get("description")
+                or ""
+            ),
+        )
+        for i, n in enumerate(neighbours)
+        if isinstance(n, dict)
+    ]
+
+
+def _analysis_contradiction_results(
+    findings, new_claim, existing_by_id, llm_fn, narrate_fn
+):
+    # extracted from 'contradictions' (CX-AU-03: split for CCN) — attach a
+    # best-effort LLM maintenance narration to each deterministic finding.
+    results = []
+    for f in findings:
+        entry: dict[str, Any] = {
+            "new_id": f.new_id,
+            "conflict_id": f.conflict_id,
+            "similarity": round(f.similarity, 3),
+            "severity": f.severity,
+            "reason": f.reason,
+        }
+        maintenance = narrate_fn(
+            f,
+            new_text=new_claim.text,
+            existing_text=existing_by_id.get(f.conflict_id, ""),
+            llm_fn=llm_fn,
+        )
+        if maintenance:
+            entry["maintenance"] = maintenance
+        results.append(entry)
+    return results
+
+
+async def _analysis_action_contradictions(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'contradictions'
+    from agent_utilities.knowledge_graph.adaptation.contradiction_detector import (  # noqa: E501
+        Claim,
+        ContradictionDetector,
+    )
+
+    if not query:
+        return "Error: contradictions needs the new claim text in `query`."
+    # skip_quality_gate=True: this is a propose-only friction SCAN, not
+    # a confident-answer retrieval — the quality gate exists to avoid
+    # presenting a low-relevance result AS the answer, which doesn't
+    # apply here. ContradictionDetector.check() below does its own
+    # independent opposition/similarity scoring per candidate, so a
+    # weak neighbour is still legitimate input for human-judgment
+    # review (never auto-resolved); the gate would otherwise silently
+    # zero out every candidate and make the whole action a no-op
+    # whenever relevance is merely borderline.
+    neighbours = (
+        await run_blocking_ordered(
+            engine.search_hybrid,
+            query,
+            top_k=top_k,
+            skip_quality_gate=True,
+        )
+        or []
+    )
+    existing = _analysis_contradiction_claims(neighbours, Claim)
+    new_claim = Claim(id=node_id or "new", text=query)
+    findings = ContradictionDetector().check(new_claim, existing)
+
+    # CONCEPT:AU-KG.retrieval.graph-engineering-canonical-prompts — the
+    # graph-maintenance canonical prompt, wired onto this EXISTING
+    # contradiction/TMS path as a best-effort LLM recommendation layered
+    # on top of the deterministic detector above (propose-only, same
+    # contract). Resolved ONCE (not per finding) and degrades to no
+    # "maintenance" key at all with no LLM configured — identical JSON
+    # shape to before this was added.
+    from agent_utilities.knowledge_graph.retrieval.graph_engineering import (
+        narrate_maintenance_action,
+        resolve_llm_fn,
+    )
+
+    existing_by_id = {c.id: c.text for c in existing}
+    llm_fn = resolve_llm_fn() if findings else None
+    results = _analysis_contradiction_results(
+        findings, new_claim, existing_by_id, llm_fn, narrate_maintenance_action
+    )
+    return json.dumps(results, default=str)
+
+
+async def _analysis_action_evolve_code(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'evolve_code'
+    from agent_utilities.harness.agentic_evolution_engine import (
+        AgenticEvolutionEngine,
+    )
+
+    if not query:
+        return "Error: evolve_code needs a task description in `query`."
+
+    def _llm_coder(plan: str, prior_code: str | None) -> tuple[str, str]:
+        try:
+            from agent_utilities.rlm.client import RLM
+
+            prompt = (
+                "Improve the code solution for this task. Return ONLY the "
+                "full updated Python code, no prose.\n"
+                f"Task: {query}\nStep plan: {plan}\n"
+                f"Current code:\n{prior_code or '(none)'}"
+            )
+            resp = RLM().completion(prompt)
+            if resp.ok and resp.response.strip():
+                return (plan, resp.response)
+        except Exception:  # noqa: BLE001 — offline / LLM error -> fallback
+            pass
+        return (plan, f"{prior_code or ''}\n# step for: {plan}".strip())
+
+    result = await asyncio.to_thread(
+        lambda: AgenticEvolutionEngine(engine).evolve_via_graph_search(
+            query, num_steps=top_k, coder_fn=_llm_coder
+        )
+    )
+    return json.dumps(result, default=str)
+
+
+async def _analysis_action_night_shift(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'night_shift'
+    from agent_utilities.knowledge_graph.research.night_shift import (
+        NightShiftSwarm,
+    )
+
+    if not target:
+        return "Error: night_shift needs the vault root path in `target`."
+
+    def _llm_extract(source_text: str) -> list[str]:
+        # Real LLM Cataloger (CONCEPT:AU-ORCH.execution.drop-rlm-completion-client RLM): split a source into
+        # atomic ideas; deterministic paragraph/sentence splitter fallback.
+        try:
+            from agent_utilities.rlm.client import RLM
+
+            prompt = (
+                "Extract the atomic ideas from the text below as a list, "
+                "one self-contained claim per line:\n\n" + source_text
+            )
+            resp = RLM().completion(prompt)
+            if resp.ok and resp.response.strip():
+                atoms = [
+                    line.lstrip("0123456789.-) \t").strip()
+                    for line in resp.response.splitlines()
+                    if line.strip()
+                ]
+                if atoms:
+                    return atoms
+        except Exception:  # noqa: BLE001 — offline / LLM error -> fallback
+            pass
+        from agent_utilities.knowledge_graph.research.night_shift import (
+            default_extract,
+        )
+
+        return default_extract(source_text)
+
+    shift_report = await asyncio.to_thread(
+        lambda: NightShiftSwarm(target, extract_fn=_llm_extract).run_shift()
+    )
+    return json.dumps(
+        {
+            "sources_ingested": shift_report.sources_ingested,
+            "atoms_created": shift_report.atoms_created,
+            "links_added": shift_report.links_added,
+            "frictions": shift_report.frictions,
+            "briefing_path": shift_report.briefing_path,
+        },
+        default=str,
+    )
+
+
+def _analysis_recommend_candidate_items(engine, query, top_k):
+    # extracted from 'recommend'._recommend (CX-AU-03: split for CCN) —
+    # search_hybrid candidates -> (id, embedding) pairs.
+    # CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval — pass the served
+    # call's ambient GraphSession so candidate nodes are ACL/owner-scope
+    # filtered before they reach the recommender (see search_hybrid's
+    # docstring — a no-op for callers that pass no session).
+    from agent_utilities.knowledge_graph.core.session import current_session
+
+    candidates = (
+        engine.search_hybrid(query, top_k=max(top_k * 4, 20), session=current_session())
+        or []
+    )
+    items = []
+    for c in candidates:
+        if not isinstance(c, dict):
+            continue
+        inner = c.get("node", c)
+        inner = inner if isinstance(inner, dict) else {}
+        emb = inner.get("embedding")
+        cid = str(inner.get("id") or c.get("id") or "")
+        if emb and cid:
+            items.append((cid, emb))
+    return items
+
+
+def _analysis_recommend_query_embedding(engine, query):
+    # extracted from 'recommend'._recommend (CX-AU-03: split for CCN) —
+    # best-effort query embedding; anchors on the top item on failure.
+    embed_model = getattr(
+        getattr(engine, "hybrid_retriever", None), "embed_model", None
+    )
+    if embed_model is None:
+        return None
+    try:
+        return embed_model.get_text_embedding(query)
+    except Exception:  # noqa: BLE001 — embedder down -> anchor on top item
+        return None
+
+
+async def _analysis_action_recommend(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'recommend'
+    from agent_utilities.knowledge_graph.retrieval.generative_recommender import (  # noqa: E501
+        ImplicitReasoningRecommender,
+    )
+    from agent_utilities.knowledge_graph.retrieval.temporal_semantic_id import (  # noqa: E501
+        TemporalSemanticIdEncoder,
+    )
+
+    if not query:
+        return "Error: recommend needs a query/intent in `query`."
+
+    def _recommend() -> list[Any] | None:
+        items = _analysis_recommend_candidate_items(engine, query, top_k)
+        if not items:
+            return None
+        qemb = _analysis_recommend_query_embedding(engine, query)
+        recommender = ImplicitReasoningRecommender(TemporalSemanticIdEncoder())
+        recommender.fit_catalog(items)
+        return recommender.recommend(qemb or items[0][1], top_k=top_k)
+
+    recs = await run_blocking_ordered(_recommend)
+    if recs is None:
+        return json.dumps([])
+    return json.dumps(
+        [
+            {
+                "item_id": r.item_id,
+                "semantic_id": list(r.semantic_id),
+                "score": r.score,
+            }
+            for r in recs
+        ],
+        default=str,
+    )
+
+
+async def _analysis_action_assimilation_benchmark(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'assimilation_benchmark'
+    from agent_utilities.harness.assimilation_benchmark import (
+        run_all as _bench_run_all,
+    )
+    from agent_utilities.harness.assimilation_benchmark import (
+        to_markdown as _bench_md,
+    )
+
+    bench_results = _bench_run_all(seed=int(top_k) if top_k else 0)
+    return json.dumps(
+        {
+            "reproduced": sum(1 for r in bench_results if r.claim_reproduced),
+            "total": len(bench_results),
+            "results": [
+                {
+                    "name": r.name,
+                    "metric": r.metric,
+                    "baseline": r.baseline,
+                    "ours": r.ours,
+                    "lift": r.lift,
+                    "claim_reproduced": r.claim_reproduced,
+                }
+                for r in bench_results
+            ],
+            "markdown": _bench_md(bench_results),
+        },
+        default=str,
+    )
+
+
+async def _analysis_action_latent_efficiency_benchmark(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'latent_efficiency_benchmark'
+    from agent_utilities.harness.latent_efficiency_benchmark import (
+        run_all as _lat_run_all,
+    )
+    from agent_utilities.harness.latent_efficiency_benchmark import (
+        to_markdown as _lat_md,
+    )
+
+    lat_results = _lat_run_all(seed=int(top_k) if top_k else 0)
+    return json.dumps(
+        {
+            "reproduced": sum(1 for r in lat_results if r.claim_reproduced),
+            "total": len(lat_results),
+            "results": [
+                {
+                    "name": r.name,
+                    "metric": r.metric,
+                    "baseline": r.baseline,
+                    "ours": r.ours,
+                    "lift": r.lift,
+                    "claim_reproduced": r.claim_reproduced,
+                }
+                for r in lat_results
+            ],
+            "markdown": _lat_md(lat_results),
+        },
+        default=str,
+    )
+
+
+async def _analysis_action_infer_links(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'infer_links'
+    from agent_utilities.knowledge_graph.kb.link_inference import (
+        infer_links,
+    )
+    from agent_utilities.models.schema_pack_loader import get_active_pack
+
+    if not query:
+        return "Error: infer_links needs content text in `query`."
+    if not node_id:
+        return "Error: infer_links needs a source node ID in `node_id`."
+
+    schema_pack = get_active_pack()
+    if not schema_pack or not getattr(schema_pack, "link_inference", None):
+        return "Error: no active schema pack with link_inference rules available."
+
+    rules = schema_pack.link_inference
+    extracted = infer_links(query, node_id, rules)
+
+    return json.dumps(
+        [
+            {
+                "source_name": rel.source_name,
+                "target_name": rel.target_name,
+                "relationship_type": rel.relationship_type,
+                "confidence": rel.confidence,
+            }
+            for rel in extracted
+        ],
+        default=str,
+    )
+
+
+async def _analysis_action_x_workflow(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'x_workflow'
+    from agent_utilities.knowledge_graph.kb.x_workflows import (
+        register_x_workflows,
+    )
+
+    if not engine:
+        return "Error: x_workflow requires an active IntelligenceGraphEngine."
+    force = query.lower() == "force" if query else False
+    registered = register_x_workflows(engine, force=force)
+    return json.dumps(registered, default=str)
+
+
+async def _analysis_action_cleanup_documents(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'cleanup_documents'
+    from agent_utilities.knowledge_graph.maintenance.document_cleanup import (
+        DocumentCleanup,
+    )
+
+    cleanup = DocumentCleanup(engine)
+    result = await cleanup.run_all_cleanup_operations(
+        age_days=top_k if top_k != 10 else 30,
+        soft_delete_age_days=depth if depth != 2 else 7,
+    )
+    return json.dumps(result, default=str)
+
+
+async def _analysis_action_epistemic_sync(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'epistemic_sync'
+    from agent_utilities.workflows.epistemic_sync import (
+        EpistemicSyncWorkflow,
+    )
+
+    workflow = EpistemicSyncWorkflow()
+    await workflow.run_sync_cycle()
+    return json.dumps(
+        {
+            "status": "sync_cycle_completed",
+            "message": "Epistemic Sync cycle executed successfully. Check logs for details on entities ingested and mutations flushed.",
+        }
+    )
+
+
+async def _analysis_action_pick_skill(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'pick_skill'
+    from agent_utilities.workflows.skill_picker import (
+        SkillCandidate,
+        SkillPicker,
+    )
+
+    if not query:
+        return "Error: pick_skill needs a skill query in `query`."
+    picker = SkillPicker()
+    # Without a skill registry endpoint or hardcoded candidates,
+    # we cannot populate the candidate list. Placeholder shows the API.
+    skill_candidates: list[SkillCandidate] = []
+    ranked = picker.rank(query, skill_candidates)
+    return json.dumps(
+        [
+            {
+                "name": s.candidate.name,
+                "score": s.score,
+                "breakdown": s.breakdown,
+                "scenario": s.candidate.resolved_scenario(),
+            }
+            for s in ranked
+        ],
+        default=str,
+    )
+
+
+async def _analysis_action_quant_banking(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'quant_banking'
+    from agent_utilities.domains.finance.banking import KYCAMLEngine
+
+    if not query:
+        return "Error: quant_banking needs a transaction_id in `query`."
+    # Use query as transaction_id; derive account_id and amount from context
+    # or use sensible defaults for a compliance check
+    engine_instance = KYCAMLEngine()
+    alert = engine_instance.check_transaction(
+        transaction_id=query,
+        account_id=f"account:{query[:8]}",
+        amount=float(target)
+        if target and target.replace(".", "").isdigit()
+        else 10000.0,
+    )
+    if alert is None:
+        return json.dumps({"status": "compliant", "transaction_id": query})
+    return json.dumps(
+        {
+            "status": "alert",
+            "alert_id": alert.id,
+            "transaction_id": alert.transaction_id,
+            "account_id": alert.account_id,
+            "severity": alert.severity.value,
+            "alert_type": alert.alert_type,
+            "amount": alert.amount,
+        },
+        default=str,
+    )
+
+
+async def _analysis_action_quant_arb(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'quant_arb'
+    from agent_utilities.domains.finance.cross_market_arb import (
+        EventArbitrageEngine,
+    )
+
+    if not query:
+        return "Error: quant_arb needs market parameters in `query` (JSON: {model_probability, market_a_price, market_b_price} or comma-separated values)."
+    try:
+        if query.startswith("{"):
+            params = json.loads(query)
+            model_prob = float(params.get("model_probability", 0.5))
+            market_a = float(params.get("market_a_price", 0.5))
+            market_b = float(params.get("market_b_price", 0.5))
+            exec_costs = float(params.get("execution_costs", 0.08))
+        else:
+            parts = query.split(",")
+            model_prob = float(parts[0].strip())
+            market_a = float(parts[1].strip()) if len(parts) > 1 else 0.5
+            market_b = float(parts[2].strip()) if len(parts) > 2 else 0.5
+            exec_costs = float(parts[3].strip()) if len(parts) > 3 else 0.08
+    except (ValueError, IndexError, json.JSONDecodeError) as e:
+        return public_error_text(e, code="invalid_request")
+    result = EventArbitrageEngine.evaluate_dual_markets(
+        model_probability=model_prob,
+        market_a_price=market_a,
+        market_b_price=market_b,
+        execution_costs=exec_costs,
+    )
+    return json.dumps(result, default=str)
+
+
+async def _analysis_action_quant_crypto(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'quant_crypto'
+    from agent_utilities.domains.finance.crypto_connector import (
+        CryptoConnector,
+    )
+
+    if not query:
+        return "Error: quant_crypto needs a symbol in `query` (e.g., 'BTC/USD')."
+    connector = CryptoConnector()
+    result = connector.get_asset_context(query)
+    return json.dumps(result, default=str)
+
+
+async def _analysis_action_quant_exchange(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'quant_exchange'
+    from agent_utilities.domains.finance.exchange_bridge import (
+        ExchangeBridge,
+    )
+
+    if not query:
+        return (
+            "Error: quant_exchange needs a symbol (e.g., BTC/USDT or AAPL) in `query`."
+        )
+    bridge = ExchangeBridge(paper_mode=True)
+    exec_result = bridge.execute(
+        symbol=query,
+        side="buy",
+        qty=float(target.split(":")[1]) if target and ":" in target else 1.0,
+        order_type="market",
+        limit_price=None,
+    )
+    return json.dumps(
+        {
+            "order_id": exec_result.order_id,
+            "status": exec_result.status,
+            "filled_qty": exec_result.filled_qty,
+            "average_price": exec_result.average_price,
+            "fees": exec_result.fees,
+            "exchange": exec_result.exchange,
+        },
+        default=str,
+    )
+
+
+async def _analysis_action_quant_microstructure(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'quant_microstructure'
+    from agent_utilities.domains.finance.microstructure import (
+        ConvergenceFilter,
+        MicroPriceCalculator,
+        OrderBookImbalance,
+    )
+
+    if not query:
+        return "Error: quant_microstructure needs order book data in `query` (JSON: {bid_price, ask_price, bid_volume, ask_volume}) or set via target/depth."
+    try:
+        import json as _json
+
+        if isinstance(query, str):
+            try:
+                params = _json.loads(query)
+            except Exception:
+                params = {}
+        else:
+            params = query if isinstance(query, dict) else {}
+        bid_price = float(
+            params.get("bid_price", target.split(",")[0] if target else 99.5)
+        )
+        ask_price = float(
+            params.get(
+                "ask_price",
+                target.split(",")[1] if target and "," in target else 100.5,
+            )
+        )
+        bid_volume = float(params.get("bid_volume", top_k * 100))
+        ask_volume = float(params.get("ask_volume", depth * 100))
+
+        obi = OrderBookImbalance.calculate(bid_volume, ask_volume)
+        spread = ask_price - bid_price
+        micro_price = MicroPriceCalculator.calculate(
+            bid_price, ask_price, bid_volume, ask_volume
+        )
+        micro_price_from_imbalance = MicroPriceCalculator.from_imbalance(
+            (bid_price + ask_price) / 2.0, spread, obi
+        )
+        is_consensus = ConvergenceFilter.check_agreement(
+            [True] * min(5, max(1, int(obi * 5 + 2.5))), threshold=5
+        )
+        result = {
+            "order_book": {
+                "bid_price": bid_price,
+                "ask_price": ask_price,
+                "bid_volume": bid_volume,
+                "ask_volume": ask_volume,
+                "spread": spread,
+            },
+            "imbalance": {"obi": float(obi), "consensus": is_consensus},
+            "micro_price": {
+                "direct_calculation": float(micro_price),
+                "from_imbalance": float(micro_price_from_imbalance),
+            },
+            "status": "ok",
+        }
+        return _json.dumps(result, default=str)
+    except Exception as e:
+        return public_error_text(e)
+
+
+async def _analysis_action_quant_strategy(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'quant_strategy'
+    from agent_utilities.domains.finance.strategy_engine import (
+        StrategyEngine,
+        StrategyMetrics,
+    )
+
+    if not query:
+        return "Error: quant_strategy needs a strategy_id in `query`."
+    if engine is None:
+        return "Error: quant_strategy requires an active knowledge graph engine."
+    se = StrategyEngine(engine)
+    metrics = StrategyMetrics(
+        sharpe=2.5,
+        max_drawdown=-0.10,
+        win_rate=0.55,
+        profit_factor=1.5,
+        total_trades=max(100, top_k),
+    )
+    promotable = se.record_backtest(query, metrics)
+    return json.dumps(
+        {
+            "strategy_id": query,
+            "promotable": promotable,
+            "metrics": {
+                "sharpe": metrics.sharpe,
+                "max_drawdown": metrics.max_drawdown,
+                "win_rate": metrics.win_rate,
+                "profit_factor": metrics.profit_factor,
+                "total_trades": metrics.total_trades,
+            },
+        },
+        default=str,
+    )
+
+
+async def _analysis_action_quant_regime(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'quant_regime'
+    from agent_utilities.domains.finance.regime_detector import (
+        RegimeDetector,
+    )
+
+    if not query:
+        return "Error: quant_regime needs a ticker symbol in `query`."
+
+    # Create bounded synthetic close data for demonstration. Each
+    # numeric operation crosses into the engine once as a batch.
+    from agent_utilities.numeric import xp
+
+    base_price = 100.0
+    returns = xp.random.default_rng(0).normal(0.0005, 0.02, 100)
+    close_multipliers = xp.cumprod([1.0 + float(change) for change in returns])
+    close_prices = [base_price * value for value in close_multipliers]
+
+    detector = RegimeDetector(engine)
+    regime = detector.detect_close_prices(close_prices, ticker=query)
+    return regime
+
+
+async def _analysis_action_quant_insider(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'quant_insider'
+    import json as _json
+
+    from agent_utilities.domains.finance.insider_equilibrium import (
+        InsiderEquilibriumInputs,
+        penalty_policy_analysis,
+        solve_equilibrium,
+    )
+
+    try:
+        overrides = _json.loads(query) if query else {}
+    except Exception:
+        overrides = {}
+    inputs = InsiderEquilibriumInputs(
+        **{
+            k: v
+            for k, v in overrides.items()
+            if k in InsiderEquilibriumInputs.__dataclass_fields__
+        }
+    )
+    import dataclasses as _dc
+
+    def _ser(o):
+        return _dc.asdict(o) if _dc.is_dataclass(o) and not isinstance(o, type) else o
+
+    eq = solve_equilibrium(inputs)
+    policy = penalty_policy_analysis(inputs)
+    return _json.dumps(
+        {"status": "ok", "equilibrium": _ser(eq), "policy": _ser(policy)},
+        default=str,
+    )
+
+
+async def _analysis_action_workforce_plan(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'workforce_plan'
+    from agent_utilities.domains.hr.workforce_manager import (
+        WorkforceManager,
+    )
+
+    wm = WorkforceManager()
+    result = wm.get_workforce_summary()
+    return json.dumps(result, default=str)
+
+
+async def _analysis_action_close(engine, action, query, top_k, node_id, depth, target):
+    # action(s): 'close'
+    from agent_utilities.knowledge_graph.maintenance.owl_closure import (
+        run_closure,
+    )
+
+    summary = run_closure(engine, limit=top_k * 200 if top_k != 10 else 2000)
+    return json.dumps(summary, default=str)
+
+
+async def _analysis_action_call_graph(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'call_graph'
+    import json as _json
+
+    if not node_id:
+        return "Error: call_graph needs a symbol id in `node_id`."
+    backend = getattr(engine, "backend", None)
+    if backend is None:
+        return "Error: no graph backend available."
+    direction = (target or "callees").strip().lower()
+    if direction == "callers":
+        query = (
+            "MATCH (t)-[r]->(s {id: $id}) "
+            "WHERE type(r) IN ['calls', 'CALLS'] "
+            "RETURN t.id AS id, t.id AS node, type(r) AS rel, "
+            "r.strategy AS strategy, r.confidence AS confidence"
+        )
+    elif direction == "inherits":
+        query = (
+            "MATCH (s {id: $id})-[r]->(t) "
+            "WHERE type(r) IN ['inherits', 'INHERITS', 'realizes', 'REALIZES'] "
+            "RETURN t.id AS id, t.id AS node, type(r) AS rel, "
+            "r.strategy AS strategy, r.confidence AS confidence"
+        )
+    else:  # callees (default)
+        direction = "callees"
+        query = (
+            "MATCH (s {id: $id})-[r]->(t) "
+            "WHERE type(r) IN ['calls', 'CALLS'] "
+            "RETURN t.id AS id, t.id AS node, type(r) AS rel, "
+            "r.strategy AS strategy, r.confidence AS confidence"
+        )
+    try:
+        rows = await run_blocking_ordered(engine.query_cypher, query, {"id": node_id})
+    except Exception as e:
+        return public_error_json(e)
+    return _json.dumps(
+        {
+            "status": "ok",
+            "node_id": node_id,
+            "direction": direction,
+            "edges": [
+                {
+                    "node": r.get("node"),
+                    "rel": r.get("rel"),
+                    "strategy": r.get("strategy"),
+                    "confidence": r.get("confidence"),
+                }
+                for r in (rows or [])
+            ],
+        },
+        default=str,
+    )
+
+
+async def _analysis_action_similar_code(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'similar_code'
+    import json as _json
+
+    if not node_id:
+        return "Error: similar_code needs a symbol id in `node_id`."
+    if getattr(engine, "backend", None) is None:
+        return "Error: no graph backend available."
+    # similar_to is symmetric, so match it in either direction.
+    query = (
+        "MATCH (s {id: $id})-[r]-(t) "
+        "WHERE type(r) IN ['similar_to', 'SIMILAR_TO'] "
+        "RETURN t.id AS id, t.id AS node, r.score AS score"
+    )
+    try:
+        rows = await run_blocking_ordered(engine.query_cypher, query, {"id": node_id})
+    except Exception as e:
+        return public_error_json(e)
+    neighbours = [
+        {"node": r.get("node"), "score": r.get("score")} for r in (rows or [])
+    ]
+    neighbours.sort(key=lambda n: float(n["score"] or 0), reverse=True)
+    return _json.dumps(
+        {
+            "status": "ok",
+            "node_id": node_id,
+            "embedder_free": True,
+            "similar": neighbours[: top_k if top_k else 10],
+        },
+        default=str,
+    )
+
+
+async def _analysis_action_routes(engine, action, query, top_k, node_id, depth, target):
+    # action(s): 'routes'
+    import json as _json
+
+    if getattr(engine, "backend", None) is None:
+        return "Error: no graph backend available."
+    query = (
+        "MATCH (h)-[r2]->(rt:Route) "
+        "WHERE type(r2) IN ['SERVES', 'serves'] "
+        "OPTIONAL MATCH (rt)-[r3]->(svc) "
+        "WHERE type(r3) IN ['SERVED_BY', 'served_by'] "
+        "RETURN rt.id AS id, rt.id AS route, rt.method AS method, "
+        "rt.path AS path, "
+        "h.id AS handler, svc.id AS service"
+    )
+    try:
+        rows = await run_blocking_ordered(engine.query_cypher, query, {})
+    except Exception as e:
+        return public_error_json(e)
+    return _json.dumps(
+        {
+            "status": "ok",
+            "routes": [
+                {
+                    "route": r.get("route"),
+                    "method": r.get("method"),
+                    "path": r.get("path"),
+                    "handler": r.get("handler"),
+                    "service": r.get("service"),
+                }
+                for r in (rows or [])
+            ],
+        },
+        default=str,
+    )
+
+
+async def _analysis_action_change_coupling(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'change_coupling'
+    import json as _json
+
+    from agent_utilities.knowledge_graph.enrichment.git_coupling import (
+        change_coupling_for_repo,
+    )
+
+    repo = (target or query or "").strip()
+    if not repo:
+        return "Error: change_coupling needs a repo path in `target`."
+
+    def _mine_and_link_coupling() -> int:
+        edges = change_coupling_for_repo(repo, min_support=depth if depth > 1 else 3)
+        count = 0
+        for edge in edges:
+            engine.link_nodes(
+                edge.source,
+                edge.target,
+                edge.rel_type,
+                properties=edge.props,
+            )
+            count += 1
+        return count
+
+    written = await run_blocking_ordered(_mine_and_link_coupling)
+    return _json.dumps({"status": "ok", "repo": repo, "coupled_pairs": written})
+
+
+async def _analysis_action_code_evolution(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'code_evolution'
+    import json as _json
+
+    from agent_utilities.knowledge_graph.enrichment.git_history import (
+        query_evolution,
+    )
+
+    if getattr(engine, "backend", None) is None:
+        return "Error: no graph backend available."
+    mode = (target or "file").strip() or "file"
+    evolution = await run_blocking_ordered(
+        query_evolution, engine, mode, query.strip(), top_k or 20
+    )
+    return _json.dumps(evolution, default=str)
+
+
+async def _analysis_action_adr(engine, action, query, top_k, node_id, depth, target):
+    # action(s): 'adr'
+    import json as _json
+    import re as _re
+
+    if getattr(engine, "backend", None) is None:
+        return "Error: no graph backend available."
+    if query:
+        slug = _re.sub(r"[^a-z0-9]+", "-", query.lower()).strip("-")
+        adr_id = f"adr:{slug}"
+        await run_blocking_ordered(
+            engine.add_node,
+            adr_id,
+            "ArchitectureDecisionRecord",
+            {
+                "title": query,
+                "status": target or "proposed",
+                "decision": node_id or "",
+            },
+        )
+        return _json.dumps({"status": "ok", "adr_id": adr_id})
+    try:
+        rows = await run_blocking_ordered(
+            engine.query_cypher,
+            "MATCH (a:ArchitectureDecisionRecord) "
+            "RETURN a.id AS id, a.title AS title, a.status AS status",
+            {},
+        )
+    except Exception as e:
+        return public_error_json(e)
+    return _json.dumps(
+        {
+            "status": "ok",
+            "adrs": [
+                {
+                    "id": r.get("id"),
+                    "title": r.get("title"),
+                    "status": r.get("status"),
+                }
+                for r in (rows or [])
+            ],
+        },
+        default=str,
+    )
+
+
+async def _analysis_action_harness_gate(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'harness_gate'
+    import json as _json
+
+    from agent_utilities.harness.harness_gate import HarnessGate
+
+    try:
+        facts = _json.loads(query) if query else {}
+    except Exception:
+        return "Error: harness_gate needs JSON harness-evolution facts in `query`."
+    verdict = HarnessGate().check_facts(
+        facts.get("edits", []) or [],
+        variants=facts.get("variants"),
+        pathologies=facts.get("pathologies"),
+    )
+    return _json.dumps(
+        {
+            "status": "ok",
+            "ships": verdict.passed,
+            "reasons": verdict.reasons,
+        }
+    )
+
+
+async def _analysis_action_harness_evolve(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'harness_evolve'
+    import json as _json
+
+    from agent_utilities.harness.aegis_loop import AegisLoop
+
+    try:
+        seq = (_json.loads(query) or {}).get("edits", []) if query else []
+    except Exception:
+        return "Error: harness_evolve needs JSON {edits:[…]} in `query`."
+    pending = list(seq)
+
+    def _replay_evolver(_landscape, _q=pending):
+        return dict(_q.pop(0)) if _q else {"id": "noop", "dimension": "D0"}
+
+    loop = AegisLoop(_replay_evolver)
+    decisions = loop.run(rounds=len(seq) or 1)
+    return _json.dumps(
+        {
+            "status": "ok",
+            "decisions": [
+                {"round": d.round, "ships": d.shipped, "reasons": d.reasons}
+                for d in decisions
+            ],
+            "shipped": sum(1 for d in decisions if d.shipped),
+        }
+    )
+
+
+async def _analysis_action_harness_certify(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'harness_certify'
+    import json as _json
+
+    from agent_utilities.harness.co_evolution import CrossHarnessCoEvolution
+    from agent_utilities.harness.harness_grounding import seal_variant
+
+    try:
+        payload = _json.loads(query) if query else {}
+    except Exception:
+        return "Error: harness_certify needs JSON in `query`."
+    cert = CrossHarnessCoEvolution().certify_promotion(
+        [float(x) for x in payload.get("held_out_rewards", [])],
+        payload.get("human_baseline"),
+    )
+    _, _, level = seal_variant(payload.get("variant_id", "harness_variant:adhoc"), cert)
+    return _json.dumps(
+        {
+            "status": "ok",
+            "certified": cert.certified,
+            "seal_level": level,
+            "ci_lower": cert.ci_lower,
+            "mean_reward": cert.mean_reward,
+        },
+        default=str,
+    )
+
+
+async def _analysis_action_harness_benchmark(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'harness_benchmark'
+    import json as _json
+
+    from agent_utilities.harness.harness_foundry_benchmark import (
+        run_all as _hf_run,
+    )
+    from agent_utilities.harness.harness_foundry_benchmark import (
+        to_markdown as _hf_md,
+    )
+
+    hf_results = _hf_run()
+    return _json.dumps(
+        {
+            "status": "ok",
+            "reproduced": sum(1 for r in hf_results if r.claim_reproduced),
+            "total": len(hf_results),
+            "results": [
+                {
+                    "name": r.name,
+                    "baseline": r.baseline,
+                    "ours": r.ours,
+                    "lift": r.lift,
+                    "claim_reproduced": r.claim_reproduced,
+                }
+                for r in hf_results
+            ],
+            "markdown": _hf_md(hf_results),
+        },
+        default=str,
+    )
+
+
+async def _analysis_action_code_context(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'code_context'
+    # CX-AU-03: the original branch's `import json as _json` was never used
+    # here -- ruff couldn't see that in the pre-refactor 1867-line function
+    # because a *different* branch's `import json as _json` + `_json.dumps`
+    # use shared the same function scope and kept the name looking "used".
+    # Decomposition gave this branch its own scope, exposing it. Dropped:
+    # a no-op local rebind of an already-imported module has zero runtime
+    # effect. See BUGS FOUND in the lane report.
+    from agent_utilities.knowledge_graph.retrieval.code_context import (
+        build_code_context,
+    )
+
+    cross = target.strip().lower().endswith("+xrepo")
+    intent = (target or "how").strip().lower().replace("+xrepo", "") or "how"
+    result = build_code_context(
+        engine,
+        query=query,
+        intent=intent,
+        node_id=node_id,
+        top_k=top_k,
+        depth=depth,
+        cross_repo=cross or intent == "usage",
+    )
+    return EvidenceBundle.from_code_context_answer(result).model_dump_json()
+
+
+async def _analysis_action_executable_rag(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'executable_rag'
+    import json as _json
+
+    from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import (
+        HybridRetriever,
+    )
+
+    if not query.strip():
+        return "Error: executable_rag needs a question in `query`."
+    use_planner = (target or "").strip().lower() == "planner"
+    retriever = HybridRetriever(engine)
+    rag_result = retriever.retrieve_executable(
+        query, top_k=top_k, use_planner=use_planner
+    )
+    bundle = EvidenceBundle.from_rag_result(rag_result)
+    return _json.dumps(bundle.model_dump(), default=str)
+
+
+async def _analysis_action_cross_repo_usages(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'cross_repo_usages'
+    import json as _json
+
+    from agent_utilities.knowledge_graph.retrieval.code_context import (
+        cross_repo_usages,
+    )
+
+    symbol = (query or target or "").strip()
+    if not symbol:
+        return "Error: cross_repo_usages needs a symbol name in `query`."
+    return _json.dumps(
+        cross_repo_usages(engine, symbol, limit=top_k or 200),
+        default=str,
+    )
+
+
+async def _analysis_action_code_metrics(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'code_metrics'
+    import json as _json
+
+    from agent_utilities.knowledge_graph.retrieval.code_metrics import (
+        build_code_metrics,
+    )
+
+    # Named distinctly from the `metrics` local used by the unrelated
+    # `quant_strategy` branch above (a `StrategyMetrics` instance) —
+    # this whole dispatch function shares one scope, so reusing the
+    # name there made mypy unify the two branches' incompatible types
+    # onto a single inferred variable type.
+    code_metrics_result = await run_blocking_ordered(
+        build_code_metrics,
+        engine,
+        scope=(target or query).strip(),
+        top_k=top_k,
+    )
+    return _json.dumps(code_metrics_result, default=str)
+
+
+async def _analysis_action_arch_report(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'arch_report'
+    import json as _json
+
+    from agent_utilities.knowledge_graph.retrieval.code_metrics import (
+        build_arch_report,
+    )
+
+    scope = (target or query).strip()
+    arch_report: dict[str, Any] = await run_blocking_ordered(
+        build_arch_report, engine, scope=scope, top_k=top_k
+    )
+    # Persist the report as a durable node (best-effort) so it is
+    # queryable + refreshable, exceeding Graphify's static file.
+    if arch_report.get("status") == "ok":
+        try:
+            rid = f"arch_report:{scope or 'all'}"
+            await run_blocking_ordered(
+                engine.add_node,
+                rid,
+                {
+                    "label": "ArchitectureReport",
+                    "scope": scope or "all",
+                    "markdown": arch_report["markdown"],
+                    "node_count": arch_report["metrics"]["nodes"],
+                    "community_count": arch_report["metrics"]["community_count"],
+                },
+            )
+            arch_report["report_node_id"] = rid
+        except Exception as _e:  # noqa: BLE001
+            arch_report["persist_warning"] = public_error_text(_e)
+    return _json.dumps(arch_report, default=str)
+
+
+async def _analysis_action_explain(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'explain'
+    import json as _json
+
+    from agent_utilities.knowledge_graph.retrieval.context_plane import (
+        list_context_domains,
+        synthesize_context,
+    )
+
+    spec = (target or "").strip()
+    if spec in ("", "domains", "list"):
+        domain, intent = "", ""
+        if spec in ("domains", "list"):
+            return _json.dumps({"status": "ok", "domains": list_context_domains()})
+    elif ":" in spec:
+        domain, _, intent = spec.partition(":")
+    else:
+        domain, intent = "", spec  # treat a bare target as the intent
+    return _json.dumps(
+        synthesize_context(
+            engine,
+            domain=domain,
+            query=query,
+            intent=intent,
+            node_id=node_id,
+            top_k=top_k,
+            depth=depth,
+        ),
+        default=str,
+    )
+
+
+async def _analysis_action_distill_memory(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'distill_memory'
+    import json as _json
+
+    from agent_utilities.knowledge_graph.memory.weights_distillation import (
+        distill_memory_to_weights,
+    )
+
+    # `query` may carry a JSON params object (base_model/scopes/method/
+    # adapter_rank/time_window_days/target_entities/submit/…, or
+    # `poll_job_id` to read a submitted job's live train state back —
+    # CONCEPT:AU-KG.memory.live-data-science-mcp); `target` is the base model shorthand; `top_k`
+    # overrides max_examples.
+    distill_params: dict[str, Any] = {}
+    q = (query or "").strip()
+    if q.startswith("{"):
+        try:
+            loaded = _json.loads(q)
+            if isinstance(loaded, dict):
+                distill_params = loaded
+        except (TypeError, ValueError):
+            distill_params = {}
+    if isinstance(target, str) and target:
+        distill_params.setdefault("base_model", target)
+    if isinstance(top_k, int) and top_k and top_k != 10:
+        distill_params.setdefault("max_examples", top_k)
+    submit = bool(distill_params.pop("submit", False))
+    return _json.dumps(
+        distill_memory_to_weights(engine, params=distill_params, submit=submit),
+        default=str,
+    )
+
+
+async def _analysis_action_readiness(
+    engine, action, query, top_k, node_id, depth, target
+):
+    # action(s): 'readiness'
+    from agent_utilities.knowledge_graph.core.session import (
+        current_session,
+    )
+    from agent_utilities.knowledge_graph.readiness import (
+        collect_readiness_snapshot,
+        is_snapshot_ready,
+    )
+
+    session = current_session()
+    actor = getattr(session, "actor", None)
+    snapshot = collect_readiness_snapshot(
+        engine,
+        session=session,
+        subject=getattr(actor, "actor_id", "") or "",
+        tenant=getattr(session, "tenant", "") or "",
+        policy_epoch=getattr(session, "policy_version", 0) or 0,
+        synthetic_query=query or "graphos readiness canary",
+        synthetic_node_id=node_id,
+        deadline_s=10.0,
+    )
+    if not is_snapshot_ready(snapshot):
+        # The one place readiness's own rollup gates something real:
+        # a non-ready snapshot is always logged loudly server-side
+        # (never only visible to a client that happens to inspect
+        # `overall`), so a degraded/unavailable probe leaves an
+        # operator-facing trail even when nobody is watching the
+        # dashboard at the moment it happened.
+        logger.warning(
+            "graphos readiness snapshot %s is NOT ready (overall=%s, "
+            "required_failures=%s)",
+            snapshot.get("snapshot_id"),
+            snapshot.get("overall"),
+            snapshot.get("required_failures"),
+        )
+    return json.dumps(snapshot, default=str)
+
+
+_ANALYSIS_ACTION_DISPATCH = {
+    "synthesize": _analysis_action_synthesize,
+    "deep_extract": _analysis_action_synthesize,
+    "background_research": _analysis_action_synthesize,
+    "relevance_sweep": _analysis_action_synthesize,
+    "blast_radius": _analysis_action_blast_radius,
+    "inspect": _analysis_action_inspect,
+    "enrichment_coverage": _analysis_action_enrichment_coverage,
+    "process_writeback": _analysis_action_process_writeback,
+    "context": _analysis_action_context,
+    "evaluate_alpha": _analysis_action_evaluate_alpha,
+    "evaluate": _analysis_action_evaluate,
+    "evolve_model": _analysis_action_evaluate,
+    "forecast": _analysis_action_evaluate,
+    "causal": _analysis_action_evaluate,
+    "invariant": _analysis_action_evaluate,
+    "security_scan": _analysis_action_security_scan,
+    "placement_plan": _analysis_action_placement_plan,
+    "infra_sweep": _analysis_action_infra_sweep,
+    "specialize": _analysis_action_specialize,
+    "world_model_rollout": _analysis_action_world_model_rollout,
+    "research_ingest": _analysis_action_research_ingest,
+    "evolve_variants": _analysis_action_evolve_variants,
+    "spawn_background": _analysis_action_spawn_background,
+    "track_citations": _analysis_action_track_citations,
+    "check_constraints": _analysis_action_check_constraints,
+    "guard_corpus": _analysis_action_guard_corpus,
+    "evaluate_harness": _analysis_action_evaluate_harness,
+    "evolve_agent": _analysis_action_evolve_agent,
+    "recursive_distill": _analysis_action_recursive_distill,
+    "distill_search": _analysis_action_distill_search,
+    "extract_claims": _analysis_action_extract_claims,
+    "contradictions": _analysis_action_contradictions,
+    "evolve_code": _analysis_action_evolve_code,
+    "night_shift": _analysis_action_night_shift,
+    "recommend": _analysis_action_recommend,
+    "assimilation_benchmark": _analysis_action_assimilation_benchmark,
+    "latent_efficiency_benchmark": _analysis_action_latent_efficiency_benchmark,
+    "infer_links": _analysis_action_infer_links,
+    "x_workflow": _analysis_action_x_workflow,
+    "cleanup_documents": _analysis_action_cleanup_documents,
+    "epistemic_sync": _analysis_action_epistemic_sync,
+    "pick_skill": _analysis_action_pick_skill,
+    "quant_banking": _analysis_action_quant_banking,
+    "quant_arb": _analysis_action_quant_arb,
+    "quant_crypto": _analysis_action_quant_crypto,
+    "quant_exchange": _analysis_action_quant_exchange,
+    "quant_microstructure": _analysis_action_quant_microstructure,
+    "quant_strategy": _analysis_action_quant_strategy,
+    "quant_regime": _analysis_action_quant_regime,
+    "quant_insider": _analysis_action_quant_insider,
+    "workforce_plan": _analysis_action_workforce_plan,
+    "close": _analysis_action_close,
+    "call_graph": _analysis_action_call_graph,
+    "similar_code": _analysis_action_similar_code,
+    "routes": _analysis_action_routes,
+    "change_coupling": _analysis_action_change_coupling,
+    "code_evolution": _analysis_action_code_evolution,
+    "adr": _analysis_action_adr,
+    "harness_gate": _analysis_action_harness_gate,
+    "harness_evolve": _analysis_action_harness_evolve,
+    "harness_certify": _analysis_action_harness_certify,
+    "harness_benchmark": _analysis_action_harness_benchmark,
+    "code_context": _analysis_action_code_context,
+    "executable_rag": _analysis_action_executable_rag,
+    "cross_repo_usages": _analysis_action_cross_repo_usages,
+    "code_metrics": _analysis_action_code_metrics,
+    "arch_report": _analysis_action_arch_report,
+    "explain": _analysis_action_explain,
+    "distill_memory": _analysis_action_distill_memory,
+    "readiness": _analysis_action_readiness,
+}
+
+
+# CX-AU-03: graph_configure's sequential if/elif action-dispatch chain
+# (CCN 244) extracted into one module-level function per action, called
+# through a dict dispatch table. Mechanical extract-method: each handler's
+# body is the original branch body, moved verbatim (reindented). Some
+# branches (e.g. approve_connection_mapping's internal sub-dispatch, the
+# profile_flow shared tail) required a second decomposition pass; each
+# split is noted inline. Behaviour-preserving; see
+# tests/characterization/test_graph_configure_characterization.py.
+
+
+def _configure_action_set_secret(action, config_key, config_value):
+    # action(s): 'set_secret'
+    from agent_utilities.security.secrets_client import (
+        create_secrets_client,
+    )
+    from agent_utilities.security.xai_auth import get_secrets_client_for_xai
+
+    if config_key.startswith("xai/"):
+        client = get_secrets_client_for_xai()
+    else:
+        client = create_secrets_client()
+    client.set(config_key, config_value)
+    return json.dumps({"status": "success", "action": "set_secret", "stored": True})
+
+
+def _configure_action_vault_sync(action, config_key, config_value):
+    # action(s): 'vault_sync'
+    from agent_utilities.security.secrets_client import (
+        create_secrets_client,
+    )
+
+    payload = json.loads(config_value) if config_value else {}
+    env_keys = payload.get("env_keys", [])
+    client = create_secrets_client()
+    result = client.vault_sync(
+        config_key,
+        env_keys,
+        values=payload.get("values"),
+        overwrite=bool(payload.get("overwrite", False)),
+    )
+    result.update({"status": "success", "action": "vault_sync"})
+    return json.dumps(result)
+
+
+def _configure_action_register_mcp(action, config_key, config_value):
+    # action(s): 'register_mcp'
+    try:
+        _register_mcp_server(config_key, config_value)
+    except PermissionError:
+        raise
+    except Exception as exc:
+        return json.dumps(
+            {
+                "error": "MCP registration rejected",
+                "error_type": type(exc).__name__,
+            }
+        )
+    return json.dumps(
+        {
+            "status": "success",
+            "action": "register_mcp",
+            "server": config_key,
+        }
+    )
+
+
+def _configure_add_connection_default_spec(config_key):
+    # extracted from 'add_connection' (CX-AU-03: split for CCN). AgentConfig
+    # is the reference-only declarative plane; an operator may activate one
+    # of those declarations by alias without copying any profile reference
+    # into MCP arguments or traces. Returns (spec, error_json_or_None).
+    try:
+        candidate = _configured_external_graph_declaration(config_key)
+    except Exception as exc:
+        return {}, json.dumps(
+            {
+                "error": "configured connection lookup failed",
+                "error_type": type(exc).__name__,
+            }
+        )
+    if candidate:
+        candidate.pop("name", None)
+        candidate["role"] = str(candidate.get("role") or "read")
+        return candidate, None
+    return {}, None
+
+
+def _configure_add_connection_spec(action, config_key, config_value, registry):
+    # action(s): 'add_connection'
+    try:
+        spec = json.loads(config_value) if config_value else {}
+    except Exception:
+        return json.dumps({"error": "config_value must contain valid JSON"})
+    if not isinstance(spec, dict):
+        return json.dumps(
+            {"error": "config_value must be a JSON object (backend spec)"}
+        )
+    declared_name = spec.pop("name", None)
+    if declared_name not in (None, config_key):
+        return json.dumps(
+            {
+                "error": (
+                    "connection name is authoritative in config_key; "
+                    "a payload name cannot select another alias"
+                )
+            }
+        )
+    if not spec:
+        spec, err = _configure_add_connection_default_spec(config_key)
+        if err:
+            return err
+    if not spec:
+        return json.dumps(
+            {
+                "error": (
+                    "add_connection requires a reference-only JSON "
+                    "declaration or a matching AgentConfig alias"
+                )
+            }
+        )
+    try:
+        from agent_utilities.knowledge_graph.core.connection_registry import (
+            validate_persistable_connection_spec,
+        )
+
+        validate_persistable_connection_spec(spec)
+    except Exception as exc:
+        return json.dumps(
+            {
+                "error": "connection registration is not persistence-safe",
+                "error_type": type(exc).__name__,
+            }
+        )
+    try:
+        name = registry.register(config_key, spec)
+    except Exception as exc:
+        return json.dumps(
+            {
+                "error": "connection registration failed",
+                "error_type": type(exc).__name__,
+            }
+        )
+    # CONCEPT:AU-KG.backend.connection-registry — persist the connection list to config.json so
+    # it survives restart (re-seeded from config.kg_connections).
+    from agent_utilities.core.config import save_config_item
+
+    save_config_item("kg_connections", registry.export_specs())
+    return json.dumps(
+        {
+            "status": "success",
+            "action": action,
+            "connection": name,
+            "role": registry.role(name),
+            "persisted": True,
+        }
+    )
+
+
+def _configure_remove_connection(action, config_key, registry):
+    # action(s): 'remove_connection'
+    removed = registry.remove(config_key)
+    if removed:
+        from agent_utilities.core.config import save_config_item
+
+        save_config_item("kg_connections", registry.export_specs())
+    return json.dumps(
+        {
+            "status": "success" if removed else "not_found",
+            "action": action,
+            "connection": config_key,
+            "persisted": bool(removed),
+        }
+    )
+
+
+def _configure_action_add_connection(action, config_key, config_value):
+    # action(s): 'add_connection', 'remove_connection', 'list_connections'
+    registry = kg_server.get_connection_registry()
+    if action == "list_connections":
+        return json.dumps(registry.status(), default=str)
+    if not config_key:
+        return json.dumps(
+            {"error": f"config_key (connection name) required for {action}"}
+        )
+    if action == "add_connection":
+        return _configure_add_connection_spec(
+            action, config_key, config_value, registry
+        )
+    if action == "remove_connection":
+        return _configure_remove_connection(action, config_key, registry)
+    return None
+
+
+def _configure_mapping_status_lookup(config_key, config_value, registry, store):
+    # action(s): 'connection_mapping_status'
+    from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
+        mapping_profile_status,
+    )
+
+    if config_value:
+        return json.dumps({"error": "connection_mapping_status takes no payload"})
+    try:
+        from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
+            normalize_backend_kind,
+        )
+
+        backend_kind = normalize_backend_kind(registry.backend_kind(config_key))
+        if backend_kind == "graphql":
+            from agent_utilities.knowledge_graph.ingestion.graphql_connection import (
+                GraphQLSourceAdapter,
+                graphql_mapping_profile_status,
+            )
+
+            source = registry.get_engine(config_key)
+            if not isinstance(source, GraphQLSourceAdapter):
+                raise TypeError("registered source is not GraphQL")
+            status = graphql_mapping_profile_status(
+                source,
+                connection=config_key,
+                secret_store=store,
+            )
+        else:
+            declaration = _configured_external_graph_declaration(config_key)
+            (
+                _policy,
+                current_policy_digest,
+            ) = _resolved_external_mapping_policy(store, declaration)
+            status = mapping_profile_status(
+                config_key,
+                secret_store=store,
+                runtime_policy_digest=current_policy_digest,
+            )
+        return json.dumps(
+            status,
+            default=str,
+        )
+    except Exception as exc:
+        return json.dumps(
+            {
+                "error": "mapping status lookup failed",
+                "error_type": type(exc).__name__,
+            }
+        )
+
+
+def _configure_approval_actor():
+    # extracted from 'approve_connection_mapping' (CX-AU-03: split for CCN)
+    from agent_utilities.knowledge_graph.core.session import resolve_session
+
+    approval_session = resolve_session(required_scope="kg:admin")
+    if approval_session.actor is not None:
+        return approval_session.actor.actor_id
+    return "authenticated-operator"
+
+
+def _configure_mapping_approve(config_key, config_value, store):
+    # action(s): 'approve_connection_mapping'
+    from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
+        approve_mapping_profile,
+    )
+
+    try:
+        options = json.loads(config_value) if config_value else {}
+        if not isinstance(options, dict):
+            raise ValueError("approval payload must be an object")
+        if "approver_ref" in options:
+            return json.dumps(
+                {"error": "approver identity is derived from authenticated context"}
+            )
+        if set(options).difference(
+            {
+                "mapping_digest",
+                "proposal_id",
+                "proposal_version",
+                "schema_digest",
+            }
+        ):
+            return json.dumps(
+                {
+                    "error": (
+                        "mapping approval accepts only the exact "
+                        "proposal version and digest tuple"
+                    )
+                }
+            )
+        approval_actor = _configure_approval_actor()
+        result = approve_mapping_profile(
+            connection=config_key,
+            proposal_id=str(options.get("proposal_id") or ""),
+            proposal_version=int(options.get("proposal_version") or 0),
+            schema_digest=str(options.get("schema_digest") or ""),
+            mapping_digest=str(options.get("mapping_digest") or ""),
+            secret_store=store,
+            approver_ref=approval_actor,
+        )
+    except Exception as exc:
+        return json.dumps(
+            {
+                "error": "mapping approval failed",
+                "error_type": type(exc).__name__,
+            }
+        )
+    return json.dumps(result, default=str)
+
+
+def _configure_mapping_approve_status(action, config_key, config_value, registry):
+    # action(s): 'approve_connection_mapping', 'connection_mapping_status'
+    from agent_utilities.security.secrets_client import (
+        create_secrets_client,
+    )
+
+    store = create_secrets_client()
+    if action == "connection_mapping_status":
+        return _configure_mapping_status_lookup(
+            config_key, config_value, registry, store
+        )
+    return _configure_mapping_approve(config_key, config_value, store)
+
+
+def _configure_graphql_ingest_kwargs_a(options, declared, source):
+    # extracted from 'ingest_connection' (CX-AU-03: split for CCN), part 1/2.
+    return {
+        "operation": str(
+            options.get("operation")
+            or declared.get("ingest_operation")
+            or source.ingest_operation
+            or ""
+        ),
+        "variables_ref": str(
+            options.get("variables_ref") or declared.get("variables_ref") or ""
+        ),
+        "max_records": int(
+            options.get("max_records")
+            or declared.get("ingest_max_records")
+            or source.ingest_max_records
+            or 1_000
+        ),
+    }
+
+
+def _configure_graphql_ingest_kwargs_b(options, declared, source):
+    # extracted from 'ingest_connection' (CX-AU-03: split for CCN), part 2/2.
+    return {
+        "max_types": int(
+            options.get("max_types")
+            or declared.get("discovery_max_types")
+            or source.discovery_max_types
+            or 200
+        ),
+        "max_depth": int(
+            options.get("max_depth")
+            or declared.get("discovery_max_depth")
+            or source.discovery_max_depth
+            or 6
+        ),
+        "contextual": bool(
+            options.get(
+                "contextual",
+                declared.get("contextual", source.contextual),
+            )
+        ),
+        "dry_run": bool(options.get("dry_run", False)),
+    }
+
+
+def _configure_graphql_ingest_kwargs(options, declared, source):
+    # extracted from 'ingest_connection' (CX-AU-03: split for CCN) -- the
+    # options/declared/source-default fallback chain for each ingest kwarg.
+    return {
+        **_configure_graphql_ingest_kwargs_a(options, declared, source),
+        **_configure_graphql_ingest_kwargs_b(options, declared, source),
+    }
+
+
+def _configure_ingest_graphql(config_key, options, registry, declared):
+    # extracted from 'ingest_connection' (CX-AU-03: split for CCN) -- GraphQL backend path
+    allowed = {
+        "contextual",
+        "dry_run",
+        "max_depth",
+        "max_records",
+        "max_types",
+        "operation",
+        "variables_ref",
+    }
+    if set(options).difference(allowed) or "variables" in options:
+        return json.dumps(
+            {
+                "error": (
+                    "GraphQL ingestion accepts bounded policy choices "
+                    "and a variables_ref only"
+                )
+            }
+        )
+    try:
+        source = registry.get_engine(config_key)
+        from agent_utilities.knowledge_graph.ingestion.graphql_connection import (
+            GraphQLSourceAdapter,
+            ingest_registered_graphql,
+        )
+        from agent_utilities.security.secrets_client import (
+            create_secrets_client,
+        )
+
+        if not isinstance(source, GraphQLSourceAdapter):
+            raise TypeError("registered source is not GraphQL")
+        result = ingest_registered_graphql(
+            registry.get_engine(None),
+            source,
+            connection=config_key,
+            secret_store=create_secrets_client(),
+            **_configure_graphql_ingest_kwargs(options, declared, source),
+        )
+    except Exception as exc:  # noqa: BLE001 — safe type only
+        return json.dumps(
+            {
+                "error": "GraphQL document ingestion failed",
+                "error_type": type(exc).__name__,
+            }
+        )
+    return json.dumps(result, default=str)
+
+
+def _configure_ingest_default_request_kwargs_a(config_key, options, declared):
+    # extracted from 'ingest_connection' (CX-AU-03: split for CCN), part 1/2.
+    return {
+        "source_alias": str(
+            options.get("source_alias") or declared.get("source_alias") or config_key
+        ),
+        "profile_ref": "",
+        "variables": {},
+        "max_records": int(
+            options.get("max_records") or declared.get("ingest_max_records") or 1_000
+        ),
+        "page_size": int(declared.get("ingest_page_size") or 500),
+        "max_pages": int(declared.get("ingest_max_pages") or 100),
+        "max_row_bytes": int(declared.get("ingest_max_row_bytes") or 1_048_576),
+        "max_total_bytes": int(declared.get("ingest_max_total_bytes") or 16_777_216),
+    }
+
+
+def _configure_ingest_default_request_kwargs_b(options, declared):
+    # extracted from 'ingest_connection' (CX-AU-03: split for CCN), part 2/2.
+    return {
+        "max_nesting_depth": int(declared.get("ingest_max_nesting_depth") or 16),
+        "max_collection_items": int(
+            declared.get("ingest_max_collection_items") or 10_000
+        ),
+        "sync_mode": _coerce_sync_mode(declared.get("sync_mode")),
+        "reconcile_deletions": bool(declared.get("reconcile_deletions", True)),
+        "allow_empty_snapshot": bool(declared.get("allow_empty_snapshot", False)),
+        "classification": options.get("classification", "confidential"),
+        "retention": str(options.get("retention") or "P30D"),
+        "legal_hold": bool(options.get("legal_hold", False)),
+        "tenant": str(options.get("tenant") or ""),
+        "dry_run": bool(options.get("dry_run", False)),
+    }
+
+
+def _configure_ingest_default_request_kwargs(config_key, options, declared):
+    # extracted from 'ingest_connection' (CX-AU-03: split for CCN) -- the
+    # ExternalGraphIngestionRequest fields that don't need runtime_policy_digest.
+    return {
+        **_configure_ingest_default_request_kwargs_a(config_key, options, declared),
+        **_configure_ingest_default_request_kwargs_b(options, declared),
+    }
+
+
+def _configure_ingest_default(config_key, options, declared, registry):
+    # extracted from 'ingest_connection' (CX-AU-03: split for CCN) -- non-GraphQL backend path
+    allowed = {
+        "classification",
+        "dry_run",
+        "legal_hold",
+        "max_records",
+        "retention",
+        "source_alias",
+        "tenant",
+    }
+    if set(options).difference(allowed):
+        return json.dumps(
+            {
+                "error": (
+                    "external graph ingestion accepts only aliases and "
+                    "bounded governance choices; profiles, queries, "
+                    "variables, ontology, endpoints, paths, and "
+                    "credentials stay behind configured runtime refs"
+                )
+            }
+        )
+    from agent_utilities.knowledge_graph.ingestion.external_graph import (
+        ExternalGraphIngestionRequest,
+        ingest_registered_graph,
+    )
+    from agent_utilities.security.secrets_client import (
+        create_secrets_client,
+    )
+
+    try:
+        (
+            _runtime_policy,
+            runtime_policy_digest,
+        ) = _resolved_external_mapping_policy(create_secrets_client(), declared)
+        request = ExternalGraphIngestionRequest(
+            connection=config_key,
+            runtime_policy_digest=runtime_policy_digest,
+            **_configure_ingest_default_request_kwargs(config_key, options, declared),
+        )
+        result = ingest_registered_graph(registry.get_engine(None), registry, request)
+    except Exception as exc:  # noqa: BLE001 — safe type only
+        return json.dumps(
+            {
+                "error": "external graph ingestion failed",
+                "error_type": type(exc).__name__,
+            }
+        )
+    return json.dumps(result, default=str)
+
+
+def _configure_mapping_ingest(action, config_key, config_value, registry):
+    # action(s): 'ingest_connection'
+    try:
+        options = json.loads(config_value) if config_value else {}
+    except Exception:
+        return json.dumps({"error": "config_value must be a JSON object"})
+    if not isinstance(options, dict):
+        return json.dumps({"error": "config_value must be a JSON object"})
+    try:
+        declared = _configured_external_graph_declaration(config_key)
+    except Exception as exc:
+        return json.dumps(
+            {
+                "error": "configured source lookup failed",
+                "error_type": type(exc).__name__,
+            }
+        )
+    try:
+        from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
+            normalize_backend_kind,
+        )
+
+        backend_kind = normalize_backend_kind(registry.backend_kind(config_key))
+    except Exception as exc:
+        return json.dumps(
+            {
+                "error": "external source declaration is invalid",
+                "error_type": type(exc).__name__,
+            }
+        )
+    if backend_kind == "graphql":
+        return _configure_ingest_graphql(config_key, options, registry, declared)
+    return _configure_ingest_default(config_key, options, declared, registry)
+
+
+def _configure_profile_discovery_limits(options, connector_config, ext_engine):
+    # extracted from the profile_flow setup (CX-AU-03: split for CCN).
+    max_types = max(
+        1,
+        min(
+            int(
+                options.get("max_types")
+                or connector_config.get("discovery_max_types")
+                or getattr(ext_engine, "discovery_max_types", None)
+                or 200
+            ),
+            500,
+        ),
+    )
+    max_depth = max(
+        1,
+        min(
+            int(
+                options.get("max_depth")
+                or connector_config.get("discovery_max_depth")
+                or getattr(ext_engine, "discovery_max_depth", None)
+                or 6
+            ),
+            12,
+        ),
+    )
+    return max_types, max_depth
+
+
+def _configure_profile_setup(config_key, config_value, registry):
+    # extracted from the profile_flow (CX-AU-03: split for CCN) -- prologue
+    # shared by discover/doctor/profile/propose. Returns
+    # (ext_engine, options, backend, backend_kind, connector_config,
+    #  max_types, max_depth, error_json_or_None).
+    try:
+        ext_engine = registry.get_engine(config_key)
+    except Exception as e:
+        return (
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            json.dumps(
+                {
+                    "error": "external graph connection unavailable",
+                    "error_type": type(e).__name__,
+                }
+            ),
+        )
+    try:
+        options = json.loads(config_value) if config_value else {}
+    except Exception:
+        return (
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            json.dumps({"error": "config_value must be a JSON object"}),
+        )
+    if not isinstance(options, dict):
+        return (
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            json.dumps({"error": "config_value must be a JSON object"}),
+        )
+    backend = registry.backend_kind(config_key)
+    try:
+        from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
+            normalize_backend_kind,
+        )
+
+        backend_kind = normalize_backend_kind(backend)
+    except Exception as exc:
+        return (
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            json.dumps(
+                {
+                    "error": "external source declaration is invalid",
+                    "error_type": type(exc).__name__,
+                }
+            ),
+        )
+    connector_config: dict[str, Any] = {}
+    try:
+        connector_config = _configured_external_graph_declaration(config_key)
+    except Exception as exc:
+        return (
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            json.dumps(
+                {
+                    "error": "configured source lookup failed",
+                    "error_type": type(exc).__name__,
+                }
+            ),
+        )
+    max_types, max_depth = _configure_profile_discovery_limits(
+        options, connector_config, ext_engine
+    )
+    return (
+        ext_engine,
+        options,
+        backend,
+        backend_kind,
+        connector_config,
+        max_types,
+        max_depth,
+        None,
+    )
+
+
+def _configure_profile_validate_options(action, backend_kind, options):
+    # extracted from the profile_flow (CX-AU-03: split for CCN).
+    if (
+        backend_kind == "graphql"
+        and action
+        in {
+            "discover_connection_schema",
+            "external_graph_doctor",
+            "profile_connection",
+        }
+        and set(options).difference({"max_depth", "max_types"})
+    ):
+        return json.dumps(
+            {
+                "error": (
+                    "GraphQL discovery actions accept bounded discovery "
+                    "limits only; source material comes from runtime refs"
+                )
+            }
+        )
+    if (
+        backend_kind != "graphql"
+        and action
+        in {
+            "discover_connection_schema",
+            "external_graph_doctor",
+            "profile_connection",
+        }
+        and set(options).difference({"max_types"})
+    ):
+        return json.dumps(
+            {
+                "error": (
+                    "external graph discovery actions accept a bounded "
+                    "max_types value only; source material stays behind "
+                    "configured runtime refs"
+                )
+            }
+        )
+    return None
+
+
+def _configure_profile_discover(
+    action, backend_kind, ext_engine, backend, config_key, max_types, max_depth
+):
+    # action(s): 'discover_connection_schema', 'profile_connection'
+    from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
+        discover_external_schema,
+    )
+
+    try:
+        if backend_kind == "graphql":
+            schema, capabilities, _accepted = ext_engine.discover(
+                max_types=max_types, max_depth=max_depth
+            )
+        else:
+            schema, capabilities = discover_external_schema(
+                ext_engine, backend=backend, max_types=max_types
+            )
+    except Exception as exc:
+        return json.dumps(
+            {
+                "error": "external schema discovery failed",
+                "error_type": type(exc).__name__,
+            }
+        )
+    return json.dumps(
+        {
+            "status": "success",
+            "connection": config_key,
+            "schema": schema.public_dict(),
+            "capabilities": capabilities.public_dict(),
+        },
+        default=str,
+    )
+
+
+def _configure_profile_policy(backend_kind, store, connector_config):
+    # extracted from the profile_flow (CX-AU-03: split for CCN). Returns
+    # (runtime_policy, runtime_policy_digest, error_json_or_None).
+    runtime_policy: dict[str, Any] = {}
+    runtime_policy_digest = ""
+    if backend_kind != "graphql":
+        try:
+            (
+                runtime_policy,
+                runtime_policy_digest,
+            ) = _resolved_external_mapping_policy(store, connector_config)
+        except Exception as exc:
+            return (
+                {},
+                "",
+                json.dumps(
+                    {
+                        "error": "secret-backed mapping policy resolution failed",
+                        "error_type": type(exc).__name__,
+                    }
+                ),
+            )
+    return runtime_policy, runtime_policy_digest, None
+
+
+def _configure_profile_doctor(
+    backend_kind,
+    ext_engine,
+    config_key,
+    store,
+    max_types,
+    max_depth,
+    backend,
+    runtime_policy_digest,
+):
+    # action(s): 'external_graph_doctor'
+    from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
+        external_graph_readiness,
+    )
+
+    if backend_kind == "graphql":
+        from agent_utilities.knowledge_graph.ingestion.graphql_connection import (
+            graphql_source_readiness,
+        )
+
+        return json.dumps(
+            graphql_source_readiness(
+                ext_engine,
+                connection=config_key,
+                secret_store=store,
+                max_types=max_types,
+                max_depth=max_depth,
+            ),
+            default=str,
+        )
+    return json.dumps(
+        external_graph_readiness(
+            ext_engine,
+            backend=backend,
+            connection=config_key,
+            secret_store=store,
+            runtime_policy_digest=runtime_policy_digest,
+            max_types=max_types,
+        ),
+        default=str,
+    )
+
+
+def _configure_profile_propose_graphql(
+    ext_engine, config_key, store, max_types, max_depth, options
+):
+    # action(s): 'propose_connection_mapping' (GraphQL backend)
+    if set(options).difference({"max_depth", "max_types"}):
+        return json.dumps(
+            {
+                "error": (
+                    "GraphQL mapping proposals resolve query, mapping, "
+                    "governance, auth, and TLS policy from runtime refs"
+                )
+            }
+        )
+    try:
+        from agent_utilities.knowledge_graph.ingestion.graphql_connection import (
+            GraphQLSourceAdapter,
+            propose_graphql_mapping_profile,
+        )
+
+        if not isinstance(ext_engine, GraphQLSourceAdapter):
+            raise TypeError("registered source is not GraphQL")
+        result = propose_graphql_mapping_profile(
+            ext_engine,
+            connection=config_key,
+            source_alias=ext_engine.source_alias,
+            secret_store=store,
+            max_types=max_types,
+            max_depth=max_depth,
+        )
+    except Exception as exc:
+        return json.dumps(
+            {
+                "error": "GraphQL mapping proposal failed",
+                "error_type": type(exc).__name__,
+            }
+        )
+    return json.dumps(result, default=str)
+
+
+def _configure_propose_semantic_enricher(
+    connector_config, governed_semantic_mapping_enricher
+):
+    # extracted from 'propose_connection_mapping' (CX-AU-03: split for CCN).
+    # Returns (semantic_enricher, semantic_context_session).
+    if not bool(connector_config.get("semantic_mapping", False)):
+        return None, None
+    from agent_utilities.knowledge_graph.core.session import resolve_session
+
+    semantic_context_session = resolve_session(required_scope="kg:read")
+    return governed_semantic_mapping_enricher, semantic_context_session
+
+
+def _configure_propose_default_policy_kwargs_a(runtime_policy):
+    # extracted from 'propose_connection_mapping' (CX-AU-03: split for CCN), part 1/2.
+    return {
+        "access": (
+            runtime_policy.get("access")
+            if isinstance(runtime_policy.get("access"), dict)
+            else None
+        ),
+        "property_allowlist": (
+            list(runtime_policy.get("property_allowlist") or []) or None
+        ),
+        "edge_property_allowlist": (
+            list(runtime_policy.get("edge_property_allowlist") or []) or None
+        ),
+        "type_overrides": (
+            runtime_policy.get("type_overrides")
+            if isinstance(runtime_policy.get("type_overrides"), dict)
+            else None
+        ),
+        "edge_type_overrides": (
+            runtime_policy.get("edge_type_overrides")
+            if isinstance(runtime_policy.get("edge_type_overrides"), dict)
+            else None
+        ),
+        "identity_property": str(runtime_policy.get("identity_property") or "") or None,
+    }
+
+
+def _configure_propose_default_policy_kwargs_b(connector_config):
+    # extracted from 'propose_connection_mapping' (CX-AU-03: split for CCN), part 2/2.
+    return {
+        "page_size": int(connector_config.get("ingest_page_size") or 500),
+        "max_pages": int(connector_config.get("ingest_max_pages") or 100),
+        "max_row_bytes": int(connector_config.get("ingest_max_row_bytes") or 1_048_576),
+        "max_total_bytes": int(
+            connector_config.get("ingest_max_total_bytes") or 16_777_216
+        ),
+        "max_nesting_depth": int(
+            connector_config.get("ingest_max_nesting_depth") or 16
+        ),
+        "max_collection_items": int(
+            connector_config.get("ingest_max_collection_items") or 10_000
+        ),
+        "sync_mode": _coerce_sync_mode(connector_config.get("sync_mode")),
+        "reconcile_deletions": bool(connector_config.get("reconcile_deletions", True)),
+        "allow_empty_snapshot": bool(
+            connector_config.get("allow_empty_snapshot", False)
+        ),
+    }
+
+
+def _configure_propose_default_policy_kwargs(runtime_policy, connector_config):
+    # extracted from 'propose_connection_mapping' (CX-AU-03: split for CCN)
+    # -- the runtime_policy/connector_config-derived propose_mapping_profile kwargs.
+    return {
+        **_configure_propose_default_policy_kwargs_a(runtime_policy),
+        **_configure_propose_default_policy_kwargs_b(connector_config),
+    }
+
+
+def _configure_profile_propose_default(
+    options,
+    connector_config,
+    registry,
+    ext_engine,
+    backend,
+    config_key,
+    store,
+    runtime_policy,
+    runtime_policy_digest,
+    max_types,
+):
+    # action(s): 'propose_connection_mapping' (non-GraphQL backend)
+    from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
+        governed_semantic_mapping_enricher,
+        propose_mapping_profile,
+    )
+
+    if set(options).difference({"max_types", "source_alias"}):
+        return json.dumps(
+            {
+                "error": (
+                    "external graph mapping proposals accept aliases and "
+                    "bounded discovery choices only; mapping, ontology, "
+                    "endpoint, path, identity, and credential material "
+                    "must come from configured runtime refs"
+                )
+            }
+        )
+    max_types = int(connector_config.get("discovery_max_types") or max_types)
+    from agent_utilities.knowledge_graph.core.connection_profiler import (
+        _our_ontology_vocabulary,
+    )
+
+    authority = registry.get_engine(None)
+    vocabulary = _our_ontology_vocabulary(authority, None)
+    try:
+        semantic_enricher, semantic_context_session = (
+            _configure_propose_semantic_enricher(
+                connector_config, governed_semantic_mapping_enricher
+            )
+        )
+        result = propose_mapping_profile(
+            ext_engine,
+            backend=backend,
+            connection=config_key,
+            source_alias=str(
+                connector_config.get("source_alias")
+                or options.get("source_alias")
+                or config_key
+            ),
+            ontology_classes=vocabulary,
+            secret_store=store,
+            runtime_policy_digest=runtime_policy_digest,
+            max_types=max_types,
+            semantic_enricher=semantic_enricher,
+            context_session=semantic_context_session,
+            **_configure_propose_default_policy_kwargs(
+                runtime_policy, connector_config
+            ),
+        )
+    except Exception as exc:
+        return json.dumps(
+            {
+                "error": "mapping proposal failed",
+                "error_type": type(exc).__name__,
+            }
+        )
+    return json.dumps(result, default=str)
+
+
+def _configure_mapping_profile_flow(action, config_key, config_value, registry):
+    # action(s): 'discover_connection_schema', 'external_graph_doctor', 'profile_connection', 'propose_connection_mapping'
+    from agent_utilities.security.secrets_client import (
+        create_secrets_client,
+    )
+
+    (
+        ext_engine,
+        options,
+        backend,
+        backend_kind,
+        connector_config,
+        max_types,
+        max_depth,
+        err,
+    ) = _configure_profile_setup(config_key, config_value, registry)
+    if err:
+        return err
+    err = _configure_profile_validate_options(action, backend_kind, options)
+    if err:
+        return err
+    if action in {"discover_connection_schema", "profile_connection"}:
+        return _configure_profile_discover(
+            action, backend_kind, ext_engine, backend, config_key, max_types, max_depth
+        )
+    store = create_secrets_client()
+    runtime_policy, runtime_policy_digest, err = _configure_profile_policy(
+        backend_kind, store, connector_config
+    )
+    if err:
+        return err
+    if action == "external_graph_doctor":
+        return _configure_profile_doctor(
+            backend_kind,
+            ext_engine,
+            config_key,
+            store,
+            max_types,
+            max_depth,
+            backend,
+            runtime_policy_digest,
+        )
+    if backend_kind == "graphql":
+        return _configure_profile_propose_graphql(
+            ext_engine, config_key, store, max_types, max_depth, options
+        )
+    return _configure_profile_propose_default(
+        options,
+        connector_config,
+        registry,
+        ext_engine,
+        backend,
+        config_key,
+        store,
+        runtime_policy,
+        runtime_policy_digest,
+        max_types,
+    )
+
+
+def _configure_action_approve_connection_mapping(action, config_key, config_value):
+    # action(s): 'approve_connection_mapping', 'connection_mapping_status', 'discover_connection_schema', 'external_graph_doctor', 'profile_connection', 'ingest_connection', 'propose_connection_mapping'
+    if not config_key:
+        return json.dumps(
+            {"error": f"config_key (connection name) required for {action}"}
+        )
+    registry = kg_server.get_connection_registry()
+    if action in {
+        "approve_connection_mapping",
+        "connection_mapping_status",
+    }:
+        return _configure_mapping_approve_status(
+            action, config_key, config_value, registry
+        )
+    if action == "ingest_connection":
+        return _configure_mapping_ingest(action, config_key, config_value, registry)
+    return _configure_mapping_profile_flow(action, config_key, config_value, registry)
+
+
+def _configure_action_mirror_status(action, config_key, config_value):
+    # action(s): 'mirror_status', 'reconcile'
+    from agent_utilities.knowledge_graph.backends import (
+        get_active_backend,
+    )
+    from agent_utilities.knowledge_graph.backends.fanout_backend import (
+        FanOutBackend,
+    )
+
+    backend = get_active_backend()
+    # Locate the FanOutBackend created automatically when one or more
+    # projections are configured. Also unwrap a BrainGuarded proxy.
+    cand = getattr(backend, "inner", backend)
+    fan = cand if isinstance(cand, FanOutBackend) else None
+    if fan is None:
+        return json.dumps(
+            {
+                "error": "No fanout projection active (configure "
+                "GRAPH_MIRROR_TARGETS or a role=mirror connection).",
+                "backend": type(backend).__name__,
+            }
+        )
+    inner = fan
+    if action == "mirror_status":
+        return json.dumps(inner.durability_stats(), default=str)
+    # reconcile — full authority→mirror drift repair (config_key =
+    # optional single mirror name; empty = all mirrors).
+    return json.dumps(inner.reconcile(config_key or None), default=str)
+
+
+def _configure_stardog_export_import(sd_backend, action, opts):
+    # action(s): 'stardog_export_graph', 'stardog_import_graph'
+    if not hasattr(sd_backend, "download_graph") or not hasattr(
+        sd_backend, "upload_graph"
+    ):
+        return json.dumps(
+            {
+                "error": f"{type(sd_backend).__name__} does not "
+                "support Turtle graph export/import"
+            }
+        )
+    graph_uri = opts.get("graph_uri")
+    if action == "stardog_export_graph":
+        return json.dumps(
+            {
+                "status": "ok",
+                "graph_uri": graph_uri,
+                "turtle": sd_backend.download_graph(graph_uri),
+            },
+            default=str,
+        )
+    # stardog_import_graph
+    ttl_content = opts.get("turtle")
+    if not isinstance(ttl_content, str) or not ttl_content.strip():
+        return json.dumps(
+            {"error": "config_value.turtle (a Turtle document) is required"}
+        )
+    sd_backend.upload_graph(ttl_content, graph_uri)
+    return json.dumps({"status": "ok", "graph_uri": graph_uri}, default=str)
+
+
+def _configure_stardog_sync(action, sd_backend, opts):
+    # action(s): 'push_to_stardog', 'pull_from_stardog'
+    authority = kg_server.get_connection_registry().get_engine(None)
+    if action == "push_to_stardog":
+        from agent_utilities.knowledge_graph.integrations.stardog_sync import (  # noqa: E501
+            push_to_stardog,
+        )
+
+        return json.dumps(
+            push_to_stardog(authority, sd_backend, sources=opts.get("sources")),
+            default=str,
+        )
+    # pull_from_stardog
+    from agent_utilities.knowledge_graph.integrations.stardog_sync import (
+        pull_from_stardog,
+    )
+
+    return json.dumps(
+        pull_from_stardog(
+            sd_backend,
+            authority,
+            graph_uri=opts.get("graph_uri"),
+            source=opts.get("source"),
+            limit=int(opts.get("limit", 10_000)),
+        ),
+        default=str,
+    )
+
+
+def _configure_stardog_opts(action, config_value):
+    # extracted from 'push_to_stardog' et al (CX-AU-03: split for CCN).
+    # Returns (opts, error_json_or_None).
+    try:
+        opts = json.loads(config_value) if config_value else {}
+    except Exception:
+        return None, json.dumps({"error": "config_value must contain valid JSON"})
+    if not isinstance(opts, dict):
+        # stardog_sparql also accepts a bare query string in config_value.
+        if action == "stardog_sparql" and isinstance(config_value, str):
+            opts = {"query": config_value}
+        else:
+            return None, json.dumps({"error": "config_value must be a JSON object"})
+    return opts, None
+
+
+def _configure_action_push_to_stardog(action, config_key, config_value):
+    # action(s): 'push_to_stardog', 'pull_from_stardog', 'stardog_sparql', 'stardog_export_graph', 'stardog_import_graph'
+    opts, err = _configure_stardog_opts(action, config_value)
+    if err:
+        return err
+
+    inline_connection_fields = {
+        "database",
+        "endpoint",
+        "password",
+        "username",
+    }
+    if inline_connection_fields.intersection(opts):
+        return json.dumps(
+            {
+                "error": (
+                    "inline Stardog connection material is not accepted; "
+                    "use a registered connection alias backed by secret references"
+                )
+            }
+        )
+
+    def _resolve_stardog_backend():
+        """Resolve Stardog exclusively through a registered alias."""
+        name = config_key or opts.get("connection")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("registered Stardog connection is required")
+        eng = kg_server.get_connection_registry().get_engine(name.strip())
+        be = getattr(eng, "backend", eng)
+        return getattr(be, "_authority", be)
+
+    try:
+        sd_backend = _resolve_stardog_backend()
+    except Exception as exc:
+        return json.dumps(
+            {
+                "error": "registered Stardog connection unavailable",
+                "error_type": type(exc).__name__,
+            }
+        )
+
+    if action == "stardog_sparql":
+        query = opts.get("query")
+        if not query:
+            return json.dumps(
+                {"error": "config_value.query (a SPARQL string) required"}
+            )
+        return json.dumps({"results": sd_backend.execute_sparql(query)}, default=str)
+
+    # ── CONCEPT:AU-KG.backend.mirror-target-graph: bulk Turtle
+    # export/import (D-MT-1). SparqlAdapter.upload_graph/download_graph
+    # existed with no production caller before this — a real backup/
+    # restore/migrate-between-instances primitive for a Stardog mirror or
+    # ad-hoc connection, complementary to (not a replacement for) the
+    # per-node/edge push_to_stardog/pull_from_stardog above. Omitting
+    # config_value.graph_uri targets the resolved backend's own dedicated
+    # mirror graph, if any (a per-source graph_uri from D-MT-4 is reached
+    # by naming it explicitly).
+    if action in ("stardog_export_graph", "stardog_import_graph"):
+        return _configure_stardog_export_import(sd_backend, action, opts)
+
+    return _configure_stardog_sync(action, sd_backend, opts)
+
+
+def _configure_db_profile_ref_error(config_key, opts):
+    # extracted from 'setup_databases'/'verify_databases' (CX-AU-03: split
+    # for CCN). Returns (connection_profile_ref, error_json_or_None).
+    connection_profile_ref = opts.get("connection_profile_ref")
+    if connection_profile_ref and not _runtime_reference(connection_profile_ref):
+        return None, json.dumps(
+            {"error": ("connection_profile_ref must be a runtime secret reference")}
+        )
+    if config_key and config_key not in {"dev", "prod"}:
+        return None, json.dumps(
+            {
+                "error": (
+                    "config_key must be a deployment profile alias; "
+                    "database endpoints belong in the secret-backed runtime profile"
+                )
+            }
+        )
+    return connection_profile_ref, None
+
+
+def _configure_db_opts_and_ref(config_key, config_value):
+    # extracted from 'setup_databases'/'verify_databases' (CX-AU-03: split
+    # for CCN). Returns (opts, connection_profile_ref, error_json_or_None).
+    try:
+        opts = json.loads(config_value) if config_value else {}
+    except Exception:
+        return None, None, json.dumps({"error": "config_value must contain valid JSON"})
+    if not isinstance(opts, dict):
+        return (
+            None,
+            None,
+            json.dumps({"error": "config_value must be a JSON object of options"}),
+        )
+    if "dsn" in opts or "://" in (config_key or ""):
+        return (
+            None,
+            None,
+            json.dumps(
+                {
+                    "error": (
+                        "inline database endpoints are not accepted; configure "
+                        "the runtime connection through a secret-backed profile"
+                    )
+                }
+            ),
+        )
+    connection_profile_ref, err = _configure_db_profile_ref_error(config_key, opts)
+    if err:
+        return None, None, err
+    return opts, connection_profile_ref, None
+
+
+def _configure_action_setup_databases(action, config_key, config_value):
+    # action(s): 'setup_databases', 'verify_databases'
+    from agent_utilities.knowledge_graph.setup import (
+        setup_environment,
+        verify_postgres,
+    )
+
+    opts, connection_profile_ref, err = _configure_db_opts_and_ref(
+        config_key, config_value
+    )
+    if err:
+        return err
+    if action == "verify_databases":
+        return json.dumps(
+            verify_postgres(connection_profile_ref),
+            default=str,
+        )
+    # setup_databases — config_key is a profile shortcut ('dev'/'prod').
+    profile = opts.get("profile") or config_key or "dev"
+    return json.dumps(
+        setup_environment(
+            profile=profile,
+            postgres_mode=opts.get("postgres_mode", "managed_image"),
+            connection_profile_ref=connection_profile_ref,
+            sparql_target=opts.get("sparql_target"),
+            mirror_targets=opts.get("mirror_targets"),
+            do_backfill=opts.get("do_backfill", True),
+        ),
+        default=str,
+    )
+
+
+def _configure_parse_json_opts(config_value):
+    # extracted from 'generate_config' et al (CX-AU-03: split for CCN).
+    # Returns (opts, error_json_or_None).
+    try:
+        opts = json.loads(config_value) if config_value else {}
+    except Exception:
+        return None, json.dumps({"error": "config_value must contain valid JSON"})
+    if not isinstance(opts, dict):
+        return None, json.dumps({"error": "config_value must be a JSON object"})
+    return opts, None
+
+
+def _configure_action_generate_config(action, config_key, config_value):
+    # action(s): 'generate_config', 'config_doctor', 'config_reference'
+    from agent_utilities.deployment import (
+        config_doctor,
+        config_reference,
+        write_config,
+    )
+
+    opts, err = _configure_parse_json_opts(config_value)
+    if err:
+        return err
+    if action == "config_reference":
+        return json.dumps(config_reference(), default=str)
+    # profile shortcut via config_key ('tiny'/'single-node-prod'/'enterprise')
+    profile = opts.get("profile") or config_key or None
+    if action == "generate_config":
+        if opts.get("out"):
+            return json.dumps({"error": "remote_path_not_allowed"})
+        return json.dumps(
+            write_config(
+                profile or "tiny",
+            ),
+            default=str,
+        )
+    # config_doctor
+    if opts.get("config"):
+        return json.dumps({"error": "remote_path_not_allowed"})
+    return json.dumps(config_doctor(profile), default=str)
+
+
+def _configure_known_env_fields():
+    # extracted from 'get_config'/'set_config'/'list_config' (CX-AU-03: split for CCN)
+    from agent_utilities.deployment import config_reference
+
+    known: dict[str, dict] = {}
+    for section in config_reference():
+        for f in section.get("fields", []):
+            known[str(f.get("env") or "").upper()] = f
+    return known
+
+
+def _configure_list_config(known):
+    # action(s): 'list_config'
+    out = {}
+    for env_key, meta in known.items():
+        val = os.environ.get(env_key)
+        out[env_key] = (
+            "***" if (_configuration_key_is_sensitive(env_key, meta) and val) else val
+        )
+    return json.dumps({"config": out, "count": len(out)}, default=str)
+
+
+def _configure_get_config_value(env_key, meta):
+    # action(s): 'get_config'
+    from agent_utilities.deployment import is_restart_required
+
+    val = os.environ.get(env_key)
+    if _configuration_key_is_sensitive(env_key, meta) and val:
+        val = "***"
+    return json.dumps(
+        {
+            "key": env_key,
+            "value": val,
+            "restart_required": is_restart_required(env_key),
+        },
+        default=str,
+    )
+
+
+def _configure_set_config_value(env_key, meta, config_value):
+    # action(s): 'set_config'
+    from agent_utilities.deployment import is_restart_required
+
+    if _configuration_key_is_sensitive(env_key, meta):
+        if not env_key.endswith("_REF") or not _runtime_reference(config_value):
+            return json.dumps(
+                {
+                    "error": (
+                        "sensitive settings cannot be persisted inline; "
+                        "use the secret store and a reference-capable setting"
+                    )
+                }
+            )
+    parsed = config_value
+    if config_value and config_value.strip()[:1] in '[{"':
+        try:
+            parsed = json.loads(config_value)
+        except Exception:
+            parsed = config_value
+    from agent_utilities.core.config import save_config_item
+
+    save_config_item(env_key, parsed)
+    restart = is_restart_required(env_key)
+    return json.dumps(
+        {
+            "status": "success",
+            "key": env_key,
+            # BUG-065: renamed from ``applied_live`` — see the
+            # identical field on ``config_admin.set_value``
+            # (the ``graph_config`` twin of this
+            # ``graph_configure`` action) for why: this process
+            # has no evidence about any OTHER replica having
+            # picked up the write, only that ITS OWN cached
+            # fields do or don't need a restart to see it.
+            "applied_in_this_process": not restart,
+            "restart_required": restart,
+        },
+        default=str,
+    )
+
+
+def _configure_action_get_config(action, config_key, config_value):
+    # action(s): 'get_config', 'set_config', 'list_config'
+    known = _configure_known_env_fields()
+    if action == "list_config":
+        return _configure_list_config(known)
+    if not config_key:
+        return json.dumps({"error": f"config_key (env name) required for {action}"})
+    env_key = config_key.upper()
+    if env_key not in known:
+        return json.dumps({"error": "Unknown config key (see config_reference)"})
+    if action == "get_config":
+        return _configure_get_config_value(env_key, known[env_key])
+    return _configure_set_config_value(env_key, known[env_key], config_value)
+
+
+def _configure_action_frontend_contributions(action, config_key, config_value):
+    # action(s): 'frontend_contributions'
+    if config_key or config_value:
+        return json.dumps(
+            {
+                "error": (
+                    "frontend_contributions is a bounded read and "
+                    "takes no config_key/config_value"
+                )
+            }
+        )
+    from agent_utilities.core.config import config
+    from agent_utilities.core.frontend_providers import _catalog_payload
+
+    trusted_signers = frozenset(config.frontend_contribution_trusted_signers)
+    return json.dumps(
+        _catalog_payload(trusted_signers=trusted_signers),
+        default=str,
+    )
+
+
+def _configure_action_health(action, config_key, config_value):
+    # action(s): 'health'
+    from agent_utilities.observability.runtime_health import collect_health
+
+    return json.dumps(collect_health(), default=str)
+
+
+def _configure_action_system_doctor(action, config_key, config_value):
+    # action(s): 'system_doctor'
+    from agent_utilities.deployment import run_doctor
+
+    try:
+        opts = json.loads(config_value) if config_value else {}
+    except Exception:
+        return json.dumps({"error": "config_value must contain valid JSON"})
+    if not isinstance(opts, dict):
+        return json.dumps({"error": "config_value must be a JSON object"})
+    return json.dumps(
+        run_doctor(
+            opts.get("only"),
+            fix=opts.get("fix", False),
+            live=opts.get("live", False),
+        ),
+        default=str,
+    )
+
+
+def _configure_action_preflight(action, config_key, config_value):
+    # action(s): 'preflight'
+    from agent_utilities.deployment.preflight import run_preflight
+
+    profile = config_key or "tiny"
+    try:
+        opts = json.loads(config_value) if config_value else {}
+    except Exception:
+        return json.dumps({"error": "config_value must contain valid JSON"})
+    if not isinstance(opts, dict):
+        return json.dumps({"error": "config_value must be a JSON object"})
+    return json.dumps(
+        run_preflight(profile, opts.get("components")),
+        default=str,
+    )
+
+
+def _configure_action_harness_fence(action, config_key, config_value):
+    # action(s): 'harness_fence'
+    try:
+        from pathlib import Path as _Path
+
+        from agent_utilities.claude_harness.claude_fence import write_fence
+        from agent_utilities.orchestration.action_policy import ActionPolicy
+
+        opts = json.loads(config_value) if config_value else {}
+        if not isinstance(opts, dict):
+            opts = {}
+        target = config_key or str(_Path.home() / ".claude")
+        policy_path = opts.get("policy")
+        policy = (
+            ActionPolicy(policy_path=policy_path) if policy_path else ActionPolicy()
+        )
+        return json.dumps(
+            write_fence(target, policy, dry_run=bool(opts.get("dry_run"))),
+            default=str,
+        )
+    except PermissionError:
+        raise
+    except Exception as exc:
+        return json.dumps(
+            {
+                "error": "harness fence update failed",
+                "error_type": type(exc).__name__,
+            }
+        )
+
+
+def _configure_action_install_hooks(action, config_key, config_value):
+    # action(s): 'install_hooks'
+    try:
+        from agent_utilities.ecosystem.hook_installer import HookInstaller
+
+        installer = HookInstaller()
+        agents = config_value.split(",") if config_value else None
+        results = installer.install(agents)
+        return json.dumps(
+            {
+                "status": "success",
+                "results": results,
+                "installed": installer.installed,
+                "errors": installer.errors,
+            }
+        )
+    except PermissionError:
+        raise
+    except Exception as exc:
+        return json.dumps(
+            {
+                "error": "hook installation failed",
+                "error_type": type(exc).__name__,
+            }
+        )
+
+
+def _configure_action_uninstall_hooks(action, config_key, config_value):
+    # action(s): 'uninstall_hooks'
+    try:
+        from agent_utilities.ecosystem.hook_installer import HookInstaller
+
+        agents = config_value.split(",") if config_value else None
+        results = HookInstaller().uninstall(agents)
+        return json.dumps({"status": "success", "results": results})
+    except PermissionError:
+        raise
+    except Exception as exc:
+        return json.dumps(
+            {
+                "error": "hook removal failed",
+                "error_type": type(exc).__name__,
+            }
+        )
+
+
+def _configure_action_doctor(action, config_key, config_value):
+    # action(s): 'doctor'
+    try:
+        from agent_utilities.ecosystem.hook_installer import HookInstaller
+
+        return json.dumps(HookInstaller().doctor(), default=str)
+    except PermissionError:
+        raise
+    except Exception as exc:
+        return json.dumps(
+            {
+                "error": "configuration doctor failed",
+                "error_type": type(exc).__name__,
+            }
+        )
+
+
+def _configure_action_set_role_routing(action, config_key, config_value):
+    # action(s): 'set_role_routing'
+    try:
+        from pathlib import Path
+
+        from agent_utilities.core.config import config as _cfg
+        from agent_utilities.models.model_registry import (
+            ModelRegistry,
+            RoleSpec,
+        )
+
+        payload = json.loads(config_value) if config_value else {}
+        reg_path = getattr(_cfg, "model_registry_path", None)
+        if not reg_path or not Path(reg_path).is_file():
+            return json.dumps(
+                {
+                    "error": (
+                        "No model_registry_path configured; cannot "
+                        "persist role_routing."
+                    )
+                }
+            )
+        registry = ModelRegistry.load_from_file(reg_path)
+        for rname, spec in payload.items():
+            registry.role_routing[rname] = RoleSpec.model_validate(spec)
+        Path(reg_path).write_text(json.dumps(registry.model_dump(), indent=2))
+        return json.dumps(
+            {
+                "status": "success",
+                "action": "set_role_routing",
+                "roles": list(payload.keys()),
+            }
+        )
+    except PermissionError:
+        raise
+    except Exception as exc:
+        return json.dumps(
+            {
+                "error": "role routing update failed",
+                "error_type": type(exc).__name__,
+            }
+        )
+
+
+def _configure_action_schema_pack(action, config_key, config_value):
+    # action(s): 'schema_pack'
+    from agent_utilities.models.schema_pack_loader import (
+        get_active_pack,
+        set_active_pack,
+    )
+    from agent_utilities.models.schema_packs import list_schema_packs
+
+    if config_key:
+        pack = set_active_pack(config_key)
+        return json.dumps(
+            {
+                "status": "success",
+                "action": "schema_pack",
+                "active": pack.name,
+                "signature": pack.signature(),
+            }
+        )
+    active = get_active_pack()
+    return json.dumps(
+        {
+            "status": "success",
+            "action": "schema_pack",
+            "active": active.name,
+            "signature": active.signature(),
+            "available": list_schema_packs(),
+        }
+    )
+
+
+def _configure_action_schema_candidates(action, config_key, config_value):
+    # action(s): 'schema_candidates'
+    from agent_utilities.models.schema_pack_audit import (
+        SchemaCandidateAuditor,
+    )
+
+    try:
+        limit = int(config_value) if config_value else 100
+    except ValueError:
+        limit = 100
+    return json.dumps(
+        {
+            "status": "success",
+            "action": "schema_candidates",
+            "candidates": SchemaCandidateAuditor.instance().review(limit),
+        }
+    )
+
+
+_CONFIGURE_ACTION_DISPATCH = {
+    "set_secret": _configure_action_set_secret,
+    "vault_sync": _configure_action_vault_sync,
+    "register_mcp": _configure_action_register_mcp,
+    "add_connection": _configure_action_add_connection,
+    "remove_connection": _configure_action_add_connection,
+    "list_connections": _configure_action_add_connection,
+    "approve_connection_mapping": _configure_action_approve_connection_mapping,
+    "connection_mapping_status": _configure_action_approve_connection_mapping,
+    "discover_connection_schema": _configure_action_approve_connection_mapping,
+    "external_graph_doctor": _configure_action_approve_connection_mapping,
+    "profile_connection": _configure_action_approve_connection_mapping,
+    "ingest_connection": _configure_action_approve_connection_mapping,
+    "propose_connection_mapping": _configure_action_approve_connection_mapping,
+    "mirror_status": _configure_action_mirror_status,
+    "reconcile": _configure_action_mirror_status,
+    "push_to_stardog": _configure_action_push_to_stardog,
+    "pull_from_stardog": _configure_action_push_to_stardog,
+    "stardog_sparql": _configure_action_push_to_stardog,
+    "stardog_export_graph": _configure_action_push_to_stardog,
+    "stardog_import_graph": _configure_action_push_to_stardog,
+    "setup_databases": _configure_action_setup_databases,
+    "verify_databases": _configure_action_setup_databases,
+    "generate_config": _configure_action_generate_config,
+    "config_doctor": _configure_action_generate_config,
+    "config_reference": _configure_action_generate_config,
+    "get_config": _configure_action_get_config,
+    "set_config": _configure_action_get_config,
+    "list_config": _configure_action_get_config,
+    "frontend_contributions": _configure_action_frontend_contributions,
+    "health": _configure_action_health,
+    "system_doctor": _configure_action_system_doctor,
+    "preflight": _configure_action_preflight,
+    "harness_fence": _configure_action_harness_fence,
+    "install_hooks": _configure_action_install_hooks,
+    "uninstall_hooks": _configure_action_uninstall_hooks,
+    "doctor": _configure_action_doctor,
+    "set_role_routing": _configure_action_set_role_routing,
+    "schema_pack": _configure_action_schema_pack,
+    "schema_candidates": _configure_action_schema_candidates,
+}
+
+
 def register_analysis_tools(mcp):
     """Register the analysis_tools group on the given FastMCP server."""
 
@@ -563,1827 +4357,11 @@ def register_analysis_tools(mcp):
         engine = kg_server._get_engine()
         if not engine:
             return "Error: IntelligenceGraphEngine not active."
+        handler = _ANALYSIS_ACTION_DISPATCH.get(action)
+        if handler is None:
+            return f"Error: Unknown analyze action '{action}'"
         try:
-            if action in (
-                "synthesize",
-                "deep_extract",
-                "background_research",
-                "relevance_sweep",
-            ):
-                job_id = await run_blocking_ordered(
-                    engine.submit_task,
-                    target_path=query or target or "none",
-                    is_codebase=False,
-                    task_type=action,
-                    provenance={
-                        "top_k": top_k,
-                        "node_id": node_id,
-                        "depth": depth,
-                        "target": target,
-                    },
-                    skip_dedupe=True,
-                )
-                return f"Job submitted as '{job_id}'. Use graph_ingest(action='status', job_id='{job_id}') to check the result."
-            elif action == "blast_radius":
-                if not node_id:
-                    return "Error: node_id required for blast_radius"
-                radius = await run_blocking_ordered(
-                    engine.get_blast_radius, node_id, depth
-                )
-                if not radius:
-                    return f"No dependencies found for {node_id} within depth {depth}."
-                return "\n".join(
-                    [
-                        f"[{n['node_type']}] {n['id']} (Depth: {n['depth']})"
-                        for n in radius
-                    ]
-                )
-            elif action == "inspect":
-                # Structural/subgraph inspection (KG-2.134 docs): a node's own
-                # properties + its immediate neighbors + degree. No such method
-                # exists on IntelligenceGraphEngine — build the snapshot from
-                # REAL, already-wired read primitives instead of inventing one:
-                # ``query_cypher`` (parameterized — never f-string the target
-                # into Cypher) for properties, falling back to the bounded
-                # single-node reader, plus ``graph_compute`` for O(1) neighbor/
-                # degree lookups (never a whole-graph scan).
-                import json as _json
-
-                ident = (target or query or node_id or "").strip()
-                if not ident:
-                    return "Error: target (or query/node_id) required for inspect"
-
-                props: dict[str, Any] = {}
-                try:
-                    rows = await run_blocking_ordered(
-                        engine.query_cypher,
-                        "MATCH (n {id: $ident}) RETURN n AS node, labels(n) AS labels LIMIT 1",
-                        {"ident": ident},
-                    )
-                except Exception as e:  # noqa: BLE001 — fall back below
-                    logger.warning(
-                        "inspect: query_cypher lookup failed for %s (exception_type=%s)",
-                        ident,
-                        type(e).__name__,
-                    )
-                    rows = None
-                if rows:
-                    node = rows[0].get("node")
-                    if isinstance(node, dict):
-                        props = dict(node)
-                    labels = rows[0].get("labels") or []
-                    if labels and "node_type" not in props:
-                        props["node_type"] = labels[0]
-                if not props:
-                    from agent_utilities.knowledge_graph.core.bounded_read import (
-                        get_node_data,
-                    )
-
-                    props = get_node_data(engine.graph_compute, ident) or {}
-
-                neighbors: list[str] = []
-                degree = 0
-                try:
-                    neighbors = list(engine.graph_compute.neighbors(ident))
-                    degree = engine.graph_compute.degree(ident)
-                except Exception as e:  # noqa: BLE001 — best-effort structural read
-                    logger.warning(
-                        "inspect: neighbor/degree lookup failed for %s (exception_type=%s)",
-                        ident,
-                        type(e).__name__,
-                    )
-
-                if not props and not neighbors:
-                    return f"No node found for {ident!r}."
-
-                limit = top_k if isinstance(top_k, int) and top_k > 0 else 10
-                return _json.dumps(
-                    {
-                        "id": ident,
-                        "properties": props,
-                        "degree": degree,
-                        "neighbor_count": len(neighbors),
-                        "neighbors": neighbors[:limit],
-                    },
-                    indent=2,
-                    default=str,
-                )
-            # ── KG-2.8: Per-category enrichment coverage gauge ──
-            elif action == "enrichment_coverage":
-                import json as _json
-
-                from agent_utilities.knowledge_graph.enrichment.query import (
-                    enrichment_coverage,
-                )
-
-                backend = getattr(engine, "backend", None)
-                if backend is None:
-                    return "Error: no graph backend available."
-                gname = getattr(
-                    getattr(engine, "graph_compute", None), "graph_name", None
-                )
-                return _json.dumps(
-                    enrichment_coverage(backend, graph_name=gname), indent=2
-                )
-            # ── KG-2.8: Outbound process-intelligence writeback ──
-            elif action == "process_writeback":
-                # Push KG-derived process intelligence back INTO Camunda instances
-                # + ARIS models via the unified write-back core (target=process).
-                # target=camunda|aris|both (default both); query=optional process ids.
-                import json as _json
-
-                from agent_utilities.knowledge_graph.enrichment.writeback import (
-                    run_writeback,
-                )
-
-                scope = (target or "both").strip().lower()
-                process_ids = (
-                    [p.strip() for p in query.split(",") if p.strip()]
-                    if query
-                    else None
-                )
-                backend = getattr(engine, "backend", None)
-                return _json.dumps(
-                    run_writeback(
-                        "process",
-                        backend=backend,
-                        engine=engine,
-                        dry_run=False,
-                        scope=scope,
-                        process_ids=process_ids,
-                    )
-                )
-            # ── KG-2.7: Startup Context Generation ──
-            elif action == "context":
-                try:
-                    from agent_utilities.knowledge_graph.memory import (
-                        build_startup_payload,
-                    )
-
-                    payload = build_startup_payload(
-                        engine,
-                        agent=target or None,
-                        cwd=query or None,
-                        budget_chars=top_k * 1000 if top_k != 10 else 24000,
-                    )
-                    return payload.text
-                except Exception as e:
-                    return public_error_text(e)
-            elif action == "evaluate_alpha":
-                from agent_utilities.knowledge_graph.core.quant_tasks import (
-                    execute_quant_task,
-                )
-
-                res = execute_quant_task(
-                    engine, "run_qlib_backtest", {"target": target or query}
-                )
-                return json.dumps(res)
-            elif action in (
-                "evaluate",
-                "evolve_model",
-                "forecast",
-                "causal",
-                "invariant",
-            ):
-                # BUG-5: these used to be hardcoded canned-success strings that did
-                # nothing regardless of input — a silent no-op masquerading as a
-                # real result. No real implementation of any of these exists on
-                # THIS surface (confirmed by source search), so fail honestly with
-                # a pointer to the real tool/service instead of faking success.
-                # forecast/evolve_model stay out of agent-utilities on purpose
-                # (heavy ML training belongs in data-science-mcp — anti-sprawl).
-                _NOT_IMPLEMENTED_HINT = {
-                    "evaluate": (
-                        "'evaluate_alpha' (quant backtests), 'evaluate_harness', "
-                        "or 'check_constraints' on this same graph_evaluate/graph_analyze surface"
-                    ),
-                    "evolve_model": (
-                        "the data-science-mcp model-training/evolution surface "
-                        "(heavy ML training does not belong in agent-utilities)"
-                    ),
-                    "forecast": (
-                        "engine_timeseries (native TSDB) or "
-                        "graph_mine_deep(action='deep_forecast'), which delegates to data-science-mcp"
-                    ),
-                    "causal": (
-                        "graph_ops_causal (agent_utilities/mcp/tools/ops_causal_tools.py) — "
-                        "a real root-cause/causal-graph implementation already exists there"
-                    ),
-                    "invariant": (
-                        "agent_utilities.knowledge_graph.core.formal_reasoning_core."
-                        "FiniteStateMachine (add_invariant/validate_invariants) directly, "
-                        "or 'check_constraints' on this surface for a different kind of check"
-                    ),
-                }
-                return json.dumps(
-                    {
-                        "status": "not_implemented",
-                        "error": (
-                            f"Action '{action}' is not implemented on this surface — "
-                            f"use {_NOT_IMPLEMENTED_HINT[action]}."
-                        ),
-                        "action": action,
-                    }
-                )
-            elif action == "security_scan":
-                # BUG-5: was a hardcoded canned-success string; no real scan ever ran.
-                return json.dumps(
-                    {
-                        "status": "not_implemented",
-                        "error": (
-                            "Action 'security_scan' is not implemented on this surface — "
-                            "use the security-vulnerability-scan / security-patch-sweep "
-                            "skill, or engine_rbac / graph_audit for KG-native access and "
-                            "integrity checks."
-                        ),
-                        "action": action,
-                        "target": target,
-                    }
-                )
-            elif action == "placement_plan":
-                # Multi-objective workload placement over the infra subgraph
-                # (efficiency/security/cost/resilience), propose-only (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
-                import json as _json
-
-                from agent_utilities.knowledge_graph.infra import optimize_from_graph
-
-                return _json.dumps(optimize_from_graph(engine), indent=2, default=str)
-            elif action == "infra_sweep":
-                # Hardware inventory sweep → KG infra ontology (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
-                # `target`/`query` carries a comma-separated host id list.
-                import json as _json
-
-                from agent_utilities.knowledge_graph.infra import collect_and_persist
-
-                host_ids = [
-                    h.strip() for h in (target or query or "").split(",") if h.strip()
-                ]
-                return _json.dumps(
-                    collect_and_persist(engine, host_ids), indent=2, default=str
-                )
-            elif action == "specialize":
-                # SAI factory (CONCEPT:AU-AHE.harness.sai-controller): ground a learned world model in
-                # persisted WorldModelTransition history and specialize its config,
-                # returning adaptation-speed metrics (AHE-3.27) + superhuman
-                # certification (SAFE-1.6). On-demand twin of the KG_SAI_FACTORY tick,
-                # so the closed loop is reachable through the gateway, not just the daemon.
-                import json as _json
-
-                from agent_utilities.harness.superhuman_gate import SuperhumanCertifier
-                from agent_utilities.harness.world_model_task import (
-                    specialize_world_model_from_engine,
-                )
-
-                summary = specialize_world_model_from_engine(
-                    engine, certifier=SuperhumanCertifier()
-                )
-                if summary is None:
-                    return _json.dumps(
-                        {
-                            "status": "noop",
-                            "reason": "insufficient WorldModelTransition history to specialize",
-                        }
-                    )
-                return _json.dumps({"status": "ok", **summary}, default=str)
-            elif action == "world_model_rollout":
-                # CONCEPT:AU-KG.compute.world-model-forward-simulation — forward-simulate the learned world model with
-                # persistent latent rollout memory (carry the predicted latent across
-                # steps so the imagined trajectory stays on-manifold instead of
-                # re-deriving from the bare next-state string each step). Grounds in
-                # persisted WorldModelTransition history, rolls a fixed policy forward,
-                # and persists the imagined trajectory as a WorldModelRollout node.
-                from agent_utilities.knowledge_graph.core.world_model import WorldModel
-
-                world_model = WorldModel.from_engine(engine, latent=True)
-                start = (query or "").strip()
-                horizon = int(top_k) if top_k else 8
-                repeat_action = "advance"
-                traj = world_model.rollout(start, lambda _s: repeat_action, horizon)
-                rollout_id = world_model.persist_rollout(traj)
-                return json.dumps(
-                    {
-                        "status": "ok",
-                        "start": start,
-                        "horizon": horizon,
-                        "rollout_id": rollout_id,
-                        "expected_return": round(world_model.expected_return(traj), 4),
-                        "total_drift": round(sum(t.drift for t in traj), 4),
-                        "steps": [t.as_dict() for t in traj],
-                    },
-                    default=str,
-                )
-            elif action == "research_ingest":
-                # KG-2.33 — deep-research ingestion: fetch a paper/URL, run the
-                # research pipeline (orchestrator + citation subagents), and persist
-                # it into the KG. ``query`` carries the URL or paper id.
-                from agent_utilities.knowledge_graph.research.research_intelligence_engine import (  # noqa: E501
-                    ResearchIntelligenceEngine,
-                )
-
-                if not query:
-                    return "Error: research_ingest needs a URL/paper id in `query`."
-                rie = ResearchIntelligenceEngine(engine)
-                return await rie.ingest_url(query)
-            elif action == "evolve_variants":
-                from agent_utilities.harness.agentic_evolution_engine import (
-                    AgenticEvolutionEngine,
-                )
-
-                if not query:
-                    return "Error: evolve_variants needs a base_id in `query`."
-                aee = AgenticEvolutionEngine(engine)
-                result = aee.run_evolution_cycle(
-                    base_id=query,
-                    task_text=node_id or "",
-                    top_k=top_k if top_k else 3,
-                )
-                return json.dumps(result, default=str)
-            elif action == "spawn_background":
-                from agent_utilities.harness.background_spawner import (
-                    BackgroundAgentSpawner,
-                )
-
-                if not engine:
-                    return "Error: spawn_background requires an active engine."
-                if not query:
-                    return (
-                        "Error: spawn_background needs a task description in `query`."
-                    )
-                spawner = BackgroundAgentSpawner(engine)
-                team = spawner.orchestrator.synthesize_team(
-                    query=query,
-                    domain=target or "background_operations",
-                    complexity=depth if depth > 0 else 4,
-                )
-                return json.dumps(
-                    {
-                        "status": "ok",
-                        "team_id": team.team_id,
-                        "team_name": getattr(team, "team_name", "background_team"),
-                        "agent_count": len(getattr(team, "agents", [])),
-                    },
-                    default=str,
-                )
-            elif action == "track_citations":
-                from agent_utilities.harness.citation_tracker import CitationTracker
-
-                if not query:
-                    return (
-                        "Error: track_citations needs agent response text in `query`."
-                    )
-                tracker = CitationTracker()
-                citations = tracker.extract_citations(query)
-                if not citations:
-                    return json.dumps(
-                        {"status": "no_citations", "total": 0, "citations": []}
-                    )
-                citation_data = [
-                    {
-                        "source_id": c.source_id,
-                        "citation_type": c.citation_type,
-                        "raw_text": c.raw_text,
-                        "confidence": c.confidence,
-                    }
-                    for c in citations
-                ]
-                report = tracker.evaluate_citations(
-                    citations,
-                    retrieved_doc_ids=set(json.loads(target)) if target else None,
-                    gold_doc_ids=set(json.loads(node_id)) if node_id else None,
-                )
-                return json.dumps(
-                    {
-                        "status": "extracted",
-                        "total_citations": report.total_citations,
-                        "precision": report.precision,
-                        "recall": report.recall,
-                        "f1": report.f1,
-                        "citations": citation_data,
-                        "hallucinated_citations": report.hallucinated_citations,
-                        "uncited_evidence": report.uncited_evidence,
-                        "citation_types": report.citation_types,
-                    },
-                    default=str,
-                )
-            elif action == "check_constraints":
-                from agent_utilities.harness.constraint_engine import (
-                    ConstraintEngine,
-                )
-
-                if not query:
-                    return "Error: check_constraints needs a tool_name in `query`."
-                if not engine:
-                    return "Error: check_constraints requires a knowledge engine to instantiate ConstraintEngine."
-                ce = ConstraintEngine(knowledge_engine=engine)
-                allowed, violations = ce.check_tool_call(
-                    tool_name=query,
-                    args={"target": target} if target else None,
-                )
-                result = {
-                    "allowed": allowed,
-                    "tool_name": query,
-                    "violations": [
-                        {
-                            "constraint_id": v.constraint_id,
-                            "violation_context": v.violation_context,
-                            "timestamp": v.timestamp,
-                            "auto_blocked": v.auto_blocked,
-                        }
-                        for v in violations
-                    ],
-                }
-                return json.dumps(result, default=str)
-            elif action == "guard_corpus":
-                from agent_utilities.harness.corpus_collapse_guard import (
-                    CorpusCollapseGuard,
-                )
-
-                guard = CorpusCollapseGuard()
-                return json.dumps(guard.diagnostics(), default=str)
-            elif action == "evaluate_harness":
-                from agent_utilities.harness.evaluation_engine import EvaluationEngine
-
-                if not query:
-                    return "Error: evaluate_harness needs a trajectory_id in `query`."
-                eval_engine = EvaluationEngine(engine)
-                result = eval_engine.evaluate_and_decompose(
-                    trajectory_id=query,
-                    steps=[],
-                    goal_achieved=True,
-                    reasoning_effort=0.5,
-                )
-                return json.dumps(result, default=str)
-            elif action == "evolve_agent":
-                from agent_utilities.harness.evidence_corpus import EvidenceCorpus
-                from agent_utilities.harness.evolve_agent import EvolveAgent
-
-                if not query:
-                    return "Error: evolve_agent needs an evidence corpus ID or path in `query`."
-                try:
-                    workspace_path = os.getcwd()  # Fallback; ideally passed as param
-                    evolve = EvolveAgent(
-                        workspace_path=workspace_path,
-                        registry=None,
-                        knowledge_engine=engine,
-                    )
-                    # Best-effort: construct minimal EvidenceCorpus from query.
-                    # In real usage, this would load from .specify/ or KG.
-                    evidence = EvidenceCorpus(
-                        round_id=query,
-                        benchmark_score=0.5,
-                        pass_rate=0.5,
-                        total_tasks=0,
-                    )
-                    manifest = await evolve.evolve(evidence)
-                    return json.dumps(manifest.model_dump(), default=str)
-                except Exception as e:
-                    return public_error_text(e)
-            elif action == "recursive_distill":
-                from agent_utilities.harness.recursive_distill import RecursiveDistiller
-
-                if not engine:
-                    return "Error: recursive_distill requires an active engine."
-                # RecursiveDistiller needs external-compute injections (corpus_source,
-                # trainer, evaluate_model, promote). Report what it expects so the
-                # caller can wire a distillation daemon (CONCEPT:AU-AHE.optimization.recursive-distillation-loop).
-                return json.dumps(
-                    {
-                        "status": "needs_injection",
-                        "entry": "RecursiveDistiller.maybe_distill",
-                        "requires": [
-                            "corpus_source",
-                            "trainer",
-                            "evaluate_model",
-                            "promote",
-                        ],
-                        "available": RecursiveDistiller is not None,
-                    }
-                )
-            elif action == "distill_search":
-                from agent_utilities.harness.search_distillation import (
-                    SearchDistillationHarvester,
-                )
-
-                if not query:
-                    return "Error: distill_search needs a prompt in `query`."
-                harvester = SearchDistillationHarvester(engine)
-                candidates = [
-                    (f"candidate_{i}", float(i) / max(1, top_k))
-                    for i in range(1, top_k + 1)
-                ]
-                rows, pairs = harvester.harvest_candidates(query, candidates)
-                result = {
-                    "sft_rows": [
-                        {
-                            "prompt": r.prompt,
-                            "completion": r.completion,
-                            "score": r.score,
-                            "source": r.source,
-                            "synthetic": r.synthetic,
-                        }
-                        for r in rows
-                    ],
-                    "preference_pairs": [
-                        {"prompt": p.prompt, "chosen": p.chosen, "rejected": p.rejected}
-                        for p in pairs
-                    ],
-                }
-                return json.dumps(result, default=str)
-            elif action == "extract_claims":
-                # CONCEPT:AU-KG.enrichment.entity-claim-extraction — entity-claim extraction for MAGMA epistemic view.
-                # Extracts entities, claims, and implicit relationships from document
-                # content using deterministic + pack-driven inference, then persists
-                # to the KG. ``query`` carries the content to analyze.
-                from agent_utilities.knowledge_graph.kb.entity_claim_extractor import (
-                    EntityClaimExtractor,
-                )
-
-                if not query:
-                    return "Error: extract_claims needs document content in `query`."
-                ece = EntityClaimExtractor(engine)
-                ext_result = ece.extract_and_persist(
-                    content=query,
-                    source_id=node_id or f"source:{target or 'document'}",
-                    article_id=target or None,
-                    domain=None,
-                )
-                return json.dumps(ext_result.model_dump(), default=str)
-            elif action == "contradictions":
-                # CONCEPT:AU-KG.research.explicit-node-node-contradiction — explicit node↔node contradiction/friction surface
-                # (the night-shift Critic): retrieve topically-similar existing nodes
-                # and flag those that OPPOSE the new claim in `query`. Propose-only —
-                # never auto-resolves; returns FRICTION findings for human judgment.
-                from agent_utilities.knowledge_graph.adaptation.contradiction_detector import (  # noqa: E501
-                    Claim,
-                    ContradictionDetector,
-                )
-
-                if not query:
-                    return "Error: contradictions needs the new claim text in `query`."
-                # skip_quality_gate=True: this is a propose-only friction SCAN, not
-                # a confident-answer retrieval — the quality gate exists to avoid
-                # presenting a low-relevance result AS the answer, which doesn't
-                # apply here. ContradictionDetector.check() below does its own
-                # independent opposition/similarity scoring per candidate, so a
-                # weak neighbour is still legitimate input for human-judgment
-                # review (never auto-resolved); the gate would otherwise silently
-                # zero out every candidate and make the whole action a no-op
-                # whenever relevance is merely borderline.
-                neighbours = (
-                    await run_blocking_ordered(
-                        engine.search_hybrid,
-                        query,
-                        top_k=top_k,
-                        skip_quality_gate=True,
-                    )
-                    or []
-                )
-                existing = [
-                    Claim(
-                        id=str(n.get("id") or (n.get("node", {}) or {}).get("id") or i),
-                        text=str(
-                            n.get("description")
-                            or n.get("name")
-                            or (n.get("node", {}) or {}).get("description")
-                            or ""
-                        ),
-                    )
-                    for i, n in enumerate(neighbours)
-                    if isinstance(n, dict)
-                ]
-                new_claim = Claim(id=node_id or "new", text=query)
-                findings = ContradictionDetector().check(new_claim, existing)
-
-                # CONCEPT:AU-KG.retrieval.graph-engineering-canonical-prompts — the
-                # graph-maintenance canonical prompt, wired onto this EXISTING
-                # contradiction/TMS path as a best-effort LLM recommendation layered
-                # on top of the deterministic detector above (propose-only, same
-                # contract). Resolved ONCE (not per finding) and degrades to no
-                # "maintenance" key at all with no LLM configured — identical JSON
-                # shape to before this was added.
-                from agent_utilities.knowledge_graph.retrieval.graph_engineering import (
-                    narrate_maintenance_action,
-                    resolve_llm_fn,
-                )
-
-                existing_by_id = {c.id: c.text for c in existing}
-                llm_fn = resolve_llm_fn() if findings else None
-                results = []
-                for f in findings:
-                    entry: dict[str, Any] = {
-                        "new_id": f.new_id,
-                        "conflict_id": f.conflict_id,
-                        "similarity": round(f.similarity, 3),
-                        "severity": f.severity,
-                        "reason": f.reason,
-                    }
-                    maintenance = narrate_maintenance_action(
-                        f,
-                        new_text=new_claim.text,
-                        existing_text=existing_by_id.get(f.conflict_id, ""),
-                        llm_fn=llm_fn,
-                    )
-                    if maintenance:
-                        entry["maintenance"] = maintenance
-                    results.append(entry)
-                return json.dumps(results, default=str)
-            elif action == "evolve_code":
-                # CONCEPT:AU-KG.retrieval.monte-carlo-graph-search — Monte-Carlo GRAPH search code evolution (MLEvolve)
-                # driven by a REAL LLM coder (CONCEPT:AU-ORCH.execution.drop-rlm-completion-client RLM). Each search node
-                # is coded by the LLM from the step plan + prior code; a deterministic
-                # refinement is the offline fallback. Run in a worker thread so the
-                # sync RLM client has its own event loop.
-                from agent_utilities.harness.agentic_evolution_engine import (
-                    AgenticEvolutionEngine,
-                )
-
-                if not query:
-                    return "Error: evolve_code needs a task description in `query`."
-
-                def _llm_coder(plan: str, prior_code: str | None) -> tuple[str, str]:
-                    try:
-                        from agent_utilities.rlm.client import RLM
-
-                        prompt = (
-                            "Improve the code solution for this task. Return ONLY the "
-                            "full updated Python code, no prose.\n"
-                            f"Task: {query}\nStep plan: {plan}\n"
-                            f"Current code:\n{prior_code or '(none)'}"
-                        )
-                        resp = RLM().completion(prompt)
-                        if resp.ok and resp.response.strip():
-                            return (plan, resp.response)
-                    except Exception:  # noqa: BLE001 — offline / LLM error -> fallback
-                        pass
-                    return (plan, f"{prior_code or ''}\n# step for: {plan}".strip())
-
-                result = await asyncio.to_thread(
-                    lambda: AgenticEvolutionEngine(engine).evolve_via_graph_search(
-                        query, num_steps=top_k, coder_fn=_llm_coder
-                    )
-                )
-                return json.dumps(result, default=str)
-            elif action == "night_shift":
-                # CONCEPT:AU-KG.research.run-one-autonomous-night — run one autonomous night-shift cycle over a
-                # local markdown vault: scout→catalog→cartograph→critique→edit
-                # (the second-brain swarm). `target` is the vault root; sources
-                # dropped in <vault>/0-raw|sources are refined into linked atomic
-                # notes with [FRICTION] surfaced + a morning briefing. Schedule it
-                # via cron for the overnight pattern. Propose-only; never deletes.
-                from agent_utilities.knowledge_graph.research.night_shift import (
-                    NightShiftSwarm,
-                )
-
-                if not target:
-                    return "Error: night_shift needs the vault root path in `target`."
-
-                def _llm_extract(source_text: str) -> list[str]:
-                    # Real LLM Cataloger (CONCEPT:AU-ORCH.execution.drop-rlm-completion-client RLM): split a source into
-                    # atomic ideas; deterministic paragraph/sentence splitter fallback.
-                    try:
-                        from agent_utilities.rlm.client import RLM
-
-                        prompt = (
-                            "Extract the atomic ideas from the text below as a list, "
-                            "one self-contained claim per line:\n\n" + source_text
-                        )
-                        resp = RLM().completion(prompt)
-                        if resp.ok and resp.response.strip():
-                            atoms = [
-                                line.lstrip("0123456789.-) \t").strip()
-                                for line in resp.response.splitlines()
-                                if line.strip()
-                            ]
-                            if atoms:
-                                return atoms
-                    except Exception:  # noqa: BLE001 — offline / LLM error -> fallback
-                        pass
-                    from agent_utilities.knowledge_graph.research.night_shift import (
-                        default_extract,
-                    )
-
-                    return default_extract(source_text)
-
-                shift_report = await asyncio.to_thread(
-                    lambda: NightShiftSwarm(target, extract_fn=_llm_extract).run_shift()
-                )
-                return json.dumps(
-                    {
-                        "sources_ingested": shift_report.sources_ingested,
-                        "atoms_created": shift_report.atoms_created,
-                        "links_added": shift_report.links_added,
-                        "frictions": shift_report.frictions,
-                        "briefing_path": shift_report.briefing_path,
-                    },
-                    default=str,
-                )
-            elif action == "recommend":
-                # CONCEPT:AU-KG.retrieval.pauserec-implicit-reasoning-generative — PauseRec implicit-reasoning generative recommender:
-                # retrieve candidate items, assign them semantic IDs, then recommend the
-                # next items via a latent-reasoning budget + a text↔SID bridge (no
-                # brittle explicit CoT). `query` is the user intent / history summary.
-                from agent_utilities.knowledge_graph.retrieval.generative_recommender import (  # noqa: E501
-                    ImplicitReasoningRecommender,
-                )
-                from agent_utilities.knowledge_graph.retrieval.temporal_semantic_id import (  # noqa: E501
-                    TemporalSemanticIdEncoder,
-                )
-
-                if not query:
-                    return "Error: recommend needs a query/intent in `query`."
-
-                def _recommend() -> list[Any] | None:
-                    # CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval — pass the
-                    # served call's ambient GraphSession so candidate nodes are
-                    # ACL/owner-scope filtered before they reach the recommender
-                    # (see search_hybrid's docstring — a no-op for callers that
-                    # pass no session).
-                    from agent_utilities.knowledge_graph.core.session import (
-                        current_session,
-                    )
-
-                    candidates = (
-                        engine.search_hybrid(
-                            query, top_k=max(top_k * 4, 20), session=current_session()
-                        )
-                        or []
-                    )
-                    items = []
-                    for c in candidates:
-                        if not isinstance(c, dict):
-                            continue
-                        inner = c.get("node", c)
-                        inner = inner if isinstance(inner, dict) else {}
-                        emb = inner.get("embedding")
-                        cid = str(inner.get("id") or c.get("id") or "")
-                        if emb and cid:
-                            items.append((cid, emb))
-                    if not items:
-                        return None
-                    embed_model = getattr(
-                        getattr(engine, "hybrid_retriever", None), "embed_model", None
-                    )
-                    qemb = None
-                    if embed_model is not None:
-                        try:
-                            qemb = embed_model.get_text_embedding(query)
-                        except Exception:  # noqa: BLE001 — embedder down -> anchor on top item
-                            qemb = None
-                    recommender = ImplicitReasoningRecommender(
-                        TemporalSemanticIdEncoder()
-                    )
-                    recommender.fit_catalog(items)
-                    return recommender.recommend(qemb or items[0][1], top_k=top_k)
-
-                recs = await run_blocking_ordered(_recommend)
-                if recs is None:
-                    return json.dumps([])
-                return json.dumps(
-                    [
-                        {
-                            "item_id": r.item_id,
-                            "semantic_id": list(r.semantic_id),
-                            "score": r.score,
-                        }
-                        for r in recs
-                    ],
-                    default=str,
-                )
-            elif action == "assimilation_benchmark":
-                # CONCEPT:AU-AHE.assimilation.empirical-parity-evidence-assimilation — measured empirical-parity evidence: run each
-                # assimilated paper's mechanism vs a baseline on a controlled task and
-                # report the real lift + claim-reproduced verdict (the proof that we
-                # got feature parity, not just shipped the mechanism). Deterministic,
-                # CPU; the trained-pause-token bench runs when torch is present.
-                from agent_utilities.harness.assimilation_benchmark import (
-                    run_all as _bench_run_all,
-                )
-                from agent_utilities.harness.assimilation_benchmark import (
-                    to_markdown as _bench_md,
-                )
-
-                bench_results = _bench_run_all(seed=int(top_k) if top_k else 0)
-                return json.dumps(
-                    {
-                        "reproduced": sum(
-                            1 for r in bench_results if r.claim_reproduced
-                        ),
-                        "total": len(bench_results),
-                        "results": [
-                            {
-                                "name": r.name,
-                                "metric": r.metric,
-                                "baseline": r.baseline,
-                                "ours": r.ours,
-                                "lift": r.lift,
-                                "claim_reproduced": r.claim_reproduced,
-                            }
-                            for r in bench_results
-                        ],
-                        "markdown": _bench_md(bench_results),
-                    },
-                    default=str,
-                )
-            elif action == "latent_efficiency_benchmark":
-                # CONCEPT:AU-AHE.harness.empirical-evidence-that-latent — measured lift for the latent-native memory
-                # mechanisms: latent rollout memory (KG-2.73b) reduces trajectory
-                # drift vs a memoryless rollout, and the ontology-type prior (KG-2.44b)
-                # improves top-k neighbourhood coherence vs flat cosine. Deterministic,
-                # CPU; the on-demand twin of the latent-native enhancements' evidence.
-                from agent_utilities.harness.latent_efficiency_benchmark import (
-                    run_all as _lat_run_all,
-                )
-                from agent_utilities.harness.latent_efficiency_benchmark import (
-                    to_markdown as _lat_md,
-                )
-
-                lat_results = _lat_run_all(seed=int(top_k) if top_k else 0)
-                return json.dumps(
-                    {
-                        "reproduced": sum(1 for r in lat_results if r.claim_reproduced),
-                        "total": len(lat_results),
-                        "results": [
-                            {
-                                "name": r.name,
-                                "metric": r.metric,
-                                "baseline": r.baseline,
-                                "ours": r.ours,
-                                "lift": r.lift,
-                                "claim_reproduced": r.claim_reproduced,
-                            }
-                            for r in lat_results
-                        ],
-                        "markdown": _lat_md(lat_results),
-                    },
-                    default=str,
-                )
-            elif action == "infer_links":
-                from agent_utilities.knowledge_graph.kb.link_inference import (
-                    infer_links,
-                )
-                from agent_utilities.models.schema_pack_loader import get_active_pack
-
-                if not query:
-                    return "Error: infer_links needs content text in `query`."
-                if not node_id:
-                    return "Error: infer_links needs a source node ID in `node_id`."
-
-                schema_pack = get_active_pack()
-                if not schema_pack or not getattr(schema_pack, "link_inference", None):
-                    return "Error: no active schema pack with link_inference rules available."
-
-                rules = schema_pack.link_inference
-                extracted = infer_links(query, node_id, rules)
-
-                return json.dumps(
-                    [
-                        {
-                            "source_name": rel.source_name,
-                            "target_name": rel.target_name,
-                            "relationship_type": rel.relationship_type,
-                            "confidence": rel.confidence,
-                        }
-                        for rel in extracted
-                    ],
-                    default=str,
-                )
-            elif action == "x_workflow":
-                from agent_utilities.knowledge_graph.kb.x_workflows import (
-                    register_x_workflows,
-                )
-
-                if not engine:
-                    return (
-                        "Error: x_workflow requires an active IntelligenceGraphEngine."
-                    )
-                force = query.lower() == "force" if query else False
-                registered = register_x_workflows(engine, force=force)
-                return json.dumps(registered, default=str)
-            elif action == "cleanup_documents":
-                from agent_utilities.knowledge_graph.maintenance.document_cleanup import (
-                    DocumentCleanup,
-                )
-
-                cleanup = DocumentCleanup(engine)
-                result = await cleanup.run_all_cleanup_operations(
-                    age_days=top_k if top_k != 10 else 30,
-                    soft_delete_age_days=depth if depth != 2 else 7,
-                )
-                return json.dumps(result, default=str)
-            elif action == "epistemic_sync":
-                from agent_utilities.workflows.epistemic_sync import (
-                    EpistemicSyncWorkflow,
-                )
-
-                workflow = EpistemicSyncWorkflow()
-                await workflow.run_sync_cycle()
-                return json.dumps(
-                    {
-                        "status": "sync_cycle_completed",
-                        "message": "Epistemic Sync cycle executed successfully. Check logs for details on entities ingested and mutations flushed.",
-                    }
-                )
-            elif action == "pick_skill":
-                from agent_utilities.workflows.skill_picker import (
-                    SkillCandidate,
-                    SkillPicker,
-                )
-
-                if not query:
-                    return "Error: pick_skill needs a skill query in `query`."
-                picker = SkillPicker()
-                # Without a skill registry endpoint or hardcoded candidates,
-                # we cannot populate the candidate list. Placeholder shows the API.
-                skill_candidates: list[SkillCandidate] = []
-                ranked = picker.rank(query, skill_candidates)
-                return json.dumps(
-                    [
-                        {
-                            "name": s.candidate.name,
-                            "score": s.score,
-                            "breakdown": s.breakdown,
-                            "scenario": s.candidate.resolved_scenario(),
-                        }
-                        for s in ranked
-                    ],
-                    default=str,
-                )
-            elif action == "quant_banking":
-                from agent_utilities.domains.finance.banking import KYCAMLEngine
-
-                if not query:
-                    return "Error: quant_banking needs a transaction_id in `query`."
-                # Use query as transaction_id; derive account_id and amount from context
-                # or use sensible defaults for a compliance check
-                engine_instance = KYCAMLEngine()
-                alert = engine_instance.check_transaction(
-                    transaction_id=query,
-                    account_id=f"account:{query[:8]}",
-                    amount=float(target)
-                    if target and target.replace(".", "").isdigit()
-                    else 10000.0,
-                )
-                if alert is None:
-                    return json.dumps({"status": "compliant", "transaction_id": query})
-                return json.dumps(
-                    {
-                        "status": "alert",
-                        "alert_id": alert.id,
-                        "transaction_id": alert.transaction_id,
-                        "account_id": alert.account_id,
-                        "severity": alert.severity.value,
-                        "alert_type": alert.alert_type,
-                        "amount": alert.amount,
-                    },
-                    default=str,
-                )
-            elif action == "quant_arb":
-                from agent_utilities.domains.finance.cross_market_arb import (
-                    EventArbitrageEngine,
-                )
-
-                if not query:
-                    return "Error: quant_arb needs market parameters in `query` (JSON: {model_probability, market_a_price, market_b_price} or comma-separated values)."
-                try:
-                    if query.startswith("{"):
-                        params = json.loads(query)
-                        model_prob = float(params.get("model_probability", 0.5))
-                        market_a = float(params.get("market_a_price", 0.5))
-                        market_b = float(params.get("market_b_price", 0.5))
-                        exec_costs = float(params.get("execution_costs", 0.08))
-                    else:
-                        parts = query.split(",")
-                        model_prob = float(parts[0].strip())
-                        market_a = float(parts[1].strip()) if len(parts) > 1 else 0.5
-                        market_b = float(parts[2].strip()) if len(parts) > 2 else 0.5
-                        exec_costs = float(parts[3].strip()) if len(parts) > 3 else 0.08
-                except (ValueError, IndexError, json.JSONDecodeError) as e:
-                    return public_error_text(e, code="invalid_request")
-                result = EventArbitrageEngine.evaluate_dual_markets(
-                    model_probability=model_prob,
-                    market_a_price=market_a,
-                    market_b_price=market_b,
-                    execution_costs=exec_costs,
-                )
-                return json.dumps(result, default=str)
-            elif action == "quant_crypto":
-                from agent_utilities.domains.finance.crypto_connector import (
-                    CryptoConnector,
-                )
-
-                if not query:
-                    return "Error: quant_crypto needs a symbol in `query` (e.g., 'BTC/USD')."
-                connector = CryptoConnector()
-                result = connector.get_asset_context(query)
-                return json.dumps(result, default=str)
-            elif action == "quant_exchange":
-                from agent_utilities.domains.finance.exchange_bridge import (
-                    ExchangeBridge,
-                )
-
-                if not query:
-                    return "Error: quant_exchange needs a symbol (e.g., BTC/USDT or AAPL) in `query`."
-                bridge = ExchangeBridge(paper_mode=True)
-                exec_result = bridge.execute(
-                    symbol=query,
-                    side="buy",
-                    qty=float(target.split(":")[1])
-                    if target and ":" in target
-                    else 1.0,
-                    order_type="market",
-                    limit_price=None,
-                )
-                return json.dumps(
-                    {
-                        "order_id": exec_result.order_id,
-                        "status": exec_result.status,
-                        "filled_qty": exec_result.filled_qty,
-                        "average_price": exec_result.average_price,
-                        "fees": exec_result.fees,
-                        "exchange": exec_result.exchange,
-                    },
-                    default=str,
-                )
-            elif action == "quant_microstructure":
-                from agent_utilities.domains.finance.microstructure import (
-                    ConvergenceFilter,
-                    MicroPriceCalculator,
-                    OrderBookImbalance,
-                )
-
-                if not query:
-                    return "Error: quant_microstructure needs order book data in `query` (JSON: {bid_price, ask_price, bid_volume, ask_volume}) or set via target/depth."
-                try:
-                    import json as _json
-
-                    if isinstance(query, str):
-                        try:
-                            params = _json.loads(query)
-                        except Exception:
-                            params = {}
-                    else:
-                        params = query if isinstance(query, dict) else {}
-                    bid_price = float(
-                        params.get(
-                            "bid_price", target.split(",")[0] if target else 99.5
-                        )
-                    )
-                    ask_price = float(
-                        params.get(
-                            "ask_price",
-                            target.split(",")[1] if target and "," in target else 100.5,
-                        )
-                    )
-                    bid_volume = float(params.get("bid_volume", top_k * 100))
-                    ask_volume = float(params.get("ask_volume", depth * 100))
-
-                    obi = OrderBookImbalance.calculate(bid_volume, ask_volume)
-                    spread = ask_price - bid_price
-                    micro_price = MicroPriceCalculator.calculate(
-                        bid_price, ask_price, bid_volume, ask_volume
-                    )
-                    micro_price_from_imbalance = MicroPriceCalculator.from_imbalance(
-                        (bid_price + ask_price) / 2.0, spread, obi
-                    )
-                    is_consensus = ConvergenceFilter.check_agreement(
-                        [True] * min(5, max(1, int(obi * 5 + 2.5))), threshold=5
-                    )
-                    result = {
-                        "order_book": {
-                            "bid_price": bid_price,
-                            "ask_price": ask_price,
-                            "bid_volume": bid_volume,
-                            "ask_volume": ask_volume,
-                            "spread": spread,
-                        },
-                        "imbalance": {"obi": float(obi), "consensus": is_consensus},
-                        "micro_price": {
-                            "direct_calculation": float(micro_price),
-                            "from_imbalance": float(micro_price_from_imbalance),
-                        },
-                        "status": "ok",
-                    }
-                    return _json.dumps(result, default=str)
-                except Exception as e:
-                    return public_error_text(e)
-            elif action == "quant_strategy":
-                from agent_utilities.domains.finance.strategy_engine import (
-                    StrategyEngine,
-                    StrategyMetrics,
-                )
-
-                if not query:
-                    return "Error: quant_strategy needs a strategy_id in `query`."
-                if engine is None:
-                    return "Error: quant_strategy requires an active knowledge graph engine."
-                se = StrategyEngine(engine)
-                metrics = StrategyMetrics(
-                    sharpe=2.5,
-                    max_drawdown=-0.10,
-                    win_rate=0.55,
-                    profit_factor=1.5,
-                    total_trades=max(100, top_k),
-                )
-                promotable = se.record_backtest(query, metrics)
-                return json.dumps(
-                    {
-                        "strategy_id": query,
-                        "promotable": promotable,
-                        "metrics": {
-                            "sharpe": metrics.sharpe,
-                            "max_drawdown": metrics.max_drawdown,
-                            "win_rate": metrics.win_rate,
-                            "profit_factor": metrics.profit_factor,
-                            "total_trades": metrics.total_trades,
-                        },
-                    },
-                    default=str,
-                )
-            elif action == "quant_regime":
-                from agent_utilities.domains.finance.regime_detector import (
-                    RegimeDetector,
-                )
-
-                if not query:
-                    return "Error: quant_regime needs a ticker symbol in `query`."
-
-                # Create bounded synthetic close data for demonstration. Each
-                # numeric operation crosses into the engine once as a batch.
-                from agent_utilities.numeric import xp
-
-                base_price = 100.0
-                returns = xp.random.default_rng(0).normal(0.0005, 0.02, 100)
-                close_multipliers = xp.cumprod(
-                    [1.0 + float(change) for change in returns]
-                )
-                close_prices = [base_price * value for value in close_multipliers]
-
-                detector = RegimeDetector(engine)
-                regime = detector.detect_close_prices(close_prices, ticker=query)
-                return regime
-            elif action == "quant_insider":
-                # CONCEPT:AU-KG.research.research-pipeline-runner — Kyle insider-trading equilibrium + enforcement
-                # policy analysis. `query` = optional JSON of InsiderEquilibriumInputs
-                # overrides (sigma_v, enforcement, criminal_penalty, …).
-                import json as _json
-
-                from agent_utilities.domains.finance.insider_equilibrium import (
-                    InsiderEquilibriumInputs,
-                    penalty_policy_analysis,
-                    solve_equilibrium,
-                )
-
-                try:
-                    overrides = _json.loads(query) if query else {}
-                except Exception:
-                    overrides = {}
-                inputs = InsiderEquilibriumInputs(
-                    **{
-                        k: v
-                        for k, v in overrides.items()
-                        if k in InsiderEquilibriumInputs.__dataclass_fields__
-                    }
-                )
-                import dataclasses as _dc
-
-                def _ser(o):
-                    return (
-                        _dc.asdict(o)
-                        if _dc.is_dataclass(o) and not isinstance(o, type)
-                        else o
-                    )
-
-                eq = solve_equilibrium(inputs)
-                policy = penalty_policy_analysis(inputs)
-                return _json.dumps(
-                    {"status": "ok", "equilibrium": _ser(eq), "policy": _ser(policy)},
-                    default=str,
-                )
-            elif action == "workforce_plan":
-                from agent_utilities.domains.hr.workforce_manager import (
-                    WorkforceManager,
-                )
-
-                wm = WorkforceManager()
-                result = wm.get_workforce_summary()
-                return json.dumps(result, default=str)
-            elif action == "close":
-                # Background OWL-RL + SHACL closure (KG-2.6): promote recent nodes
-                # to RDF, materialize implied edges via the reasoner, validate
-                # against shapes. On-demand twin of the maintenance-tick closure.
-                from agent_utilities.knowledge_graph.maintenance.owl_closure import (
-                    run_closure,
-                )
-
-                summary = run_closure(
-                    engine, limit=top_k * 200 if top_k != 10 else 2000
-                )
-                return json.dumps(summary, default=str)
-            elif action == "call_graph":
-                # CONCEPT:EG-KG.compute.type-scope-resolved-call — the type/scope-resolved call/inheritance graph
-                # for a symbol. Returns the resolved edges (with their strategy +
-                # confidence) the Rust resolver bound and the OWL layer reasons over.
-                # `node_id` = the symbol id; `target` = direction
-                # (callees | callers | inherits). Reads run in the engine backend.
-                import json as _json
-
-                if not node_id:
-                    return "Error: call_graph needs a symbol id in `node_id`."
-                backend = getattr(engine, "backend", None)
-                if backend is None:
-                    return "Error: no graph backend available."
-                direction = (target or "callees").strip().lower()
-                if direction == "callers":
-                    query = (
-                        "MATCH (t)-[r]->(s {id: $id}) "
-                        "WHERE type(r) IN ['calls', 'CALLS'] "
-                        "RETURN t.id AS id, t.id AS node, type(r) AS rel, "
-                        "r.strategy AS strategy, r.confidence AS confidence"
-                    )
-                elif direction == "inherits":
-                    query = (
-                        "MATCH (s {id: $id})-[r]->(t) "
-                        "WHERE type(r) IN ['inherits', 'INHERITS', 'realizes', 'REALIZES'] "
-                        "RETURN t.id AS id, t.id AS node, type(r) AS rel, "
-                        "r.strategy AS strategy, r.confidence AS confidence"
-                    )
-                else:  # callees (default)
-                    direction = "callees"
-                    query = (
-                        "MATCH (s {id: $id})-[r]->(t) "
-                        "WHERE type(r) IN ['calls', 'CALLS'] "
-                        "RETURN t.id AS id, t.id AS node, type(r) AS rel, "
-                        "r.strategy AS strategy, r.confidence AS confidence"
-                    )
-                try:
-                    rows = await run_blocking_ordered(
-                        engine.query_cypher, query, {"id": node_id}
-                    )
-                except Exception as e:
-                    return public_error_json(e)
-                return _json.dumps(
-                    {
-                        "status": "ok",
-                        "node_id": node_id,
-                        "direction": direction,
-                        "edges": [
-                            {
-                                "node": r.get("node"),
-                                "rel": r.get("rel"),
-                                "strategy": r.get("strategy"),
-                                "confidence": r.get("confidence"),
-                            }
-                            for r in (rows or [])
-                        ],
-                    },
-                    default=str,
-                )
-            elif action == "similar_code":
-                # CONCEPT:EG-KG.compute.model-free-similar-code — model-free similar-code lookup. Returns the
-                # symbol's `similar_to` neighbours (MinHash/LSH near-clones) with
-                # their score — works with the embedder offline (no accelerator needed).
-                # `node_id` = the symbol id.
-                import json as _json
-
-                if not node_id:
-                    return "Error: similar_code needs a symbol id in `node_id`."
-                if getattr(engine, "backend", None) is None:
-                    return "Error: no graph backend available."
-                # similar_to is symmetric, so match it in either direction.
-                query = (
-                    "MATCH (s {id: $id})-[r]-(t) "
-                    "WHERE type(r) IN ['similar_to', 'SIMILAR_TO'] "
-                    "RETURN t.id AS id, t.id AS node, r.score AS score"
-                )
-                try:
-                    rows = await run_blocking_ordered(
-                        engine.query_cypher, query, {"id": node_id}
-                    )
-                except Exception as e:
-                    return public_error_json(e)
-                neighbours = [
-                    {"node": r.get("node"), "score": r.get("score")}
-                    for r in (rows or [])
-                ]
-                neighbours.sort(key=lambda n: float(n["score"] or 0), reverse=True)
-                return _json.dumps(
-                    {
-                        "status": "ok",
-                        "node_id": node_id,
-                        "embedder_free": True,
-                        "similar": neighbours[: top_k if top_k else 10],
-                    },
-                    default=str,
-                )
-            elif action == "routes":
-                # CONCEPT:AU-KG.compute.http-route-graph — the HTTP route graph: each Route (method+path),
-                # its handler Code symbol, and the deployed Service that serves it
-                # (Code –serves→ Route –servedBy→ Service). Reads run in the engine.
-                import json as _json
-
-                if getattr(engine, "backend", None) is None:
-                    return "Error: no graph backend available."
-                query = (
-                    "MATCH (h)-[r2]->(rt:Route) "
-                    "WHERE type(r2) IN ['SERVES', 'serves'] "
-                    "OPTIONAL MATCH (rt)-[r3]->(svc) "
-                    "WHERE type(r3) IN ['SERVED_BY', 'served_by'] "
-                    "RETURN rt.id AS id, rt.id AS route, rt.method AS method, "
-                    "rt.path AS path, "
-                    "h.id AS handler, svc.id AS service"
-                )
-                try:
-                    rows = await run_blocking_ordered(engine.query_cypher, query, {})
-                except Exception as e:
-                    return public_error_json(e)
-                return _json.dumps(
-                    {
-                        "status": "ok",
-                        "routes": [
-                            {
-                                "route": r.get("route"),
-                                "method": r.get("method"),
-                                "path": r.get("path"),
-                                "handler": r.get("handler"),
-                                "service": r.get("service"),
-                            }
-                            for r in (rows or [])
-                        ],
-                    },
-                    default=str,
-                )
-            elif action == "change_coupling":
-                # CONCEPT:AU-KG.ingest.mine-git-history-files — mine git history for files that change together
-                # (hidden coupling the AST can't see) and persist symmetric
-                # FILE_CHANGES_WITH edges. `target`/`query` = the repo work-tree path.
-                import json as _json
-
-                from agent_utilities.knowledge_graph.enrichment.git_coupling import (
-                    change_coupling_for_repo,
-                )
-
-                repo = (target or query or "").strip()
-                if not repo:
-                    return "Error: change_coupling needs a repo path in `target`."
-
-                def _mine_and_link_coupling() -> int:
-                    edges = change_coupling_for_repo(
-                        repo, min_support=depth if depth > 1 else 3
-                    )
-                    count = 0
-                    for edge in edges:
-                        engine.link_nodes(
-                            edge.source,
-                            edge.target,
-                            edge.rel_type,
-                            properties=edge.props,
-                        )
-                        count += 1
-                    return count
-
-                written = await run_blocking_ordered(_mine_and_link_coupling)
-                return _json.dumps(
-                    {"status": "ok", "repo": repo, "coupled_pairs": written}
-                )
-            elif action == "code_evolution":
-                # CONCEPT:AU-KG.enrichment.query-ingested-commit-history — query the ingested commit-history graph
-                # (KG-2.282) for codebase EVOLUTION: file timelines, subsystem
-                # ownership, churn hotspots, and change-coupling. `target` = the
-                # mode (file|owners|hotspots|coupled), `query` = the file path /
-                # subsystem path substring, `top_k` = result cap.
-                import json as _json
-
-                from agent_utilities.knowledge_graph.enrichment.git_history import (
-                    query_evolution,
-                )
-
-                if getattr(engine, "backend", None) is None:
-                    return "Error: no graph backend available."
-                mode = (target or "file").strip() or "file"
-                evolution = await run_blocking_ordered(
-                    query_evolution, engine, mode, query.strip(), top_k or 20
-                )
-                return _json.dumps(evolution, default=str)
-            elif action == "adr":
-                # CONCEPT:AU-KG.compute.adr-crud — Architecture Decision Record CRUD. `query` = the
-                # decision title (create); empty = list. `target` = status; `node_id`
-                # = the decision text.
-                import json as _json
-                import re as _re
-
-                if getattr(engine, "backend", None) is None:
-                    return "Error: no graph backend available."
-                if query:
-                    slug = _re.sub(r"[^a-z0-9]+", "-", query.lower()).strip("-")
-                    adr_id = f"adr:{slug}"
-                    await run_blocking_ordered(
-                        engine.add_node,
-                        adr_id,
-                        "ArchitectureDecisionRecord",
-                        {
-                            "title": query,
-                            "status": target or "proposed",
-                            "decision": node_id or "",
-                        },
-                    )
-                    return _json.dumps({"status": "ok", "adr_id": adr_id})
-                try:
-                    rows = await run_blocking_ordered(
-                        engine.query_cypher,
-                        "MATCH (a:ArchitectureDecisionRecord) "
-                        "RETURN a.id AS id, a.title AS title, a.status AS status",
-                        {},
-                    )
-                except Exception as e:
-                    return public_error_json(e)
-                return _json.dumps(
-                    {
-                        "status": "ok",
-                        "adrs": [
-                            {
-                                "id": r.get("id"),
-                                "title": r.get("title"),
-                                "status": r.get("status"),
-                            }
-                            for r in (rows or [])
-                        ],
-                    },
-                    default=str,
-                )
-            elif action == "harness_gate":
-                # CONCEPT:AU-AHE.evaluation.parity-surpass-scoreboard — the formal harness-evolution gate (the seesaw
-                # HarnessX lacks): validate a candidate harness-evolution state
-                # against the concentration / no-regression / pathology SHACL shapes.
-                # `query` = JSON {edits:[{id,dimension,round,status?,regresses?}],
-                # variants?:[{id,status,applies}], pathologies?:[{id,kind,exhibited_by}]}.
-                import json as _json
-
-                from agent_utilities.harness.harness_gate import HarnessGate
-
-                try:
-                    facts = _json.loads(query) if query else {}
-                except Exception:
-                    return "Error: harness_gate needs JSON harness-evolution facts in `query`."
-                verdict = HarnessGate().check_facts(
-                    facts.get("edits", []) or [],
-                    variants=facts.get("variants"),
-                    pathologies=facts.get("pathologies"),
-                )
-                return _json.dumps(
-                    {
-                        "status": "ok",
-                        "ships": verdict.passed,
-                        "reasons": verdict.reasons,
-                    }
-                )
-            elif action == "harness_evolve":
-                # CONCEPT:AU-AHE.harness.run-aegis-loop-over — run the AEGIS loop over a provided edit sequence
-                # (offline, no LLM): the gate fires across rounds so concentration is
-                # blocked BEFORE the tipping point. `query` = JSON {edits:[{dimension,...}]}.
-                import json as _json
-
-                from agent_utilities.harness.aegis_loop import AegisLoop
-
-                try:
-                    seq = (_json.loads(query) or {}).get("edits", []) if query else []
-                except Exception:
-                    return "Error: harness_evolve needs JSON {edits:[…]} in `query`."
-                pending = list(seq)
-
-                def _replay_evolver(_landscape, _q=pending):
-                    return dict(_q.pop(0)) if _q else {"id": "noop", "dimension": "D0"}
-
-                loop = AegisLoop(_replay_evolver)
-                decisions = loop.run(rounds=len(seq) or 1)
-                return _json.dumps(
-                    {
-                        "status": "ok",
-                        "decisions": [
-                            {"round": d.round, "ships": d.shipped, "reasons": d.reasons}
-                            for d in decisions
-                        ],
-                        "shipped": sum(1 for d in decisions if d.shipped),
-                    }
-                )
-            elif action == "harness_certify":
-                # CONCEPT:AU-AHE.harness.kg-held-out-certification/KG-2.108 — held-out certification + ARA-Seal of a
-                # promoted variant. `query` = JSON {held_out_rewards:[…], human_baseline,
-                # variant_id?}.
-                import json as _json
-
-                from agent_utilities.harness.co_evolution import CrossHarnessCoEvolution
-                from agent_utilities.harness.harness_grounding import seal_variant
-
-                try:
-                    payload = _json.loads(query) if query else {}
-                except Exception:
-                    return "Error: harness_certify needs JSON in `query`."
-                cert = CrossHarnessCoEvolution().certify_promotion(
-                    [float(x) for x in payload.get("held_out_rewards", [])],
-                    payload.get("human_baseline"),
-                )
-                _, _, level = seal_variant(
-                    payload.get("variant_id", "harness_variant:adhoc"), cert
-                )
-                return _json.dumps(
-                    {
-                        "status": "ok",
-                        "certified": cert.certified,
-                        "seal_level": level,
-                        "ci_lower": cert.ci_lower,
-                        "mean_reward": cert.mean_reward,
-                    },
-                    default=str,
-                )
-            elif action == "harness_benchmark":
-                # CONCEPT:AU-AHE.evaluation.parity-surpass-scoreboard — the parity-and-surpass scoreboard vs HarnessX.
-                import json as _json
-
-                from agent_utilities.harness.harness_foundry_benchmark import (
-                    run_all as _hf_run,
-                )
-                from agent_utilities.harness.harness_foundry_benchmark import (
-                    to_markdown as _hf_md,
-                )
-
-                hf_results = _hf_run()
-                return _json.dumps(
-                    {
-                        "status": "ok",
-                        "reproduced": sum(1 for r in hf_results if r.claim_reproduced),
-                        "total": len(hf_results),
-                        "results": [
-                            {
-                                "name": r.name,
-                                "baseline": r.baseline,
-                                "ours": r.ours,
-                                "lift": r.lift,
-                                "claim_reproduced": r.claim_reproduced,
-                            }
-                            for r in hf_results
-                        ],
-                        "markdown": _hf_md(hf_results),
-                    },
-                    default=str,
-                )
-            elif action == "code_context":
-                # CONCEPT:AU-KG.retrieval.synthesized-cited-answer — the synthesized, cited "how does this code
-                # work / where is it used / what breaks if I change it" answer.
-                # Composes the call graph (KG-2.100), similar-code (KG-2.101),
-                # routes (KG-2.102), change-coupling (KG-2.104), CONCEPT: markers
-                # and docs into ONE grounded explanation with file:line citations,
-                # so the agent queries the KG instead of grep-then-read. `query` =
-                # the question/area/symbol; `target` = intent (how|usage|impact);
-                # `node_id` = optional exact :Code anchor; `top_k`/`depth` budget.
-                import json as _json
-
-                from agent_utilities.knowledge_graph.retrieval.code_context import (
-                    build_code_context,
-                )
-
-                cross = target.strip().lower().endswith("+xrepo")
-                intent = (target or "how").strip().lower().replace(
-                    "+xrepo", ""
-                ) or "how"
-                result = build_code_context(
-                    engine,
-                    query=query,
-                    intent=intent,
-                    node_id=node_id,
-                    top_k=top_k,
-                    depth=depth,
-                    cross_repo=cross or intent == "usage",
-                )
-                return EvidenceBundle.from_code_context_answer(result).model_dump_json()
-            elif action == "executable_rag":
-                # CONCEPT:AU-KG.retrieval.memory-first-retrieval — the executable multi-hop RAG
-                # interpreter, exposed over MCP for the first time (previously library-only).
-                # `query` = the question; `top_k` = retrieval width per step; `target`="planner"
-                # opts into LLM plan synthesis (default: the deterministic linear plan). Always
-                # returns an EvidenceBundle (no legacy consumer to keep byte-identical, so this
-                # defaults straight to the wrapped shape — CONCEPT:evidence-bundle-envelope).
-                import json as _json
-
-                from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import (
-                    HybridRetriever,
-                )
-
-                if not query.strip():
-                    return "Error: executable_rag needs a question in `query`."
-                use_planner = (target or "").strip().lower() == "planner"
-                retriever = HybridRetriever(engine)
-                rag_result = retriever.retrieve_executable(
-                    query, top_k=top_k, use_planner=use_planner
-                )
-                bundle = EvidenceBundle.from_rag_result(rag_result)
-                return _json.dumps(bundle.model_dump(), default=str)
-            elif action == "cross_repo_usages":
-                # CONCEPT:AU-KG.retrieval.every-usage-published-symbol — every usage of a published symbol across the
-                # whole fleet in one query (name-anchored callers grouped by repo).
-                # `query`/`target` = the symbol name; `top_k` = max usages.
-                import json as _json
-
-                from agent_utilities.knowledge_graph.retrieval.code_context import (
-                    cross_repo_usages,
-                )
-
-                symbol = (query or target or "").strip()
-                if not symbol:
-                    return "Error: cross_repo_usages needs a symbol name in `query`."
-                return _json.dumps(
-                    cross_repo_usages(engine, symbol, limit=top_k or 200),
-                    default=str,
-                )
-            elif action == "code_metrics":
-                # CONCEPT:AU-KG.retrieval.structural-analytics — Graphify-style structural analytics over the
-                # :Code call/inheritance subgraph: god nodes (degree hubs), Louvain
-                # communities (via the engine's ephemeral detector KG-2.58),
-                # surprising cross-community connections, and language/relation/
-                # confidence distributions. `target` = optional scope substring
-                # (file_path / source_system) to focus one repo; `top_k` = how many
-                # god nodes / communities / bridges to surface. Reuses the durable
-                # resolved graph — not a one-shot NetworkX notebook.
-                import json as _json
-
-                from agent_utilities.knowledge_graph.retrieval.code_metrics import (
-                    build_code_metrics,
-                )
-
-                # Named distinctly from the `metrics` local used by the unrelated
-                # `quant_strategy` branch above (a `StrategyMetrics` instance) —
-                # this whole dispatch function shares one scope, so reusing the
-                # name there made mypy unify the two branches' incompatible types
-                # onto a single inferred variable type.
-                code_metrics_result = await run_blocking_ordered(
-                    build_code_metrics,
-                    engine,
-                    scope=(target or query).strip(),
-                    top_k=top_k,
-                )
-                return _json.dumps(code_metrics_result, default=str)
-            elif action == "arch_report":
-                # CONCEPT:AU-KG.retrieval.architecture-report — a regenerable architecture report (the
-                # GRAPH_REPORT.md analog): summary, god nodes, community hubs,
-                # surprising connections and dependency cycles, rendered as Markdown
-                # plus structured metrics and persisted as an ArchitectureReport node.
-                # `target` = optional scope substring; `top_k` = section sizes.
-                import json as _json
-
-                from agent_utilities.knowledge_graph.retrieval.code_metrics import (
-                    build_arch_report,
-                )
-
-                scope = (target or query).strip()
-                arch_report: dict[str, Any] = await run_blocking_ordered(
-                    build_arch_report, engine, scope=scope, top_k=top_k
-                )
-                # Persist the report as a durable node (best-effort) so it is
-                # queryable + refreshable, exceeding Graphify's static file.
-                if arch_report.get("status") == "ok":
-                    try:
-                        rid = f"arch_report:{scope or 'all'}"
-                        await run_blocking_ordered(
-                            engine.add_node,
-                            rid,
-                            {
-                                "label": "ArchitectureReport",
-                                "scope": scope or "all",
-                                "markdown": arch_report["markdown"],
-                                "node_count": arch_report["metrics"]["nodes"],
-                                "community_count": arch_report["metrics"][
-                                    "community_count"
-                                ],
-                            },
-                        )
-                        arch_report["report_node_id"] = rid
-                    except Exception as _e:  # noqa: BLE001
-                        arch_report["persist_warning"] = public_error_text(_e)
-                return _json.dumps(arch_report, default=str)
-            elif action == "explain":
-                # CONCEPT:AU-KG.retrieval.route-question-its-domain — the universal context plane: route a question
-                # to its DOMAIN provider (code | ops | …) and return one grounded,
-                # cited answer. `query` = the question; `target` = "domain:intent"
-                # (e.g. "ops:why", "code:usage") or just an intent (domain inferred);
-                # empty target/domain infers both. This is the cockpit: more domains
-                # = more providers on this one plane, not new subsystems.
-                import json as _json
-
-                from agent_utilities.knowledge_graph.retrieval.context_plane import (
-                    list_context_domains,
-                    synthesize_context,
-                )
-
-                spec = (target or "").strip()
-                if spec in ("", "domains", "list"):
-                    domain, intent = "", ""
-                    if spec in ("domains", "list"):
-                        return _json.dumps(
-                            {"status": "ok", "domains": list_context_domains()}
-                        )
-                elif ":" in spec:
-                    domain, _, intent = spec.partition(":")
-                else:
-                    domain, intent = "", spec  # treat a bare target as the intent
-                return _json.dumps(
-                    synthesize_context(
-                        engine,
-                        domain=domain,
-                        query=query,
-                        intent=intent,
-                        node_id=node_id,
-                        top_k=top_k,
-                        depth=depth,
-                    ),
-                    default=str,
-                )
-            # ── KG-2.316/2.318: memory→weights distillation EXPORT + LIVE DS-MCP
-            # dispatch (train_model over graph_workflows) + graph_jobs status poll ──
-            elif action == "distill_memory":
-                import json as _json
-
-                from agent_utilities.knowledge_graph.memory.weights_distillation import (
-                    distill_memory_to_weights,
-                )
-
-                # `query` may carry a JSON params object (base_model/scopes/method/
-                # adapter_rank/time_window_days/target_entities/submit/…, or
-                # `poll_job_id` to read a submitted job's live train state back —
-                # CONCEPT:AU-KG.memory.live-data-science-mcp); `target` is the base model shorthand; `top_k`
-                # overrides max_examples.
-                distill_params: dict[str, Any] = {}
-                q = (query or "").strip()
-                if q.startswith("{"):
-                    try:
-                        loaded = _json.loads(q)
-                        if isinstance(loaded, dict):
-                            distill_params = loaded
-                    except (TypeError, ValueError):
-                        distill_params = {}
-                if isinstance(target, str) and target:
-                    distill_params.setdefault("base_model", target)
-                if isinstance(top_k, int) and top_k and top_k != 10:
-                    distill_params.setdefault("max_examples", top_k)
-                submit = bool(distill_params.pop("submit", False))
-                return _json.dumps(
-                    distill_memory_to_weights(
-                        engine, params=distill_params, submit=submit
-                    ),
-                    default=str,
-                )
-            elif action == "readiness":
-                # CONCEPT:AU-KG.query.readiness-canary-snapshot (GOC-02) — the ONE
-                # truthful graphos.readiness.v1 snapshot: engine reachability,
-                # identity/policy carrier, canonical-route catalog, source-sync
-                # coverage, dense/sparse index signal, and a REAL synthetic
-                # code_context query — never readiness from liveness alone. An
-                # independent audit of this program found readiness/health can
-                # report green before the graph can actually answer a query
-                # (BUG-004); the governing rule recorded eleven times in this
-                # program's incident history: never trust a signal about state,
-                # check state. `query`/`node_id` optionally override the
-                # synthetic-query canary's probe text/anchor. Uses the module-level
-                # ``json`` import (not the ``_json`` alias some sibling branches
-                # locally bind — that alias is only defined inside THOSE branches'
-                # own scope and referencing it here would raise UnboundLocalError,
-                # since Python treats a name assigned anywhere in a function as
-                # local to the whole function).
-                from agent_utilities.knowledge_graph.core.session import (
-                    current_session,
-                )
-                from agent_utilities.knowledge_graph.readiness import (
-                    collect_readiness_snapshot,
-                    is_snapshot_ready,
-                )
-
-                session = current_session()
-                actor = getattr(session, "actor", None)
-                snapshot = collect_readiness_snapshot(
-                    engine,
-                    session=session,
-                    subject=getattr(actor, "actor_id", "") or "",
-                    tenant=getattr(session, "tenant", "") or "",
-                    policy_epoch=getattr(session, "policy_version", 0) or 0,
-                    synthetic_query=query or "graphos readiness canary",
-                    synthetic_node_id=node_id,
-                    deadline_s=10.0,
-                )
-                if not is_snapshot_ready(snapshot):
-                    # The one place readiness's own rollup gates something real:
-                    # a non-ready snapshot is always logged loudly server-side
-                    # (never only visible to a client that happens to inspect
-                    # `overall`), so a degraded/unavailable probe leaves an
-                    # operator-facing trail even when nobody is watching the
-                    # dashboard at the moment it happened.
-                    logger.warning(
-                        "graphos readiness snapshot %s is NOT ready (overall=%s, "
-                        "required_failures=%s)",
-                        snapshot.get("snapshot_id"),
-                        snapshot.get("overall"),
-                        snapshot.get("required_failures"),
-                    )
-                return json.dumps(snapshot, default=str)
-            else:
-                return f"Error: Unknown analyze action '{action}'"
+            return await handler(engine, action, query, top_k, node_id, depth, target)
         except Exception as e:
             return public_error_text(e)
 
@@ -2685,1418 +4663,11 @@ def register_analysis_tools(mcp):
         ),
     ) -> str:
         """Manage backend configurations and abstract credentials. Allows dynamic registry updates and credential injection during agent provisioning."""
-        try:
-            if action == "set_secret":
-                from agent_utilities.security.secrets_client import (
-                    create_secrets_client,
-                )
-                from agent_utilities.security.xai_auth import get_secrets_client_for_xai
-
-                if config_key.startswith("xai/"):
-                    client = get_secrets_client_for_xai()
-                else:
-                    client = create_secrets_client()
-                client.set(config_key, config_value)
-                return json.dumps(
-                    {"status": "success", "action": "set_secret", "stored": True}
-                )
-            if action == "vault_sync":
-                # CONCEPT:AU-OS.deployment.vault-seed-service — read-existing + seed a service's secrets.
-                # config_key=service; config_value=JSON
-                # {"env_keys":[...],"values":{KEY:VAL},"overwrite":bool}.
-                from agent_utilities.security.secrets_client import (
-                    create_secrets_client,
-                )
-
-                payload = json.loads(config_value) if config_value else {}
-                env_keys = payload.get("env_keys", [])
-                client = create_secrets_client()
-                result = client.vault_sync(
-                    config_key,
-                    env_keys,
-                    values=payload.get("values"),
-                    overwrite=bool(payload.get("overwrite", False)),
-                )
-                result.update({"status": "success", "action": "vault_sync"})
-                return json.dumps(result)
-            if action == "register_mcp":
-                try:
-                    _register_mcp_server(config_key, config_value)
-                except PermissionError:
-                    raise
-                except Exception as exc:
-                    return json.dumps(
-                        {
-                            "error": "MCP registration rejected",
-                            "error_type": type(exc).__name__,
-                        }
-                    )
-                return json.dumps(
-                    {
-                        "status": "success",
-                        "action": "register_mcp",
-                        "server": config_key,
-                    }
-                )
-            # ── CONCEPT:AU-KG.backend.multi-connection-registry: Named multi-connection graph registry ──
-            if action in (
-                "add_connection",
-                "remove_connection",
-                "list_connections",
-            ):
-                registry = kg_server.get_connection_registry()
-                if action == "list_connections":
-                    return json.dumps(registry.status(), default=str)
-                if not config_key:
-                    return json.dumps(
-                        {"error": f"config_key (connection name) required for {action}"}
-                    )
-                if action == "add_connection":
-                    try:
-                        spec = json.loads(config_value) if config_value else {}
-                    except Exception:
-                        return json.dumps(
-                            {"error": "config_value must contain valid JSON"}
-                        )
-                    if not isinstance(spec, dict):
-                        return json.dumps(
-                            {
-                                "error": "config_value must be a JSON object (backend spec)"
-                            }
-                        )
-                    declared_name = spec.pop("name", None)
-                    if declared_name not in (None, config_key):
-                        return json.dumps(
-                            {
-                                "error": (
-                                    "connection name is authoritative in config_key; "
-                                    "a payload name cannot select another alias"
-                                )
-                            }
-                        )
-                    if not spec:
-                        # AgentConfig is the reference-only declarative plane.
-                        # An operator may activate one of those declarations by
-                        # alias without copying any profile reference into MCP
-                        # arguments or traces.
-                        try:
-                            candidate = _configured_external_graph_declaration(
-                                config_key
-                            )
-                            if candidate:
-                                candidate.pop("name", None)
-                                candidate["role"] = str(candidate.get("role") or "read")
-                                spec = candidate
-                        except Exception as exc:
-                            return json.dumps(
-                                {
-                                    "error": "configured connection lookup failed",
-                                    "error_type": type(exc).__name__,
-                                }
-                            )
-                    if not spec:
-                        return json.dumps(
-                            {
-                                "error": (
-                                    "add_connection requires a reference-only JSON "
-                                    "declaration or a matching AgentConfig alias"
-                                )
-                            }
-                        )
-                    try:
-                        from agent_utilities.knowledge_graph.core.connection_registry import (
-                            validate_persistable_connection_spec,
-                        )
-
-                        validate_persistable_connection_spec(spec)
-                    except Exception as exc:
-                        return json.dumps(
-                            {
-                                "error": "connection registration is not persistence-safe",
-                                "error_type": type(exc).__name__,
-                            }
-                        )
-                    try:
-                        name = registry.register(config_key, spec)
-                    except Exception as exc:
-                        return json.dumps(
-                            {
-                                "error": "connection registration failed",
-                                "error_type": type(exc).__name__,
-                            }
-                        )
-                    # CONCEPT:AU-KG.backend.connection-registry — persist the connection list to config.json so
-                    # it survives restart (re-seeded from config.kg_connections).
-                    from agent_utilities.core.config import save_config_item
-
-                    save_config_item("kg_connections", registry.export_specs())
-                    return json.dumps(
-                        {
-                            "status": "success",
-                            "action": action,
-                            "connection": name,
-                            "role": registry.role(name),
-                            "persisted": True,
-                        }
-                    )
-                if action == "remove_connection":
-                    removed = registry.remove(config_key)
-                    if removed:
-                        from agent_utilities.core.config import save_config_item
-
-                        save_config_item("kg_connections", registry.export_specs())
-                    return json.dumps(
-                        {
-                            "status": "success" if removed else "not_found",
-                            "action": action,
-                            "connection": config_key,
-                            "persisted": bool(removed),
-                        }
-                    )
-            # ── CONCEPT:AU-KG.backend.multi-connection-registry: discover/profile an external graph + map ──
-            if action in (
-                "approve_connection_mapping",
-                "connection_mapping_status",
-                "discover_connection_schema",
-                "external_graph_doctor",
-                "profile_connection",
-                "ingest_connection",
-                "propose_connection_mapping",
-            ):
-                if not config_key:
-                    return json.dumps(
-                        {"error": f"config_key (connection name) required for {action}"}
-                    )
-                registry = kg_server.get_connection_registry()
-                if action in {
-                    "approve_connection_mapping",
-                    "connection_mapping_status",
-                }:
-                    from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
-                        approve_mapping_profile,
-                        mapping_profile_status,
-                    )
-                    from agent_utilities.security.secrets_client import (
-                        create_secrets_client,
-                    )
-
-                    store = create_secrets_client()
-                    if action == "connection_mapping_status":
-                        if config_value:
-                            return json.dumps(
-                                {"error": "connection_mapping_status takes no payload"}
-                            )
-                        try:
-                            from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
-                                normalize_backend_kind,
-                            )
-
-                            backend_kind = normalize_backend_kind(
-                                registry.backend_kind(config_key)
-                            )
-                            if backend_kind == "graphql":
-                                from agent_utilities.knowledge_graph.ingestion.graphql_connection import (
-                                    GraphQLSourceAdapter,
-                                    graphql_mapping_profile_status,
-                                )
-
-                                source = registry.get_engine(config_key)
-                                if not isinstance(source, GraphQLSourceAdapter):
-                                    raise TypeError("registered source is not GraphQL")
-                                status = graphql_mapping_profile_status(
-                                    source,
-                                    connection=config_key,
-                                    secret_store=store,
-                                )
-                            else:
-                                declaration = _configured_external_graph_declaration(
-                                    config_key
-                                )
-                                (
-                                    _policy,
-                                    current_policy_digest,
-                                ) = _resolved_external_mapping_policy(
-                                    store, declaration
-                                )
-                                status = mapping_profile_status(
-                                    config_key,
-                                    secret_store=store,
-                                    runtime_policy_digest=current_policy_digest,
-                                )
-                            return json.dumps(
-                                status,
-                                default=str,
-                            )
-                        except Exception as exc:
-                            return json.dumps(
-                                {
-                                    "error": "mapping status lookup failed",
-                                    "error_type": type(exc).__name__,
-                                }
-                            )
-                    try:
-                        options = json.loads(config_value) if config_value else {}
-                        if not isinstance(options, dict):
-                            raise ValueError("approval payload must be an object")
-                        if "approver_ref" in options:
-                            return json.dumps(
-                                {
-                                    "error": "approver identity is derived from authenticated context"
-                                }
-                            )
-                        if set(options).difference(
-                            {
-                                "mapping_digest",
-                                "proposal_id",
-                                "proposal_version",
-                                "schema_digest",
-                            }
-                        ):
-                            return json.dumps(
-                                {
-                                    "error": (
-                                        "mapping approval accepts only the exact "
-                                        "proposal version and digest tuple"
-                                    )
-                                }
-                            )
-                        from agent_utilities.knowledge_graph.core.session import (
-                            resolve_session,
-                        )
-
-                        approval_session = resolve_session(required_scope="kg:admin")
-                        approval_actor = (
-                            approval_session.actor.actor_id
-                            if approval_session.actor is not None
-                            else "authenticated-operator"
-                        )
-                        result = approve_mapping_profile(
-                            connection=config_key,
-                            proposal_id=str(options.get("proposal_id") or ""),
-                            proposal_version=int(options.get("proposal_version") or 0),
-                            schema_digest=str(options.get("schema_digest") or ""),
-                            mapping_digest=str(options.get("mapping_digest") or ""),
-                            secret_store=store,
-                            approver_ref=approval_actor,
-                        )
-                    except Exception as exc:
-                        return json.dumps(
-                            {
-                                "error": "mapping approval failed",
-                                "error_type": type(exc).__name__,
-                            }
-                        )
-                    return json.dumps(result, default=str)
-                if action == "ingest_connection":
-                    try:
-                        options = json.loads(config_value) if config_value else {}
-                    except Exception:
-                        return json.dumps(
-                            {"error": "config_value must be a JSON object"}
-                        )
-                    if not isinstance(options, dict):
-                        return json.dumps(
-                            {"error": "config_value must be a JSON object"}
-                        )
-                    try:
-                        declared = _configured_external_graph_declaration(config_key)
-                    except Exception as exc:
-                        return json.dumps(
-                            {
-                                "error": "configured source lookup failed",
-                                "error_type": type(exc).__name__,
-                            }
-                        )
-                    try:
-                        from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
-                            normalize_backend_kind,
-                        )
-
-                        backend_kind = normalize_backend_kind(
-                            registry.backend_kind(config_key)
-                        )
-                    except Exception as exc:
-                        return json.dumps(
-                            {
-                                "error": "external source declaration is invalid",
-                                "error_type": type(exc).__name__,
-                            }
-                        )
-                    if backend_kind == "graphql":
-                        allowed = {
-                            "contextual",
-                            "dry_run",
-                            "max_depth",
-                            "max_records",
-                            "max_types",
-                            "operation",
-                            "variables_ref",
-                        }
-                        if set(options).difference(allowed) or "variables" in options:
-                            return json.dumps(
-                                {
-                                    "error": (
-                                        "GraphQL ingestion accepts bounded policy choices "
-                                        "and a variables_ref only"
-                                    )
-                                }
-                            )
-                        try:
-                            source = registry.get_engine(config_key)
-                            from agent_utilities.knowledge_graph.ingestion.graphql_connection import (
-                                GraphQLSourceAdapter,
-                                ingest_registered_graphql,
-                            )
-                            from agent_utilities.security.secrets_client import (
-                                create_secrets_client,
-                            )
-
-                            if not isinstance(source, GraphQLSourceAdapter):
-                                raise TypeError("registered source is not GraphQL")
-                            result = ingest_registered_graphql(
-                                registry.get_engine(None),
-                                source,
-                                connection=config_key,
-                                secret_store=create_secrets_client(),
-                                operation=str(
-                                    options.get("operation")
-                                    or declared.get("ingest_operation")
-                                    or source.ingest_operation
-                                    or ""
-                                ),
-                                variables_ref=str(
-                                    options.get("variables_ref")
-                                    or declared.get("variables_ref")
-                                    or ""
-                                ),
-                                max_records=int(
-                                    options.get("max_records")
-                                    or declared.get("ingest_max_records")
-                                    or source.ingest_max_records
-                                    or 1_000
-                                ),
-                                max_types=int(
-                                    options.get("max_types")
-                                    or declared.get("discovery_max_types")
-                                    or source.discovery_max_types
-                                    or 200
-                                ),
-                                max_depth=int(
-                                    options.get("max_depth")
-                                    or declared.get("discovery_max_depth")
-                                    or source.discovery_max_depth
-                                    or 6
-                                ),
-                                contextual=bool(
-                                    options.get(
-                                        "contextual",
-                                        declared.get("contextual", source.contextual),
-                                    )
-                                ),
-                                dry_run=bool(options.get("dry_run", False)),
-                            )
-                        except Exception as exc:  # noqa: BLE001 — safe type only
-                            return json.dumps(
-                                {
-                                    "error": "GraphQL document ingestion failed",
-                                    "error_type": type(exc).__name__,
-                                }
-                            )
-                        return json.dumps(result, default=str)
-                    allowed = {
-                        "classification",
-                        "dry_run",
-                        "legal_hold",
-                        "max_records",
-                        "retention",
-                        "source_alias",
-                        "tenant",
-                    }
-                    if set(options).difference(allowed):
-                        return json.dumps(
-                            {
-                                "error": (
-                                    "external graph ingestion accepts only aliases and "
-                                    "bounded governance choices; profiles, queries, "
-                                    "variables, ontology, endpoints, paths, and "
-                                    "credentials stay behind configured runtime refs"
-                                )
-                            }
-                        )
-                    from agent_utilities.knowledge_graph.ingestion.external_graph import (
-                        ExternalGraphIngestionRequest,
-                        ingest_registered_graph,
-                    )
-                    from agent_utilities.security.secrets_client import (
-                        create_secrets_client,
-                    )
-
-                    try:
-                        (
-                            _runtime_policy,
-                            runtime_policy_digest,
-                        ) = _resolved_external_mapping_policy(
-                            create_secrets_client(), declared
-                        )
-                        request = ExternalGraphIngestionRequest(
-                            connection=config_key,
-                            source_alias=str(
-                                options.get("source_alias")
-                                or declared.get("source_alias")
-                                or config_key
-                            ),
-                            profile_ref="",
-                            variables={},
-                            runtime_policy_digest=runtime_policy_digest,
-                            max_records=int(
-                                options.get("max_records")
-                                or declared.get("ingest_max_records")
-                                or 1_000
-                            ),
-                            page_size=int(declared.get("ingest_page_size") or 500),
-                            max_pages=int(declared.get("ingest_max_pages") or 100),
-                            max_row_bytes=int(
-                                declared.get("ingest_max_row_bytes") or 1_048_576
-                            ),
-                            max_total_bytes=int(
-                                declared.get("ingest_max_total_bytes") or 16_777_216
-                            ),
-                            max_nesting_depth=int(
-                                declared.get("ingest_max_nesting_depth") or 16
-                            ),
-                            max_collection_items=int(
-                                declared.get("ingest_max_collection_items") or 10_000
-                            ),
-                            sync_mode=_coerce_sync_mode(declared.get("sync_mode")),
-                            reconcile_deletions=bool(
-                                declared.get("reconcile_deletions", True)
-                            ),
-                            allow_empty_snapshot=bool(
-                                declared.get("allow_empty_snapshot", False)
-                            ),
-                            classification=options.get(
-                                "classification", "confidential"
-                            ),
-                            retention=str(options.get("retention") or "P30D"),
-                            legal_hold=bool(options.get("legal_hold", False)),
-                            tenant=str(options.get("tenant") or ""),
-                            dry_run=bool(options.get("dry_run", False)),
-                        )
-                        result = ingest_registered_graph(
-                            registry.get_engine(None), registry, request
-                        )
-                    except Exception as exc:  # noqa: BLE001 — safe type only
-                        return json.dumps(
-                            {
-                                "error": "external graph ingestion failed",
-                                "error_type": type(exc).__name__,
-                            }
-                        )
-                    return json.dumps(result, default=str)
-                try:
-                    ext_engine = registry.get_engine(config_key)
-                except Exception as e:
-                    return json.dumps(
-                        {
-                            "error": "external graph connection unavailable",
-                            "error_type": type(e).__name__,
-                        }
-                    )
-                try:
-                    options = json.loads(config_value) if config_value else {}
-                except Exception:
-                    return json.dumps({"error": "config_value must be a JSON object"})
-                if not isinstance(options, dict):
-                    return json.dumps({"error": "config_value must be a JSON object"})
-                from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
-                    discover_external_schema,
-                    external_graph_readiness,
-                    governed_semantic_mapping_enricher,
-                    propose_mapping_profile,
-                )
-                from agent_utilities.security.secrets_client import (
-                    create_secrets_client,
-                )
-
-                backend = registry.backend_kind(config_key)
-                try:
-                    from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
-                        normalize_backend_kind,
-                    )
-
-                    backend_kind = normalize_backend_kind(backend)
-                except Exception as exc:
-                    return json.dumps(
-                        {
-                            "error": "external source declaration is invalid",
-                            "error_type": type(exc).__name__,
-                        }
-                    )
-                connector_config: dict[str, Any] = {}
-                try:
-                    connector_config = _configured_external_graph_declaration(
-                        config_key
-                    )
-                except Exception as exc:
-                    return json.dumps(
-                        {
-                            "error": "configured source lookup failed",
-                            "error_type": type(exc).__name__,
-                        }
-                    )
-                max_types = max(
-                    1,
-                    min(
-                        int(
-                            options.get("max_types")
-                            or connector_config.get("discovery_max_types")
-                            or getattr(ext_engine, "discovery_max_types", None)
-                            or 200
-                        ),
-                        500,
-                    ),
-                )
-                max_depth = max(
-                    1,
-                    min(
-                        int(
-                            options.get("max_depth")
-                            or connector_config.get("discovery_max_depth")
-                            or getattr(ext_engine, "discovery_max_depth", None)
-                            or 6
-                        ),
-                        12,
-                    ),
-                )
-                if (
-                    backend_kind == "graphql"
-                    and action
-                    in {
-                        "discover_connection_schema",
-                        "external_graph_doctor",
-                        "profile_connection",
-                    }
-                    and set(options).difference({"max_depth", "max_types"})
-                ):
-                    return json.dumps(
-                        {
-                            "error": (
-                                "GraphQL discovery actions accept bounded discovery "
-                                "limits only; source material comes from runtime refs"
-                            )
-                        }
-                    )
-                if (
-                    backend_kind != "graphql"
-                    and action
-                    in {
-                        "discover_connection_schema",
-                        "external_graph_doctor",
-                        "profile_connection",
-                    }
-                    and set(options).difference({"max_types"})
-                ):
-                    return json.dumps(
-                        {
-                            "error": (
-                                "external graph discovery actions accept a bounded "
-                                "max_types value only; source material stays behind "
-                                "configured runtime refs"
-                            )
-                        }
-                    )
-                if action in {"discover_connection_schema", "profile_connection"}:
-                    try:
-                        if backend_kind == "graphql":
-                            schema, capabilities, _accepted = ext_engine.discover(
-                                max_types=max_types, max_depth=max_depth
-                            )
-                        else:
-                            schema, capabilities = discover_external_schema(
-                                ext_engine, backend=backend, max_types=max_types
-                            )
-                    except Exception as exc:
-                        return json.dumps(
-                            {
-                                "error": "external schema discovery failed",
-                                "error_type": type(exc).__name__,
-                            }
-                        )
-                    return json.dumps(
-                        {
-                            "status": "success",
-                            "connection": config_key,
-                            "schema": schema.public_dict(),
-                            "capabilities": capabilities.public_dict(),
-                        },
-                        default=str,
-                    )
-                store = create_secrets_client()
-                runtime_policy: dict[str, Any] = {}
-                runtime_policy_digest = ""
-                if backend_kind != "graphql":
-                    try:
-                        (
-                            runtime_policy,
-                            runtime_policy_digest,
-                        ) = _resolved_external_mapping_policy(store, connector_config)
-                    except Exception as exc:
-                        return json.dumps(
-                            {
-                                "error": "secret-backed mapping policy resolution failed",
-                                "error_type": type(exc).__name__,
-                            }
-                        )
-                if action == "external_graph_doctor":
-                    if backend_kind == "graphql":
-                        from agent_utilities.knowledge_graph.ingestion.graphql_connection import (
-                            graphql_source_readiness,
-                        )
-
-                        return json.dumps(
-                            graphql_source_readiness(
-                                ext_engine,
-                                connection=config_key,
-                                secret_store=store,
-                                max_types=max_types,
-                                max_depth=max_depth,
-                            ),
-                            default=str,
-                        )
-                    return json.dumps(
-                        external_graph_readiness(
-                            ext_engine,
-                            backend=backend,
-                            connection=config_key,
-                            secret_store=store,
-                            runtime_policy_digest=runtime_policy_digest,
-                            max_types=max_types,
-                        ),
-                        default=str,
-                    )
-                if backend_kind == "graphql":
-                    if set(options).difference({"max_depth", "max_types"}):
-                        return json.dumps(
-                            {
-                                "error": (
-                                    "GraphQL mapping proposals resolve query, mapping, "
-                                    "governance, auth, and TLS policy from runtime refs"
-                                )
-                            }
-                        )
-                    try:
-                        from agent_utilities.knowledge_graph.ingestion.graphql_connection import (
-                            GraphQLSourceAdapter,
-                            propose_graphql_mapping_profile,
-                        )
-
-                        if not isinstance(ext_engine, GraphQLSourceAdapter):
-                            raise TypeError("registered source is not GraphQL")
-                        result = propose_graphql_mapping_profile(
-                            ext_engine,
-                            connection=config_key,
-                            source_alias=ext_engine.source_alias,
-                            secret_store=store,
-                            max_types=max_types,
-                            max_depth=max_depth,
-                        )
-                    except Exception as exc:
-                        return json.dumps(
-                            {
-                                "error": "GraphQL mapping proposal failed",
-                                "error_type": type(exc).__name__,
-                            }
-                        )
-                    return json.dumps(result, default=str)
-                if set(options).difference({"max_types", "source_alias"}):
-                    return json.dumps(
-                        {
-                            "error": (
-                                "external graph mapping proposals accept aliases and "
-                                "bounded discovery choices only; mapping, ontology, "
-                                "endpoint, path, identity, and credential material "
-                                "must come from configured runtime refs"
-                            )
-                        }
-                    )
-                max_types = int(
-                    connector_config.get("discovery_max_types") or max_types
-                )
-                from agent_utilities.knowledge_graph.core.connection_profiler import (
-                    _our_ontology_vocabulary,
-                )
-
-                authority = registry.get_engine(None)
-                vocabulary = _our_ontology_vocabulary(authority, None)
-                try:
-                    semantic_enricher = None
-                    semantic_context_session = None
-                    if bool(connector_config.get("semantic_mapping", False)):
-                        from agent_utilities.knowledge_graph.core.session import (
-                            resolve_session,
-                        )
-
-                        semantic_context_session = resolve_session(
-                            required_scope="kg:read"
-                        )
-                        semantic_enricher = governed_semantic_mapping_enricher
-                    result = propose_mapping_profile(
-                        ext_engine,
-                        backend=backend,
-                        connection=config_key,
-                        source_alias=str(
-                            connector_config.get("source_alias")
-                            or options.get("source_alias")
-                            or config_key
-                        ),
-                        ontology_classes=vocabulary,
-                        secret_store=store,
-                        access=(
-                            runtime_policy.get("access")
-                            if isinstance(runtime_policy.get("access"), dict)
-                            else None
-                        ),
-                        property_allowlist=(
-                            list(runtime_policy.get("property_allowlist") or []) or None
-                        ),
-                        edge_property_allowlist=(
-                            list(runtime_policy.get("edge_property_allowlist") or [])
-                            or None
-                        ),
-                        type_overrides=(
-                            runtime_policy.get("type_overrides")
-                            if isinstance(runtime_policy.get("type_overrides"), dict)
-                            else None
-                        ),
-                        edge_type_overrides=(
-                            runtime_policy.get("edge_type_overrides")
-                            if isinstance(
-                                runtime_policy.get("edge_type_overrides"), dict
-                            )
-                            else None
-                        ),
-                        identity_property=str(
-                            runtime_policy.get("identity_property") or ""
-                        )
-                        or None,
-                        runtime_policy_digest=runtime_policy_digest,
-                        page_size=int(connector_config.get("ingest_page_size") or 500),
-                        max_pages=int(connector_config.get("ingest_max_pages") or 100),
-                        max_row_bytes=int(
-                            connector_config.get("ingest_max_row_bytes") or 1_048_576
-                        ),
-                        max_total_bytes=int(
-                            connector_config.get("ingest_max_total_bytes") or 16_777_216
-                        ),
-                        max_nesting_depth=int(
-                            connector_config.get("ingest_max_nesting_depth") or 16
-                        ),
-                        max_collection_items=int(
-                            connector_config.get("ingest_max_collection_items")
-                            or 10_000
-                        ),
-                        sync_mode=_coerce_sync_mode(connector_config.get("sync_mode")),
-                        reconcile_deletions=bool(
-                            connector_config.get("reconcile_deletions", True)
-                        ),
-                        allow_empty_snapshot=bool(
-                            connector_config.get("allow_empty_snapshot", False)
-                        ),
-                        max_types=max_types,
-                        semantic_enricher=semantic_enricher,
-                        context_session=semantic_context_session,
-                    )
-                except Exception as exc:
-                    return json.dumps(
-                        {
-                            "error": "mapping proposal failed",
-                            "error_type": type(exc).__name__,
-                        }
-                    )
-                return json.dumps(result, default=str)
-            # ── CONCEPT:AU-KG.backend.mirror-health-repair: Concurrent N-way mirroring health/repair ──
-            if action in ("mirror_status", "reconcile"):
-                from agent_utilities.knowledge_graph.backends import (
-                    get_active_backend,
-                )
-                from agent_utilities.knowledge_graph.backends.fanout_backend import (
-                    FanOutBackend,
-                )
-
-                backend = get_active_backend()
-                # Locate the FanOutBackend created automatically when one or more
-                # projections are configured. Also unwrap a BrainGuarded proxy.
-                cand = getattr(backend, "inner", backend)
-                fan = cand if isinstance(cand, FanOutBackend) else None
-                if fan is None:
-                    return json.dumps(
-                        {
-                            "error": "No fanout projection active (configure "
-                            "GRAPH_MIRROR_TARGETS or a role=mirror connection).",
-                            "backend": type(backend).__name__,
-                        }
-                    )
-                inner = fan
-                if action == "mirror_status":
-                    return json.dumps(inner.durability_stats(), default=str)
-                # reconcile — full authority→mirror drift repair (config_key =
-                # optional single mirror name; empty = all mirrors).
-                return json.dumps(inner.reconcile(config_key or None), default=str)
-            # ── CONCEPT:AU-KG.query.stardog-instance-data: Stardog instance-data push / pull / query ──
-            if action in (
-                "push_to_stardog",
-                "pull_from_stardog",
-                "stardog_sparql",
-                "stardog_export_graph",
-                "stardog_import_graph",
-            ):
-                try:
-                    opts = json.loads(config_value) if config_value else {}
-                except Exception:
-                    return json.dumps({"error": "config_value must contain valid JSON"})
-                if not isinstance(opts, dict):
-                    # stardog_sparql also accepts a bare query string in config_value.
-                    if action == "stardog_sparql" and isinstance(config_value, str):
-                        opts = {"query": config_value}
-                    else:
-                        return json.dumps(
-                            {"error": "config_value must be a JSON object"}
-                        )
-
-                inline_connection_fields = {
-                    "database",
-                    "endpoint",
-                    "password",
-                    "username",
-                }
-                if inline_connection_fields.intersection(opts):
-                    return json.dumps(
-                        {
-                            "error": (
-                                "inline Stardog connection material is not accepted; "
-                                "use a registered connection alias backed by secret references"
-                            )
-                        }
-                    )
-
-                def _resolve_stardog_backend():
-                    """Resolve Stardog exclusively through a registered alias."""
-                    name = config_key or opts.get("connection")
-                    if not isinstance(name, str) or not name.strip():
-                        raise ValueError("registered Stardog connection is required")
-                    eng = kg_server.get_connection_registry().get_engine(name.strip())
-                    be = getattr(eng, "backend", eng)
-                    return getattr(be, "_authority", be)
-
-                try:
-                    sd_backend = _resolve_stardog_backend()
-                except Exception as exc:
-                    return json.dumps(
-                        {
-                            "error": "registered Stardog connection unavailable",
-                            "error_type": type(exc).__name__,
-                        }
-                    )
-
-                if action == "stardog_sparql":
-                    query = opts.get("query")
-                    if not query:
-                        return json.dumps(
-                            {"error": "config_value.query (a SPARQL string) required"}
-                        )
-                    return json.dumps(
-                        {"results": sd_backend.execute_sparql(query)}, default=str
-                    )
-
-                # ── CONCEPT:AU-KG.backend.mirror-target-graph: bulk Turtle
-                # export/import (D-MT-1). SparqlAdapter.upload_graph/download_graph
-                # existed with no production caller before this — a real backup/
-                # restore/migrate-between-instances primitive for a Stardog mirror or
-                # ad-hoc connection, complementary to (not a replacement for) the
-                # per-node/edge push_to_stardog/pull_from_stardog above. Omitting
-                # config_value.graph_uri targets the resolved backend's own dedicated
-                # mirror graph, if any (a per-source graph_uri from D-MT-4 is reached
-                # by naming it explicitly).
-                if action in ("stardog_export_graph", "stardog_import_graph"):
-                    if not hasattr(sd_backend, "download_graph") or not hasattr(
-                        sd_backend, "upload_graph"
-                    ):
-                        return json.dumps(
-                            {
-                                "error": f"{type(sd_backend).__name__} does not "
-                                "support Turtle graph export/import"
-                            }
-                        )
-                    graph_uri = opts.get("graph_uri")
-                    if action == "stardog_export_graph":
-                        return json.dumps(
-                            {
-                                "status": "ok",
-                                "graph_uri": graph_uri,
-                                "turtle": sd_backend.download_graph(graph_uri),
-                            },
-                            default=str,
-                        )
-                    # stardog_import_graph
-                    ttl_content = opts.get("turtle")
-                    if not isinstance(ttl_content, str) or not ttl_content.strip():
-                        return json.dumps(
-                            {
-                                "error": "config_value.turtle (a Turtle document) "
-                                "is required"
-                            }
-                        )
-                    sd_backend.upload_graph(ttl_content, graph_uri)
-                    return json.dumps(
-                        {"status": "ok", "graph_uri": graph_uri}, default=str
-                    )
-
-                authority = kg_server.get_connection_registry().get_engine(None)
-                if action == "push_to_stardog":
-                    from agent_utilities.knowledge_graph.integrations.stardog_sync import (  # noqa: E501
-                        push_to_stardog,
-                    )
-
-                    return json.dumps(
-                        push_to_stardog(
-                            authority, sd_backend, sources=opts.get("sources")
-                        ),
-                        default=str,
-                    )
-                # pull_from_stardog
-                from agent_utilities.knowledge_graph.integrations.stardog_sync import (
-                    pull_from_stardog,
-                )
-
-                return json.dumps(
-                    pull_from_stardog(
-                        sd_backend,
-                        authority,
-                        graph_uri=opts.get("graph_uri"),
-                        source=opts.get("source"),
-                        limit=int(opts.get("limit", 10_000)),
-                    ),
-                    default=str,
-                )
-            # ── Database environment provisioning (Stardog + pg-age) ──
-            if action in ("setup_databases", "verify_databases"):
-                from agent_utilities.knowledge_graph.setup import (
-                    setup_environment,
-                    verify_postgres,
-                )
-
-                try:
-                    opts = json.loads(config_value) if config_value else {}
-                except Exception:
-                    return json.dumps({"error": "config_value must contain valid JSON"})
-                if not isinstance(opts, dict):
-                    return json.dumps(
-                        {"error": "config_value must be a JSON object of options"}
-                    )
-                if "dsn" in opts or "://" in (config_key or ""):
-                    return json.dumps(
-                        {
-                            "error": (
-                                "inline database endpoints are not accepted; configure "
-                                "the runtime connection through a secret-backed profile"
-                            )
-                        }
-                    )
-                connection_profile_ref = opts.get("connection_profile_ref")
-                if connection_profile_ref and not _runtime_reference(
-                    connection_profile_ref
-                ):
-                    return json.dumps(
-                        {
-                            "error": (
-                                "connection_profile_ref must be a runtime secret "
-                                "reference"
-                            )
-                        }
-                    )
-                if config_key and config_key not in {"dev", "prod"}:
-                    return json.dumps(
-                        {
-                            "error": (
-                                "config_key must be a deployment profile alias; "
-                                "database endpoints belong in the secret-backed runtime profile"
-                            )
-                        }
-                    )
-                if action == "verify_databases":
-                    return json.dumps(
-                        verify_postgres(connection_profile_ref),
-                        default=str,
-                    )
-                # setup_databases — config_key is a profile shortcut ('dev'/'prod').
-                profile = opts.get("profile") or config_key or "dev"
-                return json.dumps(
-                    setup_environment(
-                        profile=profile,
-                        postgres_mode=opts.get("postgres_mode", "managed_image"),
-                        connection_profile_ref=connection_profile_ref,
-                        sparql_target=opts.get("sparql_target"),
-                        mirror_targets=opts.get("mirror_targets"),
-                        do_backfill=opts.get("do_backfill", True),
-                    ),
-                    default=str,
-                )
-            # ── Full-deployment config: generate / validate / document ──
-            if action in ("generate_config", "config_doctor", "config_reference"):
-                from agent_utilities.deployment import (
-                    config_doctor,
-                    config_reference,
-                    write_config,
-                )
-
-                try:
-                    opts = json.loads(config_value) if config_value else {}
-                except Exception:
-                    return json.dumps({"error": "config_value must contain valid JSON"})
-                if not isinstance(opts, dict):
-                    return json.dumps({"error": "config_value must be a JSON object"})
-                if action == "config_reference":
-                    return json.dumps(config_reference(), default=str)
-                # profile shortcut via config_key ('tiny'/'single-node-prod'/'enterprise')
-                profile = opts.get("profile") or config_key or None
-                if action == "generate_config":
-                    if opts.get("out"):
-                        return json.dumps({"error": "remote_path_not_allowed"})
-                    return json.dumps(
-                        write_config(
-                            profile or "tiny",
-                        ),
-                        default=str,
-                    )
-                # config_doctor
-                if opts.get("config"):
-                    return json.dumps({"error": "remote_path_not_allowed"})
-                return json.dumps(config_doctor(profile), default=str)
-            # ── CONCEPT:AU-KG.backend.connection-registry: generic live config get / set / list ──
-            if action in ("get_config", "set_config", "list_config"):
-                from agent_utilities.deployment import (
-                    config_reference,
-                    is_restart_required,
-                )
-
-                known: dict[str, dict] = {}
-                for section in config_reference():
-                    for f in section.get("fields", []):
-                        known[str(f.get("env") or "").upper()] = f
-
-                if action == "list_config":
-                    out = {}
-                    for env_key, meta in known.items():
-                        val = os.environ.get(env_key)
-                        out[env_key] = (
-                            "***"
-                            if (_configuration_key_is_sensitive(env_key, meta) and val)
-                            else val
-                        )
-                    return json.dumps({"config": out, "count": len(out)}, default=str)
-
-                if not config_key:
-                    return json.dumps(
-                        {"error": f"config_key (env name) required for {action}"}
-                    )
-                env_key = config_key.upper()
-                if env_key not in known:
-                    return json.dumps(
-                        {"error": "Unknown config key (see config_reference)"}
-                    )
-                if action == "get_config":
-                    val = os.environ.get(env_key)
-                    if _configuration_key_is_sensitive(env_key, known[env_key]) and val:
-                        val = "***"
-                    return json.dumps(
-                        {
-                            "key": env_key,
-                            "value": val,
-                            "restart_required": is_restart_required(env_key),
-                        },
-                        default=str,
-                    )
-                # set_config — persist to config.json + apply live (or flag restart).
-                if _configuration_key_is_sensitive(env_key, known[env_key]):
-                    if not env_key.endswith("_REF") or not _runtime_reference(
-                        config_value
-                    ):
-                        return json.dumps(
-                            {
-                                "error": (
-                                    "sensitive settings cannot be persisted inline; "
-                                    "use the secret store and a reference-capable setting"
-                                )
-                            }
-                        )
-                parsed = config_value
-                if config_value and config_value.strip()[:1] in '[{"':
-                    try:
-                        parsed = json.loads(config_value)
-                    except Exception:
-                        parsed = config_value
-                from agent_utilities.core.config import save_config_item
-
-                save_config_item(env_key, parsed)
-                restart = is_restart_required(env_key)
-                return json.dumps(
-                    {
-                        "status": "success",
-                        "key": env_key,
-                        # BUG-065: renamed from ``applied_live`` — see the
-                        # identical field on ``config_admin.set_value``
-                        # (the ``graph_config`` twin of this
-                        # ``graph_configure`` action) for why: this process
-                        # has no evidence about any OTHER replica having
-                        # picked up the write, only that ITS OWN cached
-                        # fields do or don't need a restart to see it.
-                        "applied_in_this_process": not restart,
-                        "restart_required": restart,
-                    },
-                    default=str,
-                )
-            # ── Authenticated runtime health (CONCEPT:AU-OS.config.two-surfaces-by-default) ──
-            # The MCP twin of GET /health and GET /health/ready: dispatches into
-            # the SAME shared core those unauthenticated HTTP routes use, so this
-            # tool call, the REST route, and the gateway's own /health never
-            # drift. Unlike the raw HTTP routes this goes through the normal
-            # authenticated tool-dispatch path (_execute_tool's verified
-            # GraphSession requirement) rather than being unauthenticated.
-            if action == "frontend_contributions":
-                if config_key or config_value:
-                    return json.dumps(
-                        {
-                            "error": (
-                                "frontend_contributions is a bounded read and "
-                                "takes no config_key/config_value"
-                            )
-                        }
-                    )
-                from agent_utilities.core.config import config
-                from agent_utilities.core.frontend_providers import _catalog_payload
-
-                trusted_signers = frozenset(
-                    config.frontend_contribution_trusted_signers
-                )
-                return json.dumps(
-                    _catalog_payload(trusted_signers=trusted_signers),
-                    default=str,
-                )
-            if action == "health":
-                from agent_utilities.observability.runtime_health import collect_health
-
-                return json.dumps(collect_health(), default=str)
-            # ── Holistic deployment health sweep (brew/flutter-doctor style) ──
-            if action == "system_doctor":
-                from agent_utilities.deployment import run_doctor
-
-                try:
-                    opts = json.loads(config_value) if config_value else {}
-                except Exception:
-                    return json.dumps({"error": "config_value must contain valid JSON"})
-                if not isinstance(opts, dict):
-                    return json.dumps({"error": "config_value must be a JSON object"})
-                return json.dumps(
-                    run_doctor(
-                        opts.get("only"),
-                        fix=opts.get("fix", False),
-                        live=opts.get("live", False),
-                    ),
-                    default=str,
-                )
-            if action == "preflight":
-                from agent_utilities.deployment.preflight import run_preflight
-
-                profile = config_key or "tiny"
-                try:
-                    opts = json.loads(config_value) if config_value else {}
-                except Exception:
-                    return json.dumps({"error": "config_value must contain valid JSON"})
-                if not isinstance(opts, dict):
-                    return json.dumps({"error": "config_value must be a JSON object"})
-                return json.dumps(
-                    run_preflight(profile, opts.get("components")),
-                    default=str,
-                )
-            # ── KG-2.7 / ECO-4.6: Memory Hook Management ──
-            if action == "harness_fence":
-                # CONCEPT:AU-OS.deployment.governance-derived-claude-code — write a governance-derived Claude Code
-                # permission fence (settings.json + .claudeignore). config_key =
-                # target Claude config dir (default $XDG_CONFIG_HOME/claude); config_value =
-                # optional {"policy": path, "dry_run": bool}.
-                try:
-                    from pathlib import Path as _Path
-
-                    from agent_utilities.claude_harness.claude_fence import write_fence
-                    from agent_utilities.orchestration.action_policy import ActionPolicy
-
-                    opts = json.loads(config_value) if config_value else {}
-                    if not isinstance(opts, dict):
-                        opts = {}
-                    target = config_key or str(_Path.home() / ".claude")
-                    policy_path = opts.get("policy")
-                    policy = (
-                        ActionPolicy(policy_path=policy_path)
-                        if policy_path
-                        else ActionPolicy()
-                    )
-                    return json.dumps(
-                        write_fence(target, policy, dry_run=bool(opts.get("dry_run"))),
-                        default=str,
-                    )
-                except PermissionError:
-                    raise
-                except Exception as exc:
-                    return json.dumps(
-                        {
-                            "error": "harness fence update failed",
-                            "error_type": type(exc).__name__,
-                        }
-                    )
-            if action == "install_hooks":
-                try:
-                    from agent_utilities.ecosystem.hook_installer import HookInstaller
-
-                    installer = HookInstaller()
-                    agents = config_value.split(",") if config_value else None
-                    results = installer.install(agents)
-                    return json.dumps(
-                        {
-                            "status": "success",
-                            "results": results,
-                            "installed": installer.installed,
-                            "errors": installer.errors,
-                        }
-                    )
-                except PermissionError:
-                    raise
-                except Exception as exc:
-                    return json.dumps(
-                        {
-                            "error": "hook installation failed",
-                            "error_type": type(exc).__name__,
-                        }
-                    )
-            if action == "uninstall_hooks":
-                try:
-                    from agent_utilities.ecosystem.hook_installer import HookInstaller
-
-                    agents = config_value.split(",") if config_value else None
-                    results = HookInstaller().uninstall(agents)
-                    return json.dumps({"status": "success", "results": results})
-                except PermissionError:
-                    raise
-                except Exception as exc:
-                    return json.dumps(
-                        {
-                            "error": "hook removal failed",
-                            "error_type": type(exc).__name__,
-                        }
-                    )
-            if action == "doctor":
-                try:
-                    from agent_utilities.ecosystem.hook_installer import HookInstaller
-
-                    return json.dumps(HookInstaller().doctor(), default=str)
-                except PermissionError:
-                    raise
-                except Exception as exc:
-                    return json.dumps(
-                        {
-                            "error": "configuration doctor failed",
-                            "error_type": type(exc).__name__,
-                        }
-                    )
-            # ── CONCEPT:AU-ORCH.routing.role-specialized-model-routing: Role-Specialized Model Routing ──
-            if action == "set_role_routing":
-                try:
-                    from pathlib import Path
-
-                    from agent_utilities.core.config import config as _cfg
-                    from agent_utilities.models.model_registry import (
-                        ModelRegistry,
-                        RoleSpec,
-                    )
-
-                    payload = json.loads(config_value) if config_value else {}
-                    reg_path = getattr(_cfg, "model_registry_path", None)
-                    if not reg_path or not Path(reg_path).is_file():
-                        return json.dumps(
-                            {
-                                "error": (
-                                    "No model_registry_path configured; cannot "
-                                    "persist role_routing."
-                                )
-                            }
-                        )
-                    registry = ModelRegistry.load_from_file(reg_path)
-                    for rname, spec in payload.items():
-                        registry.role_routing[rname] = RoleSpec.model_validate(spec)
-                    Path(reg_path).write_text(
-                        json.dumps(registry.model_dump(), indent=2)
-                    )
-                    return json.dumps(
-                        {
-                            "status": "success",
-                            "action": "set_role_routing",
-                            "roles": list(payload.keys()),
-                        }
-                    )
-                except PermissionError:
-                    raise
-                except Exception as exc:
-                    return json.dumps(
-                        {
-                            "error": "role routing update failed",
-                            "error_type": type(exc).__name__,
-                        }
-                    )
-            # ── KG-2.35: Schema-Pack lifecycle (get/set the active domain pack) ──
-            if action == "schema_pack":
-                from agent_utilities.models.schema_pack_loader import (
-                    get_active_pack,
-                    set_active_pack,
-                )
-                from agent_utilities.models.schema_packs import list_schema_packs
-
-                if config_key:
-                    pack = set_active_pack(config_key)
-                    return json.dumps(
-                        {
-                            "status": "success",
-                            "action": "schema_pack",
-                            "active": pack.name,
-                            "signature": pack.signature(),
-                        }
-                    )
-                active = get_active_pack()
-                return json.dumps(
-                    {
-                        "status": "success",
-                        "action": "schema_pack",
-                        "active": active.name,
-                        "signature": active.signature(),
-                        "available": list_schema_packs(),
-                    }
-                )
-            # ── KG-2.35: review out-of-pack candidate types seen on write ──
-            if action == "schema_candidates":
-                from agent_utilities.models.schema_pack_audit import (
-                    SchemaCandidateAuditor,
-                )
-
-                try:
-                    limit = int(config_value) if config_value else 100
-                except ValueError:
-                    limit = 100
-                return json.dumps(
-                    {
-                        "status": "success",
-                        "action": "schema_candidates",
-                        "candidates": SchemaCandidateAuditor.instance().review(limit),
-                    }
-                )
+        handler = _CONFIGURE_ACTION_DISPATCH.get(action)
+        if handler is None:
             return json.dumps({"error": "unknown configuration action"})
+        try:
+            return handler(action, config_key, config_value)
         except PermissionError:
             # Authorization and filesystem-boundary denials are policy results,
             # not successful MCP payloads.  Preserve fail-closed dispatch.

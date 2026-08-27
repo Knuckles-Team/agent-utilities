@@ -340,6 +340,1636 @@ def _run_bulk_ingest(
     )
 
 
+# CX-AU-03: graph_ingest's if/elif action-dispatch chain (CCN 215)
+# extracted into one module-level async handler per action, called
+# through a dict dispatch table. Mechanical extract-method: each
+# handler's body is the original branch body, moved verbatim
+# (reindented) with a uniform (engine, action, target_path, max_depth,
+# agent_id, job_id, priority_bucket, corpus_name, base_path,
+# description, content_type, connection, graph) signature.
+# Behaviour-preserving; see
+# tests/characterization/test_graph_ingest_characterization.py --
+# graph_ingest had ZERO prior test coverage of any kind.
+
+
+def _ingest_parse_target_paths(target_path):
+    # extracted from 'ingest' (CX-AU-03: split for CCN). Parse one-or-many
+    # paths (JSON list, comma-separated, or single).
+    raw = target_path.strip()
+    paths = (
+        json.loads(raw)
+        if raw.startswith("[")
+        else [p.strip() for p in raw.split(",") if p.strip()]
+        if "," in raw
+        else [raw]
+    )
+    return [p.strip() for p in paths if isinstance(p, str) and p.strip()]
+
+
+def _ingest_resolve_content_type(p, override, content_type_cls):
+    # extracted from 'ingest' (CX-AU-03: split for CCN)
+    if override:
+        try:
+            return content_type_cls(override)
+        except ValueError:
+            pass
+    return content_type_cls.classify(p)
+
+
+async def _ingest_submit_async_job(engine, p, t_type, agent_id, max_depth, graph):
+    # extracted from 'ingest' (CX-AU-03: split for CCN). Returns
+    # (job_id_or_None, error_json_or_None).
+    # BUG-120: the async worker only re-narrows onto an explicit `graph`
+    # for `task_type='codebase'` (see `_bound_to_explicit_ingest_graph`'s
+    # call site in `_run_background_task`) -- the legacy document-chunk
+    # ingest branch never reads the WorkItem's `graph` metadata at all.
+    # Silently accepting `graph=` here for a document path would echo a
+    # resolved graph the write never actually honors -- a fabricated
+    # success. Fail closed instead until document ingest gets the same
+    # worker-side wiring codebase already has.
+    if graph and t_type != "codebase":
+        return None, public_error_text(
+            kg_server.GraphSelectionConflictError(
+                "explicit graph selection for async "
+                "ingestion is currently supported only "
+                f"for codebase content; {p!r} resolved "
+                f"to content_type={t_type!r}"
+            ),
+            code="graph_selection_conflict",
+        )
+    jid = await run_blocking_ordered(
+        engine.submit_task,
+        target_path=p,
+        is_codebase=(t_type == "codebase"),
+        provenance={
+            "agent_id": agent_id,
+            "max_depth": max_depth,
+        },
+        task_type=t_type,
+        # U-06: persist the caller's resolved graph on the WorkItem's own
+        # metadata -- the async worker that later executes this job
+        # re-narrows onto it (`_bound_to_explicit_ingest_graph`) instead
+        # of falling back to its own ambient/default graph.
+        graph=graph,
+    )
+    return jid, None
+
+
+async def _ingest_sync_one(
+    ing,
+    engine,
+    ct,
+    p,
+    max_depth,
+    agent_id,
+    graph,
+    ingestion_engine_cls,
+    ingestion_manifest_cls,
+):
+    # extracted from 'ingest' (CX-AU-03: split for CCN). Returns
+    # (ing, summary_line).
+    if ing is None:
+        ing = ingestion_engine_cls(kg_engine=engine)
+    # Sync path runs inline, in THIS request's own verified session --
+    # narrow it directly for the call's duration (a no-op when `graph`
+    # is empty).
+    with kg_server.bound_to_graph(graph):
+        r = await ing.ingest(
+            ingestion_manifest_cls(
+                content_type=ct,
+                source_uri=p,
+                max_depth=max_depth,
+                metadata={"agent_id": agent_id},
+            )
+        )
+    line = (
+        f"[{ct.value}] {p}: {r.status} (+{r.nodes_created}n/+{r.edges_created}e"
+        f"{', ' + str(r.details.get('cards_pending')) + ' cards pending' if r.details.get('cards_pending') else ''}"
+        f"{'; ' + r.error if r.error else ''})"
+    )
+    return ing, line
+
+
+def _ingest_summarize(async_jobs, sync_out, paths, graph, connection):
+    # extracted from 'ingest' (CX-AU-03: split for CCN)
+    msgs: list[str] = []
+    if async_jobs:
+        label = (
+            f"Started ingestion job {async_jobs[0]} for {paths[0]}"
+            if len(async_jobs) == 1
+            else f"Submitted {len(async_jobs)} jobs: {', '.join(async_jobs)}"
+        )
+        if graph or connection:
+            label += f" [connection={connection or '(default)'} graph={graph or '(default)'}]"
+        msgs.append(label)
+    if sync_out:
+        msgs.append(" | ".join(sync_out))
+    return " ; ".join(msgs) if msgs else "Nothing to ingest."
+
+
+async def _ingest_action_ingest(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'ingest'
+    from agent_utilities.knowledge_graph.ingestion.engine import (
+        ContentType,
+        IngestionEngine,
+        IngestionManifest,
+    )
+
+    if not target_path:
+        return "Error: target_path required for ingest action"
+
+    paths = _ingest_parse_target_paths(target_path)
+    if not paths:
+        return "Error: target_path required for ingest action"
+
+    # ``content_type`` is auto-detected per path and is NOT an
+    # agent-facing concern (CONCEPT:AU-KG.research.skill-graph-distillation ContentType.classify is the
+    # single source of truth). It survives only as an internal override
+    # for genuinely ambiguous paths; ``isinstance(str)`` filters out the
+    # unresolved FastMCP ``FieldInfo`` default. Whatever the type, heavy
+    # categories ALWAYS route through the async durable queue so an
+    # ingest call can never block the caller for minutes — the old
+    # "explicit content_type → synchronous IngestionEngine" branch was a
+    # footgun that did exactly that.
+    override = (
+        content_type.strip().lower()
+        if (content_type and isinstance(content_type, str))
+        else ""
+    )
+
+    # DOCUMENT/CODEBASE are slow (chunk+embed / tree-sitter parse) and
+    # are handled by the background task worker → enqueue, never block.
+    # The remaining lightweight categories (config/prompt/skill/
+    # mcp_server/kb/conversation/policy/…) are fast and are only routed
+    # by the unified IngestionEngine, so they run inline.
+    async_types = {ContentType.DOCUMENT, ContentType.CODEBASE}
+    async_jobs: list[str] = []
+    sync_out: list[str] = []
+    ing: IngestionEngine | None = None
+    for p in paths:
+        ct = _ingest_resolve_content_type(p, override, ContentType)
+        if ct in async_types:
+            t_type = "codebase" if ct == ContentType.CODEBASE else "document"
+            jid, err = await _ingest_submit_async_job(
+                engine, p, t_type, agent_id, max_depth, graph
+            )
+            if err:
+                return err
+            async_jobs.append(jid)
+        else:
+            ing, line = await _ingest_sync_one(
+                ing,
+                engine,
+                ct,
+                p,
+                max_depth,
+                agent_id,
+                graph,
+                IngestionEngine,
+                IngestionManifest,
+            )
+            sync_out.append(line)
+
+    return _ingest_summarize(async_jobs, sync_out, paths, graph, connection)
+
+
+async def _ingest_action_ingest_url(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'ingest_url'
+    if not target_path:
+        return "Error: target_path (a URL) required for ingest_url"
+    url = target_path.strip()
+    # Default ON (CONCEPT:AU-KG.ingest.chunk-overlap-stage): first-class embedded Chunk objects +
+    # contextual-retrieval enrichment, at parity with connector ingestion
+    # (KG-2.50) — makes this tool's documented "chunking + contextual
+    # enrichment + embeddings" behavior real instead of only the plain
+    # idea_block text chunks.
+    prov: dict[str, Any] = {
+        "agent_id": agent_id,
+        "source_url": url,
+        "chunk_objects": True,
+        "contextual": True,
+    }
+    flag = (description or "").strip().lower()
+    if flag in ("extract_papers", "papers", "extract_papers=true", "true"):
+        prov["extract_papers"] = True
+    elif flag in ("no_papers", "extract_papers=false", "false"):
+        prov["extract_papers"] = False
+    jid = await run_blocking_ordered(
+        engine.submit_task,
+        target_path=url,
+        is_codebase=False,
+        provenance=prov,
+        task_type="content_url",
+    )
+    return (
+        f"Submitted content-aware URL ingest job {jid} for {url} "
+        f"(poll: action=job_status job_id={jid})."
+    )
+
+
+async def _ingest_action_backfill_platform_history(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'backfill_platform_history'
+    from agent_utilities.messaging.backfill import (
+        backfill_platform_history,
+    )
+
+    platform = (corpus_name or "").strip().lower()
+    channel_id = (target_path or "").strip()
+    if not platform:
+        return "Error: corpus_name required for backfill_platform_history"
+    if not channel_id:
+        return (
+            "Error: target_path (channel/room id) required for "
+            "backfill_platform_history"
+        )
+    result = await run_blocking_ordered(
+        backfill_platform_history,
+        engine,
+        platform=platform,
+        channel_id=channel_id,
+        session=(agent_id or "graph_ingest"),
+    )
+    return json.dumps(result)
+
+
+async def _ingest_action_archivebox_sync(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'archivebox_sync'
+    from agent_utilities.knowledge_graph.core.source_sync import (
+        sync_source,
+    )
+
+    mode = (corpus_name or "delta").strip().lower()
+    ids = None
+    if base_path.strip().startswith("["):
+        ids = [str(x) for x in json.loads(base_path)]
+    res_d = sync_source(
+        engine,
+        "archivebox",
+        mode="full" if mode == "full" else mode,
+        ids=ids,
+    )
+    return json.dumps(res_d)
+
+
+async def _ingest_action_gitlab_sync(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'gitlab_sync'
+    from agent_utilities.knowledge_graph.core.source_sync import (
+        sync_source,
+    )
+
+    mode = (corpus_name or "delta").strip().lower()
+    ids = None
+    if base_path.strip().startswith("["):
+        ids = [str(x) for x in json.loads(base_path)]
+    res_d = sync_source(
+        engine,
+        "gitlab",
+        mode="full" if mode == "full" else mode,
+        ids=ids,
+    )
+    return json.dumps(res_d)
+
+
+async def _ingest_action_cdc_catchup(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'cdc_catchup'
+    from agent_utilities.knowledge_graph.ingestion.debezium_envelope import (
+        get_envelope_source,
+        list_envelope_sources,
+    )
+
+    handler = get_envelope_source("cdc")
+    if handler is None:
+        return json.dumps(
+            {
+                "status": "error",
+                "error": "cdc envelope source not registered",
+                # list_envelope_sources: what IS registered, so an
+                # operator sees the real available set rather than
+                # a bare failure with no next step.
+                "registered_sources": list_envelope_sources(),
+            }
+        )
+    res_d = await run_blocking_ordered(
+        handler,
+        engine,
+        mode=(corpus_name or "delta").strip().lower(),
+        ids=None,
+        client=None,
+    )
+    return json.dumps(res_d)
+
+
+async def _ingest_action_opensearch_reindex(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'opensearch_reindex'
+    from agent_utilities.knowledge_graph.search.rebuild import mcp_reindex
+
+    tenant = (corpus_name or "").strip()
+    if not tenant:
+        return json.dumps(
+            {
+                "status": "error",
+                "error": "opensearch_reindex requires corpus_name=<eg graph/tenant id>",
+            }
+        )
+    object_type = (target_path or "").strip() or None
+    try:
+        from_seq = int(base_path.strip()) if base_path.strip() else 0
+    except ValueError:
+        return json.dumps(
+            {
+                "status": "error",
+                "error": f"opensearch_reindex base_path (from_seq) must be an integer, got {base_path!r}",
+            }
+        )
+    res_d = dict(
+        await run_blocking_ordered(mcp_reindex, tenant, object_type, from_seq=from_seq)
+    )
+    return json.dumps(res_d)
+
+
+async def _ingest_action_gitlab_webhook(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'gitlab_webhook'
+    from agent_utilities.knowledge_graph.core.gitlab_indexer import (
+        handle_gitlab_webhook,
+    )
+
+    try:
+        payload = json.loads(description) if description else {}
+    except (ValueError, TypeError):
+        return json.dumps({"status": "ignored", "reason": "invalid payload JSON"})
+    webhook_result = await run_blocking_ordered(handle_gitlab_webhook, engine, payload)
+    return json.dumps(webhook_result)
+
+
+async def _ingest_action_corpus(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'corpus'
+    if not corpus_name:
+        return "Error: corpus_name required"
+    await run_blocking_ordered(
+        engine.add_node,
+        f"corpus_{corpus_name}",
+        "Corpus",
+        base_path=base_path,
+        description=description,
+    )
+    return f"Corpus {corpus_name} added/updated."
+
+
+async def _ingest_action_jobs(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'jobs'
+    import json as _json
+
+    grouped = engine.list_tasks()
+    lines = []
+    for status, jobs in grouped.items():
+        if not isinstance(jobs, list):
+            continue
+        for job in jobs[:20]:
+            lines.append(f"{job['job_id']}: {status} ({job.get('target', 'unknown')})")
+    # Per-category metrics breakdown (time/nodes/edges/failures) —
+    # the harness-style view, pollable over MCP (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
+    breakdown = {}
+    if hasattr(engine, "aggregate_ingest_metrics"):
+        try:
+            _b = engine.aggregate_ingest_metrics()
+            breakdown = _b if isinstance(_b, dict) else {}
+        except Exception:  # noqa: BLE001
+            breakdown = {}
+    head = "\n".join(lines) if lines else "No active or recent ingestion jobs."
+    return (
+        head + "\n\n=== per-category metrics ===\n" + _json.dumps(breakdown, indent=2)
+        if breakdown
+        else head
+    )
+
+
+async def _ingest_action_job_status(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'job_status', 'status'
+    if not job_id:
+        return "Error: job_id required"
+    import json as _json
+
+    job = engine.get_task_status(job_id)
+    if not job:
+        return f"Job {job_id} not found."
+    status = job["status"]
+    meta = job.get("metadata") or {}
+    metrics = {
+        k: meta[k]
+        for k in (
+            "type",
+            "content_type",
+            "duration_ms",
+            "nodes_added",
+            "nodes_created",
+            "edges_added",
+            "edges_created",
+            "cards_pending",
+            "error",
+        )
+        if k in meta
+    }
+    for key in (
+        "attempt",
+        "max_attempts",
+        "resource_class",
+        "lease_expires_at",
+        "heartbeat_at",
+        "updated_at",
+    ):
+        if job.get(key) is not None:
+            metrics[key] = job[key]
+    return f"Job {job_id} status: {status}\n" + _json.dumps(metrics, indent=2)
+
+
+async def _ingest_action_cancel(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'cancel'
+    import json as _json
+
+    if not job_id:
+        return "Error: job_id required for cancel"
+    return _json.dumps(engine.cancel_task(job_id), indent=2)
+
+
+async def _ingest_action_clear(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'clear'
+    import json as _json
+
+    tp = target_path if isinstance(target_path, str) else ""
+    return _json.dumps(
+        engine.clear_tasks((tp or "completed").strip().lower()), indent=2
+    )
+
+
+async def _ingest_action_prioritize(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'prioritize'
+    import json as _json
+
+    if not job_id:
+        return "Error: job_id required for prioritize"
+    return _json.dumps(
+        engine.prioritize_task(job_id, priority_bucket),
+        indent=2,
+    )
+
+
+async def _ingest_action_cohort_create(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'cohort_create'
+    import json as _json
+
+    from agent_utilities.knowledge_graph.research.cohort import (
+        create_cohort,
+    )
+
+    def _aslist(v: str) -> list[str]:
+        v = (v or "").strip()
+        if not v:
+            return []
+        try:
+            parsed = _json.loads(v)
+            return (
+                [str(x) for x in parsed] if isinstance(parsed, list) else [str(parsed)]
+            )
+        except (ValueError, TypeError):
+            return [s.strip() for s in v.split(",") if s.strip()]
+
+    papers = _aslist(base_path)
+    repos = _aslist(target_path)
+    if not papers and not repos:
+        return public_error_text(
+            ValueError(
+                "cohort_create needs base_path=<JSON list of paper URLs> "
+                "and/or target_path=<JSON list of repo paths>"
+            ),
+            code="invalid_request",
+        )
+    return _json.dumps(
+        create_cohort(engine, papers=papers, repos=repos, goal=description),
+        indent=2,
+    )
+
+
+async def _ingest_action_cohort_status(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'cohort_status'
+    import json as _json
+
+    from agent_utilities.knowledge_graph.research.cohort import (
+        cohort_status,
+    )
+
+    cid = (job_id or target_path or "").strip()
+    if not cid:
+        return "Error: job_id=<cohort_id> required for cohort_status"
+    return _json.dumps(cohort_status(engine, cid), indent=2)
+
+
+async def _ingest_action_profile(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'profile'
+    import json as _json
+
+    if not hasattr(engine, "profile_report"):
+        return "Error: profiling not available on this engine."
+    return _json.dumps(
+        engine.profile_report(group_by=(corpus_name or "lane").strip()),
+        indent=2,
+    )
+
+
+async def _ingest_action_fleet_relevance(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'fleet_relevance'
+    import json as _json
+
+    from agent_utilities.knowledge_graph.research.fleet_relevance import (
+        grade_fleet,
+    )
+
+    try:
+        thr = float(corpus_name) if corpus_name else 5.0
+    except ValueError:
+        thr = 5.0
+    return _json.dumps(grade_fleet(engine, threshold_pct=thr), indent=2)
+
+
+async def _ingest_action_rebuild_indexes(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'rebuild_indexes'
+    engine.build_indexes()
+    return "Indexes rebuilt successfully."
+
+
+async def _ingest_action_observe(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'observe'
+    try:
+        from pathlib import Path as _Path
+
+        from agent_utilities.knowledge_graph.memory.observer import (
+            observe_from_file,
+        )
+
+        if not target_path:
+            return "Error: target_path required (path to JSONL transcript)"
+        observation_result = observe_from_file(
+            engine, _Path(target_path), source=agent_id or "mcp"
+        )
+        return observation_result or "No new observations extracted."
+    except Exception as e:
+        return public_error_text(e)
+
+
+async def _ingest_action_materialize(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'materialize'
+    try:
+        from agent_utilities.knowledge_graph.memory import (
+            materialize_memory,
+        )
+
+        paths = materialize_memory(engine)
+        return json.dumps(
+            {
+                "status": "materialized",
+                "files": {k: str(v) for k, v in paths.items()},
+            }
+        )
+    except Exception as e:
+        return public_error_text(e)
+
+
+async def _ingest_action_sync(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'sync'
+    try:
+        from agent_utilities.knowledge_graph.memory import (
+            ingest_memory_edits,
+        )
+
+        results = ingest_memory_edits(engine)
+        return (
+            json.dumps({"status": "synced", "ingested": results})
+            if results
+            else "No edits detected."
+        )
+    except Exception as e:
+        return public_error_text(e)
+
+
+async def _ingest_action_reflect(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'reflect'
+    try:
+        from agent_utilities.knowledge_graph.memory import (
+            run_reflector,
+        )
+
+        reflection_result = run_reflector(engine)
+        return reflection_result or "No observations to reflect on."
+    except Exception as e:
+        return public_error_text(e)
+
+
+async def _ingest_action_materialize_source(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'materialize_source'
+    try:
+        from agent_utilities.knowledge_graph.enrichment.materialize import (
+            run_materialize_source,
+        )
+
+        category = (corpus_name or "").strip()
+        if not category:
+            return json.dumps(
+                {
+                    "error": "materialize_source requires corpus_name "
+                    "(the extractor category, e.g. 'camunda' or 'aris')"
+                }
+            )
+        extractor_config = (
+            json.loads(description)
+            if description and description.strip().startswith("{")
+            else None
+        )
+        # Shared core — same path the unified ``source_sync`` uses.
+        return json.dumps(
+            run_materialize_source(engine, category, config=extractor_config),
+            default=str,
+        )
+    except Exception as e:
+        return public_error_text(e)
+
+
+async def _ingest_action_skill_workflows(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'skill_workflows'
+    try:
+        root = target_path if isinstance(target_path, str) else ""
+        jid = await run_blocking_ordered(
+            engine.submit_task,
+            target_path=root or "universal-skills",
+            is_codebase=False,
+            provenance={"agent_id": agent_id},
+            task_type="skill_workflows",
+        )
+        return json.dumps(
+            {
+                "job_id": jid,
+                "status": "submitted",
+                "message": (
+                    f"Skill-workflow + atomic-skill ingest enqueued as "
+                    f"background job {jid}; poll with graph_ingest "
+                    f"action=job_status job_id={jid}."
+                ),
+            }
+        )
+    except Exception as e:
+        return public_error_text(e)
+
+
+async def _ingest_action_curate_wiki(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'curate_wiki'
+    try:
+        from agent_utilities.knowledge_graph.ingestion.wiki_curator import (
+            curate_wiki,
+        )
+
+        if not target_path:
+            return json.dumps(
+                {"error": "curate_wiki requires target_path (the wiki dir)"}
+            )
+        summary = curate_wiki(engine, target_path)
+        return json.dumps(summary, default=str)
+    except Exception as e:
+        return public_error_text(e)
+
+
+async def _ingest_action_distill(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'distill'
+    try:
+        from agent_utilities.knowledge_graph.distillation import (
+            SkillGraphDistiller,
+        )
+
+        if not target_path:
+            return json.dumps({"error": "distill requires target_path (output dir)"})
+        seed = corpus_name or None
+        query = description or None
+        if not (seed or query):
+            return json.dumps(
+                {
+                    "error": "distill requires a seed (corpus_name=node_id) "
+                    "or query (description=text)"
+                }
+            )
+        # content_type="workflow" → distill a graph-native skill-WORKFLOW
+        # (procedure step-DAG) instead of a documentation skill-graph.
+        as_workflow = (content_type or "").strip().lower() == "workflow"
+        distiller = await SkillGraphDistiller.connect()
+        try:
+            if as_workflow:
+                wf = await distiller.distill_workflow(
+                    seed=seed,
+                    query=query,
+                    depth=max_depth,
+                    out_dir=target_path,
+                )
+                payload = {
+                    "kind": "skill-workflow",
+                    "name": wf["name"],
+                    "steps": wf["steps"],
+                }
+            else:
+                manifest = await distiller.distill(
+                    seed=seed,
+                    query=query,
+                    depth=max_depth,
+                    out_dir=target_path,
+                )
+                payload = {
+                    "kind": "skill-graph",
+                    "stats": manifest["stats"],
+                }
+        finally:
+            await distiller.close()
+        return json.dumps(
+            {
+                "status": "distilled",
+                "out_dir": target_path,
+                "manifest": f"{target_path.rstrip('/')}/kg_manifest.json",
+                **payload,
+            },
+            default=str,
+        )
+    except Exception as e:
+        return public_error_text(e)
+
+
+async def _ingest_action_build_skill_graph(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'build_skill_graph', 'skill_graph_status', 'rebuild_skill_graph'
+    import asyncio
+
+    from agent_utilities.knowledge_graph.distillation import (
+        SkillGraphPipeline,
+        SourceSpec,
+    )
+
+    pipe = SkillGraphPipeline()
+    if action == "build_skill_graph":
+        if not (corpus_name and target_path):
+            return json.dumps(
+                {
+                    "error": "build_skill_graph requires corpus_name (name) "
+                    "and target_path (output parent dir); base_path = JSON "
+                    "list of sources or 'kind=uri,kind=uri' shorthand."
+                }
+            )
+        try:
+            specs = _parse_source_specs(base_path, SourceSpec)
+        except ValueError as exc:
+            return public_error_json(exc)
+        if not specs:
+            return json.dumps({"error": "no sources provided in base_path"})
+        sg_built = await asyncio.to_thread(
+            lambda: pipe.build(
+                name=corpus_name,
+                specs=specs,
+                out_dir=target_path,
+                description=description or None,
+            )
+        )
+        return json.dumps(sg_built, default=str)
+    if action == "skill_graph_status":
+        if not target_path:
+            return json.dumps(
+                {"error": "skill_graph_status requires target_path (dir)"}
+            )
+        quick = corpus_name.strip().lower() == "quick"
+        sg_report = await asyncio.to_thread(
+            lambda: pipe.status(target_path, quick=quick)
+        )
+        return json.dumps(sg_report, default=str)
+    # rebuild_skill_graph
+    if not target_path:
+        return json.dumps({"error": "rebuild_skill_graph requires target_path (dir)"})
+    sg_rebuilt = await asyncio.to_thread(lambda: pipe.rebuild(target_path))
+    return json.dumps(sg_rebuilt, default=str)
+
+
+async def _ingest_action_agent_toolkit(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'agent_toolkit'
+    sources = json.loads(target_path) if target_path.startswith("[") else [target_path]
+    # Use `description` param as optional agent_card_path override
+    agent_card_path = description if description else "/.well-known/agent.json"
+    result = await engine.ingest_agent_toolkit(sources, agent_card_path=agent_card_path)
+    return json.dumps(result, default=str)
+
+
+async def _ingest_action_ingest_knowledge_pack(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'ingest_knowledge_pack'
+    from pathlib import Path
+
+    import yaml
+
+    from agent_utilities.models.knowledge_pack import (
+        KnowledgePackBundle,
+        KnowledgePackHydrator,
+        KnowledgePackImporter,
+    )
+
+    if not target_path:
+        return "Error: target_path required for ingest_knowledge_pack"
+
+    path = Path(target_path)
+    if not path.exists() or not path.is_file():
+        return f"Error: knowledge pack file not found at {target_path}"
+
+    def _load_knowledge_pack_file() -> Any:
+        with open(path, encoding="utf-8") as f:
+            if path.suffix in [".yaml", ".yml"]:
+                return yaml.safe_load(f)
+            return json.load(f)
+
+    data = await run_blocking_ordered(_load_knowledge_pack_file)
+    bundle = KnowledgePackBundle.from_dict(data)
+    await KnowledgePackHydrator.hydrate(bundle)
+    await run_blocking_ordered(KnowledgePackImporter.seed_into_kg, bundle, engine)
+    return f"Knowledge pack from {target_path} hydrated and ingested."
+
+
+async def _ingest_action_import_pack(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'import_pack'
+    from agent_utilities.knowledge_graph.distillation import (
+        import_skill_graph_pack,
+    )
+
+    if not target_path:
+        return json.dumps(
+            {"error": "import_pack requires target_path (skill-graph dir)"}
+        )
+    try:
+        stats = await run_blocking_ordered(
+            import_skill_graph_pack,
+            engine,
+            target_path,
+            dedup=(corpus_name == "dedup"),
+        )
+        return json.dumps({"status": "imported", "stats": stats}, default=str)
+    except Exception as e:  # noqa: BLE001
+        return public_error_text(e)
+
+
+async def _ingest_fact_extract_text(description, target_path, path_cls):
+    # extracted from 'fact_extract' (CX-AU-03: split for CCN). Returns
+    # (text, source_ref).
+    text = description or ""
+    if text or not target_path:
+        return text, ""
+    p = path_cls(target_path)
+    if p.exists() and p.is_file():
+        text = await run_blocking_ordered(
+            p.read_text, encoding="utf-8", errors="ignore"
+        )
+        source_ref = persistence_reference(
+            "fact_source", target_path, namespace="fact-extraction"
+        )
+        return text, source_ref
+    return target_path, ""
+
+
+async def _ingest_action_fact_extract(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'fact_extract'
+    from pathlib import Path
+
+    from agent_utilities.knowledge_graph.extraction import (
+        ExtractedFact,
+        extract_facts,
+        facts_to_jsonl,
+        persist_facts,
+    )
+    from agent_utilities.knowledge_graph.extraction.job_manager import (
+        EngineStoreAdapter,
+    )
+
+    text, source_ref = await _ingest_fact_extract_text(description, target_path, Path)
+    if not text.strip():
+        return json.dumps(
+            {
+                "error": "fact_extract requires text (description=) "
+                "or a readable file (target_path=)"
+            }
+        )
+
+    facts: list[ExtractedFact] = []
+    async for ev in extract_facts(text, rounds=1, source_file=source_ref):
+        if ev["type"] == "fact":
+            facts.append(ExtractedFact(**ev["fact"]))
+
+    # CONCEPT:AU-ORCH.execution.event-loop-blocking-sweep — persist_facts
+    # loops over every extracted fact issuing a synchronous
+    # add_node/add_edge KG round trip, so it must not run inline on
+    # the request-serving loop. The scanner in
+    # scripts/check_event_loop_blocking.py only matches ``engine.*``
+    # shaped attribute calls and therefore cannot see a blocking call
+    # made through a plain helper like this one (D-W15-6).
+    stats = await run_blocking_ordered(persist_facts, EngineStoreAdapter(engine), facts)
+    unique = sum(1 for f in facts if not f.is_duplicate)
+    return json.dumps(
+        {
+            "status": "extracted",
+            "facts": [f.model_dump() for f in facts],
+            "jsonl": facts_to_jsonl(facts),
+            "stats": {
+                **stats,
+                "total_facts": len(facts),
+                "unique_facts": unique,
+                "duplicate_facts": len(facts) - unique,
+            },
+        },
+        default=str,
+    )
+
+
+async def _ingest_action_sync_second_brain(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'sync_second_brain'
+    from datetime import datetime as _datetime
+
+    from agent_utilities.knowledge_graph.extraction import (
+        sync_second_brain,
+    )
+
+    if not target_path:
+        return json.dumps(
+            {
+                "error": "sync_second_brain requires target_path "
+                "(a notes directory or file)"
+            }
+        )
+
+    since: float | None = None
+    raw_since = (base_path or "").strip()
+    if raw_since:
+        try:
+            since = float(raw_since)
+        except ValueError:
+            try:
+                since = _datetime.fromisoformat(raw_since).timestamp()
+            except ValueError:
+                since = None
+
+    sync_result = await sync_second_brain(
+        engine, target_path, since=since, corpus_name=corpus_name
+    )
+    return json.dumps(sync_result.model_dump(), default=str)
+
+
+async def _ingest_action_classify_topics(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'classify_topics'
+    import hashlib
+    from pathlib import Path
+
+    from agent_utilities.knowledge_graph.enrichment.topic_classifier import (
+        classify_and_link_topics,
+    )
+
+    text = description or ""
+    doc_id = ""
+    if target_path:
+        p = Path(target_path)
+        if p.exists() and p.is_file():
+            text = text or await run_blocking_ordered(
+                p.read_text, encoding="utf-8", errors="ignore"
+            )
+            doc_id = "doc:source:" + persistence_reference(
+                "document_source", target_path, namespace="topic-classifier"
+            )
+        else:
+            doc_id = "doc:source:" + persistence_reference(
+                "document_source", target_path, namespace="topic-classifier"
+            )
+    if not text.strip():
+        return json.dumps(
+            {
+                "error": "classify_topics requires text (description=) "
+                "or a readable file (target_path=)"
+            }
+        )
+    if not doc_id:
+        doc_id = f"doc:adhoc:{hashlib.sha256(text.encode()).hexdigest()[:16]}"
+
+    backend = getattr(engine, "backend", None) or engine
+    topic_res = await classify_and_link_topics(
+        backend, doc_id, text, title=corpus_name or "", source_type="adhoc"
+    )
+    return json.dumps(topic_res, default=str)
+
+
+async def _ingest_action_enrich_pending_documents(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'enrich_pending_documents'
+    from agent_utilities.knowledge_graph.memory.native_ingest import (
+        enrich_pending_documents,
+    )
+
+    sweep_res = await enrich_pending_documents(engine, limit=200)
+    return json.dumps(sweep_res)
+
+
+async def _ingest_extract_submit_text(target_path, description):
+    # extracted from 'extract_submit' (CX-AU-03: split for CCN)
+    text = description or ""
+    if not text and target_path:
+        from pathlib import Path
+
+        p = Path(target_path)
+        text = (
+            await run_blocking_ordered(p.read_text, encoding="utf-8", errors="ignore")
+            if p.exists() and p.is_file()
+            else target_path
+        )
+    return text
+
+
+async def _ingest_extract_submit(mgr, target_path, max_depth, description):
+    # action(s): 'extract_submit'
+    text = await _ingest_extract_submit_text(target_path, description)
+    if not text.strip():
+        return json.dumps(
+            {"error": "extract_submit requires description= or target_path="}
+        )
+    jid = await mgr.submit(text=text, rounds=max(1, min(10, max_depth or 1)))
+    return json.dumps({"status": "submitted", "job_id": jid})
+
+
+async def _ingest_extract_by_job_id(mgr, action, job_id):
+    # action(s): 'extract_status', 'extract_jsonl', 'extract_pause', 'extract_resume'
+    if not job_id:
+        return json.dumps({"error": f"{action} requires job_id"})
+    if action == "extract_status":
+        return json.dumps(mgr.status(job_id) or {"error": "no such job"}, default=str)
+    if action == "extract_jsonl":
+        return mgr.jsonl(job_id)
+    if action == "extract_pause":
+        await mgr.pause(job_id)
+        return json.dumps({"status": "paused", "job_id": job_id})
+    # extract_resume
+    await mgr.resume(job_id)
+    return json.dumps({"status": "resumed", "job_id": job_id})
+
+
+async def _ingest_action_extract_submit(
+    engine,
+    action,
+    target_path,
+    max_depth,
+    agent_id,
+    job_id,
+    priority_bucket,
+    corpus_name,
+    base_path,
+    description,
+    content_type,
+    connection,
+    graph,
+):
+    # action(s): 'extract_submit', 'extract_jobs', 'extract_status', 'extract_pause', 'extract_resume', 'extract_jsonl'
+    mgr = kg_server._get_extraction_manager(engine)
+
+    if action == "extract_submit":
+        return await _ingest_extract_submit(mgr, target_path, max_depth, description)
+    if action == "extract_jobs":
+        return json.dumps({"jobs": mgr.jobs()}, default=str)
+    return await _ingest_extract_by_job_id(mgr, action, job_id)
+
+
+_INGEST_ACTION_DISPATCH = {
+    "ingest": _ingest_action_ingest,
+    "ingest_url": _ingest_action_ingest_url,
+    "backfill_platform_history": _ingest_action_backfill_platform_history,
+    "archivebox_sync": _ingest_action_archivebox_sync,
+    "gitlab_sync": _ingest_action_gitlab_sync,
+    "cdc_catchup": _ingest_action_cdc_catchup,
+    "opensearch_reindex": _ingest_action_opensearch_reindex,
+    "gitlab_webhook": _ingest_action_gitlab_webhook,
+    "corpus": _ingest_action_corpus,
+    "jobs": _ingest_action_jobs,
+    "job_status": _ingest_action_job_status,
+    "status": _ingest_action_job_status,
+    "cancel": _ingest_action_cancel,
+    "clear": _ingest_action_clear,
+    "prioritize": _ingest_action_prioritize,
+    "cohort_create": _ingest_action_cohort_create,
+    "cohort_status": _ingest_action_cohort_status,
+    "profile": _ingest_action_profile,
+    "fleet_relevance": _ingest_action_fleet_relevance,
+    "rebuild_indexes": _ingest_action_rebuild_indexes,
+    "observe": _ingest_action_observe,
+    "materialize": _ingest_action_materialize,
+    "sync": _ingest_action_sync,
+    "reflect": _ingest_action_reflect,
+    "materialize_source": _ingest_action_materialize_source,
+    "skill_workflows": _ingest_action_skill_workflows,
+    "curate_wiki": _ingest_action_curate_wiki,
+    "distill": _ingest_action_distill,
+    "build_skill_graph": _ingest_action_build_skill_graph,
+    "skill_graph_status": _ingest_action_build_skill_graph,
+    "rebuild_skill_graph": _ingest_action_build_skill_graph,
+    "agent_toolkit": _ingest_action_agent_toolkit,
+    "ingest_knowledge_pack": _ingest_action_ingest_knowledge_pack,
+    "import_pack": _ingest_action_import_pack,
+    "fact_extract": _ingest_action_fact_extract,
+    "sync_second_brain": _ingest_action_sync_second_brain,
+    "classify_topics": _ingest_action_classify_topics,
+    "enrich_pending_documents": _ingest_action_enrich_pending_documents,
+    "extract_submit": _ingest_action_extract_submit,
+    "extract_jobs": _ingest_action_extract_submit,
+    "extract_status": _ingest_action_extract_submit,
+    "extract_pause": _ingest_action_extract_submit,
+    "extract_resume": _ingest_action_extract_submit,
+    "extract_jsonl": _ingest_action_extract_submit,
+}
+
+
 def register_write_ingest_tools(mcp):
     """Register the write_ingest_tools group on the given FastMCP server."""
 
@@ -966,6 +2596,36 @@ def register_write_ingest_tools(mcp):
         description="Smart ingestion for codebases, documents, directories, and conversation logs. Also handles corpus management and job status.",
         tags=["graph-os", "ingest"],
     )
+    def _ingest_resolve_engine(action, graph, connection):
+        # extracted from graph_ingest's preamble (CX-AU-03: split for CCN).
+        # U-06/GOC-67: resolve `connection`/`graph` for action='ingest'
+        # BEFORE any job is submitted or content is written, exactly like
+        # `graph_query`/`graph_write` -- an explicit graph never defaults,
+        # never fans out, and an unknown/unauthorized graph fails closed
+        # with no job created and no partial write. Returns
+        # (engine_or_None, error_response_or_None).
+        if not (action == "ingest" and (graph or connection)):
+            return kg_server._get_engine(), None
+        try:
+            entries, errors, fanout = kg_server._resolve_target_engines(connection)
+            entries = kg_server.resolve_explicit_graph(entries, graph, fanout=fanout)
+        except kg_server.GraphNotFoundError as e:
+            return None, public_error_text(e, code="graph_not_found")
+        except kg_server.GraphSelectionConflictError as e:
+            return None, public_error_text(e, code="graph_selection_conflict")
+        except Exception as e:
+            return None, public_error_text(e)
+        if fanout or len(entries) != 1:
+            return None, public_error_text(
+                kg_server.GraphSelectionConflictError(
+                    "action='ingest' targets exactly one backend; "
+                    "'connection=all'/a list is not supported for ingestion"
+                ),
+                code="graph_selection_conflict",
+            )
+        _ingest_conn_name, ingest_engine = entries[0]
+        return ingest_engine, None
+
     async def graph_ingest(
         target_path: str = Field(
             default="", description="Path or JSON list of paths to ingest."
@@ -1031,1174 +2691,31 @@ def register_write_ingest_tools(mcp):
         graph = graph if isinstance(graph, str) else ""
         connection = connection if isinstance(connection, str) else ""
 
-        # U-06/GOC-67: resolve `connection`/`graph` for action='ingest' BEFORE
-        # any job is submitted or content is written, exactly like
-        # `graph_query`/`graph_write` — an explicit graph never defaults,
-        # never fans out, and an unknown/unauthorized graph fails closed with
-        # no job created and no partial write.
-        ingest_engine: Any = None
-        if action == "ingest" and (graph or connection):
-            try:
-                entries, errors, fanout = kg_server._resolve_target_engines(connection)
-                entries = kg_server.resolve_explicit_graph(
-                    entries, graph, fanout=fanout
-                )
-            except kg_server.GraphNotFoundError as e:
-                return public_error_text(e, code="graph_not_found")
-            except kg_server.GraphSelectionConflictError as e:
-                return public_error_text(e, code="graph_selection_conflict")
-            except Exception as e:
-                return public_error_text(e)
-            if fanout or len(entries) != 1:
-                return public_error_text(
-                    kg_server.GraphSelectionConflictError(
-                        "action='ingest' targets exactly one backend; "
-                        "'connection=all'/a list is not supported for ingestion"
-                    ),
-                    code="graph_selection_conflict",
-                )
-            _ingest_conn_name, ingest_engine = entries[0]
-
-        engine = ingest_engine if ingest_engine is not None else kg_server._get_engine()
+        engine, resolve_err = _ingest_resolve_engine(action, graph, connection)
+        if resolve_err is not None:
+            return resolve_err
         if not engine:
             return "Error: IntelligenceGraphEngine not active."
 
+        handler = _INGEST_ACTION_DISPATCH.get(action)
+        if handler is None:
+            return f"Error: Unknown ingest action '{action}'"
         try:
-            if action == "ingest":
-                from agent_utilities.knowledge_graph.ingestion.engine import (
-                    ContentType,
-                    IngestionEngine,
-                    IngestionManifest,
-                )
-
-                if not target_path:
-                    return "Error: target_path required for ingest action"
-
-                # Parse one-or-many paths (JSON list, comma-separated, or single).
-                raw = target_path.strip()
-                paths = (
-                    json.loads(raw)
-                    if raw.startswith("[")
-                    else [p.strip() for p in raw.split(",") if p.strip()]
-                    if "," in raw
-                    else [raw]
-                )
-                paths = [p.strip() for p in paths if isinstance(p, str) and p.strip()]
-                if not paths:
-                    return "Error: target_path required for ingest action"
-
-                # ``content_type`` is auto-detected per path and is NOT an
-                # agent-facing concern (CONCEPT:AU-KG.research.skill-graph-distillation ContentType.classify is the
-                # single source of truth). It survives only as an internal override
-                # for genuinely ambiguous paths; ``isinstance(str)`` filters out the
-                # unresolved FastMCP ``FieldInfo`` default. Whatever the type, heavy
-                # categories ALWAYS route through the async durable queue so an
-                # ingest call can never block the caller for minutes — the old
-                # "explicit content_type → synchronous IngestionEngine" branch was a
-                # footgun that did exactly that.
-                override = (
-                    content_type.strip().lower()
-                    if (content_type and isinstance(content_type, str))
-                    else ""
-                )
-
-                def resolve_ct(p: str) -> ContentType:
-                    if override:
-                        try:
-                            return ContentType(override)
-                        except ValueError:
-                            pass
-                    return ContentType.classify(p)
-
-                # DOCUMENT/CODEBASE are slow (chunk+embed / tree-sitter parse) and
-                # are handled by the background task worker → enqueue, never block.
-                # The remaining lightweight categories (config/prompt/skill/
-                # mcp_server/kb/conversation/policy/…) are fast and are only routed
-                # by the unified IngestionEngine, so they run inline.
-                async_types = {ContentType.DOCUMENT, ContentType.CODEBASE}
-                async_jobs: list[str] = []
-                sync_out: list[str] = []
-                ing: IngestionEngine | None = None
-                for p in paths:
-                    ct = resolve_ct(p)
-                    if ct in async_types:
-                        t_type = (
-                            "codebase" if ct == ContentType.CODEBASE else "document"
-                        )
-                        # BUG-120: the async worker only re-narrows onto an
-                        # explicit `graph` for `task_type='codebase'` (see
-                        # `_bound_to_explicit_ingest_graph`'s call site in
-                        # `_run_background_task`) — the legacy document-chunk
-                        # ingest branch never reads the WorkItem's `graph`
-                        # metadata at all. Silently accepting `graph=` here
-                        # for a document path would echo a resolved graph the
-                        # write never actually honors — a fabricated success.
-                        # Fail closed instead until document ingest gets the
-                        # same worker-side wiring codebase already has.
-                        if graph and t_type != "codebase":
-                            return public_error_text(
-                                kg_server.GraphSelectionConflictError(
-                                    "explicit graph selection for async "
-                                    "ingestion is currently supported only "
-                                    f"for codebase content; {p!r} resolved "
-                                    f"to content_type={t_type!r}"
-                                ),
-                                code="graph_selection_conflict",
-                            )
-                        jid = await run_blocking_ordered(
-                            engine.submit_task,
-                            target_path=p,
-                            is_codebase=(t_type == "codebase"),
-                            provenance={
-                                "agent_id": agent_id,
-                                "max_depth": max_depth,
-                            },
-                            task_type=t_type,
-                            # U-06: persist the caller's resolved graph on the
-                            # WorkItem's own metadata — the async worker that
-                            # later executes this job re-narrows onto it
-                            # (`_bound_to_explicit_ingest_graph`) instead of
-                            # falling back to its own ambient/default graph.
-                            graph=graph,
-                        )
-                        async_jobs.append(jid)
-                    else:
-                        if ing is None:
-                            ing = IngestionEngine(kg_engine=engine)
-                        # Sync path runs inline, in THIS request's own verified
-                        # session — narrow it directly for the call's duration
-                        # (a no-op when `graph` is empty).
-                        with kg_server.bound_to_graph(graph):
-                            r = await ing.ingest(
-                                IngestionManifest(
-                                    content_type=ct,
-                                    source_uri=p,
-                                    max_depth=max_depth,
-                                    metadata={"agent_id": agent_id},
-                                )
-                            )
-                        sync_out.append(
-                            f"[{ct.value}] {p}: {r.status} (+{r.nodes_created}n/+{r.edges_created}e"
-                            f"{', ' + str(r.details.get('cards_pending')) + ' cards pending' if r.details.get('cards_pending') else ''}"
-                            f"{'; ' + r.error if r.error else ''})"
-                        )
-
-                msgs: list[str] = []
-                if async_jobs:
-                    label = (
-                        f"Started ingestion job {async_jobs[0]} for {paths[0]}"
-                        if len(async_jobs) == 1
-                        else f"Submitted {len(async_jobs)} jobs: {', '.join(async_jobs)}"
-                    )
-                    if graph or connection:
-                        label += f" [connection={connection or '(default)'} graph={graph or '(default)'}]"
-                    msgs.append(label)
-                if sync_out:
-                    msgs.append(" | ".join(sync_out))
-                return " ; ".join(msgs) if msgs else "Nothing to ingest."
-
-            elif action == "ingest_url":
-                # Content-aware single-URL ingest (CONCEPT:AU-KG.research.skill-graph-distillation): fetch via the
-                # unified resolver (ArchiveBox→crawl4ai→requests) → Document, and —
-                # for a research roundup (auto-detected, or forced via
-                # description='extract_papers') — download the papers it cites and
-                # ingest them too. Runs as a BACKGROUND job (fetch + paper downloads
-                # can exceed the call ceiling): returns a job_id; poll with
-                # action=job_status. The gateway host daemon's task workers process
-                # it through the unified _ingest_document path.
-                if not target_path:
-                    return "Error: target_path (a URL) required for ingest_url"
-                url = target_path.strip()
-                # Default ON (CONCEPT:AU-KG.ingest.chunk-overlap-stage): first-class embedded Chunk objects +
-                # contextual-retrieval enrichment, at parity with connector ingestion
-                # (KG-2.50) — makes this tool's documented "chunking + contextual
-                # enrichment + embeddings" behavior real instead of only the plain
-                # idea_block text chunks.
-                prov: dict[str, Any] = {
-                    "agent_id": agent_id,
-                    "source_url": url,
-                    "chunk_objects": True,
-                    "contextual": True,
-                }
-                flag = (description or "").strip().lower()
-                if flag in ("extract_papers", "papers", "extract_papers=true", "true"):
-                    prov["extract_papers"] = True
-                elif flag in ("no_papers", "extract_papers=false", "false"):
-                    prov["extract_papers"] = False
-                jid = await run_blocking_ordered(
-                    engine.submit_task,
-                    target_path=url,
-                    is_codebase=False,
-                    provenance=prov,
-                    task_type="content_url",
-                )
-                return (
-                    f"Submitted content-aware URL ingest job {jid} for {url} "
-                    f"(poll: action=job_status job_id={jid})."
-                )
-
-            elif action == "backfill_platform_history":
-                # BUG-041: expose the existing operator recovery capability on
-                # the same graph_ingest surface as the other source actions.
-                # ``corpus_name`` is the platform and ``target_path`` is its
-                # channel/room id; the connector resolves the live backend's
-                # already-configured credential and records idempotent history
-                # rows through the normal inbox writer.
-                from agent_utilities.messaging.backfill import (
-                    backfill_platform_history,
-                )
-
-                platform = (corpus_name or "").strip().lower()
-                channel_id = (target_path or "").strip()
-                if not platform:
-                    return "Error: corpus_name required for backfill_platform_history"
-                if not channel_id:
-                    return (
-                        "Error: target_path (channel/room id) required for "
-                        "backfill_platform_history"
-                    )
-                result = await run_blocking_ordered(
-                    backfill_platform_history,
-                    engine,
-                    platform=platform,
-                    channel_id=channel_id,
-                    session=(agent_id or "graph_ingest"),
-                )
-                return json.dumps(result)
-
-            elif action == "archivebox_sync":
-                # Pull preserved ArchiveBox snapshots into the KG (CONCEPT:AU-KG.research.skill-graph-distillation).
-                # corpus_name selects the mode: 'full' = pull ALL, else delta;
-                # base_path = JSON list of specific snapshot ids to sync.
-                from agent_utilities.knowledge_graph.core.source_sync import (
-                    sync_source,
-                )
-
-                mode = (corpus_name or "delta").strip().lower()
-                ids = None
-                if base_path.strip().startswith("["):
-                    ids = [str(x) for x in json.loads(base_path)]
-                res_d = sync_source(
-                    engine,
-                    "archivebox",
-                    mode="full" if mode == "full" else mode,
-                    ids=ids,
-                )
-                return json.dumps(res_d)
-
-            elif action == "gitlab_sync":
-                # Index whole GitLab instance(s) as a resolved code graph (KG-2.9g).
-                # corpus_name = mode ('full' = re-index all, else delta);
-                # base_path = JSON list of project ids to narrow to.
-                from agent_utilities.knowledge_graph.core.source_sync import (
-                    sync_source,
-                )
-
-                mode = (corpus_name or "delta").strip().lower()
-                ids = None
-                if base_path.strip().startswith("["):
-                    ids = [str(x) for x in json.loads(base_path)]
-                res_d = sync_source(
-                    engine,
-                    "gitlab",
-                    mode="full" if mode == "full" else mode,
-                    ids=ids,
-                )
-                return json.dumps(res_d)
-
-            elif action == "cdc_catchup":
-                # CA-21 (CONCEPT:AU-KG.ingest.debezium-changeenvelope) — on-demand
-                # bounded catch-up poll for the registered "cdc" envelope source
-                # (debezium_envelope.register_envelope_source), reachable HERE
-                # independent of CA-22's future source_sync's _DELTA_HANDLERS["cdc"]
-                # wiring (ordered CA-21 -> CA-22) — both dispatch the SAME handler,
-                # looked up by name, never a duplicate implementation.
-                from agent_utilities.knowledge_graph.ingestion.debezium_envelope import (
-                    get_envelope_source,
-                    list_envelope_sources,
-                )
-
-                handler = get_envelope_source("cdc")
-                if handler is None:
-                    return json.dumps(
-                        {
-                            "status": "error",
-                            "error": "cdc envelope source not registered",
-                            # list_envelope_sources: what IS registered, so an
-                            # operator sees the real available set rather than
-                            # a bare failure with no next step.
-                            "registered_sources": list_envelope_sources(),
-                        }
-                    )
-                res_d = await run_blocking_ordered(
-                    handler,
-                    engine,
-                    mode=(corpus_name or "delta").strip().lower(),
-                    ids=None,
-                    client=None,
-                )
-                return json.dumps(res_d)
-
-            elif action == "opensearch_reindex":
-                # CA-24 (CONCEPT:AU-KG.retrieval.opensearch-cdc-indexer, DEC-CA-09,
-                # DEC-CA-03) — full or partial OpenSearch search-tier rebuild:
-                # replays eg.cdc.<graph> from offset 0 (or base_path=from_seq)
-                # into a freshly-dropped index, the P3 recovery mechanism
-                # ("a full rebuild from offset 0 is always a valid recovery
-                # path, not an exceptional one"). corpus_name=eg graph/tenant
-                # id (required); target_path=optional object_type to scope
-                # the rebuild to one index (default: every index this tenant
-                # owns); base_path=optional integer from_seq (default 0).
-                # This is the ONE core `rebuild_index` both this MCP action
-                # AND `POST /api/graph/ingest {"action":"opensearch_reindex",
-                # ...}` dispatch into (both routes resolve through
-                # REGISTERED_TOOLS["graph_ingest"], never a duplicate REST
-                # handler) — CA-43's future opensearch-mcp tool surface wraps
-                # the SAME `rebuild.mcp_reindex`/`rebuild_index` functions,
-                # not a reimplementation.
-                from agent_utilities.knowledge_graph.search.rebuild import mcp_reindex
-
-                tenant = (corpus_name or "").strip()
-                if not tenant:
-                    return json.dumps(
-                        {
-                            "status": "error",
-                            "error": "opensearch_reindex requires corpus_name=<eg graph/tenant id>",
-                        }
-                    )
-                object_type = (target_path or "").strip() or None
-                try:
-                    from_seq = int(base_path.strip()) if base_path.strip() else 0
-                except ValueError:
-                    return json.dumps(
-                        {
-                            "status": "error",
-                            "error": f"opensearch_reindex base_path (from_seq) must be an integer, got {base_path!r}",
-                        }
-                    )
-                res_d = dict(
-                    await run_blocking_ordered(
-                        mcp_reindex, tenant, object_type, from_seq=from_seq
-                    )
-                )
-                return json.dumps(res_d)
-
-            elif action == "gitlab_webhook":
-                # Near-real-time incremental re-index from a GitLab push/MR webhook
-                # (KG-2.9g): description = the raw webhook JSON payload.
-                from agent_utilities.knowledge_graph.core.gitlab_indexer import (
-                    handle_gitlab_webhook,
-                )
-
-                try:
-                    payload = json.loads(description) if description else {}
-                except (ValueError, TypeError):
-                    return json.dumps(
-                        {"status": "ignored", "reason": "invalid payload JSON"}
-                    )
-                webhook_result = await run_blocking_ordered(
-                    handle_gitlab_webhook, engine, payload
-                )
-                return json.dumps(webhook_result)
-
-            elif action == "corpus":
-                if not corpus_name:
-                    return "Error: corpus_name required"
-                await run_blocking_ordered(
-                    engine.add_node,
-                    f"corpus_{corpus_name}",
-                    "Corpus",
-                    base_path=base_path,
-                    description=description,
-                )
-                return f"Corpus {corpus_name} added/updated."
-
-            elif action == "jobs":
-                import json as _json
-
-                grouped = engine.list_tasks()
-                lines = []
-                for status, jobs in grouped.items():
-                    if not isinstance(jobs, list):
-                        continue
-                    for job in jobs[:20]:
-                        lines.append(
-                            f"{job['job_id']}: {status} ({job.get('target', 'unknown')})"
-                        )
-                # Per-category metrics breakdown (time/nodes/edges/failures) —
-                # the harness-style view, pollable over MCP (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
-                breakdown = {}
-                if hasattr(engine, "aggregate_ingest_metrics"):
-                    try:
-                        _b = engine.aggregate_ingest_metrics()
-                        breakdown = _b if isinstance(_b, dict) else {}
-                    except Exception:  # noqa: BLE001
-                        breakdown = {}
-                head = (
-                    "\n".join(lines) if lines else "No active or recent ingestion jobs."
-                )
-                return (
-                    head
-                    + "\n\n=== per-category metrics ===\n"
-                    + _json.dumps(breakdown, indent=2)
-                    if breakdown
-                    else head
-                )
-
-            elif action in ("job_status", "status"):
-                if not job_id:
-                    return "Error: job_id required"
-                import json as _json
-
-                job = engine.get_task_status(job_id)
-                if not job:
-                    return f"Job {job_id} not found."
-                status = job["status"]
-                meta = job.get("metadata") or {}
-                metrics = {
-                    k: meta[k]
-                    for k in (
-                        "type",
-                        "content_type",
-                        "duration_ms",
-                        "nodes_added",
-                        "nodes_created",
-                        "edges_added",
-                        "edges_created",
-                        "cards_pending",
-                        "error",
-                    )
-                    if k in meta
-                }
-                for key in (
-                    "attempt",
-                    "max_attempts",
-                    "resource_class",
-                    "lease_expires_at",
-                    "heartbeat_at",
-                    "updated_at",
-                ):
-                    if job.get(key) is not None:
-                        metrics[key] = job[key]
-                return f"Job {job_id} status: {status}\n" + _json.dumps(
-                    metrics, indent=2
-                )
-
-            elif action == "cancel":
-                import json as _json
-
-                if not job_id:
-                    return "Error: job_id required for cancel"
-                return _json.dumps(engine.cancel_task(job_id), indent=2)
-
-            elif action == "clear":
-                # ``target_path`` carries the status filter:
-                # pending|running|completed|failed|cancelled|zombie|all (default
-                # 'completed' — the safe default that never drops queued work).
-                import json as _json
-
-                tp = target_path if isinstance(target_path, str) else ""
-                return _json.dumps(
-                    engine.clear_tasks((tp or "completed").strip().lower()), indent=2
-                )
-
-            elif action == "prioritize":
-                import json as _json
-
-                if not job_id:
-                    return "Error: job_id required for prioritize"
-                return _json.dumps(
-                    engine.prioritize_task(job_id, priority_bucket),
-                    indent=2,
-                )
-
-            elif action == "cohort_create":
-                # CONCEPT:AU-KG.ingest.batch-research-cohort — batch-ingest N papers + M repos as one research
-                # cohort whose barrier synthesizes the comparative feature matrix
-                # (KG-2.173) once every member drains. base_path = JSON list of paper
-                # URLs/ids; target_path = JSON list of repo paths; description = goal.
-                import json as _json
-
-                from agent_utilities.knowledge_graph.research.cohort import (
-                    create_cohort,
-                )
-
-                def _aslist(v: str) -> list[str]:
-                    v = (v or "").strip()
-                    if not v:
-                        return []
-                    try:
-                        parsed = _json.loads(v)
-                        return (
-                            [str(x) for x in parsed]
-                            if isinstance(parsed, list)
-                            else [str(parsed)]
-                        )
-                    except (ValueError, TypeError):
-                        return [s.strip() for s in v.split(",") if s.strip()]
-
-                papers = _aslist(base_path)
-                repos = _aslist(target_path)
-                if not papers and not repos:
-                    return public_error_text(
-                        ValueError(
-                            "cohort_create needs base_path=<JSON list of paper URLs> "
-                            "and/or target_path=<JSON list of repo paths>"
-                        ),
-                        code="invalid_request",
-                    )
-                return _json.dumps(
-                    create_cohort(engine, papers=papers, repos=repos, goal=description),
-                    indent=2,
-                )
-
-            elif action == "cohort_status":
-                import json as _json
-
-                from agent_utilities.knowledge_graph.research.cohort import (
-                    cohort_status,
-                )
-
-                cid = (job_id or target_path or "").strip()
-                if not cid:
-                    return "Error: job_id=<cohort_id> required for cohort_status"
-                return _json.dumps(cohort_status(engine, cid), indent=2)
-
-            elif action == "profile":
-                # CONCEPT:AU-OS.observability.per-lane-latency-metrics — per-lane/stage latency percentiles + token/cost +
-                # the parallelism factor (Σ task ms ÷ wall ms). corpus_name picks the
-                # grouping dimension: lane (default) | type | tkind.
-                import json as _json
-
-                if not hasattr(engine, "profile_report"):
-                    return "Error: profiling not available on this engine."
-                return _json.dumps(
-                    engine.profile_report(group_by=(corpus_name or "lane").strip()),
-                    indent=2,
-                )
-
-            elif action == "fleet_relevance":
-                # CONCEPT:AU-AHE.assimilation.research-source-grading — grade every ingested research source against the
-                # whole 80+ agent-packages fleet; surface every >threshold match.
-                # corpus_name = threshold percent (default 5.0).
-                import json as _json
-
-                from agent_utilities.knowledge_graph.research.fleet_relevance import (
-                    grade_fleet,
-                )
-
-                try:
-                    thr = float(corpus_name) if corpus_name else 5.0
-                except ValueError:
-                    thr = 5.0
-                return _json.dumps(grade_fleet(engine, threshold_pct=thr), indent=2)
-
-            elif action == "rebuild_indexes":
-                engine.build_indexes()
-                return "Indexes rebuilt successfully."
-
-            # ── KG-2.7: Observational Memory Bridge Actions ──
-            elif action == "observe":
-                try:
-                    from pathlib import Path as _Path
-
-                    from agent_utilities.knowledge_graph.memory.observer import (
-                        observe_from_file,
-                    )
-
-                    if not target_path:
-                        return "Error: target_path required (path to JSONL transcript)"
-                    observation_result = observe_from_file(
-                        engine, _Path(target_path), source=agent_id or "mcp"
-                    )
-                    return observation_result or "No new observations extracted."
-                except Exception as e:
-                    return public_error_text(e)
-
-            elif action == "materialize":
-                try:
-                    from agent_utilities.knowledge_graph.memory import (
-                        materialize_memory,
-                    )
-
-                    paths = materialize_memory(engine)
-                    return json.dumps(
-                        {
-                            "status": "materialized",
-                            "files": {k: str(v) for k, v in paths.items()},
-                        }
-                    )
-                except Exception as e:
-                    return public_error_text(e)
-
-            elif action == "sync":
-                try:
-                    from agent_utilities.knowledge_graph.memory import (
-                        ingest_memory_edits,
-                    )
-
-                    results = ingest_memory_edits(engine)
-                    return (
-                        json.dumps({"status": "synced", "ingested": results})
-                        if results
-                        else "No edits detected."
-                    )
-                except Exception as e:
-                    return public_error_text(e)
-
-            elif action == "reflect":
-                try:
-                    from agent_utilities.knowledge_graph.memory import (
-                        run_reflector,
-                    )
-
-                    reflection_result = run_reflector(engine)
-                    return reflection_result or "No observations to reflect on."
-                except Exception as e:
-                    return public_error_text(e)
-
-            elif action == "materialize_source":
-                # CONCEPT:AU-KG.ingest.enterprise-source-extractor — persist an enterprise source extractor
-                # (camunda/aris/egeria/…) INTO the graph, then run one OWL
-                # reasoning cycle so the new BusinessProcess/BusinessTask/
-                # FLOWS_TO structure folds into the cross-vendor crosswalk
-                # natively. corpus_name=category; description=optional JSON
-                # extractor config; an in-process vendor client is resolved
-                # from the connector package's auth.get_client().
-                try:
-                    from agent_utilities.knowledge_graph.enrichment.materialize import (
-                        run_materialize_source,
-                    )
-
-                    category = (corpus_name or "").strip()
-                    if not category:
-                        return json.dumps(
-                            {
-                                "error": "materialize_source requires corpus_name "
-                                "(the extractor category, e.g. 'camunda' or 'aris')"
-                            }
-                        )
-                    extractor_config = (
-                        json.loads(description)
-                        if description and description.strip().startswith("{")
-                        else None
-                    )
-                    # Shared core — same path the unified ``source_sync`` uses.
-                    return json.dumps(
-                        run_materialize_source(
-                            engine, category, config=extractor_config
-                        ),
-                        default=str,
-                    )
-                except Exception as e:
-                    return public_error_text(e)
-
-            elif action == "skill_workflows":
-                # CONCEPT:AU-KG.ingest.skill-workflow-corpus — ingest the universal-skills workflow corpus
-                # (workflows/<domain>/<name>/SKILL.md) as dispatchable
-                # WorkflowDefinition DAGs so the orchestration workflow /
-                # execute_workflow can discover & fire them. ``target_path`` is
-                # an optional explicit corpus root (a dir that is/contains
-                # ``workflows/``); default = installed universal_skills package.
-                #
-                # Also sweeps the ATOMIC-skill sibling corpus (skill_type: skill)
-                # into a CallableResource(AGENT_SKILL) each, via the same reused
-                # ``ingest_atomic_skills`` primitive ``package_install_ingest.py``
-                # pairs with this one on its own watermarked schedule — this is the
-                # manual/on-demand full-sweep entrypoint for BOTH legs, so an
-                # operator (or a schedule that isn't currently reachable) is never
-                # the only way to (re)classify the atomic-skill corpus.
-                #
-                # Durable per-node writes for the full corpus (~315 workflows)
-                # take ~150s — over the MCP call ceiling — and the backend can't
-                # bulk-write durably here, so this enqueues a BACKGROUND job (run
-                # by the task worker, off the request path) and returns its id;
-                # poll with ``action=job_status job_id=<id>``.
-                try:
-                    root = target_path if isinstance(target_path, str) else ""
-                    jid = await run_blocking_ordered(
-                        engine.submit_task,
-                        target_path=root or "universal-skills",
-                        is_codebase=False,
-                        provenance={"agent_id": agent_id},
-                        task_type="skill_workflows",
-                    )
-                    return json.dumps(
-                        {
-                            "job_id": jid,
-                            "status": "submitted",
-                            "message": (
-                                f"Skill-workflow + atomic-skill ingest enqueued as "
-                                f"background job {jid}; poll with graph_ingest "
-                                f"action=job_status job_id={jid}."
-                            ),
-                        }
-                    )
-                except Exception as e:
-                    return public_error_text(e)
-
-            elif action == "curate_wiki":
-                # CONCEPT:AU-KG.ingest.wiki-delta-ingest — delta-skip continuous ingest of a self-curating wiki dir.
-                try:
-                    from agent_utilities.knowledge_graph.ingestion.wiki_curator import (
-                        curate_wiki,
-                    )
-
-                    if not target_path:
-                        return json.dumps(
-                            {"error": "curate_wiki requires target_path (the wiki dir)"}
-                        )
-                    summary = curate_wiki(engine, target_path)
-                    return json.dumps(summary, default=str)
-                except Exception as e:
-                    return public_error_text(e)
-
-            elif action == "distill":
-                # CONCEPT:AU-AHE.optimization.physical-distillation-engine — Distill a coherent KG subgraph OUT into a
-                # portable skill-graph: a reference/ markdown tree + a
-                # kg_manifest.json provenance record (round-trippable via the
-                # 'ingest_knowledge_pack' action). The output dir is consumable
-                # verbatim by skill-graph-builder as a local-directory source.
-                # Param overloads (mirroring agent_toolkit's reuse of fields):
-                #   target_path  -> output directory (required)
-                #   corpus_name  -> seed node id      (anchor by id)
-                #   description  -> natural-language query (semantic anchor)
-                #   max_depth    -> BFS hop depth
-                try:
-                    from agent_utilities.knowledge_graph.distillation import (
-                        SkillGraphDistiller,
-                    )
-
-                    if not target_path:
-                        return json.dumps(
-                            {"error": "distill requires target_path (output dir)"}
-                        )
-                    seed = corpus_name or None
-                    query = description or None
-                    if not (seed or query):
-                        return json.dumps(
-                            {
-                                "error": "distill requires a seed (corpus_name=node_id) "
-                                "or query (description=text)"
-                            }
-                        )
-                    # content_type="workflow" → distill a graph-native skill-WORKFLOW
-                    # (procedure step-DAG) instead of a documentation skill-graph.
-                    as_workflow = (content_type or "").strip().lower() == "workflow"
-                    distiller = await SkillGraphDistiller.connect()
-                    try:
-                        if as_workflow:
-                            wf = await distiller.distill_workflow(
-                                seed=seed,
-                                query=query,
-                                depth=max_depth,
-                                out_dir=target_path,
-                            )
-                            payload = {
-                                "kind": "skill-workflow",
-                                "name": wf["name"],
-                                "steps": wf["steps"],
-                            }
-                        else:
-                            manifest = await distiller.distill(
-                                seed=seed,
-                                query=query,
-                                depth=max_depth,
-                                out_dir=target_path,
-                            )
-                            payload = {
-                                "kind": "skill-graph",
-                                "stats": manifest["stats"],
-                            }
-                    finally:
-                        await distiller.close()
-                    return json.dumps(
-                        {
-                            "status": "distilled",
-                            "out_dir": target_path,
-                            "manifest": f"{target_path.rstrip('/')}/kg_manifest.json",
-                            **payload,
-                        },
-                        default=str,
-                    )
-                except Exception as e:
-                    return public_error_text(e)
-
-            elif action in (
-                "build_skill_graph",
-                "skill_graph_status",
-                "rebuild_skill_graph",
-            ):
-                # CONCEPT:AU-KG.research.skill-graph-distillation — the unified skill-graph pipeline: acquire from any
-                # source kind (web/pdf/office/dir/url_reader/rest/database/mcp_tool/
-                # generated/kg_query) into a standardized skill-graph with a
-                # sources.json provenance/freshness manifest, hybrid-auto KG ingest,
-                # and a staleness/rebuild loop. Heavy/blocking work runs off the event
-                # loop via a worker thread.
-                import asyncio
-
-                from agent_utilities.knowledge_graph.distillation import (
-                    SkillGraphPipeline,
-                    SourceSpec,
-                )
-
-                pipe = SkillGraphPipeline()
-                if action == "build_skill_graph":
-                    if not (corpus_name and target_path):
-                        return json.dumps(
-                            {
-                                "error": "build_skill_graph requires corpus_name (name) "
-                                "and target_path (output parent dir); base_path = JSON "
-                                "list of sources or 'kind=uri,kind=uri' shorthand."
-                            }
-                        )
-                    try:
-                        specs = _parse_source_specs(base_path, SourceSpec)
-                    except ValueError as exc:
-                        return public_error_json(exc)
-                    if not specs:
-                        return json.dumps({"error": "no sources provided in base_path"})
-                    sg_built = await asyncio.to_thread(
-                        lambda: pipe.build(
-                            name=corpus_name,
-                            specs=specs,
-                            out_dir=target_path,
-                            description=description or None,
-                        )
-                    )
-                    return json.dumps(sg_built, default=str)
-                if action == "skill_graph_status":
-                    if not target_path:
-                        return json.dumps(
-                            {"error": "skill_graph_status requires target_path (dir)"}
-                        )
-                    quick = corpus_name.strip().lower() == "quick"
-                    sg_report = await asyncio.to_thread(
-                        lambda: pipe.status(target_path, quick=quick)
-                    )
-                    return json.dumps(sg_report, default=str)
-                # rebuild_skill_graph
-                if not target_path:
-                    return json.dumps(
-                        {"error": "rebuild_skill_graph requires target_path (dir)"}
-                    )
-                sg_rebuilt = await asyncio.to_thread(lambda: pipe.rebuild(target_path))
-                return json.dumps(sg_rebuilt, default=str)
-
-            elif action == "agent_toolkit":
-                sources = (
-                    json.loads(target_path)
-                    if target_path.startswith("[")
-                    else [target_path]
-                )
-                # Use `description` param as optional agent_card_path override
-                agent_card_path = (
-                    description if description else "/.well-known/agent.json"
-                )
-                result = await engine.ingest_agent_toolkit(
-                    sources, agent_card_path=agent_card_path
-                )
-                return json.dumps(result, default=str)
-
-            elif action == "ingest_knowledge_pack":
-                from pathlib import Path
-
-                import yaml
-
-                from agent_utilities.models.knowledge_pack import (
-                    KnowledgePackBundle,
-                    KnowledgePackHydrator,
-                    KnowledgePackImporter,
-                )
-
-                if not target_path:
-                    return "Error: target_path required for ingest_knowledge_pack"
-
-                path = Path(target_path)
-                if not path.exists() or not path.is_file():
-                    return f"Error: knowledge pack file not found at {target_path}"
-
-                def _load_knowledge_pack_file() -> Any:
-                    with open(path, encoding="utf-8") as f:
-                        if path.suffix in [".yaml", ".yml"]:
-                            return yaml.safe_load(f)
-                        return json.load(f)
-
-                data = await run_blocking_ordered(_load_knowledge_pack_file)
-                bundle = KnowledgePackBundle.from_dict(data)
-                await KnowledgePackHydrator.hydrate(bundle)
-                await run_blocking_ordered(
-                    KnowledgePackImporter.seed_into_kg, bundle, engine
-                )
-                return f"Knowledge pack from {target_path} hydrated and ingested."
-
-            elif action == "import_pack":
-                # CONCEPT:AU-AHE.optimization.physical-distillation-engine — Round-trip import of a distilled skill-graph
-                # package (reference/ + kg_manifest.json): reconstruct the original
-                # subgraph here, preserving node ids + edges. The inverse of
-                # 'distill'. ``corpus_name="dedup"`` runs the IdeaBlock dedup-merge.
-
-                from agent_utilities.knowledge_graph.distillation import (
-                    import_skill_graph_pack,
-                )
-
-                if not target_path:
-                    return json.dumps(
-                        {"error": "import_pack requires target_path (skill-graph dir)"}
-                    )
-                try:
-                    stats = await run_blocking_ordered(
-                        import_skill_graph_pack,
-                        engine,
-                        target_path,
-                        dedup=(corpus_name == "dedup"),
-                    )
-                    return json.dumps(
-                        {"status": "imported", "stats": stats}, default=str
-                    )
-                except Exception as e:  # noqa: BLE001
-                    return public_error_text(e)
-
-            elif action == "fact_extract":
-                # CONCEPT:AU-KG.enrichment.atomic-triple-extraction — document → atomic-triple fact extraction.
-                # Streams (subject)-[predicate]->(object) edges carrying
-                # confidence/evidence_span/tags, dedups them semantically with
-                # our own embedder, persists them as graph edges (variant node
-                # names merged), and returns the facts + JSONL (upstream parity).
-                # Text source: ``description`` (raw text) or ``target_path``
-                # (local file, else treated as raw text). Single round + dedup
-                # (multi-round recall is opt-in over the REST surface).
-                from pathlib import Path
-
-                from agent_utilities.knowledge_graph.extraction import (
-                    ExtractedFact,
-                    extract_facts,
-                    facts_to_jsonl,
-                    persist_facts,
-                )
-                from agent_utilities.knowledge_graph.extraction.job_manager import (
-                    EngineStoreAdapter,
-                )
-
-                text = description or ""
-                source_ref = ""
-                if not text and target_path:
-                    p = Path(target_path)
-                    if p.exists() and p.is_file():
-                        text = await run_blocking_ordered(
-                            p.read_text, encoding="utf-8", errors="ignore"
-                        )
-                        source_ref = persistence_reference(
-                            "fact_source", target_path, namespace="fact-extraction"
-                        )
-                    else:
-                        text = target_path
-                if not text.strip():
-                    return json.dumps(
-                        {
-                            "error": "fact_extract requires text (description=) "
-                            "or a readable file (target_path=)"
-                        }
-                    )
-
-                facts: list[ExtractedFact] = []
-                async for ev in extract_facts(text, rounds=1, source_file=source_ref):
-                    if ev["type"] == "fact":
-                        facts.append(ExtractedFact(**ev["fact"]))
-
-                # CONCEPT:AU-ORCH.execution.event-loop-blocking-sweep — persist_facts
-                # loops over every extracted fact issuing a synchronous
-                # add_node/add_edge KG round trip, so it must not run inline on
-                # the request-serving loop. The scanner in
-                # scripts/check_event_loop_blocking.py only matches ``engine.*``
-                # shaped attribute calls and therefore cannot see a blocking call
-                # made through a plain helper like this one (D-W15-6).
-                stats = await run_blocking_ordered(
-                    persist_facts, EngineStoreAdapter(engine), facts
-                )
-                unique = sum(1 for f in facts if not f.is_duplicate)
-                return json.dumps(
-                    {
-                        "status": "extracted",
-                        "facts": [f.model_dump() for f in facts],
-                        "jsonl": facts_to_jsonl(facts),
-                        "stats": {
-                            **stats,
-                            "total_facts": len(facts),
-                            "unique_facts": unique,
-                            "duplicate_facts": len(facts) - unique,
-                        },
-                    },
-                    default=str,
-                )
-
-            elif action == "sync_second_brain":
-                # CONCEPT:AU-KG.enrichment.second-brain-note-sync — one-call
-                # personal-notes sync: target_path (a notes dir/file) ->
-                # fact_extract (evidence-spanned facts) + entity/claim
-                # extraction, each new claim PROPOSED into the governed
-                # ClaimFlywheel lifecycle (never silently accepted), then a
-                # ContradictionDetector scan against existing graph content —
-                # a finding persists as a propose-only :BeliefRevisionProposal
-                # (the SAME node loop_controller._run_belief_revision writes,
-                # so the existing review surface picks it up with no new UI).
-                # Thin composition only — see knowledge_graph/extraction/
-                # second_brain_sync.py for the primitives it sequences.
-                from datetime import datetime as _datetime
-
-                from agent_utilities.knowledge_graph.extraction import (
-                    sync_second_brain,
-                )
-
-                if not target_path:
-                    return json.dumps(
-                        {
-                            "error": "sync_second_brain requires target_path "
-                            "(a notes directory or file)"
-                        }
-                    )
-
-                since: float | None = None
-                raw_since = (base_path or "").strip()
-                if raw_since:
-                    try:
-                        since = float(raw_since)
-                    except ValueError:
-                        try:
-                            since = _datetime.fromisoformat(raw_since).timestamp()
-                        except ValueError:
-                            since = None
-
-                sync_result = await sync_second_brain(
-                    engine, target_path, since=since, corpus_name=corpus_name
-                )
-                return json.dumps(sync_result.model_dump(), default=str)
-
-            elif action == "classify_topics":
-                # CONCEPT:AU-KG.enrichment.topic-classification-topology — ad-hoc WorldView
-                # subject/topic classification: classify text (description=raw text,
-                # or target_path=file) and materialize the :Topic hierarchy +
-                # HAS_TOPIC/CLASSIFIED_AS edges linking it to a Document node id
-                # (target_path, when NOT a readable file, is used as that node id;
-                # otherwise one is derived from a content hash). Same core the
-                # ingestion enrichment seam runs default-on for every ingested
-                # document (ingestion/engine.py::_enrich_text).
-                import hashlib
-                from pathlib import Path
-
-                from agent_utilities.knowledge_graph.enrichment.topic_classifier import (
-                    classify_and_link_topics,
-                )
-
-                text = description or ""
-                doc_id = ""
-                if target_path:
-                    p = Path(target_path)
-                    if p.exists() and p.is_file():
-                        text = text or await run_blocking_ordered(
-                            p.read_text, encoding="utf-8", errors="ignore"
-                        )
-                        doc_id = "doc:source:" + persistence_reference(
-                            "document_source", target_path, namespace="topic-classifier"
-                        )
-                    else:
-                        doc_id = "doc:source:" + persistence_reference(
-                            "document_source", target_path, namespace="topic-classifier"
-                        )
-                if not text.strip():
-                    return json.dumps(
-                        {
-                            "error": "classify_topics requires text (description=) "
-                            "or a readable file (target_path=)"
-                        }
-                    )
-                if not doc_id:
-                    doc_id = (
-                        f"doc:adhoc:{hashlib.sha256(text.encode()).hexdigest()[:16]}"
-                    )
-
-                backend = getattr(engine, "backend", None) or engine
-                topic_res = await classify_and_link_topics(
-                    backend, doc_id, text, title=corpus_name or "", source_type="adhoc"
-                )
-                return json.dumps(topic_res, default=str)
-
-            elif action == "enrich_pending_documents":
-                # CONCEPT:AU-KG.enrichment.topic-classification-topology — hub-side catch-up sweep for
-                # ``:Document`` nodes a connector wrote via the ``native_ingest``
-                # primitive (searxng-mcp results, any future native-ingest
-                # producer) from OUTSIDE the hub process, so they arrived as raw
-                # text without chunking/enrichment. Finds every
-                # ``needs_enrichment=true`` Document (max_depth=limit, default
-                # 200) and runs it through the SAME DocumentProcessor +
-                # central _enrich_text seam every directly-ingested document gets.
-                from agent_utilities.knowledge_graph.memory.native_ingest import (
-                    enrich_pending_documents,
-                )
-
-                sweep_res = await enrich_pending_documents(engine, limit=200)
-                return json.dumps(sweep_res)
-
-            elif action in (
-                "extract_submit",
-                "extract_jobs",
-                "extract_status",
-                "extract_pause",
-                "extract_resume",
-                "extract_jsonl",
-            ):
-                # CONCEPT:AU-KG.enrichment.gpu-scheduled-extraction — GPU-slot-scheduled fact extraction. Unlike the
-                # inline 'fact_extract', these submit a job that runs on the single
-                # GPU inference slot with preempt/backfill/resume, so concurrent
-                # submissions don't oversubscribe the GPU. job_id addresses a job.
-
-                mgr = kg_server._get_extraction_manager(engine)
-
-                if action == "extract_submit":
-                    text = description or ""
-                    if not text and target_path:
-                        from pathlib import Path
-
-                        p = Path(target_path)
-                        text = (
-                            await run_blocking_ordered(
-                                p.read_text, encoding="utf-8", errors="ignore"
-                            )
-                            if p.exists() and p.is_file()
-                            else target_path
-                        )
-                    if not text.strip():
-                        return json.dumps(
-                            {
-                                "error": "extract_submit requires description= or target_path="
-                            }
-                        )
-                    jid = await mgr.submit(
-                        text=text, rounds=max(1, min(10, max_depth or 1))
-                    )
-                    return json.dumps({"status": "submitted", "job_id": jid})
-
-                if action == "extract_jobs":
-                    return json.dumps({"jobs": mgr.jobs()}, default=str)
-
-                if not job_id:
-                    return json.dumps({"error": f"{action} requires job_id"})
-
-                if action == "extract_status":
-                    return json.dumps(
-                        mgr.status(job_id) or {"error": "no such job"}, default=str
-                    )
-                if action == "extract_jsonl":
-                    return mgr.jsonl(job_id)
-                if action == "extract_pause":
-                    await mgr.pause(job_id)
-                    return json.dumps({"status": "paused", "job_id": job_id})
-                # extract_resume
-                await mgr.resume(job_id)
-                return json.dumps({"status": "resumed", "job_id": job_id})
-
-            else:
-                return f"Error: Unknown ingest action '{action}'"
+            return await handler(
+                engine,
+                action,
+                target_path,
+                max_depth,
+                agent_id,
+                job_id,
+                priority_bucket,
+                corpus_name,
+                base_path,
+                description,
+                content_type,
+                connection,
+                graph,
+            )
         except Exception as e:
             return public_error_text(e)
 
