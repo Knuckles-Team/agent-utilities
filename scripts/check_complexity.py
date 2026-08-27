@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
-"""Cyclomatic-complexity gate: hold the line today, lower the ceiling over time.
+"""Cyclomatic-complexity gate: an ABSOLUTE ceiling, driven down deliberately.
 
-TWO MECHANISMS, because a single threshold cannot do this job:
+ONE MECHANISM. --cap N is a hard ceiling nothing may exceed. Start it above the
+current worst function, step it down as remediation lands; each step is enforced
+forever after, so the number cannot drift back up.
 
-  1. RATCHET (--baseline)  No function may get worse, and no NEW function may
-     land above --track. This is what makes the gate adoptable on day one: the
-     existing tail is frozen, not flagged, so the gate never blocks unrelated
-     work and therefore never gets switched off.
+THERE IS NO BASELINE MODE, BY POLICY (CX program, MR-11). A baseline converts a
+finding into invisible permanent debt. The evidence in this workspace is
+decisive: every baseline here only ever grew, and each became a merge-conflict
+surface because every concurrent lane rewrote it. So this gate REPORTS THE REAL
+DISTRIBUTION ON EVERY RUN, unconditionally, and enforces an absolute number.
 
-  2. CEILING (--cap)  A hard ceiling nothing may exceed, regardless of the
-     baseline. This is the mechanism that actually REDUCES complexity: start it
-     above the current worst function, then step it down as remediation lands.
-     Each step is enforced forever after, so the number cannot drift back up.
+If the true number is too large to enforce at once, that is a program with
+waves -- not a reason to hide it behind a file.
 
-A ratchet alone only holds the line. A cap alone blocks every commit on day one.
-Together they let the fleet converge on the target without a big-bang refactor.
+--baseline and --write are RETIRED and fail loudly rather than silently
+reintroducing the mechanism.
 
 Measurement is `lizard`, which scores Python, Rust, JS/TS and more with the SAME
 definition, so every repo in the fleet is directly comparable. It does NOT agree
@@ -35,9 +36,15 @@ import os
 import sys
 from pathlib import Path
 
-# Functions below this are not tracked: the baseline would churn on every
-# refactor and the signal would drown in noise.
-DEFAULT_TRACK = 15
+# Functions below this are not tracked: the signal would drown in noise.
+# The CX program targets CCN <= 10, so the gate must be able to SEE the
+# 10-15 band -- with the old default of 15 it was structurally invisible.
+DEFAULT_TRACK = 10
+
+#: Distribution buckets printed on EVERY run. Extended past the old
+#: (15,20,30,50,100) so the workspace's worst function (CCN 353) and the
+#: sub-15 band are both visible.
+_BUCKETS = (10, 12, 15, 20, 30, 50, 100, 200, 300)
 
 #: Files the analyzer could not score in the last run (see measure()).
 _UNMEASURED = 0
@@ -89,6 +96,19 @@ def _autodetect(repo: Path) -> list[Path]:
             continue
         if (p / "__init__.py").is_file() and p not in roots:
             roots.append(p)
+            continue
+        # One level down. agent-webui's package lives at agent/agent_webui/ and
+        # `agent/` has no __init__.py, so a top-level-only scan measured NOTHING
+        # there -- the gate reported OK on a repo holding a CCN-144 function.
+        # A gate that silently scores nothing is worse than no gate at all.
+        try:
+            children = sorted(p.iterdir())
+        except OSError:
+            continue
+        for q in children:
+            if q.is_dir() and q.name not in _SKIP_DIRS \
+                    and (q / "__init__.py").is_file() and q not in roots:
+                roots.append(q)
     return roots or [repo]
 
 
@@ -173,17 +193,75 @@ def measure(roots: list[Path], track: int, repo: Path) -> dict[str, int]:
     return found
 
 
+def _print_distribution(current: dict[str, int], track: int) -> None:
+    """Print the REAL distribution. Called on EVERY run, in every mode.
+
+    This is the no-ratchet policy in code: the true number is on screen
+    unconditionally, so debt cannot become invisible.
+    """
+    allv = sorted(current.values(), reverse=True)
+    print(f"complexity: {len(allv)} functions >= {track}")
+    for t in _BUCKETS:
+        if t < track:
+            continue
+        print(f"  >{t:<4} {sum(1 for v in allv if v > t)}")
+    for k, v in sorted(current.items(), key=lambda kv: -kv[1])[:15]:
+        print(f"  {v:>4}  {k}")
+    if _UNMEASURED:
+        print(f"  [{_UNMEASURED} non-Python file(s) UNMEASURED -- see --require-lizard]")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("paths", nargs="*", help="source roots (auto-detected if omitted)")
-    ap.add_argument("--baseline", type=Path, default=Path(".complexity-baseline.json"))
     ap.add_argument("--track", type=int, default=DEFAULT_TRACK,
                     help=f"only track functions at or above this CCN (default {DEFAULT_TRACK})")
     ap.add_argument("--cap", type=int, default=None,
-                    help="hard ceiling nothing may exceed; step down to reduce complexity")
-    ap.add_argument("--write", action="store_true", help="(re)generate the baseline")
-    ap.add_argument("--report", action="store_true", help="print the distribution and exit 0")
+                    help="ABSOLUTE ceiling nothing may exceed; step it down over time")
+    ap.add_argument("--cap-ext", action="append", default=[], metavar="EXT=N",
+                    help="per-extension cap override, e.g. --cap-ext .rs=15 (repeatable)")
+    ap.add_argument("--require-lizard", action="store_true",
+                    help="exit 2 if any non-Python file could not be scored")
+    ap.add_argument("--report", action="store_true",
+                    help="print the distribution and exit 0 without enforcing")
+    # RETIRED. Kept so a re-introduction fails loudly rather than being rejected
+    # with a generic argparse error that reads like a typo.
+    ap.add_argument("--baseline", type=Path, default=None, help=argparse.SUPPRESS)
+    ap.add_argument("--write", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args()
+
+    if args.baseline is not None or args.write:
+        _fail_env(
+            "--baseline/--write are RETIRED. This gate enforces an ABSOLUTE --cap "
+            "only. A baseline converts a finding into invisible permanent debt "
+            "(CX program, MR-11). Drop the flag from the hook entry and pass "
+            "--cap N instead."
+        )
+
+    caps: dict[str, int] = {}
+    for spec in args.cap_ext:
+        ext, sep, n = spec.partition("=")
+        if not sep or not n.strip().lstrip("-").isdigit():
+            _fail_env(f"--cap-ext expects EXT=N, got {spec!r}")
+        caps[ext if ext.startswith(".") else f".{ext}"] = int(n)
+
+    if not args.report and args.cap is None and not caps:
+        _fail_env("--cap (or --cap-ext) is required: there is no baseline mode, "
+                  "and a gate with no threshold has not found nothing")
+
+    # ★ A cap BELOW the tracking floor is SILENTLY UNENFORCEABLE: measure() drops
+    # everything under --track before the cap comparison ever runs, so the gate
+    # would report "nothing exceeds cap 10" while functions at 11-14 sat
+    # unmeasured. A lane hit exactly this and only caught it by re-scanning by
+    # hand. Clamp, and say so out loud, rather than let a caller believe a cap
+    # that is not being applied.
+    all_caps = ([args.cap] if args.cap is not None else []) + list(caps.values())
+    effective = min(all_caps) if all_caps else None
+    if effective is not None and args.track > effective:
+        print(f"complexity gate: lowering --track {args.track} -> {effective} so the "
+              f"cap is actually enforceable (measure() filters below --track before "
+              f"the cap is applied)", file=sys.stderr)
+        args.track = effective
 
     repo = Path.cwd()
     roots = [Path(p) for p in args.paths] if args.paths else _autodetect(repo)
@@ -194,52 +272,48 @@ def main() -> int:
 
     current = measure(roots, args.track, repo)
 
+    # Unconditional, in every mode, before any verdict.
+    _print_distribution(current, args.track)
+
+    if _UNMEASURED and args.require_lizard:
+        _fail_env(
+            f"{_UNMEASURED} non-Python file(s) unmeasured: `lizard` is not "
+            f"importable by {sys.executable}. A gate that could not score the "
+            f"Rust/TypeScript half has not found nothing. Install lizard into "
+            f"this repo's environment (dependency-group `guardrails`)."
+        )
+
     if args.report:
-        allv = sorted(current.values(), reverse=True)
-        print(f"complexity report: {len(allv)} functions >= {args.track}")
-        for t in (15, 20, 30, 50, 100):
-            print(f"  >{t:<4} {sum(1 for v in allv if v > t)}")
-        for k, v in sorted(current.items(), key=lambda kv: -kv[1])[:15]:
-            print(f"  {v:>4}  {k}")
         return 0
 
-    if args.write:
-        doc = {"track": args.track, "functions": dict(sorted(current.items()))}
-        if _UNMEASURED:
-            doc["unmeasured_non_python_files"] = _UNMEASURED
-        args.baseline.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
-        print(f"complexity gate: wrote baseline: {len(current)} functions >= {args.track}")
-        return 0
+    def _cap_for(key: str) -> "int | None":
+        # measure() keys findings as f"{name}@{rel}", so the extension is
+        # recoverable from the key with no change to the measurement path.
+        ext = Path(key.rsplit("@", 1)[-1]).suffix
+        return caps.get(ext, args.cap)
 
-    if not args.baseline.is_file():
-        _fail_env(f"no baseline at {args.baseline}; generate it with --write")
+    over = []
+    for k, v in current.items():
+        c = _cap_for(k)
+        if c is not None and v > c:
+            over.append((k, v, c))
 
-    base: dict[str, int] = json.loads(args.baseline.read_text(encoding="utf-8")).get("functions") or {}
-
-    over_cap = ([(k, v) for k, v in current.items() if v > args.cap] if args.cap else [])
-    added = [(k, v) for k, v in current.items() if k not in base]
-    worse = [(k, base[k], v) for k, v in current.items() if k in base and v > base[k]]
-    better = [k for k, v in current.items() if k in base and v < base[k]]
-    gone = [k for k in base if k not in current]
-
-    if over_cap or added or worse:
-        print(f"complexity gate: FAIL: {len(added)} new, {len(worse)} worsened"
-              + (f", {len(over_cap)} over the cap of {args.cap}" if args.cap else ""))
-        for k, v in sorted(over_cap, key=lambda x: -x[1])[:20]:
-            print(f"  OVER CAP  {v:>4}  {k}")
-        for k, v in sorted(added, key=lambda x: -x[1])[:20]:
-            print(f"  NEW       {v:>4}  {k}")
-        for k, was, now in sorted(worse, key=lambda x: x[2] - x[1], reverse=True)[:20]:
-            print(f"  WORSE  {was:>4}->{now:<4} {k}")
-        print("\nSplit the function into named parts, or -- if the complexity is genuinely\n"
-              "irreducible -- re-baseline deliberately with --write and justify it in the\n"
-              "commit message. Do not raise the cap to make this pass.")
+    if over:
+        print(f"\ncomplexity gate: FAIL: {len(over)} function(s) over the cap")
+        for k, v, c in sorted(over, key=lambda x: -x[1])[:30]:
+            print(f"  OVER CAP  {v:>4} (cap {c})  {k}")
+        if len(over) > 30:
+            print(f"  ... and {len(over) - 30} more")
+        print("\nSplit the function into named parts. Do NOT raise the cap to make\n"
+              "this pass, and do NOT add a suppression comment -- an in-line\n"
+              "suppression is a one-line baseline and is a program-terminating\n"
+              "finding. If the complexity is genuinely irreducible, record a\n"
+              "time-boxed entry with an owner in scripts/gate_deferrals.tsv.")
         return 1
 
-    print(f"complexity gate: OK: {len(current)} tracked >= {args.track}"
-          + (f" [PARTIAL: {_UNMEASURED} non-Python files unmeasured]" if _UNMEASURED else "")
-          + (f", cap {args.cap}" if args.cap else "")
-          + f", {len(better) + len(gone)} improved/removed since baseline")
+    shown = args.cap if args.cap is not None else "per-extension"
+    print(f"\ncomplexity gate: OK: nothing exceeds cap {shown}"
+          + (f" [PARTIAL: {_UNMEASURED} non-Python files unmeasured]" if _UNMEASURED else ""))
     return 0
 
 
