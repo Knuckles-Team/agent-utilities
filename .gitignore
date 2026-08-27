@@ -330,3 +330,10 @@ node_modules/
 # check_root_hygiene.py's FORBIDDEN_ANYWHERE (which catches it if it is ever
 # tracked anyway); this stops it from becoming stageable in the first place.
 .kissconfig
+# `kiss check` also writes a .kiss/ working directory. Only the HAND-AUTHORED
+# .kiss/kiss.toml is tracked (it is the gate's thresholds, not a baseline); the
+# analysis caches beside it are regenerated on every run and must never be
+# committed -- three of them (10 MB of binaries) reached main in the thresholds
+# commit and broke the anti-sprawl gate for every subsequent commit.
+.kiss/*
+!.kiss/kiss.toml

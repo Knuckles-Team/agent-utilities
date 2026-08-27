@@ -28,6 +28,7 @@ examples = "runnable reference material: action-policies, an ontology workflow, 
 scripts = "gate scripts (check_*.py) and release tooling invoked by pre-commit/CI"
 tests = "the test suite"
 ".github" = "GitHub Actions workflow definitions"
+".kiss" = "hand-authored `kiss` structural-rule thresholds (.kiss/kiss.toml) read by scripts/run_kiss.sh; every other entry is a regenerated analysis cache and is gitignored"
 ".security" = "adversarial security-gate scripts (authenticated_negative.py, repository_fuzz.py) and security-contract.json read by the security CI gate"
 ".specify" = "spec-kit state for SDD-governed feature work: design/evidence/memory/reports/specs/triage"
 
