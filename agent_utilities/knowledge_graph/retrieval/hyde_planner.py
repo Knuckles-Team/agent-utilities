@@ -180,6 +180,28 @@ def merge_retrievals(
     return merged[:context_window]
 
 
+_EVIDENCE_NUMBER_RE = re.compile(r"(?<![\w$])\$?\d[\d,]*(?:\.\d+)?")
+
+
+def _evidence_row(
+    rank: int, node: dict[str, Any], accept_floor: float
+) -> dict[str, Any]:
+    """One evidence-ledger row for ``node`` (see :func:`build_evidence_ledger`)."""
+    score = float(node.get("_score", 0.0))
+    content = str(node.get("content") or node.get("name") or "")
+    decision = "ACCEPT" if score >= accept_floor else "REJECT"
+    return {
+        "rank": rank,
+        "id": node.get("id"),
+        "score": round(score, 4),
+        "event_time": node.get("event_time"),
+        "decision": decision,
+        "reason": "above-threshold" if decision == "ACCEPT" else "near-miss",
+        "numbers": _EVIDENCE_NUMBER_RE.findall(content),
+        "content": content[:280],
+    }
+
+
 def build_evidence_ledger(query: str, nodes: list[dict[str, Any]]) -> dict[str, Any]:
     """Build a quantitative-fidelity ACCEPT/REJECT evidence ledger over retrieved nodes.
 
@@ -192,24 +214,7 @@ def build_evidence_ledger(query: str, nodes: list[dict[str, Any]]) -> dict[str, 
     Pure and LLM-free: the structured ledger is what a generation prompt consumes.
     """
     accept_floor = HYDE_THRESHOLDS["standard"]
-    num_re = re.compile(r"(?<![\w$])\$?\d[\d,]*(?:\.\d+)?")
-    rows: list[dict[str, Any]] = []
-    for rank, node in enumerate(nodes):
-        score = float(node.get("_score", 0.0))
-        content = str(node.get("content") or node.get("name") or "")
-        decision = "ACCEPT" if score >= accept_floor else "REJECT"
-        rows.append(
-            {
-                "rank": rank,
-                "id": node.get("id"),
-                "score": round(score, 4),
-                "event_time": node.get("event_time"),
-                "decision": decision,
-                "reason": "above-threshold" if decision == "ACCEPT" else "near-miss",
-                "numbers": num_re.findall(content),
-                "content": content[:280],
-            }
-        )
+    rows = [_evidence_row(rank, node, accept_floor) for rank, node in enumerate(nodes)]
     accepted = [r for r in rows if r["decision"] == "ACCEPT"]
     return {
         "query": query,
