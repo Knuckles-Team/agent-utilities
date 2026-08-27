@@ -133,3 +133,47 @@ schedules:
     action: inventory
     dispatch: deterministic
     enabled: false
+
+  # ── CA-28 lakehouse-maintenance detection ticks ──────────────────────────
+  # Three DETERMINISTIC detection-style checks (per the DESIGN SPLIT note at
+  # the top of this file — never LLM-driven) that dispatch through
+  # `_SKILL_HANDLERS[("lakehouse-maintenance", <action>)]`
+  # (agent_utilities/core/schedule_engine.py), the SAME named-importable-
+  # function contract `code-enhancer/liveness` and `memory-lifecycle/maintain`
+  # already use. Each handler is a CA-28 STUB today (CA-21/24/15/25 own the
+  # real check; see this program's non-goals) that returns a typed
+  # ``not_yet_implemented`` result and, when its owning module lands and finds
+  # a real issue, will propose it as a canonical :Gap via
+  # ``state_tools.propose_lakehouse_maintenance_gap`` (propose-only — see
+  # ``graph_loops`` gaps/submit_gap/review; never auto-applies). Ship
+  # ``enabled: false`` (memory-lifecycle-maintain precedent) — flipped on only
+  # once CA-21/24/15/25 land real detection logic behind the stub.
+  - name: debezium-lag-check
+    description: Check CA-21's Debezium consumer lag per source and propose a :Gap when it exceeds SLO (stub until CA-21 lands the real check).
+    cron: "*/5 * * * *" # every 5 minutes — cheapest of the three, tight SLO
+    kind: skill
+    ref: lakehouse-maintenance
+    action: debezium_lag_check
+    dispatch: deterministic
+    prio_bucket: 3 # background — must not preempt ingestion
+    enabled: false
+
+  - name: opensearch-reindex-staleness
+    description: Scan CA-24's OpenSearch indices for CDC-vs-index drift and propose a rebuild :Gap when stale (stub until CA-24 lands the real staleness scan).
+    cron: "30 * * * *" # hourly, offset from the top of the hour
+    kind: skill
+    ref: lakehouse-maintenance
+    action: opensearch_reindex_staleness_check
+    dispatch: deterministic
+    prio_bucket: 3
+    enabled: false
+
+  - name: lineage-sweep
+    description: Sweep for OpenLineage events (eg/Spark/Trino) not yet landed as PROV-O and propose a backfill :Gap (stub until CA-25 lands the real sweep).
+    cron: "*/30 * * * *" # every 30 minutes — matches leanix-delta-sync's cadence
+    kind: skill
+    ref: lakehouse-maintenance
+    action: lineage_sweep
+    dispatch: deterministic
+    prio_bucket: 3
+    enabled: false

@@ -1629,6 +1629,73 @@ async def _find_capability(mcp: Any, intent: str, top_k: int = 8) -> dict[str, A
 #: configure/tenants/lifecycle), not a new seventh verb.
 _RECLAIM_ACTIONS = frozenset({"unload", "reclaim", "load"})
 
+#: ``manage`` hints ``{"action": "lakehouse_status"}`` — CA-28's read-only
+#: lakehouse-maintenance status surface (policy-bundle epoch / index-rebuild
+#: trigger discoverability / CDC-lag). See :func:`_lakehouse_status`.
+_STATUS_ACTIONS = frozenset({"lakehouse_status"})
+
+
+async def _lakehouse_status(hints: dict[str, Any]) -> dict[str, Any]:
+    """CA-28's ``manage(action="lakehouse_status")`` surface (design: policy-
+    bundle epoch = what CA-26 last applied, index-rebuild trigger = CA-24's
+    indexer, CDC-lag = CA-21's consumer) — read-only status plus pointing at
+    the single trigger action, NOT a new subsystem (this program's non-goal
+    for CA-28).
+
+    Each sub-surface degrades to a typed ``"unavailable"`` entry instead of
+    raising when its owning lane's real module has not landed yet — a status
+    read must never fail closed just because a dependency lane is mid-flight.
+    """
+    out: dict[str, Any] = {}
+    # Policy-bundle epoch — CA-26 extends permission_sync.py with the outbound
+    # policy-bundle apply (FO-CA-011); not yet landed as of this lane.
+    # ``getattr`` (not ``from ... import name``) deliberately: the function does
+    # not exist yet, so a static import would be an unconditional mypy
+    # attr-defined error rather than the runtime-optional lookup this status
+    # surface needs to degrade gracefully once CA-26 lands.
+    try:
+        import agent_utilities.protocols.source_connectors.permission_sync as _perm_sync
+
+        epoch_fn = getattr(_perm_sync, "current_policy_bundle_epoch", None)
+        if epoch_fn is None:
+            out["policy_bundle_epoch"] = {"status": "unavailable", "owner": "CA-26"}
+        else:
+            out["policy_bundle_epoch"] = epoch_fn()
+    except ImportError:
+        out["policy_bundle_epoch"] = {"status": "unavailable", "owner": "CA-26"}
+    except Exception as exc:  # noqa: BLE001 — status read is best-effort
+        out["policy_bundle_epoch"] = {
+            "status": "error",
+            "detail": type(exc).__name__,
+        }
+    # Index-rebuild trigger — CA-24 already landed a REAL, working rebuild
+    # (`graph_ingest` `action="opensearch_reindex"`, DEC-CA-09): this surfaces
+    # it as discoverable status/how-to-call under `manage`, not a second
+    # implementation of the rebuild itself.
+    out["index_rebuild"] = {
+        "status": "available",
+        "owner": "CA-24",
+        "how_to_call": (
+            "graph_ingest(action='opensearch_reindex', "
+            "corpus_name=<eg graph/tenant id>)"
+        ),
+    }
+    # CDC-lag — CA-21's Debezium consumer (kafka_adapter.py) has no lag-
+    # measurement function yet. Same ``getattr`` rationale as above.
+    try:
+        import agent_utilities.knowledge_graph.streams.kafka_adapter as _kafka_adapter
+
+        lag_fn = getattr(_kafka_adapter, "consumer_lag_status", None)
+        if lag_fn is None:
+            out["cdc_lag"] = {"status": "unavailable", "owner": "CA-21"}
+        else:
+            out["cdc_lag"] = lag_fn()
+    except ImportError:
+        out["cdc_lag"] = {"status": "unavailable", "owner": "CA-21"}
+    except Exception as exc:  # noqa: BLE001 — status read is best-effort
+        out["cdc_lag"] = {"status": "error", "detail": type(exc).__name__}
+    return out
+
 
 async def _manage_lifecycle(
     mcp: Any, intent: str, hints: dict[str, Any], *, execute: bool = False
@@ -1676,6 +1743,11 @@ async def _manage_lifecycle(
                 }
             raw_hints = {**restored_hints, "plan_ref": supplied_plan_ref}
             action = str(raw_hints["action"]).strip().lower()
+    if action in _STATUS_ACTIONS:
+        # Read-only: no preview/plan_ref/approval machinery needed (unlike
+        # load/unload/reclaim below) — a status read never mutates anything.
+        status = await _lakehouse_status(raw_hints)
+        return {"executed": True, "action": action, "status": status}
     if action not in _RECLAIM_ACTIONS:
         return None
     plan_hints = {k: v for k, v in raw_hints.items() if k != "plan_ref"}

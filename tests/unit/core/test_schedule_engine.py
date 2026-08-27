@@ -598,3 +598,240 @@ def test_record_schedule_result_backoff() -> None:
     se.record_schedule_result(eng, "flaky", ok=True)
     spec = se._load_one(eng, "flaky")
     assert spec.consecutive_failures == 0 and spec.backoff_until == 0
+
+
+# ── CA-28: deploy/schedules.yml whole-file malformed-cron rejection (P12 negative) ──
+
+
+def _good_entry(name: str) -> str:
+    return (
+        f"  - name: {name}\n"
+        '    cron: "*/5 * * * *"\n'
+        "    kind: skill\n"
+        "    ref: x\n"
+        "    action: delta\n"
+        "    enabled: true\n"
+    )
+
+
+def test_seed_schedules_rejects_whole_file_on_malformed_cron(monkeypatch, tmp_path):
+    """P12 negative: a fourth (malformed, 4-field cron) entry must fail the
+    WHOLE ``schedules.yml`` load, naming the bad entry — never a partial load
+    that silently seeds the good entries and drops only the bad one."""
+    bad_path = tmp_path / "schedules.yml"
+    bad_path.write_text(
+        "schedules:\n"
+        + _good_entry("good-one")
+        + _good_entry("good-two")
+        + "  - name: bad-one\n"
+        '    cron: "* * * *"\n'  # 4 fields — the known-bad P12 input
+        "    kind: skill\n"
+        "    ref: y\n"
+        "    action: delta\n"
+        "    enabled: true\n"
+    )
+    monkeypatch.setattr(se, "_registry_path", lambda: bad_path)
+    eng = _FakeEngine()
+
+    with pytest.raises(se.ScheduleFileError, match="bad-one"):
+        se.seed_schedules(eng)
+
+    # Whole-file failure: NEITHER good entry seeded either — never a partial
+    # load that drops only the malformed one.
+    assert se._load_all(eng) == []
+
+
+def test_seed_schedules_loads_clean_once_the_malformed_entry_is_removed(
+    monkeypatch, tmp_path
+):
+    """The remove-and-confirm half of the P12 negative demonstration: after
+    the malformed entry is removed, the same file seeds cleanly."""
+    path = tmp_path / "schedules.yml"
+    path.write_text("schedules:\n" + _good_entry("good-one") + _good_entry("good-two"))
+    monkeypatch.setattr(se, "_registry_path", lambda: path)
+    eng = _FakeEngine()
+
+    seeded = se.seed_schedules(eng)
+
+    assert seeded == 2
+    assert {s.name for s in se._load_all(eng)} == {"good-one", "good-two"}
+
+
+def test_seed_schedules_missing_name_names_the_position(monkeypatch, tmp_path):
+    path = tmp_path / "schedules.yml"
+    path.write_text(
+        'schedules:\n  - cron: "*/5 * * * *"\n    kind: skill\n    ref: x\n'
+    )
+    monkeypatch.setattr(se, "_registry_path", lambda: path)
+    eng = _FakeEngine()
+
+    with pytest.raises(se.ScheduleFileError, match="entry #0"):
+        se.seed_schedules(eng)
+
+
+def test_real_deploy_schedules_yaml_seeds_cleanly_and_has_no_malformed_entry() -> None:
+    """Regression: the real ``deploy/schedules.yml`` (all 12 entries — the 9
+    pre-existing + CA-28's 3 new lakehouse-maintenance ticks) must still seed
+    without raising, and the 9 pre-existing entries are unaffected."""
+    eng = _FakeEngine()
+    seeded = se.seed_schedules(eng)
+    assert seeded == 12
+    names = {s.name for s in se._load_all(eng)}
+    pre_existing = {
+        "all-sources-delta-sweep",
+        "fleet-tool-schema-sync",
+        "code-health-sweep",
+        "leanix-delta-sync",
+        "leanix-reconcile",
+        "servicenow-sync",
+        "erpnext-sync",
+        "memory-lifecycle-maintain",
+        "servicenow-inventory-push",
+    }
+    assert pre_existing <= names
+    new = {"debezium-lag-check", "opensearch-reindex-staleness", "lineage-sweep"}
+    assert new <= names
+
+
+# ── CA-28: lakehouse-maintenance schedule dispatch (kind=skill, ref=lakehouse-maintenance) ──
+
+
+@pytest.mark.parametrize(
+    "action,owner",
+    [
+        ("debezium_lag_check", "CA-21"),
+        ("opensearch_reindex_staleness_check", "CA-24"),
+        ("lineage_sweep", "CA-25"),
+    ],
+)
+def test_lakehouse_maintenance_dispatch_fires_and_stubs(action, owner) -> None:
+    """Each of the three new schedule targets dispatches through the SAME
+    named-importable-function ``_SKILL_HANDLERS`` contract as
+    ``code-enhancer/liveness`` and ``memory-lifecycle/maintain`` — proving the
+    schedule fires end to end even though the real check is CA-21/24/25's."""
+    eng = _FakeEngine()
+    result = se.run_scheduled_job(
+        eng, {"kind": "skill", "ref": "lakehouse-maintenance", "action": action}
+    )
+    assert result["status"] == "not_yet_implemented"
+    assert result["owner"] == owner
+    assert "duration_s" in result
+
+
+def test_lakehouse_maintenance_dispatch_proposes_a_gap_once_the_real_check_lands(
+    monkeypatch,
+) -> None:
+    """Wire-First proof (D-OB-9): ``_dispatch_debezium_lag_check`` is a REAL
+    production caller of
+    ``state_tools.propose_lakehouse_maintenance_gap`` — not merely a
+    docstring reference — once CA-21 exposes ``kafka_adapter.lag_finding``.
+    Simulates that landing by monkeypatching the finding function directly
+    onto the REAL ``kafka_adapter`` module (the same module
+    ``_lakehouse_maintenance_dispatch`` looks up via ``getattr``), proving
+    the full path: schedule fires -> real finding -> canonical :Gap filed."""
+    from agent_utilities.knowledge_graph.streams import kafka_adapter
+
+    monkeypatch.setattr(
+        kafka_adapter,
+        "lag_finding",
+        lambda engine: "consumer group erp-cdc lagging 900s over SLO",
+        raising=False,
+    )
+    captured: dict = {}
+
+    def _fake_propose(engine, *, source, statement, **_kw):
+        captured["source"] = source
+        captured["statement"] = statement
+        return {"id": "gap:fake", "status": "open"}
+
+    monkeypatch.setattr(
+        "agent_utilities.mcp.tools.state_tools.propose_lakehouse_maintenance_gap",
+        _fake_propose,
+    )
+
+    eng = _FakeEngine()
+    result = se.run_scheduled_job(
+        eng,
+        {"kind": "skill", "ref": "lakehouse-maintenance", "action": "debezium_lag_check"},
+    )
+
+    assert result["status"] == "gap_proposed"
+    assert result["gap"] == {"id": "gap:fake", "status": "open"}
+    assert captured["source"] == "lakehouse-maintenance:debezium_lag_check"
+    assert "900s" in captured["statement"]
+
+
+def test_lakehouse_maintenance_dispatch_no_finding_is_ok_no_gap_proposed(
+    monkeypatch,
+) -> None:
+    """A real check that finds nothing wrong returns ``ok`` and proposes NO
+    gap — the propose-only hook fires only on an actual finding."""
+    from agent_utilities.knowledge_graph.streams import kafka_adapter
+
+    monkeypatch.setattr(kafka_adapter, "lag_finding", lambda engine: None, raising=False)
+    called = False
+
+    def _fake_propose(*_a, **_kw):
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(
+        "agent_utilities.mcp.tools.state_tools.propose_lakehouse_maintenance_gap",
+        _fake_propose,
+    )
+
+    eng = _FakeEngine()
+    result = se.run_scheduled_job(
+        eng,
+        {"kind": "skill", "ref": "lakehouse-maintenance", "action": "debezium_lag_check"},
+    )
+
+    assert result["status"] == "ok"
+    assert called is False
+
+
+def test_lakehouse_maintenance_schedule_entries_seed_disabled_from_deploy_yaml() -> (
+    None
+):
+    eng = _FakeEngine()
+    se.seed_schedules(eng)
+    for name, cron, action in (
+        ("debezium-lag-check", "*/5 * * * *", "debezium_lag_check"),
+        (
+            "opensearch-reindex-staleness",
+            "30 * * * *",
+            "opensearch_reindex_staleness_check",
+        ),
+        ("lineage-sweep", "*/30 * * * *", "lineage_sweep"),
+    ):
+        spec = se._load_one(eng, name)
+        assert spec is not None
+        assert spec.enabled is False  # ships disabled until CA-21/24/15/25 land
+        assert spec.cron == cron
+        assert spec.payload["kind"] == "skill"
+        assert spec.payload["ref"] == "lakehouse-maintenance"
+        assert spec.payload["action"] == action
+
+
+def test_lakehouse_maintenance_schedule_enqueues_workitem_once_enabled() -> None:
+    """P12 positive: once enabled, ``run_scheduler_tick`` seeds/refreshes the
+    :Schedule node with a fresh ``last_minute`` and enqueues a real WorkItem
+    (``submit_task``) for it — the same enqueue path every other schedule
+    entry uses, proving these three are not a second execution mechanism."""
+    eng = _FakeEngine()
+    se.seed_schedules(eng)
+    se.set_enabled(eng, "debezium-lag-check", True)
+
+    res = se.run_scheduler_tick(eng, now=_at(4, 5))  # matches */5 * * * *
+
+    assert "debezium-lag-check" in res["fired"]
+    submitted = [
+        s
+        for s in eng.submitted
+        if (s.get("extra_meta") or {}).get("schedule") == "debezium-lag-check"
+    ]
+    assert len(submitted) == 1
+    assert submitted[0]["extra_meta"]["payload"]["ref"] == "lakehouse-maintenance"
+    assert submitted[0]["extra_meta"]["payload"]["action"] == "debezium_lag_check"
+    spec = se._load_one(eng, "debezium-lag-check")
+    assert spec.last_minute == int(_at(4, 5).timestamp())
