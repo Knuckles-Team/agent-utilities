@@ -49,6 +49,30 @@ import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+# ABSOLUTE caps. NOT a baseline: seven integers, in the gate's own source,
+# printed on every run, on a dated ladder. They cannot hide a finding --
+# any new dead pathway raises the count and fails the gate.
+#
+# 2026-08-27 (CX-RAT-11): every value below is the MEASURED count at the time
+# this constant was introduced (`.venv/bin/python3 scripts/check_liveness.py`
+# against 3b7186be2, corrected counts) -- including `untyped_seams: 1771`,
+# which is one over the old `.liveness_baseline.json` value of 1770. Seeding
+# a cap at the current value is legitimate here (unlike a per-finding
+# freeze) precisely because it is a visible integer in source, on a dated
+# ladder, reviewed in a diff -- not a hidden count nobody looks at again.
+# Wave ladder: hold every cap flat (no regressions) until a future wave
+# deliberately lowers one; lowering a cap is the only way this file changes
+# after this wave.
+CAPS = {
+    "orphan_modules": 2,  # wave CX-RAT-11 (2026-08-27): hold
+    "dead_definitions": 518,  # wave CX-RAT-11 (2026-08-27): hold
+    "never_executed": 0,  # wave CX-RAT-11 (2026-08-27): hold at zero
+    "untyped_seams": 1771,  # wave CX-RAT-11 (2026-08-27): hold (was 1770; +1 measured drift)
+    "orphan_read_keys": 77,  # wave CX-RAT-11 (2026-08-27): hold
+    "facade_handlers": 98,  # wave CX-RAT-11 (2026-08-27): hold
+    "placeholder_markers": 503,  # wave CX-RAT-11 (2026-08-27): hold
+}
+
 REPO = Path(__file__).resolve().parent.parent
 TARGET = REPO / "agent_utilities"
 BASELINE = REPO / ".liveness_baseline.json"
