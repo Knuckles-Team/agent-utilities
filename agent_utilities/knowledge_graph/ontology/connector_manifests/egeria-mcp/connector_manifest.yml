@@ -133,7 +133,7 @@ sync:
     doc_type: governance_rule
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-26T13:42:55Z'
+  generated_at: '2026-08-27T03:15:14Z'
   source_artifacts:
   - egeria_mcp/connectors/mcp_source_presets.json
   - egeria_mcp/connectors/tool_schema_fingerprints.json
@@ -146,7 +146,7 @@ provenance:
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: 553359cf94509ea009872144d2a5258dccee82ed
+  source_commit: 1a2187864d8c33492fbc8dd53c2cb6e2871144fe
 policy:
   pii_fields: {}
   tenant_boundary: null

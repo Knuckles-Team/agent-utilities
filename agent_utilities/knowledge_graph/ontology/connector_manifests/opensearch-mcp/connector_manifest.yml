@@ -1,0 +1,85 @@
+connector: opensearch-mcp
+ontology_source: opensearch
+schema_version: '1'
+resources:
+- name: IndexingRun
+  label: Indexing Run
+  id_prefix: indexingrun
+  relations:
+  - name: rebuildsIndex
+    label: rebuilds index
+    target: SearchIndex
+    lpg_rel_type: ''
+- name: SearchAlias
+  label: Search Alias
+  id_prefix: searchalias
+  relations:
+  - name: aliasOf
+    label: alias of
+    target: SearchIndex
+    lpg_rel_type: ''
+- name: SearchIndex
+  label: Search Index
+  id_prefix: searchindex
+  relations:
+  - name: indexes
+    label: indexes
+    target: ObjectType
+    lpg_rel_type: ''
+actions:
+- id: epistemic-answer
+  name: Epistemic Answer
+  description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
+    confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
+    policy-redaction-aware provenance.'
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events: []
+identity:
+  id_field: {}
+  title_field: {}
+  text_field: {}
+  updated_field: {}
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  IndexingRun:
+    ontology_class: null
+    fields: {}
+  SearchAlias:
+    ontology_class: null
+    fields: {}
+  SearchIndex:
+    ontology_class: null
+    fields: {}
+sync: []
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-08-26T21:05:00Z'
+  source_artifacts:
+  - opensearch_mcp/ontology/opensearch.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 823aebab59f98c85591dba715f28b2f9bfbfedd71f85111f611ac0451f1f9642
+    triple_count: 25
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  source_commit: null
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "schema_mappings.IndexingRun.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SearchAlias.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SearchIndex.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
