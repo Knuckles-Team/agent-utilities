@@ -536,176 +536,271 @@ class RuntimeCommandCertificationDriver:
         return tuple(value)
 
 
-async def certify_connector(
-    bundle: CertificationBundle,
-    *,
-    mode: str,
-    signer: ontology_integrity.ReleaseSigner,
-    driver: CertificationDriver | None = None,
-    policy: CertificationPolicy | None = None,
-    limits: CertificationLimits | None = None,
-    now: datetime | None = None,
-) -> dict[str, Any]:
-    """Exercise one bundle and return a signed, content-free certification record."""
-
-    if mode not in {"offline-fixture", "external-live"}:
-        raise ValueError("certification mode is invalid")
-    limits = limits or CertificationLimits()
-    policy = policy or CertificationPolicy()
+def _certify_connector_resolve_driver(
+    mode: str, driver: CertificationDriver | None
+) -> CertificationDriver:
     if mode == "offline-fixture":
         if driver is not None and not isinstance(driver, ReferenceCertificationDriver):
             raise ValueError("offline certification accepts only the reference driver")
-        driver = driver or ReferenceCertificationDriver()
-    elif driver is None or isinstance(driver, ReferenceCertificationDriver):
+        return driver or ReferenceCertificationDriver()
+    if driver is None or isinstance(driver, ReferenceCertificationDriver):
         raise ValueError(
             "external-live certification requires an external runtime driver"
         )
+    return driver
 
-    started = (now or datetime.now(UTC)).astimezone(UTC)
-    checks = {name: "not-run" for name in REQUIRED_CHECKS}
-    checks["bundle_integrity"] = "passed"
-    counts: dict[str, int] = {}
-    evidence: dict[str, str] = {}
-    semantic_validator = "not-run"
-    failure_class: str | None = None
-    fixtures = bundle.fixtures[: limits.max_records]
-    if bundle.manifest.sync and len(fixtures) < len(bundle.manifest.sync):
-        failure_class = "FixtureBoundaryError"
 
-    run_key = uuid.uuid4().hex
-    source_instance = f"certification-{run_key}"
-    scope = {
-        "tenant": policy.tenant,
-        "connector": bundle.manifest.connector,
-        "source_instance": source_instance,
-    }
-    envelopes: list[ChangeEnvelope] = []
+async def _certify_connector_live_tool_schema(
+    driver: CertificationDriver,
+    bundle: CertificationBundle,
+    checks: dict[str, str],
+    evidence: dict[str, str],
+) -> None:
+    result = await driver.invoke(
+        {
+            "api_version": "graphos.connector-certification/v1",
+            "action": "list_tools",
+            "connector": bundle.manifest.connector,
+            "required_tools": sorted({sync.tool for sync in bundle.manifest.sync}),
+        }
+    )
+    _verify_live_tools(result, bundle.manifest.sync)
+    checks["live_tool_schema"] = "passed"
+    evidence["live_tool_schema"] = _evidence_digest(
+        {"tools": sorted({sync.tool for sync in bundle.manifest.sync})}
+    )
+
+
+async def _certify_connector_ingest_fixtures(
+    driver: CertificationDriver,
+    bundle: CertificationBundle,
+    fixtures: Sequence[Any],
+    *,
+    run_key: str,
+    source_instance: str,
+    policy: CertificationPolicy,
+    envelopes: list[ChangeEnvelope],
+    scope: Mapping[str, Any],
+    counts: dict[str, int],
+    checks: dict[str, str],
+) -> None:
+    for index, fixture in enumerate(fixtures):
+        envelope = _fixture_envelope(
+            bundle,
+            fixture,
+            index=index,
+            run_key=run_key,
+            source_instance=source_instance,
+            policy=policy,
+            version="1",
+        )
+        envelopes.append(envelope)
+        await _apply(driver, envelope, expect_replay=False)
+        await _assert_governance(driver, envelope)
+    counts["after_ingest"] = await _count(driver, scope)
+    if counts["after_ingest"] != len(envelopes):
+        raise CertificationError("fixture ingest count does not reconcile")
+    checks["fixture_ingest"] = "passed"
+
+
+async def _certify_connector_replay(
+    driver: CertificationDriver,
+    envelopes: list[ChangeEnvelope],
+    scope: Mapping[str, Any],
+    counts: dict[str, int],
+    checks: dict[str, str],
+) -> None:
+    for envelope in envelopes:
+        await _apply(driver, envelope, expect_replay=True)
+    counts["after_replay"] = await _count(driver, scope)
+    if counts["after_replay"] != len(envelopes):
+        raise CertificationError("replay changed the live record count")
+    checks["replay_idempotency"] = "passed"
+
+
+async def _certify_connector_update(
+    driver: CertificationDriver,
+    envelopes: list[ChangeEnvelope],
+    scope: Mapping[str, Any],
+    counts: dict[str, int],
+    checks: dict[str, str],
+) -> ChangeEnvelope:
+    first = envelopes[0]
+    updated = _next_envelope(first, version="2", operation="upsert")
+    await _apply(driver, updated, expect_replay=False)
+    await _assert_governance(driver, updated)
+    counts["after_update"] = await _count(driver, scope)
+    if counts["after_update"] != len(envelopes):
+        raise CertificationError("update changed the live record count")
+    checks["update"] = "passed"
+    return updated
+
+
+async def _certify_connector_delete(
+    driver: CertificationDriver,
+    updated: ChangeEnvelope,
+    envelopes: list[ChangeEnvelope],
+    scope: Mapping[str, Any],
+    counts: dict[str, int],
+    checks: dict[str, str],
+) -> None:
+    deleted = _next_envelope(updated, version="3", operation="delete")
+    await _apply(driver, deleted, expect_replay=False)
+    counts["after_delete"] = await _count(driver, scope)
+    if counts["after_delete"] != len(envelopes) - 1:
+        raise CertificationError("delete count does not reconcile")
+    await _assert_tombstone_governance(driver, deleted)
+    await _apply(driver, deleted, expect_replay=True)
+    counts["after_delete_replay"] = await _count(driver, scope)
+    if counts["after_delete_replay"] != len(envelopes) - 1:
+        raise CertificationError("delete replay changed the live record count")
+    checks["delete"] = "passed"
+    checks["governance_preservation"] = "passed"
+
+
+async def _certify_connector_cleanup(
+    driver: CertificationDriver,
+    envelopes: list[ChangeEnvelope],
+    scope: Mapping[str, Any],
+    counts: dict[str, int],
+    checks: dict[str, str],
+) -> None:
+    for envelope in envelopes[1:]:
+        cleanup = _next_envelope(envelope, version="cleanup", operation="delete")
+        await _apply(driver, cleanup, expect_replay=False)
+    counts["after_cleanup"] = await _count(driver, scope)
+    if counts["after_cleanup"] != 0:
+        raise CertificationError("certification cleanup count does not reconcile")
+    checks["cleanup"] = "passed"
+
+
+async def _certify_connector_run(
+    driver: CertificationDriver,
+    bundle: CertificationBundle,
+    fixtures: Sequence[Any],
+    *,
+    mode: str,
+    run_key: str,
+    source_instance: str,
+    policy: CertificationPolicy,
+    scope: Mapping[str, Any],
+    envelopes: list[ChangeEnvelope],
+    counts: dict[str, int],
+    checks: dict[str, str],
+    evidence: dict[str, str],
+    failure_class: str | None,
+) -> str:
+    """The full ingest/replay/update/delete/cleanup lifecycle. Raises
+    `CertificationError` on any reconciliation failure; returns the
+    semantic-validation mode string on success."""
+    if failure_class:
+        raise CertificationError("fixture boundary omits a signed preset")
+    if not bundle.manifest.sync:
+        raise CertificationError("connector declares no certifiable source presets")
+    if mode == "external-live":
+        await _certify_connector_live_tool_schema(driver, bundle, checks, evidence)
+
+    counts["initial"] = await _count(driver, scope)
+    if counts["initial"] != 0:
+        raise CertificationError("isolated certification scope is not empty")
+    await _certify_connector_ingest_fixtures(
+        driver,
+        bundle,
+        fixtures,
+        run_key=run_key,
+        source_instance=source_instance,
+        policy=policy,
+        envelopes=envelopes,
+        scope=scope,
+        counts=counts,
+        checks=checks,
+    )
+    await _certify_connector_replay(driver, envelopes, scope, counts, checks)
+    updated = await _certify_connector_update(driver, envelopes, scope, counts, checks)
+    await _certify_connector_delete(driver, updated, envelopes, scope, counts, checks)
+
+    semantic_validator = _semantic_validation(
+        bundle, envelopes, require_pyshacl=mode == "external-live"
+    )
+    checks["semantic_validation"] = "passed"
+    checks["count_reconciliation"] = "passed"
+
+    await _certify_connector_cleanup(driver, envelopes, scope, counts, checks)
+    return semantic_validator
+
+
+async def _certify_connector_failure_cleanup(
+    driver: CertificationDriver,
+    envelopes: list[ChangeEnvelope],
+    scope: Mapping[str, Any],
+    checks: dict[str, str],
+) -> None:
     try:
-        if failure_class:
-            raise CertificationError("fixture boundary omits a signed preset")
-        if not bundle.manifest.sync:
-            raise CertificationError("connector declares no certifiable source presets")
-        if mode == "external-live":
-            result = await driver.invoke(
+        for envelope in envelopes:
+            cleanup = _next_envelope(
+                envelope, version=f"cleanup-{uuid.uuid4().hex}", operation="delete"
+            )
+            await driver.invoke(
                 {
                     "api_version": "graphos.connector-certification/v1",
-                    "action": "list_tools",
-                    "connector": bundle.manifest.connector,
-                    "required_tools": sorted(
-                        {sync.tool for sync in bundle.manifest.sync}
-                    ),
+                    "action": "apply",
+                    "envelope": cleanup.as_dict(),
                 }
             )
-            _verify_live_tools(result, bundle.manifest.sync)
-            checks["live_tool_schema"] = "passed"
-            evidence["live_tool_schema"] = _evidence_digest(
-                {"tools": sorted({sync.tool for sync in bundle.manifest.sync})}
-            )
+        if await _count(driver, scope) == 0:
+            checks["cleanup"] = "passed"
+    except Exception:
+        checks["cleanup"] = "failed"
 
-        counts["initial"] = await _count(driver, scope)
-        if counts["initial"] != 0:
-            raise CertificationError("isolated certification scope is not empty")
-        for index, fixture in enumerate(fixtures):
-            envelope = _fixture_envelope(
-                bundle,
-                fixture,
-                index=index,
-                run_key=run_key,
-                source_instance=source_instance,
-                policy=policy,
-                version="1",
-            )
-            envelopes.append(envelope)
-            await _apply(driver, envelope, expect_replay=False)
-            await _assert_governance(driver, envelope)
-        counts["after_ingest"] = await _count(driver, scope)
-        if counts["after_ingest"] != len(envelopes):
-            raise CertificationError("fixture ingest count does not reconcile")
-        checks["fixture_ingest"] = "passed"
 
-        for envelope in envelopes:
-            await _apply(driver, envelope, expect_replay=True)
-        counts["after_replay"] = await _count(driver, scope)
-        if counts["after_replay"] != len(envelopes):
-            raise CertificationError("replay changed the live record count")
-        checks["replay_idempotency"] = "passed"
-
-        first = envelopes[0]
-        updated = _next_envelope(first, version="2", operation="upsert")
-        await _apply(driver, updated, expect_replay=False)
-        await _assert_governance(driver, updated)
-        counts["after_update"] = await _count(driver, scope)
-        if counts["after_update"] != len(envelopes):
-            raise CertificationError("update changed the live record count")
-        checks["update"] = "passed"
-
-        deleted = _next_envelope(updated, version="3", operation="delete")
-        await _apply(driver, deleted, expect_replay=False)
-        counts["after_delete"] = await _count(driver, scope)
-        if counts["after_delete"] != len(envelopes) - 1:
-            raise CertificationError("delete count does not reconcile")
-        await _assert_tombstone_governance(driver, deleted)
-        await _apply(driver, deleted, expect_replay=True)
-        counts["after_delete_replay"] = await _count(driver, scope)
-        if counts["after_delete_replay"] != len(envelopes) - 1:
-            raise CertificationError("delete replay changed the live record count")
-        checks["delete"] = "passed"
-        checks["governance_preservation"] = "passed"
-
-        semantic_validator = _semantic_validation(
-            bundle, envelopes, require_pyshacl=mode == "external-live"
-        )
-        checks["semantic_validation"] = "passed"
-        checks["count_reconciliation"] = "passed"
-
-        for envelope in envelopes[1:]:
-            cleanup = _next_envelope(envelope, version="cleanup", operation="delete")
-            await _apply(driver, cleanup, expect_replay=False)
-        counts["after_cleanup"] = await _count(driver, scope)
-        if counts["after_cleanup"] != 0:
-            raise CertificationError("certification cleanup count does not reconcile")
-        checks["cleanup"] = "passed"
-    except Exception as exc:  # signed aggregate failure; no source/error text retained
-        failure_class = type(exc).__name__
-        try:
-            for envelope in envelopes:
-                cleanup = _next_envelope(
-                    envelope, version=f"cleanup-{uuid.uuid4().hex}", operation="delete"
-                )
-                await driver.invoke(
-                    {
-                        "api_version": "graphos.connector-certification/v1",
-                        "action": "apply",
-                        "envelope": cleanup.as_dict(),
-                    }
-                )
-            if await _count(driver, scope) == 0:
-                checks["cleanup"] = "passed"
-        except Exception:
-            checks["cleanup"] = "failed"
-
+def _certify_connector_finalize_checks(mode: str, checks: dict[str, str]) -> None:
     if mode == "external-live" and checks["live_tool_schema"] == "not-run":
         checks["live_tool_schema"] = "failed"
     for name, status in tuple(checks.items()):
         if status == "not-run" and name != "live_tool_schema":
             checks[name] = "failed"
+
+
+def _certify_connector_status(
+    mode: str, checks: dict[str, str], failure_class: str | None
+) -> tuple[str, bool]:
+    _certify_connector_finalize_checks(mode, checks)
     if mode == "offline-fixture" and failure_class is None:
         checks["live_tool_schema"] = "not-run"
-        status = "offline-validated"
-        live_certified = False
-    elif failure_class is None and all(value == "passed" for value in checks.values()):
-        status = "certified"
-        live_certified = True
-    else:
-        status = "failed"
-        live_certified = False
+        return "offline-validated", False
+    if failure_class is None and all(value == "passed" for value in checks.values()):
+        return "certified", True
+    return "failed", False
+
+
+def _certify_connector_backfill_evidence(
+    evidence: dict[str, str], checks: dict[str, str], mode: str
+) -> dict[str, str]:
     for name in REQUIRED_CHECKS:
         evidence.setdefault(
             name,
             _evidence_digest({"check": name, "status": checks[name], "mode": mode}),
         )
+    return evidence
 
-    record: dict[str, Any] = {
+
+def _certify_connector_build_record(
+    *,
+    bundle: CertificationBundle,
+    started: datetime,
+    mode: str,
+    status: str,
+    live_certified: bool,
+    checks: dict[str, str],
+    counts: dict[str, int],
+    semantic_validator: str,
+    evidence: dict[str, str],
+    failure_class: str | None,
+    fixtures: Sequence[Any],
+    policy: CertificationPolicy,
+    signer: ontology_integrity.ReleaseSigner,
+) -> dict[str, Any]:
+    return {
         "api_version": "graphos.io/v1",
         "kind": "ConnectorLiveCertification",
         "schema_version": "1",
@@ -738,6 +833,83 @@ async def certify_connector(
         "signing_public_key": signer.public_key,
         "signature": None,
     }
+
+
+async def certify_connector(
+    bundle: CertificationBundle,
+    *,
+    mode: str,
+    signer: ontology_integrity.ReleaseSigner,
+    driver: CertificationDriver | None = None,
+    policy: CertificationPolicy | None = None,
+    limits: CertificationLimits | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Exercise one bundle and return a signed, content-free certification record."""
+
+    if mode not in {"offline-fixture", "external-live"}:
+        raise ValueError("certification mode is invalid")
+    limits = limits or CertificationLimits()
+    policy = policy or CertificationPolicy()
+    driver = _certify_connector_resolve_driver(mode, driver)
+
+    started = (now or datetime.now(UTC)).astimezone(UTC)
+    checks = {name: "not-run" for name in REQUIRED_CHECKS}
+    checks["bundle_integrity"] = "passed"
+    counts: dict[str, int] = {}
+    evidence: dict[str, str] = {}
+    semantic_validator = "not-run"
+    failure_class: str | None = None
+    fixtures = bundle.fixtures[: limits.max_records]
+    if bundle.manifest.sync and len(fixtures) < len(bundle.manifest.sync):
+        failure_class = "FixtureBoundaryError"
+
+    run_key = uuid.uuid4().hex
+    source_instance = f"certification-{run_key}"
+    scope = {
+        "tenant": policy.tenant,
+        "connector": bundle.manifest.connector,
+        "source_instance": source_instance,
+    }
+    envelopes: list[ChangeEnvelope] = []
+    try:
+        semantic_validator = await _certify_connector_run(
+            driver,
+            bundle,
+            fixtures,
+            mode=mode,
+            run_key=run_key,
+            source_instance=source_instance,
+            policy=policy,
+            scope=scope,
+            envelopes=envelopes,
+            counts=counts,
+            checks=checks,
+            evidence=evidence,
+            failure_class=failure_class,
+        )
+    except Exception as exc:  # signed aggregate failure; no source/error text retained
+        failure_class = type(exc).__name__
+        await _certify_connector_failure_cleanup(driver, envelopes, scope, checks)
+
+    status, live_certified = _certify_connector_status(mode, checks, failure_class)
+    evidence = _certify_connector_backfill_evidence(evidence, checks, mode)
+
+    record = _certify_connector_build_record(
+        bundle=bundle,
+        started=started,
+        mode=mode,
+        status=status,
+        live_certified=live_certified,
+        checks=checks,
+        counts=counts,
+        semantic_validator=semantic_validator,
+        evidence=evidence,
+        failure_class=failure_class,
+        fixtures=fixtures,
+        policy=policy,
+        signer=signer,
+    )
     # An UNSIGNED in-repo certification is the intended shape, not a failure to
     # sign: git already supplies integrity and authorship for everything committed
     # here, so the record carries no signature and the placeholder's `sign()`
