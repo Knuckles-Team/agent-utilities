@@ -323,6 +323,39 @@ query AgentUtilitiesSchemaDiscovery {
 """.strip()
 
 
+def _graphql_discovery_candidates(
+    raw_types: Any, limit: int
+) -> list[Mapping[str, Any]]:
+    if not isinstance(raw_types, list):
+        return []
+    return sorted(
+        (
+            item
+            for item in raw_types
+            if isinstance(item, Mapping)
+            and not str(item.get("name") or "").startswith("__")
+            and _GRAPHQL_IDENT_RE.fullmatch(str(item.get("name") or ""))
+        ),
+        key=lambda item: str(item.get("name") or ""),
+    )
+
+
+def _graphql_discovery_field_names(item: Mapping[str, Any]) -> tuple[str, ...]:
+    fields = item.get("fields") or []
+    return tuple(
+        sorted(
+            {
+                field_name
+                for field in fields
+                if isinstance(field, Mapping)
+                and _GRAPHQL_IDENT_RE.fullmatch(
+                    field_name := str(field.get("name") or "")
+                )
+            }
+        )
+    )
+
+
 class GraphQLDiscoveryAdapter:
     """Generic schema discovery over an injected, TLS-governed transport."""
 
@@ -541,17 +574,12 @@ class GraphQLDiscoveryAdapter:
                 out=out,
             )
 
-    def discover(
-        self,
-        execute: GraphQLExecutor,
-        *,
-        max_types: int = 200,
-        allow_introspection: bool = True,
-        probe_document: str = "",
-        probe_variables: Mapping[str, Any] | None = None,
-        max_depth: int = 6,
-    ) -> GraphQLDiscoveredSchema:
-        limit = max(1, min(int(max_types), _MAX_TYPES))
+    def _discover_via_introspection(
+        self, execute: GraphQLExecutor, *, allow_introspection: bool, limit: int
+    ) -> GraphQLDiscoveredSchema | None:
+        """Attempt introspection-based discovery. Returns None (never raises)
+        when introspection is disabled/unavailable or exposes no usable types,
+        so the caller can degrade to the bounded-probe fallback."""
         response: Mapping[str, Any] = {}
         if allow_introspection:
             try:
@@ -566,51 +594,28 @@ class GraphQLDiscoveryAdapter:
         raw_types = (
             schema_root.get("types") if isinstance(schema_root, Mapping) else None
         )
+        candidates = _graphql_discovery_candidates(raw_types, limit)
         types: dict[str, tuple[str, ...]] = {}
         signatures: dict[str, tuple[str, ...]] = {}
-        candidates: list[Mapping[str, Any]] = []
-        if isinstance(raw_types, list):
-            candidates = sorted(
-                (
-                    item
-                    for item in raw_types
-                    if isinstance(item, Mapping)
-                    and not str(item.get("name") or "").startswith("__")
-                    and _GRAPHQL_IDENT_RE.fullmatch(str(item.get("name") or ""))
-                ),
-                key=lambda item: str(item.get("name") or ""),
-            )
-            for item in candidates[:limit]:
-                name = str(item.get("name") or "")
-                fields = item.get("fields") or []
-                names = sorted(
-                    {
-                        field_name
-                        for field in fields
-                        if isinstance(field, Mapping)
-                        and _GRAPHQL_IDENT_RE.fullmatch(
-                            field_name := str(field.get("name") or "")
-                        )
-                    }
-                )
-                types[name] = tuple(names)
-                signatures[name] = self._introspection_signature(item)
-        if types:
-            return GraphQLDiscoveredSchema(
-                types=types,
-                schema_digest=self._digest(signatures, "introspection"),
-                mode="introspection",
-                partial=len(candidates) > limit,
-            )
+        for item in candidates[:limit]:
+            name = str(item.get("name") or "")
+            types[name] = _graphql_discovery_field_names(item)
+            signatures[name] = self._introspection_signature(item)
+        if not types:
+            return None
+        return GraphQLDiscoveredSchema(
+            types=types,
+            schema_digest=self._digest(signatures, "introspection"),
+            mode="introspection",
+            partial=len(candidates) > limit,
+        )
 
-        # Introspection is commonly disabled in production. The fallback never
-        # invents or bundles an operation: it accepts only a secret/runtime probe
-        # selected by the operator and requires an explicit bound variable.
-        document = str(probe_document or "").strip()
-        if not document:
-            raise ExternalGraphSchemaError(
-                "GraphQL introspection is unavailable and no bounded probe was configured"
-            )
+    def _discover_bounded_probe_variables(
+        self,
+        document: str,
+        probe_variables: Mapping[str, Any] | None,
+        limit: int,
+    ) -> dict[str, Any]:
         has_limit, has_first = self._bounded_probe_variables(document)
         if not has_limit and not has_first:
             raise ExternalGraphSchemaError(
@@ -630,6 +635,28 @@ class GraphQLDiscoveryAdapter:
             raise ExternalGraphSchemaError(
                 "GraphQL discovery probe bound is invalid"
             ) from None
+        return variables
+
+    def _discover_via_bounded_probe(
+        self,
+        execute: GraphQLExecutor,
+        *,
+        probe_document: str,
+        probe_variables: Mapping[str, Any] | None,
+        max_depth: int,
+        limit: int,
+    ) -> GraphQLDiscoveredSchema:
+        # Introspection is commonly disabled in production. The fallback never
+        # invents or bundles an operation: it accepts only a secret/runtime probe
+        # selected by the operator and requires an explicit bound variable.
+        document = str(probe_document or "").strip()
+        if not document:
+            raise ExternalGraphSchemaError(
+                "GraphQL introspection is unavailable and no bounded probe was configured"
+            )
+        variables = self._discover_bounded_probe_variables(
+            document, probe_variables, limit
+        )
         response = self._execute(execute, document, variables)
         shaped: dict[str, set[str]] = {}
         self._shape(
@@ -648,6 +675,30 @@ class GraphQLDiscoveryAdapter:
             schema_digest=self._digest(types, "bounded-probe"),
             mode="bounded-probe",
             partial=True,
+        )
+
+    def discover(
+        self,
+        execute: GraphQLExecutor,
+        *,
+        max_types: int = 200,
+        allow_introspection: bool = True,
+        probe_document: str = "",
+        probe_variables: Mapping[str, Any] | None = None,
+        max_depth: int = 6,
+    ) -> GraphQLDiscoveredSchema:
+        limit = max(1, min(int(max_types), _MAX_TYPES))
+        discovered = self._discover_via_introspection(
+            execute, allow_introspection=allow_introspection, limit=limit
+        )
+        if discovered is not None:
+            return discovered
+        return self._discover_via_bounded_probe(
+            execute,
+            probe_document=probe_document,
+            probe_variables=probe_variables,
+            max_depth=max_depth,
+            limit=limit,
         )
 
 
@@ -1337,6 +1388,285 @@ def _semantic_suggestions(
     }
 
 
+def _propose_mapping_profile_validate_digest(runtime_policy_digest: str) -> str:
+    runtime_policy_digest = str(runtime_policy_digest or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", runtime_policy_digest):
+        raise ExternalGraphSchemaError(
+            "mapping proposal requires the current runtime policy digest"
+        )
+    return runtime_policy_digest
+
+
+def _propose_mapping_profile_validate_page_limits(
+    page_size: int, max_pages: int
+) -> tuple[int, int]:
+    if isinstance(page_size, bool) or isinstance(max_pages, bool):
+        raise ExternalGraphSchemaError("page limits must be integers")
+    try:
+        page_size = int(page_size)
+        max_pages = int(max_pages)
+    except (TypeError, ValueError, OverflowError):
+        raise ExternalGraphSchemaError("page limits must be integers") from None
+    if not 1 <= page_size <= 1_000:
+        raise ExternalGraphSchemaError("page_size must be between 1 and 1000")
+    if not 1 <= max_pages <= 1_000:
+        raise ExternalGraphSchemaError("max_pages must be between 1 and 1000")
+    return page_size, max_pages
+
+
+def _propose_mapping_profile_validate_structural_bounds(
+    max_row_bytes: int,
+    max_total_bytes: int,
+    max_nesting_depth: int,
+    max_collection_items: int,
+) -> tuple[int, int, int, int]:
+    structural_bounds = (
+        max_row_bytes,
+        max_total_bytes,
+        max_nesting_depth,
+        max_collection_items,
+    )
+    if any(isinstance(value, bool) for value in structural_bounds):
+        raise ExternalGraphSchemaError("structural limits must be integers")
+    try:
+        max_row_bytes = int(max_row_bytes)
+        max_total_bytes = int(max_total_bytes)
+        max_nesting_depth = int(max_nesting_depth)
+        max_collection_items = int(max_collection_items)
+    except (TypeError, ValueError, OverflowError):
+        raise ExternalGraphSchemaError("structural limits must be integers") from None
+    if not 256 <= max_row_bytes <= 8_388_608:
+        raise ExternalGraphSchemaError("max_row_bytes is out of range")
+    if not max_row_bytes <= max_total_bytes <= 67_108_864:
+        raise ExternalGraphSchemaError("max_total_bytes is out of range")
+    if not 1 <= max_nesting_depth <= 64:
+        raise ExternalGraphSchemaError("max_nesting_depth is out of range")
+    if not 1 <= max_collection_items <= 100_000:
+        raise ExternalGraphSchemaError("max_collection_items is out of range")
+    return max_row_bytes, max_total_bytes, max_nesting_depth, max_collection_items
+
+
+def _propose_mapping_profile_validate_flags(
+    reconcile_deletions: bool, allow_empty_snapshot: bool, sync_mode: str
+) -> None:
+    if not isinstance(reconcile_deletions, bool) or not isinstance(
+        allow_empty_snapshot, bool
+    ):
+        raise ExternalGraphSchemaError("reconciliation policy must be boolean")
+    if sync_mode not in {"auto", "cdc", "snapshot"}:
+        raise ExternalGraphSchemaError("sync_mode must be auto, cdc, or snapshot")
+
+
+def _propose_mapping_profile_sync_policy(
+    *,
+    runtime_policy_digest: str,
+    page_size: int,
+    max_pages: int,
+    max_row_bytes: int,
+    max_total_bytes: int,
+    max_nesting_depth: int,
+    max_collection_items: int,
+    sync_mode: str,
+    reconcile_deletions: bool,
+    allow_empty_snapshot: bool,
+) -> tuple[str, dict[str, Any]]:
+    """Validate + normalize every sync-policy input of `propose_mapping_profile`.
+
+    Returns the normalized ``runtime_policy_digest`` and the resulting
+    ``sync_policy`` mapping; raises :class:`ExternalGraphSchemaError` on any
+    invalid input (identical error text/ordering to the pre-extraction code).
+    """
+    runtime_policy_digest = _propose_mapping_profile_validate_digest(
+        runtime_policy_digest
+    )
+    page_size, max_pages = _propose_mapping_profile_validate_page_limits(
+        page_size, max_pages
+    )
+    (
+        max_row_bytes,
+        max_total_bytes,
+        max_nesting_depth,
+        max_collection_items,
+    ) = _propose_mapping_profile_validate_structural_bounds(
+        max_row_bytes, max_total_bytes, max_nesting_depth, max_collection_items
+    )
+    _propose_mapping_profile_validate_flags(
+        reconcile_deletions, allow_empty_snapshot, sync_mode
+    )
+    sync_policy = {
+        "allow_empty_snapshot": bool(allow_empty_snapshot),
+        "max_collection_items": max_collection_items,
+        "max_nesting_depth": max_nesting_depth,
+        "max_pages": max_pages,
+        "max_row_bytes": max_row_bytes,
+        "max_total_bytes": max_total_bytes,
+        "page_size": page_size,
+        "reconcile_deletions": bool(reconcile_deletions),
+        "sync_mode": sync_mode,
+    }
+    return runtime_policy_digest, sync_policy
+
+
+def _propose_mapping_profile_discover(
+    engine: Any, backend: Any, max_types: int
+) -> tuple[Any, Any, int]:
+    discovery_max_types = max(1, min(int(max_types), _MAX_TYPES))
+    schema, capabilities = discover_external_schema(
+        engine, backend=backend, max_types=discovery_max_types
+    )
+    if schema.partial or not schema.labels:
+        raise ExternalGraphSchemaError(
+            "schema discovery was incomplete; mapping proposal was not stored"
+        )
+    return schema, capabilities, discovery_max_types
+
+
+def _propose_mapping_profile_deterministic_map(
+    deterministic: list[dict[str, Any]],
+) -> tuple[dict[str, str], dict[str, tuple[str, float]]]:
+    type_map: dict[str, str] = {}
+    methods: dict[str, tuple[str, float]] = {}
+    for row in deterministic:
+        label = str(row["external_label"])
+        target = row.get("mapped_to")
+        if target:
+            type_map[label] = str(target)
+            methods[label] = (str(row["method"]), float(row["confidence"]))
+    return type_map, methods
+
+
+def _propose_mapping_profile_apply_semantic(
+    schema: Any,
+    semantic: Mapping[str, str],
+    target_set: set[str],
+    type_map: dict[str, str],
+    methods: dict[str, tuple[str, float]],
+) -> None:
+    for label, target in semantic.items():
+        if label in schema.labels and target in target_set and label not in type_map:
+            type_map[label] = str(target)
+            methods[label] = ("semantic-proposal", 0.6)
+
+
+def _propose_mapping_profile_apply_overrides(
+    schema: Any,
+    target_set: set[str],
+    type_overrides: Mapping[str, str] | None,
+    type_map: dict[str, str],
+    methods: dict[str, tuple[str, float]],
+) -> None:
+    for label, target in (type_overrides or {}).items():
+        if label not in schema.labels or target not in target_set:
+            raise ExternalGraphSchemaError(
+                "mapping override is outside discovered schema"
+            )
+        type_map[label] = str(target)
+        methods[label] = ("operator-override", 1.0)
+
+
+def _propose_mapping_profile_common_properties(schema: Any) -> set[str]:
+    common_properties = set(schema.property_keys)
+    known_per_label = [
+        set(properties)
+        for properties in schema.per_label_property_keys.values()
+        if properties
+    ]
+    for properties in known_per_label:
+        common_properties.intersection_update(properties)
+    return common_properties
+
+
+def _propose_mapping_profile_identity_property(
+    schema: Any, identity_property: str | None
+) -> str:
+    common_properties = _propose_mapping_profile_common_properties(schema)
+    chosen_identity = str(identity_property or "").strip()
+    if not chosen_identity:
+        chosen_identity = next(
+            (key for key in _IDENTITY_CANDIDATES if key in common_properties), ""
+        )
+    if (
+        not _IDENT_RE.fullmatch(chosen_identity)
+        or (common_properties and chosen_identity not in common_properties)
+        or (not common_properties and not identity_property)
+    ):
+        raise ExternalGraphSchemaError(
+            "mapping requires a stable identity property shared by all labels"
+        )
+    return chosen_identity
+
+
+def _propose_mapping_profile_safe_props(
+    property_allowlist: list[str] | None,
+    edge_property_allowlist: list[str] | None,
+    schema: Any,
+) -> tuple[list[str], list[str]]:
+    safe_node_props = sorted(
+        {
+            key
+            for key in (property_allowlist or list(schema.property_keys))
+            if _safe_property_name(key)
+        }
+    )
+    safe_edge_props = sorted(
+        {key for key in (edge_property_allowlist or []) if _safe_property_name(key)}
+    )
+    if not safe_node_props:
+        raise ExternalGraphSchemaError(
+            "no privacy-safe node properties were approved for ingestion"
+        )
+    return safe_node_props, safe_edge_props
+
+
+def _propose_mapping_profile_version_status(
+    previous: Mapping[str, Any],
+    previous_version: int,
+    schema: Any,
+    mapping_digest: str,
+    identity_key: str,
+) -> tuple[bool, int, str, str]:
+    unchanged = (
+        previous.get("schema_digest") == schema.schema_digest
+        and previous.get("mapping_digest") == mapping_digest
+    )
+    proposal_version = max(1, previous_version if unchanged else previous_version + 1)
+    proposal_id = "map-" + _hmac_token(
+        identity_key,
+        "proposal",
+        f"{schema.schema_digest}:{mapping_digest}:{proposal_version}",
+    )
+    status = (
+        str(previous.get("approval_status"))
+        if unchanged and previous.get("approval_status") == "approved"
+        else "proposed"
+    )
+    return unchanged, proposal_version, proposal_id, status
+
+
+def _propose_mapping_profile_public_mappings(
+    schema: Any,
+    type_map: dict[str, str],
+    methods: dict[str, tuple[str, float]],
+    identity_key: str,
+) -> list[dict[str, Any]]:
+    public_mappings = []
+    for label in schema.labels:
+        method, confidence = methods.get(label, ("novel", 0.0))
+        public_mappings.append(
+            {
+                "source_token": "label-" + _hmac_token(identity_key, "label", label),
+                "target_token": (
+                    "class-" + _hmac_token(identity_key, "class", type_map[label])
+                    if label in type_map
+                    else None
+                ),
+                "method": method,
+                "confidence": confidence,
+            }
+        )
+    return public_mappings
+
+
 def propose_mapping_profile(
     engine: Any,
     *,
@@ -1369,70 +1699,21 @@ def propose_mapping_profile(
 
     connection = _alias(connection, "connection")
     source_alias = _alias(source_alias, "source_alias")
-    runtime_policy_digest = str(runtime_policy_digest or "").strip().lower()
-    if not re.fullmatch(r"[0-9a-f]{64}", runtime_policy_digest):
-        raise ExternalGraphSchemaError(
-            "mapping proposal requires the current runtime policy digest"
-        )
-    if isinstance(page_size, bool) or isinstance(max_pages, bool):
-        raise ExternalGraphSchemaError("page limits must be integers")
-    try:
-        page_size = int(page_size)
-        max_pages = int(max_pages)
-    except (TypeError, ValueError, OverflowError):
-        raise ExternalGraphSchemaError("page limits must be integers") from None
-    if not 1 <= page_size <= 1_000:
-        raise ExternalGraphSchemaError("page_size must be between 1 and 1000")
-    if not 1 <= max_pages <= 1_000:
-        raise ExternalGraphSchemaError("max_pages must be between 1 and 1000")
-    structural_bounds = (
-        max_row_bytes,
-        max_total_bytes,
-        max_nesting_depth,
-        max_collection_items,
+    runtime_policy_digest, sync_policy = _propose_mapping_profile_sync_policy(
+        runtime_policy_digest=runtime_policy_digest,
+        page_size=page_size,
+        max_pages=max_pages,
+        max_row_bytes=max_row_bytes,
+        max_total_bytes=max_total_bytes,
+        max_nesting_depth=max_nesting_depth,
+        max_collection_items=max_collection_items,
+        sync_mode=sync_mode,
+        reconcile_deletions=reconcile_deletions,
+        allow_empty_snapshot=allow_empty_snapshot,
     )
-    if any(isinstance(value, bool) for value in structural_bounds):
-        raise ExternalGraphSchemaError("structural limits must be integers")
-    try:
-        max_row_bytes = int(max_row_bytes)
-        max_total_bytes = int(max_total_bytes)
-        max_nesting_depth = int(max_nesting_depth)
-        max_collection_items = int(max_collection_items)
-    except (TypeError, ValueError, OverflowError):
-        raise ExternalGraphSchemaError("structural limits must be integers") from None
-    if not 256 <= max_row_bytes <= 8_388_608:
-        raise ExternalGraphSchemaError("max_row_bytes is out of range")
-    if not max_row_bytes <= max_total_bytes <= 67_108_864:
-        raise ExternalGraphSchemaError("max_total_bytes is out of range")
-    if not 1 <= max_nesting_depth <= 64:
-        raise ExternalGraphSchemaError("max_nesting_depth is out of range")
-    if not 1 <= max_collection_items <= 100_000:
-        raise ExternalGraphSchemaError("max_collection_items is out of range")
-    if not isinstance(reconcile_deletions, bool) or not isinstance(
-        allow_empty_snapshot, bool
-    ):
-        raise ExternalGraphSchemaError("reconciliation policy must be boolean")
-    if sync_mode not in {"auto", "cdc", "snapshot"}:
-        raise ExternalGraphSchemaError("sync_mode must be auto, cdc, or snapshot")
-    sync_policy = {
-        "allow_empty_snapshot": bool(allow_empty_snapshot),
-        "max_collection_items": max_collection_items,
-        "max_nesting_depth": max_nesting_depth,
-        "max_pages": max_pages,
-        "max_row_bytes": max_row_bytes,
-        "max_total_bytes": max_total_bytes,
-        "page_size": page_size,
-        "reconcile_deletions": bool(reconcile_deletions),
-        "sync_mode": sync_mode,
-    }
-    discovery_max_types = max(1, min(int(max_types), _MAX_TYPES))
-    schema, capabilities = discover_external_schema(
-        engine, backend=backend, max_types=discovery_max_types
+    schema, capabilities, discovery_max_types = _propose_mapping_profile_discover(
+        engine, backend, max_types
     )
-    if schema.partial or not schema.labels:
-        raise ExternalGraphSchemaError(
-            "schema discovery was incomplete; mapping proposal was not stored"
-        )
     identity_key = _identity_key(secret_store, connection)
     deterministic = _deterministic_mapping(schema.labels, ontology_classes)
     semantic = _semantic_suggestions(
@@ -1442,65 +1723,23 @@ def propose_mapping_profile(
         context_session=context_session,
     )
     target_set = set(ontology_classes)
-    type_map: dict[str, str] = {}
-    methods: dict[str, tuple[str, float]] = {}
-    for row in deterministic:
-        label = str(row["external_label"])
-        target = row.get("mapped_to")
-        if target:
-            type_map[label] = str(target)
-            methods[label] = (str(row["method"]), float(row["confidence"]))
-    for label, target in semantic.items():
-        if label in schema.labels and target in target_set and label not in type_map:
-            type_map[label] = str(target)
-            methods[label] = ("semantic-proposal", 0.6)
-    for label, target in (type_overrides or {}).items():
-        if label not in schema.labels or target not in target_set:
-            raise ExternalGraphSchemaError(
-                "mapping override is outside discovered schema"
-            )
-        type_map[label] = str(target)
-        methods[label] = ("operator-override", 1.0)
+    type_map, methods = _propose_mapping_profile_deterministic_map(deterministic)
+    _propose_mapping_profile_apply_semantic(
+        schema, semantic, target_set, type_map, methods
+    )
+    _propose_mapping_profile_apply_overrides(
+        schema, target_set, type_overrides, type_map, methods
+    )
 
     store_key = _secret_key(connection)
     previous = _load_json(secret_store, store_key) or {}
     previous_version = int(previous.get("proposal_version") or 0)
-    common_properties = set(schema.property_keys)
-    known_per_label = [
-        set(properties)
-        for properties in schema.per_label_property_keys.values()
-        if properties
-    ]
-    for properties in known_per_label:
-        common_properties.intersection_update(properties)
-    chosen_identity = str(identity_property or "").strip()
-    if not chosen_identity:
-        chosen_identity = next(
-            (key for key in _IDENTITY_CANDIDATES if key in common_properties), ""
-        )
-    if (
-        not _IDENT_RE.fullmatch(chosen_identity)
-        or (common_properties and chosen_identity not in common_properties)
-        or (not common_properties and not identity_property)
-    ):
-        raise ExternalGraphSchemaError(
-            "mapping requires a stable identity property shared by all labels"
-        )
-    identity_property = chosen_identity
-    safe_node_props = sorted(
-        {
-            key
-            for key in (property_allowlist or list(schema.property_keys))
-            if _safe_property_name(key)
-        }
+    identity_property = _propose_mapping_profile_identity_property(
+        schema, identity_property
     )
-    safe_edge_props = sorted(
-        {key for key in (edge_property_allowlist or []) if _safe_property_name(key)}
+    safe_node_props, safe_edge_props = _propose_mapping_profile_safe_props(
+        property_allowlist, edge_property_allowlist, schema
     )
-    if not safe_node_props:
-        raise ExternalGraphSchemaError(
-            "no privacy-safe node properties were approved for ingestion"
-        )
     access_policy = dict(access or {})
     edge_map = dict(edge_type_overrides or {})
     approved_edge_props = safe_edge_props or ["confidence"]
@@ -1546,36 +1785,14 @@ def propose_mapping_profile(
             "type_map": type_map,
         }
     )
-    unchanged = (
-        previous.get("schema_digest") == schema.schema_digest
-        and previous.get("mapping_digest") == mapping_digest
-    )
-    proposal_version = max(1, previous_version if unchanged else previous_version + 1)
-    proposal_id = "map-" + _hmac_token(
-        identity_key,
-        "proposal",
-        f"{schema.schema_digest}:{mapping_digest}:{proposal_version}",
-    )
-    status = (
-        str(previous.get("approval_status"))
-        if unchanged and previous.get("approval_status") == "approved"
-        else "proposed"
-    )
-    public_mappings = []
-    for label in schema.labels:
-        method, confidence = methods.get(label, ("novel", 0.0))
-        public_mappings.append(
-            {
-                "source_token": "label-" + _hmac_token(identity_key, "label", label),
-                "target_token": (
-                    "class-" + _hmac_token(identity_key, "class", type_map[label])
-                    if label in type_map
-                    else None
-                ),
-                "method": method,
-                "confidence": confidence,
-            }
+    _unchanged, proposal_version, proposal_id, status = (
+        _propose_mapping_profile_version_status(
+            previous, previous_version, schema, mapping_digest, identity_key
         )
+    )
+    public_mappings = _propose_mapping_profile_public_mappings(
+        schema, type_map, methods, identity_key
+    )
 
     profile = {
         "profile_format": _PROFILE_VERSION,

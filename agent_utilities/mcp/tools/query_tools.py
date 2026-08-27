@@ -306,6 +306,607 @@ def code_connects(
     }
 
 
+def _run_graph_query_sql(cypher: str, connection: str, graph: str) -> str:
+    """``scope=='sql'`` branch of ``_run_graph_query`` (CONCEPT:AU-KG.query.read-only-sql-over)."""
+    try:
+        entries, errors, fanout = kg_server._resolve_target_engines(connection)
+        entries = kg_server.resolve_explicit_graph(entries, graph, fanout=fanout)
+    except kg_server.GraphNotFoundError as e:
+        return public_error_json(e, code="graph_not_found")
+    except kg_server.GraphSelectionConflictError as e:
+        return public_error_json(e, code="graph_selection_conflict")
+    except Exception as e:
+        return public_error_json(e)
+    if not fanout:
+        name, engine = entries[0]
+        try:
+            with kg_server.bound_to_graph(graph):
+                rows = engine.sql(cypher)
+            return json.dumps(
+                {"rows": rows, "connection": name, "graph": graph},
+                default=str,
+            )
+        except PermissionError as e:
+            return public_error_json(
+                e, code="permission_denied" if graph else "operation_failed"
+            )
+        except Exception as e:
+            return public_error_json(e)
+    results, fan_errors = kg_server.fanout_execute(
+        entries, lambda name, engine: engine.sql(cypher)
+    )
+    return json.dumps(
+        {
+            "targets": results,
+            "errors": {**errors, **fan_errors},
+            "connection": connection,
+            "graph": graph,
+        },
+        default=str,
+    )
+
+
+def _run_graph_query_sparql(cypher: str, connection: str, graph: str) -> str:
+    """``scope=='sparql'`` branch of ``_run_graph_query`` (CONCEPT:AU-KG.ingest.mirror-inbound)."""
+    try:
+        entries, errors, fanout = kg_server._resolve_target_engines(connection)
+        entries = kg_server.resolve_explicit_graph(entries, graph, fanout=fanout)
+    except kg_server.GraphNotFoundError as e:
+        return public_error_json(e, code="graph_not_found")
+    except kg_server.GraphSelectionConflictError as e:
+        return public_error_json(e, code="graph_selection_conflict")
+    except Exception as e:
+        return public_error_json(e)
+    if not fanout:
+        name, engine = entries[0]
+        try:
+            with kg_server.bound_to_graph(graph):
+                rows = engine.sparql(cypher)
+            return json.dumps(
+                {"rows": rows, "connection": name, "graph": graph},
+                default=str,
+            )
+        except PermissionError as e:
+            return public_error_json(
+                e, code="permission_denied" if graph else "operation_failed"
+            )
+        except Exception as e:
+            return public_error_json(e)
+    results, fan_errors = kg_server.fanout_execute(
+        entries, lambda name, engine: engine.sparql(cypher)
+    )
+    return json.dumps(
+        {
+            "targets": results,
+            "errors": {**errors, **fan_errors},
+            "connection": connection,
+            "graph": graph,
+        },
+        default=str,
+    )
+
+
+def _run_graph_query_federated(
+    cypher: str, reference_id: str, parsed_params: dict[str, Any]
+) -> str:
+    """``scope=='federated'`` branch of ``_run_graph_query``."""
+    engine = kg_server._get_engine()
+    if not reference_id:
+        return json.dumps({"error": "reference_id required for federated queries"})
+    try:
+        results = engine.execute_federated_query(reference_id, cypher, parsed_params)
+        return json.dumps(results, default=str)
+    except Exception as e:
+        return public_error_json(e)
+
+
+def _run_graph_query_normalize_args(
+    graph: str, params: str, include_epistemic: bool
+) -> tuple[str, dict[str, Any], bool]:
+    """Normalize a direct call's raw ``Field``-default bindings.
+
+    A direct call bypassing `_execute_tool` (which resolves `Field` defaults)
+    binds an omitted `graph`/`include_epistemic` to its raw, truthy
+    `pydantic.fields.FieldInfo` rather than the declared default — normalize
+    once here so every use below sees a clean value, mirroring the SAME
+    defensiveness `ConnectionRegistry.resolve_names` already applies to
+    `connection`.
+    """
+    normalized_graph = graph if isinstance(graph, str) else ""
+    parsed_params = json.loads(params) if params else {}
+    include_epistemic_flag = (
+        include_epistemic if isinstance(include_epistemic, bool) else False
+    )
+    return normalized_graph, parsed_params, include_epistemic_flag
+
+
+def _run_graph_query_resolve_local(
+    connection: str, graph: str
+) -> tuple[list[tuple[str, Any]], dict[str, Any], bool, str | None]:
+    """Resolve the local (Cypher) read target set, or a ready-to-return error body.
+
+    Mirrors the identical three-way except clause every other ``_run_graph_query``
+    scope branch uses, just returning the error JSON instead of returning it
+    directly so the caller can still short-circuit.
+    """
+    try:
+        entries, errors, fanout = kg_server._resolve_read_engines(connection)
+        entries = kg_server.resolve_explicit_graph(entries, graph, fanout=fanout)
+        return entries, errors, fanout, None
+    except kg_server.GraphNotFoundError as e:
+        return [], {}, False, public_error_json(e, code="graph_not_found")
+    except kg_server.GraphSelectionConflictError as e:
+        return [], {}, False, public_error_json(e, code="graph_selection_conflict")
+    except Exception as e:
+        return [], {}, False, public_error_json(e)
+
+
+def _run_graph_query_is_union_read(fanout: bool, connection: str | None) -> bool:
+    """Whether this fan-out is the implicit content-graph UNION (no explicit connection)."""
+    if not fanout:
+        return False
+    if connection is None:
+        return True
+    return isinstance(connection, str) and connection.strip().lower() in (
+        "",
+        "default",
+    )
+
+
+def _run_graph_query_union_aggregate(
+    cypher: str,
+    parsed_params: dict[str, Any],
+    as_of: str,
+    include_epistemic_flag: bool,
+    graph: str,
+) -> str:
+    """CONCEPT:AU-KG.query.query-aggregation — an aggregation under the implicit content-graph
+    union runs against the canonical default graph only (see the caller for why).
+    """
+    engine = kg_server._get_engine()
+    try:
+        if include_epistemic_flag:
+            results = engine.query_cypher(
+                cypher, parsed_params, as_of=as_of or None, include_epistemic=True
+            )
+        else:
+            results = engine.query_cypher(cypher, parsed_params, as_of=as_of or None)
+        return json.dumps(
+            {"rows": results, "connection": "default", "graph": graph},
+            default=str,
+        )
+    except Exception as e:
+        return public_error_json(e)
+
+
+def _run_graph_query_single(
+    cypher: str,
+    parsed_params: dict[str, Any],
+    as_of: str,
+    include_epistemic: bool,
+    graph: str,
+    name: str,
+    engine: Any,
+) -> str:
+    """Single connection (default or one named) local Cypher read."""
+    # Same raw-call defensive normalization as `envelope`: a direct call
+    # bypassing FastMCP schema resolution binds an omitted bool Field to its
+    # FieldInfo, not the `False` default.
+    include_epistemic_flag = (
+        include_epistemic if isinstance(include_epistemic, bool) else False
+    )
+    try:
+        with kg_server.bound_to_graph(graph):
+            if include_epistemic_flag:
+                # Only pass the new kwarg when actually requested — keeps the
+                # default call shape byte-identical for any `query_cypher`
+                # implementation (real or test double) that predates this
+                # parameter and doesn't accept it.
+                results = engine.query_cypher(
+                    cypher,
+                    parsed_params,
+                    as_of=as_of or None,
+                    include_epistemic=True,
+                )
+                # Per-row epistemic envelope takes precedence over `envelope`
+                # (there is no aggregate-bundle-of-epistemic-rows shape).
+                return json.dumps(
+                    {
+                        "rows": results,
+                        "connection": name,
+                        "graph": graph,
+                    },
+                    default=_json_default,
+                )
+            results = engine.query_cypher(
+                cypher,
+                parsed_params,
+                as_of=as_of or None,
+                include_epistemic=include_epistemic_flag,
+            )
+        if include_epistemic_flag:
+            return json.dumps(
+                {"rows": results, "connection": name, "graph": graph},
+                default=_json_default,
+            )
+        return json.dumps(
+            {
+                "rows": results,
+                "connection": name,
+                "graph": graph,
+                "evidence_bundle": _evidence_bundle_for_rows(
+                    engine, results
+                ).model_dump(),
+            },
+            default=str,
+        )
+    except kg_server.GraphSelectionConflictError as e:
+        return public_error_json(e, code="graph_selection_conflict")
+    except PermissionError as e:
+        # Only an EXPLICIT `graph` request classifies its own denial as
+        # `permission_denied` — the pre-existing behavior for a plain
+        # backend-level PermissionError (e.g. a write rejected on the
+        # read-only query path) with no `graph` selection in play is
+        # unchanged (`operation_failed`, BUG-048's ambiguous default).
+        return public_error_json(
+            e, code="permission_denied" if graph else "operation_failed"
+        )
+    except Exception as e:
+        return public_error_json(e)
+
+
+def _run_graph_query_fanout_primary(
+    primary: list[tuple[str, Any]],
+    fanout_query: Any,
+    content_graph_query: Any,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    results: dict[str, Any] = {}
+    fan_errors: dict[str, Any] = {}
+    for name, engine in primary:
+        # Same partial-success contract `fanout_execute` gives every
+        # target below (and the ACL/tenant denial path relies on): a
+        # backend that legitimately REJECTS this query (e.g. a
+        # permission/ACL denial from `engine.query_cypher`'s own
+        # enforcement) must land in `fan_errors`, not crash the whole
+        # tool call — the primary is queried directly (not through
+        # `fanout_execute`) only to skip its concurrency/timeout
+        # machinery, not its error handling.
+        try:
+            # B-18: the robustness fallback above can promote a real
+            # content graph into `primary` when no "default" entry was
+            # resolved — bind it too, never just the literal-"default"
+            # entry (which needs no narrowing since it already targets
+            # the ambient session's own graph).
+            fn = fanout_query if name == "default" else content_graph_query
+            results[name] = fn(name, engine)
+        except Exception as exc:  # noqa: BLE001 — mirrors fanout_execute's per-target catch below (same non-leaking, BUG-048-classified label): a denied/failed primary must surface as a labeled error, never propagate raw or silently vanish
+            logger.warning(
+                "Graph fan-out primary target failed (exception_type=%s)",
+                type(exc).__name__,
+            )
+            fan_errors[name] = kg_server.fanout_error_label(exc)
+    return results, fan_errors
+
+
+def _run_graph_query_fanout_targets(
+    entries: list[tuple[str, Any]],
+    union_read: bool,
+    fanout_query: Any,
+    content_graph_query: Any,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    if not union_read:
+        # Explicit cross-repo fan-out (`target='all'`/list) — per-target
+        # timeout at the full budget so one slow backend can't stall the set.
+        return kg_server.fanout_execute(entries, fanout_query)
+
+    # CONCEPT:AU-KG.ingest.unified-query-routing — mirror `graph_search`'s
+    # primary/supplementary split (see the `graph_search` implementation
+    # above). Before this, an implicit-default `graph_query` shared ONE
+    # `DEFAULT_FANOUT_TIMEOUT_S` (30s) budget across every resolved
+    # content-graph entry, including the `default` connection. Under a
+    # wide implicit fan-out (dozens of idle/unreachable `code:*`/`src:*`
+    # graphs) the primary was queued behind the hung ones on the same
+    # 8-worker pool and timed out too — a plain Cypher read against the
+    # live default graph could take minutes even though the engine
+    # itself (`engine_query action=cypher`, which bypasses this router)
+    # answers instantly. The primary/`default` connection now always
+    # grounds at the full budget, run separately and first; only the
+    # SUPPLEMENTARY content connections take the short
+    # `DEFAULT_CONTENT_FANOUT_TIMEOUT_S` skip-budget. An explicit
+    # `target='all'`/list is a deliberate cross-repo request and is
+    # NEVER `_union_read` (see its definition above), so it is
+    # unaffected and keeps the full per-target budget below.
+    primary = [(n, e) for n, e in entries if n == "default"]
+    supplementary = [(n, e) for n, e in entries if n != "default"]
+    # Robustness: if the resolver produced no `default` entry, treat the
+    # first as primary so SOMETHING always grounds at the full budget.
+    if not primary and entries:
+        primary, supplementary = [entries[0]], entries[1:]
+    results, fan_errors = _run_graph_query_fanout_primary(
+        primary, fanout_query, content_graph_query
+    )
+    if supplementary:
+        sup_results, sup_errors = kg_server.fanout_execute(
+            supplementary,
+            content_graph_query,
+            timeout=kg_server.DEFAULT_CONTENT_FANOUT_TIMEOUT_S,
+        )
+        results.update(sup_results)
+        fan_errors.update(sup_errors)
+    return results, fan_errors
+
+
+def _run_graph_query_fanout_response(
+    results: dict[str, Any],
+    fan_errors: dict[str, Any],
+    errors: dict[str, Any],
+    connection: str,
+    graph: str,
+    union_read: bool,
+) -> str:
+    if union_read:
+        # Merge the per-graph row lists into one id-deduped canonical row set.
+        merged: list[Any] = []
+        seen_ids: set[str] = set()
+        for _name in results:
+            for row in results[_name] or []:
+                rid = row.get("id") if isinstance(row, dict) else None
+                if rid is not None:
+                    if rid in seen_ids:
+                        continue
+                    seen_ids.add(rid)
+                merged.append(row)
+        return json.dumps(
+            {"rows": merged, "connection": connection, "graph": graph},
+            default=_json_default,
+        )
+    return json.dumps(
+        {
+            "targets": results,
+            "errors": {**errors, **fan_errors},
+            "connection": connection,
+            "graph": graph,
+        },
+        default=_json_default,
+    )
+
+
+def _run_graph_query_fanout(
+    cypher: str,
+    parsed_params: dict[str, Any],
+    as_of: str,
+    include_epistemic_flag: bool,
+    connection: str,
+    graph: str,
+    entries: list[tuple[str, Any]],
+    errors: dict[str, Any],
+    union_read: bool,
+) -> str:
+    """Fan-out — per-target timeout so one slow backend can't stall the set."""
+
+    def _fanout_query(name: str, engine: Any) -> Any:
+        del name
+        # Same defensive kwarg omission as the single-connection branch
+        # above: only pass `include_epistemic` when actually requested,
+        # so a `query_cypher` implementation (real or test double) that
+        # predates this parameter and doesn't accept it keeps working.
+        if include_epistemic_flag:
+            return engine.query_cypher(
+                cypher, parsed_params, as_of=as_of or None, include_epistemic=True
+            )
+        return engine.query_cypher(cypher, parsed_params, as_of=as_of or None)
+
+    def _content_graph_query(name: str, engine: Any) -> Any:
+        # B-18 fix: within the implicit content-graph UNION fan-out (never
+        # the explicit multi-connection fan-out below, which never calls
+        # this), `name` IS the physical graph `engine` is scoped to (see
+        # `kg_server._resolve_read_engines`'s
+        # `ingest_routing.safe_engine_for_graph(gname)` — a `for_graph()`
+        # view that fixes the outbound wire request's `graph` field but
+        # never rebinds `session.graph` to match). The wire layer's own
+        # mismatch lock (`_SessionRoutedAsyncClient._send`) then rejects
+        # every non-"default" leg with `PermissionError`, degrading the
+        # union to per-target errors. Narrow the verified session to the
+        # SAME graph via the sanctioned `bound_to_graph` primitive
+        # (CONCEPT:AU-KG.backend.explicit-graph-selection) so the request
+        # is self-consistent instead of inventing a second mechanism.
+        with kg_server.bound_to_graph(name):
+            return _fanout_query(name, engine)
+
+    results, fan_errors = _run_graph_query_fanout_targets(
+        entries, union_read, _fanout_query, _content_graph_query
+    )
+    return _run_graph_query_fanout_response(
+        results, fan_errors, errors, connection, graph, union_read
+    )
+
+
+_GRAPH_SEARCH_RESULTS_MODES = frozenset(
+    {
+        "hyde",
+        "deep",
+        "hybrid",
+        "concept",
+        "analogy",
+        "adore",
+        "chrono_ids",
+        "dci",
+        "memory",
+        "latent",
+        "sira",
+        "rerank",
+    }
+)
+
+
+def _graph_search_rerank(engine: Any, session: Any, *, query: str, top_k: int) -> Any:
+    # Semantic-retrieval hybrid re-scoring of a candidate set.
+    from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (  # noqa: E501
+        HybridSearchScorer,
+    )
+
+    base = engine.search_hybrid(query=query, top_k=top_k, session=session) or []
+    docs = [
+        {
+            "id": (r.get("node", r) or {}).get("id", ""),
+            "text": (r.get("node", r) or {}).get("description", ""),
+            "embedding": (r.get("node", r) or {}).get("embedding"),
+        }
+        for r in base
+    ]
+    qemb: list[float] = []
+    embed_model = getattr(getattr(engine, "hybrid_retriever", None), "embed_model", None)
+    if embed_model is not None:
+        try:
+            qemb = embed_model.get_text_embedding(query)
+        except Exception:  # noqa: BLE001
+            qemb = []
+    return HybridSearchScorer().score_documents(query, qemb, docs)
+
+
+def _graph_search_produce_results_extended(
+    engine: Any, session: Any, *, mode: str, query: str, top_k: int
+) -> Any:
+    if mode == "adore":
+        return engine.search_adore(query=query, top_k=top_k)
+    if mode == "chrono_ids":
+        return engine.temporal_semantic_ids(query=query, top_k=top_k)
+    if mode == "dci":
+        # search_dci is fail-closed (CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval):
+        # it always resolves a session and raises rather than returning an
+        # unfiltered traversal, so this served path must pass the already-ambient
+        # verified session (same pattern the hybrid/hyde/deep/concept/analogy
+        # branches use) rather than relying on an implicit fallback.
+        return engine.search_dci(query=query, top_k=top_k, session=session)
+    if mode == "memory":
+        return engine.search_memories(query=query, top_k=top_k)
+    if mode == "latent":
+        # KG-2.3 — route through the latent topology hierarchy.
+        from agent_utilities.knowledge_graph.retrieval.latent_topology_rag import (  # noqa: E501
+            LatentTopologicalRAG,
+        )
+
+        return LatentTopologicalRAG(engine).retrieve(query, top_k=top_k)
+    if mode == "sira":
+        # Single-shot SIRA: hybrid-retrieve, then sparsity-align the set.
+        from agent_utilities.knowledge_graph.retrieval.single_shot_sira import (
+            SingleShotSIRA,
+        )
+
+        base = engine.search_hybrid(query=query, top_k=top_k, session=session) or []
+        return SingleShotSIRA(engine).align_context(base)
+    # Only "rerank" remains among `_GRAPH_SEARCH_RESULTS_MODES` at this point —
+    # the caller has already dispatched hyde/deep/hybrid/concept/analogy above,
+    # and every other results-producing mode just above.
+    return _graph_search_rerank(engine, session, query=query, top_k=top_k)
+
+
+def _graph_search_produce_results(
+    engine: Any,
+    session: Any,
+    *,
+    mode: str,
+    query: str,
+    top_k: int,
+    self_correct: bool,
+    as_of: str,
+) -> Any:
+    """Modes in `_GRAPH_SEARCH_RESULTS_MODES` that feed the shared formatter
+    in `_search_with_engine` below. Precondition: `mode` is a member."""
+    if mode in ("hyde", "deep"):
+        return engine.search_hybrid(
+            query=query,
+            top_k=top_k,
+            mode=mode,
+            self_correct=self_correct,
+            session=session,
+        )
+    if mode == "hybrid":
+        return engine.search_hybrid(
+            query=query,
+            top_k=top_k,
+            self_correct=self_correct,
+            as_of=as_of or None,
+            session=session,
+        )
+    if mode in ("concept", "analogy"):
+        return engine.search_hybrid(query=query, top_k=top_k, session=session)
+    return _graph_search_produce_results_extended(
+        engine, session, mode=mode, query=query, top_k=top_k
+    )
+
+
+def _graph_search_discover(engine: Any, query: str) -> str:
+    try:
+        from agent_utilities.capabilities.manager import CapabilityManager
+
+        manager = CapabilityManager(engine)
+        results = manager.discover_capabilities(query)
+        if not results:
+            return f"No capabilities found for '{query}'"
+        return "\n".join([f"- {r.name}: {r.description}" for r in results])
+    except ImportError:
+        return "Error: capabilities module not available"
+
+
+def _graph_search_hard_negatives(engine: Any, query: str) -> str:
+    # KG-2.3 — mine hard negatives via the engine's hybrid retriever.
+    from agent_utilities.knowledge_graph.retrieval.hard_negative_miner import (  # noqa: E501
+        HardNegativeMiner,
+    )
+
+    retriever = getattr(engine, "hybrid_retriever", None)
+    if retriever is None:
+        return "Error: hybrid retriever unavailable for hard-negative mining."
+    negs = HardNegativeMiner(retriever).mine(query)
+    if not negs:
+        return f"No hard negatives mined for: '{query}'"
+    return "\n".join(f"- {n.doc_id}: {getattr(n, 'reason', '')}" for n in negs)
+
+
+def _graph_search_compiled(
+    engine: Any, query: str, *, top_k: int, as_of: str, token_budget: int
+) -> str:
+    # CONCEPT:AU-KG.retrieval.context-compiler — policy-aware ContextCompiler bundle: reuses the
+    # SAME engine ANN/hybrid retriever the other modes call, but additionally
+    # MMR-diversifies, scores evidence-quality/freshness from the epistemic
+    # columns (EPI-P3-1), fits a token budget, and runs every candidate through
+    # the live permissioning gate before returning citations + a proof graph —
+    # replacing the plain relevance-sorted concat the shared formatter performs
+    # for every other mode.
+    from agent_utilities.knowledge_graph.core.session import GraphSession
+    from agent_utilities.knowledge_graph.retrieval.context_compiler import (  # noqa: E501
+        ContextCompiler,
+    )
+
+    session = GraphSession.from_ambient()
+    compiler = ContextCompiler(engine)
+    kwargs: dict[str, Any] = {"top_k": top_k, "as_of": as_of or None}
+    if token_budget:
+        kwargs["token_budget"] = token_budget
+    bundle = compiler.compile(query, session=session, **kwargs)
+    return bundle.as_text()
+
+
+def _graph_search_format_results(results: Any) -> str:
+    # The direct retrieval modes use a flat, score-sorted text block with no
+    # diversity/evidence/freshness/policy/budget shaping — prefer
+    # mode='compiled' for a citation- and proof-graph-bearing bundle.
+    formatted_results = []
+    for res in results:
+        score = res.get("score", 0)
+        score = float(score) if score is not None else 0.0
+        node = res.get("node", res)
+        label = node.get("type", node.get("label", "Unknown"))
+        name = node.get("name", "Unnamed")
+        desc = node.get("description", "")
+        nid = node.get("id", "N/A")
+        formatted_results.append(
+            f"[{label}] {name} (ID: {nid}) - Score: {score:.2f}\n{desc}"
+        )
+    return "\n---\n".join(formatted_results)
+
+
 def register_query_tools(mcp):
     """Register the query_tools group on the given FastMCP server."""
 
@@ -387,10 +988,8 @@ def register_query_tools(mcp):
         # every `if graph`/`resolve_explicit_graph`/`bound_to_graph` use below
         # sees a clean string, mirroring the SAME defensiveness
         # `ConnectionRegistry.resolve_names` already applies to `connection`.
-        graph = graph if isinstance(graph, str) else ""
-        parsed_params = json.loads(params) if params else {}
-        include_epistemic_flag = (
-            include_epistemic if isinstance(include_epistemic, bool) else False
+        graph, parsed_params, include_epistemic_flag = _run_graph_query_normalize_args(
+            graph, params, include_epistemic
         )
 
         if scope == "sql":
@@ -400,44 +999,7 @@ def register_query_tools(mcp):
             # (engine.sql refuses non-SELECT). Honors `connection` fan-out like
             # Cypher; `graph` (CONCEPT:AU-KG.backend.explicit-graph-selection) selects a physical engine
             # graph, independent of `connection` — see `resolve_explicit_graph`.
-            try:
-                entries, errors, fanout = kg_server._resolve_target_engines(connection)
-                entries = kg_server.resolve_explicit_graph(
-                    entries, graph, fanout=fanout
-                )
-            except kg_server.GraphNotFoundError as e:
-                return public_error_json(e, code="graph_not_found")
-            except kg_server.GraphSelectionConflictError as e:
-                return public_error_json(e, code="graph_selection_conflict")
-            except Exception as e:
-                return public_error_json(e)
-            if not fanout:
-                name, engine = entries[0]
-                try:
-                    with kg_server.bound_to_graph(graph):
-                        rows = engine.sql(cypher)
-                    return json.dumps(
-                        {"rows": rows, "connection": name, "graph": graph},
-                        default=str,
-                    )
-                except PermissionError as e:
-                    return public_error_json(
-                        e, code="permission_denied" if graph else "operation_failed"
-                    )
-                except Exception as e:
-                    return public_error_json(e)
-            results, fan_errors = kg_server.fanout_execute(
-                entries, lambda name, engine: engine.sql(cypher)
-            )
-            return json.dumps(
-                {
-                    "targets": results,
-                    "errors": {**errors, **fan_errors},
-                    "connection": connection,
-                    "graph": graph,
-                },
-                default=str,
-            )
+            return _run_graph_query_sql(cypher, connection, graph)
 
         if scope == "sparql":
             # CONCEPT:AU-KG.ingest.mirror-inbound — SPARQL 1.1 (SELECT/ASK/CONSTRUCT/DESCRIBE) over the
@@ -445,58 +1007,10 @@ def register_query_tools(mcp):
             # SPARQL string. RLS-governed (engine.sparql visibility-filters rows) and
             # honors `connection` fan-out like Cypher/SQL; `graph` selects a physical
             # engine graph, independent of `connection`.
-            try:
-                entries, errors, fanout = kg_server._resolve_target_engines(connection)
-                entries = kg_server.resolve_explicit_graph(
-                    entries, graph, fanout=fanout
-                )
-            except kg_server.GraphNotFoundError as e:
-                return public_error_json(e, code="graph_not_found")
-            except kg_server.GraphSelectionConflictError as e:
-                return public_error_json(e, code="graph_selection_conflict")
-            except Exception as e:
-                return public_error_json(e)
-            if not fanout:
-                name, engine = entries[0]
-                try:
-                    with kg_server.bound_to_graph(graph):
-                        rows = engine.sparql(cypher)
-                    return json.dumps(
-                        {"rows": rows, "connection": name, "graph": graph},
-                        default=str,
-                    )
-                except PermissionError as e:
-                    return public_error_json(
-                        e, code="permission_denied" if graph else "operation_failed"
-                    )
-                except Exception as e:
-                    return public_error_json(e)
-            results, fan_errors = kg_server.fanout_execute(
-                entries, lambda name, engine: engine.sparql(cypher)
-            )
-            return json.dumps(
-                {
-                    "targets": results,
-                    "errors": {**errors, **fan_errors},
-                    "connection": connection,
-                    "graph": graph,
-                },
-                default=str,
-            )
+            return _run_graph_query_sparql(cypher, connection, graph)
 
         if scope == "federated":
-            engine = kg_server._get_engine()
-            if not reference_id:
-                return json.dumps(
-                    {"error": "reference_id required for federated queries"}
-                )
-            try:
-                results = engine.execute_federated_query(
-                    reference_id, cypher, parsed_params
-                )
-                return json.dumps(results, default=str)
-            except Exception as e:
-                return public_error_json(e)
+            return _run_graph_query_federated(cypher, reference_id, parsed_params)
 
         # Local reads use each backend's server-enforced read-only transaction.
         # The native engine requires an explicit read mode and validates it with
@@ -510,26 +1024,16 @@ def register_query_tools(mcp):
         # connection, so it fails closed against any fan-out (explicit or the
         # implicit content-graph union below) rather than silently ignoring the
         # request or unioning across graphs.
-        try:
-            entries, errors, fanout = kg_server._resolve_read_engines(connection)
-            entries = kg_server.resolve_explicit_graph(entries, graph, fanout=fanout)
-        except kg_server.GraphNotFoundError as e:
-            return public_error_json(e, code="graph_not_found")
-        except kg_server.GraphSelectionConflictError as e:
-            return public_error_json(e, code="graph_selection_conflict")
-        except Exception as e:
-            return public_error_json(e)
+        entries, errors, fanout, error_response = _run_graph_query_resolve_local(
+            connection, graph
+        )
+        if error_response is not None:
+            return error_response
 
         # Whether this fan-out is the implicit content-graph UNION (no explicit
         # connection). Those rows are merged into the canonical ``rows`` field; an
         # explicit ``connection='all'``/list keeps the per-target map.
-        _union_read = fanout and (
-            connection is None
-            or (
-                isinstance(connection, str)
-                and connection.strip().lower() in ("", "default")
-            )
-        )
+        _union_read = _run_graph_query_is_union_read(fanout, connection)
 
         # CONCEPT:AU-KG.query.query-aggregation — an aggregation (count/sum/group-by) under the implicit
         # content-graph union CANNOT be fanned: aggregate rows carry no node id to
@@ -538,215 +1042,27 @@ def register_query_tools(mcp):
         # unsafe (wrong for avg/min/max/distinct). Run the aggregation against the
         # canonical default graph only — control-plane/aggregate reads resolve there.
         if _union_read and is_aggregation_cypher(cypher):
-            engine = kg_server._get_engine()
-            try:
-                # Same defensive kwarg omission as the single-connection and
-                # fan-out branches below: only pass `include_epistemic` when
-                # actually requested, so a `query_cypher` implementation (real
-                # or test double) that predates this parameter and doesn't
-                # accept it keeps working.
-                if include_epistemic_flag:
-                    results = engine.query_cypher(
-                        cypher,
-                        parsed_params,
-                        as_of=as_of or None,
-                        include_epistemic=True,
-                    )
-                else:
-                    results = engine.query_cypher(
-                        cypher, parsed_params, as_of=as_of or None
-                    )
-                return json.dumps(
-                    {"rows": results, "connection": "default", "graph": graph},
-                    default=str,
-                )
-            except Exception as e:
-                return public_error_json(e)
+            return _run_graph_query_union_aggregate(
+                cypher, parsed_params, as_of, include_epistemic_flag, graph
+            )
 
         if not fanout:
             # Single connection (default or one named).
             _name, engine = entries[0]
-            # Same raw-call defensive normalization as `envelope` below (a direct
-            # call bypassing FastMCP schema resolution binds an omitted bool Field
-            # to its FieldInfo, not the `False` default).
-            include_epistemic_flag = (
-                include_epistemic if isinstance(include_epistemic, bool) else False
+            return _run_graph_query_single(
+                cypher, parsed_params, as_of, include_epistemic, graph, _name, engine
             )
-            try:
-                with kg_server.bound_to_graph(graph):
-                    if include_epistemic_flag:
-                        # Only pass the new kwarg when actually requested — keeps the
-                        # default call shape byte-identical for any `query_cypher`
-                        # implementation (real or test double) that predates this
-                        # parameter and doesn't accept it.
-                        results = engine.query_cypher(
-                            cypher,
-                            parsed_params,
-                            as_of=as_of or None,
-                            include_epistemic=True,
-                        )
-                        # Per-row epistemic envelope takes precedence over `envelope`
-                        # (there is no aggregate-bundle-of-epistemic-rows shape).
-                        return json.dumps(
-                            {
-                                "rows": results,
-                                "connection": _name,
-                                "graph": graph,
-                            },
-                            default=_json_default,
-                        )
-                    results = engine.query_cypher(
-                        cypher,
-                        parsed_params,
-                        as_of=as_of or None,
-                        include_epistemic=include_epistemic_flag,
-                    )
-                if include_epistemic_flag:
-                    return json.dumps(
-                        {"rows": results, "connection": _name, "graph": graph},
-                        default=_json_default,
-                    )
-                return json.dumps(
-                    {
-                        "rows": results,
-                        "connection": _name,
-                        "graph": graph,
-                        "evidence_bundle": _evidence_bundle_for_rows(
-                            engine, results
-                        ).model_dump(),
-                    },
-                    default=str,
-                )
-            except kg_server.GraphSelectionConflictError as e:
-                return public_error_json(e, code="graph_selection_conflict")
-            except PermissionError as e:
-                # Only an EXPLICIT `graph` request classifies its own denial as
-                # `permission_denied` — the pre-existing behavior for a plain
-                # backend-level PermissionError (e.g. a write rejected on the
-                # read-only query path) with no `graph` selection in play is
-                # unchanged (`operation_failed`, BUG-048's ambiguous default).
-                return public_error_json(
-                    e, code="permission_denied" if graph else "operation_failed"
-                )
-            except Exception as e:
-                return public_error_json(e)
 
-        # Fan-out — per-target timeout so one slow backend can't stall the set.
-        def _fanout_query(name: str, engine: Any) -> Any:
-            del name
-            # Same defensive kwarg omission as the single-connection branch
-            # above: only pass `include_epistemic` when actually requested,
-            # so a `query_cypher` implementation (real or test double) that
-            # predates this parameter and doesn't accept it keeps working.
-            if include_epistemic_flag:
-                return engine.query_cypher(
-                    cypher, parsed_params, as_of=as_of or None, include_epistemic=True
-                )
-            return engine.query_cypher(cypher, parsed_params, as_of=as_of or None)
-
-        def _content_graph_query(name: str, engine: Any) -> Any:
-            # B-18 fix: within the implicit content-graph UNION fan-out (never
-            # the explicit multi-connection fan-out below, which never calls
-            # this), `name` IS the physical graph `engine` is scoped to (see
-            # `kg_server._resolve_read_engines`'s
-            # `ingest_routing.safe_engine_for_graph(gname)` — a `for_graph()`
-            # view that fixes the outbound wire request's `graph` field but
-            # never rebinds `session.graph` to match). The wire layer's own
-            # mismatch lock (`_SessionRoutedAsyncClient._send`) then rejects
-            # every non-"default" leg with `PermissionError`, degrading the
-            # union to per-target errors. Narrow the verified session to the
-            # SAME graph via the sanctioned `bound_to_graph` primitive
-            # (CONCEPT:AU-KG.backend.explicit-graph-selection) so the request
-            # is self-consistent instead of inventing a second mechanism.
-            with kg_server.bound_to_graph(name):
-                return _fanout_query(name, engine)
-
-        if _union_read:
-            # CONCEPT:AU-KG.ingest.unified-query-routing — mirror `graph_search`'s
-            # primary/supplementary split (see the `graph_search` implementation
-            # above). Before this, an implicit-default `graph_query` shared ONE
-            # `DEFAULT_FANOUT_TIMEOUT_S` (30s) budget across every resolved
-            # content-graph entry, including the `default` connection. Under a
-            # wide implicit fan-out (dozens of idle/unreachable `code:*`/`src:*`
-            # graphs) the primary was queued behind the hung ones on the same
-            # 8-worker pool and timed out too — a plain Cypher read against the
-            # live default graph could take minutes even though the engine
-            # itself (`engine_query action=cypher`, which bypasses this router)
-            # answers instantly. The primary/`default` connection now always
-            # grounds at the full budget, run separately and first; only the
-            # SUPPLEMENTARY content connections take the short
-            # `DEFAULT_CONTENT_FANOUT_TIMEOUT_S` skip-budget. An explicit
-            # `target='all'`/list is a deliberate cross-repo request and is
-            # NEVER `_union_read` (see its definition above), so it is
-            # unaffected and keeps the full per-target budget below.
-            primary = [(n, e) for n, e in entries if n == "default"]
-            supplementary = [(n, e) for n, e in entries if n != "default"]
-            # Robustness: if the resolver produced no `default` entry, treat the
-            # first as primary so SOMETHING always grounds at the full budget.
-            if not primary and entries:
-                primary, supplementary = [entries[0]], entries[1:]
-            results = {}
-            fan_errors = {}
-            for name, engine in primary:
-                # Same partial-success contract `fanout_execute` gives every
-                # target below (and the ACL/tenant denial path relies on): a
-                # backend that legitimately REJECTS this query (e.g. a
-                # permission/ACL denial from `engine.query_cypher`'s own
-                # enforcement) must land in `fan_errors`, not crash the whole
-                # tool call — the primary is queried directly (not through
-                # `fanout_execute`) only to skip its concurrency/timeout
-                # machinery, not its error handling.
-                try:
-                    # B-18: the robustness fallback above can promote a real
-                    # content graph into `primary` when no "default" entry was
-                    # resolved — bind it too, never just the literal-"default"
-                    # entry (which needs no narrowing since it already targets
-                    # the ambient session's own graph).
-                    fn = _fanout_query if name == "default" else _content_graph_query
-                    results[name] = fn(name, engine)
-                except Exception as exc:  # noqa: BLE001 — mirrors fanout_execute's per-target catch below (same non-leaking, BUG-048-classified label): a denied/failed primary must surface as a labeled error, never propagate raw or silently vanish
-                    logger.warning(
-                        "Graph fan-out primary target failed (exception_type=%s)",
-                        type(exc).__name__,
-                    )
-                    fan_errors[name] = kg_server.fanout_error_label(exc)
-            if supplementary:
-                sup_results, sup_errors = kg_server.fanout_execute(
-                    supplementary,
-                    _content_graph_query,
-                    timeout=kg_server.DEFAULT_CONTENT_FANOUT_TIMEOUT_S,
-                )
-                results.update(sup_results)
-                fan_errors.update(sup_errors)
-        else:
-            # Explicit cross-repo fan-out (`target='all'`/list) — per-target
-            # timeout at the full budget so one slow backend can't stall the set.
-            results, fan_errors = kg_server.fanout_execute(entries, _fanout_query)
-
-        if _union_read:
-            # Merge the per-graph row lists into one id-deduped canonical row set.
-            merged: list[Any] = []
-            seen_ids: set[str] = set()
-            for _name in results:
-                for row in results[_name] or []:
-                    rid = row.get("id") if isinstance(row, dict) else None
-                    if rid is not None:
-                        if rid in seen_ids:
-                            continue
-                        seen_ids.add(rid)
-                    merged.append(row)
-            return json.dumps(
-                {"rows": merged, "connection": connection, "graph": graph},
-                default=_json_default,
-            )
-        return json.dumps(
-            {
-                "targets": results,
-                "errors": {**errors, **fan_errors},
-                "connection": connection,
-                "graph": graph,
-            },
-            default=_json_default,
+        return _run_graph_query_fanout(
+            cypher,
+            parsed_params,
+            as_of,
+            include_epistemic_flag,
+            connection,
+            graph,
+            entries,
+            errors,
+            _union_read,
         )
 
     @mcp.tool(
@@ -1426,167 +1742,34 @@ def register_query_tools(mcp):
                 )
 
                 _session = current_session()
-                if mode in ("hyde", "deep"):
-                    results = engine.search_hybrid(
-                        query=query,
-                        top_k=top_k,
+                if mode in _GRAPH_SEARCH_RESULTS_MODES:
+                    results = _graph_search_produce_results(
+                        engine,
+                        _session,
                         mode=mode,
-                        self_correct=self_correct,
-                        session=_session,
-                    )
-                elif mode == "hybrid":
-                    results = engine.search_hybrid(
                         query=query,
                         top_k=top_k,
                         self_correct=self_correct,
-                        as_of=as_of or None,
-                        session=_session,
+                        as_of=as_of,
                     )
-                elif mode == "concept":
-                    results = engine.search_hybrid(
-                        query=query, top_k=top_k, session=_session
-                    )
-                elif mode == "analogy":
-                    results = engine.search_hybrid(
-                        query=query, top_k=top_k, session=_session
-                    )
-                elif mode == "adore":
-                    results = engine.search_adore(query=query, top_k=top_k)
-                elif mode == "chrono_ids":
-                    results = engine.temporal_semantic_ids(query=query, top_k=top_k)
-                elif mode == "dci":
-                    # search_dci is fail-closed (CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval):
-                    # it always resolves a session and raises rather than
-                    # returning an unfiltered traversal, so this served path
-                    # must pass the already-ambient verified session (same
-                    # pattern the hybrid/hyde/deep/concept/analogy branches
-                    # above use) rather than relying on an implicit fallback.
-                    results = engine.search_dci(
-                        query=query, top_k=top_k, session=_session
-                    )
-                elif mode == "memory":
-                    results = engine.search_memories(query=query, top_k=top_k)
                 elif mode == "discover":
-                    try:
-                        from agent_utilities.capabilities.manager import (
-                            CapabilityManager,
-                        )
-
-                        manager = CapabilityManager(engine)
-                        results = manager.discover_capabilities(query)
-                        if not results:
-                            return f"No capabilities found for '{query}'"
-                        return "\n".join(
-                            [f"- {r.name}: {r.description}" for r in results]
-                        )
-                    except ImportError:
-                        return "Error: capabilities module not available"
-                elif mode == "latent":
-                    # KG-2.3 — route through the latent topology hierarchy.
-                    from agent_utilities.knowledge_graph.retrieval.latent_topology_rag import (  # noqa: E501
-                        LatentTopologicalRAG,
-                    )
-
-                    results = LatentTopologicalRAG(engine).retrieve(query, top_k=top_k)
-                elif mode == "sira":
-                    # Single-shot SIRA: hybrid-retrieve, then sparsity-align the set.
-                    from agent_utilities.knowledge_graph.retrieval.single_shot_sira import (
-                        SingleShotSIRA,
-                    )
-
-                    base = (
-                        engine.search_hybrid(query=query, top_k=top_k, session=_session)
-                        or []
-                    )
-                    results = SingleShotSIRA(engine).align_context(base)
+                    return _graph_search_discover(engine, query)
                 elif mode == "hard_negatives":
-                    # KG-2.3 — mine hard negatives via the engine's hybrid retriever.
-                    from agent_utilities.knowledge_graph.retrieval.hard_negative_miner import (  # noqa: E501
-                        HardNegativeMiner,
-                    )
-
-                    retriever = getattr(engine, "hybrid_retriever", None)
-                    if retriever is None:
-                        return "Error: hybrid retriever unavailable for hard-negative mining."
-                    negs = HardNegativeMiner(retriever).mine(query)
-                    if not negs:
-                        return f"No hard negatives mined for: '{query}'"
-                    return "\n".join(
-                        f"- {n.doc_id}: {getattr(n, 'reason', '')}" for n in negs
-                    )
-                elif mode == "rerank":
-                    # Semantic-retrieval hybrid re-scoring of a candidate set.
-                    from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (  # noqa: E501
-                        HybridSearchScorer,
-                    )
-
-                    base = (
-                        engine.search_hybrid(query=query, top_k=top_k, session=_session)
-                        or []
-                    )
-                    docs = [
-                        {
-                            "id": (r.get("node", r) or {}).get("id", ""),
-                            "text": (r.get("node", r) or {}).get("description", ""),
-                            "embedding": (r.get("node", r) or {}).get("embedding"),
-                        }
-                        for r in base
-                    ]
-                    qemb: list[float] = []
-                    embed_model = getattr(
-                        getattr(engine, "hybrid_retriever", None), "embed_model", None
-                    )
-                    if embed_model is not None:
-                        try:
-                            qemb = embed_model.get_text_embedding(query)
-                        except Exception:  # noqa: BLE001
-                            qemb = []
-                    results = HybridSearchScorer().score_documents(query, qemb, docs)
+                    return _graph_search_hard_negatives(engine, query)
                 elif mode == "compiled":
-                    # CONCEPT:AU-KG.retrieval.context-compiler — policy-aware ContextCompiler bundle: reuses the
-                    # SAME engine ANN/hybrid retriever the other modes call, but
-                    # additionally MMR-diversifies, scores evidence-quality/freshness
-                    # from the epistemic columns (EPI-P3-1), fits a token budget, and
-                    # runs every candidate through the live permissioning gate before
-                    # returning citations + a proof graph — replacing the plain
-                    # relevance-sorted concat the branch below performs for every
-                    # other mode.
-                    from agent_utilities.knowledge_graph.core.session import (
-                        GraphSession,
+                    return _graph_search_compiled(
+                        engine,
+                        query,
+                        top_k=top_k,
+                        as_of=as_of,
+                        token_budget=token_budget,
                     )
-                    from agent_utilities.knowledge_graph.retrieval.context_compiler import (  # noqa: E501
-                        ContextCompiler,
-                    )
-
-                    session = GraphSession.from_ambient()
-                    compiler = ContextCompiler(engine)
-                    kwargs: dict[str, Any] = {"top_k": top_k, "as_of": as_of or None}
-                    if token_budget:
-                        kwargs["token_budget"] = token_budget
-                    bundle = compiler.compile(query, session=session, **kwargs)
-                    return bundle.as_text()
                 else:
                     return f"Error: Unknown search mode '{mode}'"
 
                 if not results:
                     return f"No results found for query: '{query}'"
-
-                # The direct retrieval modes use a flat, score-sorted text block with no
-                # diversity/evidence/freshness/policy/budget shaping — prefer
-                # mode='compiled' for a citation- and proof-graph-bearing bundle.
-                formatted_results = []
-                for res in results:
-                    score = res.get("score", 0)
-                    score = float(score) if score is not None else 0.0
-                    node = res.get("node", res)
-                    label = node.get("type", node.get("label", "Unknown"))
-                    name = node.get("name", "Unnamed")
-                    desc = node.get("description", "")
-                    nid = node.get("id", "N/A")
-                    formatted_results.append(
-                        f"[{label}] {name} (ID: {nid}) - Score: {score:.2f}\n{desc}"
-                    )
-                return "\n---\n".join(formatted_results)
+                return _graph_search_format_results(results)
 
             # CONCEPT:AU-KG.backend.multi-connection-registry — resolve the connection(s). CONCEPT:AU-KG.ingest.unified-query-routing — an
             # implicit-default search fans across the active content-graph set so content
@@ -1874,6 +2057,248 @@ def register_query_tools(mcp):
 
     kg_server.REGISTERED_TOOLS["graph_code_nav"] = graph_code_nav
 
+    def _graph_document_tree_build(
+        document_id: str, text: str, persist: bool, thin: bool, summarize: bool, engine: Any
+    ) -> str:
+        from agent_utilities.knowledge_graph.ontology.document_processing import (
+            SectionTreeConfig,
+            build_section_tree,
+            section_nodes_and_edges,
+        )
+        from agent_utilities.knowledge_graph.retrieval.hierarchical_document_retriever import (
+            structure_view,
+        )
+
+        if not text and not document_id:
+            return json.dumps({"error": "build requires 'text' or 'document_id'"})
+        cfg = SectionTreeConfig(thin=thin, summarize=summarize)
+        roots = build_section_tree(text, config=cfg)
+        nodes, edges = section_nodes_and_edges(document_id or "doc:inline", roots)
+        persisted = False
+        if persist and document_id and engine is not None:
+            persisted = _persist_sections(engine, nodes, edges)
+        return json.dumps(
+            {
+                "action": "build",
+                "document_id": document_id,
+                "section_count": len(nodes),
+                "persisted": persisted,
+                "structure": structure_view(roots),
+            },
+            default=str,
+        )
+
+    def _graph_document_tree_structure(document_id: str, engine: Any) -> str:
+        from agent_utilities.knowledge_graph.retrieval.hierarchical_document_retriever import (
+            HierarchicalDocumentRetriever,
+            structure_view,
+        )
+
+        if not document_id:
+            return json.dumps({"error": "structure requires 'document_id'"})
+        if engine is None:
+            return json.dumps({"error": "IntelligenceGraphEngine not active"})
+        roots = HierarchicalDocumentRetriever(engine).load_tree(document_id)
+        if not roots:
+            return json.dumps({"error": f"no section tree for document {document_id!r}"})
+        return json.dumps(
+            {
+                "action": "structure",
+                "document_id": document_id,
+                "structure": structure_view(roots),
+            },
+            default=str,
+        )
+
+    def _graph_document_tree_content(document_id: str, ranges: str, engine: Any) -> str:
+        from agent_utilities.knowledge_graph.retrieval.hierarchical_document_retriever import (
+            HierarchicalDocumentRetriever,
+            content_for_ranges,
+        )
+
+        if not document_id:
+            return json.dumps({"error": "content requires 'document_id'"})
+        if engine is None:
+            return json.dumps({"error": "IntelligenceGraphEngine not active"})
+        try:
+            parsed = _parse_ranges(ranges)
+        except ValueError as e:
+            return public_error_json(e)
+        roots = HierarchicalDocumentRetriever(engine).load_tree(document_id)
+        if not roots:
+            return json.dumps({"error": f"no section tree for document {document_id!r}"})
+        return json.dumps(
+            {
+                "action": "content",
+                "document_id": document_id,
+                "sections": content_for_ranges(roots, parsed),
+            },
+            default=str,
+        )
+
+    def _graph_document_tree_retrieve(
+        query: str,
+        text: str,
+        document_id: str,
+        top_k: int,
+        use_llm: bool,
+        engine: Any,
+    ) -> str:
+        from agent_utilities.knowledge_graph.ontology.document_processing import (
+            SectionTreeConfig,
+            build_section_tree,
+        )
+        from agent_utilities.knowledge_graph.retrieval.hierarchical_document_retriever import (
+            HierarchicalDocumentRetriever,
+        )
+
+        if not query:
+            return json.dumps({"error": "retrieve requires 'query'"})
+        retriever = HierarchicalDocumentRetriever(engine)
+        tree = None
+        if text:
+            tree = build_section_tree(
+                text, config=SectionTreeConfig(thin=True, summarize=True)
+            )
+        elif not document_id:
+            return json.dumps({"error": "retrieve requires 'text' or 'document_id'"})
+        matches = retriever.retrieve(
+            query,
+            document_id=document_id,
+            tree=tree,
+            top_k=top_k,
+            use_llm=use_llm,
+        )
+        return json.dumps(
+            {
+                "action": "retrieve",
+                "query": query,
+                "results": [m.as_dict() for m in matches],
+            },
+            default=str,
+        )
+
+    def _graph_document_tree_spine_resolve(
+        engine: Any, action: str, text: str, artifact_id: str, document_id: str
+    ) -> tuple[list[Any], str, str | None]:
+        from agent_utilities.knowledge_graph.ingestion.evidence_spine import (
+            artifact_id_for,
+            fragment_markdown,
+            load_fragments,
+        )
+
+        if text:
+            # Inline text is fragmented deterministically — the same call the
+            # ingest path makes, so an inline preview and a stored spine
+            # agree on every address.
+            resolved_artifact = artifact_id or artifact_id_for(
+                "inline", "", document_id or "inline-document"
+            )
+            fragments = fragment_markdown(text, artifact_id=resolved_artifact)
+            return fragments, resolved_artifact, None
+        if artifact_id or document_id:
+            fragments = load_fragments(
+                engine, artifact_id=artifact_id, document_id=document_id
+            )
+            resolved_artifact = artifact_id or (
+                fragments[0].artifact_id if fragments else ""
+            )
+            return fragments, resolved_artifact, None
+        return (
+            [],
+            "",
+            json.dumps(
+                {"error": f"{action} requires 'text', 'artifact_id' or 'document_id'"}
+            ),
+        )
+
+    def _graph_document_tree_spine_cite(
+        fragments: list[Any],
+        resolved_artifact: str,
+        fragment_id: str,
+        content_hash: str,
+    ) -> str:
+        from agent_utilities.knowledge_graph.ingestion.evidence_spine import (
+            citation_status,
+        )
+
+        if not (fragment_id or content_hash):
+            return json.dumps(
+                {"error": "cite requires 'fragment_id' and/or 'content_hash'"}
+            )
+        return json.dumps(
+            {
+                "action": "cite",
+                "artifact_id": resolved_artifact,
+                **citation_status(
+                    fragments, fragment_id=fragment_id, content_hash=content_hash
+                ),
+            },
+            default=str,
+        )
+
+    def _graph_document_tree_spine_fragments(
+        fragments: list[Any], resolved_artifact: str, document_id: str, kinds: str
+    ) -> str:
+        wanted = {k.strip() for k in kinds.split(",") if k.strip()}
+        selected = [f for f in fragments if not wanted or f.kind in wanted]
+        return json.dumps(
+            {
+                "action": "fragments",
+                "artifact_id": resolved_artifact,
+                "document_id": document_id,
+                "fragment_count": len(selected),
+                "fragments": [
+                    {
+                        "fragment_id": f.fragment_id,
+                        "address": f.address,
+                        "kind": f.kind,
+                        "content_hash": f.content_hash,
+                        "version_id": f.version_id,
+                        "sequence": f.sequence,
+                        "ordinal": f.ordinal,
+                        "depth": f.depth,
+                        "parent_fragment_id": f.parent_fragment_id,
+                        "char_start": f.char_start,
+                        "char_end": f.char_end,
+                        "text": f.text,
+                    }
+                    for f in selected
+                ],
+            },
+            default=str,
+        )
+
+    def _graph_document_tree_spine(
+        action: str,
+        engine: Any,
+        text: str,
+        artifact_id: str,
+        document_id: str,
+        fragment_id: str,
+        content_hash: str,
+        kinds: str,
+    ) -> str:
+        # ── evidence spine (CONCEPT:AU-KG.ingest.stable-fragment-address) ──
+        # The citation surface: 'fragments' lists what can be cited, 'cite'
+        # answers whether an existing citation still holds. Both reach the
+        # same core the ingest path writes, so the REST twin
+        # (/graph/document-tree) gets them with no second implementation.
+        fragments, resolved_artifact, error_response = (
+            _graph_document_tree_spine_resolve(
+                engine, action, text, artifact_id, document_id
+            )
+        )
+        if error_response is not None:
+            return error_response
+        if action == "cite":
+            return _graph_document_tree_spine_cite(
+                fragments, resolved_artifact, fragment_id, content_hash
+            )
+        return _graph_document_tree_spine_fragments(
+            fragments, resolved_artifact, document_id, kinds
+        )
+
     # ══════════════════════════════════════════════════════════════════
     # graph_document_tree — CONCEPT:AU-KG.retrieval.section-tree +
     # CONCEPT:AU-KG.retrieval.tree-navigation. PageIndex-style map-then-fetch over
@@ -1958,190 +2383,30 @@ def register_query_tools(mcp):
         ),
     ) -> str:
         """Map-then-fetch + tree-navigation retrieval over a document section tree."""
-        from agent_utilities.knowledge_graph.ontology.document_processing import (
-            SectionTreeConfig,
-            build_section_tree,
-            section_nodes_and_edges,
-        )
-        from agent_utilities.knowledge_graph.retrieval.hierarchical_document_retriever import (
-            HierarchicalDocumentRetriever,
-            content_for_ranges,
-            structure_view,
-        )
-
         engine = kg_server._get_engine()
 
         if action == "build":
-            if not text and not document_id:
-                return json.dumps({"error": "build requires 'text' or 'document_id'"})
-            cfg = SectionTreeConfig(thin=thin, summarize=summarize)
-            roots = build_section_tree(text, config=cfg)
-            nodes, edges = section_nodes_and_edges(document_id or "doc:inline", roots)
-            persisted = False
-            if persist and document_id and engine is not None:
-                persisted = _persist_sections(engine, nodes, edges)
-            return json.dumps(
-                {
-                    "action": "build",
-                    "document_id": document_id,
-                    "section_count": len(nodes),
-                    "persisted": persisted,
-                    "structure": structure_view(roots),
-                },
-                default=str,
+            return _graph_document_tree_build(
+                document_id, text, persist, thin, summarize, engine
             )
-
         if action == "structure":
-            if not document_id:
-                return json.dumps({"error": "structure requires 'document_id'"})
-            if engine is None:
-                return json.dumps({"error": "IntelligenceGraphEngine not active"})
-            roots = HierarchicalDocumentRetriever(engine).load_tree(document_id)
-            if not roots:
-                return json.dumps(
-                    {"error": f"no section tree for document {document_id!r}"}
-                )
-            return json.dumps(
-                {
-                    "action": "structure",
-                    "document_id": document_id,
-                    "structure": structure_view(roots),
-                },
-                default=str,
-            )
-
+            return _graph_document_tree_structure(document_id, engine)
         if action == "content":
-            if not document_id:
-                return json.dumps({"error": "content requires 'document_id'"})
-            if engine is None:
-                return json.dumps({"error": "IntelligenceGraphEngine not active"})
-            try:
-                parsed = _parse_ranges(ranges)
-            except ValueError as e:
-                return public_error_json(e)
-            roots = HierarchicalDocumentRetriever(engine).load_tree(document_id)
-            if not roots:
-                return json.dumps(
-                    {"error": f"no section tree for document {document_id!r}"}
-                )
-            return json.dumps(
-                {
-                    "action": "content",
-                    "document_id": document_id,
-                    "sections": content_for_ranges(roots, parsed),
-                },
-                default=str,
-            )
-
+            return _graph_document_tree_content(document_id, ranges, engine)
         if action == "retrieve":
-            if not query:
-                return json.dumps({"error": "retrieve requires 'query'"})
-            retriever = HierarchicalDocumentRetriever(engine)
-            tree = None
-            if text:
-                tree = build_section_tree(
-                    text, config=SectionTreeConfig(thin=True, summarize=True)
-                )
-            elif not document_id:
-                return json.dumps(
-                    {"error": "retrieve requires 'text' or 'document_id'"}
-                )
-            matches = retriever.retrieve(
-                query,
-                document_id=document_id,
-                tree=tree,
-                top_k=top_k,
-                use_llm=use_llm,
+            return _graph_document_tree_retrieve(
+                query, text, document_id, top_k, use_llm, engine
             )
-            return json.dumps(
-                {
-                    "action": "retrieve",
-                    "query": query,
-                    "results": [m.as_dict() for m in matches],
-                },
-                default=str,
-            )
-
-        # ── evidence spine (CONCEPT:AU-KG.ingest.stable-fragment-address) ─────
-        # The citation surface: 'fragments' lists what can be cited, 'cite'
-        # answers whether an existing citation still holds.  Both reach the same
-        # core the ingest path writes, so the REST twin (/graph/document-tree)
-        # gets them with no second implementation.
         if action in {"fragments", "cite"}:
-            from agent_utilities.knowledge_graph.ingestion.evidence_spine import (
-                artifact_id_for,
-                citation_status,
-                fragment_markdown,
-                load_fragments,
-            )
-
-            if text:
-                # Inline text is fragmented deterministically — the same call the
-                # ingest path makes, so an inline preview and a stored spine
-                # agree on every address.
-                resolved_artifact = artifact_id or artifact_id_for(
-                    "inline", "", document_id or "inline-document"
-                )
-                fragments = fragment_markdown(text, artifact_id=resolved_artifact)
-            elif artifact_id or document_id:
-                fragments = load_fragments(
-                    engine, artifact_id=artifact_id, document_id=document_id
-                )
-                resolved_artifact = artifact_id or (
-                    fragments[0].artifact_id if fragments else ""
-                )
-            else:
-                return json.dumps(
-                    {
-                        "error": f"{action} requires 'text', 'artifact_id' or 'document_id'"
-                    }
-                )
-
-            if action == "cite":
-                if not (fragment_id or content_hash):
-                    return json.dumps(
-                        {"error": "cite requires 'fragment_id' and/or 'content_hash'"}
-                    )
-                return json.dumps(
-                    {
-                        "action": "cite",
-                        "artifact_id": resolved_artifact,
-                        **citation_status(
-                            fragments,
-                            fragment_id=fragment_id,
-                            content_hash=content_hash,
-                        ),
-                    },
-                    default=str,
-                )
-
-            wanted = {k.strip() for k in kinds.split(",") if k.strip()}
-            selected = [f for f in fragments if not wanted or f.kind in wanted]
-            return json.dumps(
-                {
-                    "action": "fragments",
-                    "artifact_id": resolved_artifact,
-                    "document_id": document_id,
-                    "fragment_count": len(selected),
-                    "fragments": [
-                        {
-                            "fragment_id": f.fragment_id,
-                            "address": f.address,
-                            "kind": f.kind,
-                            "content_hash": f.content_hash,
-                            "version_id": f.version_id,
-                            "sequence": f.sequence,
-                            "ordinal": f.ordinal,
-                            "depth": f.depth,
-                            "parent_fragment_id": f.parent_fragment_id,
-                            "char_start": f.char_start,
-                            "char_end": f.char_end,
-                            "text": f.text,
-                        }
-                        for f in selected
-                    ],
-                },
-                default=str,
+            return _graph_document_tree_spine(
+                action,
+                engine,
+                text,
+                artifact_id,
+                document_id,
+                fragment_id,
+                content_hash,
+                kinds,
             )
 
         return json.dumps(
