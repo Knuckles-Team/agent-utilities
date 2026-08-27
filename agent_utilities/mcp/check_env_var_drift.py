@@ -58,6 +58,7 @@ import re
 import sys
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 # Direct script execution puts ``agent_utilities/mcp`` first on ``sys.path``.
 # Force this checkout's repository root ahead of any globally installed copy so
@@ -332,23 +333,16 @@ def _is_os_module(node: ast.AST) -> bool:
     )
 
 
-def _env_names_from_tree(tree: ast.AST) -> set[str]:
-    """Collect literal runtime configuration reads from one parsed module.
-
-    AST inspection handles multiline calls and excludes lookalike snippets embedded
-    in strings. It also distinguishes ``os.environ[...]`` reads from assignment
-    writes, which a line-oriented regular expression cannot do reliably.
-    """
-    found: set[str] = set()
-    # Same-module one-level indirection: ``_LOG_LEVEL_ENV = "MCP_V2_GATEWAY_LOG_LEVEL"``
-    # followed by ``os.environ.get(_LOG_LEVEL_ENV)``. The var name never appears
-    # literally next to a reader call, so a literal-argument-only scan reported it as
-    # DEAD ("declared in compose, read by nothing") even though it is read on every
-    # start-up — a FALSE finding no edit to the compose file can satisfy. Only names
-    # that are BOTH bound to an env-name literal here AND passed to a reader below are
-    # counted, so this stays a read detector and never degenerates into "any uppercase
-    # string constant is an env var".
-    _alias_literals: dict[str, str] = {}
+def _collect_alias_literals(tree: ast.AST) -> dict[str, str]:
+    """Same-module one-level indirection: ``_LOG_LEVEL_ENV = "MCP_V2_GATEWAY_LOG_LEVEL"``
+    followed by ``os.environ.get(_LOG_LEVEL_ENV)``. The var name never appears
+    literally next to a reader call, so a literal-argument-only scan reported it as
+    DEAD ("declared in compose, read by nothing") even though it is read on every
+    start-up — a FALSE finding no edit to the compose file can satisfy. Only names
+    that are BOTH bound to an env-name literal here AND passed to a reader below are
+    counted, so this stays a read detector and never degenerates into "any uppercase
+    string constant is an env var"."""
+    alias_literals: dict[str, str] = {}
     for node in ast.walk(tree):
         alias_value: ast.expr | None
         if isinstance(node, ast.Assign):
@@ -364,9 +358,111 @@ def _env_names_from_tree(tree: ast.AST) -> set[str]:
             continue
         for target in alias_targets:
             if isinstance(target, ast.Name):
-                _alias_literals[target.id] = literal
+                alias_literals[target.id] = literal
             elif isinstance(target, ast.Attribute):
-                _alias_literals[target.attr] = literal
+                alias_literals[target.attr] = literal
+    return alias_literals
+
+
+def _is_env_reader_call(node: ast.Call) -> bool:
+    direct_reader = isinstance(node.func, ast.Name) and node.func.id in {
+        "_setting",
+        "setting",
+        "getenv",
+    }
+    os_getenv = (
+        isinstance(node.func, ast.Attribute)
+        and _is_os_module(node.func.value)
+        and node.func.attr == "getenv"
+    )
+    environ_get = (
+        isinstance(node.func, ast.Attribute)
+        and node.func.attr == "get"
+        and _is_environ(node.func.value)
+    )
+    return direct_reader or os_getenv or environ_get
+
+
+def _is_field_call(node: ast.Call) -> bool:
+    return (isinstance(node.func, ast.Name) and node.func.id == "Field") or (
+        isinstance(node.func, ast.Attribute) and node.func.attr == "Field"
+    )
+
+
+def _field_alias_names(node: ast.Call) -> list[str]:
+    names = []
+    for keyword in node.keywords:
+        if keyword.arg == "alias":
+            name = _literal_env_name(keyword.value)
+            if name:
+                names.append(name)
+    return names
+
+
+def _handle_call_node(node: ast.Call, env_name_arg: Any, found: set[str]) -> None:
+    if _is_env_reader_call(node) and node.args:
+        name = env_name_arg(node.args[0])
+        if name:
+            found.add(name)
+    if _is_field_call(node):
+        found.update(_field_alias_names(node))
+
+
+def _is_environ_subscript_read(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Subscript)
+        and isinstance(node.ctx, ast.Load)
+        and _is_environ(node.value)
+    )
+
+
+def _flag_assign_targets_and_value(
+    node: ast.AST,
+) -> tuple[list[ast.expr] | None, ast.expr | None]:
+    if isinstance(node, ast.Assign):
+        return node.targets, node.value
+    if isinstance(node, ast.AnnAssign):
+        return [node.target], node.value
+    return None, None
+
+
+def _is_enable_flag_target(target: ast.expr) -> bool:
+    return (isinstance(target, ast.Name) and target.id == "enable_flag") or (
+        isinstance(target, ast.Attribute) and target.attr == "enable_flag"
+    )
+
+
+def _handle_enable_flag_assign(node: ast.AST, found: set[str]) -> None:
+    targets, value = _flag_assign_targets_and_value(node)
+    if targets is None:
+        return
+    if any(_is_enable_flag_target(target) for target in targets):
+        name = _literal_env_name(value)
+        if name:
+            found.add(name)
+
+
+def _scan_env_reads_and_flags(tree: ast.AST, env_name_arg: Any) -> set[str]:
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            _handle_call_node(node, env_name_arg, found)
+        if _is_environ_subscript_read(node):
+            name = env_name_arg(node.slice)
+            if name:
+                found.add(name)
+        _handle_enable_flag_assign(node, found)
+    return found
+
+
+def _env_names_from_tree(tree: ast.AST) -> set[str]:
+    """Collect literal runtime configuration reads from one parsed module.
+
+    AST inspection handles multiline calls and excludes lookalike snippets embedded
+    in strings. It also distinguishes ``os.environ[...]`` reads from assignment
+    writes, which a line-oriented regular expression cannot do reliably.
+    """
+    alias_literals = _collect_alias_literals(tree)
 
     def _env_name_arg(node: ast.AST | None) -> str | None:
         """Resolve a reader argument: a literal, or a same-module alias to one."""
@@ -374,75 +470,12 @@ def _env_names_from_tree(tree: ast.AST) -> set[str]:
         if literal:
             return literal
         if isinstance(node, ast.Name):
-            return _alias_literals.get(node.id)
+            return alias_literals.get(node.id)
         if isinstance(node, ast.Attribute):
-            return _alias_literals.get(node.attr)
+            return alias_literals.get(node.attr)
         return None
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            direct_reader = isinstance(node.func, ast.Name) and node.func.id in {
-                "_setting",
-                "setting",
-                "getenv",
-            }
-            os_getenv = (
-                isinstance(node.func, ast.Attribute)
-                and _is_os_module(node.func.value)
-                and node.func.attr == "getenv"
-            )
-            environ_get = (
-                isinstance(node.func, ast.Attribute)
-                and node.func.attr == "get"
-                and _is_environ(node.func.value)
-            )
-            if (direct_reader or os_getenv or environ_get) and node.args:
-                name = _env_name_arg(node.args[0])
-                if name:
-                    found.add(name)
-
-            field_call = (
-                isinstance(node.func, ast.Name)
-                and node.func.id == "Field"
-                or isinstance(node.func, ast.Attribute)
-                and node.func.attr == "Field"
-            )
-            if field_call:
-                for keyword in node.keywords:
-                    if keyword.arg == "alias":
-                        name = _literal_env_name(keyword.value)
-                        if name:
-                            found.add(name)
-
-        if (
-            isinstance(node, ast.Subscript)
-            and isinstance(node.ctx, ast.Load)
-            and _is_environ(node.value)
-        ):
-            name = _env_name_arg(node.slice)
-            if name:
-                found.add(name)
-
-        value: ast.expr | None
-        if isinstance(node, ast.Assign):
-            targets = node.targets
-            value = node.value
-        elif isinstance(node, ast.AnnAssign):
-            targets = [node.target]
-            value = node.value
-        else:
-            continue
-        if any(
-            isinstance(target, ast.Name)
-            and target.id == "enable_flag"
-            or isinstance(target, ast.Attribute)
-            and target.attr == "enable_flag"
-            for target in targets
-        ):
-            name = _literal_env_name(value)
-            if name:
-                found.add(name)
-    return found
+    return _scan_env_reads_and_flags(tree, _env_name_arg)
 
 
 def _scan_setting_calls(root: Path) -> set[str]:
@@ -556,31 +589,42 @@ _DYNAMIC_ENV_SUFFIXES_ATTR = "dynamic_env_suffixes"
 _DynamicFamily = tuple[str, "int | None", tuple[str, ...]]
 
 
+def _tuple_assign_targets_and_value(
+    node: ast.AST,
+) -> tuple[list[ast.expr] | None, ast.expr | None]:
+    if isinstance(node, ast.Assign):
+        return list(node.targets), node.value
+    if isinstance(node, ast.AnnAssign):
+        return ([node.target] if node.target else []), node.value
+    return None, None
+
+
+def _string_tuple_literal(value: ast.expr | None) -> list[str] | None:
+    """All-string-literal elements of a Tuple/List AST node, or None if the
+    node is not a Tuple/List or any element is not a literal string (all-or-
+    nothing, matching the original break-on-first-miss)."""
+    if not isinstance(value, (ast.Tuple, ast.List)):
+        return None
+    strings: list[str] = []
+    for elt in value.elts:
+        literal = _literal_str(elt)
+        if literal is None:
+            return None
+        strings.append(literal)
+    return strings or None
+
+
 def _module_level_string_tuples(tree: ast.AST) -> dict[str, tuple[str, ...]]:
     """``NAME = ("A", "B")``/``NAME: T = (...)`` module-level string-tuple constants, so a
     ``dynamic_env_suffixes`` declaration may reference a shared named constant instead of
     repeating the literal tuple at every function that shares one family."""
     out: dict[str, tuple[str, ...]] = {}
     for node in ast.walk(tree):
-        value: ast.expr | None
-        if isinstance(node, ast.Assign):
-            targets: list[ast.expr] = list(node.targets)
-            value = node.value
-        elif isinstance(node, ast.AnnAssign):
-            targets = [node.target] if node.target else []
-            value = node.value
-        else:
+        targets, value = _tuple_assign_targets_and_value(node)
+        if targets is None:
             continue
-        if not isinstance(value, (ast.Tuple, ast.List)):
-            continue
-        strings: list[str] = []
-        for elt in value.elts:
-            literal = _literal_str(elt)
-            if literal is None:
-                strings = []
-                break
-            strings.append(literal)
-        if not strings:
+        strings = _string_tuple_literal(value)
+        if strings is None:
             continue
         for target in targets:
             if isinstance(target, ast.Name):
@@ -618,18 +662,75 @@ def _dynamic_prefix(literal: str) -> str:
     return normalized
 
 
+def _record_dynamic_suffixes(
+    func_name: str,
+    value: ast.expr,
+    named_tuples: dict[str, tuple[str, ...]],
+    suffix_sets: dict[str, tuple[str, ...]],
+) -> None:
+    if isinstance(value, ast.Name) and value.id in named_tuples:
+        suffix_sets[func_name] = named_tuples[value.id]
+    elif isinstance(value, (ast.Tuple, ast.List)):
+        strings = [s for e in value.elts if (s := _literal_str(e)) is not None]
+        if strings:
+            suffix_sets[func_name] = tuple(strings)
+
+
+def _record_dynamic_family_assign(
+    target: ast.expr,
+    value: ast.expr,
+    named_tuples: dict[str, tuple[str, ...]],
+    prefix_args: dict[str, str],
+    suffix_sets: dict[str, tuple[str, ...]],
+) -> None:
+    if not (isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name)):
+        return
+    func_name = target.value.id
+    if target.attr == _DYNAMIC_ENV_PREFIX_ATTR:
+        literal = _literal_str(value)
+        if literal:
+            prefix_args[func_name] = literal
+    elif target.attr == _DYNAMIC_ENV_SUFFIXES_ATTR:
+        _record_dynamic_suffixes(func_name, value, named_tuples, suffix_sets)
+
+
+def _dynamic_prefix_and_suffix_assigns(
+    tree: ast.AST, named_tuples: dict[str, tuple[str, ...]]
+) -> tuple[dict[str, str], dict[str, tuple[str, ...]]]:
+    prefix_args: dict[str, str] = {}
+    suffix_sets: dict[str, tuple[str, ...]] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            _record_dynamic_family_assign(
+                target, node.value, named_tuples, prefix_args, suffix_sets
+            )
+    return prefix_args, suffix_sets
+
+
+def _dynamic_families_from_assigns(
+    prefix_args: dict[str, str],
+    suffix_sets: dict[str, tuple[str, ...]],
+    param_order: dict[str, list[str]],
+) -> dict[str, _DynamicFamily]:
+    families: dict[str, _DynamicFamily] = {}
+    for func_name, prefix_arg in prefix_args.items():
+        suffixes = suffix_sets.get(func_name)
+        if not suffixes:
+            continue
+        params = param_order.get(func_name, [])
+        position = params.index(prefix_arg) if prefix_arg in params else None
+        families[func_name] = (prefix_arg, position, suffixes)
+    return families
+
+
 def _scan_dynamic_families(root: Path) -> dict[str, _DynamicFamily]:
     """Discover every ``func.dynamic_env_prefix_arg``/``func.dynamic_env_suffixes``
     declaration under *root* (see CONCEPT:AU-OS.config.dynamic-env-family above)."""
     families: dict[str, _DynamicFamily] = {}
     for py in _walk_files(root, suffix=".py"):
-        try:
-            relative_parts = py.relative_to(root).parts
-        except ValueError:
-            relative_parts = py.parts
-        if any(part in _NON_RUNTIME_SOURCE_DIRS for part in relative_parts[:-1]):
-            continue
-        if py.name in _SELF_DOC_FILES:
+        if _should_skip_env_scan_file(root, py):
             continue
         try:
             tree = ast.parse(py.read_text(encoding="utf-8"), filename=str(py))
@@ -637,43 +738,12 @@ def _scan_dynamic_families(root: Path) -> dict[str, _DynamicFamily]:
             continue
         named_tuples = _module_level_string_tuples(tree)
         param_order = _function_param_order(tree)
-        prefix_args: dict[str, str] = {}
-        suffix_sets: dict[str, tuple[str, ...]] = {}
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Assign):
-                continue
-            for target in node.targets:
-                if not (
-                    isinstance(target, ast.Attribute)
-                    and isinstance(target.value, ast.Name)
-                ):
-                    continue
-                func_name = target.value.id
-                if target.attr == _DYNAMIC_ENV_PREFIX_ATTR:
-                    literal = _literal_str(node.value)
-                    if literal:
-                        prefix_args[func_name] = literal
-                elif target.attr == _DYNAMIC_ENV_SUFFIXES_ATTR:
-                    if (
-                        isinstance(node.value, ast.Name)
-                        and node.value.id in named_tuples
-                    ):
-                        suffix_sets[func_name] = named_tuples[node.value.id]
-                    elif isinstance(node.value, (ast.Tuple, ast.List)):
-                        strings = [
-                            s
-                            for e in node.value.elts
-                            if (s := _literal_str(e)) is not None
-                        ]
-                        if strings:
-                            suffix_sets[func_name] = tuple(strings)
-        for func_name, prefix_arg in prefix_args.items():
-            suffixes = suffix_sets.get(func_name)
-            if not suffixes:
-                continue
-            params = param_order.get(func_name, [])
-            position = params.index(prefix_arg) if prefix_arg in params else None
-            families[func_name] = (prefix_arg, position, suffixes)
+        prefix_args, suffix_sets = _dynamic_prefix_and_suffix_assigns(
+            tree, named_tuples
+        )
+        families.update(
+            _dynamic_families_from_assigns(prefix_args, suffix_sets, param_order)
+        )
     return families
 
 
@@ -685,6 +755,62 @@ def _agent_utilities_dynamic_families() -> dict[str, _DynamicFamily]:
 
     au_root = Path(agent_utilities.__file__).resolve().parent
     return _scan_dynamic_families(au_root)
+
+
+def _should_skip_env_scan_file(root: Path, py: Path) -> bool:
+    """Shared file-skip guard for the AST-based env scanners
+    (`_scan_dynamic_families`, `_scan_dynamic_family_reads`): a file under a
+    non-runtime source dir (tests/, docs/, ...) or a self-documenting file
+    (this module itself) is never a real call site."""
+    try:
+        relative_parts = py.relative_to(root).parts
+    except ValueError:
+        relative_parts = py.parts
+    if any(part in _NON_RUNTIME_SOURCE_DIRS for part in relative_parts[:-1]):
+        return True
+    return py.name in _SELF_DOC_FILES
+
+
+def _matched_dynamic_family(
+    node: ast.Call, families: dict[str, _DynamicFamily]
+) -> _DynamicFamily | None:
+    """The (prefix_arg, position, suffixes) family this call node targets, or None."""
+    func_name: str | None = None
+    if isinstance(node.func, ast.Name):
+        func_name = node.func.id
+    elif isinstance(node.func, ast.Attribute):
+        func_name = node.func.attr
+    return families.get(func_name) if func_name else None
+
+
+def _resolve_dynamic_prefix_literal(
+    node: ast.Call, prefix_arg: str, position: int | None
+) -> str | None:
+    literal: str | None = None
+    for keyword in node.keywords:
+        if keyword.arg == prefix_arg:
+            literal = _literal_str(keyword.value)
+            break
+    if literal is None and position is not None and len(node.args) > position:
+        literal = _literal_str(node.args[position])
+    return literal
+
+
+def _dynamic_family_reads_for_call(
+    node: ast.Call, families: dict[str, _DynamicFamily]
+) -> set[str]:
+    """Concrete var names implied by ONE call node, or an empty set."""
+    family = _matched_dynamic_family(node, families)
+    if family is None:
+        return set()
+    prefix_arg, position, suffixes = family
+    literal = _resolve_dynamic_prefix_literal(node, prefix_arg, position)
+    if not literal:
+        return set()
+    prefix = _dynamic_prefix(literal)
+    if not prefix:
+        return set()
+    return {f"{prefix}_{suffix}" for suffix in suffixes}
 
 
 def _scan_dynamic_family_reads(
@@ -699,13 +825,7 @@ def _scan_dynamic_family_reads(
         return set()
     found: set[str] = set()
     for py in _walk_files(root, suffix=".py"):
-        try:
-            relative_parts = py.relative_to(root).parts
-        except ValueError:
-            relative_parts = py.parts
-        if any(part in _NON_RUNTIME_SOURCE_DIRS for part in relative_parts[:-1]):
-            continue
-        if py.name in _SELF_DOC_FILES:
+        if _should_skip_env_scan_file(root, py):
             continue
         try:
             tree = ast.parse(py.read_text(encoding="utf-8"), filename=str(py))
@@ -714,57 +834,34 @@ def _scan_dynamic_family_reads(
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
-            func_name: str | None = None
-            if isinstance(node.func, ast.Name):
-                func_name = node.func.id
-            elif isinstance(node.func, ast.Attribute):
-                func_name = node.func.attr
-            family = families.get(func_name) if func_name else None
-            if family is None:
-                continue
-            prefix_arg, position, suffixes = family
-            literal: str | None = None
-            for keyword in node.keywords:
-                if keyword.arg == prefix_arg:
-                    literal = _literal_str(keyword.value)
-                    break
-            if literal is None and position is not None and len(node.args) > position:
-                literal = _literal_str(node.args[position])
-            if not literal:
-                continue
-            prefix = _dynamic_prefix(literal)
-            if not prefix:
-                continue
-            found.update(f"{prefix}_{suffix}" for suffix in suffixes)
+            found.update(_dynamic_family_reads_for_call(node, families))
     return found
 
 
-def _mcp_config_env_blocks(root: Path) -> list[tuple[Path, dict[str, str]]]:
-    """Every ``mcpServers.<name>.env`` block across ``mcp_config*.json`` files."""
+def _is_scaffold_mcp_config(cfg: Path) -> bool:
+    """agent_utilities/data/mcp_config.json is a packaged SCAFFOLDING template
+    (a generic "example-mcp" server) shipped for other packages/tools to copy
+    the schema from — not a launch config for agent-utilities' own servers, so
+    its placeholder env keys (e.g. a bare "API_KEY") are never a real read here."""
+    return "data" in cfg.parts and cfg.name == "mcp_config.json"
+
+
+def _env_blocks_from_mcp_config(cfg: Path) -> list[tuple[Path, dict[str, str]]]:
+    try:
+        data = json.loads(cfg.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
     blocks: list[tuple[Path, dict[str, str]]] = []
-    for cfg in _walk_files(root, suffix=".json"):
-        if not cfg.name.startswith("mcp_config"):
-            continue
-        if "data" in cfg.parts and cfg.name == "mcp_config.json":
-            # agent_utilities/data/mcp_config.json is a packaged SCAFFOLDING template
-            # (a generic "example-mcp" server) shipped for other packages/tools to copy
-            # the schema from — not a launch config for agent-utilities' own servers, so
-            # its placeholder env keys (e.g. a bare "API_KEY") are never a real read here.
-            continue
-        if "data" in cfg.parts and cfg.name == "mcp_config.json":
-            # agent_utilities/data/mcp_config.json is a packaged SCAFFOLDING template
-            # (a generic "example-mcp" server) shipped for other packages/tools to copy
-            # the schema from — not a launch config for agent-utilities' own servers, so
-            # its placeholder env keys (e.g. a bare "API_KEY") are never a real read here.
-            continue
-        try:
-            data = json.loads(cfg.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        for server in (data.get("mcpServers") or {}).values():
-            env = server.get("env")
-            if isinstance(env, dict):
-                blocks.append((cfg, env))
+    for server in (data.get("mcpServers") or {}).values():
+        env = server.get("env")
+        if isinstance(env, dict):
+            blocks.append((cfg, env))
+    return blocks
+
+
+def _dedupe_env_blocks(
+    blocks: list[tuple[Path, dict[str, str]]],
+) -> list[tuple[Path, dict[str, str]]]:
     # de-dup by resolved path while preserving the per-server granularity
     seen: set[tuple[str, frozenset[str]]] = set()
     uniq: list[tuple[Path, dict[str, str]]] = []
@@ -774,6 +871,18 @@ def _mcp_config_env_blocks(root: Path) -> list[tuple[Path, dict[str, str]]]:
             seen.add(key)
             uniq.append((path, env))
     return uniq
+
+
+def _mcp_config_env_blocks(root: Path) -> list[tuple[Path, dict[str, str]]]:
+    """Every ``mcpServers.<name>.env`` block across ``mcp_config*.json`` files."""
+    blocks: list[tuple[Path, dict[str, str]]] = []
+    for cfg in _walk_files(root, suffix=".json"):
+        if not cfg.name.startswith("mcp_config"):
+            continue
+        if _is_scaffold_mcp_config(cfg):
+            continue
+        blocks.extend(_env_blocks_from_mcp_config(cfg))
+    return _dedupe_env_blocks(blocks)
 
 
 def _readme_example_region(text: str) -> str:
@@ -811,6 +920,46 @@ def _readme_example_env_blocks(root: Path) -> list[dict[str, str]]:
     return blocks
 
 
+def _compose_block_should_close(stripped: str, indent: int, ref_indent: int) -> bool:
+    """A YAML-indentation heuristic shared by both compose scanners: does this
+    line close the currently-open indented block (an ``environment:`` block
+    for `_compose_env_keys`, an ``image:``/``command:``/``entrypoint:``/
+    ``args:`` block for `_compose_subst_reads`)? A blank line never closes a
+    block; a ``-`` list-item line never does either (it continues the block
+    at the SAME nominal indent as its parent key)."""
+    return bool(stripped) and indent <= ref_indent and not stripped.startswith("-")
+
+
+def _compose_candidate_files(root: Path) -> list[Path]:
+    return [*root.glob("*compose*.y*ml"), *root.glob("docker/*compose*.y*ml")]
+
+
+def _env_keys_from_compose_file(comp: Path) -> set[str]:
+    try:
+        lines = comp.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return set()
+    keys: set[str] = set()
+    in_env = False
+    env_indent = 0
+    for raw in lines:
+        stripped = raw.strip()
+        if re.match(r"^environment\s*:", stripped):
+            in_env = True
+            env_indent = len(raw) - len(raw.lstrip())
+            continue
+        if not in_env:
+            continue
+        indent = len(raw) - len(raw.lstrip())
+        if _compose_block_should_close(stripped, indent, env_indent):
+            in_env = False
+            continue
+        m = _COMPOSE_ENV.match(raw)
+        if m:
+            keys.add(m.group(1))
+    return keys
+
+
 def _compose_env_keys(root: Path) -> dict[str, set[str]]:
     """Env keys referenced in each ``*compose*.yml`` ``environment:`` section.
 
@@ -824,34 +973,10 @@ def _compose_env_keys(root: Path) -> dict[str, set[str]]:
     only ever produce false "DEAD" findings.
     """
     out: dict[str, set[str]] = {}
-    candidates = [
-        *root.glob("*compose*.y*ml"),
-        *root.glob("docker/*compose*.y*ml"),
-    ]
-    for comp in candidates:
+    for comp in _compose_candidate_files(root):
         if comp.name in _THIRD_PARTY_COMPOSE_FILES:
             continue
-        try:
-            lines = comp.read_text(encoding="utf-8").splitlines()
-        except OSError:
-            continue
-        keys: set[str] = set()
-        in_env = False
-        env_indent = 0
-        for raw in lines:
-            stripped = raw.strip()
-            if re.match(r"^environment\s*:", stripped):
-                in_env = True
-                env_indent = len(raw) - len(raw.lstrip())
-                continue
-            if in_env:
-                indent = len(raw) - len(raw.lstrip())
-                if stripped and indent <= env_indent and not stripped.startswith("-"):
-                    in_env = False
-                    continue
-                m = _COMPOSE_ENV.match(raw)
-                if m:
-                    keys.add(m.group(1))
+        keys = _env_keys_from_compose_file(comp)
         if keys:
             out[comp.name] = keys
     return out
@@ -887,6 +1012,35 @@ def _subst_var_names(text: str) -> set[str]:
     return names
 
 
+def _subst_reads_from_compose_file(comp: Path) -> set[str]:
+    try:
+        lines = comp.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return set()
+    found: set[str] = set()
+    in_block = False
+    block_indent = 0
+    for raw in lines:
+        stripped = raw.strip()
+        key_match = _COMPOSE_KEY_LINE.match(stripped)
+        if key_match and key_match.group(1) in _COMPOSE_SUBST_KEYS:
+            in_block = True
+            block_indent = len(raw) - len(raw.lstrip())
+            inline_value = key_match.group(2)
+            if inline_value:
+                found.update(_subst_var_names(inline_value))
+            continue
+        if not in_block:
+            continue
+        indent = len(raw) - len(raw.lstrip())
+        if _compose_block_should_close(stripped, indent, block_indent):
+            in_block = False
+            continue
+        if stripped:
+            found.update(_subst_var_names(raw))
+    return found
+
+
 def _compose_subst_reads(root: Path) -> set[str]:
     """Every ``${VAR...}`` substitution inside a compose ``image:``/``command:``/
     ``entrypoint:``/``args:`` value across ``*compose*.yml`` files (see
@@ -894,36 +1048,10 @@ def _compose_subst_reads(root: Path) -> set[str]:
     reason ``_compose_env_keys`` does — a bundled third-party image's own launch
     configuration is not this package's code-read surface."""
     found: set[str] = set()
-    candidates = [
-        *root.glob("*compose*.y*ml"),
-        *root.glob("docker/*compose*.y*ml"),
-    ]
-    for comp in candidates:
+    for comp in _compose_candidate_files(root):
         if comp.name in _THIRD_PARTY_COMPOSE_FILES:
             continue
-        try:
-            lines = comp.read_text(encoding="utf-8").splitlines()
-        except OSError:
-            continue
-        in_block = False
-        block_indent = 0
-        for raw in lines:
-            stripped = raw.strip()
-            key_match = _COMPOSE_KEY_LINE.match(stripped)
-            if key_match and key_match.group(1) in _COMPOSE_SUBST_KEYS:
-                in_block = True
-                block_indent = len(raw) - len(raw.lstrip())
-                inline_value = key_match.group(2)
-                if inline_value:
-                    found.update(_subst_var_names(inline_value))
-                continue
-            if in_block:
-                indent = len(raw) - len(raw.lstrip())
-                if stripped and indent <= block_indent and not stripped.startswith("-"):
-                    in_block = False
-                    continue
-                if stripped:
-                    found.update(_subst_var_names(raw))
+        found.update(_subst_reads_from_compose_file(comp))
     return found
 
 
@@ -939,8 +1067,10 @@ def _is_framework_known(var: str, code_read: set[str]) -> bool:
     )
 
 
-def analyze(root: Path) -> dict:
-    """Compute the code-read set and diff the declared sets against it."""
+def _compute_code_read_set(root: Path) -> tuple[set[str], set[str], set[str]]:
+    """(pkg_reads, toggles, code_read) -- the package's own code-read surface,
+    derived toggles, and the full code-read set (including framework/script
+    reads) that DEAD-suppression checks against."""
     pkg_reads = _scan_setting_calls(root)
     toggles = _derive_toggle_vars(root)
     import agent_utilities
@@ -976,19 +1106,22 @@ def analyze(root: Path) -> dict:
     script_reads = _script_reads(root)
 
     code_read = pkg_reads | toggles | framework_reads | script_reads
+    return pkg_reads, toggles, code_read
 
+
+def _resolve_declared_env(root: Path) -> set[str]:
     env_example = root / ".env.example"
-    declared_env = (
-        {r[0] for r in parse_env_example(env_example.read_text(encoding="utf-8"))}
-        if env_example.exists()
-        else set()
-    )
-    mcp_blocks = _mcp_config_env_blocks(root)
-    compose = _compose_env_keys(root)
+    if not env_example.exists():
+        return set()
+    return {r[0] for r in parse_env_example(env_example.read_text(encoding="utf-8"))}
 
-    findings: list[dict] = []
 
-    # DEAD — declared somewhere but read by nothing and not a framework var.
+def _build_declared_sources(
+    declared_env: set[str],
+    mcp_blocks: list[tuple[Path, dict[str, str]]],
+    compose: dict[str, set[str]],
+    root: Path,
+) -> dict[str, set[str]]:
     declared_sources: dict[str, set[str]] = {}
     for var in declared_env:
         declared_sources.setdefault(var, set()).add(".env.example")
@@ -998,7 +1131,13 @@ def analyze(root: Path) -> dict:
     for name, keys in compose.items():
         for var in keys:
             declared_sources.setdefault(var, set()).add(f"docker/{name}")
+    return declared_sources
 
+
+def _dead_findings(
+    declared_sources: dict[str, set[str]], code_read: set[str]
+) -> list[dict]:
+    findings = []
     for var, sources in sorted(declared_sources.items()):
         # placeholder template keys like <YOUR_X> never appear as A-Z names; skip secrets keys read.
         if _is_framework_known(var, code_read):
@@ -1013,35 +1152,51 @@ def analyze(root: Path) -> dict:
                 "hint": hint,
             }
         )
+    return findings
 
+
+def _should_skip_undocumented(var: str, declared_host_stems: set[str]) -> bool:
+    # skip framework-inherited vars (shown in the inherited table)
+    if var in INHERITED_ENV or var in FRAMEWORK_EXTRA:
+        return True
+    # skip system/OS/runtime vars the code reads for interop (e.g. PATH passthrough,
+    # an XDG override) — same allowlist that already suppresses these from DEAD; it
+    # must apply here too, or a runtime var flip-flops between DEAD and UNDOCUMENTED
+    # instead of being silently accepted like the framework vars above.
+    if var in RUNTIME_ALLOWLIST or var.startswith(_RUNTIME_PREFIXES):
+        return True
+    # skip synthetic config-machinery test fixtures (never real deployable config)
+    if var in TEST_FIXTURE_VARS:
+        return True
+    # Skip a legacy/upstream child-process host alias whose canonical AU host
+    # sibling is already documented (e.g. legacy LANGFUSE_HOST when the Langfuse
+    # MCP adapter emits the child SDK's BASE_URL and LANGFUSE_BASE_URL is in
+    # .env.example) — but never suppress a credential/toggle just because a host
+    # of the same stem exists.
+    return _is_host_var(var) and _stem(var) in declared_host_stems
+
+
+def _undocumented_findings(
+    pkg_reads: set[str], toggles: set[str], declared_env: set[str]
+) -> list[dict]:
     # UNDOCUMENTED — code reads it but it's absent from .env.example (additive, safe).
     documentable = (pkg_reads | toggles) - declared_env
     declared_host_stems = {_stem(v) for v in declared_env if _is_host_var(v)}
+    findings = []
     for var in sorted(documentable):
-        # skip framework-inherited vars (shown in the inherited table)
-        if var in INHERITED_ENV or var in FRAMEWORK_EXTRA:
-            continue
-        # skip system/OS/runtime vars the code reads for interop (e.g. PATH passthrough,
-        # an XDG override) — same allowlist that already suppresses these from DEAD; it
-        # must apply here too, or a runtime var flip-flops between DEAD and UNDOCUMENTED
-        # instead of being silently accepted like the framework vars above.
-        if var in RUNTIME_ALLOWLIST or var.startswith(_RUNTIME_PREFIXES):
-            continue
-        # skip synthetic config-machinery test fixtures (never real deployable config)
-        if var in TEST_FIXTURE_VARS:
-            continue
-        # Skip a legacy/upstream child-process host alias whose canonical AU host
-        # sibling is already documented (e.g. legacy LANGFUSE_HOST when the Langfuse
-        # MCP adapter emits the child SDK's BASE_URL and LANGFUSE_BASE_URL is in
-        # .env.example) — but never suppress a credential/toggle just because a host
-        # of the same stem exists.
-        if _is_host_var(var) and _stem(var) in declared_host_stems:
+        if _should_skip_undocumented(var, declared_host_stems):
             continue
         findings.append(
             {"type": "UNDOCUMENTED", "var": var, "sources": ["(code)"], "hint": ""}
         )
+    return findings
 
+
+def _missing_tool_mode_findings(
+    mcp_blocks: list[tuple[Path, dict[str, str]]], root: Path
+) -> list[dict]:
     # MISSING_TOOL_MODE — a launch-style mcp_config env block without MCP_TOOL_MODE.
+    findings = []
     for path, env in mcp_blocks:
         if "MCP_TOOL_MODE" not in env:
             findings.append(
@@ -1052,11 +1207,14 @@ def analyze(root: Path) -> dict:
                     "hint": 'add "MCP_TOOL_MODE": "intent" to the env block',
                 }
             )
+    return findings
 
-    # env_sources imports this module, so defer the import to call time (no import cycle).
-    from agent_utilities.mcp.env_sources import is_agent_only
 
+def _malformed_value_findings(
+    mcp_blocks: list[tuple[Path, dict[str, str]]], root: Path
+) -> list[dict]:
     # MALFORMED_VALUE — a whitespace-padded substitution like "${ VAR:-True }".
+    findings = []
     for path, env in mcp_blocks:
         for var, value in env.items():
             if any(
@@ -1070,8 +1228,14 @@ def analyze(root: Path) -> dict:
                         "hint": 'use "${VAR:-default}" (no spaces inside the braces)',
                     }
                 )
+    return findings
 
+
+def _agent_var_in_mcp_findings(
+    mcp_blocks: list[tuple[Path, dict[str, str]]], root: Path, is_agent_only: Any
+) -> list[dict]:
     # AGENT_VAR_IN_MCP — an agent-runtime var in an MCP-server config env block.
+    findings = []
     for path, env in mcp_blocks:
         for var in sorted(env):
             if is_agent_only(var):
@@ -1083,9 +1247,13 @@ def analyze(root: Path) -> dict:
                         "hint": "agent-only — move to the agent config (not the MCP server)",
                     }
                 )
+    return findings
 
-    # README mcp_config examples — STALE_EXAMPLE + missing MCP_TOOL_MODE.
-    allowed = {
+
+def _readme_allowed_vars(
+    pkg_reads: set[str], toggles: set[str], is_agent_only: Any
+) -> set[str]:
+    return {
         variable
         for variable in pkg_reads | toggles
         if variable not in INHERITED_ENV
@@ -1095,6 +1263,11 @@ def analyze(root: Path) -> dict:
         and not any(variable.endswith(suffix) for suffix in _SAFE_SUFFIXES)
         and not is_agent_only(variable)
     } | {"MCP_TOOL_MODE", "TRANSPORT", "HOST", "PORT"}
+
+
+def _readme_findings(root: Path, allowed: set[str], is_agent_only: Any) -> list[dict]:
+    # README mcp_config examples — STALE_EXAMPLE + missing MCP_TOOL_MODE.
+    findings = []
     for env in _readme_example_env_blocks(root):
         if "MCP_TOOL_MODE" not in env:
             findings.append(
@@ -1119,6 +1292,30 @@ def analyze(root: Path) -> dict:
                         ),
                     }
                 )
+    return findings
+
+
+def analyze(root: Path) -> dict:
+    """Compute the code-read set and diff the declared sets against it."""
+    pkg_reads, toggles, code_read = _compute_code_read_set(root)
+
+    declared_env = _resolve_declared_env(root)
+    mcp_blocks = _mcp_config_env_blocks(root)
+    compose = _compose_env_keys(root)
+    declared_sources = _build_declared_sources(declared_env, mcp_blocks, compose, root)
+
+    # env_sources imports this module, so defer the import to call time (no import cycle).
+    from agent_utilities.mcp.env_sources import is_agent_only
+
+    findings: list[dict] = []
+    findings += _dead_findings(declared_sources, code_read)
+    findings += _undocumented_findings(pkg_reads, toggles, declared_env)
+    findings += _missing_tool_mode_findings(mcp_blocks, root)
+    findings += _malformed_value_findings(mcp_blocks, root)
+    findings += _agent_var_in_mcp_findings(mcp_blocks, root, is_agent_only)
+
+    allowed = _readme_allowed_vars(pkg_reads, toggles, is_agent_only)
+    findings += _readme_findings(root, allowed, is_agent_only)
 
     return {
         "package": root.resolve().name,
