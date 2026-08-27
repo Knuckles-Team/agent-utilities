@@ -306,4 +306,57 @@ GOC15_SURFACE_MANIFEST: tuple[SurfaceEntry, ...] = (
         disposition=Disposition.AUTHENTICATED_REQUIRED,
         citation="epistemic-graph/src/server/ros2_bridge.rs:220-231 -- routes through dispatch()'s real chokepoint",
     ),
+    # ── CA-29 W1-end fleet transcription (DEC-CA-08) ───────────────────────
+    #
+    # lakekeeper-mcp (CA-40), spark-mcp (CA-42), opensearch-mcp (CA-43): all
+    # three are built via the same agent_utilities.mcp.server_factory
+    # create_mcp_server() every other fleet MCP package uses, so they inherit
+    # ActorContextMiddleware's existing fleet-wide default (server_factory.py
+    # _configure_middleware:1275: `require_verified_session=(server_name ==
+    # "graph-os")`) -- False for these three, same as the ~60 other fleet
+    # servers already covered by the au:actor-context-middleware entry above.
+    # Recorded here per-surface (not merely inherited) because DEC-CA-08 makes
+    # these three new, security-relevant chokepoints (catalog ownership
+    # writes, versioned Transform submission, DLS-scoped search) in their own
+    # right, not because their disposition differs from the fleet norm.
+    SurfaceEntry(
+        surface_id="lakekeeper:catalog",
+        disposition=Disposition.KNOWN_FAIL_OPEN,
+        citation=(
+            "agents/lakekeeper-mcp/lakekeeper_mcp/mcp/mcp_lakekeeper.py:90-159 "
+            "(catalog tool group: lakekeeper_list_namespaces..lakekeeper_list_"
+            "schema_versions) -- registered via server_factory.create_mcp_server "
+            "-> _configure_middleware, ActorContextMiddleware(require_verified_"
+            "session=False) for this server_name"
+        ),
+    ),
+    SurfaceEntry(
+        surface_id="spark:connect",
+        disposition=Disposition.KNOWN_FAIL_OPEN,
+        citation=(
+            "agents/spark-mcp/spark_mcp/mcp/mcp_spark.py:27-66 (session tool "
+            "group: spark_sql/spark_describe/spark_cancel over Spark Connect "
+            "gRPC) -- same server_factory middleware default as above"
+        ),
+    ),
+    SurfaceEntry(
+        surface_id="opensearch:search",
+        disposition=Disposition.KNOWN_FAIL_OPEN,
+        citation=(
+            "agents/opensearch-mcp/opensearch_mcp/mcp/mcp_opensearch.py:212-254 "
+            "(search tool group: opensearch_search/opensearch_knn_search/"
+            "opensearch_hybrid_search -- runs as the calling principal so "
+            "OpenSearch-side DLS still narrows results, but this middleware "
+            "layer itself is the same fleet-wide no-op as above) -- same "
+            "server_factory middleware default as above"
+        ),
+    ),
+    # trino:sql (sql-mcp's CA-41 Trino/DuckDB dialect extension) is
+    # DELIBERATELY NOT recorded here: CA-41 has not landed any trino code --
+    # `agents/sql-mcp/sql_mcp/dialects.py` (193 lines, verified 2026-08-26)
+    # contains no `trino` entry in its DIALECTS registry, so there is no real
+    # `sql_trino_*` tool or file:line to cite yet. A citation to code that
+    # does not exist is a security-relevant documentation defect (this
+    # package's own design intent, restated below in mcp_tool.py) -- filed
+    # as a blocker for CA-41 rather than guessed.
 )
