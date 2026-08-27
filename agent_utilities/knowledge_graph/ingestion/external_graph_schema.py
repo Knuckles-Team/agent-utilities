@@ -323,6 +323,39 @@ query AgentUtilitiesSchemaDiscovery {
 """.strip()
 
 
+def _graphql_discovery_candidates(
+    raw_types: Any, limit: int
+) -> list[Mapping[str, Any]]:
+    if not isinstance(raw_types, list):
+        return []
+    return sorted(
+        (
+            item
+            for item in raw_types
+            if isinstance(item, Mapping)
+            and not str(item.get("name") or "").startswith("__")
+            and _GRAPHQL_IDENT_RE.fullmatch(str(item.get("name") or ""))
+        ),
+        key=lambda item: str(item.get("name") or ""),
+    )
+
+
+def _graphql_discovery_field_names(item: Mapping[str, Any]) -> tuple[str, ...]:
+    fields = item.get("fields") or []
+    return tuple(
+        sorted(
+            {
+                field_name
+                for field in fields
+                if isinstance(field, Mapping)
+                and _GRAPHQL_IDENT_RE.fullmatch(
+                    field_name := str(field.get("name") or "")
+                )
+            }
+        )
+    )
+
+
 class GraphQLDiscoveryAdapter:
     """Generic schema discovery over an injected, TLS-governed transport."""
 
@@ -541,17 +574,12 @@ class GraphQLDiscoveryAdapter:
                 out=out,
             )
 
-    def discover(
-        self,
-        execute: GraphQLExecutor,
-        *,
-        max_types: int = 200,
-        allow_introspection: bool = True,
-        probe_document: str = "",
-        probe_variables: Mapping[str, Any] | None = None,
-        max_depth: int = 6,
-    ) -> GraphQLDiscoveredSchema:
-        limit = max(1, min(int(max_types), _MAX_TYPES))
+    def _discover_via_introspection(
+        self, execute: GraphQLExecutor, *, allow_introspection: bool, limit: int
+    ) -> GraphQLDiscoveredSchema | None:
+        """Attempt introspection-based discovery. Returns None (never raises)
+        when introspection is disabled/unavailable or exposes no usable types,
+        so the caller can degrade to the bounded-probe fallback."""
         response: Mapping[str, Any] = {}
         if allow_introspection:
             try:
@@ -566,51 +594,28 @@ class GraphQLDiscoveryAdapter:
         raw_types = (
             schema_root.get("types") if isinstance(schema_root, Mapping) else None
         )
+        candidates = _graphql_discovery_candidates(raw_types, limit)
         types: dict[str, tuple[str, ...]] = {}
         signatures: dict[str, tuple[str, ...]] = {}
-        candidates: list[Mapping[str, Any]] = []
-        if isinstance(raw_types, list):
-            candidates = sorted(
-                (
-                    item
-                    for item in raw_types
-                    if isinstance(item, Mapping)
-                    and not str(item.get("name") or "").startswith("__")
-                    and _GRAPHQL_IDENT_RE.fullmatch(str(item.get("name") or ""))
-                ),
-                key=lambda item: str(item.get("name") or ""),
-            )
-            for item in candidates[:limit]:
-                name = str(item.get("name") or "")
-                fields = item.get("fields") or []
-                names = sorted(
-                    {
-                        field_name
-                        for field in fields
-                        if isinstance(field, Mapping)
-                        and _GRAPHQL_IDENT_RE.fullmatch(
-                            field_name := str(field.get("name") or "")
-                        )
-                    }
-                )
-                types[name] = tuple(names)
-                signatures[name] = self._introspection_signature(item)
-        if types:
-            return GraphQLDiscoveredSchema(
-                types=types,
-                schema_digest=self._digest(signatures, "introspection"),
-                mode="introspection",
-                partial=len(candidates) > limit,
-            )
+        for item in candidates[:limit]:
+            name = str(item.get("name") or "")
+            types[name] = _graphql_discovery_field_names(item)
+            signatures[name] = self._introspection_signature(item)
+        if not types:
+            return None
+        return GraphQLDiscoveredSchema(
+            types=types,
+            schema_digest=self._digest(signatures, "introspection"),
+            mode="introspection",
+            partial=len(candidates) > limit,
+        )
 
-        # Introspection is commonly disabled in production. The fallback never
-        # invents or bundles an operation: it accepts only a secret/runtime probe
-        # selected by the operator and requires an explicit bound variable.
-        document = str(probe_document or "").strip()
-        if not document:
-            raise ExternalGraphSchemaError(
-                "GraphQL introspection is unavailable and no bounded probe was configured"
-            )
+    def _discover_bounded_probe_variables(
+        self,
+        document: str,
+        probe_variables: Mapping[str, Any] | None,
+        limit: int,
+    ) -> dict[str, Any]:
         has_limit, has_first = self._bounded_probe_variables(document)
         if not has_limit and not has_first:
             raise ExternalGraphSchemaError(
@@ -630,6 +635,28 @@ class GraphQLDiscoveryAdapter:
             raise ExternalGraphSchemaError(
                 "GraphQL discovery probe bound is invalid"
             ) from None
+        return variables
+
+    def _discover_via_bounded_probe(
+        self,
+        execute: GraphQLExecutor,
+        *,
+        probe_document: str,
+        probe_variables: Mapping[str, Any] | None,
+        max_depth: int,
+        limit: int,
+    ) -> GraphQLDiscoveredSchema:
+        # Introspection is commonly disabled in production. The fallback never
+        # invents or bundles an operation: it accepts only a secret/runtime probe
+        # selected by the operator and requires an explicit bound variable.
+        document = str(probe_document or "").strip()
+        if not document:
+            raise ExternalGraphSchemaError(
+                "GraphQL introspection is unavailable and no bounded probe was configured"
+            )
+        variables = self._discover_bounded_probe_variables(
+            document, probe_variables, limit
+        )
         response = self._execute(execute, document, variables)
         shaped: dict[str, set[str]] = {}
         self._shape(
@@ -648,6 +675,30 @@ class GraphQLDiscoveryAdapter:
             schema_digest=self._digest(types, "bounded-probe"),
             mode="bounded-probe",
             partial=True,
+        )
+
+    def discover(
+        self,
+        execute: GraphQLExecutor,
+        *,
+        max_types: int = 200,
+        allow_introspection: bool = True,
+        probe_document: str = "",
+        probe_variables: Mapping[str, Any] | None = None,
+        max_depth: int = 6,
+    ) -> GraphQLDiscoveredSchema:
+        limit = max(1, min(int(max_types), _MAX_TYPES))
+        discovered = self._discover_via_introspection(
+            execute, allow_introspection=allow_introspection, limit=limit
+        )
+        if discovered is not None:
+            return discovered
+        return self._discover_via_bounded_probe(
+            execute,
+            probe_document=probe_document,
+            probe_variables=probe_variables,
+            max_depth=max_depth,
+            limit=limit,
         )
 
 
