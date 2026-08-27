@@ -749,17 +749,14 @@ async def run_agent(
     allowed_tools, required_tools = validate_tool_contract(
         allowed_tools, required_tools
     )
-    if skill_name and skill_name != agent_name:
-        raise ValueError("skill_name must match the dispatched agent_name")
-    if tool_server and not skill_name:
-        raise ValueError("tool_server requires skill_name")
+    _validate_run_agent_request(skill_name, agent_name, tool_server)
     validate_pydantic_graph_contract(
         requested_execution_mode,
         skill_name=skill_name,
         tool_server=tool_server,
         allowed_tools=allowed_tools,
     )
-    run_id = run_id or new_run_id()
+    run_id = _ensure_run_id(run_id)
     start_time = time.monotonic()
     actual_execution_mode = "other"
     logger.info(
@@ -779,247 +776,38 @@ async def run_agent(
         detail=agent_name,
         evidence={"agent": agent_name},
     )
-    # CONCEPT:AU-OS.observability.telemetry-observability (X2) — one OTel span per
-    # run_agent execution, closed by _record_execution_trace on EVERY exit path
-    # (success/degraded/failed/enterprise). Best-effort: OTel unconfigured (the
-    # default) makes this a clean no-op, never affects the run.
-    try:
-        from agent_utilities.observability import get_telemetry_engine
-
-        get_telemetry_engine().on_graph_start(
-            run_id=run_id, agent_id=agent_name, query=task
-        )
-    except Exception as exc:  # noqa: BLE001 — tracing must never break a run
-        logger.debug(
-            "run_agent: OTel span start skipped (exception_type=%s)",
-            type(exc).__name__,
-        )
+    _start_run_telemetry_span(run_id, agent_name, task)
 
     try:
         # Step 1: Resolve engine
         engine = engine or _get_or_create_engine()
 
         if agent_name.lower() == "enterprise":
-            from agent_utilities.graph.manifest_generators import (
-                manifest_for_enterprise,
+            return await _execute_enterprise_route(
+                engine, task, run_id, start_time, return_mermaid
             )
-            from agent_utilities.graph.parallel_engine import ParallelEngine
-
-            logger.info(
-                "[ORCH-1.9] Executing full Enterprise Autonomous Company orchestration"
-            )
-            manifest = await _call_without_blocking(
-                manifest_for_enterprise, task, engine
-            )
-            pe = ParallelEngine(engine=engine)
-
-            try:
-                pe_result = await pe.execute(manifest)
-                duration_ms = (time.monotonic() - start_time) * 1000
-                # BUG-015 (GOC-20): this return value used to be discarded — a run could
-                # report its enterprise result while the RunTrace/Outcome write silently
-                # failed, with no way for a rich-envelope caller to tell. Capture it and
-                # surface it (never touching the bare-string contract; see
-                # ``_render_agent_result``).
-                _enterprise_prov_recorded = await _record_execution_trace_ordered(
-                    engine,
-                    run_id,
-                    "enterprise",
-                    task,
-                    status="completed",
-                    duration_ms=duration_ms,
-                    result_preview=str(pe_result)[:500],
-                    execution_mode="parallel_engine",
-                )
-                if not _enterprise_prov_recorded:
-                    logger.error(
-                        "run_agent(enterprise): result produced but RunTrace/provenance "
-                        "write failed (run_id=%r) — reporting provenance_recorded=False "
-                        "per the BUG-015 atomic-outcome contract",
-                        run_id,
-                    )
-                return _render_agent_result(
-                    pe_result,
-                    run_id=run_id,
-                    return_mermaid=return_mermaid,
-                    provenance_recorded=_enterprise_prov_recorded,
-                )
-            except Exception as e:
-                logger.error("[ORCH-1.9] Enterprise execution failed: %s", e)
-                _enterprise_prov_recorded = await _record_execution_trace_ordered(
-                    engine,
-                    run_id,
-                    "enterprise",
-                    task,
-                    status="failed",
-                    error=str(e),
-                    execution_mode="parallel_engine",
-                )
-                return _render_agent_result(
-                    f"Enterprise execution failed: {e}",
-                    run_id=run_id,
-                    return_mermaid=return_mermaid,
-                    provenance_recorded=_enterprise_prov_recorded,
-                )
 
         # Step 1b: Check if agent_name maps to a native ServiceRegistry capability (e.g. trading_swarm)
-        try:
-            from agent_utilities.core.registry.service_adapter import ServiceRegistry
-
-            registry = ServiceRegistry.instance()
-            svc = registry.get(agent_name)
-            if svc:
-                logger.info(
-                    "[ORCH-1.21] Routing to ServiceRegistry capability: %s", agent_name
-                )
-                cls = svc.get_class()
-                if cls:
-                    # Instantiate capability
-                    sig = inspect.signature(cls)
-                    if "engine" in sig.parameters:
-                        instance = cls(engine=engine)
-                    elif "config" in sig.parameters:
-                        instance = cls(config=None)
-                    else:
-                        instance = cls()
-
-                    # Execute capability
-                    result = None
-                    handled = False
-                    if hasattr(instance, "analyze"):
-                        handled = True
-                        # Specifically for TradingSwarm
-                        try:
-                            task_data = json.loads(task)
-                        except Exception:
-                            task_data = {"raw_task": task}
-
-                        result = await _call_without_blocking(
-                            instance.analyze, task_data
-                        )
-                    elif hasattr(instance, "select_pattern"):
-                        handled = True
-                        # Specifically for SubagentPatternRouter
-                        result = await _call_without_blocking(
-                            instance.select_pattern, needs_collaboration=True
-                        )
-                    elif hasattr(instance, "run"):
-                        handled = True
-                        result = await _call_without_blocking(instance.run, task)
-                    elif hasattr(instance, "execute"):
-                        handled = True
-                        result = await _call_without_blocking(instance.execute, task)
-                    if handled:
-                        # BUG-015 (GOC-20): same discarded-return defect as the enterprise
-                        # path above — capture and surface it rather than reporting this
-                        # ServiceRegistry result unconditionally as fully provenanced.
-                        _svc_prov_recorded = await _record_execution_trace_ordered(
-                            engine,
-                            run_id,
-                            agent_name,
-                            task,
-                            status="completed",
-                            duration_ms=(time.monotonic() - start_time) * 1000,
-                            result_preview=str(result)[:500],
-                            execution_mode="service_registry",
-                        )
-                        if not _svc_prov_recorded:
-                            logger.error(
-                                "run_agent(service_registry): result produced but "
-                                "RunTrace/provenance write failed (run_id=%r, agent=%r) — "
-                                "reporting provenance_recorded=False per the BUG-015 "
-                                "atomic-outcome contract",
-                                run_id,
-                                agent_name,
-                            )
-                        return _render_agent_result(
-                            result,
-                            run_id=run_id,
-                            return_mermaid=return_mermaid,
-                            provenance_recorded=_svc_prov_recorded,
-                        )
-        except Exception as e:
-            logger.warning(
-                "[ORCH-1.21] ServiceRegistry execution failed for %s, falling back: %s",
-                agent_name,
-                e,
-            )
-
-        # CONCEPT:AU-ORCH.execution.per-job-shape-construction — construct the execution shape for THIS job ONCE, up front. The
-        # escalating planner decides how much graph the job needs from cheap signals; a trivial
-        # turn gets a lean shape that skips KG agent resolution, the usage-guard LLM round,
-        # discovery, and the verifier (CONCEPT:AU-ORCH.execution.direct-completion-shape), so the heavy apparatus never runs for a
-        # simple chat reply.
-        from agent_utilities.orchestration.execution_profile import plan_execution_shape
-
-        shape = await _call_without_blocking(
-            plan_execution_shape,
-            task,
-            profile_hint=execution_profile,
-            engine=engine,
+        _registry_result = await _try_service_registry_route(
+            engine, agent_name, task, run_id, start_time, return_mermaid
         )
+        if _registry_result is not None:
+            return _registry_result
 
-        # Step 2: Query KG for agent metadata — ONLY when the shape targets a specific specialist.
-        # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — ``_resolve_agent_from_kg`` runs synchronous backend round-trips;
-        # run them OFF the event loop via ``to_thread`` so they never stall the async reply path.
-        # CONCEPT:AU-ORCH.execution.direct-completion-shape — a direct-completion / generic chat turn does not target a named
-        # specialist, so we skip the resolution entirely (it is a multi-second semantic-search
-        # round-trip that mis-resolves a prompt-only agent like ``messaging-assistant`` anyway).
-        # CONCEPT:AU-ORCH.execution.passthrough-identity — and a PASS-THROUGH identity (the universal messaging assistant) is
-        # resolution-exempt regardless of the shape: it is a prompt-only universal entrypoint that
-        # is MEANT to flow through the full multi-agent graph as itself, and resolving it both
-        # wastes a ~21 s semantic search and mis-binds it to an unrelated tag (``prepare_messages``).
-        # An explicit agent is a routing constraint, not a hint for the task lexical
-        # planner.  In particular, the focused-tools shape is planned from ``task``
-        # independently of ``agent_name``; skipping resolution here let that shape bind
-        # a different server even when the caller had pinned one.
-        if (
-            shape.resolve_agent or agent_name.strip()
-        ) and agent_name.strip().lower() not in _PASSTHROUGH_AGENTS:
-            agent_meta = await _call_without_blocking(
-                _resolve_agent_from_kg, engine, agent_name
-            )
-        else:
-            agent_meta = _unresolved_agent_meta()
-
-        if skill_name:
-            if not agent_meta.get("skill_id"):
-                reason, degraded = await _call_without_blocking(
-                    _skill_unrunnable_reason, engine, skill_name
-                )
-                if degraded:
-                    # D-SNV-5: the precondition READ failed (e.g. a transient
-                    # engine/session error) — that is not an honest negative and
-                    # must never be phrased as "is not runnable", which a caller
-                    # or an operator reading the log would take as a confirmed,
-                    # actionable finding about the skill itself.
-                    raise RuntimeError(
-                        f"could not determine whether skill '{skill_name}' is "
-                        f"runnable: {reason}"
-                    )
-                raise LookupError(
-                    f"ingested skill '{skill_name}' is not runnable: {reason}"
-                )
-            if tool_server:
-                agent_meta = await _call_without_blocking(
-                    _bind_explicit_tool_server,
-                    engine,
-                    agent_meta,
-                    tool_server,
-                    skill_name,
-                    allowed_tools,
-                )
-            elif agent_meta.get("binding_error"):
-                # D-DEL-1 ★ fail loud: an auto-resolved skill that declared a
-                # genuine external provider but could not bind to ANY known
-                # server (`_bind_skill_to_owning_server`) must not silently
-                # continue as a prompt-only run that still reports success —
-                # that is the exact "capability silently disappears" failure
-                # shape this defect exists to close. An explicit `tool_server=`
-                # (the `if` branch above) already re-resolves and fails loud
-                # on its own terms via `_catalog_toolset_binding`, so this
-                # only fires on the auto-resolve path.
-                raise LookupError(str(agent_meta["binding_error"]))
+        # CONCEPT:AU-ORCH.execution.per-job-shape-construction / Step 2 — see
+        # ``_plan_shape_and_resolve_agent`` for the full per-line rationale (unchanged,
+        # moved verbatim): plan the job's execution shape, resolve ``agent_meta``
+        # against the KG only when the shape targets a specific specialist, and
+        # validate an explicitly requested ``skill_name`` binding.
+        shape, agent_meta = await _plan_shape_and_resolve_agent(
+            task,
+            execution_profile,
+            engine,
+            agent_name,
+            skill_name,
+            tool_server,
+            allowed_tools,
+        )
 
         # Step 2b: Prime the recent compressed mementos for this run OFF the event loop.
         # CONCEPT:AU-KG.memory.refresh-per-session-memento — read the per-session memento cache (zero I/O); only on a cold
@@ -1055,104 +843,45 @@ async def run_agent(
         )
         config["response_format"] = response_format
         config["execution_mode"] = requested_execution_mode
-        if skill_name:
-            config["pinned_skill_name"] = skill_name
-            config["pinned_skill_prompt"] = str(agent_meta.get("system_prompt") or "")
-        # CONCEPT:AU-ORCH.session.carry-invoker — carry the invoker's curated context + token budget into the spawn.
-        # context_ref resolves a persisted ContextBlob (cross-process handoff): fetch its content
-        # from the epistemic-graph and link it to this run's RunTrace for provenance.
-        if context_ref and not context:
-            try:
-                context = await _call_without_blocking(
-                    _resolve_context_ref, engine, context_ref, run_id
-                )
-            except Exception as _ctx_exc:  # noqa: BLE001
-                logger.warning(
-                    "context_ref %s resolution failed: %s", context_ref, _ctx_exc
-                )
-        if context:
-            config["invoker_context"] = context
-        # CONCEPT:AU-AHE.harness.loop-exit-conditions — BUDGET CAP (exit 3), native by
-        # default. A top-level ``run_agent`` gets a token budget even when the caller
-        # passed none, so the ``UsageLimits.total_tokens_limit`` hard cap is threaded
-        # onto EVERY spawned agent (the single-server loop and the graph spawn sites,
-        # which enforce it via pydantic-ai UsageLimits) — not only explicit invoker
-        # handoffs. The ResourceOptimizer session token budget is the default; a caller
-        # may still pass an explicit ``budget_tokens`` (honored verbatim) and a
-        # deployment can raise/lower ``SESSION_TOKEN_BUDGET``.
-        effective_budget_tokens = budget_tokens
-        if effective_budget_tokens is None:
-            from agent_utilities.core.resource_optimizer import DEFAULT_TOKEN_BUDGET
+        # CONCEPT:AU-ORCH.session.carry-invoker — carry the invoker's curated context + token budget
+        # into the spawn (see ``_resolve_and_apply_invoker_context`` for the full rationale).
+        await _resolve_and_apply_invoker_context(
+            engine, context_ref, context, run_id, config
+        )
+        # CONCEPT:AU-AHE.harness.loop-exit-conditions / AU-ORCH.execution.delegation-reasoning-off —
+        # see ``_apply_budget_and_delegation_extras`` for the full per-line rationale (unchanged,
+        # moved verbatim): budget cap, native-skill toolset binding, invoker cred ref, reasoning
+        # effort opt-in, and the pinned-skill prompt.
+        _apply_budget_and_delegation_extras(
+            config,
+            budget_tokens,
+            agent_meta,
+            agent_name,
+            cred_ref,
+            reasoning_effort,
+            skill_name,
+        )
+        # CONCEPT:AU-ORCH.execution.task-aware-tool-selection — see
+        # ``_apply_relevant_tool_selection`` for the full rationale (unchanged, moved verbatim).
+        await _apply_relevant_tool_selection(
+            engine, task, agent_meta, agent_name, config
+        )
+        # CONCEPT:AU-ORCH.session.session-anchored-collections-native — see ``_open_run_channel``
+        # for the full rationale (unchanged, moved verbatim).
+        channel_id = await _open_run_channel(
+            engine, open_channel, session_id, run_id, config
+        )
 
-            effective_budget_tokens = DEFAULT_TOKEN_BUDGET
-        if effective_budget_tokens:
-            config["invoker_budget_tokens"] = int(effective_budget_tokens)
-        _bind_native_skill_toolset(
-            config=config,
-            agent_meta=agent_meta,
-            agent_name=agent_name,
-        )
-        if cred_ref:
-            config["invoker_cred_ref"] = cred_ref
-        # CONCEPT:AU-ORCH.execution.delegation-reasoning-off — reasoning is an opt-in capability
-        # (like RLM): a run that needs deliberation turns it ON per-execution by passing an
-        # effort ("low"/"medium"/"high"); otherwise the deterministic tool loop leaves it OFF
-        # (the fleet default). Threaded onto config so _execute_single_server can honor it.
-        if reasoning_effort:
-            config["reasoning_effort"] = str(reasoning_effort)
-        # CONCEPT:AU-ORCH.execution.task-aware-tool-selection — a resolved fleet server can expose HUNDREDS
-        # of tools; binding every schema to the single-server agent makes the LLM call hang
-        # and the run silently degrade to a hallucinating toolless graph. When the caller
-        # set no explicit allow-list, bind only the top-K task-relevant tools (KG capability
-        # index, bounded; lexical fallback; hard cap). Only for resolved MCP servers.
-        if agent_meta.get("type") == "server" and not config.get(
-            "invoker_allowed_tools"
-        ):
-            _selected = await _select_relevant_tool_names(
-                engine, task, agent_meta.get("tools") or [], agent_name=agent_name
-            )
-            if _selected:
-                config["invoker_allowed_tools"] = _selected
-        # CONCEPT:AU-ORCH.session.session-anchored-collections-native — open the invoker↔spawned native message channel for this run when
-        # requested (or when an explicit session_id is given). The id is stamped into config so
-        # GraphState/AgentDeps carry it to the spawned agent, and echoed back in the JSON wrapper
-        # so the invoker knows where to send/receive.
-        channel_id: str | None = None
-        if open_channel or session_id:
-            from agent_utilities.messaging import agent_channel
-
-            channel_id = await _call_without_blocking(
-                agent_channel.open_channel, engine, session_id or run_id, run_id
-            )
-            if channel_id:
-                config["message_channel_id"] = channel_id
-
-        # CONCEPT:AU-ORCH.execution.skill-utilization-provenance — capture whether a package SKILL drove
-        # this run (its SOP is the prompt) and which server's tools it bound (F7), so the
-        # RunTrace records skill utilization: bare skill (prompt-only) has type=="skill";
-        # a skill bound to its server (F7) carries ``skill_of_server``.
-        _skill_used = (
-            agent_name
-            if (agent_meta.get("type") == "skill" or agent_meta.get("skill_of_server"))
-            else ""
-        )
-        _bound_server = str(agent_meta.get("skill_of_server", "") or "")
-        _skill_id = str(agent_meta.get("skill_id", "") or "")
-        _skill_instruction_digest = str(
-            agent_meta.get("skill_instruction_digest", "") or ""
-        )
-        from agent_utilities.security.persistence_privacy import persistence_reference
-
-        _model_ref = persistence_reference(
-            "model", config.get("agent_model"), namespace="orchestration-run"
-        )
-        _model_class = str(config.get("selected_model_class") or "")
-        config["trace_evidence"] = _trace_evidence_for_run(
-            model_ref=_model_ref,
-            model_class=_model_class,
-            skill_used=_skill_used,
-            skill_instruction_digest=_skill_instruction_digest,
-        )
+        # CONCEPT:AU-ORCH.execution.skill-utilization-provenance — see
+        # ``_compute_trace_identity_fields`` for the full rationale (unchanged, moved verbatim).
+        (
+            _skill_used,
+            _bound_server,
+            _skill_id,
+            _skill_instruction_digest,
+            _model_ref,
+            _model_class,
+        ) = _compute_trace_identity_fields(agent_meta, config, agent_name)
 
         # CONCEPT:AU-OS.identity.per-agent-on-behalf-delegation — resolve THIS spawn's on-behalf-of
         # identity (exchange + chain + run-token + ceiling) once, up front. It is bound as ambient
@@ -1188,260 +917,41 @@ async def run_agent(
         route: dict[str, Any] = {}
         stage_reached = "dispatch"
     except BaseException as _pre_dispatch_exc:  # noqa: BLE001 — D-CDX-50: guarantee telemetry closure + a terminal RunTrace for every PRE-DISPATCH exit (engine resolution, enterprise/service-registry setup, KG agent resolution, skill binding, memento/code-context priming, execution-config construction) -- the dispatch stage below (Step 4's try/except BaseException) already covers everything from here on, but nothing previously covered THIS span; an exception here used to leak the OTel span (on_graph_start with no matching on_graph_end) and leave zero RunTrace for the run_id, exactly when a caller-handed trace_ref most needed to resolve to something.
-        if isinstance(
-            _pre_dispatch_exc, KeyboardInterrupt | SystemExit
-        ) and not isinstance(_pre_dispatch_exc, BaseExceptionGroup):
+        if _is_uncatchable_exit(_pre_dispatch_exc):
             raise
-        _pre_dispatch_status = (
-            "cancelled"
-            if isinstance(_pre_dispatch_exc, asyncio.CancelledError)
-            else "failed"
-        )
-        _pre_dispatch_err = _flatten_exception_group(_pre_dispatch_exc)
-        logger.error(
-            "[D-CDX-50] run_agent: pre-dispatch exit (agent=%s, run_id=%s, status=%s): %s",
-            agent_name,
+        # ``_log_pre_dispatch_failure`` never raises; this frame's own ``raise``
+        # (below) is what re-propagates ``_pre_dispatch_exc`` unchanged.
+        await _log_pre_dispatch_failure(
+            _pre_dispatch_exc,
+            engine,
             run_id,
-            _pre_dispatch_status,
-            _pre_dispatch_err,
+            agent_name,
+            task,
+            start_time,
+            actual_execution_mode,
         )
-        try:
-            # ``_record_execution_trace_ordered`` is the SAME cancellation-safe,
-            # off-the-serving-loop helper the dispatch-stage handler below uses
-            # (see its own docstring) -- it also closes the OTel span opened
-            # above (on_graph_end runs first thing inside it), so this one call
-            # is both halves of "one outer lifecycle boundary" for this exit.
-            # ``engine`` may still be the pre-call default (e.g. None) if
-            # ``_get_or_create_engine()`` itself is what raised; the trace
-            # helper degrades to a telemetry-only close in that case rather
-            # than raising a second time.
-            await _record_execution_trace_ordered(
-                engine,
-                run_id,
-                agent_name,
-                task,
-                status=_pre_dispatch_status,
-                error=_pre_dispatch_err,
-                duration_ms=(time.monotonic() - start_time) * 1000,
-                execution_mode=actual_execution_mode,
-            )
-        except Exception as _trace_exc:  # noqa: BLE001 — best-effort; never block the original exception/cancellation from propagating
-            logger.debug(
-                "run_agent: pre-dispatch best-effort trace write failed: %s",
-                _trace_exc,
-            )
         raise
 
+    _dispatch_state: dict[str, Any] = {
+        "route": {},
+        "stage_reached": "dispatch",
+        "actual_execution_mode": actual_execution_mode,
+    }
     try:
-        if requested_execution_mode == "pydantic_graph":
-            actual_execution_mode = "pydantic_graph"
-            route = {
-                "agents": ["pydantic-graph", agent_name],
-                "servers": [tool_server] if tool_server else [],
-                "why": "caller forced the governed pydantic-graph graph.run route",
-            }
-            stage_reached = "pydantic-graph"
-            await _emit(
-                progress_sink,
-                run_id=run_id,
-                stage="route",
-                status="ok",
-                detail=str(route["why"]),
-                evidence={
-                    "agents": route["agents"],
-                    "servers": route["servers"],
-                    "skill": skill_name or "",
-                },
-            )
-            result = await _execute_graph(
-                config=config,
-                query=task,
-                run_id=run_id,
-                max_steps=max_steps,
-                agent_meta=agent_meta,
-                agent_name=agent_name,
-                progress_sink=progress_sink,
-            )
-        elif _is_bound_template_agent(agent_meta, config):
-            # CONCEPT:AU-ORCH.adapter.transport-toolset-factory — a KG-bound persona (e.g. agent-utilities-expert)
-            # runs a DIRECT grounding loop: its recovered persona prompt drives the
-            # run and its now-bound toolsets (graph-os + the fleet) let it query the
-            # KG and ground the answer, instead of the prompt-only run that
-            # hallucinated. Takes precedence over the generic focused-tools lexical
-            # gate because the template DECLARES its own toolsets. A failure falls
-            # through to the full graph (never drops the turn).
-            route = {
-                "agents": [agent_name],
-                "servers": [],
-                "why": "KG-bound persona template with pre-bound toolsets",
-            }
-            stage_reached = f"bound-template: {agent_name}"
-            await _emit(
-                progress_sink,
-                run_id=run_id,
-                stage="route",
-                status="ok",
-                detail=str(route["why"]),
-                evidence={"agents": route["agents"], "servers": route["servers"]},
-            )
-            try:
-                actual_execution_mode = "single_server_agent"
-                result = await _execute_single_server(
-                    config=config,
-                    task=task,
-                    max_steps=max_steps,
-                    agent_meta=agent_meta,
-                    agent_name=agent_name,
-                    progress_sink=progress_sink,
-                    run_id=run_id,
-                )
-            except Exception as e:  # noqa: BLE001 — degrade to the graph, never drop the turn
-                logger.warning(
-                    "[ORCH-1.101] bound-template path failed (%s); falling through to the full graph.",
-                    _flatten_exception_group(e),
-                )
-                stage_reached = (
-                    f"bound-template: {agent_name} (fallback: multi-agent-graph)"
-                )
-                actual_execution_mode = "pydantic_graph"
-                result = await _execute_graph(
-                    config=config,
-                    query=task,
-                    run_id=run_id,
-                    max_steps=max_steps,
-                    agent_meta=agent_meta,
-                    agent_name=agent_name,
-                    progress_sink=progress_sink,
-                )
-        elif getattr(shape, "tool_servers", ()) and agent_meta.get("type") != "server":
-            # CONCEPT:AU-ORCH.execution.focused-tools-altitude — FOCUSED-TOOLS altitude: the lexical gate named concrete fleet
-            # server(s), so bind exactly those toolsets and run ONE direct agent loop (parallel
-            # tool calls) instead of the planning graph, which over-decomposes a named-tool ask
-            # into a multi-step plan + expert fan-out.
-            _focused_servers = list(getattr(shape, "tool_servers", ()) or ())
-            route = {
-                "agents": [],
-                "servers": _focused_servers,
-                "why": "lexical gate matched named fleet server(s) for this task",
-            }
-            stage_reached = f"tool-call: {','.join(_focused_servers)}"
-            await _emit(
-                progress_sink,
-                run_id=run_id,
-                stage="route",
-                status="ok",
-                detail=str(route["why"]),
-                evidence={"servers": _focused_servers},
-            )
-            # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — surface the
-            # ORCH-1.74 focused-tools binding ("binding N server(s)") as a tool_call checkpoint,
-            # so the chat surface shows WHICH fleet tools this run is about to reach before the
-            # (possibly slow) parallel tool loop runs.
-            await _emit(
-                progress_sink,
-                run_id=run_id,
-                stage="tool_call",
-                status="started",
-                detail=", ".join(_focused_servers),
-                evidence={"servers": _focused_servers},
-            )
-            try:
-                actual_execution_mode = "single_server_agent"
-                result = await _execute_focused_tools(
-                    task=task,
-                    shape=shape,
-                    config=config,
-                    agent_name=agent_name,
-                    max_steps=max_steps,
-                    progress_sink=progress_sink,
-                    run_id=run_id,
-                )
-            except Exception as e:  # noqa: BLE001
-                # CONCEPT:AU-ORCH.execution.focused-tools-fail-closed — this branch is entered ONLY
-                # because ``shape.tool_servers`` (the live-KG-ontology lexical match against the
-                # TASK, resolved in ``plan_execution_shape`` independently of ``agent_name``) named
-                # concrete fleet server(s) — that is the branch guard itself, so it is ALWAYS a
-                # server-name delegation, regardless of whether the top-level ``agent_name``
-                # happens to also resolve as a KG ``:Server`` (it usually does NOT: ``agent_name``
-                # is frequently a generic/passthrough identity like the messaging assistant, while
-                # the REAL delegation target is ``shape.tool_servers``). The previous fail-closed
-                # gate tested ``agent_meta.get("type") == "server"`` — the WRONG variable — so a
-                # genuine named-server delegation whose real tools could not be reached (server
-                # never registered / 0 :Server nodes, unreachable, auth failure, ...) silently fell
-                # through to the toolless multi-agent graph and could fabricate a plausible-looking
-                # answer stamped "completed" — exactly the confident-hallucination failure
-                # AU-ORCH.execution.no-silent-hallucination exists to catch. There is no legitimate
-                # fallthrough once a concrete server target is named, so always fail closed here.
-                err = _flatten_exception_group(e)
-                servers = list(getattr(shape, "tool_servers", ()) or ())
-                logger.warning(
-                    "[ORCH-1.74] focused-tools path failed for fleet server(s) %s (%s); "
-                    "surfacing degraded instead of hallucinating via the graph.",
-                    servers,
-                    err,
-                )
-                result = _fleet_server_failed_result(
-                    agent_name or ",".join(servers), err
-                )
-        elif _is_single_server_agent(agent_meta, config):
-            actual_execution_mode = "single_server_agent"
-            route = {
-                "agents": [],
-                "servers": [agent_name],
-                "why": "resolved as a single configured MCP server",
-            }
-            stage_reached = f"tool-call: {agent_name}"
-            await _emit(
-                progress_sink,
-                run_id=run_id,
-                stage="route",
-                status="ok",
-                detail=str(route["why"]),
-                evidence={"servers": [agent_name]},
-            )
-            await _emit(
-                progress_sink,
-                run_id=run_id,
-                stage="tool_call",
-                status="started",
-                detail=agent_name,
-                evidence={"servers": [agent_name]},
-            )
-            result = await _execute_single_server(
-                config=config,
-                task=task,
-                max_steps=max_steps,
-                agent_meta=agent_meta,
-                agent_name=agent_name,
-                progress_sink=progress_sink,
-                run_id=run_id,
-                bound_tool_grounding=True,
-            )
-        else:
-            actual_execution_mode = "pydantic_graph"
-            route = {
-                "agents": ["multi-agent-graph"],
-                "servers": [],
-                "why": "no named server/template matched; routed to the multi-agent planning graph",
-            }
-            stage_reached = "multi-agent-graph"
-            await _emit(
-                progress_sink,
-                run_id=run_id,
-                stage="route",
-                status="ok",
-                detail=str(route["why"]),
-                evidence={"agents": ["multi-agent-graph"]},
-            )
-            result = await _execute_graph(
-                config=config,
-                query=task,
-                run_id=run_id,
-                max_steps=max_steps,
-                agent_meta=agent_meta,
-                agent_name=agent_name,
-                progress_sink=progress_sink,
-            )
+        result = await _select_and_dispatch(
+            _dispatch_state,
+            requested_execution_mode,
+            agent_meta,
+            config,
+            shape,
+            task,
+            run_id,
+            max_steps,
+            agent_name,
+            tool_server,
+            skill_name,
+            progress_sink,
+        )
     except BaseException as e:  # noqa: BLE001 — see _flatten_exception_group
         # A remote MCP child (streamable-http/sse) that fails to connect or errors
         # mid-call surfaces through anyio as a BaseExceptionGroup ("unhandled errors
@@ -1454,158 +964,55 @@ async def run_agent(
         # timeout in ``_run_agent_bounded`` — MUST propagate so the timeout surfaces
         # as a clean "timed out" result, not be flattened into "Agent execution
         # failed: CancelledError". CancelledError is a bare BaseException here (not a
-        # group), so re-raise it before the flatten path.
+        # group), so re-raise it before the flatten path. See
+        # ``_handle_dispatch_cancellation``/``_handle_dispatch_failure`` for the full
+        # per-line rationale of each branch (unchanged, moved verbatim).
         if isinstance(e, asyncio.CancelledError):
-            # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — this branch
-            # re-raises immediately, so the ordinary failure trace below NEVER runs for a
-            # cancelled run (Step 5 never runs either). Without this, a caller-side wall-clock/
-            # reply-budget timeout (e.g. the messaging router's ``asyncio.wait_for``) leaves
-            # ZERO durable trace for this run_id — a ``trace_ref`` handed to the caller (a
-            # caller that pre-generated one via the ``run_id=`` param specifically so it
-            # survives a cancellation) would resolve to nothing. Best-effort record a
-            # "timeout" RunTrace with whatever route/stage this run reached before it was cut
-            # off, so that trace_ref is a REAL troubleshooting entry point.
-            #
-            # Preserve this one durable write through cancellation, but do not perform
-            # its native engine calls on GraphOS's shared serving loop.  In particular,
-            # ``_execute_tool`` reaches this branch after its delegation wall-clock;
-            # a stalled add_node/link_nodes here used to make health/readiness time out
-            # and let kubelet kill an otherwise recoverable gateway.  The ordered helper
-            # keeps exactly one started write alive through repeated cancellation and
-            # re-raises only after it completes, without starving other loop tasks.
-            #
-            # Record the lightweight runtime signal before awaiting the ordered write:
-            # a repeated cancellation is allowed to re-raise from the helper after the
-            # durable trace commits, but must not suppress the timeout evidence.
-            _record_delegation_over_budget(
-                agent_name, time.monotonic() - start_time, "timeout"
+            await _handle_dispatch_cancellation(
+                e,
+                agent_name,
+                start_time,
+                engine,
+                run_id,
+                task,
+                _dispatch_state["stage_reached"],
+                _skill_used,
+                _bound_server,
+                _skill_id,
+                _skill_instruction_digest,
+                _model_ref,
+                _model_class,
+                config,
+                _dispatch_state["actual_execution_mode"],
+                _spawn_delegation,
             )
-            try:
-                await _record_execution_trace_ordered(
-                    engine,
-                    run_id,
-                    agent_name,
-                    task,
-                    status="timeout",
-                    duration_ms=(time.monotonic() - start_time) * 1000,
-                    error=(
-                        f"execution cancelled at stage={stage_reached!r} "
-                        "(caller-side wall-clock/reply-budget timeout)"
-                    ),
-                    skill_used=_skill_used,
-                    bound_server=_bound_server,
-                    skill_id=_skill_id,
-                    skill_instruction_digest=_skill_instruction_digest,
-                    model_ref=_model_ref,
-                    model_class=_model_class,
-                    model_name=str(config.get("agent_model") or ""),
-                    execution_mode=actual_execution_mode,
-                    delegation=_spawn_delegation,
-                )
-            except Exception as trace_exc:  # noqa: BLE001 — best-effort; never block cancellation
-                logger.debug(
-                    "run_agent: best-effort timeout-trace write failed: %s", trace_exc
-                )
             raise
-        if isinstance(e, KeyboardInterrupt | SystemExit) and not isinstance(
-            e, BaseExceptionGroup
-        ):
+        if _is_uncatchable_exit(e):
             raise
-        err_msg = _flatten_exception_group(e)
-        logger.error(
-            "[ORCH-1.21] Agent execution failed: agent=%s, error=%s",
+        return await _handle_dispatch_failure(
+            e,
             agent_name,
-            err_msg,
-        )
-        # CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract — a `required`-policy
-        # GroundingUnavailableError lands here (it is a PermissionError, caught by this
-        # broad handler like any other failure): the run is truthfully recorded as
-        # `status="failed"`, never silently answered ungrounded.
-        from agent_utilities.core.contextual_model import grounding_snapshot as _gs
-
-        _grounding_degraded, _grounding_reason = _gs()
-        # Record failure provenance
-        await _record_execution_trace_ordered(
             engine,
             run_id,
-            agent_name,
             task,
-            status="failed",
-            error=err_msg,
-            skill_used=_skill_used,
-            bound_server=_bound_server,
-            skill_id=_skill_id,
-            skill_instruction_digest=_skill_instruction_digest,
-            model_ref=_model_ref,
-            model_class=_model_class,
-            model_name=str(config.get("agent_model") or ""),
-            execution_mode=actual_execution_mode,
-            delegation=_spawn_delegation,
-            grounding_status="degraded" if _grounding_degraded else "grounded",
-            grounding_reason=_grounding_reason,
-        )
-        # ARPO read-back (CONCEPT:AU-AHE.reward.this-is-read-back): failed runs carry step credit too
-        # (a correct step in a failed trajectory must not be penalized).
-        await _call_without_blocking(
-            _write_step_credit,
-            engine,
-            run_id,
-            agent_name,
-            None,
-            success=False,
-        )
-        # CONCEPT:AU-ORCH.execution.planner-failure-feedback/1.71 — fold the failure back into the planner: evict this job's
-        # cached recipe AND teach the shape policy (this archetype failed for this task-class).
-        from agent_utilities.orchestration.execution_profile import record_shape_outcome
-
-        record_shape_outcome(
-            task,
+            start_time,
+            _dispatch_state["route"],
+            _dispatch_state["stage_reached"],
+            _skill_used,
+            _bound_server,
+            _skill_id,
+            _skill_instruction_digest,
+            _model_ref,
+            _model_class,
+            config,
+            _dispatch_state["actual_execution_mode"],
+            _spawn_delegation,
             execution_profile,
-            success=False,
-            latency_s=time.monotonic() - start_time,
-            shape=shape,
-        )
-        # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — stream the terminal
-        # failure using the SAME translated text the run_summary carries, so the transparency
-        # the user gets in-flight matches the final footer (never a bare "something failed").
-        from agent_utilities.observability.trace_ontology import (
-            trace_id as _trace_id_fail,
-        )
-        from agent_utilities.orchestration.failure_translation import (
-            translate_failure as _translate_failure,
-        )
-
-        _fail_xlate = _translate_failure(err_msg)
-        await _emit(
+            shape,
+            return_mermaid,
+            channel_id,
+            include_run_summary,
             progress_sink,
-            run_id=run_id,
-            stage="failure",
-            status="failed",
-            detail=_fail_xlate.translated,
-            evidence={
-                "category": _fail_xlate.category,
-                "hint": _fail_xlate.hint,
-                "stage_reached": stage_reached,
-                "trace_ref": _trace_id_fail(run_id),
-            },
-        )
-        return _render_agent_result(
-            f"Agent execution failed: {err_msg}",
-            run_id=run_id,
-            return_mermaid=return_mermaid,
-            channel_id=channel_id,
-            run_summary=(
-                _build_run_summary(
-                    route=route,
-                    outcome="failed",
-                    stage_reached=stage_reached,
-                    run_id=run_id,
-                    raw_failure=err_msg,
-                    execution_mode=actual_execution_mode,
-                )
-                if include_run_summary
-                else None
-            ),
         )
     finally:
         # CONCEPT:AU-OS.identity.per-agent-on-behalf-delegation — release the spawn's ambient
@@ -1615,77 +1022,1305 @@ async def run_agent(
         # delegation explicitly.
         _reset_delegation(_delegation_token)
 
-    # Preserve graph evidence across the tool-grounding gate below. A missing
-    # required ToolCall can replace the user-facing result with a truthful
-    # failure envelope, but it must not erase the topology that reached that
-    # failure.
-    graph_execution_evidence = (
+    route = _dispatch_state["route"]
+    stage_reached = _dispatch_state["stage_reached"]
+    actual_execution_mode = _dispatch_state["actual_execution_mode"]
+
+    graph_execution_evidence = _extract_graph_evidence(result)
+    result = _apply_tool_grounding_gate(
+        result,
+        graph_execution_evidence,
+        allowed_tools,
+        required_tools,
+        agent_meta,
+        agent_name,
+        tool_server,
+        _bound_server,
+    )
+
+    # Step 5: Record provenance. See ``_finalize_degraded_outcome`` for the full
+    # per-line rationale (unchanged, moved verbatim): detect a degraded outcome
+    # (delegation-degraded content OR a degraded grounding snapshot), stamp
+    # execution_mode onto result.metadata, and build the run_summary.
+    _outcome = _finalize_degraded_outcome(
+        result, route, stage_reached, run_id, actual_execution_mode
+    )
+    result = _outcome["result"]
+    degraded = _outcome["degraded"]
+    _raw_failure = _outcome["raw_failure"]
+    run_summary = _outcome["run_summary"]
+    actual_execution_mode = _outcome["execution_mode"]
+    _grounding_degraded = _outcome["grounding_degraded"]
+    _grounding_reason = _outcome["grounding_reason"]
+
+    await _stream_pre_persist_progress(progress_sink, run_id, result, _raw_failure)
+
+    _trace_recorded, duration_ms = await _persist_run_outcome(
+        engine,
+        run_id,
+        agent_name,
+        task,
+        degraded,
+        start_time,
+        result,
+        _skill_used,
+        _bound_server,
+        _skill_id,
+        _skill_instruction_digest,
+        _model_ref,
+        _model_class,
+        config,
+        actual_execution_mode,
+        graph_execution_evidence,
+        _spawn_delegation,
+        _grounding_degraded,
+        _grounding_reason,
+        _raw_failure,
+    )
+    run_summary = _stamp_provenance_outcome(run_summary, _trace_recorded)
+    await _emit_checkpoint_event(progress_sink, run_id, degraded, _trace_recorded)
+
+    await _record_run_feedback(
+        engine,
+        agent_name,
+        task,
+        result,
+        degraded,
+        run_id,
+        execution_profile,
+        shape,
+        duration_ms,
+        session_id,
+    )
+
+    await _emit_terminal_events(
+        progress_sink, run_id, degraded, _trace_recorded, _raw_failure
+    )
+
+    return _render_final_output(
+        result,
+        run_id,
+        return_mermaid,
+        channel_id,
+        run_summary,
+        include_run_summary,
+        graph_execution_evidence,
+        _trace_recorded,
+    )
+
+
+# ---------------------------------------------------------------------------
+# run_agent decomposition (CX-AU-02, CCN 156 -> <=10) — behaviour-preserving
+# extractions of run_agent's phases. Each function below is a byte-for-byte
+# relocation of code that used to live inline in run_agent; see the CONCEPT
+# tags in run_agent's call sites for the original per-line rationale.
+# ---------------------------------------------------------------------------
+
+
+def _validate_run_agent_request(
+    skill_name: str | None, agent_name: str, tool_server: str | None
+) -> None:
+    """Reject an inconsistent (skill_name, agent_name, tool_server) combination."""
+    if skill_name and skill_name != agent_name:
+        raise ValueError("skill_name must match the dispatched agent_name")
+    if tool_server and not skill_name:
+        raise ValueError("tool_server requires skill_name")
+
+
+def _ensure_run_id(run_id: str | None) -> str:
+    """Mint a fresh run id when the caller didn't pre-generate one."""
+    return run_id or new_run_id()
+
+
+def _start_run_telemetry_span(run_id: str, agent_name: str, task: str) -> None:
+    """CONCEPT:AU-OS.observability.telemetry-observability (X2) — open the OTel span
+    for this run_agent execution, closed by _record_execution_trace on EVERY exit
+    path (success/degraded/failed/enterprise). Best-effort: OTel unconfigured (the
+    default) makes this a clean no-op, never affects the run.
+    """
+    try:
+        from agent_utilities.observability import get_telemetry_engine
+
+        get_telemetry_engine().on_graph_start(
+            run_id=run_id, agent_id=agent_name, query=task
+        )
+    except Exception as exc:  # noqa: BLE001 — tracing must never break a run
+        logger.debug(
+            "run_agent: OTel span start skipped (exception_type=%s)",
+            type(exc).__name__,
+        )
+
+
+async def _execute_enterprise_route(
+    engine: IntelligenceGraphEngine,
+    task: str,
+    run_id: str,
+    start_time: float,
+    return_mermaid: bool,
+) -> str:
+    """Step 1 (enterprise branch): run the full Enterprise Autonomous Company
+    orchestration via ParallelEngine. Entered only when ``agent_name.lower() ==
+    "enterprise"``."""
+    from agent_utilities.graph.manifest_generators import (
+        manifest_for_enterprise,
+    )
+    from agent_utilities.graph.parallel_engine import ParallelEngine
+
+    logger.info("[ORCH-1.9] Executing full Enterprise Autonomous Company orchestration")
+    manifest = await _call_without_blocking(manifest_for_enterprise, task, engine)
+    pe = ParallelEngine(engine=engine)
+
+    try:
+        pe_result = await pe.execute(manifest)
+        duration_ms = (time.monotonic() - start_time) * 1000
+        # BUG-015 (GOC-20): this return value used to be discarded — a run could
+        # report its enterprise result while the RunTrace/Outcome write silently
+        # failed, with no way for a rich-envelope caller to tell. Capture it and
+        # surface it (never touching the bare-string contract; see
+        # ``_render_agent_result``).
+        _enterprise_prov_recorded = await _record_execution_trace_ordered(
+            engine,
+            run_id,
+            "enterprise",
+            task,
+            status="completed",
+            duration_ms=duration_ms,
+            result_preview=str(pe_result)[:500],
+            execution_mode="parallel_engine",
+        )
+        if not _enterprise_prov_recorded:
+            logger.error(
+                "run_agent(enterprise): result produced but RunTrace/provenance "
+                "write failed (run_id=%r) — reporting provenance_recorded=False "
+                "per the BUG-015 atomic-outcome contract",
+                run_id,
+            )
+        return _render_agent_result(
+            pe_result,
+            run_id=run_id,
+            return_mermaid=return_mermaid,
+            provenance_recorded=_enterprise_prov_recorded,
+        )
+    except Exception as e:
+        logger.error("[ORCH-1.9] Enterprise execution failed: %s", e)
+        _enterprise_prov_recorded = await _record_execution_trace_ordered(
+            engine,
+            run_id,
+            "enterprise",
+            task,
+            status="failed",
+            error=str(e),
+            execution_mode="parallel_engine",
+        )
+        return _render_agent_result(
+            f"Enterprise execution failed: {e}",
+            run_id=run_id,
+            return_mermaid=return_mermaid,
+            provenance_recorded=_enterprise_prov_recorded,
+        )
+
+
+async def _invoke_registry_capability(
+    cls: Any, engine: IntelligenceGraphEngine, task: str
+) -> tuple[Any, bool]:
+    """Instantiate a ServiceRegistry capability class and run its handler method.
+
+    Tries each known capability protocol method in turn (analyze / select_pattern /
+    run / execute); returns ``(result, handled)``.
+    """
+    # Instantiate capability
+    sig = inspect.signature(cls)
+    if "engine" in sig.parameters:
+        instance = cls(engine=engine)
+    elif "config" in sig.parameters:
+        instance = cls(config=None)
+    else:
+        instance = cls()
+
+    # Execute capability
+    if hasattr(instance, "analyze"):
+        # Specifically for TradingSwarm
+        try:
+            task_data = json.loads(task)
+        except Exception:
+            task_data = {"raw_task": task}
+        return await _call_without_blocking(instance.analyze, task_data), True
+    if hasattr(instance, "select_pattern"):
+        # Specifically for SubagentPatternRouter
+        return (
+            await _call_without_blocking(
+                instance.select_pattern, needs_collaboration=True
+            ),
+            True,
+        )
+    if hasattr(instance, "run"):
+        return await _call_without_blocking(instance.run, task), True
+    if hasattr(instance, "execute"):
+        return await _call_without_blocking(instance.execute, task), True
+    return None, False
+
+
+async def _try_service_registry_route(
+    engine: IntelligenceGraphEngine,
+    agent_name: str,
+    task: str,
+    run_id: str,
+    start_time: float,
+    return_mermaid: bool,
+) -> str | None:
+    """Step 1b: route to a native ServiceRegistry capability (e.g. trading_swarm).
+
+    Returns the rendered result string if a capability handled the task, else
+    ``None`` (falls through to the standard KG-agent routing below) — including on
+    any exception, matching the original inline try/except's swallow-and-continue
+    behaviour.
+    """
+    try:
+        from agent_utilities.core.registry.service_adapter import ServiceRegistry
+
+        registry = ServiceRegistry.instance()
+        svc = registry.get(agent_name)
+        if not svc:
+            return None
+        logger.info("[ORCH-1.21] Routing to ServiceRegistry capability: %s", agent_name)
+        cls = svc.get_class()
+        if not cls:
+            return None
+        result, handled = await _invoke_registry_capability(cls, engine, task)
+        if not handled:
+            return None
+        # BUG-015 (GOC-20): same discarded-return defect as the enterprise
+        # path above — capture and surface it rather than reporting this
+        # ServiceRegistry result unconditionally as fully provenanced.
+        _svc_prov_recorded = await _record_execution_trace_ordered(
+            engine,
+            run_id,
+            agent_name,
+            task,
+            status="completed",
+            duration_ms=(time.monotonic() - start_time) * 1000,
+            result_preview=str(result)[:500],
+            execution_mode="service_registry",
+        )
+        if not _svc_prov_recorded:
+            logger.error(
+                "run_agent(service_registry): result produced but "
+                "RunTrace/provenance write failed (run_id=%r, agent=%r) — "
+                "reporting provenance_recorded=False per the BUG-015 "
+                "atomic-outcome contract",
+                run_id,
+                agent_name,
+            )
+        return _render_agent_result(
+            result,
+            run_id=run_id,
+            return_mermaid=return_mermaid,
+            provenance_recorded=_svc_prov_recorded,
+        )
+    except Exception as e:
+        logger.warning(
+            "[ORCH-1.21] ServiceRegistry execution failed for %s, falling back: %s",
+            agent_name,
+            e,
+        )
+        return None
+
+
+async def _plan_shape_and_resolve_agent(
+    task: str,
+    execution_profile: str | None,
+    engine: IntelligenceGraphEngine,
+    agent_name: str,
+    skill_name: str | None,
+    tool_server: str | None,
+    allowed_tools: list[str] | None,
+) -> tuple[Any, dict[str, Any]]:
+    """CONCEPT:AU-ORCH.execution.per-job-shape-construction — construct the
+    execution shape for THIS job ONCE, up front. The escalating planner decides how
+    much graph the job needs from cheap signals; a trivial turn gets a lean shape
+    that skips KG agent resolution, the usage-guard LLM round, discovery, and the
+    verifier (CONCEPT:AU-ORCH.execution.direct-completion-shape), so the heavy
+    apparatus never runs for a simple chat reply.
+
+    Step 2: Query KG for agent metadata — ONLY when the shape targets a specific
+    specialist. CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — resolution runs
+    OFF the event loop via ``to_thread`` so it never stalls the async reply path.
+    CONCEPT:AU-ORCH.execution.direct-completion-shape — a direct-completion /
+    generic chat turn does not target a named specialist, so resolution is skipped
+    entirely. CONCEPT:AU-ORCH.execution.passthrough-identity — a PASS-THROUGH
+    identity (the universal messaging assistant) is resolution-exempt regardless of
+    the shape.
+
+    Then validates an explicitly requested ``skill_name`` binding, raising when the
+    skill is not runnable or (D-DEL-1) when an auto-resolved skill declared a
+    provider it could not bind to.
+    """
+    from agent_utilities.orchestration.execution_profile import plan_execution_shape
+
+    shape = await _call_without_blocking(
+        plan_execution_shape,
+        task,
+        profile_hint=execution_profile,
+        engine=engine,
+    )
+
+    if (
+        shape.resolve_agent or agent_name.strip()
+    ) and agent_name.strip().lower() not in _PASSTHROUGH_AGENTS:
+        agent_meta = await _call_without_blocking(
+            _resolve_agent_from_kg, engine, agent_name
+        )
+    else:
+        agent_meta = _unresolved_agent_meta()
+
+    if skill_name:
+        if not agent_meta.get("skill_id"):
+            reason, degraded = await _call_without_blocking(
+                _skill_unrunnable_reason, engine, skill_name
+            )
+            if degraded:
+                # D-SNV-5: the precondition READ failed (e.g. a transient
+                # engine/session error) — that is not an honest negative and
+                # must never be phrased as "is not runnable", which a caller
+                # or an operator reading the log would take as a confirmed,
+                # actionable finding about the skill itself.
+                raise RuntimeError(
+                    f"could not determine whether skill '{skill_name}' is "
+                    f"runnable: {reason}"
+                )
+            raise LookupError(
+                f"ingested skill '{skill_name}' is not runnable: {reason}"
+            )
+        if tool_server:
+            agent_meta = await _call_without_blocking(
+                _bind_explicit_tool_server,
+                engine,
+                agent_meta,
+                tool_server,
+                skill_name,
+                allowed_tools,
+            )
+        elif agent_meta.get("binding_error"):
+            # D-DEL-1 ★ fail loud: an auto-resolved skill that declared a
+            # genuine external provider but could not bind to ANY known
+            # server (`_bind_skill_to_owning_server`) must not silently
+            # continue as a prompt-only run that still reports success —
+            # that is the exact "capability silently disappears" failure
+            # shape this defect exists to close. An explicit `tool_server=`
+            # (the `if` branch above) already re-resolves and fails loud
+            # on its own terms via `_catalog_toolset_binding`, so this
+            # only fires on the auto-resolve path.
+            raise LookupError(str(agent_meta["binding_error"]))
+
+    return shape, agent_meta
+
+
+async def _resolve_and_apply_invoker_context(
+    engine: IntelligenceGraphEngine,
+    context_ref: str | None,
+    context: str | None,
+    run_id: str,
+    config: dict[str, Any],
+) -> None:
+    """CONCEPT:AU-ORCH.session.carry-invoker — carry the invoker's curated context
+    into the spawn. ``context_ref`` resolves a persisted ContextBlob (cross-process
+    handoff): fetch its content from the epistemic-graph and link it to this run's
+    RunTrace for provenance. Best-effort: a resolution failure logs and leaves
+    context unset (never raises). Stamps ``config['invoker_context']`` when a
+    context (passed directly or resolved) is present.
+    """
+    if context_ref and not context:
+        try:
+            context = await _call_without_blocking(
+                _resolve_context_ref, engine, context_ref, run_id
+            )
+        except Exception as _ctx_exc:  # noqa: BLE001
+            logger.warning(
+                "context_ref %s resolution failed: %s", context_ref, _ctx_exc
+            )
+    if context:
+        config["invoker_context"] = context
+
+
+def _apply_budget_and_delegation_extras(
+    config: dict[str, Any],
+    budget_tokens: int | None,
+    agent_meta: dict[str, Any],
+    agent_name: str,
+    cred_ref: str | None,
+    reasoning_effort: str | None,
+    skill_name: str | None,
+) -> None:
+    """CONCEPT:AU-AHE.harness.loop-exit-conditions — BUDGET CAP (exit 3), native by
+    default. A top-level ``run_agent`` gets a token budget even when the caller
+    passed none, so the ``UsageLimits.total_tokens_limit`` hard cap is threaded onto
+    EVERY spawned agent. The ResourceOptimizer session token budget is the default;
+    a caller may still pass an explicit ``budget_tokens`` (honored verbatim) and a
+    deployment can raise/lower ``SESSION_TOKEN_BUDGET``.
+
+    Also binds the native-skill toolset, the invoker credential reference,
+    CONCEPT:AU-ORCH.execution.delegation-reasoning-off's opt-in reasoning effort,
+    and (when a skill was explicitly pinned) the pinned-skill name/prompt — all
+    stamped onto ``config`` in place.
+    """
+    if skill_name:
+        config["pinned_skill_name"] = skill_name
+        config["pinned_skill_prompt"] = str(agent_meta.get("system_prompt") or "")
+    effective_budget_tokens = budget_tokens
+    if effective_budget_tokens is None:
+        from agent_utilities.core.resource_optimizer import DEFAULT_TOKEN_BUDGET
+
+        effective_budget_tokens = DEFAULT_TOKEN_BUDGET
+    if effective_budget_tokens:
+        config["invoker_budget_tokens"] = int(effective_budget_tokens)
+    _bind_native_skill_toolset(
+        config=config,
+        agent_meta=agent_meta,
+        agent_name=agent_name,
+    )
+    if cred_ref:
+        config["invoker_cred_ref"] = cred_ref
+    # CONCEPT:AU-ORCH.execution.delegation-reasoning-off — reasoning is an opt-in
+    # capability (like RLM): a run that needs deliberation turns it ON per-execution
+    # by passing an effort ("low"/"medium"/"high"); otherwise the deterministic tool
+    # loop leaves it OFF (the fleet default). Threaded onto config so
+    # _execute_single_server can honor it.
+    if reasoning_effort:
+        config["reasoning_effort"] = str(reasoning_effort)
+
+
+async def _apply_relevant_tool_selection(
+    engine: IntelligenceGraphEngine,
+    task: str,
+    agent_meta: dict[str, Any],
+    agent_name: str,
+    config: dict[str, Any],
+) -> None:
+    """CONCEPT:AU-ORCH.execution.task-aware-tool-selection — a resolved fleet
+    server can expose HUNDREDS of tools; binding every schema to the single-server
+    agent makes the LLM call hang and the run silently degrade to a hallucinating
+    toolless graph. When the caller set no explicit allow-list, bind only the top-K
+    task-relevant tools (KG capability index, bounded; lexical fallback; hard cap).
+    Only for resolved MCP servers.
+    """
+    if agent_meta.get("type") == "server" and not config.get("invoker_allowed_tools"):
+        _selected = await _select_relevant_tool_names(
+            engine, task, agent_meta.get("tools") or [], agent_name=agent_name
+        )
+        if _selected:
+            config["invoker_allowed_tools"] = _selected
+
+
+async def _open_run_channel(
+    engine: IntelligenceGraphEngine,
+    open_channel: bool,
+    session_id: str | None,
+    run_id: str,
+    config: dict[str, Any],
+) -> str | None:
+    """CONCEPT:AU-ORCH.session.session-anchored-collections-native — open the
+    invoker<->spawned native message channel for this run when requested (or when
+    an explicit session_id is given). The id is stamped into config so
+    GraphState/AgentDeps carry it to the spawned agent, and echoed back in the JSON
+    wrapper so the invoker knows where to send/receive.
+    """
+    channel_id: str | None = None
+    if open_channel or session_id:
+        from agent_utilities.messaging import agent_channel
+
+        channel_id = await _call_without_blocking(
+            agent_channel.open_channel, engine, session_id or run_id, run_id
+        )
+        if channel_id:
+            config["message_channel_id"] = channel_id
+    return channel_id
+
+
+def _compute_trace_identity_fields(
+    agent_meta: dict[str, Any], config: dict[str, Any], agent_name: str
+) -> tuple[str, str, str, str, str, str]:
+    """CONCEPT:AU-ORCH.execution.skill-utilization-provenance — capture whether a
+    package SKILL drove this run (its SOP is the prompt) and which server's tools it
+    bound (F7), so the RunTrace records skill utilization: bare skill (prompt-only)
+    has type=="skill"; a skill bound to its server (F7) carries ``skill_of_server``.
+    Also computes the persistence-safe model reference/class and stamps
+    ``config['trace_evidence']``.
+
+    Returns ``(skill_used, bound_server, skill_id, skill_instruction_digest,
+    model_ref, model_class)``.
+    """
+    skill_used = (
+        agent_name
+        if (agent_meta.get("type") == "skill" or agent_meta.get("skill_of_server"))
+        else ""
+    )
+    bound_server = str(agent_meta.get("skill_of_server", "") or "")
+    skill_id = str(agent_meta.get("skill_id", "") or "")
+    skill_instruction_digest = str(agent_meta.get("skill_instruction_digest", "") or "")
+    from agent_utilities.security.persistence_privacy import persistence_reference
+
+    model_ref = persistence_reference(
+        "model", config.get("agent_model"), namespace="orchestration-run"
+    )
+    model_class = str(config.get("selected_model_class") or "")
+    config["trace_evidence"] = _trace_evidence_for_run(
+        model_ref=model_ref,
+        model_class=model_class,
+        skill_used=skill_used,
+        skill_instruction_digest=skill_instruction_digest,
+    )
+    return (
+        skill_used,
+        bound_server,
+        skill_id,
+        skill_instruction_digest,
+        model_ref,
+        model_class,
+    )
+
+
+def _is_uncatchable_exit(exc: BaseException) -> bool:
+    """True for a bare KeyboardInterrupt/SystemExit (never a BaseExceptionGroup
+    wrapping one) — the one class of exception run_agent's broad handlers must
+    re-raise immediately, before any logging or best-effort trace write."""
+    return isinstance(exc, KeyboardInterrupt | SystemExit) and not isinstance(
+        exc, BaseExceptionGroup
+    )
+
+
+async def _log_pre_dispatch_failure(
+    exc: BaseException,
+    engine: IntelligenceGraphEngine | None,
+    run_id: str,
+    agent_name: str,
+    task: str,
+    start_time: float,
+    actual_execution_mode: str,
+) -> None:
+    """D-CDX-50: classify, log, and best-effort RunTrace-write a PRE-DISPATCH exit
+    (engine resolution, enterprise/service-registry setup, KG agent resolution,
+    skill binding, memento/code-context priming, execution-config construction) —
+    the dispatch stage's own try/except BaseException already covers everything
+    after this span, but nothing previously covered THIS span; an exception here
+    used to leak the OTel span (on_graph_start with no matching on_graph_end) and
+    leave zero RunTrace for the run_id, exactly when a caller-handed trace_ref most
+    needed to resolve to something.
+
+    Never raises; the caller's own ``except`` block re-raises the original
+    exception itself so its propagation semantics are untouched.
+    """
+    _pre_dispatch_status = (
+        "cancelled" if isinstance(exc, asyncio.CancelledError) else "failed"
+    )
+    _pre_dispatch_err = _flatten_exception_group(exc)
+    logger.error(
+        "[D-CDX-50] run_agent: pre-dispatch exit (agent=%s, run_id=%s, status=%s): %s",
+        agent_name,
+        run_id,
+        _pre_dispatch_status,
+        _pre_dispatch_err,
+    )
+    try:
+        # ``_record_execution_trace_ordered`` is the SAME cancellation-safe,
+        # off-the-serving-loop helper the dispatch-stage handler uses (see its own
+        # docstring) -- it also closes the OTel span opened above (on_graph_end runs
+        # first thing inside it), so this one call is both halves of "one outer
+        # lifecycle boundary" for this exit. ``engine`` may still be the pre-call
+        # default (e.g. None) if ``_get_or_create_engine()`` itself is what raised;
+        # the trace helper degrades to a telemetry-only close in that case rather
+        # than raising a second time.
+        await _record_execution_trace_ordered(
+            engine,
+            run_id,
+            agent_name,
+            task,
+            status=_pre_dispatch_status,
+            error=_pre_dispatch_err,
+            duration_ms=(time.monotonic() - start_time) * 1000,
+            execution_mode=actual_execution_mode,
+        )
+    except Exception as _trace_exc:  # noqa: BLE001 — best-effort; never block the original exception/cancellation from propagating
+        logger.debug(
+            "run_agent: pre-dispatch best-effort trace write failed: %s",
+            _trace_exc,
+        )
+
+
+async def _dispatch_pydantic_graph_forced(
+    state: dict[str, Any],
+    config: dict[str, Any],
+    task: str,
+    run_id: str,
+    max_steps: int,
+    agent_meta: dict[str, Any],
+    agent_name: str,
+    tool_server: str | None,
+    skill_name: str | None,
+    progress_sink: ProgressSink | None,
+) -> Any:
+    """Caller forced the governed pydantic-graph graph.run route.
+
+    Mutates ``state['route']``/``state['stage_reached']``/
+    ``state['actual_execution_mode']`` BEFORE the (possibly failing) execution
+    call, so a caller's exception handler sees the branch that was actually
+    entered even when the execution itself raises.
+    """
+    state["actual_execution_mode"] = "pydantic_graph"
+    state["route"] = {
+        "agents": ["pydantic-graph", agent_name],
+        "servers": [tool_server] if tool_server else [],
+        "why": "caller forced the governed pydantic-graph graph.run route",
+    }
+    state["stage_reached"] = "pydantic-graph"
+    await _emit(
+        progress_sink,
+        run_id=run_id,
+        stage="route",
+        status="ok",
+        detail=str(state["route"]["why"]),
+        evidence={
+            "agents": state["route"]["agents"],
+            "servers": state["route"]["servers"],
+            "skill": skill_name or "",
+        },
+    )
+    return await _execute_graph(
+        config=config,
+        query=task,
+        run_id=run_id,
+        max_steps=max_steps,
+        agent_meta=agent_meta,
+        agent_name=agent_name,
+        progress_sink=progress_sink,
+    )
+
+
+async def _dispatch_bound_template(
+    state: dict[str, Any],
+    config: dict[str, Any],
+    task: str,
+    max_steps: int,
+    agent_meta: dict[str, Any],
+    agent_name: str,
+    progress_sink: ProgressSink | None,
+    run_id: str,
+) -> Any:
+    """CONCEPT:AU-ORCH.adapter.transport-toolset-factory — a KG-bound persona (e.g.
+    agent-utilities-expert) runs a DIRECT grounding loop: its recovered persona
+    prompt drives the run and its now-bound toolsets (graph-os + the fleet) let it
+    query the KG and ground the answer, instead of the prompt-only run that
+    hallucinated. Takes precedence over the generic focused-tools lexical gate
+    because the template DECLARES its own toolsets. A failure falls through to the
+    full graph (never drops the turn). See ``_dispatch_pydantic_graph_forced`` for
+    the state-mutation contract.
+    """
+    state["route"] = {
+        "agents": [agent_name],
+        "servers": [],
+        "why": "KG-bound persona template with pre-bound toolsets",
+    }
+    state["stage_reached"] = f"bound-template: {agent_name}"
+    await _emit(
+        progress_sink,
+        run_id=run_id,
+        stage="route",
+        status="ok",
+        detail=str(state["route"]["why"]),
+        evidence={
+            "agents": state["route"]["agents"],
+            "servers": state["route"]["servers"],
+        },
+    )
+    try:
+        state["actual_execution_mode"] = "single_server_agent"
+        return await _execute_single_server(
+            config=config,
+            task=task,
+            max_steps=max_steps,
+            agent_meta=agent_meta,
+            agent_name=agent_name,
+            progress_sink=progress_sink,
+            run_id=run_id,
+        )
+    except Exception as e:  # noqa: BLE001 — degrade to the graph, never drop the turn
+        logger.warning(
+            "[ORCH-1.101] bound-template path failed (%s); falling through to the full graph.",
+            _flatten_exception_group(e),
+        )
+        state["stage_reached"] = (
+            f"bound-template: {agent_name} (fallback: multi-agent-graph)"
+        )
+        state["actual_execution_mode"] = "pydantic_graph"
+        return await _execute_graph(
+            config=config,
+            query=task,
+            run_id=run_id,
+            max_steps=max_steps,
+            agent_meta=agent_meta,
+            agent_name=agent_name,
+            progress_sink=progress_sink,
+        )
+
+
+async def _dispatch_focused_tools(
+    state: dict[str, Any],
+    task: str,
+    shape: Any,
+    config: dict[str, Any],
+    agent_name: str,
+    max_steps: int,
+    progress_sink: ProgressSink | None,
+    run_id: str,
+) -> Any:
+    """CONCEPT:AU-ORCH.execution.focused-tools-altitude — FOCUSED-TOOLS altitude:
+    the lexical gate named concrete fleet server(s), so bind exactly those toolsets
+    and run ONE direct agent loop (parallel tool calls) instead of the planning
+    graph, which over-decomposes a named-tool ask into a multi-step plan + expert
+    fan-out.
+
+    CONCEPT:AU-ORCH.execution.focused-tools-fail-closed — this branch is entered
+    ONLY because ``shape.tool_servers`` (the live-KG-ontology lexical match against
+    the TASK, resolved in ``plan_execution_shape`` independently of ``agent_name``)
+    named concrete fleet server(s) — that is the branch guard itself, so it is
+    ALWAYS a server-name delegation, regardless of whether the top-level
+    ``agent_name`` happens to also resolve as a KG ``:Server`` (it usually does NOT:
+    ``agent_name`` is frequently a generic/passthrough identity like the messaging
+    assistant, while the REAL delegation target is ``shape.tool_servers``). The
+    previous fail-closed gate tested ``agent_meta.get("type") == "server"`` — the
+    WRONG variable — so a genuine named-server delegation whose real tools could
+    not be reached (server never registered / 0 :Server nodes, unreachable, auth
+    failure, ...) silently fell through to the toolless multi-agent graph and could
+    fabricate a plausible-looking answer stamped "completed" — exactly the
+    confident-hallucination failure AU-ORCH.execution.no-silent-hallucination exists
+    to catch. There is no legitimate fallthrough once a concrete server target is
+    named, so always fail closed here.
+    """
+    _focused_servers = list(getattr(shape, "tool_servers", ()) or ())
+    state["route"] = {
+        "agents": [],
+        "servers": _focused_servers,
+        "why": "lexical gate matched named fleet server(s) for this task",
+    }
+    state["stage_reached"] = f"tool-call: {','.join(_focused_servers)}"
+    await _emit(
+        progress_sink,
+        run_id=run_id,
+        stage="route",
+        status="ok",
+        detail=str(state["route"]["why"]),
+        evidence={"servers": _focused_servers},
+    )
+    # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — surface the
+    # ORCH-1.74 focused-tools binding ("binding N server(s)") as a tool_call
+    # checkpoint, so the chat surface shows WHICH fleet tools this run is about to
+    # reach before the (possibly slow) parallel tool loop runs.
+    await _emit(
+        progress_sink,
+        run_id=run_id,
+        stage="tool_call",
+        status="started",
+        detail=", ".join(_focused_servers),
+        evidence={"servers": _focused_servers},
+    )
+    try:
+        state["actual_execution_mode"] = "single_server_agent"
+        return await _execute_focused_tools(
+            task=task,
+            shape=shape,
+            config=config,
+            agent_name=agent_name,
+            max_steps=max_steps,
+            progress_sink=progress_sink,
+            run_id=run_id,
+        )
+    except Exception as e:  # noqa: BLE001
+        err = _flatten_exception_group(e)
+        servers = list(getattr(shape, "tool_servers", ()) or ())
+        logger.warning(
+            "[ORCH-1.74] focused-tools path failed for fleet server(s) %s (%s); "
+            "surfacing degraded instead of hallucinating via the graph.",
+            servers,
+            err,
+        )
+        return _fleet_server_failed_result(agent_name or ",".join(servers), err)
+
+
+async def _dispatch_single_server_agent(
+    state: dict[str, Any],
+    config: dict[str, Any],
+    task: str,
+    max_steps: int,
+    agent_meta: dict[str, Any],
+    agent_name: str,
+    progress_sink: ProgressSink | None,
+    run_id: str,
+) -> Any:
+    """Resolved as a single configured MCP server."""
+    state["actual_execution_mode"] = "single_server_agent"
+    state["route"] = {
+        "agents": [],
+        "servers": [agent_name],
+        "why": "resolved as a single configured MCP server",
+    }
+    state["stage_reached"] = f"tool-call: {agent_name}"
+    await _emit(
+        progress_sink,
+        run_id=run_id,
+        stage="route",
+        status="ok",
+        detail=str(state["route"]["why"]),
+        evidence={"servers": [agent_name]},
+    )
+    await _emit(
+        progress_sink,
+        run_id=run_id,
+        stage="tool_call",
+        status="started",
+        detail=agent_name,
+        evidence={"servers": [agent_name]},
+    )
+    return await _execute_single_server(
+        config=config,
+        task=task,
+        max_steps=max_steps,
+        agent_meta=agent_meta,
+        agent_name=agent_name,
+        progress_sink=progress_sink,
+        run_id=run_id,
+        bound_tool_grounding=True,
+    )
+
+
+async def _dispatch_full_graph(
+    state: dict[str, Any],
+    config: dict[str, Any],
+    task: str,
+    run_id: str,
+    max_steps: int,
+    agent_meta: dict[str, Any],
+    agent_name: str,
+    progress_sink: ProgressSink | None,
+) -> Any:
+    """No named server/template matched; route to the multi-agent planning graph."""
+    state["actual_execution_mode"] = "pydantic_graph"
+    state["route"] = {
+        "agents": ["multi-agent-graph"],
+        "servers": [],
+        "why": "no named server/template matched; routed to the multi-agent planning graph",
+    }
+    state["stage_reached"] = "multi-agent-graph"
+    await _emit(
+        progress_sink,
+        run_id=run_id,
+        stage="route",
+        status="ok",
+        detail=str(state["route"]["why"]),
+        evidence={"agents": ["multi-agent-graph"]},
+    )
+    return await _execute_graph(
+        config=config,
+        query=task,
+        run_id=run_id,
+        max_steps=max_steps,
+        agent_meta=agent_meta,
+        agent_name=agent_name,
+        progress_sink=progress_sink,
+    )
+
+
+async def _select_and_dispatch(
+    state: dict[str, Any],
+    requested_execution_mode: str,
+    agent_meta: dict[str, Any],
+    config: dict[str, Any],
+    shape: Any,
+    task: str,
+    run_id: str,
+    max_steps: int,
+    agent_name: str,
+    tool_server: str | None,
+    skill_name: str | None,
+    progress_sink: ProgressSink | None,
+) -> Any:
+    """Step 4: Execute. A resolved single MCP-server agent runs a DETERMINISTIC
+    direct tool loop (bind only that server's toolset, no router); anything else
+    goes through the full multi-agent orchestration graph. Routing a one-server
+    task through the graph let the LLM router/dispatcher mis-route it (e.g. to a
+    verifier that ran on empty results), so the server's tools were never called.
+
+    Each branch mutates ``state`` before its (possibly failing) execution call —
+    see ``_dispatch_pydantic_graph_forced`` for the contract — so a caller's
+    exception handler always sees the branch that was actually entered.
+    """
+    if requested_execution_mode == "pydantic_graph":
+        return await _dispatch_pydantic_graph_forced(
+            state,
+            config,
+            task,
+            run_id,
+            max_steps,
+            agent_meta,
+            agent_name,
+            tool_server,
+            skill_name,
+            progress_sink,
+        )
+    if _is_bound_template_agent(agent_meta, config):
+        return await _dispatch_bound_template(
+            state,
+            config,
+            task,
+            max_steps,
+            agent_meta,
+            agent_name,
+            progress_sink,
+            run_id,
+        )
+    if getattr(shape, "tool_servers", ()) and agent_meta.get("type") != "server":
+        return await _dispatch_focused_tools(
+            state, task, shape, config, agent_name, max_steps, progress_sink, run_id
+        )
+    if _is_single_server_agent(agent_meta, config):
+        return await _dispatch_single_server_agent(
+            state,
+            config,
+            task,
+            max_steps,
+            agent_meta,
+            agent_name,
+            progress_sink,
+            run_id,
+        )
+    return await _dispatch_full_graph(
+        state, config, task, run_id, max_steps, agent_meta, agent_name, progress_sink
+    )
+
+
+async def _handle_dispatch_cancellation(
+    e: BaseException,
+    agent_name: str,
+    start_time: float,
+    engine: IntelligenceGraphEngine,
+    run_id: str,
+    task: str,
+    stage_reached: str,
+    skill_used: str,
+    bound_server: str,
+    skill_id: str,
+    skill_instruction_digest: str,
+    model_ref: str,
+    model_class: str,
+    config: dict[str, Any],
+    actual_execution_mode: str,
+    spawn_delegation: Any,
+) -> None:
+    """A cooperative cancellation — e.g. an outer ``asyncio.wait_for`` wall-clock
+    timeout in ``_run_agent_bounded`` — MUST propagate so the timeout surfaces as a
+    clean "timed out" result, not be flattened into "Agent execution failed:
+    CancelledError". CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency
+    — best-effort record a "timeout" RunTrace with whatever route/stage this run
+    reached before it was cut off, so a caller-handed ``trace_ref`` (pre-generated
+    specifically so it survives a cancellation) is a REAL troubleshooting entry
+    point. Preserve this one durable write through cancellation, but do not perform
+    its native engine calls on GraphOS's shared serving loop — the ordered helper
+    keeps exactly one started write alive through repeated cancellation and
+    re-raises only after it completes, without starving other loop tasks.
+
+    Never re-raises itself; the caller's own ``except`` block does that.
+    """
+    _record_delegation_over_budget(agent_name, time.monotonic() - start_time, "timeout")
+    try:
+        await _record_execution_trace_ordered(
+            engine,
+            run_id,
+            agent_name,
+            task,
+            status="timeout",
+            duration_ms=(time.monotonic() - start_time) * 1000,
+            error=(
+                f"execution cancelled at stage={stage_reached!r} "
+                "(caller-side wall-clock/reply-budget timeout)"
+            ),
+            skill_used=skill_used,
+            bound_server=bound_server,
+            skill_id=skill_id,
+            skill_instruction_digest=skill_instruction_digest,
+            model_ref=model_ref,
+            model_class=model_class,
+            model_name=str(config.get("agent_model") or ""),
+            execution_mode=actual_execution_mode,
+            delegation=spawn_delegation,
+        )
+    except Exception as trace_exc:  # noqa: BLE001 — best-effort; never block cancellation
+        logger.debug("run_agent: best-effort timeout-trace write failed: %s", trace_exc)
+
+
+async def _handle_dispatch_failure(
+    e: BaseException,
+    agent_name: str,
+    engine: IntelligenceGraphEngine,
+    run_id: str,
+    task: str,
+    start_time: float,
+    route: dict[str, Any],
+    stage_reached: str,
+    skill_used: str,
+    bound_server: str,
+    skill_id: str,
+    skill_instruction_digest: str,
+    model_ref: str,
+    model_class: str,
+    config: dict[str, Any],
+    actual_execution_mode: str,
+    spawn_delegation: Any,
+    execution_profile: str | None,
+    shape: Any,
+    return_mermaid: bool,
+    channel_id: str | None,
+    include_run_summary: bool,
+    progress_sink: ProgressSink | None,
+) -> str:
+    """A remote MCP child (streamable-http/sse) that fails to connect or errors
+    mid-call surfaces through anyio as a BaseExceptionGroup ("unhandled errors in a
+    TaskGroup (1 sub-exception)") — an opaque message that hides WHICH child failed
+    and WHY; ``_flatten_exception_group`` (via ``e``, already flattened here)
+    surfaces the real underlying error(s). CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract
+    — a `required`-policy GroundingUnavailableError lands here (it is a
+    PermissionError, caught by run_agent's broad handler like any other failure):
+    the run is truthfully recorded as `status="failed"`, never silently answered
+    ungrounded. Records failure provenance, folds the failure back into the
+    planner/shape policy, streams the terminal failure event, and renders the
+    failure result.
+    """
+    err_msg = _flatten_exception_group(e)
+    logger.error(
+        "[ORCH-1.21] Agent execution failed: agent=%s, error=%s",
+        agent_name,
+        err_msg,
+    )
+    from agent_utilities.core.contextual_model import grounding_snapshot as _gs
+
+    _grounding_degraded, _grounding_reason = _gs()
+    # Record failure provenance
+    await _record_execution_trace_ordered(
+        engine,
+        run_id,
+        agent_name,
+        task,
+        status="failed",
+        error=err_msg,
+        skill_used=skill_used,
+        bound_server=bound_server,
+        skill_id=skill_id,
+        skill_instruction_digest=skill_instruction_digest,
+        model_ref=model_ref,
+        model_class=model_class,
+        model_name=str(config.get("agent_model") or ""),
+        execution_mode=actual_execution_mode,
+        delegation=spawn_delegation,
+        grounding_status="degraded" if _grounding_degraded else "grounded",
+        grounding_reason=_grounding_reason,
+    )
+    # ARPO read-back (CONCEPT:AU-AHE.reward.this-is-read-back): failed runs carry step credit too
+    # (a correct step in a failed trajectory must not be penalized).
+    await _call_without_blocking(
+        _write_step_credit,
+        engine,
+        run_id,
+        agent_name,
+        None,
+        success=False,
+    )
+    # CONCEPT:AU-ORCH.execution.planner-failure-feedback/1.71 — fold the failure back into the planner: evict this job's
+    # cached recipe AND teach the shape policy (this archetype failed for this task-class).
+    from agent_utilities.orchestration.execution_profile import record_shape_outcome
+
+    record_shape_outcome(
+        task,
+        execution_profile,
+        success=False,
+        latency_s=time.monotonic() - start_time,
+        shape=shape,
+    )
+    # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — stream the terminal
+    # failure using the SAME translated text the run_summary carries, so the transparency
+    # the user gets in-flight matches the final footer (never a bare "something failed").
+    from agent_utilities.observability.trace_ontology import (
+        trace_id as _trace_id_fail,
+    )
+    from agent_utilities.orchestration.failure_translation import (
+        translate_failure as _translate_failure,
+    )
+
+    _fail_xlate = _translate_failure(err_msg)
+    await _emit(
+        progress_sink,
+        run_id=run_id,
+        stage="failure",
+        status="failed",
+        detail=_fail_xlate.translated,
+        evidence={
+            "category": _fail_xlate.category,
+            "hint": _fail_xlate.hint,
+            "stage_reached": stage_reached,
+            "trace_ref": _trace_id_fail(run_id),
+        },
+    )
+    return _render_agent_result(
+        f"Agent execution failed: {err_msg}",
+        run_id=run_id,
+        return_mermaid=return_mermaid,
+        channel_id=channel_id,
+        run_summary=(
+            _build_run_summary(
+                route=route,
+                outcome="failed",
+                stage_reached=stage_reached,
+                run_id=run_id,
+                raw_failure=err_msg,
+                execution_mode=actual_execution_mode,
+            )
+            if include_run_summary
+            else None
+        ),
+    )
+
+
+def _extract_graph_evidence(result: Any) -> dict[str, Any] | None:
+    """Preserve graph evidence across the tool-grounding gate below. A missing
+    required ToolCall can replace the user-facing result with a truthful failure
+    envelope, but it must not erase the topology that reached that failure."""
+    return (
         result.get("execution_evidence")
         if isinstance(result, dict)
         and isinstance(result.get("execution_evidence"), dict)
         else None
     )
 
-    # A caller that requested tools, or explicitly selected a server, must be grounded
-    # by a real captured ToolCall.  Text that merely *looks* like a tool invocation is
-    # model output, not provenance, and must never be reported as a successful run.
-    tool_required = (
+
+def _tool_required_for_run(
+    allowed_tools: list[str] | None,
+    required_tools: list[str] | None,
+    agent_meta: dict[str, Any],
+) -> bool:
+    """A caller that requested tools, or explicitly selected a server, must be
+    grounded by a real captured ToolCall."""
+    return (
         bool(allowed_tools)
         or bool(required_tools)
         or agent_meta.get("type") == "server"
     )
-    if tool_required and not _has_grounded_tool_call(result):
+
+
+def _observed_tool_names(calls: Any) -> list[str]:
+    """Normalize a result's ``tool_calls`` list into the observed tool-name list
+    ``missing_required_tools`` compares against."""
+    return [
+        str(call.get("tool_name") or "")
+        for call in (calls if isinstance(calls, list) else [])
+        if isinstance(call, dict)
+    ]
+
+
+def _observed_tool_aliases(server_name: str, observed: list[str]) -> dict[str, str]:
+    """Map each observed tool's PUBLIC (multiplexer-cleaned) name back to its raw
+    name, so a required-tools check against the public surface still matches."""
+    public_prefix = _configured_fleet_server_prefix(server_name) if server_name else ""
+    if not (public_prefix and server_name):
+        return {}
+    from agent_utilities.mcp.multiplexer import clean_tool_name
+
+    return {
+        clean_tool_name(public_prefix, server_name, name): name
+        for name in observed
+        if name
+    }
+
+
+def _verify_required_tools_grounded(
+    result: Any,
+    required_tools: list[str] | None,
+    tool_server: str | None,
+    bound_server: str,
+    agent_name: str,
+) -> Any:
+    """When ``required_tools`` was explicitly requested, confirm each one produced
+    a real captured ToolCall; if any are missing, replace ``result`` with a
+    truthful degraded envelope naming them. A no-op (returns ``result`` unchanged)
+    when ``required_tools`` is empty or ``result`` isn't dict-shaped."""
+    if not (required_tools and isinstance(result, dict)):
+        return result
+    calls = result.get("tool_calls")
+    observed = _observed_tool_names(calls)
+    server_name = tool_server or bound_server
+    observed_aliases = _observed_tool_aliases(server_name, observed)
+    missing = missing_required_tools(
+        required_tools,
+        observed,
+        observed_aliases=observed_aliases,
+    )
+    if not missing:
+        return result
+    return _fleet_server_failed_result(
+        tool_server or agent_name,
+        "required tools produced no ToolCall provenance: " + ", ".join(missing),
+        tool_calls=calls if isinstance(calls, list) else [],
+    )
+
+
+def _apply_tool_grounding_gate(
+    result: Any,
+    graph_execution_evidence: dict[str, Any] | None,
+    allowed_tools: list[str] | None,
+    required_tools: list[str] | None,
+    agent_meta: dict[str, Any],
+    agent_name: str,
+    tool_server: str | None,
+    bound_server: str,
+) -> Any:
+    """A caller that requested tools, or explicitly selected a server, must be
+    grounded by a real captured ToolCall. Text that merely *looks* like a tool
+    invocation is model output, not provenance, and must never be reported as a
+    successful run. Re-attaches ``graph_execution_evidence`` onto the (possibly
+    replaced) result unconditionally."""
+    if _tool_required_for_run(
+        allowed_tools, required_tools, agent_meta
+    ) and not _has_grounded_tool_call(result):
         result = _fleet_server_failed_result(
             agent_name,
             "tool-required execution finished without recorded ToolCall provenance",
         )
-    elif required_tools and isinstance(result, dict):
-        calls = result.get("tool_calls")
-        observed = [
-            str(call.get("tool_name") or "")
-            for call in (calls if isinstance(calls, list) else [])
-            if isinstance(call, dict)
-        ]
-        observed_aliases: dict[str, str] = {}
-        server_name = tool_server or _bound_server
-        public_prefix = (
-            _configured_fleet_server_prefix(server_name) if server_name else ""
+    else:
+        result = _verify_required_tools_grounded(
+            result, required_tools, tool_server, bound_server, agent_name
         )
-        if public_prefix and server_name:
-            from agent_utilities.mcp.multiplexer import clean_tool_name
-
-            observed_aliases = {
-                clean_tool_name(public_prefix, server_name, name): name
-                for name in observed
-                if name
-            }
-        missing = missing_required_tools(
-            required_tools,
-            observed,
-            observed_aliases=observed_aliases,
-        )
-        if missing:
-            result = _fleet_server_failed_result(
-                tool_server or agent_name,
-                "required tools produced no ToolCall provenance: " + ", ".join(missing),
-                tool_calls=calls if isinstance(calls, list) else [],
-            )
     if graph_execution_evidence is not None and isinstance(result, dict):
         result["execution_evidence"] = graph_execution_evidence
+    return result
 
-    # Step 5: Record provenance. A delegation that fell through to the graph's "no data"
-    # sentinel (or returned an empty answer) is a DEGRADED outcome, not a success —
-    # returning a confident-empty "completed" is the failure this fixes. Detect it so the
-    # RunTrace status is truthful, the reward/shape learning is not poisoned by a
-    # non-answer, and the failure is fed back so routing self-corrects next time
-    # (CONCEPT:AU-ORCH.execution.degraded-no-data-outcome; F2/F5).
+
+def _finalize_degraded_outcome(
+    result: Any,
+    route: dict[str, Any],
+    stage_reached: str,
+    run_id: str,
+    actual_execution_mode: str,
+) -> dict[str, Any]:
+    """Step 5 (part 1): a delegation that fell through to the graph's "no data"
+    sentinel (or returned an empty answer) is a DEGRADED outcome, not a success —
+    returning a confident-empty "completed" is the failure this fixes
+    (CONCEPT:AU-ORCH.execution.degraded-no-data-outcome; F2/F5).
+    CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract — a run that proceeded
+    under an explicit best_effort/none grounding opt-in with at least one ungrounded
+    model call is likewise NOT a plain success: fold it into the SAME ``degraded``
+    flag. Stamps ``result.metadata['execution_mode']`` and builds the run_summary
+    (CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — carrying the
+    REAL cause of a degraded outcome, never a hardcoded sentinel).
+
+    Returns a dict with keys: result, degraded, raw_failure, run_summary,
+    execution_mode, grounding_degraded, grounding_reason.
+    """
     degraded = _delegation_degraded(result)
-    # CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract — a run that proceeded
-    # under an explicit best_effort/none grounding opt-in with at least one
-    # ungrounded model call is likewise NOT a plain success: fold it into the SAME
-    # `degraded` flag that already gates the RunTrace status, the consecutive-
-    # failure guard, the degraded-feedback write, ARPO step credit, and shape-policy
-    # reward below, so a degraded-grounding run is never learned from as a success.
     from agent_utilities.core.contextual_model import grounding_snapshot as _gs
 
     _grounding_degraded, _grounding_reason = _gs()
@@ -1698,12 +2333,6 @@ async def run_agent(
                 _result_metadata.get("execution_mode") or actual_execution_mode
             )
             _result_metadata["execution_mode"] = actual_execution_mode
-    # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — the REAL cause of a
-    # degraded outcome (e.g. _fleet_server_failed_result's already-composed truthful message,
-    # or a GraphResponse.error from a critical graph failure) so BOTH the durable RunTrace
-    # below and the run_summary (attached to `result.metadata` + returned to any caller that
-    # asked for it) carry it — never the old hardcoded "delegation produced no usable data"
-    # sentinel, which discarded a real, already-known cause.
     _raw_failure = _extract_failure_text(result) if degraded else None
     run_summary = _build_run_summary(
         route=route,
@@ -1717,10 +2346,26 @@ async def run_agent(
         _meta = result.setdefault("metadata", {})
         if isinstance(_meta, dict):
             _meta["run_summary"] = run_summary
-    # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — stream each fleet tool
-    # invocation this run actually made (the SAME per-:ToolCall provenance persisted just
-    # below), so a chat surface shows tools resolving one by one during a long parallel loop.
-    # Guarded on ``progress_sink is not None`` so the None default skips the loop entirely.
+    return {
+        "result": result,
+        "degraded": degraded,
+        "raw_failure": _raw_failure,
+        "run_summary": run_summary,
+        "execution_mode": actual_execution_mode,
+        "grounding_degraded": _grounding_degraded,
+        "grounding_reason": _grounding_reason,
+    }
+
+
+async def _stream_tool_result_events(
+    progress_sink: ProgressSink | None,
+    run_id: str,
+    result: Any,
+) -> None:
+    """CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — stream each
+    fleet tool invocation this run actually made (the SAME per-:ToolCall provenance
+    persisted just after this), so a chat surface shows tools resolving one by one
+    during a long parallel loop."""
     if progress_sink is not None and isinstance(result, dict):
         for _tc in result.get("tool_calls") or []:
             if not isinstance(_tc, dict):
@@ -1735,33 +2380,82 @@ async def run_agent(
                 detail=_tc_name,
                 evidence={"error": _tc_err[:200]} if _tc_err else {},
             )
-    # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — the evidence gate (the
-    # paper's evidence-gating) SURFACED: when a degraded outcome translates to the
-    # retrieval-quality signature, the run was blocked because nothing cleared the relevance
-    # bar. Reuse the EXISTING failure_translation so the streamed text matches the footer.
-    if _raw_failure:
-        from agent_utilities.orchestration.failure_translation import (
-            translate_failure as _translate_gate,
+
+
+async def _stream_evidence_gate_event(
+    progress_sink: ProgressSink | None,
+    run_id: str,
+    raw_failure: str | None,
+) -> None:
+    """When a degraded outcome translates to the retrieval-quality signature (the
+    paper's evidence-gating, surfaced), stream the evidence_gate checkpoint using
+    the SAME translation the footer will carry."""
+    if not raw_failure:
+        return
+    from agent_utilities.orchestration.failure_translation import (
+        translate_failure as _translate_gate,
+    )
+
+    _gate = _translate_gate(raw_failure)
+    if _gate.category == "retrieval_quality":
+        await _emit(
+            progress_sink,
+            run_id=run_id,
+            stage="evidence_gate",
+            status="failed",
+            detail=_gate.translated,
+            evidence={"category": _gate.category, "hint": _gate.hint},
         )
 
-        _gate = _translate_gate(_raw_failure)
-        if _gate.category == "retrieval_quality":
-            await _emit(
-                progress_sink,
-                run_id=run_id,
-                stage="evidence_gate",
-                status="failed",
-                detail=_gate.translated,
-                evidence={"category": _gate.category, "hint": _gate.hint},
-            )
-    # CONCEPT:AU-AHE.harness.loop-exit-conditions — ERROR THRESHOLD (exit 7):
-    # feed this delegation's outcome into the per-agent consecutive-failure guard
-    # (threshold + reset-on-success), so a loop driving repeated run_agent calls
-    # can halt to error_threshold_exceeded. Tracking only — never aborts this run.
+
+async def _stream_pre_persist_progress(
+    progress_sink: ProgressSink | None,
+    run_id: str,
+    result: Any,
+    raw_failure: str | None,
+) -> None:
+    """CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — stream each
+    fleet tool invocation this run actually made, then (if applicable) the
+    evidence-gate checkpoint. See ``_stream_tool_result_events`` /
+    ``_stream_evidence_gate_event`` for the per-line rationale.
+    """
+    await _stream_tool_result_events(progress_sink, run_id, result)
+    await _stream_evidence_gate_event(progress_sink, run_id, raw_failure)
+
+
+async def _persist_run_outcome(
+    engine: IntelligenceGraphEngine,
+    run_id: str,
+    agent_name: str,
+    task: str,
+    degraded: bool,
+    start_time: float,
+    result: Any,
+    skill_used: str,
+    bound_server: str,
+    skill_id: str,
+    skill_instruction_digest: str,
+    model_ref: str,
+    model_class: str,
+    config: dict[str, Any],
+    actual_execution_mode: str,
+    graph_execution_evidence: dict[str, Any] | None,
+    spawn_delegation: Any,
+    grounding_degraded: bool,
+    grounding_reason: Any,
+    raw_failure: str | None,
+) -> tuple[bool, float]:
+    """CONCEPT:AU-AHE.harness.loop-exit-conditions — ERROR THRESHOLD (exit 7): feed
+    this delegation's outcome into the per-agent consecutive-failure guard.
+    CONCEPT:AU-AHE.harness.runtime-reliability-loop — a run that ate most of its
+    wall-clock budget is a slow-not-wrong signal the reward flywheel can't see.
+    Then the Step 5 RunTrace/:ToolCall provenance write, kept in the same authority
+    transaction as the tool-call list whenever the native batch seam is available.
+
+    Returns ``(trace_recorded, duration_ms)``.
+    """
     _record_agent_outcome(agent_name, degraded=degraded)
     duration_ms = (time.monotonic() - start_time) * 1000
-    # CONCEPT:AU-AHE.harness.runtime-reliability-loop — a run that ate most of its wall-clock
-    # budget is a slow-not-wrong signal the reward flywheel can't see. Fire-and-forget.
     if (
         duration_ms
         >= _DELEGATION_BUDGET_WARN_FRACTION * _EXECUTE_AGENT_WALL_CLOCK_S * 1000
@@ -1769,17 +2463,12 @@ async def run_agent(
         _record_delegation_over_budget(
             agent_name, duration_ms / 1000.0, "degraded" if degraded else "ok"
         )
-    # Keep tool-call provenance in the same authority transaction as this
-    # RunTrace whenever the native batch seam is available.  The list is
-    # already the normalized capture shape produced by the delegation paths;
-    # preserve ``None`` for runs with no tool evidence so their portable trace
-    # behavior stays unchanged.
     _tool_calls_for_trace = (
         result.get("tool_calls")
         if isinstance(result, dict) and isinstance(result.get("tool_calls"), list)
         else None
     )
-    _trace_recorded = await _record_execution_trace_ordered(
+    trace_recorded = await _record_execution_trace_ordered(
         engine,
         run_id,
         agent_name,
@@ -1787,13 +2476,13 @@ async def run_agent(
         status="degraded" if degraded else "completed",
         duration_ms=duration_ms,
         result_preview=str(result)[:500],
-        error=_raw_failure,
-        skill_used=_skill_used,
-        bound_server=_bound_server,
-        skill_id=_skill_id,
-        skill_instruction_digest=_skill_instruction_digest,
-        model_ref=_model_ref,
-        model_class=_model_class,
+        error=raw_failure,
+        skill_used=skill_used,
+        bound_server=bound_server,
+        skill_id=skill_id,
+        skill_instruction_digest=skill_instruction_digest,
+        model_ref=model_ref,
+        model_class=model_class,
         model_name=str(config.get("agent_model") or ""),
         execution_mode=actual_execution_mode,
         graph_execution_evidence=graph_execution_evidence,
@@ -1802,27 +2491,26 @@ async def run_agent(
             if isinstance(result, dict) and isinstance(result.get("tool_calls"), list)
             else None
         ),
-        delegation=_spawn_delegation,
-        grounding_status="degraded" if _grounding_degraded else "grounded",
-        grounding_reason=_grounding_reason,
+        delegation=spawn_delegation,
+        grounding_status="degraded" if grounding_degraded else "grounded",
+        grounding_reason=grounding_reason,
         tool_calls=_tool_calls_for_trace,
         tool_call_server=agent_name,
     )
-    # BUG-015 (GOC-20) — atomic outcome/provenance contract: a successful run may not be
-    # REPORTED as such once its durable RunTrace/Outcome/ToolCall write is known to have
-    # failed. Before this, ``_trace_recorded``'s only consumer was the "checkpoint"
-    # progress-sink event a few lines below — the run_summary this function returns to
-    # every caller (streaming or not) and the "synthesis"/"done" progress events further
-    # down stayed unconditionally "ok", so a caller with no progress_sink (or one that
-    # doesn't stop reading after "checkpoint") had no way to learn the write failed.
-    # Fold it into both now. This does NOT touch `degraded` itself (the content-level
-    # signal that already feeds `_record_agent_outcome`, `_write_step_credit`, and
-    # `record_shape_outcome`/reward-EMA before this point in the function) — provenance
-    # loss is an infra-level fact, reported alongside content quality, not conflated with
-    # it. Both final `_render_agent_result` calls now pass
-    # `provenance_recorded=_trace_recorded`.
-    run_summary["provenance_recorded"] = _trace_recorded
-    if not _trace_recorded and run_summary.get("outcome") == "ok":
+    return trace_recorded, duration_ms
+
+
+def _stamp_provenance_outcome(
+    run_summary: dict[str, Any], trace_recorded: bool
+) -> dict[str, Any]:
+    """BUG-015 (GOC-20) — atomic outcome/provenance contract: a successful run may
+    not be REPORTED as such once its durable RunTrace/Outcome/ToolCall write is
+    known to have failed. This does NOT touch ``degraded`` itself (the
+    content-level signal) — provenance loss is an infra-level fact, reported
+    alongside content quality, not conflated with it.
+    """
+    run_summary["provenance_recorded"] = trace_recorded
+    if not trace_recorded and run_summary.get("outcome") == "ok":
         from agent_utilities.orchestration.failure_translation import (
             build_failure_detail as _build_provenance_failure_detail,
         )
@@ -1835,13 +2523,22 @@ async def run_agent(
                 "result is unaudited (BUG-015 atomic-outcome contract)"
             ),
         )
-    # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — the paper's
-    # "checkpointing / traces" surfaced: the durable RunTrace this run just wrote IS its
-    # checkpoint. Stream it with the trace_ref so the caller can deep-link into the run's
-    # provenance while it is still fresh.
-    # D-DST-6: gate the "run trace recorded" report on _trace_recorded — _record_execution_trace
-    # now returns False when the KG write actually failed, so this checkpoint no longer
-    # tells the caller a trace exists when it may not (write-then-mark-seen).
+    return run_summary
+
+
+async def _emit_checkpoint_event(
+    progress_sink: ProgressSink | None,
+    run_id: str,
+    degraded: bool,
+    trace_recorded: bool,
+) -> None:
+    """CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — the
+    durable RunTrace this run just wrote IS its checkpoint; stream it with the
+    trace_ref so the caller can deep-link into the run's provenance while it is
+    still fresh. D-DST-6: gate the "run trace recorded" report on
+    ``trace_recorded`` so this checkpoint never tells the caller a trace exists
+    when it may not (write-then-mark-seen).
+    """
     if progress_sink is not None:
         from agent_utilities.observability.trace_ontology import (
             trace_id as _trace_id_ck,
@@ -1851,22 +2548,37 @@ async def run_agent(
             progress_sink,
             run_id=run_id,
             stage="checkpoint",
-            status="degraded" if (degraded or not _trace_recorded) else "ok",
-            detail="run trace recorded"
-            if _trace_recorded
-            else "run trace write failed",
-            evidence={"trace_ref": _trace_id_ck(run_id)} if _trace_recorded else {},
+            status="degraded" if (degraded or not trace_recorded) else "ok",
+            detail="run trace recorded" if trace_recorded else "run trace write failed",
+            evidence={"trace_ref": _trace_id_ck(run_id)} if trace_recorded else {},
         )
-    # Self-healing (CONCEPT:AU-AHE.evaluation.action-outcome-feedback): a degraded run teaches the
-    # reward-EMA that this agent/task-class produced a non-answer, so routing prefers
-    # actions that actually achieve the goal. Best-effort; never breaks the run.
+
+
+async def _record_run_feedback(
+    engine: IntelligenceGraphEngine,
+    agent_name: str,
+    task: str,
+    result: Any,
+    degraded: bool,
+    run_id: str,
+    execution_profile: str | None,
+    shape: Any,
+    duration_ms: float,
+    session_id: str | None,
+) -> None:
+    """Self-healing (CONCEPT:AU-AHE.evaluation.action-outcome-feedback): a degraded
+    run teaches the reward-EMA that this agent/task-class produced a non-answer.
+    ARPO read-back (CONCEPT:AU-AHE.reward.this-is-read-back): credit the
+    intermediate agent-steps of this run. CONCEPT:AU-ORCH.execution.shape-policy-learning
+    — teach the shape policy whether this archetype SUCCEEDED for this task-class,
+    rewarded by speed. CONCEPT:AU-ORCH.session.session-anchored-collections-native —
+    anchor this run to its Session. All best-effort; never breaks the run path.
+    Finally logs the terminal completion line.
+    """
     if degraded:
         await _call_without_blocking(
             _record_degraded_feedback, engine, agent_name, task, result
         )
-    # ARPO read-back (CONCEPT:AU-AHE.reward.this-is-read-back): credit the intermediate agent-steps of
-    # this run into the capability reward-EMA so routing learns from the steps,
-    # not only the final answer. Guarded — never breaks the run path.
     await _call_without_blocking(
         _write_step_credit,
         engine,
@@ -1875,8 +2587,6 @@ async def run_agent(
         result,
         success=not degraded,
     )
-    # CONCEPT:AU-ORCH.execution.shape-policy-learning — teach the shape policy whether this archetype
-    # SUCCEEDED for this task-class, rewarded by speed (success × how little of the budget it spent).
     from agent_utilities.orchestration.execution_profile import record_shape_outcome
 
     record_shape_outcome(
@@ -1886,8 +2596,6 @@ async def run_agent(
         latency_s=duration_ms / 1000.0,
         shape=shape,
     )
-    # CONCEPT:AU-ORCH.session.session-anchored-collections-native — anchor this run to its Session (id-addressable) so "list runs by
-    # session" is a reliable single-hop traversal, mirroring HAS_CONTEXT/HAS_MESSAGE.
     if session_id:
         with contextlib.suppress(Exception):
             await _call_without_blocking(
@@ -1904,19 +2612,22 @@ async def run_agent(
         duration_ms,
     )
 
-    # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — the run has produced its
-    # result and is about to render the final answer. Stream a synthesis milestone, then the
-    # terminal ``done`` (carrying the same outcome + trace_ref the run_summary holds). Both
-    # precede — and so cover — BOTH return shapes below (the dict envelope and the bare string).
-    #
-    # BUG-015 (GOC-20): both stages used to report unconditionally on `degraded` alone —
-    # the SAME inconsistency the "checkpoint" stage above was already fixed for (D-DST-6):
-    # a run whose durable RunTrace/Outcome write failed (`not _trace_recorded`) could still
-    # stream `stage="done", status="ok", evidence={"outcome": "ok", ...}` a few lines after
-    # its own "checkpoint" event had just reported `status="degraded"` for the exact same
-    # run — an internally inconsistent stream. Fold `_trace_recorded` in here too so the
-    # terminal event a caller is most likely to act on tells the truth.
-    _reported_degraded = degraded or not _trace_recorded
+
+async def _emit_terminal_events(
+    progress_sink: ProgressSink | None,
+    run_id: str,
+    degraded: bool,
+    trace_recorded: bool,
+    raw_failure: str | None,
+) -> None:
+    """CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — the run has
+    produced its result and is about to render the final answer. Stream a synthesis
+    milestone, then the terminal ``done`` (carrying the same outcome + trace_ref the
+    run_summary holds). BUG-015 (GOC-20): folds ``not trace_recorded`` into the
+    reported outcome (the SAME fix as the "checkpoint" stage, D-DST-6) so the
+    terminal event a caller is most likely to act on tells the truth.
+    """
+    _reported_degraded = degraded or not trace_recorded
     if progress_sink is not None:
         from agent_utilities.observability.trace_ontology import (
             trace_id as _trace_id_done,
@@ -1935,11 +2646,11 @@ async def run_agent(
             stage="done",
             status="degraded" if _reported_degraded else "ok",
             detail=(
-                (_raw_failure or "")[:200]
+                (raw_failure or "")[:200]
                 if degraded
                 else (
                     "run trace write failed; result may be unaudited"
-                    if not _trace_recorded
+                    if not trace_recorded
                     else "completed"
                 )
             ),
@@ -1949,7 +2660,24 @@ async def run_agent(
             },
         )
 
-    # Extract the output string from the GraphResponse
+
+def _render_final_output(
+    result: Any,
+    run_id: str,
+    return_mermaid: bool,
+    channel_id: str | None,
+    run_summary: dict[str, Any],
+    include_run_summary: bool,
+    graph_execution_evidence: dict[str, Any] | None,
+    trace_recorded: bool,
+) -> str:
+    """Extract the output string from the GraphResponse and render the final
+    ``run_agent`` result (bare string, or the rich JSON envelope when
+    ``return_mermaid``/``channel_id``/``include_run_summary`` was requested).
+    CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid /
+    CONCEPT:AU-ORCH.session.session-anchored-collections-native /
+    CONCEPT:AU-ORCH.execution.rich-result-wrapper.
+    """
     if isinstance(result, dict):
         # GraphResponse.model_dump() shape
         results = result.get("results", {})
@@ -1969,14 +2697,6 @@ async def run_agent(
             output_str = f"The request could not be completed: {result['error']}"
         else:
             output_str = str(result)
-        # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid — surface the routed-graph diagram when requested.
-        # CONCEPT:AU-ORCH.session.session-anchored-collections-native — surface the message channel id when one was opened.
-        # CONCEPT:AU-ORCH.execution.rich-result-wrapper — when the caller opts into the rich wrapper
-        # (``return_mermaid``, the MCP execute_agent path), ALWAYS surface the
-        # ``run_id`` so a delegation is trackable — the handle to query this run's
-        # RunTrace + :ToolCall provenance (KG-2.296) over graph-os, and the
-        # prerequisite for async/streaming/steering later. Internal callers
-        # (``return_mermaid=False``) keep the bare-string contract bit-for-bit.
         mermaid = result.get("mermaid")
         return _render_agent_result(
             output_str,
@@ -1986,7 +2706,7 @@ async def run_agent(
             channel_id=channel_id,
             run_summary=run_summary if include_run_summary else None,
             execution_evidence=graph_execution_evidence,
-            provenance_recorded=_trace_recorded,
+            provenance_recorded=trace_recorded,
         )
 
     return _render_agent_result(
@@ -1995,7 +2715,7 @@ async def run_agent(
         return_mermaid=return_mermaid,
         channel_id=channel_id,
         run_summary=run_summary if include_run_summary else None,
-        provenance_recorded=_trace_recorded,
+        provenance_recorded=trace_recorded,
     )
 
 
