@@ -136,25 +136,22 @@ def is_production_profile(profile: str | None = None) -> bool:
     return profile.strip().lower() in PROD_PROFILE_VALUES
 
 
-def collect_production_violations(config: AgentConfig) -> list[str]:
-    """Return a list of production-safety violations for ``config``.
-
-    The list is empty when the configuration is production-safe. This function
-    does *not* consult ``APP_PROFILE``; it always evaluates the rules, so callers
-    can report problems regardless of the active profile.
-    """
+def _check_graph_persistence(config: AgentConfig) -> list[str]:
     offending: list[str] = []
-
     gpt = (getattr(config, "graph_persistence_type", "") or "").strip().lower()
     if gpt in UNSAFE_GRAPH_PERSISTENCE:
         offending.append(
             f"graph_persistence_type={gpt!r} is single-host and non-shardable; "
             f"use a distributed backend (e.g. 'postgresql')."
         )
+    return offending
 
+
+def _check_identity_binding(config: AgentConfig) -> list[str]:
     # Production is a fail-secure posture, not merely a durability profile.
     # Keep custom CAs, mTLS, and secret-backed named profiles fully supported;
     # only explicit verification/authentication bypasses are prohibited.
+    offending: list[str] = []
     jwks_uri = str(getattr(config, "auth_jwt_jwks_uri", "") or "").strip()
     if not jwks_uri:
         offending.append("auth_jwt_jwks_uri is required for verified identity.")
@@ -169,6 +166,11 @@ def collect_production_violations(config: AgentConfig) -> list[str]:
         offending.append("auth_jwt_audience is required for audience binding.")
     if not str(getattr(config, "kg_policy_version", "") or "").strip():
         offending.append("kg_policy_version is required for policy pinning.")
+    return offending
+
+
+def _check_dev_only_capabilities(config: AgentConfig) -> list[str]:
+    offending: list[str] = []
     insecure_development_options = ("kg_loop_allow_host_validation",)
     for field_name in insecure_development_options:
         if bool(getattr(config, field_name, False)):
@@ -176,10 +178,13 @@ def collect_production_violations(config: AgentConfig) -> list[str]:
                 f"{field_name} enables a development-only host capability and "
                 "must be disabled in production."
             )
-
     if bool(getattr(config, "debug", False)):
         offending.append("debug is enabled; production must not expose debug behavior.")
+    return offending
 
+
+def _check_tool_guard(config: AgentConfig) -> list[str]:
+    offending: list[str] = []
     tool_guard_mode = (
         str(getattr(config, "tool_guard_mode", "strict") or "strict").strip().lower()
     )
@@ -188,10 +193,11 @@ def collect_production_violations(config: AgentConfig) -> list[str]:
             "tool_guard_mode must be 'on' or 'strict'; production cannot disable "
             "the governed tool boundary."
         )
+    return offending
 
-    # The REST boundary is always JWT/session protected. A remotely reachable
-    # listener additionally needs an exact Host allowlist and either direct TLS
-    # identity or an explicitly declared TLS-terminating ingress.
+
+def _check_rest_hosts_and_origins(config: AgentConfig) -> list[str]:
+    offending: list[str] = []
     allowed_hosts = _comma_values(getattr(config, "allowed_hosts", None))
     if any("*" in value for value in allowed_hosts):
         offending.append(
@@ -206,7 +212,12 @@ def collect_production_violations(config: AgentConfig) -> list[str]:
         offending.append(
             "cors_allow_credentials requires an explicit production origin allowlist."
         )
+    return offending
 
+
+def _check_rest_tls_and_listener(config: AgentConfig) -> list[str]:
+    offending: list[str] = []
+    allowed_hosts = _comma_values(getattr(config, "allowed_hosts", None))
     certfile = str(getattr(config, "server_tls_certfile", "") or "").strip()
     keyfile = str(getattr(config, "server_tls_keyfile", "") or "").strip()
     tls_terminated = bool(getattr(config, "server_tls_terminated", False))
@@ -225,7 +236,21 @@ def collect_production_violations(config: AgentConfig) -> list[str]:
                 "a non-loopback REST listener requires direct TLS or an explicitly "
                 "declared TLS-terminating ingress."
             )
+    return offending
 
+
+def _check_rest_boundary(config: AgentConfig) -> list[str]:
+    # The REST boundary is always JWT/session protected. A remotely reachable
+    # listener additionally needs an exact Host allowlist and either direct TLS
+    # identity or an explicitly declared TLS-terminating ingress.
+    offending: list[str] = []
+    offending.extend(_check_rest_hosts_and_origins(config))
+    offending.extend(_check_rest_tls_and_listener(config))
+    return offending
+
+
+def _check_mcp_boundary(config: AgentConfig) -> list[str]:
+    offending: list[str] = []
     mcp_allowed_hosts = _comma_values(getattr(config, "mcp_allowed_hosts", None))
     if any("*" in value for value in mcp_allowed_hosts):
         offending.append(
@@ -237,7 +262,11 @@ def collect_production_violations(config: AgentConfig) -> list[str]:
         offending.append(
             "MCP TLS identity is incomplete; configure both certificate and key."
         )
+    return offending
 
+
+def _check_messaging_alert_intake(config: AgentConfig) -> list[str]:
+    offending: list[str] = []
     alert_port = getattr(config, "messaging_alert_intake_port", None)
     alert_remote = bool(getattr(config, "messaging_alert_intake_allow_remote", False))
     if alert_remote:
@@ -258,7 +287,10 @@ def collect_production_violations(config: AgentConfig) -> list[str]:
             offending.append(
                 "messaging alert intake must bind to loopback in production."
             )
+    return offending
 
+
+def _collect_endpoint_fields(config: AgentConfig) -> list[tuple[str, object]]:
     # Reject remote plaintext on every native HTTP endpoint that can be
     # expressed directly in AgentConfig. Connection-profile refs are validated
     # by their connector transport at materialization time.
@@ -289,10 +321,22 @@ def collect_production_violations(config: AgentConfig) -> list[str]:
         (f"sparql_endpoints[{index}]", endpoint)
         for index, endpoint in enumerate(getattr(config, "sparql_endpoints", ()) or ())
     )
+    endpoint_fields.extend(_chat_model_endpoint_fields(config))
+    endpoint_fields.extend(_embedding_model_endpoint_fields(config))
+    return endpoint_fields
+
+
+def _chat_model_endpoint_fields(config: AgentConfig) -> list[tuple[str, object]]:
+    fields: list[tuple[str, object]] = []
     for index, model in enumerate(getattr(config, "chat_models", ()) or ()):
-        endpoint_fields.append(
+        fields.append(
             (f"chat_models[{index}].base_url", getattr(model, "base_url", None))
         )
+    return fields
+
+
+def _embedding_model_endpoint_fields(config: AgentConfig) -> list[tuple[str, object]]:
+    fields: list[tuple[str, object]] = []
     for index, model in enumerate(getattr(config, "embedding_models", ()) or ()):
         current = model
         depth = 0
@@ -300,31 +344,42 @@ def collect_production_violations(config: AgentConfig) -> list[str]:
             label = f"embedding_models[{index}]"
             if depth:
                 label += ".fallback"
-            endpoint_fields.append(
-                (f"{label}.base_url", getattr(current, "base_url", None))
-            )
+            fields.append((f"{label}.base_url", getattr(current, "base_url", None)))
             current = getattr(current, "fallback", None)
             depth += 1
-    for field_name, endpoint in endpoint_fields:
+    return fields
+
+
+def _check_endpoints(config: AgentConfig) -> list[str]:
+    offending: list[str] = []
+    for field_name, endpoint in _collect_endpoint_fields(config):
         if _is_remote_plaintext_http(endpoint):
             offending.append(
                 f"{field_name} uses plaintext HTTP to a remote service; use HTTPS "
                 "or a loopback transport in production."
             )
+    return offending
 
+
+def _check_a2a_broker(config: AgentConfig) -> list[str]:
+    offending: list[str] = []
     broker = (getattr(config, "a2a_broker", "") or "").strip().lower()
     if broker != "epistemic_graph":
         offending.append(
             "a2a_broker must be 'epistemic_graph'; the native durable broker is "
             "the sole current FastA2A delivery plane."
         )
+    return offending
 
+
+def _check_agent_bus(config: AgentConfig) -> list[str]:
     # The Kafka AgentBus topology creates one consumer group per
     # recipient/subscription. That topology is useful at modest scale but is not
     # the million-agent production plane: it causes every subscriber to scan
     # shared-topic traffic. Production therefore uses the engine broker's
     # tenant-qualified durable inbox queues; Kafka remains available for the
     # bounded WorkItem executor pool.
+    offending: list[str] = []
     bus_backend = (
         str(getattr(config, "agent_bus_log_backend", "") or "").strip().lower()
     )
@@ -334,18 +389,26 @@ def collect_production_violations(config: AgentConfig) -> list[str]:
             "AgentBus Kafka topology creates a consumer group per "
             "recipient, and graph fallback is not a scalable delivery plane."
         )
+    return offending
 
+
+def _check_a2a_storage(config: AgentConfig) -> list[str]:
+    offending: list[str] = []
     storage = (getattr(config, "a2a_storage", "") or "").strip().lower()
     if storage != "epistemic_graph":
         offending.append(
             "a2a_storage must be 'epistemic_graph'; native CAS-fenced records are "
             "the sole current FastA2A state plane."
         )
+    return offending
 
+
+def _check_kafka(config: AgentConfig) -> list[str]:
     # Plan 08 Synergy 2: the single reactive ledger (telemetry, KG write-back,
     # UI fan-out, replay) requires a distributed Kafka/Redpanda broker. Without
     # kafka_bootstrap_servers the event backend silently falls back to the
     # single-process, non-durable in-memory EventBus.
+    offending: list[str] = []
     kafka = (getattr(config, "kafka_bootstrap_servers", "") or "").strip()
     if not kafka:
         offending.append(
@@ -353,7 +416,11 @@ def collect_production_violations(config: AgentConfig) -> list[str]:
             "back to the single-process in-memory EventBus (no durability, no "
             "cross-node fan-out). Set it to a Redpanda/Kafka cluster for prod."
         )
+    return offending
 
+
+def _check_graph_resource_limits(config: AgentConfig) -> list[str]:
+    offending: list[str] = []
     resident_limit = int(getattr(config, "epistemic_graph_max_resident_graphs", 0) or 0)
     if resident_limit <= 0:
         offending.append(
@@ -374,11 +441,15 @@ def collect_production_violations(config: AgentConfig) -> list[str]:
             "epistemic_graph_max_nodes_per_graph must be positive in production; "
             "0 leaves one graph's resident node set unbounded."
         )
+    return offending
 
+
+def _check_local_engine_encryption(config: AgentConfig) -> list[str]:
     # Configured external contacts are deployed and keyed independently. When
     # this process owns the packaged local engine lifecycle, production must
     # resolve its durable data key from an external bootstrap source; the
     # non-production tiny-only generated key is intentionally unavailable.
+    offending: list[str] = []
     local_engine_managed = not bool(
         getattr(config, "graph_service_endpoints", None) or []
     )
@@ -392,7 +463,11 @@ def collect_production_violations(config: AgentConfig) -> list[str]:
             "epistemic_graph_encryption_key_ref is required for a packaged local "
             "production engine."
         )
+    return offending
 
+
+def _check_usage_tracking(config: AgentConfig) -> list[str]:
+    offending: list[str] = []
     usage_backend = (
         (getattr(config, "usage_db_backend", "sqlite") or "sqlite").strip().lower()
     )
@@ -418,7 +493,11 @@ def collect_production_violations(config: AgentConfig) -> list[str]:
             "usage_content_retention must be 'metadata' in production; the "
             "analytics store cannot retain prompts, thinking text, or tool inputs."
         )
+    return offending
 
+
+def _check_langfuse(config: AgentConfig) -> list[str]:
+    offending: list[str] = []
     if bool(getattr(config, "langfuse_capture_content", False)):
         offending.append(
             "langfuse_capture_content is true; production traces must remain "
@@ -446,7 +525,11 @@ def collect_production_violations(config: AgentConfig) -> list[str]:
         getattr(config, "langfuse_host", "") or ""
     ).startswith("https://"):
         offending.append("LANGFUSE_HOST must use HTTPS in production.")
+    return offending
 
+
+def _check_durable_identity_keys(config: AgentConfig) -> list[str]:
+    offending: list[str] = []
     identity_key_ref = str(
         getattr(config, "persistence_identity_hmac_key_ref", "") or ""
     ).strip()
@@ -466,7 +549,11 @@ def collect_production_violations(config: AgentConfig) -> list[str]:
             "identities require either a runtime secret reference or a durable "
             "engine/vault secrets backend."
         )
+    return offending
 
+
+def _check_otel(config: AgentConfig) -> list[str]:
+    offending: list[str] = []
     otel_enabled = bool(getattr(config, "enable_otel", False))
     otel_endpoint = str(
         getattr(config, "otel_exporter_otlp_endpoint", "") or ""
@@ -476,7 +563,35 @@ def collect_production_violations(config: AgentConfig) -> list[str]:
             "the production OpenTelemetry signal path is incomplete; set "
             "ENABLE_OTEL=true and inject OTEL_EXPORTER_OTLP_ENDPOINT at runtime."
         )
+    return offending
 
+
+def collect_production_violations(config: AgentConfig) -> list[str]:
+    """Return a list of production-safety violations for ``config``.
+
+    The list is empty when the configuration is production-safe. This function
+    does *not* consult ``APP_PROFILE``; it always evaluates the rules, so callers
+    can report problems regardless of the active profile.
+    """
+    offending: list[str] = []
+    offending.extend(_check_graph_persistence(config))
+    offending.extend(_check_identity_binding(config))
+    offending.extend(_check_dev_only_capabilities(config))
+    offending.extend(_check_tool_guard(config))
+    offending.extend(_check_rest_boundary(config))
+    offending.extend(_check_mcp_boundary(config))
+    offending.extend(_check_messaging_alert_intake(config))
+    offending.extend(_check_endpoints(config))
+    offending.extend(_check_a2a_broker(config))
+    offending.extend(_check_agent_bus(config))
+    offending.extend(_check_a2a_storage(config))
+    offending.extend(_check_kafka(config))
+    offending.extend(_check_graph_resource_limits(config))
+    offending.extend(_check_local_engine_encryption(config))
+    offending.extend(_check_usage_tracking(config))
+    offending.extend(_check_langfuse(config))
+    offending.extend(_check_durable_identity_keys(config))
+    offending.extend(_check_otel(config))
     return offending
 
 
