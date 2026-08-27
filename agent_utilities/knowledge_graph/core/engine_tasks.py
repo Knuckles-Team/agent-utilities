@@ -498,6 +498,19 @@ _AUTOSCALE_REACTIVE_INTERVAL = 5.0
 # Cypher, so the tick trades a little latency for materially less redundant
 # work under load.
 _PLACEMENT_MINING_REACTIVE_INTERVAL = 30.0
+# BUG-PE-103: `enrich_concepts` (Concept-node embedding backfill,
+# `assimilation.ingest.enrich_concepts`) had exactly one caller —
+# `LoopController._run_assimilate`, itself only reachable through the
+# self-evolution cycle's `KG_LOOP` opt-in (default OFF; §12.16 measured this as
+# the reason 0 of ~2,438 `Concept` nodes carried an embedding). The generic
+# whole-graph `backfill_entity_embeddings` sweep also reaches `Concept` nodes
+# eventually, but its unscoped `ORDER BY n.id` starves the discovery corpus
+# behind tens of thousands of unrelated ids (maintainer.py:163) — so neither
+# existing path covers this corpus reliably on a default install. Decoupled
+# into its own bounded, LLM-free-cost (local embedder only), idempotent tick —
+# native by default like `tms_revalidation`/`runtime_reliability`/`compaction`
+# above, no flag — so Concept embeddings backfill even with KG_LOOP off.
+_ENRICH_CONCEPTS_INTERVAL = 600.0
 _HYGIENE_INTERVAL = 86400.0
 #: Ontology-reasoning sweep (CONCEPT:AU-KG.ontology.ontology-driven-reasoning).
 #: Hourly: inline reasoning only ever ran for the ~30 ``MATERIALIZE_SOURCES``
@@ -1716,6 +1729,11 @@ class TaskManagerMixin(GraphEngineProtocol):
         )
         _maint("compaction", "compaction", 1800.0)
         _maint("evolution", "evolution", _EVOLUTION_INTERVAL)
+        # BUG-PE-103: Concept-node embedding backfill, decoupled from the
+        # KG_LOOP-gated self-evolution cycle (see _ENRICH_CONCEPTS_INTERVAL's
+        # comment). Bounded, idempotent (skips already-embedded concepts), and
+        # a cheap no-op when nothing is pending — native by default.
+        _maint("enrich_concepts", "enrich_concepts", _ENRICH_CONCEPTS_INTERVAL)
         from ..backends.fanout_backend import FanOutBackend
 
         _mirror_backend = getattr(getattr(self, "backend", None), "inner", None)
@@ -2794,6 +2812,29 @@ class TaskManagerMixin(GraphEngineProtocol):
         if total:
             logger.info("KG embedding backfill: embedded %d nodes", total)
         return total
+
+    def _tick_enrich_concepts(self) -> None:
+        """One bounded ``Concept``-node embedding-backfill pass (BUG-PE-103).
+
+        Delegates entirely to :func:`assimilation.ingest.enrich_concepts`,
+        which finds ``Concept`` nodes still missing a vector, embeds their
+        text via the shared local embedder in batches, and writes it through
+        ``backend.add_embedding``. Idempotent — an already-embedded concept
+        is skipped — and a cheap no-op when nothing is pending (returns before
+        resolving an embedder at all). Native by default (no config flag),
+        unlike the loop cycle this used to depend on exclusively: this tick
+        does not ingest, call an external research source, or mutate anything
+        but the embedding property, so it carries none of the reasons the
+        wider self-evolution cycle stays opt-in.
+        """
+        try:
+            from ..assimilation import enrich_concepts
+
+            n = enrich_concepts(self)
+            if n:
+                logger.info("Concept embedding backfill: embedded %d node(s)", n)
+        except Exception as e:  # noqa: BLE001 — best-effort maintenance tick
+            logger.error("enrich_concepts tick error: %s", e)
 
     def _tick_loop(self) -> None:
         """One propose-only self-evolution cycle (CONCEPT:AU-KG.compute.registered-edge-type).

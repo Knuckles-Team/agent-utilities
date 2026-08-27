@@ -132,7 +132,7 @@ scanned a label with no rows) — never by omitting `MATCH` textually.
 
 | Clause | `Op` | Parser | Semantics |
 |---|---|---|---|
-| `FOREIGN "<name>"` | `Foreign{name}` | `parse_foreign`, `parser.rs:480` | Names a registered external source. Executor: `foreign_named` (`exec.rs:868`) calls `ctx.foreign.resolve(name)` when a registry is bound (feature `federation`) — REAL federation, not just a marker, as long as the name was registered server-side first via `engine_query(action="register_foreign_source", …)` (`epistemic_graph/client.py:3390`). Without a bound registry (feature off, or none attached) it is pass-through (`exec.rs:878-880`). |
+| `FOREIGN "<name>"` | `Foreign{name}` | `parse_foreign`, `parser.rs:480` | Names a registered external source. Executor: `foreign_named` (`exec.rs:991`, feature `federation`) calls `ctx.foreign.resolve(name)` when a registry is bound — REAL federation, not just a marker, as long as the name was registered server-side first via `engine_query(action="register_foreign_source", …)` (`epistemic_graph/client.py:3390`). **Not** pass-through: an unbound registry is a typed `Err("FOREIGN requires a bound foreign-source registry")`, and without the `federation` feature compiled in at all it is `Err("FOREIGN requires federation support in this build")` (`exec.rs:1000`) — either way the whole query fails loudly rather than silently returning the input RowSet unchanged. |
 
 ### 1.9 Epistemic belief/evidence (E2)
 

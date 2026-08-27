@@ -280,3 +280,101 @@ def test_body_citation_does_not_count_as_declared_identity():
     m = ConceptMatcher(embed_fn=_emb, use_llm=False)
     rep = m.satisfy(eng, feature_types=("capability",), concept_types=("concept",))
     assert rep.satisfied == 0  # body citation only → still a gap, not covered
+
+
+# ---------------------------------------------------------------------------
+# BUG-PE-103 — ``enrich_concepts`` schedule wiring. The function itself was
+# always correct (see ``test_enrich_concepts_embeds_only_vectorless_nodes``
+# above); its only production caller was ``LoopController._run_assimilate``,
+# reachable ONLY through the ``KG_LOOP``-gated self-evolution cycle (default
+# OFF) — so on any install that never opts into the full research loop, the
+# ``Concept`` corpus stayed at zero embeddings forever. Decoupled into its own
+# native-by-default maintenance tick (``_tick_enrich_concepts``,
+# `engine_tasks.py`), the same fix shape as BUG-PE-104
+# (``placement_mining_reactive``, see ``test_placement_mining.py``). These
+# tests prove (a) the schedule ref is actually dispatchable through
+# ``run_scheduled_job`` and (b) what the tick does when it runs.
+# ---------------------------------------------------------------------------
+
+
+def test_enrich_concepts_is_in_the_maintenance_allowlist():
+    """The registered schedule ref must actually be dispatchable -- the exact
+    gap (D-OP-13-shaped) that made ``placement_mining_reactive`` permanently
+    dead until it was added to the allowlist."""
+    from agent_utilities.core.schedule_engine import _MAINTENANCE_REF_ALLOWLIST
+
+    assert "enrich_concepts" in _MAINTENANCE_REF_ALLOWLIST
+
+
+class _TickHost(_EmbedBackendEngine):
+    """Bind the real tick under test onto the lightweight engine double."""
+
+    from agent_utilities.knowledge_graph.core import engine_tasks as _engine_tasks
+
+    _tick_enrich_concepts = _engine_tasks.TaskManagerMixin._tick_enrich_concepts
+
+
+def test_tick_enrich_concepts_embeds_vectorless_nodes(monkeypatch):
+    """End-to-end through the SAME dispatcher a live scheduler tick uses
+    (``run_scheduled_job({"kind": "maint", "ref": "enrich_concepts"})``) --
+    proves the schedule reaches the real embedding logic, on a fake embedder
+    so this stays network-free."""
+    from agent_utilities.core.schedule_engine import run_scheduled_job
+    from agent_utilities.knowledge_graph.enrichment import semantic as semantic_module
+
+    monkeypatch.setattr(
+        semantic_module,
+        "make_embed_fn",
+        lambda *a, **k: lambda texts: [[0.1, 0.2] for _ in texts],
+    )
+
+    nodes = {
+        "concept:KG-2.7": {
+            "type": "concept",
+            "name": "A",
+            "content": "KG-2.7 — A — desc",
+        },
+        "concept:KG-2.8": {
+            "type": "concept",
+            "name": "B",
+            "content": "KG-2.8 — B",
+            "embedding": [1.0, 0.0],
+        },
+    }
+    host = _TickHost(nodes)
+
+    result = run_scheduled_job(host, {"kind": "maint", "ref": "enrich_concepts"})
+
+    assert result["status"] == "ok"
+    assert "concept:KG-2.7" in host.embedded  # the vectorless one got embedded
+    assert "concept:KG-2.8" not in host.embedded  # already embedded → untouched
+
+
+def test_tick_enrich_concepts_noop_when_nothing_pending(monkeypatch):
+    """No vectorless ``Concept`` nodes -> the tick returns without ever
+    resolving an embedder (cheap no-op, mirrors every other reactive tick's
+    nothing-pending behavior)."""
+    from agent_utilities.knowledge_graph.enrichment import semantic as semantic_module
+
+    calls: list[Any] = []
+    monkeypatch.setattr(
+        semantic_module,
+        "make_embed_fn",
+        lambda *a, **k: (
+            calls.append(True) or (lambda texts: [[0.1, 0.2] for _ in texts])
+        ),
+    )
+
+    nodes = {
+        "concept:KG-2.8": {
+            "type": "concept",
+            "name": "B",
+            "content": "KG-2.8 — B",
+            "embedding": [1.0, 0.0],
+        },
+    }
+    host = _TickHost(nodes)
+    host._tick_enrich_concepts()
+
+    assert host.embedded == {}
+    assert calls == []  # never even resolved an embedder
