@@ -108,11 +108,7 @@ def _distribution_identity(distribution: Distribution) -> tuple[str, str]:
     return name, version
 
 
-def _editable_source_root(
-    target: str, distribution: Distribution
-) -> tuple[Path, frozenset[str]]:
-    """Resolve one PEP 610 editable provider without importing its package."""
-
+def _load_editable_direct_url(distribution: Distribution) -> dict:
     try:
         direct_url = json.loads(distribution.read_text("direct_url.json") or "")
     except (AttributeError, json.JSONDecodeError, TypeError) as exc:
@@ -125,7 +121,10 @@ def _editable_source_root(
         or direct_url["dir_info"].get("editable") is not True
     ):
         raise ProviderRegistrationError("provider owner has no auditable file manifest")
+    return direct_url
 
+
+def _resolve_editable_project_root(direct_url: dict) -> Path:
     parsed = urlparse(str(direct_url.get("url") or ""))
     if parsed.scheme != "file" or parsed.netloc not in {"", "localhost"}:
         raise ProviderRegistrationError("editable provider URL must be local")
@@ -141,117 +140,135 @@ def _editable_source_root(
         raise ProviderRegistrationError(
             "editable provider project is not a regular directory"
         )
+    return project_root
 
-    search_roots = [project_root, project_root / "src"]
+
+def _read_editable_pyproject(project_root: Path) -> dict | None:
     pyproject = project_root / "pyproject.toml"
     try:
         pyproject_info = pyproject.lstat()
     except FileNotFoundError:
-        pyproject_info = None
+        return None
     except OSError as exc:
         raise ProviderRegistrationError(
             "editable provider packaging metadata is unavailable"
         ) from exc
-    if pyproject_info is not None:
-        if _is_linklike(pyproject) or not stat.S_ISREG(pyproject_info.st_mode):
-            raise ProviderRegistrationError(
-                "editable provider packaging metadata is not a regular file"
-            )
-        if pyproject_info.st_size > _MAX_EDITABLE_PYPROJECT_BYTES:
-            raise ProviderRegistrationError(
-                "editable provider packaging metadata is oversized"
-            )
-        try:
-            packaging = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
-            raise ProviderRegistrationError(
-                "editable provider packaging metadata is invalid"
-            ) from exc
-        tool_config = packaging.get("tool", {})
-        if not isinstance(tool_config, dict):
-            raise ProviderRegistrationError(
-                "editable provider packaging metadata is invalid"
-            )
-        setuptools = tool_config.get("setuptools", {})
-        if not isinstance(setuptools, dict):
-            raise ProviderRegistrationError(
-                "editable provider packaging metadata is invalid"
-            )
-        packages = setuptools.get("packages", {})
-        package_find = packages.get("find", {}) if isinstance(packages, dict) else {}
-        if not isinstance(package_find, dict):
-            raise ProviderRegistrationError(
-                "editable provider packaging metadata is invalid"
-            )
-        declared_roots = package_find.get("where", [])
-        package_dirs = setuptools.get("package-dir", {})
-        if not isinstance(package_dirs, dict):
-            raise ProviderRegistrationError(
-                "editable provider package roots are invalid"
-            )
-        package_dir = package_dirs.get("")
-        if not isinstance(declared_roots, list):
-            raise ProviderRegistrationError(
-                "editable provider package roots are invalid"
-            )
-        if package_dir is not None:
-            declared_roots = [*declared_roots, package_dir]
-        if not all(isinstance(value, str) for value in declared_roots):
-            raise ProviderRegistrationError(
-                "editable provider package roots are invalid"
-            )
-        for value in declared_roots:
-            relative = PurePosixPath(value.replace("\\", "/"))
-            if relative.is_absolute() or any(
-                part in {"", ".."} for part in relative.parts
-            ):
-                raise ProviderRegistrationError(
-                    "editable provider package root is unsafe"
-                )
-            search_root = project_root.joinpath(*relative.parts)
-            if search_root not in search_roots:
-                search_roots.append(search_root)
+    if _is_linklike(pyproject) or not stat.S_ISREG(pyproject_info.st_mode):
+        raise ProviderRegistrationError(
+            "editable provider packaging metadata is not a regular file"
+        )
+    if pyproject_info.st_size > _MAX_EDITABLE_PYPROJECT_BYTES:
+        raise ProviderRegistrationError(
+            "editable provider packaging metadata is oversized"
+        )
+    try:
+        return tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
+        raise ProviderRegistrationError(
+            "editable provider packaging metadata is invalid"
+        ) from exc
 
+
+def _declared_package_roots(packaging: dict) -> list[str]:
+    tool_config = packaging.get("tool", {})
+    if not isinstance(tool_config, dict):
+        raise ProviderRegistrationError(
+            "editable provider packaging metadata is invalid"
+        )
+    setuptools = tool_config.get("setuptools", {})
+    if not isinstance(setuptools, dict):
+        raise ProviderRegistrationError(
+            "editable provider packaging metadata is invalid"
+        )
+    packages = setuptools.get("packages", {})
+    package_find = packages.get("find", {}) if isinstance(packages, dict) else {}
+    if not isinstance(package_find, dict):
+        raise ProviderRegistrationError(
+            "editable provider packaging metadata is invalid"
+        )
+    declared_roots = package_find.get("where", [])
+    package_dirs = setuptools.get("package-dir", {})
+    if not isinstance(package_dirs, dict):
+        raise ProviderRegistrationError("editable provider package roots are invalid")
+    package_dir = package_dirs.get("")
+    if not isinstance(declared_roots, list):
+        raise ProviderRegistrationError("editable provider package roots are invalid")
+    if package_dir is not None:
+        declared_roots = [*declared_roots, package_dir]
+    if not all(isinstance(value, str) for value in declared_roots):
+        raise ProviderRegistrationError("editable provider package roots are invalid")
+    return declared_roots
+
+
+def _extend_search_roots_with_declared(
+    project_root: Path, search_roots: list[Path], declared_roots: list[str]
+) -> None:
+    for value in declared_roots:
+        relative = PurePosixPath(value.replace("\\", "/"))
+        if relative.is_absolute() or any(part in {"", ".."} for part in relative.parts):
+            raise ProviderRegistrationError("editable provider package root is unsafe")
+        search_root = project_root.joinpath(*relative.parts)
+        if search_root not in search_roots:
+            search_roots.append(search_root)
+
+
+def _resolve_editable_search_roots(project_root: Path) -> list[Path]:
+    search_roots = [project_root, project_root / "src"]
+    packaging = _read_editable_pyproject(project_root)
+    if packaging is not None:
+        declared_roots = _declared_package_roots(packaging)
+        _extend_search_roots_with_declared(project_root, search_roots, declared_roots)
+    return search_roots
+
+
+def _validate_candidate_root(candidate: Path, project_root: Path) -> Path | None:
+    try:
+        info = candidate.lstat()
+    except OSError:
+        return None
+    cursor = candidate
+    while cursor != project_root:
+        try:
+            cursor.lstat()
+        except OSError as exc:
+            raise ProviderRegistrationError(
+                "editable provider target is unavailable"
+            ) from exc
+        if _is_linklike(cursor):
+            raise ProviderRegistrationError("editable provider target contains a link")
+        cursor = cursor.parent
+    if not stat.S_ISDIR(info.st_mode):
+        raise ProviderRegistrationError(
+            "editable provider target is not a regular directory"
+        )
+    resolved = candidate.resolve(strict=True)
+    try:
+        resolved.relative_to(project_root)
+    except ValueError as exc:
+        raise ProviderRegistrationError(
+            "editable provider target escapes its project"
+        ) from exc
+    return resolved
+
+
+def _select_unique_owned_root(
+    target: str, search_roots: list[Path], project_root: Path
+) -> Path:
     module_parts = target.split(".")
     candidates = [root.joinpath(*module_parts) for root in search_roots]
     roots: list[Path] = []
     for candidate in candidates:
-        try:
-            info = candidate.lstat()
-        except OSError:
-            continue
-        cursor = candidate
-        while cursor != project_root:
-            try:
-                cursor.lstat()
-            except OSError as exc:
-                raise ProviderRegistrationError(
-                    "editable provider target is unavailable"
-                ) from exc
-            if _is_linklike(cursor):
-                raise ProviderRegistrationError(
-                    "editable provider target contains a link"
-                )
-            cursor = cursor.parent
-        if not stat.S_ISDIR(info.st_mode):
-            raise ProviderRegistrationError(
-                "editable provider target is not a regular directory"
-            )
-        resolved = candidate.resolve(strict=True)
-        try:
-            resolved.relative_to(project_root)
-        except ValueError as exc:
-            raise ProviderRegistrationError(
-                "editable provider target escapes its project"
-            ) from exc
-        if resolved not in roots:
+        resolved = _validate_candidate_root(candidate, project_root)
+        if resolved is not None and resolved not in roots:
             roots.append(resolved)
     if len(roots) != 1:
         raise ProviderRegistrationError(
             "editable provider target is not uniquely owned"
         )
+    return roots[0]
 
-    root = roots[0]
+
+def _enumerate_owned_paths(root: Path) -> frozenset[str]:
     owned_paths: set[str] = set()
     try:
         descendants = root.rglob("*")
@@ -269,7 +286,20 @@ def _editable_source_root(
         ) from exc
     if not owned_paths:
         raise ProviderRegistrationError("editable provider target has no assets")
-    return root, frozenset(owned_paths)
+    return frozenset(owned_paths)
+
+
+def _editable_source_root(
+    target: str, distribution: Distribution
+) -> tuple[Path, frozenset[str]]:
+    """Resolve one PEP 610 editable provider without importing its package."""
+
+    direct_url = _load_editable_direct_url(distribution)
+    project_root = _resolve_editable_project_root(direct_url)
+    search_roots = _resolve_editable_search_roots(project_root)
+    root = _select_unique_owned_root(target, search_roots, project_root)
+    owned_paths = _enumerate_owned_paths(root)
+    return root, owned_paths
 
 
 def _owned_source_root(
