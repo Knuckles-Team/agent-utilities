@@ -386,37 +386,73 @@ def create_agent(
 
     mcp_tls = resolve_configured_tls_profile("mcp", config=config)
 
-    if mcp_url:
-        if DEFAULT_VALIDATION_MODE:
-            logger.info("VALIDATION_MODE: skipping MCP connection")
-        elif is_loopback_url(mcp_url, current_host, current_port):
-            logger.warning("Loopback Guard: skipping self-referential MCP connection")
-        else:
-            try:
-                server = build_http_toolset(mcp_url, timeout=DEFAULT_TIMEOUT)
-                initialized_mcp_toolsets.append(
-                    filter_tools_by_tag(server, tool_tags) if tool_tags else server
-                )
-                if not isolate_mcp:
-                    agent_toolsets.append(initialized_mcp_toolsets[-1])
-                logger.info("Connected to configured MCP server")
-            except Exception as e:
-                logger.error("MCP server connection failed (%s)", type(e).__name__)
 
-    if mcp_config:
-        if DEFAULT_VALIDATION_MODE:
-            logger.info("VALIDATION_MODE: skipping MCP configuration load")
-        else:
-            try:
-                from agent_utilities.core.workspace import resolve_mcp_config_path
+    def _setup_mcp_url_toolset() -> None:
+        if mcp_url:
+            if DEFAULT_VALIDATION_MODE:
+                logger.info("VALIDATION_MODE: skipping MCP connection")
+            elif is_loopback_url(mcp_url, current_host, current_port):
+                logger.warning("Loopback Guard: skipping self-referential MCP connection")
+            else:
+                try:
+                    server = build_http_toolset(mcp_url, timeout=DEFAULT_TIMEOUT)
+                    initialized_mcp_toolsets.append(
+                        filter_tools_by_tag(server, tool_tags) if tool_tags else server
+                    )
+                    if not isolate_mcp:
+                        agent_toolsets.append(initialized_mcp_toolsets[-1])
+                    logger.info("Connected to configured MCP server")
+                except Exception as e:
+                    logger.error("MCP server connection failed (%s)", type(e).__name__)
 
-                mcp_path = resolve_mcp_config_path(mcp_config)
-                if mcp_path:
-                    mcp_config = str(mcp_path)
-                    logger.info("Resolved MCP configuration")
+    _setup_mcp_url_toolset()
 
-                mcp_toolset = load_mcp_servers(mcp_config)
-                for server in mcp_toolset:
+    def _setup_mcp_config_toolset() -> None:
+        nonlocal mcp_config
+        if mcp_config:
+            if DEFAULT_VALIDATION_MODE:
+                logger.info("VALIDATION_MODE: skipping MCP configuration load")
+            else:
+                try:
+                    from agent_utilities.core.workspace import resolve_mcp_config_path
+
+                    mcp_path = resolve_mcp_config_path(mcp_config)
+                    if mcp_path:
+                        mcp_config = str(mcp_path)
+                        logger.info("Resolved MCP configuration")
+
+                    mcp_toolset = load_mcp_servers(mcp_config)
+                    for server in mcp_toolset:
+                        if hasattr(server, "http_client") and not getattr(
+                            server, "http_client", None
+                        ):
+                            server.http_client = create_async_http_client(
+                                timeout=DEFAULT_TIMEOUT,
+                                **mcp_tls.httpx_kwargs(),
+                            )
+
+                    if tool_tags:
+                        mcp_toolset = [
+                            filter_tools_by_tag(s, tool_tags) for s in mcp_toolset
+                        ]
+
+                    initialized_mcp_toolsets.extend(mcp_toolset)
+                    if not isolate_mcp:
+                        agent_toolsets.extend(mcp_toolset)
+                    logger.info("Connected to configured MCP fleet")
+                except Exception as e:
+                    logger.warning("MCP configuration failed (%s)", type(e).__name__)
+
+    _setup_mcp_config_toolset()
+
+    def _setup_explicit_mcp_toolsets() -> None:
+        if mcp_toolsets:
+            if DEFAULT_VALIDATION_MODE:
+                logger.info("VALIDATION_MODE: Skipping external mcp_toolsets connection")
+            else:
+                for server in mcp_toolsets:
+                    if server is None:
+                        continue
                     if hasattr(server, "http_client") and not getattr(
                         server, "http_client", None
                     ):
@@ -424,90 +460,70 @@ def create_agent(
                             timeout=DEFAULT_TIMEOUT,
                             **mcp_tls.httpx_kwargs(),
                         )
+                for server in mcp_toolsets:
+                    if server is None:
+                        continue
 
-                if tool_tags:
-                    mcp_toolset = [
-                        filter_tools_by_tag(s, tool_tags) for s in mcp_toolset
-                    ]
+                    ts = None
+                    if type(server).__name__ == "FastMCP":
+                        # v2: a FastMCP server instance is wrapped directly by MCPToolset
+                        ts = force_legacy_protocol_mode(MCPToolset(server))
+                    else:
+                        ts = server
 
-                initialized_mcp_toolsets.extend(mcp_toolset)
-                if not isolate_mcp:
-                    agent_toolsets.extend(mcp_toolset)
-                logger.info("Connected to configured MCP fleet")
-            except Exception as e:
-                logger.warning("MCP configuration failed (%s)", type(e).__name__)
+                    initialized_mcp_toolsets.append(ts)
+                    if not isolate_mcp:
+                        agent_toolsets.append(ts)
 
-    if mcp_toolsets:
-        if DEFAULT_VALIDATION_MODE:
-            logger.info("VALIDATION_MODE: Skipping external mcp_toolsets connection")
-        else:
-            for server in mcp_toolsets:
-                if server is None:
-                    continue
-                if hasattr(server, "http_client") and not getattr(
-                    server, "http_client", None
-                ):
-                    server.http_client = create_async_http_client(
-                        timeout=DEFAULT_TIMEOUT,
-                        **mcp_tls.httpx_kwargs(),
-                    )
-            for server in mcp_toolsets:
-                if server is None:
-                    continue
-
-                ts = None
-                if type(server).__name__ == "FastMCP":
-                    # v2: a FastMCP server instance is wrapped directly by MCPToolset
-                    ts = force_legacy_protocol_mode(MCPToolset(server))
-                else:
-                    ts = server
-
-                initialized_mcp_toolsets.append(ts)
-                if not isolate_mcp:
-                    agent_toolsets.append(ts)
+    _setup_explicit_mcp_toolsets()
 
     permission_context = None
-    try:
-        if (
-            initialized_mcp_toolsets
-            or permissions_kernel is not None
-            or agent_identity is not None
-        ):
-            from agent_utilities.core.config import config as agent_config
-            from agent_utilities.security.permissions_kernel import (
-                resolve_permission_context,
-            )
 
-            permission_context = resolve_permission_context(
-                agent_config,
-                permissions_kernel=permissions_kernel,
-                agent_identity=agent_identity,
-                required=bool(initialized_mcp_toolsets),
-                agent_subject=name,
-                capabilities=capabilities or (),
-                secrets_client=secrets_client,
-            )
-            if initialized_mcp_toolsets:
-                if permission_context is None:  # defensive: required=True above
-                    raise PermissionError("MCP permission context is required")
-                raw_toolsets = list(initialized_mcp_toolsets)
-                initialized_mcp_toolsets = flag_mcp_tool_definitions(
-                    raw_toolsets,
-                    permissions_kernel=permission_context.kernel,
-                    agent_identity=permission_context.identity,
+    def _setup_permission_context() -> None:
+        nonlocal permission_context, initialized_mcp_toolsets, agent_toolsets
+        try:
+            if (
+                initialized_mcp_toolsets
+                or permissions_kernel is not None
+                or agent_identity is not None
+            ):
+                from agent_utilities.core.config import config as agent_config
+                from agent_utilities.security.permissions_kernel import (
+                    resolve_permission_context,
                 )
-                guarded_by_identity = {
-                    id(raw): guarded
-                    for raw, guarded in zip(
-                        raw_toolsets, initialized_mcp_toolsets, strict=True
+
+                permission_context = resolve_permission_context(
+                    agent_config,
+                    permissions_kernel=permissions_kernel,
+                    agent_identity=agent_identity,
+                    required=bool(initialized_mcp_toolsets),
+                    agent_subject=name,
+                    capabilities=capabilities or (),
+                    secrets_client=secrets_client,
+                )
+                if initialized_mcp_toolsets:
+                    if permission_context is None:  # defensive: required=True above
+                        raise PermissionError("MCP permission context is required")
+                    raw_toolsets = list(initialized_mcp_toolsets)
+                    initialized_mcp_toolsets = flag_mcp_tool_definitions(
+                        raw_toolsets,
+                        permissions_kernel=permission_context.kernel,
+                        agent_identity=permission_context.identity,
                     )
-                }
-                agent_toolsets = [
-                    guarded_by_identity.get(id(toolset), toolset)
-                    for toolset in agent_toolsets
-                ]
-    finally:
-        mcp_tls.cleanup()
+                    guarded_by_identity = {
+                        id(raw): guarded
+                        for raw, guarded in zip(
+                            raw_toolsets, initialized_mcp_toolsets, strict=True
+                        )
+                    }
+                    agent_toolsets = [
+                        guarded_by_identity.get(id(toolset), toolset)
+                        for toolset in agent_toolsets
+                    ]
+        finally:
+            mcp_tls.cleanup()
+
+    _setup_permission_context()
 
     model = create_model(
         provider=provider,
@@ -554,148 +570,159 @@ def create_agent(
         **({"thinking": _agent_thinking} if _agent_thinking is not None else {}),
     )
 
-    from pydantic_ai_skills import SkillsToolset
+    def _load_skills_toolset() -> None:
+        from pydantic_ai_skills import SkillsToolset
 
-    if enable_skills and not DEFAULT_VALIDATION_MODE:
-        skill_dirs = []
-        _skill_types = (
-            skill_types
-            if skill_types is not None
-            else [
-                "universal",
-                "graphs",
-                "tdd-methodology",
-                "manual_testing",
-                "walkthroughs",
-            ]
-        )
+        if enable_skills and not DEFAULT_VALIDATION_MODE:
+            skill_dirs = []
+            _skill_types = (
+                skill_types
+                if skill_types is not None
+                else [
+                    "universal",
+                    "graphs",
+                    "tdd-methodology",
+                    "manual_testing",
+                    "walkthroughs",
+                ]
+            )
 
-        if skills_path := get_skills_path():
-            skill_dirs.extend(skills_path)
+            if skills_path := get_skills_path():
+                skill_dirs.extend(skills_path)
 
-        if "universal" in _skill_types:
-            from universal_skills.skill_utilities import get_universal_skills_path
+            if "universal" in _skill_types:
+                from universal_skills.skill_utilities import get_universal_skills_path
 
-            skill_dirs.extend(get_universal_skills_path())
+                skill_dirs.extend(get_universal_skills_path())
 
-        if "graphs" in _skill_types:
+            if "graphs" in _skill_types:
+                try:
+                    from skill_graphs.skill_graph_utilities import get_skill_graphs_path
+
+                    skill_dirs.extend(get_skill_graphs_path(default_enabled=True))
+                except ImportError:
+                    pass
+
+            if tool_tags:
+                skill_dirs = [d for d in skill_dirs if skill_matches_tags(d, tool_tags)]
+
+            if custom_skills_directory:
+                if isinstance(custom_skills_directory, list | tuple):
+                    for d in custom_skills_directory:
+                        if d and os.path.exists(d):
+                            skill_dirs.append(str(d))
+                            logger.info("Loaded configured custom skills directory")
+                elif os.path.exists(custom_skills_directory):
+                    logger.debug("Loading configured custom skills directory")
+                    skill_dirs.append(str(custom_skills_directory))
+                    logger.info("Loaded configured custom skills directory")
+
+            # CONCEPT:AU-ORCH.dispatch.warm-skills-share — warm-share the SkillsToolset across the fan-out cohort: the
+            # directory scan + SKILL.md parse is deterministic per skill-dir set, so build it once
+            # and reuse it (pydantic-ai toolsets attach to many agents). Falls back to a fresh build.
+            from agent_utilities.agent.warm_skills import get_or_build_skills_toolset
+
+            skills = get_or_build_skills_toolset(
+                skill_dirs, lambda: SkillsToolset(directories=skill_dirs)
+            )
+            agent_toolsets.append(skills)
+            logger.info(f"Loaded {len(skill_dirs)} Skills")
+
+    _load_skills_toolset()
+
+    def _build_system_prompt() -> str:
+        if system_prompt is None:
+            logger.info(
+                "No system_prompt provided to create_agent. Building from workspace..."
+            )
+            from agent_utilities.prompting.builder import build_system_prompt_from_workspace
+
+            system_prompt_str = build_system_prompt_from_workspace()
+        else:
+            logger.debug(f"Custom Agent System Prompt provided: {system_prompt[:100]}...")
+            system_prompt_str = system_prompt
+
+        # CONCEPT:AU-ECO.bus.agent-bus-awareness — weave AgentBus awareness into EVERY agent's prompt at the one
+        # choke point, so the orchestrator and every spawned swarm/sub-agent natively know they
+        # can coordinate with peers (the bus_* tools are registered just below when universal
+        # tools are on). Native-by-default: not a separate persona, just how agents work together.
+        if enable_universal_tools:
+            from agent_utilities.messaging.bus import bus_capability_prompt
+
+            if "AgentBus" not in system_prompt_str:
+                system_prompt_str = f"{system_prompt_str}\n\n{bus_capability_prompt()}"
+        return system_prompt_str
+
+    system_prompt_str = _build_system_prompt()
+
+    def _assemble_capabilities() -> list[Any]:
+        # Assemble the default-ON reliability capabilities (the single composition seam):
+        # stuck-loop / context-warnings / tool-output-eviction /
+        # live Memento compaction, + optional checkpoint / teams) from the SAME shared
+        # factory that create_context_agent applies to every other agent, so a factory-built
+        # agent and a directly-built graph/KG agent can never drift. Build the hooks list
+        # first (incl. the RLM large-output hook) so HooksCapability captures the full set.
+        all_hooks = list(hooks or [])
+        if use_rlm or (skill_types and "recursive_reasoner" in skill_types):
             try:
-                from skill_graphs.skill_graph_utilities import get_skill_graphs_path
+                from agent_utilities.rlm.hook import rlm_large_output_hook
 
-                skill_dirs.extend(get_skill_graphs_path(default_enabled=True))
+                all_hooks.append(rlm_large_output_hook)
             except ImportError:
                 pass
 
-        if tool_tags:
-            skill_dirs = [d for d in skill_dirs if skill_matches_tags(d, tool_tags)]
-
-        if custom_skills_directory:
-            if isinstance(custom_skills_directory, list | tuple):
-                for d in custom_skills_directory:
-                    if d and os.path.exists(d):
-                        skill_dirs.append(str(d))
-                        logger.info("Loaded configured custom skills directory")
-            elif os.path.exists(custom_skills_directory):
-                logger.debug("Loading configured custom skills directory")
-                skill_dirs.append(str(custom_skills_directory))
-                logger.info("Loaded configured custom skills directory")
-
-        # CONCEPT:AU-ORCH.dispatch.warm-skills-share — warm-share the SkillsToolset across the fan-out cohort: the
-        # directory scan + SKILL.md parse is deterministic per skill-dir set, so build it once
-        # and reuse it (pydantic-ai toolsets attach to many agents). Falls back to a fresh build.
-        from agent_utilities.agent.warm_skills import get_or_build_skills_toolset
-
-        skills = get_or_build_skills_toolset(
-            skill_dirs, lambda: SkillsToolset(directories=skill_dirs)
-        )
-        agent_toolsets.append(skills)
-        logger.info(f"Loaded {len(skill_dirs)} Skills")
-
-    if system_prompt is None:
-        logger.info(
-            "No system_prompt provided to create_agent. Building from workspace..."
-        )
-        from agent_utilities.prompting.builder import build_system_prompt_from_workspace
-
-        system_prompt_str = build_system_prompt_from_workspace()
-    else:
-        logger.debug(f"Custom Agent System Prompt provided: {system_prompt[:100]}...")
-        system_prompt_str = system_prompt
-
-    # CONCEPT:AU-ECO.bus.agent-bus-awareness — weave AgentBus awareness into EVERY agent's prompt at the one
-    # choke point, so the orchestrator and every spawned swarm/sub-agent natively know they
-    # can coordinate with peers (the bus_* tools are registered just below when universal
-    # tools are on). Native-by-default: not a separate persona, just how agents work together.
-    if enable_universal_tools:
-        from agent_utilities.messaging.bus import bus_capability_prompt
-
-        if "AgentBus" not in system_prompt_str:
-            system_prompt_str = f"{system_prompt_str}\n\n{bus_capability_prompt()}"
-
-    # Assemble the default-ON reliability capabilities (the single composition seam):
-    # stuck-loop / context-warnings / tool-output-eviction /
-    # live Memento compaction, + optional checkpoint / teams) from the SAME shared
-    # factory that create_context_agent applies to every other agent, so a factory-built
-    # agent and a directly-built graph/KG agent can never drift. Build the hooks list
-    # first (incl. the RLM large-output hook) so HooksCapability captures the full set.
-    all_hooks = list(hooks or [])
-    if use_rlm or (skill_types and "recursive_reasoner" in skill_types):
-        try:
-            from agent_utilities.rlm.hook import rlm_large_output_hook
-
-            all_hooks.append(rlm_large_output_hook)
-        except ImportError:
-            pass
-
-    agent_capabilities: list[Any] = default_runtime_capabilities(
-        stuck_loop_detection=stuck_loop_detection,
-        stuck_loop_max_repeated=stuck_loop_max_repeated,
-        stuck_loop_action=stuck_loop_action,
-        context_warnings=context_warnings,
-        max_context_tokens=max_context_tokens,
-        output_eviction=output_eviction,
-        eviction_threshold_chars=eviction_threshold_chars,
-        memento_compaction=memento_compaction,
-        include_checkpoints=include_checkpoints,
-        checkpoint_store=checkpoint_store,
-        checkpoint_frequency=checkpoint_frequency,
-        include_teams=include_teams,
-        structured_output_repair=structured_output_repair,
-        max_output_repairs=max_output_repairs,
-        content_guardrails=content_guardrails,
-        output_schema_required_keys=output_schema_required_keys or (),
-    )
-
-    # CONCEPT:AU-ORCH.routing.sampling-profile-selection (v2 synergy) — native provider-side extended thinking. Opt-in
-    # because reasoning is expensive: enabled via the thinking_effort arg or the
-    # AGENT_THINKING_EFFORT config setting. It runs natively where the provider supports
-    # reasoning and no-ops elsewhere, and composes with the per-call sampling profile
-    # attached below (which threads only vLLM sampling knobs via extra_body — reasoning
-    # rides on ModelSettings.thinking, not extra_body).
-    _ThinkingEffort = Literal["minimal", "low", "medium", "high", "xhigh"]
-    _VALID_THINKING_EFFORTS: tuple[_ThinkingEffort, ...] = (
-        "minimal",
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-    )
-    _thinking_effort = str(thinking_effort or setting("AGENT_THINKING_EFFORT", ""))
-    if _thinking_effort in _VALID_THINKING_EFFORTS:
-        from pydantic_ai.capabilities import Thinking
-
-        agent_capabilities.append(
-            Thinking(effort=cast(_ThinkingEffort, _thinking_effort))
-        )
-    elif _thinking_effort:
-        logger.warning(
-            "Ignoring invalid thinking_effort %r (must be one of %s)",
-            _thinking_effort,
-            _VALID_THINKING_EFFORTS,
+        agent_capabilities: list[Any] = default_runtime_capabilities(
+            stuck_loop_detection=stuck_loop_detection,
+            stuck_loop_max_repeated=stuck_loop_max_repeated,
+            stuck_loop_action=stuck_loop_action,
+            context_warnings=context_warnings,
+            max_context_tokens=max_context_tokens,
+            output_eviction=output_eviction,
+            eviction_threshold_chars=eviction_threshold_chars,
+            memento_compaction=memento_compaction,
+            include_checkpoints=include_checkpoints,
+            checkpoint_store=checkpoint_store,
+            checkpoint_frequency=checkpoint_frequency,
+            include_teams=include_teams,
+            structured_output_repair=structured_output_repair,
+            max_output_repairs=max_output_repairs,
+            content_guardrails=content_guardrails,
+            output_schema_required_keys=output_schema_required_keys or (),
         )
 
-    # Unified Hooks — captures the full hooks list assembled above (incl. RLM).
-    agent_capabilities.append(HooksCapability(hooks=all_hooks))
+        # CONCEPT:AU-ORCH.routing.sampling-profile-selection (v2 synergy) — native provider-side extended thinking. Opt-in
+        # because reasoning is expensive: enabled via the thinking_effort arg or the
+        # AGENT_THINKING_EFFORT config setting. It runs natively where the provider supports
+        # reasoning and no-ops elsewhere, and composes with the per-call sampling profile
+        # attached below (which threads only vLLM sampling knobs via extra_body — reasoning
+        # rides on ModelSettings.thinking, not extra_body).
+        _ThinkingEffort = Literal["minimal", "low", "medium", "high", "xhigh"]
+        _VALID_THINKING_EFFORTS: tuple[_ThinkingEffort, ...] = (
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+        )
+        _thinking_effort = str(thinking_effort or setting("AGENT_THINKING_EFFORT", ""))
+        if _thinking_effort in _VALID_THINKING_EFFORTS:
+            from pydantic_ai.capabilities import Thinking
+
+            agent_capabilities.append(
+                Thinking(effort=cast(_ThinkingEffort, _thinking_effort))
+            )
+        elif _thinking_effort:
+            logger.warning(
+                "Ignoring invalid thinking_effort %r (must be one of %s)",
+                _thinking_effort,
+                _VALID_THINKING_EFFORTS,
+            )
+
+        # Unified Hooks — captures the full hooks list assembled above (incl. RLM).
+        agent_capabilities.append(HooksCapability(hooks=all_hooks))
+        return agent_capabilities
+
+    agent_capabilities = _assemble_capabilities()
 
     # CONCEPT (v2 synergy) — on-demand tool loading: keep agent-local toolsets out of
     # the prompt as a one-line catalog until the model loads them, cutting prompt bloat
