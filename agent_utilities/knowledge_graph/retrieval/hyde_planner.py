@@ -115,6 +115,23 @@ class HydePlan(BaseModel):
         return list(seen)
 
 
+def _extract_keywords(data: dict[str, Any]) -> list[str]:
+    """Tolerate Quarq's comma-string keywords as well as a list."""
+    kw = data.get("keywords", [])
+    if isinstance(kw, str):
+        kw = [k.strip() for k in kw.split(",") if k.strip()]
+    return [str(k) for k in kw]
+
+
+def _resolve_mode(data: dict[str, Any], fallback_mode: SearchMode) -> SearchMode:
+    mode = data.get("search_mode", fallback_mode)
+    return mode if mode in HYDE_THRESHOLDS else fallback_mode
+
+
+def _extract_vector_queries(data: dict[str, Any]) -> list[str]:
+    return [str(q) for q in data.get("vector_queries", []) if str(q).strip()]
+
+
 def parse_hyde_plan(
     raw: str, *, original_query: str, mode_hint: str | None = None
 ) -> HydePlan:
@@ -130,19 +147,10 @@ def parse_hyde_plan(
         if not match:
             raise ValueError("no JSON object found")
         data = json.loads(match.group())
-        # Tolerate Quarq's comma-string keywords as well as a list.
-        kw = data.get("keywords", [])
-        if isinstance(kw, str):
-            kw = [k.strip() for k in kw.split(",") if k.strip()]
-        mode = data.get("search_mode", fallback_mode)
-        if mode not in HYDE_THRESHOLDS:
-            mode = fallback_mode
         plan = HydePlan(
-            vector_queries=[
-                str(q) for q in data.get("vector_queries", []) if str(q).strip()
-            ],
-            keywords=[str(k) for k in kw],
-            search_mode=mode,
+            vector_queries=_extract_vector_queries(data),
+            keywords=_extract_keywords(data),
+            search_mode=_resolve_mode(data, fallback_mode),
         )
         if not plan.vector_queries:
             plan.vector_queries = [original_query]
@@ -172,6 +180,28 @@ def merge_retrievals(
     return merged[:context_window]
 
 
+_EVIDENCE_NUMBER_RE = re.compile(r"(?<![\w$])\$?\d[\d,]*(?:\.\d+)?")
+
+
+def _evidence_row(
+    rank: int, node: dict[str, Any], accept_floor: float
+) -> dict[str, Any]:
+    """One evidence-ledger row for ``node`` (see :func:`build_evidence_ledger`)."""
+    score = float(node.get("_score", 0.0))
+    content = str(node.get("content") or node.get("name") or "")
+    decision = "ACCEPT" if score >= accept_floor else "REJECT"
+    return {
+        "rank": rank,
+        "id": node.get("id"),
+        "score": round(score, 4),
+        "event_time": node.get("event_time"),
+        "decision": decision,
+        "reason": "above-threshold" if decision == "ACCEPT" else "near-miss",
+        "numbers": _EVIDENCE_NUMBER_RE.findall(content),
+        "content": content[:280],
+    }
+
+
 def build_evidence_ledger(query: str, nodes: list[dict[str, Any]]) -> dict[str, Any]:
     """Build a quantitative-fidelity ACCEPT/REJECT evidence ledger over retrieved nodes.
 
@@ -184,24 +214,7 @@ def build_evidence_ledger(query: str, nodes: list[dict[str, Any]]) -> dict[str, 
     Pure and LLM-free: the structured ledger is what a generation prompt consumes.
     """
     accept_floor = HYDE_THRESHOLDS["standard"]
-    num_re = re.compile(r"(?<![\w$])\$?\d[\d,]*(?:\.\d+)?")
-    rows: list[dict[str, Any]] = []
-    for rank, node in enumerate(nodes):
-        score = float(node.get("_score", 0.0))
-        content = str(node.get("content") or node.get("name") or "")
-        decision = "ACCEPT" if score >= accept_floor else "REJECT"
-        rows.append(
-            {
-                "rank": rank,
-                "id": node.get("id"),
-                "score": round(score, 4),
-                "event_time": node.get("event_time"),
-                "decision": decision,
-                "reason": "above-threshold" if decision == "ACCEPT" else "near-miss",
-                "numbers": num_re.findall(content),
-                "content": content[:280],
-            }
-        )
+    rows = [_evidence_row(rank, node, accept_floor) for rank, node in enumerate(nodes)]
     accepted = [r for r in rows if r["decision"] == "ACCEPT"]
     return {
         "query": query,

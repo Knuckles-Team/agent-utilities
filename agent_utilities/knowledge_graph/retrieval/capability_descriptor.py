@@ -85,6 +85,32 @@ def _now_iso() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
+def _first_present_str(props: dict[str, Any], *keys: str) -> str:
+    """First truthy value among ``keys`` in ``props``, stringified; "" if none."""
+    for key in keys:
+        v = props.get(key)
+        if v:
+            return str(v)
+    return ""
+
+
+def _optional_float(props: dict[str, Any], key: str) -> float | None:
+    """``float(props[key])`` when present and not ``None``; otherwise ``None``
+    (distinct from an explicit ``0`` value, which is preserved)."""
+    v = props.get(key)
+    return float(v) if v is not None else None
+
+
+def _tuple_field(props: dict[str, Any], key: str) -> tuple[str, ...]:
+    """A tuple-typed property: a scalar string is wrapped as a 1-tuple rather
+    than iterated character-by-character; any other iterable is stringified
+    element-wise; absent/falsy yields ``()``."""
+    v = props.get(key) or ()
+    if isinstance(v, str):
+        return (v,)
+    return tuple(str(x) for x in v)
+
+
 @dataclass
 class CapabilityDescriptor:
     """A versioned, typed contract for one MCP tool/agent capability instance.
@@ -195,39 +221,22 @@ class CapabilityDescriptor:
         parallel descriptor-owned copy.
         """
 
-        def _tuple(key: str) -> tuple[str, ...]:
-            v = props.get(key) or ()
-            if isinstance(v, str):
-                return (v,)
-            return tuple(str(x) for x in v)
-
         reward = props.get("capability_reward")
         return cls(
             id=id,
-            capability_type=str(
-                props.get("capability_type")
-                or props.get("type")
-                or props.get("node_type")
-                or ""
+            capability_type=_first_present_str(
+                props, "capability_type", "type", "node_type"
             ),
             version=str(props.get("capability_version") or "1.0.0"),
             input_schema=dict(props.get("input_schema") or {}),
             output_schema=dict(props.get("output_schema") or {}),
-            side_effects=_tuple("side_effects"),
-            required_data_types=_tuple("required_data_types"),
-            required_resource_types=_tuple("required_resource_types"),
-            tenant_scopes=_tuple("tenant_scopes"),
-            authz_scopes=_tuple("authz_scopes"),
-            cost_estimate=(
-                float(props["cost_estimate"])
-                if props.get("cost_estimate") is not None
-                else None
-            ),
-            latency_ms_estimate=(
-                float(props["latency_ms_estimate"])
-                if props.get("latency_ms_estimate") is not None
-                else None
-            ),
+            side_effects=_tuple_field(props, "side_effects"),
+            required_data_types=_tuple_field(props, "required_data_types"),
+            required_resource_types=_tuple_field(props, "required_resource_types"),
+            tenant_scopes=_tuple_field(props, "tenant_scopes"),
+            authz_scopes=_tuple_field(props, "authz_scopes"),
+            cost_estimate=_optional_float(props, "cost_estimate"),
+            latency_ms_estimate=_optional_float(props, "latency_ms_estimate"),
             locality=props.get("locality"),
             policy_class=str(props.get("policy_class") or "standard"),
             approval_class=props.get("approval_class"),
