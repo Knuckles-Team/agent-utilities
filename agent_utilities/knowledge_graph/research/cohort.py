@@ -224,35 +224,44 @@ def cohort_member_status(engine: Any, cohort_id: str) -> dict[str, int]:
         counts["unknown"] = 1
         return counts
     for item in work.values():
-        meta = item.get("metadata") or {}
-        if (
-            meta.get("cohort_id") != cohort_id
-            or meta.get("type") == SYNTHESIZE_TASK_TYPE
-        ):
-            continue
-        counts["total"] += 1
-        s = str(item.get("status") or "").lower()
-        if s in _WORK_DONE:
-            counts["completed"] += 1
-        elif s in _WORK_FAILED:
-            counts["failed"] += 1
-        elif s in {"leased", "running"}:
-            counts["running"] += 1
-        elif s == "submitted":
-            counts["blocked"] += 1
-        elif s == "ready":
-            retry_at = float(item.get("next_retry_at") or 0.0)
-            if retry_at > time.time():
-                counts["scheduled"] += 1
-            else:
-                counts["pending"] += 1
-        elif not s:
-            counts["unknown"] += 1
-        else:
-            counts["pending"] += 1
-        if s in _WORK_DONE | _WORK_FAILED:
-            counts["terminal"] += 1
+        if _is_cohort_member(item, cohort_id):
+            counts["total"] += 1
+            _tally_member_status(item, counts)
     return counts
+
+
+def _is_cohort_member(item: dict[str, Any], cohort_id: str) -> bool:
+    """Whether a WorkItem is a (non-gate) member of this cohort."""
+    meta = item.get("metadata") or {}
+    return (
+        meta.get("cohort_id") == cohort_id and meta.get("type") != SYNTHESIZE_TASK_TYPE
+    )
+
+
+def _tally_member_status(item: dict[str, Any], counts: dict[str, int]) -> None:
+    """Bucket one member's status into ``counts`` in place."""
+    s = str(item.get("status") or "").lower()
+    counts[_status_bucket(item, s)] += 1
+    if s in _WORK_DONE | _WORK_FAILED:
+        counts["terminal"] += 1
+
+
+def _status_bucket(item: dict[str, Any], s: str) -> str:
+    """Map one WorkItem's lowercased status to its counts bucket name."""
+    if s in _WORK_DONE:
+        return "completed"
+    if s in _WORK_FAILED:
+        return "failed"
+    if s in {"leased", "running"}:
+        return "running"
+    if s == "submitted":
+        return "blocked"
+    if s == "ready":
+        retry_at = float(item.get("next_retry_at") or 0.0)
+        return "scheduled" if retry_at > time.time() else "pending"
+    if not s:
+        return "unknown"
+    return "pending"
 
 
 def cohort_source_ids(engine: Any, cohort_id: str) -> set[str]:
