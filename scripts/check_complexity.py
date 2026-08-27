@@ -39,6 +39,9 @@ from pathlib import Path
 # refactor and the signal would drown in noise.
 DEFAULT_TRACK = 15
 
+#: Files the analyzer could not score in the last run (see measure()).
+_UNMEASURED = 0
+
 # Directories that are never our own source.
 _SKIP_DIRS = {
     ".git", ".venv", "venv", "node_modules", "__pycache__", "build", "dist",
@@ -117,12 +120,26 @@ def measure(roots: list[Path], track: int, repo: Path) -> dict[str, int]:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
     files = [str(p) for p in _iter_files(roots)]
-    if any(not f.endswith(".py") for f in files):
+
+    # Mixed-language repos (agent-webui's TS/TSX, servicenow-api, universal-skills)
+    # need lizard for the non-Python half. If it is absent we still gate Python and
+    # say LOUDLY what went unmeasured, recording the count in the baseline so the
+    # gap is durable rather than a one-off console line. Refusing outright would
+    # leave those repos with NO gate, which is strictly worse; silently measuring
+    # only Python would be a gate reporting more coverage than it has, which is
+    # worse still.
+    non_py = [f for f in files if not f.endswith(".py")]
+    global _UNMEASURED
+    _UNMEASURED = 0
+    if non_py:
         try:
             import lizard  # noqa: F401,PLC0415
         except ImportError:
-            _fail_env("non-Python sources present but `lizard` is not importable; "
-                      "install it (pip install lizard) or restrict --paths to Python")
+            _UNMEASURED = len(non_py)
+            files = [f for f in files if f.endswith(".py")]
+            print(f"complexity gate: PARTIAL COVERAGE: {_UNMEASURED} non-Python file(s) "
+                  f"NOT measured (`lizard` unavailable). Python is still gated. "
+                  f"Install lizard to close this gap.", file=sys.stderr)
     if not files:
         return {}
 
@@ -187,10 +204,10 @@ def main() -> int:
         return 0
 
     if args.write:
-        args.baseline.write_text(
-            json.dumps({"track": args.track,
-                        "functions": dict(sorted(current.items()))}, indent=2) + "\n",
-            encoding="utf-8")
+        doc = {"track": args.track, "functions": dict(sorted(current.items()))}
+        if _UNMEASURED:
+            doc["unmeasured_non_python_files"] = _UNMEASURED
+        args.baseline.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
         print(f"complexity gate: wrote baseline: {len(current)} functions >= {args.track}")
         return 0
 
@@ -220,6 +237,7 @@ def main() -> int:
         return 1
 
     print(f"complexity gate: OK: {len(current)} tracked >= {args.track}"
+          + (f" [PARTIAL: {_UNMEASURED} non-Python files unmeasured]" if _UNMEASURED else "")
           + (f", cap {args.cap}" if args.cap else "")
           + f", {len(better) + len(gone)} improved/removed since baseline")
     return 0
