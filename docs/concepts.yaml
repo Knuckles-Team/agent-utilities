@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1232
+total_concepts: 1233
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -3825,6 +3825,16 @@ concepts:
   - agent_utilities/observability/self_ingest.py
   - agent_utilities/orchestration/engine.py
   doc: Attaching this to the root logger routes all
+- id: AU-KG.ingest.backfeed-preflight
+  name: per-field conflict resolution and a fail-closed gate every source-sync/writeback commit passes
+    through
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  - agent_utilities/knowledge_graph/ontology/sync_conflict.py
+  doc: per-field conflict resolution and a fail-closed gate every source-sync/writeback commit passes
+    through
 - id: AU-KG.ingest.batch-research-cohort
   name: batch-ingest N papers + M repos as one research
   pillar: AU-KG

@@ -290,6 +290,52 @@ def run_writeback(
         }
     ctx = WritebackContext(backend=backend, engine=engine, as_of=as_of)
 
+    # CA-22/P11 (DEC-CA-07): every write path -- both the 31 `_DELTA_HANDLERS`
+    # entries (source_sync._apply_with_preflight) and this outbound writeback
+    # path -- calls evaluate_backfeed_preflight before committing, positioned
+    # ahead of the high-stakes branch below so a preflight rejection blocks
+    # even before a ProposalQueue entry is created. Additive: a caller that
+    # supplies none of `_sync_conflict`/`expected_source_version` (every
+    # existing caller today) gets `None` back and proceeds byte-identically
+    # to pre-CA-22 behavior -- these are opt-in signals a future typed-Action
+    # dispatch runner (CA-40..46) supplies, not something this lane invents
+    # per-sink. A sink may declare its own `backfeed` capability
+    # (:class:`~..ontology.sync_conflict.BackfeedCapabilitySpec`); none do yet.
+    from ...ontology.sync_conflict import (
+        BackfeedCapabilitySpec,
+        BackfeedProposal,
+        PreflightRejection,
+        SyncConflict,
+        evaluate_backfeed_preflight,
+    )
+
+    _sync_conflict = ops.get("_sync_conflict")
+    _sink_backfeed = getattr(sink, "backfeed", None)
+    _preflight = evaluate_backfeed_preflight(
+        connector=target,
+        node_id=str(ops.get("node_id") or ops.get("id") or ""),
+        conflict=_sync_conflict if isinstance(_sync_conflict, SyncConflict) else None,
+        backfeed=_sink_backfeed
+        if isinstance(_sink_backfeed, BackfeedCapabilitySpec)
+        else None,
+        expected_source_version=ops.get("expected_source_version"),
+        current_source_version=ops.get("current_source_version"),
+    )
+    if isinstance(_preflight, PreflightRejection):
+        return {
+            "status": "refused",
+            "target": target,
+            "reason": f"backfeed preflight blocked: {_preflight.reason}",
+            "detail": _preflight.detail,
+        }
+    if isinstance(_preflight, BackfeedProposal):
+        return {
+            "status": "queued",
+            "target": target,
+            "reason": "backfeed preflight raised a governed proposal instead of a live write",
+            "proposal": _preflight.as_dict(),
+        }
+
     # High-stakes sinks NEVER auto-execute: a live request (enabled, not dry-run,
     # not carrying an approval token) is previewed and queued for approval instead.
     risk_tier = getattr(sink, "risk_tier", "standard")

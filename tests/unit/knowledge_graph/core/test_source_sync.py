@@ -1868,3 +1868,194 @@ def test_mcp_tracker_servers_matches_resolve_tracker_instances_call_sites():
             f"{default_server!r}, the default_server this handler actually resolves "
             f"instances against — the two have drifted out of sync"
         )
+
+
+# ── CA-22/P11: backfeed preflight chokepoint ─────────────────────────────────
+
+
+class ConflictBackend(FakeBackend):
+    """A :class:`FakeBackend` that also answers the preflight's current-state
+    read (``MATCH (n {id: $id}) RETURN n AS node``) from a seeded node table."""
+
+    def __init__(self, nodes=None, **kwargs):
+        super().__init__(**kwargs)
+        self.nodes: dict[str, dict] = dict(nodes or {})
+
+    def execute(self, query, params=None):
+        params = params or {}
+        if "MATCH (n {id: $id}) RETURN n AS node" in query:
+            node = self.nodes.get(params.get("id"))
+            return [{"node": node}] if node else []
+        return super().execute(query, params)
+
+
+def _leanix_conflict_manifest(*, backfeed_enabled=True, field="status"):
+    from types import SimpleNamespace
+
+    from agent_utilities.knowledge_graph.ontology.sync_conflict import (
+        BackfeedCapabilitySpec,
+        ConflictFieldPolicy,
+        ConflictPolicySpec,
+    )
+
+    return SimpleNamespace(
+        conflict_policy=ConflictPolicySpec(
+            fields=[ConflictFieldPolicy(field=field, policy="manual_review")]
+        ),
+        backfeed=BackfeedCapabilitySpec(
+            capabilities=["leanix.factsheet.update"],
+            approval_class="change" if backfeed_enabled else None,
+        ),
+    )
+
+
+def test_apply_with_preflight_blocks_a_declared_conflicting_field(monkeypatch):
+    """Unit-level: a field the manifest declares conflict_policy for, that
+    disagrees with the current graph value, is blocked -- never silently
+    applied -- and raises a governed BackfeedProposal when backfeed is enabled."""
+    from agent_utilities.knowledge_graph.ingestion.change_envelope import ChangeEnvelope
+    from agent_utilities.knowledge_graph.ontology.sync_conflict import BackfeedProposal
+
+    backend = ConflictBackend(nodes={"app:a1": {"id": "app:a1", "status": "approved"}})
+    engine = FakeEngine(backend)
+    env = ChangeEnvelope.from_connector_record(
+        {"id": "app:a1", "status": "draft", "updatedAt": "2026-01-01"},
+        connector="leanix",
+        id_field="id",
+        version_field="updatedAt",
+    )
+
+    allowed, blocked = source_sync_module._apply_with_preflight(
+        engine, "leanix", [env], manifest=_leanix_conflict_manifest()
+    )
+
+    assert allowed == []
+    assert len(blocked) == 1
+    assert blocked[0]["index"] == 0
+    outcome = blocked[0]["conflict_or_rejection"]
+    assert isinstance(outcome, BackfeedProposal)
+    assert outcome.field == "status"
+    assert outcome.source_value == "draft"
+    assert outcome.graph_value == "approved"
+
+
+def test_apply_with_preflight_agreement_is_not_a_conflict():
+    """The source and graph agreeing on a declared field is an ordinary update,
+    never a conflict -- the envelope proceeds."""
+    from agent_utilities.knowledge_graph.ingestion.change_envelope import ChangeEnvelope
+
+    backend = ConflictBackend(nodes={"app:a1": {"id": "app:a1", "status": "draft"}})
+    engine = FakeEngine(backend)
+    env = ChangeEnvelope.from_connector_record(
+        {"id": "app:a1", "status": "draft", "updatedAt": "2026-01-01"},
+        connector="leanix",
+        id_field="id",
+        version_field="updatedAt",
+    )
+
+    allowed, blocked = source_sync_module._apply_with_preflight(
+        engine, "leanix", [env], manifest=_leanix_conflict_manifest()
+    )
+
+    assert allowed == [env]
+    assert blocked == []
+
+
+def test_apply_with_preflight_undeclared_field_is_never_diffed():
+    """A field the manifest's ConflictPolicySpec does NOT declare is never
+    compared, even if it disagrees with the current graph value -- additive,
+    byte-identical behavior for every connector that hasn't opted in."""
+    from agent_utilities.knowledge_graph.ingestion.change_envelope import ChangeEnvelope
+
+    backend = ConflictBackend(nodes={"app:a1": {"id": "app:a1", "owner": "alice"}})
+    engine = FakeEngine(backend)
+    env = ChangeEnvelope.from_connector_record(
+        {"id": "app:a1", "owner": "bob", "updatedAt": "2026-01-01"},
+        connector="leanix",
+        id_field="id",
+        version_field="updatedAt",
+    )
+
+    allowed, blocked = source_sync_module._apply_with_preflight(
+        engine, "leanix", [env], manifest=_leanix_conflict_manifest()
+    )
+
+    assert allowed == [env]
+    assert blocked == []
+
+
+def test_apply_with_preflight_no_manifest_is_a_noop():
+    """No manifest resolvable (the common case today -- no connector declares
+    conflict_policy yet) -> every envelope proceeds, matching pre-CA-22 behavior."""
+    from agent_utilities.knowledge_graph.ingestion.change_envelope import ChangeEnvelope
+
+    backend = ConflictBackend(nodes={"app:a1": {"id": "app:a1", "status": "approved"}})
+    engine = FakeEngine(backend)
+    env = ChangeEnvelope.from_connector_record(
+        {"id": "app:a1", "status": "draft", "updatedAt": "2026-01-01"},
+        connector="leanix",
+        id_field="id",
+        version_field="updatedAt",
+    )
+
+    allowed, blocked = source_sync_module._apply_with_preflight(
+        engine, "leanix", [env], manifest=None
+    )
+
+    assert allowed == [env]
+    assert blocked == []
+
+
+def test_leanix_conflicting_field_blocks_sync_not_silent_overwrite(monkeypatch):
+    """CA-22 acceptance gate 4 (end-to-end): syncing a fixture LeanIX delta with a
+    manual_review-policy field conflict must NOT silently overwrite the graph --
+    the conflicting record is blocked (never reaches ingest_external_batch) and
+    reported as failed, not applied.
+
+    ``leanix_extract`` maps only a fixed prop set onto each node (``name``/
+    ``externalToolId``/``domain``/``updatedAt`` -- see
+    ``enrichment/extractors/leanix.py::extract``), so the conflicting field for
+    a real end-to-end LeanIX delta must be one of those, not an arbitrary
+    factsheet key -- "name" is used here.
+    """
+    backend = ConflictBackend(
+        nodes={"app:a1": {"id": "app:a1", "name": "Old Name (graph-edited)"}}
+    )
+    engine = FakeEngine(backend)
+    client = FakeClient(
+        {
+            "Application": [
+                {
+                    "id": "a1",
+                    "name": "New Name (from LeanIX)",
+                    "type": "Application",
+                    "updatedAt": "2026-01-01",
+                },
+            ]
+        }
+    )
+    monkeypatch.setattr(
+        source_sync_module,
+        "_load_connector_manifest",
+        lambda connector: _leanix_conflict_manifest(field="name"),
+    )
+
+    out = sync_source(engine, "leanix", mode="delta", client=client)
+
+    assert engine.batches == []  # never applied -- the prior graph value is untouched
+    assert out["details"]["failed"] == 1
+    assert out["details"]["nodes_hydrated"] == 0
+
+
+def test_cdc_delta_handler_registered_from_ca21s_envelope_source_registry():
+    """CA-21 -> CA-22 (ordered pair): the one-line wiring picks up CA-21's
+    ``register_envelope_source("cdc", run_cdc_catchup)`` by name, and
+    ENVELOPE_NATIVE_SOURCES's derived-set formula includes it automatically."""
+    from agent_utilities.knowledge_graph.ingestion.debezium_envelope import (
+        run_cdc_catchup,
+    )
+
+    assert "cdc" in source_sync_module._DELTA_HANDLERS
+    assert source_sync_module._DELTA_HANDLERS["cdc"] is run_cdc_catchup
+    assert "cdc" in source_sync_module.ENVELOPE_NATIVE_SOURCES
+    assert "cdc" not in source_sync_module.ORCHESTRATION_ONLY_SOURCES
