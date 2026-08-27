@@ -382,17 +382,15 @@ class ClusterTopologyAuthority:
         """Expose the native client's already-verified context to consumers."""
         return cls._client_context(client)
 
-    def _parse(
+    def _parse_envelope(
         self,
         answer: Any,
         *,
-        verified_context: Mapping[str, Any] | None,
-        client_context: Mapping[str, Any] | None,
         expected_cluster_id: str | None,
         min_membership_epoch: int | None,
         min_placement_epoch: int | None,
-        prior: ClusterDiscoverySnapshot | None,
-    ) -> ClusterDiscoverySnapshot:
+    ) -> tuple[str, int, int]:
+        """Validate the top-level envelope and return (cluster_id, membership_epoch, placement_epoch)."""
         if not isinstance(answer, Mapping):
             raise ClusterDiscoveryRejected("ClusterMembers response is not a mapping")
         required = {
@@ -446,6 +444,16 @@ class ClusterTopologyAuthority:
         if min_placement_epoch is not None and placement_epoch < min_placement_epoch:
             raise ClusterDiscoveryRejected("ClusterMembers placement snapshot is stale")
 
+        return cluster_id, membership_epoch, placement_epoch
+
+    def _parse_binding(
+        self,
+        answer: Any,
+        *,
+        verified_context: Mapping[str, Any] | None,
+        client_context: Mapping[str, Any] | None,
+    ) -> Mapping[str, Any]:
+        """Validate the auth_binding envelope field against the verified request context."""
         binding = answer["auth_binding"]
         if (
             not isinstance(binding, Mapping)
@@ -486,7 +494,12 @@ class ClusterTopologyAuthority:
                 "ClusterMembers client has no verified context"
             )
 
-        groups_raw = answer["groups"]
+        return binding
+
+    def _parse_groups(
+        self, groups_raw: Any
+    ) -> list[tuple[int, tuple[ClusterMember, ...], int | None]]:
+        """Validate and parse the groups/members envelope field."""
         if not isinstance(groups_raw, list) or len(groups_raw) > _MAX_GROUPS:
             raise ClusterDiscoveryRejected("ClusterMembers groups exceed bounds")
         parsed_groups: list[tuple[int, tuple[ClusterMember, ...], int | None]] = []
@@ -631,7 +644,15 @@ class ClusterTopologyAuthority:
                     )
             parsed_groups.append((group_id, tuple(members), leader_id))
 
-        leaders = answer["leaders"]
+        return parsed_groups
+
+    def _parse_leaders(
+        self,
+        parsed_groups: list[tuple[int, tuple[ClusterMember, ...], int | None]],
+        leaders: Any,
+        leader: Any,
+    ) -> None:
+        """Validate the leaders/leader envelope fields against the parsed groups."""
         expected_leaders = [
             {"group_id": group_id, "node_id": leader_id}
             for group_id, _, leader_id in parsed_groups
@@ -640,9 +661,12 @@ class ClusterTopologyAuthority:
         if leaders != expected_leaders:
             raise ClusterDiscoveryRejected("ClusterMembers leaders are inconsistent")
         expected_leader = expected_leaders[0] if expected_leaders else None
-        if answer["leader"] != expected_leader:
+        if leader != expected_leader:
             raise ClusterDiscoveryRejected("ClusterMembers leader is inconsistent")
-        signature = answer["signature"]
+
+    @staticmethod
+    def _parse_signature(signature: Any) -> None:
+        """Validate the signature envelope field's surface shape."""
         if (
             not isinstance(signature, str)
             or not signature.startswith("hmac-sha256:")
@@ -653,6 +677,17 @@ class ClusterTopologyAuthority:
             )
         ):
             raise ClusterDiscoveryRejected("ClusterMembers signature is malformed")
+
+    def _parse_prior(
+        self,
+        prior: ClusterDiscoverySnapshot | None,
+        *,
+        cluster_id: str,
+        membership_epoch: int,
+        placement_epoch: int,
+        parsed_groups: list[tuple[int, tuple[ClusterMember, ...], int | None]],
+    ) -> None:
+        """Validate monotonicity against the prior last-good snapshot, if any."""
         if prior is not None:
             if cluster_id != prior.cluster_id:
                 raise ClusterDiscoveryRejected(
@@ -689,6 +724,38 @@ class ClusterTopologyAuthority:
                             "ClusterMembers certificate changed without a rotation epoch"
                         )
 
+    def _parse(
+        self,
+        answer: Any,
+        *,
+        verified_context: Mapping[str, Any] | None,
+        client_context: Mapping[str, Any] | None,
+        expected_cluster_id: str | None,
+        min_membership_epoch: int | None,
+        min_placement_epoch: int | None,
+        prior: ClusterDiscoverySnapshot | None,
+    ) -> ClusterDiscoverySnapshot:
+        cluster_id, membership_epoch, placement_epoch = self._parse_envelope(
+            answer,
+            expected_cluster_id=expected_cluster_id,
+            min_membership_epoch=min_membership_epoch,
+            min_placement_epoch=min_placement_epoch,
+        )
+        binding = self._parse_binding(
+            answer,
+            verified_context=verified_context,
+            client_context=client_context,
+        )
+        parsed_groups = self._parse_groups(answer["groups"])
+        self._parse_leaders(parsed_groups, answer["leaders"], answer["leader"])
+        self._parse_signature(answer["signature"])
+        self._parse_prior(
+            prior,
+            cluster_id=cluster_id,
+            membership_epoch=membership_epoch,
+            placement_epoch=placement_epoch,
+            parsed_groups=parsed_groups,
+        )
         return ClusterDiscoverySnapshot(
             cluster_id=cluster_id,
             membership_epoch=membership_epoch,
