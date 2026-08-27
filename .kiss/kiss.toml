@@ -1,0 +1,93 @@
+# CX program — kiss thresholds for agent-utilities.
+#
+# ═══ THIS FILE IS NOT A BASELINE. ═══════════════════════════════════════════
+# Every number here is HAND-SET at a final, justified value. None was derived
+# from what this repo currently passes. A metric is either OFF (999999, and
+# still reported by `kiss stats` on every run) or ON at its target. There is no
+# interim calibrated value, ever -- that would make this file 43 per-metric
+# baselines wearing a different hat. (CX MR-11.)
+#
+# ⚠ NEVER run bare `kiss check` here. With no --config, kiss WRITES a
+#   .kissconfig calibrated so the repo *just barely* passes AND sets
+#   duplication_enabled=false, orphan_module_enabled=false,
+#   comment_removal_enabled=false, docs_allowed=["./"], coverage=0 -- a
+#   self-installing ratchet that also switches four rules off. Always go
+#   through scripts/run_kiss.sh, which passes --config and refuses to run if a
+#   .kissconfig exists. Verified 2026-08-27: --config suppresses the write.
+#
+# Measured 2026-08-27, agent_utilities/ (1,700 files, 24,522 units) --
+# see plans/complex/designs/KISS-ADOPTION.md for the full distribution.
+
+[global]
+min_similarity          = 0.9      # ON. 45 duplicate violations measured.
+duplication_enabled     = true
+orphan_module_enabled   = false    # OFF: check_liveness.py already owns
+                                   # "orphan_modules" with a different
+                                   # definition. Two gates, two definitions,
+                                   # one word = guaranteed disagreement.
+                                   # kiss measures 65 here; check_liveness
+                                   # measures 2. Reconcile before enabling.
+comment_removal_enabled = false    # OFF PERMANENTLY. This repo's comments are
+                                   # its institutional memory (BUG-043 in
+                                   # check_root_hygiene, D-SWG-1 in
+                                   # check_swallowed_errors). A rule telling an
+                                   # agent to delete them is an anti-goal and
+                                   # conflicts with guardrail-docs-contract.
+docs_allowed            = ["./"]   # Neutralises `doc == 0`. The DEFAULT is []
+                                   # which fires on EVERY docstring in the tree
+                                   # and suggests deleting it. Must be set
+                                   # explicitly -- omitting the key is hostile.
+orphan_allowed          = []
+
+# [test] IS DELIBERATELY NOT CONFIGURED. `kiss test` replaces the test runner,
+# and this repo has pytest.ini testpaths, a coverage fail_under, and a pytest
+# pre-commit hook. max_num_tests is itself a ratchet-shaped number. Out of scope.
+
+[python]
+# ---- ON at final values -------------------------------------------------
+max_indentation           = 4      # measured p90=4, max=11
+nested_function_depth     = 2      # measured p99=1,  max=4
+return_values_per_function= 3      # measured p99=2,  max=7
+decorators_per_function   = 5      # measured max=2 -- already clean; a guard
+                                   # NOTE: the TOML key is decorators_per_function;
+                                   # `annotations_per_function` is the METRIC ID and
+                                   # kiss rejects it -- see run_kiss.sh, which fails
+                                   # closed on "Unknown config key" because kiss only
+                                   # WARNS and then silently uses upstream defaults.
+boolean_parameters        = 1      # measured p99=1,  max=14 (flag-argument smell)
+statements_per_try_block  = 3      # measured p90=2,  max=405
+returns_per_function      = 5      # measured p90=3,  max=127
+positional_args           = 3      # measured p90=3,  max=47 (create_agent)
+statements_per_function   = 35     # measured p99=59, max=411
+local_variables           = 15     # measured p99=19, max=143
+calls_per_function        = 20     # measured p95=25, max=470
+methods_per_class         = 10     # measured p95=10, max=129
+imported_names_per_file   = 30     # measured p95=32, max=170 (__init__ exempt)
+statements_per_file       = 200    # measured p90=225, max=2147
+lines_per_file            = 300    # measured p50=221, max=7392
+functions_per_file        = 10     # measured p50=7,   max=222
+interface_types_per_file  = 1      # measured p95=1,   max=6
+
+# ---- OFF, each with the measurement that justifies it -------------------
+branches_per_function     = 999999 # OFF: check_complexity.py owns branching.
+                                   # ONE number, ONE tool. Enabling both gives
+                                   # two gates disagreeing under one word.
+keyword_only_args         = 999999 # OFF: measured p99=7, max=49. pydantic /
+                                   # FastAPI / MCP tool signatures are
+                                   # legitimately keyword-heavy; this rule
+                                   # fights the repo's own typed-config idiom.
+concrete_types_per_file   = 999999 # OFF: default 1 = one class per file.
+                                   # Measured p50=1 but max=182. Defensible as
+                                   # an ideal, but it is a whole-repo layout
+                                   # rewrite stacked on the CCN collapse.
+                                   # Revisit only after the ladder completes.
+
+# ---- OFF because MEASUREMENT PROVES THEM UNREACHABLE HERE ---------------
+# These are not judgement calls. agent_utilities has an 815-MODULE IMPORT
+# CYCLE -- 48% of its 1,700 modules sit in one strongly-connected component.
+# A file-partitioned complexity lane structurally cannot fix that; it is an
+# architectural program of its own. Recorded as a CX finding, NOT hidden:
+# `kiss stats` prints these three every run.
+cycle_size                = 999999 # measured p90=815, max=815  (target 0)
+dependency_depth          = 999999 # measured p50=11,  max=16   (default 3)
+indirect_dependencies     = 999999 # measured p50=1132,max=1184 (default 10)
