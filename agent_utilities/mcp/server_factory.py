@@ -391,6 +391,33 @@ def _optional_http_request() -> Any | None:
         raise
 
 
+def _is_malformed_numeric_claim(value: Any) -> bool:
+    """True if `value` cannot be trusted as a finite numeric timestamp claim
+    (bool masquerading as int, wrong type, or non-finite)."""
+    import math
+
+    return (
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or not math.isfinite(float(value))
+    )
+
+
+def _exp_claim_invalid(claims: dict, now: float) -> bool:
+    exp = claims.get("exp")
+    return _is_malformed_numeric_claim(exp) or float(exp) < now
+
+
+def _nbf_iat_claims_invalid(claims: dict, now: float) -> bool:
+    for field in ("nbf", "iat"):
+        value = claims.get(field)
+        if value is None:
+            continue
+        if _is_malformed_numeric_claim(value) or float(value) > now + 30.0:
+            return True
+    return False
+
+
 def _hardened_jwt_verifier(**kwargs: Any) -> Any:
     """Build FastMCP's verifier with pinned JWKS I/O and privacy-safe logging."""
     from fastmcp.server.auth.providers.jwt import JWTVerifier
@@ -413,29 +440,11 @@ def _hardened_jwt_verifier(**kwargs: Any) -> Any:
             claims = getattr(result, "claims", None)
             if not isinstance(claims, dict):
                 return None
-            import math
             import time
 
             now = time.time()
-            exp = claims.get("exp")
-            if (
-                isinstance(exp, bool)
-                or not isinstance(exp, int | float)
-                or not math.isfinite(float(exp))
-                or float(exp) < now
-            ):
+            if _exp_claim_invalid(claims, now) or _nbf_iat_claims_invalid(claims, now):
                 return None
-            for field in ("nbf", "iat"):
-                value = claims.get(field)
-                if value is None:
-                    continue
-                if (
-                    isinstance(value, bool)
-                    or not isinstance(value, int | float)
-                    or not math.isfinite(float(value))
-                    or float(value) > now + 30.0
-                ):
-                    return None
             return result
 
     class _PrivacyLogger:
@@ -553,20 +562,24 @@ def _is_loopback_bind(host: Any) -> bool:
         return False
 
 
-def _validate_network_exposure(args: argparse.Namespace) -> None:
-    """Fail closed unless a remote MCP listener has auth and a TLS boundary."""
+def _requires_network_exposure_validation(args: argparse.Namespace) -> bool:
     transport = str(getattr(args, "transport", "stdio") or "stdio").lower()
-    auth_type = str(getattr(args, "auth_type", "none") or "none").lower()
     if transport not in _NETWORK_TRANSPORTS:
-        return
-    if _is_loopback_bind(getattr(args, "host", "")):
-        return
+        return False
+    return not _is_loopback_bind(getattr(args, "host", ""))
+
+
+def _validate_network_auth_present(args: argparse.Namespace) -> None:
+    auth_type = str(getattr(args, "auth_type", "none") or "none").lower()
     if auth_type == "none":
         logger.error(
             "Refusing an unauthenticated MCP network listener outside loopback"
         )
         raise SystemExit(1)
 
+
+def _validate_network_tls_material(args: argparse.Namespace) -> bool:
+    """Validate cert/key policy; returns whether direct TLS is configured."""
     certfile = str(getattr(args, "tls_certfile", "") or "").strip()
     keyfile = str(getattr(args, "tls_keyfile", "") or "").strip()
     if bool(certfile) != bool(keyfile):
@@ -576,7 +589,10 @@ def _validate_network_exposure(args: argparse.Namespace) -> None:
     if direct_tls and not (os.path.isfile(certfile) and os.path.isfile(keyfile)):
         logger.error("MCP server TLS material is unavailable")
         raise SystemExit(1)
+    return direct_tls
 
+
+def _validate_network_tls_boundary(args: argparse.Namespace, direct_tls: bool) -> None:
     terminated = bool(getattr(args, "tls_terminated", False))
     proxy_cidrs = str(getattr(args, "trusted_proxy_cidrs", "") or "").strip()
     if terminated and not proxy_cidrs:
@@ -592,31 +608,31 @@ def _validate_network_exposure(args: argparse.Namespace) -> None:
         )
         raise SystemExit(1)
 
-    hosts = [
-        value.strip()
-        for value in str(getattr(args, "allowed_hosts", "") or "").split(",")
-        if value.strip()
-    ]
+
+def _validate_network_allowed_hosts(args: argparse.Namespace) -> None:
+    hosts = _split_csv(str(getattr(args, "allowed_hosts", "") or ""))
     if not hosts or any("*" in value for value in hosts):
         logger.error("A non-loopback MCP listener requires exact MCP_ALLOWED_HOSTS")
         raise SystemExit(1)
 
 
-def create_mcp_parser(
-    *, transport_choices: tuple[str, ...] = _ALL_TRANSPORTS
-) -> argparse.ArgumentParser:
-    """Create a standard argument parser for MCP servers.
+def _validate_network_exposure(args: argparse.Namespace) -> None:
+    """Fail closed unless a remote MCP listener has auth and a TLS boundary."""
+    if not _requires_network_exposure_validation(args):
+        return
+    _validate_network_auth_present(args)
+    direct_tls = _validate_network_tls_material(args)
+    _validate_network_tls_boundary(args, direct_tls)
+    _validate_network_allowed_hosts(args)
 
-    Defines a comprehensive set of CLI flags for transport selection,
-    host/port configuration, authentication (JWT, OIDC, OAuth), and Eunomia
-    policy enforcement. Callers may narrow ``transport_choices`` when a server
-    intentionally exposes a smaller current transport surface.
 
-    Returns:
-        An argparse.ArgumentParser instance.
-
-    """
-    # Keycloak defaults integration
+def _resolve_mcp_parser_secret_defaults() -> tuple[
+    str | None, str | None, str | None, str | None, str | None, str | None
+]:
+    """(default_oidc_config, default_oidc_client_id, default_oidc_client_secret,
+    default_oauth_upstream_client_secret, default_openapi_password,
+    default_openapi_client_secret) -- resolved from Keycloak/env-var defaults
+    and runtime-secret-ref lookups, for create_mcp_parser's flag defaults."""
     keycloak_url = setting("KEYCLOAK_URL")
     keycloak_realm = setting("KEYCLOAK_REALM", "master")
     default_oidc_config = setting("OIDC_CONFIG_URL")
@@ -656,12 +672,48 @@ def create_mcp_parser(
     except RuntimeSecretReferenceError as exc:
         raise RuntimeError("configured authentication secret is unavailable") from exc
 
+    return (
+        default_oidc_config,
+        default_oidc_client_id,
+        default_oidc_client_secret,
+        default_oauth_upstream_client_secret,
+        default_openapi_password,
+        default_openapi_client_secret,
+    )
+
+
+def _validate_transport_choices(transport_choices: tuple[str, ...]) -> None:
     if not transport_choices or any(
         transport not in _ALL_TRANSPORTS for transport in transport_choices
     ):
         raise ValueError(
             "transport_choices must be a non-empty subset of supported transports"
         )
+
+
+def create_mcp_parser(
+    *, transport_choices: tuple[str, ...] = _ALL_TRANSPORTS
+) -> argparse.ArgumentParser:
+    """Create a standard argument parser for MCP servers.
+
+    Defines a comprehensive set of CLI flags for transport selection,
+    host/port configuration, authentication (JWT, OIDC, OAuth), and Eunomia
+    policy enforcement. Callers may narrow ``transport_choices`` when a server
+    intentionally exposes a smaller current transport surface.
+
+    Returns:
+        An argparse.ArgumentParser instance.
+
+    """
+    (
+        default_oidc_config,
+        default_oidc_client_id,
+        default_oidc_client_secret,
+        default_oauth_upstream_client_secret,
+        default_openapi_password,
+        default_openapi_client_secret,
+    ) = _resolve_mcp_parser_secret_defaults()
+    _validate_transport_choices(transport_choices)
 
     parser = argparse.ArgumentParser(add_help=False, description="MCP Server")
     parser.add_argument(
@@ -1673,24 +1725,10 @@ def _rate_limit_client_id(context: Any) -> str:
     return "caller_" + hashlib.blake2s(raw.encode("utf-8"), digest_size=16).hexdigest()
 
 
-def _configure_middleware(
-    args: argparse.Namespace, *, server_name: str = ""
-) -> list[Any]:
-    """Build the standard middleware stack for an MCP server.
-
-    ``server_name`` (the same ``name`` passed to :func:`create_mcp_server`)
-    selects :class:`~agent_utilities.mcp.middlewares.ActorContextMiddleware`'s
-    fail-closed mode (BUG-036/GOC-15): only the ``"graph-os"`` server —
-    the one MCP server in the fleet whose tools reach privileged Knowledge-
-    Graph reads/writes — gets ``require_verified_session=True``. Every other
-    fleet server (~60 independently-owned ``agents/*-mcp`` packages using this
-    same factory) keeps the prior no-op-without-a-token behavior unchanged;
-    making this fail closed fleet-wide is a separable, larger change that
-    needs its own per-package audit, not a side effect of closing BUG-036.
-    """
-    from fastmcp.server.middleware.error_handling import ErrorHandlingMiddleware
-    from fastmcp.server.middleware.rate_limiting import RateLimitingMiddleware
-
+def _import_optional_middlewares() -> tuple[Any, Any, Any, Any, Any]:
+    """(UserTokenMiddleware, JWTClaimsLoggingMiddleware, EntityLinkingMiddleware,
+    ToolMetricsMiddleware, ActorContextMiddleware), each None if the optional
+    middlewares package is unavailable."""
     try:
         from agent_utilities.mcp.middlewares import (
             ActorContextMiddleware,
@@ -1700,25 +1738,33 @@ def _configure_middleware(
             UserTokenMiddleware,
         )
     except ImportError:
-        UserTokenMiddleware = None  # type: ignore
-        JWTClaimsLoggingMiddleware = None  # type: ignore
-        EntityLinkingMiddleware = None  # type: ignore
-        ToolMetricsMiddleware = None  # type: ignore
-        ActorContextMiddleware = None  # type: ignore
+        return None, None, None, None, None
+    return (
+        UserTokenMiddleware,
+        JWTClaimsLoggingMiddleware,
+        EntityLinkingMiddleware,
+        ToolMetricsMiddleware,
+        ActorContextMiddleware,
+    )
 
-    middlewares: list[Any] = [
-        ErrorHandlingMiddleware(include_traceback=False, transform_errors=True),
-        RateLimitingMiddleware(
-            max_requests_per_second=10.0,
-            burst_capacity=20,
-            get_client_id=_rate_limit_client_id,
-        ),
-    ]
+
+def _append_optional_middlewares(
+    middlewares: list[Any],
+    server_name: str,
+    optional_classes: tuple[Any, Any, Any, Any, Any],
+) -> None:
+    (
+        UserTokenMiddleware,
+        JWTClaimsLoggingMiddleware,
+        EntityLinkingMiddleware,
+        ToolMetricsMiddleware,
+        ActorContextMiddleware,
+    ) = optional_classes
 
     # Scope every tool call to the caller's validated OIDC (Okta/Keycloak)
     # identity so servers can auto-load resources and inherit authz per-caller
     # (CONCEPT:AU-OS.identity.idp-agnostic-role-inheritance). No-op when the
-    # request carries no validated token (loopback/stdio trust only) —
+    # request carries no validated token (loopback/stdio trust only) --
     # EXCEPT for graph-os itself, which fails closed instead (BUG-036/GOC-15,
     # see ActorContextMiddleware/`_configure_middleware` docstrings).
     if ActorContextMiddleware is not None:
@@ -1737,43 +1783,77 @@ def _configure_middleware(
     if EntityLinkingMiddleware is not None:
         middlewares.append(EntityLinkingMiddleware())
 
-    if mcp_auth_config["enable_delegation"]:
-        if UserTokenMiddleware is not None:
-            # Keep the privacy-safe error middleware outermost so a delegation
-            # rejection cannot bypass the standardized exception surface.
-            middlewares.insert(1, UserTokenMiddleware(config=mcp_auth_config))
+    if mcp_auth_config["enable_delegation"] and UserTokenMiddleware is not None:
+        # Keep the privacy-safe error middleware outermost so a delegation
+        # rejection cannot bypass the standardized exception surface.
+        middlewares.insert(1, UserTokenMiddleware(config=mcp_auth_config))
 
-    if args.eunomia_type in ["embedded", "remote"]:
-        try:
-            from agent_utilities.mcp.eunomia_principal import (
-                create_eunomia_middleware,
+
+def _configure_eunomia_middleware(args: argparse.Namespace) -> Any | None:
+    """None when Eunomia is not configured for this server; the built
+    middleware when it is; exits the process on a configuration/build
+    failure (never returns a sentinel for that case)."""
+    if args.eunomia_type not in ["embedded", "remote"]:
+        return None
+    try:
+        from agent_utilities.mcp.eunomia_principal import create_eunomia_middleware
+
+        require_verified = str(getattr(args, "auth_type", "none")) != "none"
+        if args.eunomia_type == "remote":
+            return create_eunomia_middleware(
+                policy_file=None,
+                use_remote_eunomia=True,
+                eunomia_endpoint=args.eunomia_remote_url,
+                api_key_ref=getattr(args, "eunomia_api_key_ref", None),
+                require_verified_principal=require_verified,
             )
+        policy_file = args.eunomia_policy_file or "mcp_policies.json"
+        return create_eunomia_middleware(
+            policy_file=policy_file,
+            use_remote_eunomia=False,
+            require_verified_principal=require_verified,
+        )
+    except Exception as exc:
+        logger.error(
+            "Failed to load Eunomia middleware (exception_type=%s)",
+            type(exc).__name__,
+        )
+        sys.exit(1)
 
-            require_verified = str(getattr(args, "auth_type", "none")) != "none"
-            if args.eunomia_type == "remote":
-                eunomia_mw = create_eunomia_middleware(
-                    policy_file=None,
-                    use_remote_eunomia=True,
-                    eunomia_endpoint=args.eunomia_remote_url,
-                    api_key_ref=getattr(args, "eunomia_api_key_ref", None),
-                    require_verified_principal=require_verified,
-                )
-            else:
-                policy_file = args.eunomia_policy_file or "mcp_policies.json"
-                eunomia_mw = create_eunomia_middleware(
-                    policy_file=policy_file,
-                    use_remote_eunomia=False,
-                    require_verified_principal=require_verified,
-                )
-            middlewares.append(eunomia_mw)
-        except Exception as exc:
-            logger.error(
-                "Failed to load Eunomia middleware (exception_type=%s)",
-                type(exc).__name__,
-            )
-            import sys
 
-            sys.exit(1)
+def _configure_middleware(
+    args: argparse.Namespace, *, server_name: str = ""
+) -> list[Any]:
+    """Build the standard middleware stack for an MCP server.
+
+    ``server_name`` (the same ``name`` passed to :func:`create_mcp_server`)
+    selects :class:`~agent_utilities.mcp.middlewares.ActorContextMiddleware`'s
+    fail-closed mode (BUG-036/GOC-15): only the ``"graph-os"`` server —
+    the one MCP server in the fleet whose tools reach privileged Knowledge-
+    Graph reads/writes — gets ``require_verified_session=True``. Every other
+    fleet server (~60 independently-owned ``agents/*-mcp`` packages using this
+    same factory) keeps the prior no-op-without-a-token behavior unchanged;
+    making this fail closed fleet-wide is a separable, larger change that
+    needs its own per-package audit, not a side effect of closing BUG-036.
+    """
+    from fastmcp.server.middleware.error_handling import ErrorHandlingMiddleware
+    from fastmcp.server.middleware.rate_limiting import RateLimitingMiddleware
+
+    middlewares: list[Any] = [
+        ErrorHandlingMiddleware(include_traceback=False, transform_errors=True),
+        RateLimitingMiddleware(
+            max_requests_per_second=10.0,
+            burst_capacity=20,
+            get_client_id=_rate_limit_client_id,
+        ),
+    ]
+    _append_optional_middlewares(
+        middlewares, server_name, _import_optional_middlewares()
+    )
+
+    eunomia_mw = _configure_eunomia_middleware(args)
+    if eunomia_mw is not None:
+        middlewares.append(eunomia_mw)
 
     return middlewares
 
@@ -1817,6 +1897,84 @@ def _configure_middleware(
 # (stderr by default), never ``print``.
 
 
+def _resolve_network_allowed_hosts(
+    args: argparse.Namespace, loopback: bool, normalize_host_authorities: Any
+) -> list[str]:
+    hosts = _split_csv(str(getattr(args, "allowed_hosts", "") or ""))
+    if not hosts:
+        if not loopback:
+            raise RuntimeError("MCP_ALLOWED_HOSTS is required")
+        port = int(getattr(args, "port", 8000))
+        hosts = [
+            f"localhost:{port}",
+            f"127.0.0.1:{port}",
+            f"[::1]:{port}",
+            "testserver",
+        ]
+    try:
+        return sorted(normalize_host_authorities(hosts))
+    except ValueError:
+        raise RuntimeError("MCP_ALLOWED_HOSTS must contain exact authorities") from None
+
+
+def _build_network_base_middleware(
+    hosts: list[str],
+    origin_values: list[str],
+    max_bytes: int,
+    Middleware: Any,
+    ExactHostAuthorityMiddleware: Any,
+    OriginPolicyMiddleware: Any,
+    BoundedRequestBodyMiddleware: Any,
+) -> list[Any]:
+    return [
+        Middleware(ExactHostAuthorityMiddleware, allowed_hosts=hosts),
+        Middleware(OriginPolicyMiddleware, allowed_origins=origin_values),
+        Middleware(BoundedRequestBodyMiddleware, max_bytes=max_bytes),
+    ]
+
+
+def _maybe_prepend_trusted_proxy_middleware(
+    args: argparse.Namespace,
+    middleware: list[Any],
+    parse_cidrs: Any,
+    Middleware: Any,
+    TrustedProxyPeerMiddleware: Any,
+) -> None:
+    if not bool(getattr(args, "tls_terminated", False)):
+        return
+    cidrs = _split_csv(str(getattr(args, "trusted_proxy_cidrs", "") or ""))
+    parse_cidrs(cidrs)
+    middleware.insert(0, Middleware(TrustedProxyPeerMiddleware, trusted_cidrs=cidrs))
+
+
+def _resolve_network_connection_bounds() -> tuple[int, int]:
+    max_connections = int(setting("MCP_MAX_CONNECTIONS", "128"))
+    backlog = int(setting("MCP_LISTEN_BACKLOG", "256"))
+    if not 1 <= max_connections <= 10_000 or not 1 <= backlog <= 65_535:
+        raise RuntimeError("MCP listener resource bounds are invalid")
+    return max_connections, backlog
+
+
+def _build_uvicorn_config(
+    args: argparse.Namespace, max_connections: int, backlog: int
+) -> dict[str, Any]:
+    uvicorn_config: dict[str, Any] = {
+        # Never trust Forwarded/X-Forwarded-* from the network. The direct peer
+        # address remains authoritative for the trusted-ingress CIDR gate.
+        "proxy_headers": False,
+        "timeout_keep_alive": 5,
+        "timeout_graceful_shutdown": 15,
+        "limit_concurrency": max_connections,
+        "backlog": backlog,
+        "h11_max_incomplete_event_size": 65_536,
+    }
+    certfile = str(getattr(args, "tls_certfile", "") or "").strip()
+    keyfile = str(getattr(args, "tls_keyfile", "") or "").strip()
+    if certfile and keyfile:
+        uvicorn_config.update(ssl_certfile=certfile, ssl_keyfile=keyfile)
+    return uvicorn_config
+
+
 def mcp_network_run_kwargs(args: argparse.Namespace) -> dict[str, Any]:
     """Return the one hardened FastMCP/Uvicorn network-serving configuration."""
     from starlette.middleware import Middleware
@@ -1836,68 +1994,27 @@ def mcp_network_run_kwargs(args: argparse.Namespace) -> dict[str, Any]:
         return {}
     host = str(getattr(args, "host", "") or "")
     loopback = _is_loopback_bind(host)
-    hosts = [
-        value.strip()
-        for value in str(getattr(args, "allowed_hosts", "") or "").split(",")
-        if value.strip()
-    ]
-    if not hosts:
-        if not loopback:
-            raise RuntimeError("MCP_ALLOWED_HOSTS is required")
-        port = int(getattr(args, "port", 8000))
-        hosts = [
-            f"localhost:{port}",
-            f"127.0.0.1:{port}",
-            f"[::1]:{port}",
-            "testserver",
-        ]
-    try:
-        hosts = sorted(normalize_host_authorities(hosts))
-    except ValueError:
-        raise RuntimeError("MCP_ALLOWED_HOSTS must contain exact authorities") from None
+    hosts = _resolve_network_allowed_hosts(args, loopback, normalize_host_authorities)
 
-    origin_values = [
-        value.strip()
-        for value in str(getattr(args, "allowed_origins", "") or "").split(",")
-        if value.strip()
-    ]
+    origin_values = _split_csv(str(getattr(args, "allowed_origins", "") or ""))
     normalize_origins(origin_values)  # validate before the listener starts
 
     max_bytes = int(getattr(args, "max_request_bytes", 4 * 1024 * 1024))
-    middleware = [
-        Middleware(ExactHostAuthorityMiddleware, allowed_hosts=hosts),
-        Middleware(OriginPolicyMiddleware, allowed_origins=origin_values),
-        Middleware(BoundedRequestBodyMiddleware, max_bytes=max_bytes),
-    ]
-    if bool(getattr(args, "tls_terminated", False)):
-        cidrs = [
-            value.strip()
-            for value in str(getattr(args, "trusted_proxy_cidrs", "") or "").split(",")
-            if value.strip()
-        ]
-        parse_cidrs(cidrs)
-        middleware.insert(
-            0, Middleware(TrustedProxyPeerMiddleware, trusted_cidrs=cidrs)
-        )
+    middleware = _build_network_base_middleware(
+        hosts,
+        origin_values,
+        max_bytes,
+        Middleware,
+        ExactHostAuthorityMiddleware,
+        OriginPolicyMiddleware,
+        BoundedRequestBodyMiddleware,
+    )
+    _maybe_prepend_trusted_proxy_middleware(
+        args, middleware, parse_cidrs, Middleware, TrustedProxyPeerMiddleware
+    )
 
-    max_connections = int(setting("MCP_MAX_CONNECTIONS", "128"))
-    backlog = int(setting("MCP_LISTEN_BACKLOG", "256"))
-    if not 1 <= max_connections <= 10_000 or not 1 <= backlog <= 65_535:
-        raise RuntimeError("MCP listener resource bounds are invalid")
-    uvicorn_config: dict[str, Any] = {
-        # Never trust Forwarded/X-Forwarded-* from the network. The direct peer
-        # address remains authoritative for the trusted-ingress CIDR gate.
-        "proxy_headers": False,
-        "timeout_keep_alive": 5,
-        "timeout_graceful_shutdown": 15,
-        "limit_concurrency": max_connections,
-        "backlog": backlog,
-        "h11_max_incomplete_event_size": 65_536,
-    }
-    certfile = str(getattr(args, "tls_certfile", "") or "").strip()
-    keyfile = str(getattr(args, "tls_keyfile", "") or "").strip()
-    if certfile and keyfile:
-        uvicorn_config.update(ssl_certfile=certfile, ssl_keyfile=keyfile)
+    max_connections, backlog = _resolve_network_connection_bounds()
+    uvicorn_config = _build_uvicorn_config(args, max_connections, backlog)
     return {"middleware": middleware, "uvicorn_config": uvicorn_config}
 
 
@@ -2048,118 +2165,46 @@ def _fleet_registration_lifespan_factory(args: argparse.Namespace, name: str):
     return _fleet_registration_lifespan
 
 
-def create_mcp_server(
-    name: str = "MCP Server",
-    version: str = __version__,
-    instructions: str = "",
-    command_args: list[str] | None = None,
-    transport_choices: tuple[str, ...] = _ALL_TRANSPORTS,
-):
-    """Initialize a FastMCP server with a standard middleware and auth stack.
-
-    This helper consolidates the steps of creating a parser, configuring
-    authentication providers (JWT, OIDC, etc.), and assembling standard
-    middleware (Logging, Timing, Rate Limiting). It handles CLI flag
-    parsing and will exit the process if help is requested or configuration
-    is invalid.
-
-    Args:
-        name: The human-readable name of the MCP server.
-        version: Semantic version string for the server.
-        instructions: System instructions specific to this MCP server's
-            tools, providing context for the LLM.
-        command_args: Optional list of CLI arguments (default: sys.argv).
-        transport_choices: Current transports exposed by this server.
-
-    Returns:
-        A tuple containing:
-            - args: The parsed argparse.Namespace object.
-            - mcp: The initialized FastMCP server instance.
-            - middlewares: A list of configured middleware instances.
-
-    """
-    import logging
-    import sys
-
-    from fastmcp import FastMCP
-
-    # Force all logging to stderr to prevent JSON-RPC corruption over stdio
-    logging.basicConfig(stream=sys.stderr, level=logging.WARNING, force=True)
-
-    parser = create_mcp_parser(transport_choices=transport_choices)
-    args, _ = parser.parse_known_args(command_args)
-    if args.transport not in transport_choices:
-        parser.error(
-            f"transport {args.transport!r} is not supported by this server; "
-            f"choose from {', '.join(transport_choices)}"
-        )
-
-    # NOTE: stdout purity on the stdio transport needs no code here (or anywhere in
-    # this module) — see the module docstring above ``mcp_network_run_kwargs`` for
-    # why. Building a server does not dedicate the process to stdio in the first
-    # place; the transport that does is claimed, fd-level, by the MCP SDK itself.
-
+def _handle_help_and_port_validation(
+    args: argparse.Namespace, parser: argparse.ArgumentParser
+) -> None:
     if hasattr(args, "help") and args.help:
         parser.print_help()
-        import sys
-
         sys.exit(0)
-
     if args.port < 0 or args.port > 65535:
         logger.error(f"Error: Port {args.port} is out of valid range (0-65535).")
-        import sys
-
         sys.exit(1)
 
-    _validate_network_exposure(args)
 
-    auth = _configure_auth(args)
-    middlewares = _configure_middleware(args, server_name=name)
-
-    remote_network = str(
+def _is_remote_network(args: argparse.Namespace) -> bool:
+    return str(
         getattr(args, "transport", "stdio") or "stdio"
     ).lower() in _NETWORK_TRANSPORTS and not _is_loopback_bind(
         getattr(args, "host", "")
     )
-    metrics_token: str | None = None
+
+
+def _resolve_metrics_token() -> str | None:
     metrics_ref = str(setting("MCP_METRICS_TOKEN_REF", "") or "").strip()
-    if metrics_ref:
-        try:
-            if metrics_ref.startswith("env://"):
-                metrics_token = str(setting(metrics_ref[len("env://") :], "") or "")
-            else:
-                from agent_utilities.security.secrets_client import (
-                    create_secrets_client,
-                )
+    if not metrics_ref:
+        return None
+    try:
+        if metrics_ref.startswith("env://"):
+            metrics_token = str(setting(metrics_ref[len("env://") :], "") or "")
+        else:
+            from agent_utilities.security.secrets_client import create_secrets_client
 
-                metrics_token = str(
-                    create_secrets_client().resolve_ref(metrics_ref) or ""
-                )
-            if not 32 <= len(metrics_token) <= 4_096 or any(
-                character in metrics_token for character in "\r\n\x00"
-            ):
-                metrics_token = None
-        except Exception:
-            metrics_token = None
+            metrics_token = str(create_secrets_client().resolve_ref(metrics_ref) or "")
+        if not 32 <= len(metrics_token) <= 4_096 or any(
+            character in metrics_token for character in "\r\n\x00"
+        ):
+            return None
+        return metrics_token
+    except Exception:
+        return None
 
-    import os
 
-    os.environ["FASTMCP_LOG_LEVEL"] = "CRITICAL"
-    mcp = FastMCP(
-        name,
-        version=version,
-        auth=auth,
-        instructions=instructions,
-        lifespan=_fleet_registration_lifespan_factory(args, name),
-        # `tasks=` only sets the DEFAULT task-mode for individual `@mcp.tool()`
-        # registrations (fastmcp.utilities.tasks.TaskConfig) -- it does not by
-        # itself mount the `io.modelcontextprotocol/tasks` extension's
-        # `tasks/get`/`tasks/update`/`tasks/cancel` methods (that requires a
-        # `ServerExtension`, added below). Kept False: no tool here is
-        # registered with `task=True`, so there is nothing for a per-tool
-        # default to apply to yet.
-        tasks=False,
-    )
+def _mount_tasks_extension_if_available(mcp: Any, name: str) -> None:
     # CONCEPT:AU-ECO.mcp.tasks-workitem-bridge -- mount the native WorkItem-backed
     # Tasks extension (agent_utilities/mcp/tasks_extension.py), NOT
     # fastmcp_tasks.extension.TasksExtension: that package's engine is
@@ -2191,11 +2236,14 @@ def create_mcp_server(
         # registry or scheduler.
         mcp.add_extension(WorkItemTasksExtension(server_id=name))
 
-    # Operational routes live outside the tool authorization path. Health is a
-    # generic readiness result. Metrics are local-only unless a remote listener
-    # has a runtime-resolved bearer token; otherwise that route is absent.
-    # Wrapped defensively so older FastMCP builds without custom_route still
-    # produce a working server.
+
+def _register_operational_routes(
+    mcp: Any, remote_network: bool, metrics_token: str | None
+) -> None:
+    """Health is a generic readiness result. Metrics are local-only unless a
+    remote listener has a runtime-resolved bearer token; otherwise that
+    route is absent. Wrapped defensively so older FastMCP builds without
+    custom_route still produce a working server."""
     try:
         from starlette.requests import Request as _Request
         from starlette.responses import JSONResponse as _JSONResponse
@@ -2255,6 +2303,88 @@ def create_mcp_server(
             "Could not register metrics and health routes (exception_type=%s)",
             type(_route_exc).__name__,
         )
+
+
+def create_mcp_server(
+    name: str = "MCP Server",
+    version: str = __version__,
+    instructions: str = "",
+    command_args: list[str] | None = None,
+    transport_choices: tuple[str, ...] = _ALL_TRANSPORTS,
+):
+    """Initialize a FastMCP server with a standard middleware and auth stack.
+
+    This helper consolidates the steps of creating a parser, configuring
+    authentication providers (JWT, OIDC, etc.), and assembling standard
+    middleware (Logging, Timing, Rate Limiting). It handles CLI flag
+    parsing and will exit the process if help is requested or configuration
+    is invalid.
+
+    Args:
+        name: The human-readable name of the MCP server.
+        version: Semantic version string for the server.
+        instructions: System instructions specific to this MCP server's
+            tools, providing context for the LLM.
+        command_args: Optional list of CLI arguments (default: sys.argv).
+        transport_choices: Current transports exposed by this server.
+
+    Returns:
+        A tuple containing:
+            - args: The parsed argparse.Namespace object.
+            - mcp: The initialized FastMCP server instance.
+            - middlewares: A list of configured middleware instances.
+
+    """
+    import logging
+
+    from fastmcp import FastMCP
+
+    # Force all logging to stderr to prevent JSON-RPC corruption over stdio
+    logging.basicConfig(stream=sys.stderr, level=logging.WARNING, force=True)
+
+    parser = create_mcp_parser(transport_choices=transport_choices)
+    args, _ = parser.parse_known_args(command_args)
+    if args.transport not in transport_choices:
+        parser.error(
+            f"transport {args.transport!r} is not supported by this server; "
+            f"choose from {', '.join(transport_choices)}"
+        )
+
+    # NOTE: stdout purity on the stdio transport needs no code here (or anywhere in
+    # this module) — see the module docstring above ``mcp_network_run_kwargs`` for
+    # why. Building a server does not dedicate the process to stdio in the first
+    # place; the transport that does is claimed, fd-level, by the MCP SDK itself.
+
+    _handle_help_and_port_validation(args, parser)
+
+    _validate_network_exposure(args)
+
+    auth = _configure_auth(args)
+    middlewares = _configure_middleware(args, server_name=name)
+
+    remote_network = _is_remote_network(args)
+    metrics_token = _resolve_metrics_token()
+
+    import os
+
+    os.environ["FASTMCP_LOG_LEVEL"] = "CRITICAL"
+    mcp = FastMCP(
+        name,
+        version=version,
+        auth=auth,
+        instructions=instructions,
+        lifespan=_fleet_registration_lifespan_factory(args, name),
+        # `tasks=` only sets the DEFAULT task-mode for individual `@mcp.tool()`
+        # registrations (fastmcp.utilities.tasks.TaskConfig) -- it does not by
+        # itself mount the `io.modelcontextprotocol/tasks` extension's
+        # `tasks/get`/`tasks/update`/`tasks/cancel` methods (that requires a
+        # `ServerExtension`, added below). Kept False: no tool here is
+        # registered with `task=True`, so there is nothing for a per-tool
+        # default to apply to yet.
+        tasks=False,
+    )
+    _mount_tasks_extension_if_available(mcp, name)
+    _register_operational_routes(mcp, remote_network, metrics_token)
 
     # Inject dynamic visibility transform for dynamic tag/tool filtering
     try:
