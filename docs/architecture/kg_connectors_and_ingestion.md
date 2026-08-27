@@ -373,6 +373,61 @@ See [Configuration Reference](configuration.md) for the three flags, and
 [External Permission Sync](../pillars/4_ecosystem_peripherals/ECO-4.28-External_Permission_Sync.md)
 for how the ACL descriptor maps onto the KG-2.46 permissioning model.
 
+### 8a. Typed actions in the manifest (CA-32, DEC-CA-07, CONCEPT:AU-KG.ontology.connector-typed-actions)
+
+`connector_manifest.yml`'s `actions:` block (`ActionSpec`,
+`knowledge_graph/ontology/connector_manifest.py`) started as the generic
+a2a-capability pair every connector's `AgentCard` advertises
+(`epistemic-answer`/`run_graph_flow`) — informational, not gated. DEC-CA-07
+extends the SAME field, additively, into a typed declaration for a connector
+action that performs a governed mutating write:
+
+```yaml
+actions:
+  - id: delete_widget          # unchanged: the original identifier field
+    name: Delete Widget
+    description: Remove a widget.
+    label: Delete Widget                  # new, optional
+    parameters:                            # new, optional
+      - name: widget_id
+        type: string
+        required: true
+    target_resource: Widget                # new, optional; must name a resources[].name
+    conflict_policy: manual_review         # new, optional: source_wins | graph_derived | manual_review | reject
+    requires_approval: true                # new; defaults true — DEC-CA-07 fail-closed
+    approval_class: sensitive              # new, optional; default "unclassified"
+    effects: ["mutate:Widget"]             # new, optional
+```
+
+Every new field is optional with a default that reproduces the old
+three-field shape exactly, so all 72 manifests on disk load byte-compatibly
+without regeneration. `ConnectorManifest` cross-validates `target_resource`
+against the manifest's own `resources[]` and refuses `requires_approval:
+false` on an action whose `id`/`name` looks destructive by name (the same
+term vocabulary `mcp.tools.intent_tools._DESTRUCTIVE_TERMS` uses) — an
+explicit opt-out still isn't enough for something that looks destructive.
+
+`connector_manifest_gate.undeclared_mutating_tools(pkg)` statically (AST, no
+import — connector packages are separate repos/venvs this one doesn't
+install) scans `agents/<pkg>`'s own `@mcp.tool(...)` registrations for an
+EXPLICIT mutating signal — a `tags={"mutating"}` or a standard MCP
+`annotations={"destructiveHint": True}` / `{"readOnlyHint": False}` — that has
+no matching `actions[].id`. Because the scan is decorator-only, a package
+that registers tools via `mcp.tool(...)(func)` call syntax instead of
+`@mcp.tool(...)` is a known false-negative (e.g. `genius-agent`). It is
+fail-**open** on absence of either signal (nothing breaks for a package that
+hasn't opted in) and fail-**closed** the moment a tool carries one
+(`check_manifest_bytes(..., require_declared_actions=True)`, or the CLI's
+`--check-actions` flag). It is OFF by default everywhere — `source_sync`'s
+runtime gate, the CLI sweep, and `precheck_source` — because 8 of the 72
+shipped packages (`audio-transcriber`, `container-manager-mcp`,
+`lakekeeper-mcp`, `microsoft-agent`, `opensearch-mcp`, `spark-mcp`,
+`systems-manager`, `tunnel-manager`) already tag a tool mutating via
+`annotations={"readOnlyHint": False, ...}`/`{"destructiveHint": True}`
+without declaring it in `actions:`; closing that real, pre-existing gap
+fleet-wide is out of CA-32's scope. CA-40..46 (new/extended MCP packages)
+declare `actions:` and pass `--check-actions` from day one instead.
+
 ---
 
 ## 8b. Governed candidate-claim promotion, supersession & dead-letter drain
