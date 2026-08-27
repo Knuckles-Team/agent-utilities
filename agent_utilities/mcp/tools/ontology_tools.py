@@ -104,6 +104,406 @@ def _sync_package_ontologies(lc: Any) -> dict[str, Any]:
     }
 
 
+def _parse_json_str_list(raw: str) -> list[str]:
+    """Parse a JSON array of strings, degrading to `[]` on any malformed or
+    non-list input (used by both `graph_ontology`'s 'load' `tags_json` and
+    'propose' `evidence_refs_json` params)."""
+    if not raw:
+        return []
+    try:
+        loaded = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    if isinstance(loaded, list):
+        return [str(item) for item in loaded]
+    return []
+
+
+_ONTOLOGY_CATALOG_ACTIONS = frozenset(
+    {"load", "list", "get", "update", "delete", "validate"}
+)
+_ONTOLOGY_STARDOG_ACTIONS = frozenset(
+    {"sync_packages", "publish_stardog", "import_stardog"}
+)
+_ONTOLOGY_LIFECYCLE_FLAG_ACTIONS = frozenset(
+    {"activate", "deactivate", "deprecate", "undeprecate"}
+)
+_ONTOLOGY_PROPOSAL_ACTIONS = frozenset(
+    {
+        "propose",
+        "list_proposals",
+        "get_proposal",
+        "review_proposal",
+        "promote_proposal",
+        "rollback_proposal",
+    }
+)
+
+
+def _graph_ontology_load(
+    lc: Any, *, source: str, source_type: str, iri: str, version: str,
+    category: str, tags_json: str,
+) -> str:
+    if not source:
+        return json.dumps({"error": "load requires `source`"})
+    parsed_tags = _parse_json_str_list(tags_json)
+    return json.dumps(
+        lc.load(
+            source,
+            source_type=source_type,
+            version=version or None,
+            iri=iri or None,
+            category=category,
+            tags=parsed_tags,
+        ),
+        default=str,
+    )
+
+
+def _graph_ontology_list(
+    lc: Any, *, source_type: str, active_only: bool, deprecated_only: bool,
+    search: str, category: str, tag: str,
+) -> str:
+    # source_type defaults to 'auto' (the load/validate parse-hint sentinel) —
+    # never filter on that default, only on a caller's EXPLICIT file/url/text
+    # choice, so plain action='list' calls keep returning every hosted
+    # ontology unfiltered.
+    filter_source_type = "" if source_type in ("", "auto") else source_type
+    return json.dumps(
+        lc.list_ontologies(
+            active_only=bool(active_only),
+            deprecated_only=bool(deprecated_only),
+            search=search,
+            category=category,
+            source_type=filter_source_type,
+            tag=tag,
+        ),
+        default=str,
+    )
+
+
+def _graph_ontology_get(lc: Any, *, iri: str, version: str, serialize: bool) -> str:
+    if not iri:
+        return json.dumps({"error": "get requires `iri`"})
+    return json.dumps(
+        lc.get(iri, version=version or None, serialize=bool(serialize)), default=str
+    )
+
+
+def _graph_ontology_update(
+    lc: Any, *, source: str, iri: str, version: str, source_type: str
+) -> str:
+    if not (source and iri and version):
+        return json.dumps(
+            {"error": "update requires `source`, `iri`, and `version`"}
+        )
+    return json.dumps(
+        lc.update(source, iri=iri, version=version, source_type=source_type),
+        default=str,
+    )
+
+
+def _graph_ontology_delete(
+    lc: Any, *, iri: str, version: str, drop_inferences: bool
+) -> str:
+    if not iri:
+        return json.dumps({"error": "delete requires `iri`"})
+    return json.dumps(
+        lc.delete(iri, version=version or None, drop_inferences=bool(drop_inferences)),
+        default=str,
+    )
+
+
+def _graph_ontology_validate(lc: Any, *, source: str, source_type: str) -> str:
+    if not source:
+        return json.dumps({"error": "validate requires `source`"})
+    return json.dumps(lc.validate(source, source_type=source_type), default=str)
+
+
+def _graph_ontology_catalog(
+    action: str,
+    lc: Any,
+    *,
+    source: str,
+    source_type: str,
+    iri: str,
+    version: str,
+    serialize: bool,
+    active_only: bool,
+    deprecated_only: bool,
+    drop_inferences: bool,
+    category: str,
+    tags_json: str,
+    search: str,
+    tag: str,
+) -> str:
+    if action == "load":
+        return _graph_ontology_load(
+            lc,
+            source=source,
+            source_type=source_type,
+            iri=iri,
+            version=version,
+            category=category,
+            tags_json=tags_json,
+        )
+    if action == "list":
+        return _graph_ontology_list(
+            lc,
+            source_type=source_type,
+            active_only=active_only,
+            deprecated_only=deprecated_only,
+            search=search,
+            category=category,
+            tag=tag,
+        )
+    if action == "get":
+        return _graph_ontology_get(lc, iri=iri, version=version, serialize=serialize)
+    if action == "update":
+        return _graph_ontology_update(
+            lc, source=source, iri=iri, version=version, source_type=source_type
+        )
+    if action == "delete":
+        return _graph_ontology_delete(
+            lc, iri=iri, version=version, drop_inferences=drop_inferences
+        )
+    # Only "validate" remains among `_ONTOLOGY_CATALOG_ACTIONS` at this point.
+    return _graph_ontology_validate(lc, source=source, source_type=source_type)
+
+
+def _graph_ontology_publish_stardog(*, named_graph: str, overwrite: bool) -> str:
+    # Push the platform's authoritative bundled TBox to Stardog, overwriting
+    # the target graph by default (CONCEPT:AU-KG.ontology.stardog-catalog-overwrite).
+    from agent_utilities.knowledge_graph.core.ontology_publisher import (
+        OntologyPublisher,
+        collect_bundled_ontology_graph,
+    )
+
+    graph = collect_bundled_ontology_graph()
+    return json.dumps(
+        OntologyPublisher().push_to_stardog(
+            graph, named_graph=named_graph or None, overwrite=bool(overwrite)
+        ),
+        default=str,
+    )
+
+
+def _graph_ontology_import_stardog(
+    engine: Any, *, named_graph: str, activate: bool
+) -> str:
+    # Consume the TBox already in Stardog back into the engine, activating it
+    # for reasoning (CONCEPT:AU-KG.ontology.stardog-catalog-import).
+    from agent_utilities.knowledge_graph.core.ontology_publisher import (
+        import_ontology_from_stardog,
+    )
+
+    return json.dumps(
+        import_ontology_from_stardog(
+            named_graph=named_graph or None, engine=engine, activate=bool(activate)
+        ),
+        default=str,
+    )
+
+
+def _graph_ontology_stardog(
+    action: str,
+    lc: Any,
+    engine: Any,
+    *,
+    named_graph: str,
+    overwrite: bool,
+    activate: bool,
+) -> str:
+    if action == "sync_packages":
+        return json.dumps(_sync_package_ontologies(lc), default=str)
+    if action == "publish_stardog":
+        return _graph_ontology_publish_stardog(
+            named_graph=named_graph, overwrite=overwrite
+        )
+    # Only "import_stardog" remains among `_ONTOLOGY_STARDOG_ACTIONS`.
+    return _graph_ontology_import_stardog(
+        engine, named_graph=named_graph, activate=activate
+    )
+
+
+def _graph_ontology_lifecycle_flag(
+    action: str, lc: Any, *, iri: str, version: str
+) -> str:
+    if not iri:
+        return json.dumps({"error": f"{action} requires `iri`"})
+    if action in ("activate", "deactivate"):
+        return json.dumps(
+            lc.set_active(iri, version=version or None, active=(action == "activate")),
+            default=str,
+        )
+    return json.dumps(
+        lc.set_deprecated(
+            iri, version=version or None, deprecated=(action == "deprecate")
+        ),
+        default=str,
+    )
+
+
+def _graph_ontology_propose(
+    engine: Any,
+    tenant: str,
+    *,
+    source: str,
+    iri: str,
+    source_type: str,
+    evidence_refs_json: str,
+    proposer: str,
+    reason: str,
+) -> str:
+    if not (source and iri):
+        return json.dumps({"error": "propose requires `source` and `iri`"})
+    parsed_evidence = _parse_json_str_list(evidence_refs_json)
+    from agent_utilities.knowledge_graph.ontology.evolution import (
+        propose_ontology_change,
+    )
+
+    return json.dumps(
+        propose_ontology_change(
+            engine,
+            tenant or None,
+            source,
+            iri=iri,
+            source_type=source_type,
+            evidence_refs=parsed_evidence,
+            proposer=proposer,
+            reason=reason,
+        ),
+        default=str,
+    )
+
+
+def _graph_ontology_list_proposals(engine: Any, tenant: str, *, status: str) -> str:
+    from agent_utilities.knowledge_graph.ontology.evolution import list_proposals
+
+    return json.dumps(
+        {"proposals": list_proposals(engine, tenant or None, status=status)},
+        default=str,
+    )
+
+
+def _graph_ontology_get_proposal(
+    engine: Any, tenant: str, *, proposal_id: str
+) -> str:
+    if not proposal_id:
+        return json.dumps({"error": "get_proposal requires `proposal_id`"})
+    from agent_utilities.knowledge_graph.ontology.evolution import get_proposal
+
+    record = get_proposal(engine, tenant or None, proposal_id)
+    if record is None:
+        return json.dumps({"error": f"ontology proposal not found: {proposal_id}"})
+    return json.dumps({"proposal": record}, default=str)
+
+
+def _graph_ontology_review_proposal(
+    engine: Any,
+    tenant: str,
+    *,
+    proposal_id: str,
+    approve: bool,
+    reviewer: str,
+    notes: str,
+) -> str:
+    if not proposal_id:
+        return json.dumps({"error": "review_proposal requires `proposal_id`"})
+    from agent_utilities.knowledge_graph.ontology.evolution import (
+        review_ontology_proposal,
+    )
+
+    return json.dumps(
+        review_ontology_proposal(
+            engine,
+            tenant or None,
+            proposal_id,
+            approve=bool(approve),
+            reviewer=reviewer,
+            notes=notes,
+        ),
+        default=str,
+    )
+
+
+def _graph_ontology_promote_proposal(
+    engine: Any, tenant: str, *, proposal_id: str
+) -> str:
+    if not proposal_id:
+        return json.dumps({"error": "promote_proposal requires `proposal_id`"})
+    from agent_utilities.knowledge_graph.ontology.evolution import (
+        promote_ontology_proposal,
+    )
+
+    return json.dumps(
+        promote_ontology_proposal(engine, tenant or None, proposal_id), default=str
+    )
+
+
+def _graph_ontology_rollback_proposal(
+    engine: Any, tenant: str, *, proposal_id: str
+) -> str:
+    if not proposal_id:
+        return json.dumps({"error": "rollback_proposal requires `proposal_id`"})
+    from agent_utilities.knowledge_graph.ontology.evolution import (
+        rollback_ontology_proposal,
+    )
+
+    return json.dumps(
+        rollback_ontology_proposal(engine, tenant or None, proposal_id), default=str
+    )
+
+
+def _graph_ontology_proposal(
+    action: str,
+    engine: Any,
+    tenant: str,
+    *,
+    proposal_id: str,
+    source: str,
+    iri: str,
+    source_type: str,
+    evidence_refs_json: str,
+    proposer: str,
+    reason: str,
+    approve: bool,
+    reviewer: str,
+    notes: str,
+    status: str,
+) -> str:
+    if action == "propose":
+        return _graph_ontology_propose(
+            engine,
+            tenant,
+            source=source,
+            iri=iri,
+            source_type=source_type,
+            evidence_refs_json=evidence_refs_json,
+            proposer=proposer,
+            reason=reason,
+        )
+    if action == "list_proposals":
+        return _graph_ontology_list_proposals(engine, tenant, status=status)
+    if action == "get_proposal":
+        return _graph_ontology_get_proposal(engine, tenant, proposal_id=proposal_id)
+    if action == "review_proposal":
+        return _graph_ontology_review_proposal(
+            engine,
+            tenant,
+            proposal_id=proposal_id,
+            approve=approve,
+            reviewer=reviewer,
+            notes=notes,
+        )
+    if action == "promote_proposal":
+        return _graph_ontology_promote_proposal(
+            engine, tenant, proposal_id=proposal_id
+        )
+    # Only "rollback_proposal" remains among `_ONTOLOGY_PROPOSAL_ACTIONS`.
+    return _graph_ontology_rollback_proposal(engine, tenant, proposal_id=proposal_id)
+
+
 def register_ontology_tools(mcp):
     """Register the ontology_tools group on the given FastMCP server."""
 
@@ -728,233 +1128,52 @@ def register_ontology_tools(mcp):
                 engine = None
             lc = OntologyLifecycle(engine=engine, tenant=(tenant or None))
 
-            if action == "load":
-                if not source:
-                    return json.dumps({"error": "load requires `source`"})
-                parsed_tags: list[str] = []
-                if tags_json:
-                    try:
-                        loaded_tags = json.loads(tags_json)
-                    except (TypeError, ValueError):
-                        loaded_tags = []
-                    if isinstance(loaded_tags, list):
-                        parsed_tags = [str(t) for t in loaded_tags]
-                return json.dumps(
-                    lc.load(
-                        source,
-                        source_type=source_type,
-                        version=version or None,
-                        iri=iri or None,
-                        category=category,
-                        tags=parsed_tags,
-                    ),
-                    default=str,
+            if action in _ONTOLOGY_CATALOG_ACTIONS:
+                return _graph_ontology_catalog(
+                    action,
+                    lc,
+                    source=source,
+                    source_type=source_type,
+                    iri=iri,
+                    version=version,
+                    serialize=serialize,
+                    active_only=active_only,
+                    deprecated_only=deprecated_only,
+                    drop_inferences=drop_inferences,
+                    category=category,
+                    tags_json=tags_json,
+                    search=search,
+                    tag=tag,
                 )
-            if action == "list":
-                # source_type defaults to 'auto' (the load/validate parse-hint
-                # sentinel) — never filter on that default, only on a caller's
-                # EXPLICIT file/url/text choice, so plain action='list' calls
-                # keep returning every hosted ontology unfiltered.
-                filter_source_type = "" if source_type in ("", "auto") else source_type
-                return json.dumps(
-                    lc.list_ontologies(
-                        active_only=bool(active_only),
-                        deprecated_only=bool(deprecated_only),
-                        search=search,
-                        category=category,
-                        source_type=filter_source_type,
-                        tag=tag,
-                    ),
-                    default=str,
+            if action in _ONTOLOGY_STARDOG_ACTIONS:
+                return _graph_ontology_stardog(
+                    action,
+                    lc,
+                    engine,
+                    named_graph=named_graph,
+                    overwrite=overwrite,
+                    activate=activate,
                 )
-            if action == "get":
-                if not iri:
-                    return json.dumps({"error": "get requires `iri`"})
-                return json.dumps(
-                    lc.get(iri, version=version or None, serialize=bool(serialize)),
-                    default=str,
+            if action in _ONTOLOGY_LIFECYCLE_FLAG_ACTIONS:
+                return _graph_ontology_lifecycle_flag(
+                    action, lc, iri=iri, version=version
                 )
-            if action == "update":
-                if not (source and iri and version):
-                    return json.dumps(
-                        {"error": "update requires `source`, `iri`, and `version`"}
-                    )
-                return json.dumps(
-                    lc.update(
-                        source, iri=iri, version=version, source_type=source_type
-                    ),
-                    default=str,
-                )
-            if action == "delete":
-                if not iri:
-                    return json.dumps({"error": "delete requires `iri`"})
-                return json.dumps(
-                    lc.delete(
-                        iri,
-                        version=version or None,
-                        drop_inferences=bool(drop_inferences),
-                    ),
-                    default=str,
-                )
-            if action == "validate":
-                if not source:
-                    return json.dumps({"error": "validate requires `source`"})
-                return json.dumps(
-                    lc.validate(source, source_type=source_type), default=str
-                )
-            if action == "sync_packages":
-                return json.dumps(_sync_package_ontologies(lc), default=str)
-            if action == "publish_stardog":
-                # Push the platform's authoritative bundled TBox to Stardog, overwriting
-                # the target graph by default (CONCEPT:AU-KG.ontology.stardog-catalog-overwrite).
-                from agent_utilities.knowledge_graph.core.ontology_publisher import (
-                    OntologyPublisher,
-                    collect_bundled_ontology_graph,
-                )
-
-                graph = collect_bundled_ontology_graph()
-                return json.dumps(
-                    OntologyPublisher().push_to_stardog(
-                        graph,
-                        named_graph=named_graph or None,
-                        overwrite=bool(overwrite),
-                    ),
-                    default=str,
-                )
-            if action == "import_stardog":
-                # Consume the TBox already in Stardog back into the engine, activating it
-                # for reasoning (CONCEPT:AU-KG.ontology.stardog-catalog-import).
-                from agent_utilities.knowledge_graph.core.ontology_publisher import (
-                    import_ontology_from_stardog,
-                )
-
-                return json.dumps(
-                    import_ontology_from_stardog(
-                        named_graph=named_graph or None,
-                        engine=engine,
-                        activate=bool(activate),
-                    ),
-                    default=str,
-                )
-            if action in ("activate", "deactivate"):
-                if not iri:
-                    return json.dumps({"error": f"{action} requires `iri`"})
-                return json.dumps(
-                    lc.set_active(
-                        iri, version=version or None, active=(action == "activate")
-                    ),
-                    default=str,
-                )
-            if action in ("deprecate", "undeprecate"):
-                if not iri:
-                    return json.dumps({"error": f"{action} requires `iri`"})
-                return json.dumps(
-                    lc.set_deprecated(
-                        iri,
-                        version=version or None,
-                        deprecated=(action == "deprecate"),
-                    ),
-                    default=str,
-                )
-            if action == "propose":
-                if not (source and iri):
-                    return json.dumps({"error": "propose requires `source` and `iri`"})
-                parsed_evidence: list[str] = []
-                if evidence_refs_json:
-                    try:
-                        loaded_evidence = json.loads(evidence_refs_json)
-                    except (TypeError, ValueError):
-                        loaded_evidence = []
-                    if isinstance(loaded_evidence, list):
-                        parsed_evidence = [str(e) for e in loaded_evidence]
-                from agent_utilities.knowledge_graph.ontology.evolution import (
-                    propose_ontology_change,
-                )
-
-                return json.dumps(
-                    propose_ontology_change(
-                        engine,
-                        tenant or None,
-                        source,
-                        iri=iri,
-                        source_type=source_type,
-                        evidence_refs=parsed_evidence,
-                        proposer=proposer,
-                        reason=reason,
-                    ),
-                    default=str,
-                )
-            if action == "list_proposals":
-                from agent_utilities.knowledge_graph.ontology.evolution import (
-                    list_proposals,
-                )
-
-                return json.dumps(
-                    {
-                        "proposals": list_proposals(
-                            engine, tenant or None, status=status
-                        )
-                    },
-                    default=str,
-                )
-            if action == "get_proposal":
-                if not proposal_id:
-                    return json.dumps({"error": "get_proposal requires `proposal_id`"})
-                from agent_utilities.knowledge_graph.ontology.evolution import (
-                    get_proposal,
-                )
-
-                record = get_proposal(engine, tenant or None, proposal_id)
-                if record is None:
-                    return json.dumps(
-                        {"error": f"ontology proposal not found: {proposal_id}"}
-                    )
-                return json.dumps({"proposal": record}, default=str)
-            if action == "review_proposal":
-                if not proposal_id:
-                    return json.dumps(
-                        {"error": "review_proposal requires `proposal_id`"}
-                    )
-                from agent_utilities.knowledge_graph.ontology.evolution import (
-                    review_ontology_proposal,
-                )
-
-                return json.dumps(
-                    review_ontology_proposal(
-                        engine,
-                        tenant or None,
-                        proposal_id,
-                        approve=bool(approve),
-                        reviewer=reviewer,
-                        notes=notes,
-                    ),
-                    default=str,
-                )
-            if action == "promote_proposal":
-                if not proposal_id:
-                    return json.dumps(
-                        {"error": "promote_proposal requires `proposal_id`"}
-                    )
-                from agent_utilities.knowledge_graph.ontology.evolution import (
-                    promote_ontology_proposal,
-                )
-
-                return json.dumps(
-                    promote_ontology_proposal(engine, tenant or None, proposal_id),
-                    default=str,
-                )
-            if action == "rollback_proposal":
-                if not proposal_id:
-                    return json.dumps(
-                        {"error": "rollback_proposal requires `proposal_id`"}
-                    )
-                from agent_utilities.knowledge_graph.ontology.evolution import (
-                    rollback_ontology_proposal,
-                )
-
-                return json.dumps(
-                    rollback_ontology_proposal(engine, tenant or None, proposal_id),
-                    default=str,
+            if action in _ONTOLOGY_PROPOSAL_ACTIONS:
+                return _graph_ontology_proposal(
+                    action,
+                    engine,
+                    tenant,
+                    proposal_id=proposal_id,
+                    source=source,
+                    iri=iri,
+                    source_type=source_type,
+                    evidence_refs_json=evidence_refs_json,
+                    proposer=proposer,
+                    reason=reason,
+                    approve=approve,
+                    reviewer=reviewer,
+                    notes=notes,
+                    status=status,
                 )
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
