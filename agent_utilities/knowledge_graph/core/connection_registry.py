@@ -505,6 +505,204 @@ def validate_persistable_connection_spec(spec: dict[str, Any]) -> None:
         _validate_persistable_external_graph_spec(spec, backend)
 
 
+def _build_engine_str_or_empty(build_spec: dict[str, Any], key: str) -> str:
+    return str(build_spec.get(key) or "")
+
+
+def _build_engine_str_or_none(build_spec: dict[str, Any], key: str) -> str | None:
+    # Equivalent to the ``str(x or "") or None`` idiom this replaces: falsy
+    # (None/""/0/...) collapses to None, truthy stringifies.
+    value = build_spec.get(key)
+    return str(value) if value else None
+
+
+def _build_engine_graphql_refs(build_spec: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "connection_profile_ref": _build_engine_str_or_empty(
+            build_spec, "connection_profile_ref"
+        ),
+        "mapping_policy_ref": _build_engine_str_or_empty(
+            build_spec, "mapping_policy_ref"
+        ),
+        "auth_profile_ref": _build_engine_str_or_none(build_spec, "auth_profile_ref"),
+        "tls_profile_ref": _build_engine_str_or_none(build_spec, "tls_profile_ref"),
+        "variables_ref": _build_engine_str_or_none(build_spec, "variables_ref"),
+        "ingest_operation": _build_engine_str_or_none(build_spec, "ingest_operation"),
+    }
+
+
+def _build_engine_graphql_bounds(build_spec: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "discovery_max_types": int(build_spec.get("discovery_max_types") or 200),
+        "discovery_max_depth": int(build_spec.get("discovery_max_depth") or 6),
+        "ingest_max_records": int(build_spec.get("ingest_max_records") or 1_000),
+    }
+
+
+def _build_engine_graphql_flags(build_spec: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "contextual": bool(build_spec.get("contextual", True)),
+        "allow_introspection": bool(build_spec.get("allow_introspection", False)),
+        "allow_empty_snapshot": bool(build_spec.get("allow_empty_snapshot", False)),
+    }
+
+
+def _build_engine_graphql(spec: dict[str, Any], build_spec: dict[str, Any]) -> Any:
+    if str(spec.get("role") or DEFAULT_ROLE) != "read":
+        raise ValueError("a GraphQL connector must have role='read'")
+    from agent_utilities.knowledge_graph.ingestion.graphql_connection import (
+        GraphQLSourceAdapter,
+    )
+
+    return GraphQLSourceAdapter(
+        connection=str(spec.get("_registry_name") or ""),
+        source_alias=str(build_spec.get("source_alias") or ""),
+        **_build_engine_graphql_refs(build_spec),
+        **_build_engine_graphql_bounds(build_spec),
+        **_build_engine_graphql_flags(build_spec),
+    )
+
+
+_ENGINE_METADATA_KEYS = (
+    "allow_empty_snapshot",
+    "contextual",
+    "discovery_max_depth",
+    "discovery_max_types",
+    "ingest_max_records",
+    "ingest_max_pages",
+    "ingest_max_row_bytes",
+    "ingest_max_total_bytes",
+    "ingest_max_nesting_depth",
+    "ingest_max_collection_items",
+    "ingest_operation",
+    "ingest_page_size",
+    "mapping_policy_ref",
+    "require_approval",
+    "reconcile_deletions",
+    "schema_drift_policy",
+    "semantic_mapping",
+    "source_alias",
+    "sync_mode",
+    "variables_ref",
+)
+
+
+def _build_engine_strip_metadata(build_spec: dict[str, Any]) -> dict[str, Any]:
+    for metadata_key in _ENGINE_METADATA_KEYS:
+        build_spec.pop(metadata_key, None)
+    return build_spec
+
+
+def _build_engine_resolve_connection_profile(
+    build_spec: dict[str, Any],
+) -> dict[str, Any]:
+    connection_profile_ref = build_spec.pop("connection_profile_ref", None)
+    if not connection_profile_ref:
+        return build_spec
+    runtime_profile = _resolve_runtime_profile(
+        connection_profile_ref, "connection profile"
+    )
+    # The persisted selector/role is authoritative; runtime transport
+    # material is resolved transiently from the encrypted profile.
+    selector = build_spec.get("backend_type")
+    build_spec = {**runtime_profile, **build_spec}
+    if selector:
+        build_spec["backend_type"] = selector
+    return build_spec
+
+
+def _build_engine_resolve_auth_profile(
+    build_spec: dict[str, Any], backend_kind: str
+) -> dict[str, Any]:
+    auth_profile_ref = build_spec.pop("auth_profile_ref", None)
+    if not auth_profile_ref:
+        return build_spec
+    selector = build_spec.get("backend_type")
+    runtime_auth = _resolve_property_graph_auth_profile(
+        str(auth_profile_ref), backend_kind
+    )
+    build_spec = {**build_spec, **runtime_auth}
+    if selector:
+        build_spec["backend_type"] = selector
+    return build_spec
+
+
+def _build_engine_epistemic_graph_applicable(
+    build_spec: dict[str, Any], backend_kind: str
+) -> bool:
+    return backend_kind == "epistemic_graph" and bool(
+        build_spec.get("endpoint_ref") or build_spec.get("endpoint")
+    )
+
+
+def _build_engine_epistemic_graph_tls_kwargs(
+    build_spec: dict[str, Any],
+) -> dict[str, str | None]:
+    return {
+        "tls_profile": (
+            str(build_spec.get("tls_profile"))
+            if build_spec.get("tls_profile")
+            else None
+        ),
+        "tls_profile_ref": (
+            str(build_spec.get("tls_profile_ref"))
+            if build_spec.get("tls_profile_ref")
+            else None
+        ),
+        "tls_server_name": (
+            str(build_spec.get("tls_server_name"))
+            if build_spec.get("tls_server_name")
+            else None
+        ),
+    }
+
+
+def _build_engine_epistemic_graph(
+    spec: dict[str, Any], build_spec: dict[str, Any], backend_kind: str
+) -> Any | None:
+    if not _build_engine_epistemic_graph_applicable(build_spec, backend_kind):
+        return None
+    if str(spec.get("role") or DEFAULT_ROLE) != "read":
+        raise ValueError(
+            "a remote epistemic-graph connector must have role='read'"
+        )
+    from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
+        RemoteEpistemicGraphReadAdapter,
+    )
+
+    endpoint = build_spec.get("endpoint_ref") or build_spec.get("endpoint")
+    auth_secret = build_spec.get("auth_secret_ref") or build_spec.get("auth_secret")
+    verified_context = build_spec.get("verified_context")
+    if not auth_secret or not isinstance(verified_context, Mapping):
+        raise ValueError(
+            "remote epistemic-graph profile requires current auth material"
+        )
+    return RemoteEpistemicGraphReadAdapter(
+        endpoint=str(endpoint or ""),
+        auth_secret=str(auth_secret),
+        graph_name=str(build_spec.get("graph_name") or "default"),
+        verified_context=dict(verified_context),
+        **_build_engine_epistemic_graph_tls_kwargs(build_spec),
+    )
+
+
+def _build_engine_generic(build_spec: dict[str, Any], backend_kind: str) -> Any:
+    from agent_utilities.knowledge_graph.backends import create_backend
+
+    # The current generic openCypher source contract is Bolt read-only.
+    # Reuse the hardened Neo4j-driver transport while retaining
+    # ``opencypher`` as the discovery dialect reported by the registry.
+    if backend_kind == "opencypher":
+        build_spec["backend_type"] = "neo4j"
+    backend = create_backend(**build_spec)
+    if backend is None:
+        raise RuntimeError(
+            "Configured graph backend is unavailable "
+            "(missing driver/package or unreachable)."
+        )
+    return ExternalGraphConnection(backend)
+
+
 class ConnectionRegistry:
     """Thread-safe registry of named live graph connections.
 
@@ -677,8 +875,6 @@ class ConnectionRegistry:
             return engine
 
     def _build_engine(self, spec: dict[str, Any]) -> Any:
-        from agent_utilities.knowledge_graph.backends import create_backend
-
         # CONCEPT:AU-KG.backend.connection-registry — ``role`` is registry metadata (not a backend kwarg), and
         # a credential may be a secret reference resolved at connect (never stored
         # raw in config.json).
@@ -689,134 +885,21 @@ class ConnectionRegistry:
             str(build_spec.get("backend_type") or "").lower().replace("-", "_")
         )
         if backend_kind == "graphql":
-            if str(spec.get("role") or DEFAULT_ROLE) != "read":
-                raise ValueError("a GraphQL connector must have role='read'")
-            from agent_utilities.knowledge_graph.ingestion.graphql_connection import (
-                GraphQLSourceAdapter,
-            )
+            return _build_engine_graphql(spec, build_spec)
 
-            return GraphQLSourceAdapter(
-                connection=str(spec.get("_registry_name") or ""),
-                source_alias=str(build_spec.get("source_alias") or ""),
-                connection_profile_ref=str(
-                    build_spec.get("connection_profile_ref") or ""
-                ),
-                mapping_policy_ref=str(build_spec.get("mapping_policy_ref") or ""),
-                auth_profile_ref=str(build_spec.get("auth_profile_ref") or "") or None,
-                tls_profile_ref=str(build_spec.get("tls_profile_ref") or "") or None,
-                variables_ref=str(build_spec.get("variables_ref") or "") or None,
-                ingest_operation=str(build_spec.get("ingest_operation") or "") or None,
-                discovery_max_types=int(build_spec.get("discovery_max_types") or 200),
-                discovery_max_depth=int(build_spec.get("discovery_max_depth") or 6),
-                ingest_max_records=int(build_spec.get("ingest_max_records") or 1_000),
-                contextual=bool(build_spec.get("contextual", True)),
-                allow_introspection=bool(build_spec.get("allow_introspection", False)),
-                allow_empty_snapshot=bool(
-                    build_spec.get("allow_empty_snapshot", False)
-                ),
-            )
-        for metadata_key in (
-            "allow_empty_snapshot",
-            "contextual",
-            "discovery_max_depth",
-            "discovery_max_types",
-            "ingest_max_records",
-            "ingest_max_pages",
-            "ingest_max_row_bytes",
-            "ingest_max_total_bytes",
-            "ingest_max_nesting_depth",
-            "ingest_max_collection_items",
-            "ingest_operation",
-            "ingest_page_size",
-            "mapping_policy_ref",
-            "require_approval",
-            "reconcile_deletions",
-            "schema_drift_policy",
-            "semantic_mapping",
-            "source_alias",
-            "sync_mode",
-            "variables_ref",
-        ):
-            build_spec.pop(metadata_key, None)
-        connection_profile_ref = build_spec.pop("connection_profile_ref", None)
-        if connection_profile_ref:
-            runtime_profile = _resolve_runtime_profile(
-                connection_profile_ref, "connection profile"
-            )
-            # The persisted selector/role is authoritative; runtime transport
-            # material is resolved transiently from the encrypted profile.
-            selector = build_spec.get("backend_type")
-            build_spec = {**runtime_profile, **build_spec}
-            if selector:
-                build_spec["backend_type"] = selector
-        auth_profile_ref = build_spec.pop("auth_profile_ref", None)
-        if auth_profile_ref:
-            selector = build_spec.get("backend_type")
-            runtime_auth = _resolve_property_graph_auth_profile(
-                str(auth_profile_ref), backend_kind
-            )
-            build_spec = {**build_spec, **runtime_auth}
-            if selector:
-                build_spec["backend_type"] = selector
+        build_spec = _build_engine_strip_metadata(build_spec)
+        build_spec = _build_engine_resolve_connection_profile(build_spec)
+        build_spec = _build_engine_resolve_auth_profile(build_spec, backend_kind)
         build_spec = _resolve_connection_runtime_fields(build_spec)
 
         backend_kind = (
             str(build_spec.get("backend_type") or "").lower().replace("-", "_")
         )
-        if backend_kind == "epistemic_graph" and (
-            build_spec.get("endpoint_ref") or build_spec.get("endpoint")
-        ):
-            if str(spec.get("role") or DEFAULT_ROLE) != "read":
-                raise ValueError(
-                    "a remote epistemic-graph connector must have role='read'"
-                )
-            from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
-                RemoteEpistemicGraphReadAdapter,
-            )
+        epistemic = _build_engine_epistemic_graph(spec, build_spec, backend_kind)
+        if epistemic is not None:
+            return epistemic
 
-            endpoint = build_spec.get("endpoint_ref") or build_spec.get("endpoint")
-            auth_secret = build_spec.get("auth_secret_ref") or build_spec.get(
-                "auth_secret"
-            )
-            verified_context = build_spec.get("verified_context")
-            if not auth_secret or not isinstance(verified_context, Mapping):
-                raise ValueError(
-                    "remote epistemic-graph profile requires current auth material"
-                )
-            return RemoteEpistemicGraphReadAdapter(
-                endpoint=str(endpoint or ""),
-                auth_secret=str(auth_secret),
-                graph_name=str(build_spec.get("graph_name") or "default"),
-                verified_context=dict(verified_context),
-                tls_profile=(
-                    str(build_spec.get("tls_profile"))
-                    if build_spec.get("tls_profile")
-                    else None
-                ),
-                tls_profile_ref=(
-                    str(build_spec.get("tls_profile_ref"))
-                    if build_spec.get("tls_profile_ref")
-                    else None
-                ),
-                tls_server_name=(
-                    str(build_spec.get("tls_server_name"))
-                    if build_spec.get("tls_server_name")
-                    else None
-                ),
-            )
-
-        # The current generic openCypher source contract is Bolt read-only.
-        # Reuse the hardened Neo4j-driver transport while retaining
-        # ``opencypher`` as the discovery dialect reported by the registry.
-        if backend_kind == "opencypher":
-            build_spec["backend_type"] = "neo4j"
-        backend = create_backend(**build_spec)
-        if backend is None:
-            raise RuntimeError(
-                "Configured graph backend is unavailable "
-                "(missing driver/package or unreachable)."
-            )
-        return ExternalGraphConnection(backend)
+        return _build_engine_generic(build_spec, backend_kind)
 
     # ── target resolution ──────────────────────────────────────────────────
     def resolve_names(self, target: Any) -> tuple[list[str], bool]:
