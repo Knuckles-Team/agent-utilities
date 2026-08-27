@@ -115,6 +115,23 @@ class HydePlan(BaseModel):
         return list(seen)
 
 
+def _extract_keywords(data: dict[str, Any]) -> list[str]:
+    """Tolerate Quarq's comma-string keywords as well as a list."""
+    kw = data.get("keywords", [])
+    if isinstance(kw, str):
+        kw = [k.strip() for k in kw.split(",") if k.strip()]
+    return [str(k) for k in kw]
+
+
+def _resolve_mode(data: dict[str, Any], fallback_mode: SearchMode) -> SearchMode:
+    mode = data.get("search_mode", fallback_mode)
+    return mode if mode in HYDE_THRESHOLDS else fallback_mode
+
+
+def _extract_vector_queries(data: dict[str, Any]) -> list[str]:
+    return [str(q) for q in data.get("vector_queries", []) if str(q).strip()]
+
+
 def parse_hyde_plan(
     raw: str, *, original_query: str, mode_hint: str | None = None
 ) -> HydePlan:
@@ -130,19 +147,10 @@ def parse_hyde_plan(
         if not match:
             raise ValueError("no JSON object found")
         data = json.loads(match.group())
-        # Tolerate Quarq's comma-string keywords as well as a list.
-        kw = data.get("keywords", [])
-        if isinstance(kw, str):
-            kw = [k.strip() for k in kw.split(",") if k.strip()]
-        mode = data.get("search_mode", fallback_mode)
-        if mode not in HYDE_THRESHOLDS:
-            mode = fallback_mode
         plan = HydePlan(
-            vector_queries=[
-                str(q) for q in data.get("vector_queries", []) if str(q).strip()
-            ],
-            keywords=[str(k) for k in kw],
-            search_mode=mode,
+            vector_queries=_extract_vector_queries(data),
+            keywords=_extract_keywords(data),
+            search_mode=_resolve_mode(data, fallback_mode),
         )
         if not plan.vector_queries:
             plan.vector_queries = [original_query]
