@@ -2143,17 +2143,9 @@ class MCPMultiplexer:
             )
         return admitted
 
-    async def _open_one_session(
-        self,
-        server_name: str,
-        cfg: dict,
-        stack: contextlib.AsyncExitStack,
-        generation_secret: str | None = None,
-    ) -> ClientSession:
-        """Open + initialize ONE ``ClientSession`` for a child (stdio or remote),
-        entering its transports on ``stack``. Raises on failure. Shared by
-        :meth:`_start_child` (session pool) and :meth:`probe_server` (catalog
-        probe) so the transport-construction logic lives in one place."""
+    def _resolve_transport_kind_for_child(
+        self, server_name: str, cfg: dict
+    ) -> tuple[str | None, str, str, bool]:
         command = cfg.get("command")
         url = _resolve_runtime_value(cfg.get("url", ""), sensitive=False)
         explicit_transport = str(cfg.get("transport", "")).lower()
@@ -2173,6 +2165,10 @@ class MCPMultiplexer:
             from agent_utilities.core.config import enforce_mcp_stdio_permitted
 
             enforce_mcp_stdio_permitted(server_name=server_name)
+        return command, url, explicit_transport, is_remote
+
+    @staticmethod
+    def _resolve_child_initialization_timeout(cfg: dict) -> float:
         try:
             initialization_timeout = float(
                 cfg.get("initialization_timeout", cfg.get("timeout", 300.0))
@@ -2181,359 +2177,558 @@ class MCPMultiplexer:
             raise RuntimeError("MCP child initialization timeout is invalid") from exc
         if not 0.001 <= initialization_timeout <= 3_600.0:
             raise RuntimeError("MCP child initialization timeout is invalid")
-        provider_profile = _selected_child_provider_profile(
-            cfg,
-            is_remote=is_remote,
-        )
+        return initialization_timeout
+
+    @staticmethod
+    def _runtime_policy_environment(runtime_policy: Any) -> dict[str, str]:
+        try:
+            policy_environment = runtime_policy.child_environment()
+        except Exception:
+            raise RuntimeError(
+                "MCP child runtime policy environment is unavailable"
+            ) from None
+        if (
+            not isinstance(policy_environment, Mapping)
+            or len(policy_environment) > 256
+        ):
+            raise RuntimeError("MCP child runtime policy environment is invalid")
         provider_environment: dict[str, str] = {}
+        for raw_key, raw_value in policy_environment.items():
+            key = str(raw_key)
+            if (
+                not isinstance(raw_key, str)
+                or not isinstance(raw_value, str)
+                or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", key)
+                or len(raw_value.encode("utf-8")) > 65_536
+                or "\x00" in raw_value
+            ):
+                raise RuntimeError(
+                    "MCP child runtime policy environment is invalid"
+                )
+            provider_environment[key] = raw_value
+        return provider_environment
+
+    @staticmethod
+    async def _resolve_provider_profile_environment(
+        provider_profile: Any,
+        stack: contextlib.AsyncExitStack,
+        initialization_timeout: float,
+    ) -> dict[str, str]:
+        from agent_utilities.core.provider_runtime import (
+            prepare_provider_runtime_child_environment,
+        )
+
+        # Secret backends may perform blocking I/O. Keep resolution off the
+        # multiplexer event loop while still failing before process spawn.
+        # A bounded slot count prevents timed-out backend calls from
+        # exhausting the dedicated resolver executor; late results erase
+        # themselves. Do not cancel queued futures on caller timeout: a
+        # cancelled concurrent future is marked done before its executor
+        # work item is consumed, which would release capacity early and let
+        # cancelled items accumulate in ThreadPoolExecutor's internal queue.
+        acquired = _PROVIDER_RESOLUTION_CAPACITY.acquire(blocking=False)
+        resolution_future: concurrent.futures.Future[Any] | None = None
+        try:
+            if not acquired:
+                raise RuntimeError("provider resolution capacity unavailable")
+            resolution_future = _PROVIDER_RESOLUTION_EXECUTOR.submit(
+                prepare_provider_runtime_child_environment,
+                provider_profile,
+            )
+            resolution_future.add_done_callback(
+                lambda _future: _PROVIDER_RESOLUTION_CAPACITY.release()
+            )
+            acquired = False
+            prepared_provider = await asyncio.wait_for(
+                asyncio.shield(asyncio.wrap_future(resolution_future)),
+                timeout=initialization_timeout,
+            )
+        except asyncio.CancelledError:
+            if resolution_future is not None:
+                resolution_future.add_done_callback(
+                    _close_abandoned_provider_projection
+                )
+            elif acquired:
+                _PROVIDER_RESOLUTION_CAPACITY.release()
+            raise
+        except Exception:
+            if resolution_future is not None:
+                resolution_future.add_done_callback(
+                    _close_abandoned_provider_projection
+                )
+            elif acquired:
+                _PROVIDER_RESOLUTION_CAPACITY.release()
+            raise RuntimeError(
+                "MCP child provider profile is unavailable"
+            ) from None
+        stack.callback(prepared_provider.close)
+        provider_environment = dict(prepared_provider.environment)
+        provider_environment.update(_provider_child_sandbox_environment(stack))
+        return provider_environment
+
+    async def _resolve_child_provider_environment(
+        self,
+        cfg: dict,
+        is_remote: bool,
+        stack: contextlib.AsyncExitStack,
+        initialization_timeout: float,
+    ) -> tuple[dict[str, str], Any]:
+        """Returns (provider_environment, runtime_policy). ``provider_environment``
+        is populated from the runtime policy, then REPLACED (not merged) by the
+        provider profile's environment if a profile is also configured — matching
+        the original code's exact (possibly surprising) precedence."""
+        provider_profile = _selected_child_provider_profile(cfg, is_remote=is_remote)
         runtime_policy = cfg.get(_RUNTIME_CHILD_POLICY_INTERNAL_KEY)
+        provider_environment: dict[str, str] = {}
+        if runtime_policy is not None:
+            provider_environment = self._runtime_policy_environment(runtime_policy)
+        if provider_profile is not None:
+            provider_environment = await self._resolve_provider_profile_environment(
+                provider_profile, stack, initialization_timeout
+            )
+        return provider_environment, runtime_policy
+
+    @staticmethod
+    def _validate_remote_child_url(url: str) -> Any:
+        parsed_url = urlsplit(url)
+        if (
+            parsed_url.scheme.lower() not in {"http", "https"}
+            or not parsed_url.hostname
+            or parsed_url.username is not None
+            or parsed_url.password is not None
+            or parsed_url.fragment
+            or parsed_url.query
+            or len(url) > 8_192
+        ):
+            raise RuntimeError("Remote MCP child URL is invalid")
+        return parsed_url
+
+    @staticmethod
+    def _resolve_remote_allowed_private_hosts(
+        cfg: dict, parsed_url: Any, url: str
+    ) -> list[str]:
+        # Computed here (not just at the transport-pinning site below) so the
+        # scheme gate consults the SAME allowlist as the actual DNS-pinned
+        # egress: MCP_HTTP_ALLOWED_PRIVATE_HOSTS was already a config field
+        # for exactly this (mirroring OIDC_HTTP_ALLOWED_PRIVATE_HOSTS /
+        # MODEL_HTTP_ALLOWED_PRIVATE_HOSTS), but this gate never read it —
+        # so a deployment that legitimately reaches its MCP fleet over
+        # plain HTTP behind a TLS-terminating ingress (MCP_TLS_TERMINATED)
+        # could never declare that trust; it always hard-failed here first.
+        from agent_utilities.core.config import config as agent_config
+
+        child_private_hosts = cfg.get("allowed_private_hosts", [])
+        if not isinstance(child_private_hosts, list):
+            raise RuntimeError("Remote MCP child private-host policy is invalid")
+        allowed_private_hosts = [
+            *agent_config.mcp_http_allowed_private_hosts,
+            *(str(value) for value in child_private_hosts),
+        ]
+        if (
+            parsed_url.scheme.lower() == "http"
+            and parsed_url.hostname.lower()
+            not in {
+                "localhost",
+                "127.0.0.1",
+                "::1",
+                *(host.lower() for host in allowed_private_hosts),
+            }
+        ):
+            raise RuntimeError("Remote MCP child requires HTTPS outside loopback")
+        return allowed_private_hosts
+
+    @staticmethod
+    def _validate_one_remote_header(
+        name: str, value: str, materialized: set[str]
+    ) -> str:
+        lowered = name.lower()
+        if lowered in {
+            "connection",
+            "content-length",
+            "host",
+            "proxy-connection",
+            "te",
+            "trailer",
+            "transfer-encoding",
+            "upgrade",
+        }:
+            raise RuntimeError("Remote MCP child headers are invalid")
+        rendered = _resolve_runtime_value(
+            value,
+            sensitive=_sensitive_config_key(name),
+            materialized=name in materialized,
+        )
+        if (
+            not re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}", name)
+            or len(rendered) > 16_384
+            or "\r" in rendered
+            or "\n" in rendered
+        ):
+            raise RuntimeError("Remote MCP child headers are invalid")
+        return rendered
+
+    @staticmethod
+    def _validate_remote_child_headers(cfg: dict) -> dict[str, str] | None:
+        headers = cfg.get("headers")
+        if not headers:
+            return headers
+        if not isinstance(headers, dict) or len(headers) > 64:
+            raise RuntimeError("Remote MCP child headers are invalid")
+        materialized = (
+            set(cfg.get("_runtime_materialized_secret_keys") or [])
+            if _runtime_materialized(cfg)
+            else set()
+        )
+        validated_headers: dict[str, str] = {}
+        for key, value in headers.items():
+            name = str(key)
+            validated_headers[name] = MCPMultiplexer._validate_one_remote_header(
+                name, value, materialized
+            )
+        return validated_headers
+
+    @staticmethod
+    async def _apply_remote_child_oauth_grant(
+        cfg: dict, url: str, headers: dict[str, str] | None
+    ) -> tuple[dict[str, str] | None, dict[str, str] | None]:
+        # NE-008 (GOC-85 Deliverable 3): per-principal remote-OAuth bearer,
+        # for a child catalog entry that declares ``oauth_provider``.
+        # ``None`` for every other (unchanged) child. Offloaded to a thread
+        # -- secrets-backend I/O is synchronous. Raises fail-closed
+        # (missing/expired/revoked grant) rather than falling back to any
+        # shared/service credential; the caller sees that failure as this
+        # session never opening, exactly like any other connect failure.
+        oauth_grant = await asyncio.to_thread(_resolve_remote_oauth_grant, cfg, url)
+        if oauth_grant is not None:
+            oauth_bearer_headers, discovery_binding = oauth_grant
+            _CURRENT_DISCOVERY_BINDING.set(discovery_binding)
+            headers = {**(headers or {}), **oauth_bearer_headers}
+        else:
+            oauth_bearer_headers = None
+        return headers, oauth_bearer_headers
+
+    @staticmethod
+    def _resolve_remote_child_tls_trust(
+        cfg: dict, stack: contextlib.AsyncExitStack
+    ) -> Any:
+        from agent_utilities.core.config import config as agent_config
+        from agent_utilities.core.transport_security import (
+            resolve_configured_tls_profile,
+        )
+
+        profile_name = str(cfg.get("tls_profile") or "").strip() or None
+        profile_ref = str(cfg.get("tls_profile_ref") or "").strip() or None
+        trust = resolve_configured_tls_profile(
+            "MCP_CHILD",
+            profile_name=profile_name,
+            profile_ref=profile_ref,
+            config=agent_config,
+        )
+        stack.callback(trust.cleanup)
+        if trust.proxy_url:
+            raise RuntimeError("Remote MCP child cannot use an inline proxy")
+        return trust
+
+    @staticmethod
+    async def _open_remote_child_transport(
+        url: str,
+        explicit_transport: str,
+        headers: dict[str, str] | None,
+        oauth_bearer_headers: dict[str, str] | None,
+        trust: Any,
+        allowed_private_hosts: list[str],
+        stack: contextlib.AsyncExitStack,
+    ) -> tuple[Any, Any]:
+        from agent_utilities.core.http_client import create_async_http_client
+
+        def _secure_httpx_factory(
+            headers: dict[str, str] | None = None,
+            timeout: Any = None,
+            auth: Any = None,
+        ):
+            return create_async_http_client(
+                timeout=timeout or 30.0,
+                verify=trust.ssl_context,
+                headers=headers,
+                auth=auth,
+                trust_env=False,
+                follow_redirects=False,
+                pin_egress=True,
+                allowed_private_hosts=allowed_private_hosts,
+            )
+
+        # A0 (CONCEPT:AU-OS.identity.so-jwt-protected-children): authenticate jwt-protected children with the
+        # multiplexer's service-account bearer. Opt-in via
+        # MCP_CLIENT_AUTH=oidc-client-credentials; never overrides a child's
+        # own Authorization header; a mint failure aborts the connection.
+        # Use a per-request httpx.Auth (not a frozen header): the child's
+        # pooled session is long-lived, so a baked-in short-lived token would
+        # expire mid-session and wedge calls on a 401 (CONCEPT:AU-OS.identity.so-jwt-protected-children).
+        #
+        # NE-008: an oauth-gated child's authorization model IS the
+        # caller's own per-principal delegated grant (just placed into
+        # ``headers`` above) -- GraphOS's own service-to-child credential
+        # is deliberately NOT also computed for it, so the two credential
+        # lifetimes (service <-> child, and user <-> provider) are never
+        # merged onto the same outbound request.
+        if oauth_bearer_headers is not None:
+            _svc_auth = None
+        else:
+            from agent_utilities.mcp.client_credentials import child_auth
+
+            _svc_auth = child_auth(headers)
+        use_sse = explicit_transport == "sse" or url.rstrip("/").endswith("/sse")
+        if use_sse:
+            # D-MTT-1: `_svc_auth` is a local `httpx.Auth` (see
+            # `child_auth`'s docstring); `sse_client`'s `auth` param is
+            # typed `httpx2.Auth | None` (fastmcp's vendored SDK v2 HTTP
+            # client, a distinct package from this repo's own `httpx` —
+            # see `agent_utilities/mcp/httpx_boundary.py`). Coerce at
+            # this boundary rather than passing the foreign-typed object
+            # straight through.
+            from agent_utilities.mcp.httpx_boundary import coerce_httpx2_auth
+
+            transport = sse_client(
+                url,
+                headers=headers,
+                auth=coerce_httpx2_auth(_svc_auth),
+                httpx_client_factory=_secure_httpx_factory,
+            )
+        else:
+            # MCP SDK v2 takes the already-built client instead of
+            # headers/auth/httpx_client_factory, so the security-hardened
+            # client (pinned TLS trust, DNS-pinned egress, no ambient
+            # proxy, no redirects) is constructed here and handed over.
+            # It is entered on the stack BEFORE the transport so teardown
+            # closes the transport first and the client second; the SDK
+            # deliberately does not close a caller-provided client.
+            http_client = _secure_httpx_factory(headers=headers, auth=_svc_auth)
+            await stack.enter_async_context(http_client)
+            transport = streamable_http_client(url, http_client=http_client)
+        # streamable-http and sse both yield (read, write); SDK v2 dropped
+        # streamable-http's third `get_session_id` element. Take the first
+        # two streams either way.
+        streams = await stack.enter_async_context(transport)
+        return streams[0], streams[1]
+
+    async def _open_remote_child_session_streams(
+        self,
+        cfg: dict,
+        url: str,
+        explicit_transport: str,
+        stack: contextlib.AsyncExitStack,
+    ) -> tuple[Any, Any]:
+        parsed_url = self._validate_remote_child_url(url)
+        allowed_private_hosts = self._resolve_remote_allowed_private_hosts(
+            cfg, parsed_url, url
+        )
+        headers = self._validate_remote_child_headers(cfg)
+        headers, oauth_bearer_headers = await self._apply_remote_child_oauth_grant(
+            cfg, url, headers
+        )
+        trust = self._resolve_remote_child_tls_trust(cfg, stack)
+        return await self._open_remote_child_transport(
+            url,
+            explicit_transport,
+            headers,
+            oauth_bearer_headers,
+            trust,
+            allowed_private_hosts,
+            stack,
+        )
+
+    @staticmethod
+    def _local_child_process_config_valid(
+        command: str, args: list, configured_env: dict
+    ) -> bool:
+        return not (
+            not 1 <= len(command) <= 4_096
+            or "\x00" in command
+            or not isinstance(args, list)
+            or len(args) > 128
+            or not all(
+                isinstance(value, str)
+                and len(value) <= 8_192
+                and "\x00" not in value
+                for value in args
+            )
+            or not isinstance(configured_env, dict)
+            or len(configured_env) > 256
+        )
+
+    @staticmethod
+    def _validate_local_child_command_and_args(
+        command: str, cfg: dict
+    ) -> tuple[str, list, dict]:
+        # `command` is guaranteed set here: the earlier guard raises unless
+        # `command` or `is_remote` is truthy, and this is the `not is_remote`
+        # branch.
+        assert command, "unreachable: non-remote server must have a 'command'"
+        command = _resolve_runtime_value(command, sensitive=False)
+        raw_args = cfg.get("args", [])
+        args = (
+            [_resolve_runtime_value(value, sensitive=False) for value in raw_args]
+            if isinstance(raw_args, list)
+            else raw_args
+        )
+        configured_env = cfg.get("env") or {}
+        if not MCPMultiplexer._local_child_process_config_valid(
+            command, args, configured_env
+        ):
+            raise RuntimeError("Local MCP child process configuration is invalid")
+        return command, args, configured_env
+
+    @staticmethod
+    def _apply_one_configured_env_var(
+        merged_env: dict[str, str],
+        raw_key: Any,
+        raw_value: Any,
+        provider_controlled_keys: set[str],
+        materialized: set[str],
+    ) -> None:
+        key = str(raw_key)
+        if key.upper() in (
+            _PROVIDER_CHILD_ENV_KEYS
+            | provider_controlled_keys
+            | {_TASK_DELEGATION_CHANNEL_ENV}
+        ):
+            raise RuntimeError(
+                "MCP child provider environment is parent-controlled"
+            )
+        value = _resolve_runtime_value(
+            raw_value,
+            sensitive=_sensitive_config_key(key),
+            materialized=key in materialized,
+        )
+        if (
+            not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", key)
+            or len(value) > 65_536
+            or "\x00" in value
+        ):
+            raise RuntimeError("Local MCP child environment is invalid")
+        merged_env[key] = value
+
+    @staticmethod
+    def _apply_generation_secret(
+        merged_env: dict[str, str], generation_secret: str | None
+    ) -> None:
+        if generation_secret is not None:
+            if not 32 <= len(generation_secret) <= 512:
+                raise RuntimeError("Local MCP task channel secret is invalid")
+            merged_env[_TASK_DELEGATION_CHANNEL_ENV] = generation_secret
+
+    @staticmethod
+    def _build_local_child_environment(
+        cfg: dict,
+        provider_environment: dict[str, str],
+        configured_env: dict,
+        generation_secret: str | None,
+    ) -> dict[str, str]:
+        # A child receives only execution/runtime trust variables plus the
+        # variables explicitly delegated in its own catalog entry. Copying
+        # the entire parent environment leaks unrelated fleet credentials.
+        provider_controlled_keys = {key.upper() for key in provider_environment}
+        merged_env = {
+            key: value
+            for key, value in os.environ.items()
+            if key.upper() in _CHILD_ENV_ALLOWLIST
+            and key.upper() not in provider_controlled_keys
+        }
+        merged_env.update(provider_environment)
+        materialized = (
+            set(cfg.get("_runtime_materialized_secret_keys") or [])
+            if _runtime_materialized(cfg)
+            else set()
+        )
+        for raw_key, raw_value in configured_env.items():
+            MCPMultiplexer._apply_one_configured_env_var(
+                merged_env, raw_key, raw_value, provider_controlled_keys, materialized
+            )
+        MCPMultiplexer._apply_generation_secret(merged_env, generation_secret)
+        return merged_env
+
+    @staticmethod
+    def _verify_child_runtime_policy_before_spawn(runtime_policy: Any) -> None:
         if runtime_policy is not None:
             try:
-                policy_environment = runtime_policy.child_environment()
+                runtime_policy.verify_before_spawn()
             except Exception:
                 raise RuntimeError(
-                    "MCP child runtime policy environment is unavailable"
+                    "MCP child runtime policy pre-spawn verification failed"
                 ) from None
-            if (
-                not isinstance(policy_environment, Mapping)
-                or len(policy_environment) > 256
-            ):
-                raise RuntimeError("MCP child runtime policy environment is invalid")
-            for raw_key, raw_value in policy_environment.items():
-                key = str(raw_key)
-                if (
-                    not isinstance(raw_key, str)
-                    or not isinstance(raw_value, str)
-                    or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", key)
-                    or len(raw_value.encode("utf-8")) > 65_536
-                    or "\x00" in raw_value
-                ):
-                    raise RuntimeError(
-                        "MCP child runtime policy environment is invalid"
-                    )
-                provider_environment[key] = raw_value
-        if provider_profile is not None:
-            from agent_utilities.core.provider_runtime import (
-                prepare_provider_runtime_child_environment,
-            )
 
-            # Secret backends may perform blocking I/O. Keep resolution off the
-            # multiplexer event loop while still failing before process spawn.
-            # A bounded slot count prevents timed-out backend calls from
-            # exhausting the dedicated resolver executor; late results erase
-            # themselves. Do not cancel queued futures on caller timeout: a
-            # cancelled concurrent future is marked done before its executor
-            # work item is consumed, which would release capacity early and let
-            # cancelled items accumulate in ThreadPoolExecutor's internal queue.
-            acquired = _PROVIDER_RESOLUTION_CAPACITY.acquire(blocking=False)
-            resolution_future: concurrent.futures.Future[Any] | None = None
-            try:
-                if not acquired:
-                    raise RuntimeError("provider resolution capacity unavailable")
-                resolution_future = _PROVIDER_RESOLUTION_EXECUTOR.submit(
-                    prepare_provider_runtime_child_environment,
-                    provider_profile,
-                )
-                resolution_future.add_done_callback(
-                    lambda _future: _PROVIDER_RESOLUTION_CAPACITY.release()
-                )
-                acquired = False
-                prepared_provider = await asyncio.wait_for(
-                    asyncio.shield(asyncio.wrap_future(resolution_future)),
-                    timeout=initialization_timeout,
-                )
-            except asyncio.CancelledError:
-                if resolution_future is not None:
-                    resolution_future.add_done_callback(
-                        _close_abandoned_provider_projection
-                    )
-                elif acquired:
-                    _PROVIDER_RESOLUTION_CAPACITY.release()
-                raise
-            except Exception:
-                if resolution_future is not None:
-                    resolution_future.add_done_callback(
-                        _close_abandoned_provider_projection
-                    )
-                elif acquired:
-                    _PROVIDER_RESOLUTION_CAPACITY.release()
-                raise RuntimeError(
-                    "MCP child provider profile is unavailable"
-                ) from None
-            stack.callback(prepared_provider.close)
-            provider_environment = dict(prepared_provider.environment)
-            provider_environment.update(_provider_child_sandbox_environment(stack))
+    @staticmethod
+    async def _open_stdio_child_transport(
+        server_params: StdioServerParameters, stack: contextlib.AsyncExitStack
+    ) -> tuple[Any, Any]:
+        # The MCP SDK otherwise forwards a child's raw stderr to the parent
+        # process. Import and native-loader failures routinely contain
+        # interpreter, checkout, and trust-material locations. The parent
+        # already emits bounded transport/error codes, so discard that raw
+        # channel and keep the sink alive for the complete child generation.
+        child_error_sink = stack.enter_context(
+            open(os.devnull, "w", encoding="utf-8")
+        )
+        read_stream, write_stream = await stack.enter_async_context(
+            stdio_client(server_params, errlog=child_error_sink)
+        )
+        return read_stream, write_stream
+
+    async def _open_local_child_session_streams(
+        self,
+        cfg: dict,
+        command: str,
+        provider_environment: dict[str, str],
+        runtime_policy: Any,
+        generation_secret: str | None,
+        stack: contextlib.AsyncExitStack,
+    ) -> tuple[Any, Any]:
+        command, args, configured_env = self._validate_local_child_command_and_args(
+            command, cfg
+        )
+        merged_env = self._build_local_child_environment(
+            cfg, provider_environment, configured_env, generation_secret
+        )
+        server_params = StdioServerParameters(
+            command=command, args=args, env=merged_env
+        )
+        self._verify_child_runtime_policy_before_spawn(runtime_policy)
+        return await self._open_stdio_child_transport(server_params, stack)
+
+    async def _open_one_session(
+        self,
+        server_name: str,
+        cfg: dict,
+        stack: contextlib.AsyncExitStack,
+        generation_secret: str | None = None,
+    ) -> ClientSession:
+        """Open + initialize ONE ``ClientSession`` for a child (stdio or remote),
+        entering its transports on ``stack``. Raises on failure. Shared by
+        :meth:`_start_child` (session pool) and :meth:`probe_server` (catalog
+        probe) so the transport-construction logic lives in one place."""
+        command, url, explicit_transport, is_remote = (
+            self._resolve_transport_kind_for_child(server_name, cfg)
+        )
+        initialization_timeout = self._resolve_child_initialization_timeout(cfg)
+
+        provider_environment, runtime_policy = (
+            await self._resolve_child_provider_environment(
+                cfg, is_remote, stack, initialization_timeout
+            )
+        )
 
         if is_remote:
-            parsed_url = urlsplit(url)
-            if (
-                parsed_url.scheme.lower() not in {"http", "https"}
-                or not parsed_url.hostname
-                or parsed_url.username is not None
-                or parsed_url.password is not None
-                or parsed_url.fragment
-                or parsed_url.query
-                or len(url) > 8_192
-            ):
-                raise RuntimeError("Remote MCP child URL is invalid")
-            # Computed here (not just at the transport-pinning site below) so the
-            # scheme gate consults the SAME allowlist as the actual DNS-pinned
-            # egress: MCP_HTTP_ALLOWED_PRIVATE_HOSTS was already a config field
-            # for exactly this (mirroring OIDC_HTTP_ALLOWED_PRIVATE_HOSTS /
-            # MODEL_HTTP_ALLOWED_PRIVATE_HOSTS), but this gate never read it —
-            # so a deployment that legitimately reaches its MCP fleet over
-            # plain HTTP behind a TLS-terminating ingress (MCP_TLS_TERMINATED)
-            # could never declare that trust; it always hard-failed here first.
-            from agent_utilities.core.config import config as agent_config
-
-            child_private_hosts = cfg.get("allowed_private_hosts", [])
-            if not isinstance(child_private_hosts, list):
-                raise RuntimeError("Remote MCP child private-host policy is invalid")
-            allowed_private_hosts = [
-                *agent_config.mcp_http_allowed_private_hosts,
-                *(str(value) for value in child_private_hosts),
-            ]
-            if (
-                parsed_url.scheme.lower() == "http"
-                and parsed_url.hostname.lower()
-                not in {
-                    "localhost",
-                    "127.0.0.1",
-                    "::1",
-                    *(host.lower() for host in allowed_private_hosts),
-                }
-            ):
-                raise RuntimeError("Remote MCP child requires HTTPS outside loopback")
-            headers = cfg.get("headers")
-            if headers:
-                if not isinstance(headers, dict) or len(headers) > 64:
-                    raise RuntimeError("Remote MCP child headers are invalid")
-                validated_headers: dict[str, str] = {}
-                materialized = (
-                    set(cfg.get("_runtime_materialized_secret_keys") or [])
-                    if _runtime_materialized(cfg)
-                    else set()
-                )
-                for key, value in headers.items():
-                    name = str(key)
-                    lowered = name.lower()
-                    if lowered in {
-                        "connection",
-                        "content-length",
-                        "host",
-                        "proxy-connection",
-                        "te",
-                        "trailer",
-                        "transfer-encoding",
-                        "upgrade",
-                    }:
-                        raise RuntimeError("Remote MCP child headers are invalid")
-                    rendered = _resolve_runtime_value(
-                        value,
-                        sensitive=_sensitive_config_key(name),
-                        materialized=name in materialized,
-                    )
-                    if (
-                        not re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}", name)
-                        or len(rendered) > 16_384
-                        or "\r" in rendered
-                        or "\n" in rendered
-                    ):
-                        raise RuntimeError("Remote MCP child headers are invalid")
-                    validated_headers[name] = rendered
-                headers = validated_headers
-
-            # NE-008 (GOC-85 Deliverable 3): per-principal remote-OAuth bearer,
-            # for a child catalog entry that declares ``oauth_provider``.
-            # ``None`` for every other (unchanged) child. Offloaded to a thread
-            # -- secrets-backend I/O is synchronous. Raises fail-closed
-            # (missing/expired/revoked grant) rather than falling back to any
-            # shared/service credential; the caller sees that failure as this
-            # session never opening, exactly like any other connect failure.
-            oauth_grant = await asyncio.to_thread(_resolve_remote_oauth_grant, cfg, url)
-            if oauth_grant is not None:
-                oauth_bearer_headers, discovery_binding = oauth_grant
-                _CURRENT_DISCOVERY_BINDING.set(discovery_binding)
-                headers = {**(headers or {}), **oauth_bearer_headers}
-            else:
-                oauth_bearer_headers = None
-
-            from agent_utilities.core.http_client import create_async_http_client
-            from agent_utilities.core.transport_security import (
-                resolve_configured_tls_profile,
+            read_stream, write_stream = await self._open_remote_child_session_streams(
+                cfg, url, explicit_transport, stack
             )
-
-            profile_name = str(cfg.get("tls_profile") or "").strip() or None
-            profile_ref = str(cfg.get("tls_profile_ref") or "").strip() or None
-            trust = resolve_configured_tls_profile(
-                "MCP_CHILD",
-                profile_name=profile_name,
-                profile_ref=profile_ref,
-                config=agent_config,
-            )
-            stack.callback(trust.cleanup)
-            if trust.proxy_url:
-                raise RuntimeError("Remote MCP child cannot use an inline proxy")
-
-            def _secure_httpx_factory(
-                headers: dict[str, str] | None = None,
-                timeout: Any = None,
-                auth: Any = None,
-            ):
-                return create_async_http_client(
-                    timeout=timeout or 30.0,
-                    verify=trust.ssl_context,
-                    headers=headers,
-                    auth=auth,
-                    trust_env=False,
-                    follow_redirects=False,
-                    pin_egress=True,
-                    allowed_private_hosts=allowed_private_hosts,
-                )
-
-            # A0 (CONCEPT:AU-OS.identity.so-jwt-protected-children): authenticate jwt-protected children with the
-            # multiplexer's service-account bearer. Opt-in via
-            # MCP_CLIENT_AUTH=oidc-client-credentials; never overrides a child's
-            # own Authorization header; a mint failure aborts the connection.
-            # Use a per-request httpx.Auth (not a frozen header): the child's
-            # pooled session is long-lived, so a baked-in short-lived token would
-            # expire mid-session and wedge calls on a 401 (CONCEPT:AU-OS.identity.so-jwt-protected-children).
-            #
-            # NE-008: an oauth-gated child's authorization model IS the
-            # caller's own per-principal delegated grant (just placed into
-            # ``headers`` above) -- GraphOS's own service-to-child credential
-            # is deliberately NOT also computed for it, so the two credential
-            # lifetimes (service <-> child, and user <-> provider) are never
-            # merged onto the same outbound request.
-            if oauth_bearer_headers is not None:
-                _svc_auth = None
-            else:
-                from agent_utilities.mcp.client_credentials import child_auth
-
-                _svc_auth = child_auth(headers)
-            use_sse = explicit_transport == "sse" or url.rstrip("/").endswith("/sse")
-            if use_sse:
-                # D-MTT-1: `_svc_auth` is a local `httpx.Auth` (see
-                # `child_auth`'s docstring); `sse_client`'s `auth` param is
-                # typed `httpx2.Auth | None` (fastmcp's vendored SDK v2 HTTP
-                # client, a distinct package from this repo's own `httpx` —
-                # see `agent_utilities/mcp/httpx_boundary.py`). Coerce at
-                # this boundary rather than passing the foreign-typed object
-                # straight through.
-                from agent_utilities.mcp.httpx_boundary import coerce_httpx2_auth
-
-                transport = sse_client(
-                    url,
-                    headers=headers,
-                    auth=coerce_httpx2_auth(_svc_auth),
-                    httpx_client_factory=_secure_httpx_factory,
-                )
-            else:
-                # MCP SDK v2 takes the already-built client instead of
-                # headers/auth/httpx_client_factory, so the security-hardened
-                # client (pinned TLS trust, DNS-pinned egress, no ambient
-                # proxy, no redirects) is constructed here and handed over.
-                # It is entered on the stack BEFORE the transport so teardown
-                # closes the transport first and the client second; the SDK
-                # deliberately does not close a caller-provided client.
-                http_client = _secure_httpx_factory(headers=headers, auth=_svc_auth)
-                await stack.enter_async_context(http_client)
-                transport = streamable_http_client(url, http_client=http_client)
-            # streamable-http and sse both yield (read, write); SDK v2 dropped
-            # streamable-http's third `get_session_id` element. Take the first
-            # two streams either way.
-            streams = await stack.enter_async_context(transport)
-            read_stream, write_stream = streams[0], streams[1]
         else:
-            # `command` is guaranteed set here: the earlier guard raises unless
-            # `command` or `is_remote` is truthy, and this is the `not is_remote`
-            # branch.
-            assert command, "unreachable: non-remote server must have a 'command'"
-            command = _resolve_runtime_value(command, sensitive=False)
-            raw_args = cfg.get("args", [])
-            args = (
-                [_resolve_runtime_value(value, sensitive=False) for value in raw_args]
-                if isinstance(raw_args, list)
-                else raw_args
-            )
-            configured_env = cfg.get("env") or {}
-            if (
-                not 1 <= len(command) <= 4_096
-                or "\x00" in command
-                or not isinstance(args, list)
-                or len(args) > 128
-                or not all(
-                    isinstance(value, str)
-                    and len(value) <= 8_192
-                    and "\x00" not in value
-                    for value in args
-                )
-                or not isinstance(configured_env, dict)
-                or len(configured_env) > 256
-            ):
-                raise RuntimeError("Local MCP child process configuration is invalid")
-            # A child receives only execution/runtime trust variables plus the
-            # variables explicitly delegated in its own catalog entry. Copying
-            # the entire parent environment leaks unrelated fleet credentials.
-            provider_controlled_keys = {key.upper() for key in provider_environment}
-            merged_env = {
-                key: value
-                for key, value in os.environ.items()
-                if key.upper() in _CHILD_ENV_ALLOWLIST
-                and key.upper() not in provider_controlled_keys
-            }
-            merged_env.update(provider_environment)
-            materialized = (
-                set(cfg.get("_runtime_materialized_secret_keys") or [])
-                if _runtime_materialized(cfg)
-                else set()
-            )
-            for raw_key, raw_value in configured_env.items():
-                key = str(raw_key)
-                if key.upper() in (
-                    _PROVIDER_CHILD_ENV_KEYS
-                    | provider_controlled_keys
-                    | {_TASK_DELEGATION_CHANNEL_ENV}
-                ):
-                    raise RuntimeError(
-                        "MCP child provider environment is parent-controlled"
-                    )
-                value = _resolve_runtime_value(
-                    raw_value,
-                    sensitive=_sensitive_config_key(key),
-                    materialized=key in materialized,
-                )
-                if (
-                    not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", key)
-                    or len(value) > 65_536
-                    or "\x00" in value
-                ):
-                    raise RuntimeError("Local MCP child environment is invalid")
-                merged_env[key] = value
-            if generation_secret is not None:
-                if not 32 <= len(generation_secret) <= 512:
-                    raise RuntimeError("Local MCP task channel secret is invalid")
-                merged_env[_TASK_DELEGATION_CHANNEL_ENV] = generation_secret
-            server_params = StdioServerParameters(
-                command=command, args=args, env=merged_env
-            )
-            if runtime_policy is not None:
-                try:
-                    runtime_policy.verify_before_spawn()
-                except Exception:
-                    raise RuntimeError(
-                        "MCP child runtime policy pre-spawn verification failed"
-                    ) from None
-            # The MCP SDK otherwise forwards a child's raw stderr to the parent
-            # process. Import and native-loader failures routinely contain
-            # interpreter, checkout, and trust-material locations. The parent
-            # already emits bounded transport/error codes, so discard that raw
-            # channel and keep the sink alive for the complete child generation.
-            child_error_sink = stack.enter_context(
-                open(os.devnull, "w", encoding="utf-8")
-            )
-            read_stream, write_stream = await stack.enter_async_context(
-                stdio_client(server_params, errlog=child_error_sink)
+            read_stream, write_stream = await self._open_local_child_session_streams(
+                cfg,
+                command,
+                provider_environment,
+                runtime_policy,
+                generation_secret,
+                stack,
             )
 
         session = await stack.enter_async_context(
@@ -2549,7 +2744,6 @@ class MCPMultiplexer:
         # reconnect after a catalog epoch changes, so this transport-open path
         # mutates no shared handshake record.
         return session
-
     async def _start_child(
         self, server_name: str, cfg: dict
     ) -> tuple[str, ChildRuntime, list[MCPTool], dict] | None:
