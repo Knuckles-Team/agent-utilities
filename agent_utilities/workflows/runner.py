@@ -240,6 +240,101 @@ def _is_gate_step(step: Any) -> bool:
     return str(getattr(step, "kind", "task") or "task").lower() in GATE_KINDS
 
 
+def _remaining_workflow_steps(steps: list, completed: dict, skipped: set) -> list:
+    """Steps neither completed nor skipped.
+
+    Extracted verbatim from ``_execute_plan_via_agents``'s nested
+    ``_remaining`` (pure extract-method, no behaviour change).
+    """
+    return [
+        s
+        for s in steps
+        if (getattr(s, "id", "") or "") not in completed
+        and (getattr(s, "id", "") or "") not in skipped
+    ]
+
+
+def _ready_workflow_steps(remaining: list, completed: dict, skipped: set) -> list:
+    """Steps in ``remaining`` whose dependencies are all completed or skipped.
+
+    Extracted verbatim from ``_execute_plan_via_agents``'s wave-loop body
+    (pure extract-method, no behaviour change).
+    """
+    return [
+        s
+        for s in remaining
+        if all(
+            dep in completed or dep in skipped
+            for dep in (getattr(s, "depends_on", None) or [])
+        )
+    ]
+
+
+def _raise_no_ready_workflow_steps(remaining: list, workflow_name: str) -> None:
+    """Fail closed when a valid DAG's invariant (always >=1 ready step) breaks.
+
+    Extracted verbatim from ``_execute_plan_via_agents``'s wave-loop body
+    (pure extract-method, no behaviour change). Always raises.
+
+    CONCEPT:AU-ORCH.execution.workflow-dag-validation (BUG-014) -- the
+    upfront ``Tasks.validate_dependencies()`` check rejects any
+    cycle/dangling dependency before the wave loop starts, so a valid DAG
+    always has at least one ready step among its remaining (incomplete)
+    steps. Reaching here means that invariant broke some other way (e.g. a
+    resume_state naming ids the loaded plan no longer has) -- fail closed
+    rather than resurrect the old "run the rest as one wave" fallback, which
+    used to dispatch an unvalidated remainder in one pass and could report a
+    whole cyclic/dangling run "completed".
+    """
+    stuck_ids = [getattr(s, "id", "") or "?" for s in remaining]
+    raise WorkflowDagInvalidError(
+        f"Workflow '{workflow_name}' has {len(stuck_ids)} remaining "
+        f"step(s) with no ready step to dispatch ({stuck_ids!r}); "
+        "refusing to run them as a fallback wave (BUG-014)."
+    )
+
+
+def _mark_reject_downstream_steps(
+    steps: list, skipped: set, gate_id: str, keep: str | None
+) -> None:
+    """Skip the on-success transitive downstream of a rejected gate (except
+    an explicit ``on_reject`` branch target ``keep``).
+
+    Extracted verbatim from ``_execute_plan_via_agents``'s nested
+    ``_mark_reject_downstream`` (pure extract-method, no behaviour change).
+    Mutates ``skipped`` in place.
+    """
+    frontier = [gate_id]
+    seen: set[str] = set()
+    while frontier:
+        cur = frontier.pop()
+        for s in steps:
+            sid = getattr(s, "id", "") or ""
+            if not sid or sid == keep or sid in seen:
+                continue
+            if cur in (getattr(s, "depends_on", None) or []):
+                seen.add(sid)
+                skipped.add(sid)
+                frontier.append(sid)
+
+
+def _record_wave_results(
+    agent_steps: list, results: list, completed: dict, outputs: dict, satisfied: set
+) -> None:
+    """Fold one wave's ``run_agent`` results into the run's tracking state.
+
+    Extracted verbatim from ``_execute_plan_via_agents``'s wave-loop body
+    (pure extract-method, no behaviour change). Mutates ``completed``,
+    ``outputs``, ``satisfied`` in place.
+    """
+    for step, res in zip(agent_steps, results, strict=False):
+        sid = getattr(step, "id", "") or res.node_id
+        completed[sid] = res
+        outputs[sid] = res.output
+        if res.status == "completed":
+            satisfied.add(sid)
+
+
 def _default_gate_checker(engine: Any, step: Any) -> str | None:
     """Default gate satisfaction check (§7.1 delta 3).
 
@@ -1083,7 +1178,6 @@ class WorkflowRunner:
                 break
         return suspended_gate, gate_progressed
 
-
     async def _run_workflow_step(
         self,
         step: Any,
@@ -1116,9 +1210,7 @@ class WorkflowRunner:
         # Thread completed upstream outputs in as context.
         deps = getattr(step, "depends_on", None) or []
         ctx = "\n\n".join(
-            f"Output of '{d}':\n{outputs.get(d, '')}"
-            for d in deps
-            if outputs.get(d)
+            f"Output of '{d}':\n{outputs.get(d, '')}" for d in deps if outputs.get(d)
         )
         # CONCEPT:AU-ORCH.routing.functional-role-resolution — model-tier routing hint (ATG
         # paper idea #3). Only honored when the step didn't already pin an
@@ -1166,7 +1258,6 @@ class WorkflowRunner:
                 model_tier=tier,
                 trace_id=session_id,
             )
-
 
     async def _finalize_suspended_workflow(
         self,
@@ -1246,7 +1337,6 @@ class WorkflowRunner:
         )
         return result
 
-
     async def _finalize_completed_workflow(
         self,
         steps: list[Any],
@@ -1306,7 +1396,6 @@ class WorkflowRunner:
         )
         return result
 
-
     def _validate_workflow_steps(
         self, steps: list[Any], engine: IntelligenceGraphEngine, workflow_name: str
     ) -> None:
@@ -1349,6 +1438,101 @@ class WorkflowRunner:
                 message = f"{message} {hint}"
             raise WorkflowDagInvalidError(message)
 
+    def _rehydrate_resumed_steps(
+        self,
+        resume_state: dict[str, Any],
+        completed: dict[str, StepResult],
+        outputs: dict[str, str],
+        satisfied: set[str],
+        session_id: str,
+    ) -> None:
+        """Rehydrate a resumed run's already-finished steps (idempotent resume).
+
+        Extracted verbatim from ``_execute_plan_via_agents`` (pure
+        extract-method, no behaviour change). Mutates ``completed``,
+        ``outputs``, ``satisfied`` in place.
+        """
+        for sid, rec in (resume_state.get("completed") or {}).items():
+            completed[sid] = StepResult(
+                step_index=0,
+                node_id=str(rec.get("node_id") or sid),
+                task="",
+                output=str(rec.get("output") or ""),
+                status=str(rec.get("status") or "completed"),
+                duration_ms=0.0,
+                trace_id=session_id,
+            )
+            outputs[sid] = str(rec.get("output") or "")
+        satisfied |= set(resume_state.get("satisfied") or set())
+
+    async def _execute_one_wave(
+        self,
+        steps: list[Any],
+        completed: dict[str, StepResult],
+        outputs: dict[str, str],
+        satisfied: set[str],
+        skipped: set[str],
+        wave_idx: int,
+        engine: IntelligenceGraphEngine,
+        session_id: str,
+        task: str | None,
+        grounding: GroundingPolicy,
+        workflow_name: str,
+    ) -> tuple[str | None, int, bool]:
+        """Run one wave: resolve ready steps, process gates, dispatch agent steps.
+
+        Extracted verbatim from ``_execute_plan_via_agents``'s while-loop body
+        (pure extract-method, no behaviour change). Returns
+        ``(suspended_gate, wave_idx, done)`` -- ``done=True`` means the
+        caller's while loop must stop (either suspended, or a gate-only wave
+        that made no progress); the returned ``wave_idx`` is the value the
+        caller should carry into the next iteration / finalize call.
+        """
+        remaining = _remaining_workflow_steps(steps, completed, skipped)
+        ready = _ready_workflow_steps(remaining, completed, skipped)
+        if not ready:
+            _raise_no_ready_workflow_steps(remaining, workflow_name)
+
+        # Gate/approval steps are resolved by the gate_checker, not an agent.
+        gate_steps = [s for s in ready if _is_gate_step(s)]
+        agent_steps = [s for s in ready if not _is_gate_step(s)]
+
+        mark_reject_downstream = lambda gate_id, keep: _mark_reject_downstream_steps(  # noqa: E731
+            steps, skipped, gate_id, keep
+        )
+
+        suspended_gate, gate_progressed = await self._process_gate_steps(
+            gate_steps,
+            engine,
+            wave_idx,
+            session_id,
+            completed,
+            outputs,
+            satisfied,
+            mark_reject_downstream,
+        )
+
+        if suspended_gate is not None:
+            return suspended_gate, wave_idx, True
+
+        if not agent_steps:
+            # Only gates this wave — if none progressed we would loop forever;
+            # that can't happen here (a non-progressing gate suspends above).
+            if not gate_progressed:
+                return None, wave_idx, True
+            return None, wave_idx + 1, False
+
+        results = await asyncio.gather(
+            *(
+                self._run_workflow_step(
+                    s, wave_idx, session_id, task, outputs, grounding, engine
+                )
+                for s in agent_steps
+            )
+        )
+
+        _record_wave_results(agent_steps, results, completed, outputs, satisfied)
+        return None, wave_idx + 1, False
 
     async def _execute_plan_via_agents(
         self,
@@ -1402,116 +1586,33 @@ class WorkflowRunner:
 
         # Rehydrate a resumed run's already-finished steps (idempotent resume).
         if resume_state:
-            for sid, rec in (resume_state.get("completed") or {}).items():
-                completed[sid] = StepResult(
-                    step_index=0,
-                    node_id=str(rec.get("node_id") or sid),
-                    task="",
-                    output=str(rec.get("output") or ""),
-                    status=str(rec.get("status") or "completed"),
-                    duration_ms=0.0,
-                    trace_id=session_id,
-                )
-                outputs[sid] = str(rec.get("output") or "")
-            satisfied |= set(resume_state.get("satisfied") or set())
+            self._rehydrate_resumed_steps(
+                resume_state, completed, outputs, satisfied, session_id
+            )
 
         skipped: set[str] = set()
         wave_idx = 0
         suspended_gate: str | None = None
 
-        def _mark_reject_downstream(gate_id: str, keep: str | None) -> None:
-            """Skip the on-success transitive downstream of a rejected gate (except
-            an explicit ``on_reject`` branch target ``keep``)."""
-            frontier = [gate_id]
-            seen: set[str] = set()
-            while frontier:
-                cur = frontier.pop()
-                for s in steps:
-                    sid = getattr(s, "id", "") or ""
-                    if not sid or sid == keep or sid in seen:
-                        continue
-                    if cur in (getattr(s, "depends_on", None) or []):
-                        seen.add(sid)
-                        skipped.add(sid)
-                        frontier.append(sid)
-
-        def _remaining() -> list[Any]:
-            return [
-                s
-                for s in steps
-                if (getattr(s, "id", "") or "") not in completed
-                and (getattr(s, "id", "") or "") not in skipped
-            ]
-
-        while _remaining() and suspended_gate is None:
-            remaining = _remaining()
-            ready = [
-                s
-                for s in remaining
-                if all(
-                    dep in completed or dep in skipped
-                    for dep in (getattr(s, "depends_on", None) or [])
-                )
-            ]
-            if not ready:
-                # CONCEPT:AU-ORCH.execution.workflow-dag-validation (BUG-014) -- the
-                # upfront ``Tasks.validate_dependencies()`` check above rejects any
-                # cycle/dangling dependency before this loop starts, so a valid DAG
-                # always has at least one ready step among its remaining (incomplete)
-                # steps. Reaching here means that invariant broke some other way (e.g.
-                # a resume_state naming ids the loaded plan no longer has) -- fail
-                # closed rather than resurrect the old "run the rest as one wave"
-                # fallback, which used to dispatch an unvalidated remainder in one
-                # pass and could report a whole cyclic/dangling run "completed".
-                stuck_ids = [getattr(s, "id", "") or "?" for s in remaining]
-                raise WorkflowDagInvalidError(
-                    f"Workflow '{workflow_name}' has {len(stuck_ids)} remaining "
-                    f"step(s) with no ready step to dispatch ({stuck_ids!r}); "
-                    "refusing to run them as a fallback wave (BUG-014)."
-                )
-
-            # Gate/approval steps are resolved by the gate_checker, not an agent.
-            gate_steps = [s for s in ready if _is_gate_step(s)]
-            agent_steps = [s for s in ready if not _is_gate_step(s)]
-
-            suspended_gate, gate_progressed = await self._process_gate_steps(
-                gate_steps,
-                engine,
-                wave_idx,
-                session_id,
+        while (
+            _remaining_workflow_steps(steps, completed, skipped)
+            and suspended_gate is None
+        ):
+            suspended_gate, wave_idx, done = await self._execute_one_wave(
+                steps,
                 completed,
                 outputs,
                 satisfied,
-                _mark_reject_downstream,
+                skipped,
+                wave_idx,
+                engine,
+                session_id,
+                task,
+                grounding,
+                workflow_name,
             )
-
-            if suspended_gate is not None:
+            if done:
                 break
-
-            if not agent_steps:
-                # Only gates this wave — if none progressed we would loop forever;
-                # that can't happen here (a non-progressing gate suspends above).
-                if not gate_progressed:
-                    break
-                wave_idx += 1
-                continue
-
-            results = await asyncio.gather(
-                *(
-                    self._run_workflow_step(
-                        s, wave_idx, session_id, task, outputs, grounding, engine
-                    )
-                    for s in agent_steps
-                )
-            )
-
-            for step, res in zip(agent_steps, results, strict=False):
-                sid = getattr(step, "id", "") or res.node_id
-                completed[sid] = res
-                outputs[sid] = res.output
-                if res.status == "completed":
-                    satisfied.add(sid)
-            wave_idx += 1
 
         # A suspended run persists its state and returns early (not completed/failed).
         if suspended_gate is not None:
@@ -1528,8 +1629,14 @@ class WorkflowRunner:
                 engine,
             )
 
-
-
         return await self._finalize_completed_workflow(
-            steps, skipped, completed, wave_idx, session_id, workflow_name, plan, wf_started, engine
+            steps,
+            skipped,
+            completed,
+            wave_idx,
+            session_id,
+            workflow_name,
+            plan,
+            wf_started,
+            engine,
         )
