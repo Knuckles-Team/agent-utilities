@@ -115,18 +115,8 @@ def _frontmatter(path: Path) -> tuple[dict[str, Any], str]:
     return (data if isinstance(data, dict) else {}), match.group(2)
 
 
-def _validate_skill(skill_dir: Path) -> list[str]:
+def _validate_skill_frontmatter(name: str, frontmatter: dict[str, Any]) -> list[str]:
     errors: list[str] = []
-    name = skill_dir.name
-    skill_md = skill_dir / "SKILL.md"
-    openai = skill_dir / "agents" / "openai.yaml"
-    graph_os = skill_dir / "agents" / "graph-os.yaml"
-
-    if not _SKILL_NAME.fullmatch(name):
-        errors.append(f"{name}: directory name must use lowercase hyphenation")
-    if not skill_md.is_file():
-        return [f"{name}: missing SKILL.md"]
-    frontmatter, body = _frontmatter(skill_md)
     if set(frontmatter) != {"name", "description", "skill_type"}:
         errors.append(
             f"{name}: SKILL.md frontmatter must contain only name, description, "
@@ -138,6 +128,11 @@ def _validate_skill(skill_dir: Path) -> list[str]:
         errors.append(f"{name}: frontmatter skill_type must be 'skill'")
     if not str(frontmatter.get("description") or "").strip():
         errors.append(f"{name}: description is empty")
+    return errors
+
+
+def _validate_skill_body(name: str, skill_md: Path, body: str) -> list[str]:
+    errors: list[str] = []
     if len(skill_md.read_text(encoding="utf-8").splitlines()) >= 500:
         errors.append(f"{name}: SKILL.md must remain under 500 lines")
     if "TODO" in body:
@@ -150,6 +145,10 @@ def _validate_skill(skill_dir: Path) -> list[str]:
         errors.append(f"{name}: missing economy-model guidance")
     if "direct" not in body.lower() or "delegat" not in body.lower():
         errors.append(f"{name}: must explain direct and delegated execution")
+    return errors
+
+
+def _validate_skill_workflow_terms(name: str, skill_md: Path) -> list[str]:
     lowered = skill_md.read_text(encoding="utf-8").lower()
     missing_terms = sorted(
         term
@@ -157,40 +156,48 @@ def _validate_skill(skill_dir: Path) -> list[str]:
         if term not in lowered
     )
     if missing_terms:
-        errors.append(
-            f"{name}: missing retained workflow coverage terms {missing_terms}"
-        )
+        return [f"{name}: missing retained workflow coverage terms {missing_terms}"]
+    return []
 
+
+def _validate_skill_openai_interface(name: str, interface: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    required = {"display_name", "short_description", "default_prompt"}
+    if set(interface) != required:
+        errors.append(f"{name}: OpenAI interface keys must be {sorted(required)}")
+    short = str(interface.get("short_description") or "")
+    if not 25 <= len(short) <= 64:
+        errors.append(f"{name}: short_description must be 25-64 characters")
+    if f"${name}" not in str(interface.get("default_prompt") or ""):
+        errors.append(f"{name}: default_prompt must mention ${name}")
+    return errors
+
+
+def _validate_skill_openai_sidecar(name: str, openai: Path) -> list[str]:
     if not openai.is_file():
-        errors.append(f"{name}: missing agents/openai.yaml")
-    else:
-        data = yaml.safe_load(openai.read_text(encoding="utf-8")) or {}
-        interface = data.get("interface") if isinstance(data, dict) else None
-        if set(data) != {"interface"} or not isinstance(interface, dict):
-            errors.append(f"{name}: OpenAI sidecar must contain only interface")
-        else:
-            required = {"display_name", "short_description", "default_prompt"}
-            if set(interface) != required:
-                errors.append(
-                    f"{name}: OpenAI interface keys must be {sorted(required)}"
-                )
-            short = str(interface.get("short_description") or "")
-            if not 25 <= len(short) <= 64:
-                errors.append(f"{name}: short_description must be 25-64 characters")
-            if f"${name}" not in str(interface.get("default_prompt") or ""):
-                errors.append(f"{name}: default_prompt must mention ${name}")
+        return [f"{name}: missing agents/openai.yaml"]
+    data = yaml.safe_load(openai.read_text(encoding="utf-8")) or {}
+    interface = data.get("interface") if isinstance(data, dict) else None
+    if set(data) != {"interface"} or not isinstance(interface, dict):
+        return [f"{name}: OpenAI sidecar must contain only interface"]
+    return _validate_skill_openai_interface(name, interface)
 
+
+def _validate_skill_graph_os_sidecar(name: str, graph_os: Path) -> list[str]:
     if not graph_os.is_file():
-        errors.append(f"{name}: missing agents/graph-os.yaml")
-    else:
-        meta = parse_graph_os_sidecar(graph_os, skill_name=name)
-        errors.extend(f"{name}: {error}" for error in meta.errors)
-        missing_routes = sorted(
-            _REQUIRED_WORKFLOW_ROUTES.get(name, frozenset()) - set(meta.wraps)
-        )
-        if missing_routes:
-            errors.append(f"{name}: missing retained workflow routes {missing_routes}")
+        return [f"{name}: missing agents/graph-os.yaml"]
+    meta = parse_graph_os_sidecar(graph_os, skill_name=name)
+    errors = [f"{name}: {error}" for error in meta.errors]
+    missing_routes = sorted(
+        _REQUIRED_WORKFLOW_ROUTES.get(name, frozenset()) - set(meta.wraps)
+    )
+    if missing_routes:
+        errors.append(f"{name}: missing retained workflow routes {missing_routes}")
+    return errors
 
+
+def _validate_skill_files(skill_dir: Path) -> list[str]:
+    errors: list[str] = []
     for path in sorted(skill_dir.rglob("*")):
         if not path.is_file():
             continue
@@ -202,6 +209,27 @@ def _validate_skill(skill_dir: Path) -> list[str]:
         for label, pattern in _PRIVATE_PATTERNS:
             if pattern.search(text):
                 errors.append(f"{_relative(path)}: contains {label}")
+    return errors
+
+
+def _validate_skill(skill_dir: Path) -> list[str]:
+    errors: list[str] = []
+    name = skill_dir.name
+    skill_md = skill_dir / "SKILL.md"
+    openai = skill_dir / "agents" / "openai.yaml"
+    graph_os = skill_dir / "agents" / "graph-os.yaml"
+
+    if not _SKILL_NAME.fullmatch(name):
+        errors.append(f"{name}: directory name must use lowercase hyphenation")
+    if not skill_md.is_file():
+        return [f"{name}: missing SKILL.md"]
+    frontmatter, body = _frontmatter(skill_md)
+    errors.extend(_validate_skill_frontmatter(name, frontmatter))
+    errors.extend(_validate_skill_body(name, skill_md, body))
+    errors.extend(_validate_skill_workflow_terms(name, skill_md))
+    errors.extend(_validate_skill_openai_sidecar(name, openai))
+    errors.extend(_validate_skill_graph_os_sidecar(name, graph_os))
+    errors.extend(_validate_skill_files(skill_dir))
     return errors
 
 

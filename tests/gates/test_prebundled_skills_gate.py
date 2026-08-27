@@ -17,6 +17,7 @@ from agent_utilities.skills.validation import (
     EXPECTED_SKILLS,
     FORWARD_MATRIX,
     SKILLS_ROOT,
+    _validate_skill,
     validate,
 )
 
@@ -54,6 +55,54 @@ def test_tool_spec_universe_is_immutable_and_profile_aware() -> None:
         TOOL_SPECS_BY_NAME["new_tool"] = TOOL_SPECS[0]  # type: ignore[index]
     with pytest.raises(FrozenInstanceError):
         TOOL_SPECS[0].name = "changed"  # type: ignore[misc]
+
+
+def test_validate_skill_flags_every_broken_facet_of_a_malformed_skill(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WB1-AU-02 characterization: the only pre-existing coverage of
+    `_validate_skill` is `test_prebundled_skill_suite_is_valid` above, which
+    only proves the real 13-skill suite is 100% clean (0 errors) -- it never
+    exercises a single one of `_validate_skill`'s ~20 error-append branches
+    (now split across `_validate_skill_frontmatter`/`_body`/
+    `_workflow_terms`/`_openai_sidecar`/`_openai_interface`/
+    `_graph_os_sidecar`/`_files`). This drives a deliberately-broken
+    synthetic skill directory through every one of those branches so the
+    extract-method split is proven, not just assumed, to preserve behavior.
+    """
+    import agent_utilities.skills.validation as validation_mod
+
+    monkeypatch.setattr(validation_mod, "PACKAGE_ROOT", tmp_path)
+    skill_dir = tmp_path / "example-skill"
+    (skill_dir / "agents").mkdir(parents=True)
+    skill_dir.joinpath("SKILL.md").write_text(
+        "---\n"
+        "name: wrong-name\n"
+        "skill_type: not-a-skill\n"
+        "---\n"
+        "TODO: finish this skill.\n"
+        "No workflow section here, no imperative steps, no cost guidance.\n",
+        encoding="utf-8",
+    )
+    skill_dir.joinpath("README.md").write_text(
+        "See /home/someone/notes for details.\n", encoding="utf-8"
+    )
+
+    errors = _validate_skill(skill_dir)
+
+    assert any("frontmatter must contain only name" in e for e in errors)
+    assert any("frontmatter name must match directory" in e for e in errors)
+    assert any("frontmatter skill_type must be 'skill'" in e for e in errors)
+    assert any("description is empty" in e for e in errors)
+    assert any("unresolved TODO in SKILL.md" in e for e in errors)
+    assert any("must contain a Workflow section" in e for e in errors)
+    assert any("at least three imperative steps" in e for e in errors)
+    assert any("missing economy-model guidance" in e for e in errors)
+    assert any("must explain direct and delegated execution" in e for e in errors)
+    assert any("missing agents/openai.yaml" in e for e in errors)
+    assert any("missing agents/graph-os.yaml" in e for e in errors)
+    assert any("auxiliary skill documentation is forbidden" in e for e in errors)
+    assert any("contains absolute filesystem path" in e for e in errors)
 
 
 def test_graph_os_sidecar_schema_v1_is_rejected(tmp_path: Path) -> None:
