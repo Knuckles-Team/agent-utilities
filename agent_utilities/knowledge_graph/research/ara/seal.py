@@ -107,70 +107,81 @@ class ARASeal:
     # -- L1 structural + interface conformance ---------------------------- #
     def _l1(self, artifact: Any) -> list[SealViolation]:
         viols: list[SealViolation] = []
+        for cl in artifact.claims:
+            viols.extend(self._l1_reference_violations(artifact, cl))
+        for cl in artifact.claims:
+            viols.extend(self._l1_claim_conformance_violations(cl))
+        viols.extend(self._l1_artifact_conformance_violations(artifact))
+        return viols
+
+    def _l1_reference_violations(self, artifact: Any, cl: Any) -> list[SealViolation]:
+        """Cross-layer reference resolution for one claim."""
         evidence_ids = {e.id for e in artifact.evidence}
         code_ids = {c.id for c in artifact.code_specs}
-
-        # cross-layer reference resolution
-        for cl in artifact.claims:
-            for ref in cl.evidence_ids:
-                # ecosystem groundings (non-artifact ids) are allowed; only dangling
-                # intra-artifact evidence refs are violations.
-                if ref.startswith(f"evidence:{artifact.article_id}") and (
-                    ref not in evidence_ids
-                ):
-                    viols.append(
-                        SealViolation(
-                            level="L1",
-                            code="dangling_evidence_ref",
-                            focus=cl.id,
-                            message=f"claim references missing evidence {ref!r}",
-                        )
-                    )
-            for ref in cl.code_spec_ids:
-                if ref not in code_ids:
-                    viols.append(
-                        SealViolation(
-                            level="L1",
-                            code="dangling_code_ref",
-                            focus=cl.id,
-                            message=f"claim references missing code spec {ref!r}",
-                        )
-                    )
-
-        # interface conformance — every claim grounded (VerifiableClaim), artifact
-        # well-formed (ResearchArtifactShape). Uses the actual edge set as link view.
-        for cl in artifact.claims:
-            link_types = []
-            if cl.evidence_ids:
-                link_types.append(RegistryEdgeType.GROUNDED_IN.value)
-            if cl.code_spec_ids:
-                link_types.append(RegistryEdgeType.IMPLEMENTED_BY.value)
-            obj = {"statement": cl.statement, "link_types": link_types}
-            if not self._registry.conforms(obj, "VerifiableClaim"):
+        viols: list[SealViolation] = []
+        for ref in cl.evidence_ids:
+            # ecosystem groundings (non-artifact ids) are allowed; only dangling
+            # intra-artifact evidence refs are violations.
+            if ref.startswith(f"evidence:{artifact.article_id}") and (
+                ref not in evidence_ids
+            ):
                 viols.append(
                     SealViolation(
                         level="L1",
-                        code="claim_not_conformant",
+                        code="dangling_evidence_ref",
                         focus=cl.id,
-                        message="claim does not conform to VerifiableClaim "
-                        "(ungrounded — no grounded_in link)",
+                        message=f"claim references missing evidence {ref!r}",
                     )
                 )
+        for ref in cl.code_spec_ids:
+            if ref not in code_ids:
+                viols.append(
+                    SealViolation(
+                        level="L1",
+                        code="dangling_code_ref",
+                        focus=cl.id,
+                        message=f"claim references missing code spec {ref!r}",
+                    )
+                )
+        return viols
+
+    def _l1_claim_conformance_violations(self, cl: Any) -> list[SealViolation]:
+        """VerifiableClaim conformance — every claim must be grounded."""
+        link_types = []
+        if cl.evidence_ids:
+            link_types.append(RegistryEdgeType.GROUNDED_IN.value)
+        if cl.code_spec_ids:
+            link_types.append(RegistryEdgeType.IMPLEMENTED_BY.value)
+        obj = {"statement": cl.statement, "link_types": link_types}
+        if self._registry.conforms(obj, "VerifiableClaim"):
+            return []
+        return [
+            SealViolation(
+                level="L1",
+                code="claim_not_conformant",
+                focus=cl.id,
+                message="claim does not conform to VerifiableClaim "
+                "(ungrounded — no grounded_in link)",
+            )
+        ]
+
+    def _l1_artifact_conformance_violations(self, artifact: Any) -> list[SealViolation]:
+        """ResearchArtifactShape conformance — well-formed provenance/contains."""
         art_links = [RegistryEdgeType.CONTAINS.value]
         if artifact.source_ref:
             art_links.append(RegistryEdgeType.WAS_DERIVED_FROM.value)
         art_obj = {"timestamp": artifact.timestamp, "link_types": art_links}
-        if not self._registry.conforms(art_obj, "ResearchArtifactShape"):
-            viols.append(
-                SealViolation(
-                    level="L1",
-                    code="artifact_not_conformant",
-                    focus=artifact.node_id,
-                    message="artifact does not conform to ResearchArtifactShape "
-                    "(missing provenance/contains)",
-                )
+        if self._registry.conforms(art_obj, "ResearchArtifactShape"):
+            return []
+        return [
+            SealViolation(
+                level="L1",
+                code="artifact_not_conformant",
+                focus=artifact.node_id,
+                message="artifact does not conform to ResearchArtifactShape "
+                "(missing provenance/contains)",
             )
-        return viols
+        ]
 
     # -- L2 rigor --------------------------------------------------------- #
     def _l2(self, artifact: Any, report: SealReport) -> list[SealViolation]:
