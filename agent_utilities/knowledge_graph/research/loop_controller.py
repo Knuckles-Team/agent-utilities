@@ -2826,16 +2826,12 @@ class LoopController:
                 out["interrupted"] = True
             return out
 
-        # exit 4 is enforced in the while-condition (alongside the turn cap);
-        # the precise terminal status is decided right after the loop exits.
-        while it < max_it and not deadline_passed(deadline) and not is_terminal(status):
-            # -- exits 3/6/8 (BUDGET CAP / HUMAN INTERRUPT / EXTERNAL EVENT):
-            # compute each signal exactly as before (corrigible kill switch
-            # evaluated OUTSIDE/BEFORE the step so a risky iteration never
-            # starts once a pause/kill is desired — SAFE-1.5), then hand the
-            # DECISION to the Loop's eg-statechart ``pretick`` transition
-            # (guard declaration order mirrors today's precedence: pause,
-            # then kill/cancel/stop, then budget, then external event). --
+        def _evaluate_pretick_exits() -> dict[str, Any] | None:
+            """Human-interrupt / budget / external-event pre-tick check.
+
+            Returns a terminal _finish(...) result to return immediately, or
+            None to continue the iteration.
+            """
             desired = desired_state() if desired_state is not None else None
             human_signal: str | None = None
             corrig_summary = ""
@@ -2895,6 +2891,73 @@ class LoopController:
                     LoopStatus.EXTERNAL_EVENT_SATISFIED,
                     reason="external event signal fired",
                 )
+            return None
+
+        def _dispatch_terminal_status() -> dict[str, Any] | None:
+            """Once `status` is terminal, pick the precise, diagnosable exit
+            reason. Returns the _finish(...) result, or None if `status` is
+            not (yet) terminal."""
+            if not is_terminal(status):
+                return None
+            if status is LoopStatus.COMPLETED:
+                if measured_pass:
+                    assert verdict is not None  # measured_pass implies this
+                    return _finish(
+                        LoopStatus.COMPLETED,
+                        reason=(
+                            f"goal met (measured score={verdict.score:.2f}): "
+                            f"{verdict.detail}"
+                        ),
+                    )
+                return _finish(LoopStatus.COMPLETED)
+            if (
+                status is LoopStatus.ERROR_THRESHOLD_EXCEEDED
+                and error_threshold_tripped
+            ):
+                return _finish(
+                    status,
+                    reason=(
+                        f"{fail_guard.count} consecutive non-terminal failures "
+                        f"(threshold {fail_guard.threshold})"
+                    ),
+                )
+            if status is LoopStatus.STALLED and stalled_flag:
+                return _finish(
+                    status,
+                    reason=(
+                        f"no progress across the last {stall_window} iterations "
+                        "(identical status/output)"
+                    ),
+                )
+            if status is LoopStatus.MAX_ITERATIONS_EXCEEDED and turn_cap_reached:
+                return _finish(
+                    status,
+                    reason=f"turn cap reached: max_iterations={max_it} without convergence",
+                )
+            if status is LoopStatus.WALL_CLOCK_EXCEEDED and deadline_flag:
+                return _finish(
+                    status,
+                    reason=(
+                        "overall wall-clock deadline exceeded after "
+                        f"{_time.monotonic() - start_monotonic:.1f}s"
+                    ),
+                )
+            return _finish(status, reason=f"callee terminal status: {status.value}")
+
+
+        # exit 4 is enforced in the while-condition (alongside the turn cap);
+        # the precise terminal status is decided right after the loop exits.
+        while it < max_it and not deadline_passed(deadline) and not is_terminal(status):
+            # -- exits 3/6/8 (BUDGET CAP / HUMAN INTERRUPT / EXTERNAL EVENT):
+            # compute each signal exactly as before (corrigible kill switch
+            # evaluated OUTSIDE/BEFORE the step so a risky iteration never
+            # starts once a pause/kill is desired — SAFE-1.5), then hand the
+            # DECISION to the Loop's eg-statechart ``pretick`` transition
+            # (guard declaration order mirrors today's precedence: pause,
+            # then kill/cancel/stop, then budget, then external event). --
+            pretick_result = _evaluate_pretick_exits()
+            if pretick_result is not None:
+                return pretick_result
 
             it += 1
 
@@ -3048,51 +3111,9 @@ class LoopController:
             active = statechart_active_state(post_result)
             status = to_status(active, default=LoopStatus.FAILED)
 
-            if is_terminal(status):
-                if status is LoopStatus.COMPLETED:
-                    if measured_pass:
-                        assert verdict is not None  # measured_pass implies this
-                        return _finish(
-                            LoopStatus.COMPLETED,
-                            reason=(
-                                f"goal met (measured score={verdict.score:.2f}): "
-                                f"{verdict.detail}"
-                            ),
-                        )
-                    return _finish(LoopStatus.COMPLETED)
-                if (
-                    status is LoopStatus.ERROR_THRESHOLD_EXCEEDED
-                    and error_threshold_tripped
-                ):
-                    return _finish(
-                        status,
-                        reason=(
-                            f"{fail_guard.count} consecutive non-terminal failures "
-                            f"(threshold {fail_guard.threshold})"
-                        ),
-                    )
-                if status is LoopStatus.STALLED and stalled_flag:
-                    return _finish(
-                        status,
-                        reason=(
-                            f"no progress across the last {stall_window} iterations "
-                            "(identical status/output)"
-                        ),
-                    )
-                if status is LoopStatus.MAX_ITERATIONS_EXCEEDED and turn_cap_reached:
-                    return _finish(
-                        status,
-                        reason=f"turn cap reached: max_iterations={max_it} without convergence",
-                    )
-                if status is LoopStatus.WALL_CLOCK_EXCEEDED and deadline_flag:
-                    return _finish(
-                        status,
-                        reason=(
-                            "overall wall-clock deadline exceeded after "
-                            f"{_time.monotonic() - start_monotonic:.1f}s"
-                        ),
-                    )
-                return _finish(status, reason=f"callee terminal status: {status.value}")
+            terminal_result = _dispatch_terminal_status()
+            if terminal_result is not None:
+                return terminal_result
 
             # A retryable failure keeps looping (already counted); it must NOT
             # fall into the ``done``-flag break on the same iteration.
