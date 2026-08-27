@@ -94,25 +94,42 @@ class OntologyReasoningDriver:
         if graph is None:
             return InferenceHarvest(error="no graph")
         before = self._inferred_keys(graph)
+        stats, error = self._run_cycle_safely()
+        if error:
+            return InferenceHarvest(error=error)
+
+        new_edges = self._new_inferred_edges(graph, before)
+        topics = self._select_topics(new_edges, topic_filter)
+        if persist and topics:
+            self._persist_topics(topics)
+        return InferenceHarvest(
+            stats=stats, inferred_edges=new_edges, new_topics=topics
+        )
+
+    def _run_cycle_safely(self) -> tuple[dict[str, Any], str]:
+        """Run one reasoning cycle, degrading to an error string, never raising."""
         try:
             stats = self._get_bridge().run_cycle(lightweight=self._lightweight)
         except Exception as e:  # noqa: BLE001 — reasoning never blocks the loop
             logger.debug("reasoning cycle failed: %s", e)
-            return InferenceHarvest(error=str(e))
+            return {}, str(e)
+        return (stats if isinstance(stats, dict) else {}), ""
 
+    def _new_inferred_edges(
+        self, graph: Any, before: set[tuple[str, str, str]]
+    ) -> list[dict[str, Any]]:
         after_edges = self._inferred_edges(graph)
-        new = [e for e in after_edges if self._key(e) not in before]
-        topics = self._topics_from(new)
+        return [e for e in after_edges if self._key(e) not in before]
+
+    def _select_topics(
+        self,
+        new_edges: list[dict[str, Any]],
+        topic_filter: Callable[[dict[str, Any]], bool] | None,
+    ) -> list[dict[str, Any]]:
+        topics = self._topics_from(new_edges)
         if topic_filter is not None:
             topics = [t for t in topics if topic_filter(t)]
-        topics = topics[: self._max_topics]
-        if persist and topics:
-            self._persist_topics(topics)
-        return InferenceHarvest(
-            stats=stats if isinstance(stats, dict) else {},
-            inferred_edges=new,
-            new_topics=topics,
-        )
+        return topics[: self._max_topics]
 
     # -- helpers ---------------------------------------------------------- #
     @staticmethod
