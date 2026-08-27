@@ -528,6 +528,74 @@ class EnrichmentPipeline:
             except OSError:
                 root_real = Path(source_root)
 
+        pending, pending_hashes = self._enrich_prehash_filter(files, root_real, summary)
+
+        results, struct_edges, call_edges = self._enrich_parse_and_resolve(pending, pending_hashes, summary)
+
+        all_code = [c for r in results for c in r.code]
+        all_tests = [t for r in results for t in r.tests]
+
+        # L0/structural: design-pattern tags (deterministic, no LLM).
+        for c in all_code:
+            c.patterns = detect_patterns(c)
+            if c.patterns:
+                summary.patterns_tagged += 1
+
+        # Resolve the code→code CALLS edges ONCE: community detection clusters on
+        # them and the write section below persists the same set. The resolver path
+        # already produced them in Rust; only the fallback resolves names here.
+        if call_edges is None:
+            call_edges = resolve_call_edges(all_code)
+
+        # Features: cluster the call graph via the engine's community detection.
+        features = []
+        if self.community_fn is not None:
+            features = cluster_features(
+                all_code,
+                self.community_fn,
+                self.min_feature_size,
+                call_edges=call_edges,
+            )
+
+        # L2 semantic: capability cards (LLM, cached by ast_hash).
+        cards_by_id: dict[str, CapabilityCard] = {}
+        if self.llm_fn is not None:
+            calls_by_id = {c.id: c.calls for c in all_code}
+            for card in generate_symbol_cards(
+                all_code, self.llm_fn, self.card_cache, calls_by_id
+            ):
+                cards_by_id[card.id] = card
+                summary.cards_generated += 1
+
+        self._enrich_write_all(
+            all_code,
+            all_tests,
+            results,
+            call_edges,
+            struct_edges,
+            features,
+            cards_by_id,
+            service_hint,
+            iac_files,
+            summary,
+        )
+
+        return summary
+
+    def _enrich_prehash_filter(
+        self,
+        files: Iterable[Path],
+        root_real: Path | None,
+        summary: EnrichmentSummary,
+    ) -> tuple[list[tuple[str, str]], dict[str, str]]:
+        """Phase 1 of ``enrich_files``: pre-hash filter + root-containment check.
+
+        Extracted verbatim from ``enrich_files`` (pure extract-method, no
+        behaviour change). Mutates ``summary`` in place (``files_seen``,
+        ``files_skipped_unchanged``) exactly as the original inline code did;
+        raises :class:`IncompleteParse` on an escaped root, an unreadable file,
+        or a duplicate identity, exactly as before.
+        """
         # Phase 1 — pre-hash filter (CONCEPT:EG-KG.storage.nonblocking-checkpoint): hash the raw bytes BEFORE
         # parsing so an unchanged file costs one local sha256, not a Rust-engine
         # parse round-trip. The hash is byte-identical to ``ExtractionResult.
@@ -577,7 +645,24 @@ class EnrichmentPipeline:
                 f"{len(pending)} input(s) resolved to only "
                 f"{len(pending_hashes)} unique file(s)"
             )
+        return pending, pending_hashes
 
+    def _enrich_parse_and_resolve(
+        self,
+        pending: list[tuple[str, str]],
+        pending_hashes: dict[str, str],
+        summary: EnrichmentSummary,
+    ) -> tuple[list[ExtractionResult], list[EnrichmentEdge], list[EnrichmentEdge] | None]:
+        """Phase 2 of ``enrich_files``: parse + resolve the changed files.
+
+        Extracted verbatim from ``enrich_files`` (pure extract-method, no
+        behaviour change). Returns ``(results, struct_edges, call_edges)`` --
+        ``call_edges`` is ``None`` on the fallback (per-file parse) path, exactly
+        as the original inline code left it for the caller's own
+        ``if call_edges is None: call_edges = resolve_call_edges(all_code)``
+        fallback further down. Mutates ``self._hash_seen`` and
+        ``summary.files_parsed`` exactly as before.
+        """
         # Phase 2 — parse + resolve the changed files. PRIMARY path (CONCEPT:EG-KG.compute.type-scope-resolved-call):
         # one ``index_repository`` round-trip both parses every file and resolves
         # cross-file calls type/scope-aware in Rust, yielding the symbols AND the
@@ -618,42 +703,105 @@ class EnrichmentPipeline:
         for res in results:
             self._hash_seen[res.file_path] = res.content_hash
             summary.files_parsed += 1
+        return results, struct_edges, call_edges
 
-        all_code = [c for r in results for c in r.code]
-        all_tests = [t for r in results for t in r.tests]
+    def _enrich_write_routes_iac_capabilities(
+        self,
+        all_code: list[Any],
+        features: list[Any],
+        service_hint: str,
+        iac_files: list[tuple[str, str]] | None,
+        summary: EnrichmentSummary,
+    ) -> None:
+        """Route/IaC/capability write phase, called from inside ``_enrich_write_all``'s
+        batched-backend try block (``self.backend`` is still the ``_BatchedBackend``
+        at this point).
 
-        # L0/structural: design-pattern tags (deterministic, no LLM).
-        for c in all_code:
-            c.patterns = detect_patterns(c)
-            if c.patterns:
-                summary.patterns_tagged += 1
+        Extracted verbatim from ``_enrich_write_all`` (pure extract-method, no
+        behaviour change).
+        """
+        # CONCEPT:AU-KG.enrichment.http-route-extraction — HTTP routes from handler decorators: Route nodes +
+        # SERVES (handler→route), and the code↔ecosystem SERVED_BY link to the
+        # deployed Service (best-effort name match), so OWL reasoning can chain
+        # Code –serves→ Route –servedBy→ Service –deployedOn→ Node.
+        route_nodes, serves_edges = extract_routes(all_code)
+        for rn in route_nodes:
+            self.backend.add_node(rn.id, label="Route", **rn.props)
+            summary.routes += 1
+        for e in serves_edges:
+            self._write_edge(e.source, e.target, e.rel_type)
+            summary.serves_edges += 1
+        service_id = (
+            resolve_service_id(service_hint, self._ecosystem_service_ids())
+            if service_hint
+            else ""
+        )
+        if route_nodes and service_id:
+            for e in link_routes_to_service(route_nodes, service_id):
+                self._write_edge(e.source, e.target, e.rel_type)
+                summary.served_by_edges += 1
 
-        # Resolve the code→code CALLS edges ONCE: community detection clusters on
-        # them and the write section below persists the same set. The resolver path
-        # already produced them in Rust; only the fallback resolves names here.
-        if call_edges is None:
-            call_edges = resolve_call_edges(all_code)
+        # CONCEPT:AU-KG.enrichment.read-them-here-so — IaC Resources (Dockerfile/K8s/Terraform) + the
+        # PROVISIONS link to the deployed Service, spanning code → infra.
+        if iac_files:
+            resource_nodes, _ = extract_iac(iac_files)
+            for rn in resource_nodes:
+                self.backend.add_node(rn.id, label="Resource", **rn.props)
+                summary.resources += 1
+            if service_id:
+                for e in link_resources_to_service(resource_nodes, service_id):
+                    self._write_edge(e.source, e.target, e.rel_type)
+                    summary.provisions_edges += 1
 
-        # Features: cluster the call graph via the engine's community detection.
-        features = []
-        if self.community_fn is not None:
-            features = cluster_features(
-                all_code,
-                self.community_fn,
-                self.min_feature_size,
-                call_edges=call_edges,
+        # Code → capability: match features to BusinessCapability nodes
+        # (LeanIX/Archi), mint provisional ones bottom-up, emit REALIZES edges,
+        # and optionally push the minted capabilities back to EA tools (KG-2.8).
+        if features and (
+            self.capability_provider is not None
+            or self.capability_registry is not None
+            or self.mint_capabilities
+        ):
+            capabilities = (
+                self.capability_provider() if self.capability_provider else []
             )
+            minted, realizes_edges = resolve_realizes(
+                features,
+                capabilities,
+                registry=self.capability_registry,
+                mint_missing=self.mint_capabilities,
+                embed_fn=self.realizes_embed_fn,
+            )
+            for cap in minted:
+                self._write_capability(cap)
+                summary.capabilities_minted += 1
+            for e in realizes_edges:
+                self._write_edge(e.source, e.target, e.rel_type)
+                summary.realizes_edges += 1
+            if minted and self.writeback_fn is not None:
+                result = self.writeback_fn(minted)
+                summary.capabilities_pushed = _writeback_count(result)
 
-        # L2 semantic: capability cards (LLM, cached by ast_hash).
-        cards_by_id: dict[str, CapabilityCard] = {}
-        if self.llm_fn is not None:
-            calls_by_id = {c.id: c.calls for c in all_code}
-            for card in generate_symbol_cards(
-                all_code, self.llm_fn, self.card_cache, calls_by_id
-            ):
-                cards_by_id[card.id] = card
-                summary.cards_generated += 1
 
+    def _enrich_write_all(
+        self,
+        all_code: list[Any],
+        all_tests: list[Any],
+        results: list[ExtractionResult],
+        call_edges: list[EnrichmentEdge],
+        struct_edges: list[EnrichmentEdge],
+        features: list[Any],
+        cards_by_id: dict[str, CapabilityCard],
+        service_hint: str,
+        iac_files: list[tuple[str, str]] | None,
+        summary: EnrichmentSummary,
+    ) -> None:
+        """Batched-backend write phase of ``enrich_files``.
+
+        Extracted verbatim from ``enrich_files`` (pure extract-method, no
+        behaviour change). Swaps ``self.backend`` for a ``_BatchedBackend`` for
+        the duration of the write, exactly as the original inline code did,
+        restoring it in the ``finally`` clause.
+        """
         # Batch all writes for this repo through one buffered backend: a big repo
         # is tens of thousands of nodes, and each per-node write is a socket
         # round-trip. The buffer flushes via the engine's bulk op (nodes before
@@ -692,71 +840,13 @@ class EnrichmentPipeline:
                     self._write_edge(mid, f.id, "PART_OF_FEATURE")
                 summary.features += 1
 
-            # CONCEPT:AU-KG.enrichment.http-route-extraction — HTTP routes from handler decorators: Route nodes +
-            # SERVES (handler→route), and the code↔ecosystem SERVED_BY link to the
-            # deployed Service (best-effort name match), so OWL reasoning can chain
-            # Code –serves→ Route –servedBy→ Service –deployedOn→ Node.
-            route_nodes, serves_edges = extract_routes(all_code)
-            for rn in route_nodes:
-                self.backend.add_node(rn.id, label="Route", **rn.props)
-                summary.routes += 1
-            for e in serves_edges:
-                self._write_edge(e.source, e.target, e.rel_type)
-                summary.serves_edges += 1
-            service_id = (
-                resolve_service_id(service_hint, self._ecosystem_service_ids())
-                if service_hint
-                else ""
+            self._enrich_write_routes_iac_capabilities(
+                all_code, features, service_hint, iac_files, summary
             )
-            if route_nodes and service_id:
-                for e in link_routes_to_service(route_nodes, service_id):
-                    self._write_edge(e.source, e.target, e.rel_type)
-                    summary.served_by_edges += 1
-
-            # CONCEPT:AU-KG.enrichment.read-them-here-so — IaC Resources (Dockerfile/K8s/Terraform) + the
-            # PROVISIONS link to the deployed Service, spanning code → infra.
-            if iac_files:
-                resource_nodes, _ = extract_iac(iac_files)
-                for rn in resource_nodes:
-                    self.backend.add_node(rn.id, label="Resource", **rn.props)
-                    summary.resources += 1
-                if service_id:
-                    for e in link_resources_to_service(resource_nodes, service_id):
-                        self._write_edge(e.source, e.target, e.rel_type)
-                        summary.provisions_edges += 1
-
-            # Code → capability: match features to BusinessCapability nodes
-            # (LeanIX/Archi), mint provisional ones bottom-up, emit REALIZES edges,
-            # and optionally push the minted capabilities back to EA tools (KG-2.8).
-            if features and (
-                self.capability_provider is not None
-                or self.capability_registry is not None
-                or self.mint_capabilities
-            ):
-                capabilities = (
-                    self.capability_provider() if self.capability_provider else []
-                )
-                minted, realizes_edges = resolve_realizes(
-                    features,
-                    capabilities,
-                    registry=self.capability_registry,
-                    mint_missing=self.mint_capabilities,
-                    embed_fn=self.realizes_embed_fn,
-                )
-                for cap in minted:
-                    self._write_capability(cap)
-                    summary.capabilities_minted += 1
-                for e in realizes_edges:
-                    self._write_edge(e.source, e.target, e.rel_type)
-                    summary.realizes_edges += 1
-                if minted and self.writeback_fn is not None:
-                    result = self.writeback_fn(minted)
-                    summary.capabilities_pushed = _writeback_count(result)
         finally:
             self.backend.flush()
             self.backend = real_backend
 
-        return summary
 
     # ── writers (GraphBackend single interface) ──────────────────────────
     def _write_code(self, c: Any, card: CapabilityCard | None = None) -> None:

@@ -144,11 +144,6 @@ async def router_step(
         f"[LAYER:GRAPH:ROUTER] Routing started for query: '{ctx.state.query[:50]}...'"
     )
 
-    # Track re-planning loops to prevent infinite cycles
-    ctx.state.global_research_loops += 1
-    if ctx.state.global_research_loops > 3:
-        logger.error("Router: Max planning loops exceeded. Aborting.")
-        return "error_recovery"
 
     # CONCEPT:AU-ORCH.execution.direct-completion-shape — a direct-completion / lean turn is answered OUTSIDE this graph by
     # ``agent_runner._run_direct_completion`` (the planner's ``direct_complete`` shape, or the
@@ -158,6 +153,48 @@ async def router_step(
     # second router edge to the end node makes pydantic-graph broadcast-fork the router output
     # to BOTH end and dispatcher, terminating every full-graph turn.
 
+    guard = _router_check_replanning_budget(ctx)
+    if guard is not None:
+        return guard
+
+    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip -- static keyword routing tags
+    # lookup; result intentionally unused downstream, preserved as-is (see helper
+    # docstring + BUGS FOUND).
+    await _router_resolve_static_routing_tags(deps)
+
+    discovery_context, early_return = await _router_topological_pre_routing(ctx, deps)
+    if early_return is not None:
+        return early_return
+
+    direct_result = await _router_try_direct_dispatch(ctx, deps)
+    if direct_result is not None:
+        return direct_result
+
+    return await _router_plan_and_dispatch(ctx, deps, discovery_context)
+
+
+def _router_check_replanning_budget(ctx: StepContext) -> str | None:
+    """Bump the re-planning loop counter; return a terminal node id if it is exhausted.
+
+    Extracted verbatim from ``router_step`` (pure extract-method, no behaviour change).
+    """
+    # Track re-planning loops to prevent infinite cycles
+    ctx.state.global_research_loops += 1
+    if ctx.state.global_research_loops > 3:
+        logger.error("Router: Max planning loops exceeded. Aborting.")
+        return "error_recovery"
+    return None
+
+
+async def _router_resolve_static_routing_tags(deps: Any) -> dict[str, str]:
+    """Static keyword routing tags lookup.
+
+    Extracted verbatim from ``router_step`` (pure extract-method, no behaviour
+    change). NOTE: the returned value is unused by the caller in the pre-refactor
+    code too (``routing_tags`` was assigned and never read again) -- preserved
+    as-is; not a bug introduced by this decomposition. See BUGS FOUND in the lane
+    report.
+    """
     # Junction Pseudostate: Try static keyword routing first (saves LLM call)
     # If tag_prompts is empty (e.g. toolset loading failed due to missing env vars),
     # fall back to using the MCP registry directly for keyword-based routing.
@@ -172,6 +209,19 @@ async def router_step(
                 f"Router: tag_prompts is empty, falling back to registry tags ({len(routing_tags)} tags)"
             )
 
+    return routing_tags
+
+
+async def _router_topological_pre_routing(
+    ctx: StepContext, deps: Any
+) -> tuple[str, str | None]:
+    """Topological pre-routing: KG discovery, TeamConfig reuse, KG materialization, self-model.
+
+    Extracted verbatim from ``router_step`` (pure extract-method, no behaviour
+    change). Returns ``(discovery_context, early_return_node)``; a non-``None``
+    ``early_return_node`` means the caller must return it immediately (mirrors the
+    original inline ``return "dispatcher"`` short-circuits).
+    """
     # Topological Pre-Routing: Check the Knowledge Graph for direct tool matches and context.
     # CONCEPT:AU-ORCH.execution.direct-completion-shape — run this several-round-trip discovery bundle only when the job's
     # shape calls for it; a lean shape skips it.
@@ -327,7 +377,7 @@ async def router_step(
                         _emit_node_lifecycle(
                             deps.event_queue, "router", "node_complete"
                         )
-                        return "dispatcher"
+                        return discovery_context, "dispatcher"
             except Exception as e:  # noqa: BLE001 — 1st of 3 sequential planning strategies; ctx.state.plan is unconditionally reassigned by the LLM planner below if this path doesn't return "dispatcher"
                 logger.debug(
                     f"TeamConfig lookup failed, continuing with LLM planning: {e}"
@@ -389,7 +439,7 @@ async def router_step(
                         reasoning="KG AgentTemplate materialization",
                     )
                     _emit_node_lifecycle(deps.event_queue, "router", "node_complete")
-                    return "dispatcher"
+                    return discovery_context, "dispatcher"
             except Exception as e:  # noqa: BLE001 — same fallback chain as the TeamConfig lookup above; falls through to the LLM planner, which reassigns ctx.state.plan unconditionally
                 logger.debug(
                     f"KG AgentTemplate routing failed, continuing with LLM planning: {e}"
@@ -407,6 +457,18 @@ async def router_step(
                 discovery_context += self_model_context(current)
             except Exception as e:  # noqa: BLE001 — pure prompt-context string enrichment (discovery_context +=); failure just omits the extra text, router prompt still built normally
                 logger.debug(f"Self-Model proficiency injection failed: {e}")
+    return discovery_context, None
+
+
+async def _router_try_direct_dispatch(
+    ctx: StepContext, deps: Any
+) -> End[GraphResponse] | None:
+    """Single-connected-MCP-server fast path.
+
+    Extracted verbatim from ``router_step`` (pure extract-method, no behaviour
+    change). Returns ``End(...)`` on a successful direct dispatch, or ``None`` to
+    fall through to full planning (mirrors the original inline fall-through).
+    """
     # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid (perf) — DIRECT-DISPATCH FAST PATH.
     # When the task resolves to a single connected MCP server (the common single-server
     # deployment), skip the planner + memory_selection + verifier entirely: build an agent
@@ -503,7 +565,18 @@ async def router_step(
                 "falling back to full planning.",
                 e,
             )
+    return None
 
+
+async def _router_plan_and_dispatch(
+    ctx: StepContext, deps: Any, discovery_context: str
+) -> str:
+    """Full LLM planning pipeline + multi-level fallback chain.
+
+    Extracted verbatim from ``router_step`` (pure extract-method, no behaviour
+    change). Always returns the ``"dispatcher"`` node id (matching the original,
+    which only ever returned that string from this portion of the function).
+    """
     # Reset cursor for the new plan
     ctx.state.step_cursor = 0
 
@@ -1409,6 +1482,192 @@ async def parallel_batch_processor(
     return batch.tasks
 
 
+async def _expert_dispatch_step_handler(
+    ctx: StepContext, node_id: str, step: Any
+) -> None:
+    """Dispatch a single expert-execution step to its handler.
+
+    Extracted verbatim from ``expert_executor_step`` (pure extract-method, no
+    behaviour change). Covers the known static handlers (researcher/architect/
+    planner/verifier/mcp_server) and the dynamic graph-native agent spawning
+    fallback. Writes results into ``ctx.state.results_registry`` exactly as the
+    original inline code did; has no return value.
+    """
+    # CORE ARCHITECTURE STEPS (Preserved for pipeline stability)
+    # Lazy imports to avoid circular dependencies between submodules
+    from typing import Any, cast
+
+    from .hierarchical_planner import (
+        architect_step,
+        planner_step,
+        researcher_step,
+    )
+    from .verification import verifier_step
+
+    if node_id == "researcher":
+        await researcher_step(cast(Any, ctx))
+    elif node_id == "architect":
+        await architect_step(cast(Any, ctx))
+    elif node_id == "planner":
+        await planner_step(cast(Any, ctx))
+    elif node_id == "verifier":
+        await verifier_step(cast(Any, ctx))
+    elif node_id == "mcp_server":
+        domain = ""
+        input_data = step.description
+        if isinstance(input_data, dict):
+            domain = input_data.get("domain", "")
+        await _execute_domain_logic(cast(Any, ctx), domain)
+
+    # DYNAMIC GRAPH-NATIVE AGENT SPAWNING
+    else:
+        logger.info(
+            f"Expert Execution: Spawning dynamic agent for task '{node_id}'"
+        )
+
+        # 1. Query Knowledge Graph for best tools & prompts
+        engine = ctx.deps.knowledge_engine
+        system_prompt = (
+            f"You are a specialized agent handling the task: {node_id}."
+        )
+        tools_to_inject = []
+
+        if engine:
+
+            def _read_dynamic_bindings(
+                kg_engine: Any = engine,
+                dynamic_node_id: str = node_id,
+            ) -> tuple[list[Any], list[Any]]:
+                return (
+                    kg_engine.query_cypher(
+                        "MATCH (p:Prompt) WHERE toLower(p.name) CONTAINS toLower($name) RETURN p.system_prompt AS sp LIMIT 1",
+                        {"name": dynamic_node_id},
+                    ),
+                    kg_engine.query_cypher(
+                        # D-CDX-53: does NOT ``ORDER BY t.relevance_score``
+                        # in Cypher. The live graph can hold both legacy
+                        # ``[0, 1]`` float scores and canonical ``[0, 100]``
+                        # int points on persisted Tool rows at the same
+                        # time, and ordering raw mixed-scale values in the
+                        # database ranks semantically-equal scores ~100x
+                        # apart and can truncate the better legacy tool out
+                        # of the result before it is ever normalized. A
+                        # deterministic ``ORDER BY t.name`` plus a bounded
+                        # candidate pool (``_TOOL_CANDIDATE_POOL_LIMIT``)
+                        # is used instead, and the caller ranks the
+                        # candidates in Python via
+                        # ``_rank_tool_rows_by_relevance`` — which
+                        # normalizes every row through the SAME canonical
+                        # boundary as ``ToolNode``/``MCPToolInfo``
+                        # (``agent_utilities.models.tool_score``) before
+                        # comparing scores.
+                        "MATCH (t:Tool) WHERE any(tag IN t.tags WHERE toLower(tag) CONTAINS toLower($name)) OR toLower(t.name) CONTAINS toLower($name) "
+                        "RETURN t.name AS name, t.mcp_server AS server, t.relevance_score AS relevance_score "
+                        f"ORDER BY t.name LIMIT {_TOOL_CANDIDATE_POOL_LIMIT}",
+                        {"name": dynamic_node_id},
+                    ),
+                )
+
+            # Check for explicit prompt node
+            prompt_res, tool_res = await asyncio.to_thread(
+                _read_dynamic_bindings
+            )
+            if prompt_res and "sp" in prompt_res[0]:
+                system_prompt = prompt_res[0]["sp"]
+
+            # Find relevant tools (by tag or semantic overlap if we had embeddings, using tag heuristic for now)
+            ranked_tool_rows = _rank_tool_rows_by_relevance(
+                tool_res, limit=_TOOL_RESULT_LIMIT
+            )
+            tools_to_inject = [t["name"] for t in ranked_tool_rows]
+
+        logger.info(
+            f"Dynamic Agent '{node_id}': Injecting {len(tools_to_inject)} tools from Knowledge Graph."
+        )
+
+        # 2. Execute Dynamic Agent
+        from .executor import _get_domain_tools
+
+        domain_tools, domain_toolsets = await _get_domain_tools(
+            "mcp_server_execution", ctx.deps
+        )
+
+        # A delegated skill's native GraphOS toolset is scoped to this
+        # run and is therefore authoritative even when the planner
+        # emits a dynamic node name that does not match a fleet-server
+        # tag. Preserve it through the fallback path and apply the
+        # same signed identity policy used by specialist execution.
+        native_toolsets = [
+            toolset
+            for toolset in ctx.deps.mcp_toolsets
+            if isinstance(
+                (metadata := getattr(toolset, "metadata", None)), dict
+            )
+            and metadata.get("graphos_native") is True
+        ]
+        if native_toolsets:
+            from agent_utilities.security.tool_guard import (
+                flag_mcp_tool_definitions,
+            )
+
+            domain_toolsets = [
+                *flag_mcp_tool_definitions(
+                    native_toolsets,
+                    permissions_kernel=ctx.deps.permissions_kernel,
+                    agent_identity=ctx.deps.agent_identity,
+                    engine=ctx.deps.knowledge_engine,
+                ),
+                *domain_toolsets,
+            ]
+
+        # Filter down to the exact tools
+        if tools_to_inject:
+            filtered_tools = [
+                t for t in domain_tools if t.__name__ in tools_to_inject
+            ]
+            if filtered_tools:
+                domain_tools = filtered_tools
+
+        (
+            domain_tools,
+            domain_toolsets,
+        ) = apply_tool_scope(  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
+            ctx.state, domain_tools, domain_toolsets
+        )
+        dynamic_agent = create_context_agent(
+            model=ctx.deps.agent_model,
+            permissions_kernel=ctx.deps.permissions_kernel,
+            agent_identity=ctx.deps.agent_identity,
+            permission_engine=ctx.deps.knowledge_engine,
+            system_prompt=system_prompt + invoker_context_section(ctx.state),
+            tools=domain_tools,
+            toolsets=domain_toolsets,
+        )
+
+        # The injected developer_tools/sdd_tools are RunContext[AgentDeps]-typed and
+        # read ctx.deps.workspace_path; the graph context is GraphDeps (no
+        # workspace_path). Running without deps left ctx.deps=None →
+        # "'NoneType' object has no attribute 'workspace_path'". Adapt the graph
+        # context into a valid AgentDeps so injected tools AND MCP toolsets work.
+        from .executor import agent_deps_from_graph
+
+        _agent_deps = agent_deps_from_graph(
+            ctx.deps, domain_toolsets, state=ctx.state
+        )
+
+        # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid/1.38 — bound requests + enforce the invoker's token budget.
+        async with dynamic_agent.run_stream(
+            f"Task context: {step.description}",
+            deps=_agent_deps,
+            usage_limits=spawn_usage_limits(ctx.state),
+        ) as stream:
+            res = await asyncio.wait_for(
+                stream.get_output(), timeout=ctx.deps.verifier_timeout
+            )
+
+        ctx.state.results_registry[node_id] = str(res)
+
+
 async def expert_executor_step(
     ctx: StepContext,
 ) -> str:
@@ -1482,179 +1741,7 @@ async def expert_executor_step(
                 },
             )
 
-            # CORE ARCHITECTURE STEPS (Preserved for pipeline stability)
-            # Lazy imports to avoid circular dependencies between submodules
-            from typing import Any, cast
-
-            from .hierarchical_planner import (
-                architect_step,
-                planner_step,
-                researcher_step,
-            )
-            from .verification import verifier_step
-
-            if node_id == "researcher":
-                await researcher_step(cast(Any, ctx))
-            elif node_id == "architect":
-                await architect_step(cast(Any, ctx))
-            elif node_id == "planner":
-                await planner_step(cast(Any, ctx))
-            elif node_id == "verifier":
-                await verifier_step(cast(Any, ctx))
-            elif node_id == "mcp_server":
-                domain = ""
-                input_data = step.description
-                if isinstance(input_data, dict):
-                    domain = input_data.get("domain", "")
-                await _execute_domain_logic(cast(Any, ctx), domain)
-
-            # DYNAMIC GRAPH-NATIVE AGENT SPAWNING
-            else:
-                logger.info(
-                    f"Expert Execution: Spawning dynamic agent for task '{node_id}'"
-                )
-
-                # 1. Query Knowledge Graph for best tools & prompts
-                engine = ctx.deps.knowledge_engine
-                system_prompt = (
-                    f"You are a specialized agent handling the task: {node_id}."
-                )
-                tools_to_inject = []
-
-                if engine:
-
-                    def _read_dynamic_bindings(
-                        kg_engine: Any = engine,
-                        dynamic_node_id: str = node_id,
-                    ) -> tuple[list[Any], list[Any]]:
-                        return (
-                            kg_engine.query_cypher(
-                                "MATCH (p:Prompt) WHERE toLower(p.name) CONTAINS toLower($name) RETURN p.system_prompt AS sp LIMIT 1",
-                                {"name": dynamic_node_id},
-                            ),
-                            kg_engine.query_cypher(
-                                # D-CDX-53: does NOT ``ORDER BY t.relevance_score``
-                                # in Cypher. The live graph can hold both legacy
-                                # ``[0, 1]`` float scores and canonical ``[0, 100]``
-                                # int points on persisted Tool rows at the same
-                                # time, and ordering raw mixed-scale values in the
-                                # database ranks semantically-equal scores ~100x
-                                # apart and can truncate the better legacy tool out
-                                # of the result before it is ever normalized. A
-                                # deterministic ``ORDER BY t.name`` plus a bounded
-                                # candidate pool (``_TOOL_CANDIDATE_POOL_LIMIT``)
-                                # is used instead, and the caller ranks the
-                                # candidates in Python via
-                                # ``_rank_tool_rows_by_relevance`` — which
-                                # normalizes every row through the SAME canonical
-                                # boundary as ``ToolNode``/``MCPToolInfo``
-                                # (``agent_utilities.models.tool_score``) before
-                                # comparing scores.
-                                "MATCH (t:Tool) WHERE any(tag IN t.tags WHERE toLower(tag) CONTAINS toLower($name)) OR toLower(t.name) CONTAINS toLower($name) "
-                                "RETURN t.name AS name, t.mcp_server AS server, t.relevance_score AS relevance_score "
-                                f"ORDER BY t.name LIMIT {_TOOL_CANDIDATE_POOL_LIMIT}",
-                                {"name": dynamic_node_id},
-                            ),
-                        )
-
-                    # Check for explicit prompt node
-                    prompt_res, tool_res = await asyncio.to_thread(
-                        _read_dynamic_bindings
-                    )
-                    if prompt_res and "sp" in prompt_res[0]:
-                        system_prompt = prompt_res[0]["sp"]
-
-                    # Find relevant tools (by tag or semantic overlap if we had embeddings, using tag heuristic for now)
-                    ranked_tool_rows = _rank_tool_rows_by_relevance(
-                        tool_res, limit=_TOOL_RESULT_LIMIT
-                    )
-                    tools_to_inject = [t["name"] for t in ranked_tool_rows]
-
-                logger.info(
-                    f"Dynamic Agent '{node_id}': Injecting {len(tools_to_inject)} tools from Knowledge Graph."
-                )
-
-                # 2. Execute Dynamic Agent
-                from .executor import _get_domain_tools
-
-                domain_tools, domain_toolsets = await _get_domain_tools(
-                    "mcp_server_execution", ctx.deps
-                )
-
-                # A delegated skill's native GraphOS toolset is scoped to this
-                # run and is therefore authoritative even when the planner
-                # emits a dynamic node name that does not match a fleet-server
-                # tag. Preserve it through the fallback path and apply the
-                # same signed identity policy used by specialist execution.
-                native_toolsets = [
-                    toolset
-                    for toolset in ctx.deps.mcp_toolsets
-                    if isinstance(
-                        (metadata := getattr(toolset, "metadata", None)), dict
-                    )
-                    and metadata.get("graphos_native") is True
-                ]
-                if native_toolsets:
-                    from agent_utilities.security.tool_guard import (
-                        flag_mcp_tool_definitions,
-                    )
-
-                    domain_toolsets = [
-                        *flag_mcp_tool_definitions(
-                            native_toolsets,
-                            permissions_kernel=ctx.deps.permissions_kernel,
-                            agent_identity=ctx.deps.agent_identity,
-                            engine=ctx.deps.knowledge_engine,
-                        ),
-                        *domain_toolsets,
-                    ]
-
-                # Filter down to the exact tools
-                if tools_to_inject:
-                    filtered_tools = [
-                        t for t in domain_tools if t.__name__ in tools_to_inject
-                    ]
-                    if filtered_tools:
-                        domain_tools = filtered_tools
-
-                (
-                    domain_tools,
-                    domain_toolsets,
-                ) = apply_tool_scope(  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
-                    ctx.state, domain_tools, domain_toolsets
-                )
-                dynamic_agent = create_context_agent(
-                    model=ctx.deps.agent_model,
-                    permissions_kernel=ctx.deps.permissions_kernel,
-                    agent_identity=ctx.deps.agent_identity,
-                    permission_engine=ctx.deps.knowledge_engine,
-                    system_prompt=system_prompt + invoker_context_section(ctx.state),
-                    tools=domain_tools,
-                    toolsets=domain_toolsets,
-                )
-
-                # The injected developer_tools/sdd_tools are RunContext[AgentDeps]-typed and
-                # read ctx.deps.workspace_path; the graph context is GraphDeps (no
-                # workspace_path). Running without deps left ctx.deps=None →
-                # "'NoneType' object has no attribute 'workspace_path'". Adapt the graph
-                # context into a valid AgentDeps so injected tools AND MCP toolsets work.
-                from .executor import agent_deps_from_graph
-
-                _agent_deps = agent_deps_from_graph(
-                    ctx.deps, domain_toolsets, state=ctx.state
-                )
-
-                # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid/1.38 — bound requests + enforce the invoker's token budget.
-                async with dynamic_agent.run_stream(
-                    f"Task context: {step.description}",
-                    deps=_agent_deps,
-                    usage_limits=spawn_usage_limits(ctx.state),
-                ) as stream:
-                    res = await asyncio.wait_for(
-                        stream.get_output(), timeout=ctx.deps.verifier_timeout
-                    )
-
-                ctx.state.results_registry[node_id] = str(res)
+            await _expert_dispatch_step_handler(ctx, node_id, step)
 
             # Update branched state with execution output
             node_result = ctx.state.results_registry.get(node_id, {})
