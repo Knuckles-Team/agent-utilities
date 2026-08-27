@@ -5723,6 +5723,13 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/ontology_federation.py
   doc: the ~14-package migration fan-out
+- id: AU-KG.ontology.policy-external-sync
+  name: AU-KG.ontology.policy-external-sync
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/permissioning_external_sync.py
+  doc: AU-KG.ontology.policy-external-sync
 - id: AU-KG.ontology.populated-at-import-real-3
   name: populated at import with real built-in standards, never empty
   pillar: AU-KG

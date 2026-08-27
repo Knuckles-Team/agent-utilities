@@ -32,6 +32,7 @@ from ...knowledge_graph.ontology.permissioning import (
     build_acl,
     propagate_over_edges,
 )
+from ...knowledge_graph.ontology.permissioning_external_sync import invalidate_cache
 from ...models.company_brain import DataClassification, NodeACL
 from .base import ExternalAccess
 
@@ -108,6 +109,22 @@ def sync_access(
     for name in access.markings:
         if name:
             apply_marking(document_id, Marking(name))
+
+    # CA-26: a newly-applied marking dirties the tenant's next external-policy-
+    # sync cycle, so a poll-bound Applier re-fetches CA-16's bundle eagerly
+    # instead of waiting out the full poll interval (DEC-CA-04's "Call
+    # sequence": "MARKING_REGISTRY change -> ... -> invalidation hook fires").
+    # Never allowed to fail this sync -- an ambient-tenant resolution failure
+    # here must not undo the marking apply that already succeeded above.
+    if access.markings:
+        try:
+            from ...knowledge_graph.core.session import resolve_session
+
+            tenant = str(resolve_session().tenant or "").strip()
+        except Exception:  # noqa: BLE001 -- best-effort cache invalidation only
+            tenant = ""
+        if tenant:
+            invalidate_cache(tenant, document_id)
 
     # Discretionary ACLs do not inherit read_roles through classification-only
     # propagation, so register the same source ACL on every materialized child.

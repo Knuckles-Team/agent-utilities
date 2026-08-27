@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-572 typed fields · 378 runtime-only call-site inputs.
+572 typed fields · 379 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -777,6 +777,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `BROWSER_TOOLS` | 1 |
 | `BUS_HUB_ID` | 1 |
 | `BUS_IDENTITY_HMAC_KEY_REF` | 1 |
+| `CA26_EXTERNAL_POLICY_SYNC_ENABLED` | 1 |
 | `CADDY_API_URL` | 1 |
 | `CADDY_URL` | 1 |
 | `CHECKLIST_FILE` | 1 |
