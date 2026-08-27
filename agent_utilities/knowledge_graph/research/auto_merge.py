@@ -227,37 +227,53 @@ class GovernedAutoMerger:
         skeleton proposal never clears the conservative default threshold by
         accident.
         """
+        explicit = GovernedAutoMerger._explicit_quality_score(spec)
+        if explicit is not None:
+            return explicit
+        return GovernedAutoMerger._structural_quality_score(spec)
+
+    @staticmethod
+    def _explicit_quality_score(spec: Any) -> float | None:
+        """The spec's own ``quality_score``, clamped -- or None if absent or
+        not convertible to float (the latter falls back to structural
+        scoring, same as absent)."""
         explicit = getattr(spec, "quality_score", None)
         if explicit is None and isinstance(spec, dict):
             explicit = spec.get("quality_score")
-        if explicit is not None:
-            try:
-                return max(0.0, min(1.0, float(explicit)))
-            except (TypeError, ValueError):
-                pass
+        if explicit is None:
+            return None
+        try:
+            return max(0.0, min(1.0, float(explicit)))
+        except (TypeError, ValueError):
+            return None
 
-        score = 0.0
-        name = getattr(spec, "name", "") or (
-            spec.get("name", "") if isinstance(spec, dict) else ""
+    @staticmethod
+    def _spec_str_attr(spec: Any, name: str) -> str:
+        """A string-ish attribute, falling back to dict-style access."""
+        return getattr(spec, name, "") or (
+            spec.get(name, "") if isinstance(spec, dict) else ""
         )
-        goal = getattr(spec, "goal", "") or (
-            spec.get("goal", "") if isinstance(spec, dict) else ""
-        )
-        if name:
-            score += 0.25
-        if goal:
-            score += 0.25
+
+    @staticmethod
+    def _spec_members(spec: Any) -> Any:
         members = getattr(spec, "members", None)
         if members is None and isinstance(spec, dict):
             members = spec.get("members")
+        return members
+
+    @staticmethod
+    def _structural_quality_score(spec: Any) -> float:
+        score = 0.0
+        if GovernedAutoMerger._spec_str_attr(spec, "name"):
+            score += 0.25
+        if GovernedAutoMerger._spec_str_attr(spec, "goal"):
+            score += 0.25
+        members = GovernedAutoMerger._spec_members(spec)
         if members:
             score += 0.25
             if len(members) >= 2:
                 score += 0.15
-        lead = getattr(spec, "lead", "") or (
-            spec.get("lead", "") if isinstance(spec, dict) else ""
-        )
-        if lead:
+        if GovernedAutoMerger._spec_str_attr(spec, "lead"):
             score += 0.10
         return max(0.0, min(1.0, score))
 
