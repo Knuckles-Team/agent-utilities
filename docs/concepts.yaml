@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1233
+total_concepts: 1235
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -3109,6 +3109,13 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/engine_breaker.py
   doc: A single dropped connection
+- id: AU-KG.compute.spark-transform-jobs
+  name: AU-KG.compute.spark-transform-jobs
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/backends/spark_jobs.py
+  doc: AU-KG.compute.spark-transform-jobs
 - id: AU-KG.compute.spectral-cluster-navigator
   name: Financial regime detection extension
   pillar: AU-KG
@@ -3189,6 +3196,13 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/topological_partition.py
   doc: Mincut Partitioning
+- id: AU-KG.compute.trino-query-backend
+  name: AU-KG.compute.trino-query-backend
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/backends/trino_backend.py
+  doc: AU-KG.compute.trino-query-backend
 - id: AU-KG.compute.tunnel-manager-hosts
   name: tunnel-manager hosts →
   pillar: AU-KG

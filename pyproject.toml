@@ -640,6 +640,19 @@ postgresql = [
     "psycopg[binary]>=3.3.4",
     "psycopg-pool>=3.3.1"
 ]
+# CONCEPT:AU-KG.compute.trino-query-backend (CA-27) — `TrinoQueryBackend`
+# (knowledge_graph/backends/trino_backend.py) reads Trino/Lakekeeper over the
+# SAME `sqlalchemy-trino` dialect CA-41's sql-mcp uses (agreed connection
+# parameters, disjoint files per the CA-27 lane contract). Floors match the
+# versions proved live against `services/trino` (tag 476) this session:
+# trino-python-client 0.339.0, sqlalchemy-trino 0.5.0, on sqlalchemy 2.0.51.
+# Optional/lazily-imported — `agent_utilities.knowledge_graph.backends` never
+# imports `trino`/`sqlalchemy` at module load time.
+trino = [
+    "sqlalchemy>=2.0.51",
+    "trino>=0.339.0",
+    "sqlalchemy-trino>=0.5.0"
+]
 # Native Messaging Backend Abstraction (CONCEPT:ECO-4.5)
 messaging-discord = ["discord.py>=2.7.1"]
 messaging-slack = ["slack-bolt>=1.30.0"]
