@@ -274,14 +274,7 @@ def _resolve_property_graph_auth_profile(
     return auth
 
 
-def validate_persistable_connection_spec(spec: dict[str, Any]) -> None:
-    """Reject endpoint/path/identity material before a spec enters config.json.
-
-    Programmatic transient registries may still use direct values.  The GraphOS
-    durable registration action calls this gate before ``export_specs`` so the
-    persisted shape contains only neutral aliases and secret references.
-    """
-
+def _validate_persistable_sensitive_fields(spec: dict[str, Any]) -> None:
     for field in _PERSISTENCE_SENSITIVE_FIELDS:
         value = spec.get(field)
         if value in (None, ""):
@@ -290,6 +283,9 @@ def validate_persistable_connection_spec(spec: dict[str, Any]) -> None:
             raise ValueError(
                 f"persistent connection field {field!r} must be a secret reference"
             )
+
+
+def _validate_persistable_mirror_target(spec: dict[str, Any]) -> None:
     # CONCEPT:AU-KG.backend.mirror-target-graph — a mirror target is neutral
     # operator metadata (a mode, plus an optional portable graph name in the same
     # spirit as the connection's own ``name``), not endpoint/identity material —
@@ -317,6 +313,9 @@ def validate_persistable_connection_spec(spec: dict[str, Any]) -> None:
         declared = parse_mirror_target(spec.get(MIRROR_TARGET_FIELD))
         if declared is not None and declared.name:
             validate_target_name(declared.name)
+
+
+def _validate_persistable_backend_selector(spec: dict[str, Any]) -> str:
     backend_value = str(spec.get("backend") or "").strip()
     backend_type_value = str(spec.get("backend_type") or "").strip()
     if backend_value and backend_type_value and backend_value != backend_type_value:
@@ -324,118 +323,186 @@ def validate_persistable_connection_spec(spec: dict[str, Any]) -> None:
     backend = backend_type_value or backend_value
     if "source_alias" in spec and backend not in _EXTERNAL_GRAPH_ADAPTERS:
         raise ValueError("persistent external graph backend selector is unsupported")
-    if backend in _EXTERNAL_GRAPH_ADAPTERS:
-        graphql = backend == "graphql"
-        allowed = (
-            _EXTERNAL_GRAPHQL_FIELDS if graphql else _EXTERNAL_PROPERTY_GRAPH_FIELDS
+    return backend
+
+
+def _validate_persistable_graph_allowed_fields(
+    spec: dict[str, Any], graphql: bool
+) -> None:
+    allowed = _EXTERNAL_GRAPHQL_FIELDS if graphql else _EXTERNAL_PROPERTY_GRAPH_FIELDS
+    if set(spec).difference(allowed):
+        raise ValueError(
+            "persistent external graph declarations contain unsupported inline material"
         )
-        if set(spec).difference(allowed):
+
+
+def _validate_persistable_graph_name_and_role(
+    spec: dict[str, Any], graphql: bool
+) -> None:
+    name = str(spec.get("name") or "").strip().lower()
+    if name and not re.fullmatch(r"[a-z][a-z0-9-]{1,62}", name):
+        raise ValueError("persistent external graph declarations need a neutral name")
+    role = str(spec.get("role") or DEFAULT_ROLE).lower()
+    if graphql and role != "read":
+        raise ValueError("persistent GraphQL declarations must use role='read'")
+    if role not in _ROLES:
+        raise ValueError("persistent external graph role is invalid")
+
+
+def _validate_persistable_graph_source_alias(
+    spec: dict[str, Any], graphql: bool
+) -> None:
+    source_alias = str(spec.get("source_alias") or "").strip().lower()
+    if source_alias and not re.fullmatch(r"[a-z][a-z0-9-]{1,62}", source_alias):
+        raise ValueError(
+            "persistent external graph declarations need a neutral source_alias"
+        )
+    if graphql and not source_alias:
+        raise ValueError("persistent GraphQL declarations need a neutral source_alias")
+
+
+def _validate_persistable_graph_identity(spec: dict[str, Any], graphql: bool) -> None:
+    _validate_persistable_graph_name_and_role(spec, graphql)
+    _validate_persistable_graph_source_alias(spec, graphql)
+
+
+def _validate_persistable_graph_refs(spec: dict[str, Any], graphql: bool) -> None:
+    required_refs = ["connection_profile_ref"]
+    for required_ref in required_refs:
+        if not _SECRET_REF_RE.fullmatch(str(spec.get(required_ref) or "")):
             raise ValueError(
-                "persistent external graph declarations contain unsupported inline material"
+                f"persistent external graph declarations require {required_ref}"
             )
-        name = str(spec.get("name") or "").strip().lower()
-        if name and not re.fullmatch(r"[a-z][a-z0-9-]{1,62}", name):
-            raise ValueError(
-                "persistent external graph declarations need a neutral name"
+    if (
+        graphql
+        and not spec.get("mapping_policy_ref")
+        and spec.get("allow_introspection") is not True
+    ):
+        raise ValueError(
+            "persistent GraphQL declarations require mapping_policy_ref or "
+            "explicit allow_introspection"
+        )
+    operation = str(spec.get("ingest_operation") or "")
+    if operation and not re.fullmatch(r"[a-z][a-z0-9_]{1,63}", operation):
+        raise ValueError("persistent GraphQL ingest_operation is invalid")
+
+
+def _persistable_graph_bounds_spec(graphql: bool) -> list[tuple[str, int, int]]:
+    bounds = [
+        ("discovery_max_types", 1, 500),
+        ("ingest_max_records", 1, 10_000),
+    ]
+    if graphql:
+        bounds.append(("discovery_max_depth", 1, 12))
+    else:
+        bounds.extend(
+            (
+                ("ingest_page_size", 1, 1_000),
+                ("ingest_max_pages", 1, 1_000),
+                ("ingest_max_row_bytes", 256, 8_388_608),
+                ("ingest_max_total_bytes", 256, 67_108_864),
+                ("ingest_max_nesting_depth", 1, 64),
+                ("ingest_max_collection_items", 1, 100_000),
             )
-        role = str(spec.get("role") or DEFAULT_ROLE).lower()
-        if graphql and role != "read":
-            raise ValueError("persistent GraphQL declarations must use role='read'")
-        if role not in _ROLES:
-            raise ValueError("persistent external graph role is invalid")
-        source_alias = str(spec.get("source_alias") or "").strip().lower()
-        if source_alias and not re.fullmatch(r"[a-z][a-z0-9-]{1,62}", source_alias):
-            raise ValueError(
-                "persistent external graph declarations need a neutral source_alias"
-            )
-        if graphql and not source_alias:
-            raise ValueError(
-                "persistent GraphQL declarations need a neutral source_alias"
-            )
-        required_refs = ["connection_profile_ref"]
-        for required_ref in required_refs:
-            if not _SECRET_REF_RE.fullmatch(str(spec.get(required_ref) or "")):
-                raise ValueError(
-                    f"persistent external graph declarations require {required_ref}"
-                )
-        if (
-            graphql
-            and not spec.get("mapping_policy_ref")
-            and spec.get("allow_introspection") is not True
+        )
+    return bounds
+
+
+def _validate_persistable_graph_bound(
+    spec: dict[str, Any], key: str, lower: int, upper: int, graphql: bool
+) -> None:
+    if spec.get(key) is None:
+        return
+    if not graphql and isinstance(spec[key], bool):
+        raise ValueError(f"persistent external graph {key} is invalid")
+    try:
+        bounded = int(spec[key])
+    except (TypeError, ValueError):
+        raise ValueError(f"persistent external graph {key} is invalid") from None
+    if not lower <= bounded <= upper:
+        raise ValueError(f"persistent external graph {key} is out of range")
+
+
+def _validate_persistable_graph_byte_coverage(
+    spec: dict[str, Any], graphql: bool
+) -> None:
+    if not graphql and int(spec.get("ingest_max_total_bytes") or 16_777_216) < int(
+        spec.get("ingest_max_row_bytes") or 1_048_576
+    ):
+        raise ValueError(
+            "persistent external graph total byte bound must cover one row"
+        )
+
+
+def _validate_persistable_graph_bounds(spec: dict[str, Any], graphql: bool) -> None:
+    for key, lower, upper in _persistable_graph_bounds_spec(graphql):
+        _validate_persistable_graph_bound(spec, key, lower, upper, graphql)
+    _validate_persistable_graph_byte_coverage(spec, graphql)
+
+
+def _validate_persistable_graph_policy_flags(
+    spec: dict[str, Any], graphql: bool
+) -> None:
+    if spec.get("require_approval") not in (None, True):
+        raise ValueError("persistent external graph approval cannot be disabled")
+    if spec.get("schema_drift_policy") not in (None, "fail_closed"):
+        raise ValueError("persistent external graph schema drift must fail closed")
+    if graphql and spec.get("semantic_mapping") not in (None, False):
+        raise ValueError(
+            "persistent GraphQL semantic_mapping is unsupported; "
+            "use governed structural mapping proposals"
+        )
+    if not graphql and spec.get("sync_mode") not in (
+        None,
+        "auto",
+        "cdc",
+        "snapshot",
+    ):
+        raise ValueError("persistent external graph sync_mode is invalid")
+
+
+def _validate_persistable_graph_booleans(spec: dict[str, Any], graphql: bool) -> None:
+    property_boolean_keys = ("reconcile_deletions",) if not graphql else ()
+    for boolean_key in (
+        "allow_empty_snapshot",
+        "allow_introspection",
+        "contextual",
+        "semantic_mapping",
+        *property_boolean_keys,
+    ):
+        if spec.get(boolean_key) is not None and not isinstance(
+            spec.get(boolean_key), bool
         ):
             raise ValueError(
-                "persistent GraphQL declarations require mapping_policy_ref or "
-                "explicit allow_introspection"
+                f"persistent external graph {boolean_key} must be boolean"
             )
-        operation = str(spec.get("ingest_operation") or "")
-        if operation and not re.fullmatch(r"[a-z][a-z0-9_]{1,63}", operation):
-            raise ValueError("persistent GraphQL ingest_operation is invalid")
-        bounds = [
-            ("discovery_max_types", 1, 500),
-            ("ingest_max_records", 1, 10_000),
-        ]
-        if graphql:
-            bounds.append(("discovery_max_depth", 1, 12))
-        else:
-            bounds.extend(
-                (
-                    ("ingest_page_size", 1, 1_000),
-                    ("ingest_max_pages", 1, 1_000),
-                    ("ingest_max_row_bytes", 256, 8_388_608),
-                    ("ingest_max_total_bytes", 256, 67_108_864),
-                    ("ingest_max_nesting_depth", 1, 64),
-                    ("ingest_max_collection_items", 1, 100_000),
-                )
-            )
-        for key, lower, upper in bounds:
-            if spec.get(key) is None:
-                continue
-            if not graphql and isinstance(spec[key], bool):
-                raise ValueError(f"persistent external graph {key} is invalid")
-            try:
-                bounded = int(spec[key])
-            except (TypeError, ValueError):
-                raise ValueError(
-                    f"persistent external graph {key} is invalid"
-                ) from None
-            if not lower <= bounded <= upper:
-                raise ValueError(f"persistent external graph {key} is out of range")
-        if not graphql and int(spec.get("ingest_max_total_bytes") or 16_777_216) < int(
-            spec.get("ingest_max_row_bytes") or 1_048_576
-        ):
-            raise ValueError(
-                "persistent external graph total byte bound must cover one row"
-            )
-        if spec.get("require_approval") not in (None, True):
-            raise ValueError("persistent external graph approval cannot be disabled")
-        if spec.get("schema_drift_policy") not in (None, "fail_closed"):
-            raise ValueError("persistent external graph schema drift must fail closed")
-        if graphql and spec.get("semantic_mapping") not in (None, False):
-            raise ValueError(
-                "persistent GraphQL semantic_mapping is unsupported; "
-                "use governed structural mapping proposals"
-            )
-        if not graphql and spec.get("sync_mode") not in (
-            None,
-            "auto",
-            "cdc",
-            "snapshot",
-        ):
-            raise ValueError("persistent external graph sync_mode is invalid")
-        property_boolean_keys = ("reconcile_deletions",) if not graphql else ()
-        for boolean_key in (
-            "allow_empty_snapshot",
-            "allow_introspection",
-            "contextual",
-            "semantic_mapping",
-            *property_boolean_keys,
-        ):
-            if spec.get(boolean_key) is not None and not isinstance(
-                spec.get(boolean_key), bool
-            ):
-                raise ValueError(
-                    f"persistent external graph {boolean_key} must be boolean"
-                )
+
+
+def _validate_persistable_external_graph_spec(
+    spec: dict[str, Any], backend: str
+) -> None:
+    graphql = backend == "graphql"
+    _validate_persistable_graph_allowed_fields(spec, graphql)
+    _validate_persistable_graph_identity(spec, graphql)
+    _validate_persistable_graph_refs(spec, graphql)
+    _validate_persistable_graph_bounds(spec, graphql)
+    _validate_persistable_graph_policy_flags(spec, graphql)
+    _validate_persistable_graph_booleans(spec, graphql)
+
+
+def validate_persistable_connection_spec(spec: dict[str, Any]) -> None:
+    """Reject endpoint/path/identity material before a spec enters config.json.
+
+    Programmatic transient registries may still use direct values.  The GraphOS
+    durable registration action calls this gate before ``export_specs`` so the
+    persisted shape contains only neutral aliases and secret references.
+    """
+
+    _validate_persistable_sensitive_fields(spec)
+    _validate_persistable_mirror_target(spec)
+    backend = _validate_persistable_backend_selector(spec)
+    if backend in _EXTERNAL_GRAPH_ADAPTERS:
+        _validate_persistable_external_graph_spec(spec, backend)
 
 
 class ConnectionRegistry:
