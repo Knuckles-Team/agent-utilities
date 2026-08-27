@@ -2004,6 +2004,248 @@ def register_query_tools(mcp):
 
     kg_server.REGISTERED_TOOLS["graph_code_nav"] = graph_code_nav
 
+    def _graph_document_tree_build(
+        document_id: str, text: str, persist: bool, thin: bool, summarize: bool, engine: Any
+    ) -> str:
+        from agent_utilities.knowledge_graph.ontology.document_processing import (
+            SectionTreeConfig,
+            build_section_tree,
+            section_nodes_and_edges,
+        )
+        from agent_utilities.knowledge_graph.retrieval.hierarchical_document_retriever import (
+            structure_view,
+        )
+
+        if not text and not document_id:
+            return json.dumps({"error": "build requires 'text' or 'document_id'"})
+        cfg = SectionTreeConfig(thin=thin, summarize=summarize)
+        roots = build_section_tree(text, config=cfg)
+        nodes, edges = section_nodes_and_edges(document_id or "doc:inline", roots)
+        persisted = False
+        if persist and document_id and engine is not None:
+            persisted = _persist_sections(engine, nodes, edges)
+        return json.dumps(
+            {
+                "action": "build",
+                "document_id": document_id,
+                "section_count": len(nodes),
+                "persisted": persisted,
+                "structure": structure_view(roots),
+            },
+            default=str,
+        )
+
+    def _graph_document_tree_structure(document_id: str, engine: Any) -> str:
+        from agent_utilities.knowledge_graph.retrieval.hierarchical_document_retriever import (
+            HierarchicalDocumentRetriever,
+            structure_view,
+        )
+
+        if not document_id:
+            return json.dumps({"error": "structure requires 'document_id'"})
+        if engine is None:
+            return json.dumps({"error": "IntelligenceGraphEngine not active"})
+        roots = HierarchicalDocumentRetriever(engine).load_tree(document_id)
+        if not roots:
+            return json.dumps({"error": f"no section tree for document {document_id!r}"})
+        return json.dumps(
+            {
+                "action": "structure",
+                "document_id": document_id,
+                "structure": structure_view(roots),
+            },
+            default=str,
+        )
+
+    def _graph_document_tree_content(document_id: str, ranges: str, engine: Any) -> str:
+        from agent_utilities.knowledge_graph.retrieval.hierarchical_document_retriever import (
+            HierarchicalDocumentRetriever,
+            content_for_ranges,
+        )
+
+        if not document_id:
+            return json.dumps({"error": "content requires 'document_id'"})
+        if engine is None:
+            return json.dumps({"error": "IntelligenceGraphEngine not active"})
+        try:
+            parsed = _parse_ranges(ranges)
+        except ValueError as e:
+            return public_error_json(e)
+        roots = HierarchicalDocumentRetriever(engine).load_tree(document_id)
+        if not roots:
+            return json.dumps({"error": f"no section tree for document {document_id!r}"})
+        return json.dumps(
+            {
+                "action": "content",
+                "document_id": document_id,
+                "sections": content_for_ranges(roots, parsed),
+            },
+            default=str,
+        )
+
+    def _graph_document_tree_retrieve(
+        query: str,
+        text: str,
+        document_id: str,
+        top_k: int,
+        use_llm: bool,
+        engine: Any,
+    ) -> str:
+        from agent_utilities.knowledge_graph.ontology.document_processing import (
+            SectionTreeConfig,
+            build_section_tree,
+        )
+        from agent_utilities.knowledge_graph.retrieval.hierarchical_document_retriever import (
+            HierarchicalDocumentRetriever,
+        )
+
+        if not query:
+            return json.dumps({"error": "retrieve requires 'query'"})
+        retriever = HierarchicalDocumentRetriever(engine)
+        tree = None
+        if text:
+            tree = build_section_tree(
+                text, config=SectionTreeConfig(thin=True, summarize=True)
+            )
+        elif not document_id:
+            return json.dumps({"error": "retrieve requires 'text' or 'document_id'"})
+        matches = retriever.retrieve(
+            query,
+            document_id=document_id,
+            tree=tree,
+            top_k=top_k,
+            use_llm=use_llm,
+        )
+        return json.dumps(
+            {
+                "action": "retrieve",
+                "query": query,
+                "results": [m.as_dict() for m in matches],
+            },
+            default=str,
+        )
+
+    def _graph_document_tree_spine_resolve(
+        engine: Any, action: str, text: str, artifact_id: str, document_id: str
+    ) -> tuple[list[Any], str, str | None]:
+        from agent_utilities.knowledge_graph.ingestion.evidence_spine import (
+            artifact_id_for,
+            fragment_markdown,
+            load_fragments,
+        )
+
+        if text:
+            # Inline text is fragmented deterministically — the same call the
+            # ingest path makes, so an inline preview and a stored spine
+            # agree on every address.
+            resolved_artifact = artifact_id or artifact_id_for(
+                "inline", "", document_id or "inline-document"
+            )
+            fragments = fragment_markdown(text, artifact_id=resolved_artifact)
+            return fragments, resolved_artifact, None
+        if artifact_id or document_id:
+            fragments = load_fragments(
+                engine, artifact_id=artifact_id, document_id=document_id
+            )
+            resolved_artifact = artifact_id or (
+                fragments[0].artifact_id if fragments else ""
+            )
+            return fragments, resolved_artifact, None
+        return (
+            [],
+            "",
+            json.dumps(
+                {"error": f"{action} requires 'text', 'artifact_id' or 'document_id'"}
+            ),
+        )
+
+    def _graph_document_tree_spine_cite(
+        fragments: list[Any],
+        resolved_artifact: str,
+        fragment_id: str,
+        content_hash: str,
+    ) -> str:
+        from agent_utilities.knowledge_graph.ingestion.evidence_spine import (
+            citation_status,
+        )
+
+        if not (fragment_id or content_hash):
+            return json.dumps(
+                {"error": "cite requires 'fragment_id' and/or 'content_hash'"}
+            )
+        return json.dumps(
+            {
+                "action": "cite",
+                "artifact_id": resolved_artifact,
+                **citation_status(
+                    fragments, fragment_id=fragment_id, content_hash=content_hash
+                ),
+            },
+            default=str,
+        )
+
+    def _graph_document_tree_spine_fragments(
+        fragments: list[Any], resolved_artifact: str, document_id: str, kinds: str
+    ) -> str:
+        wanted = {k.strip() for k in kinds.split(",") if k.strip()}
+        selected = [f for f in fragments if not wanted or f.kind in wanted]
+        return json.dumps(
+            {
+                "action": "fragments",
+                "artifact_id": resolved_artifact,
+                "document_id": document_id,
+                "fragment_count": len(selected),
+                "fragments": [
+                    {
+                        "fragment_id": f.fragment_id,
+                        "address": f.address,
+                        "kind": f.kind,
+                        "content_hash": f.content_hash,
+                        "version_id": f.version_id,
+                        "sequence": f.sequence,
+                        "ordinal": f.ordinal,
+                        "depth": f.depth,
+                        "parent_fragment_id": f.parent_fragment_id,
+                        "char_start": f.char_start,
+                        "char_end": f.char_end,
+                        "text": f.text,
+                    }
+                    for f in selected
+                ],
+            },
+            default=str,
+        )
+
+    def _graph_document_tree_spine(
+        action: str,
+        engine: Any,
+        text: str,
+        artifact_id: str,
+        document_id: str,
+        fragment_id: str,
+        content_hash: str,
+        kinds: str,
+    ) -> str:
+        # ── evidence spine (CONCEPT:AU-KG.ingest.stable-fragment-address) ──
+        # The citation surface: 'fragments' lists what can be cited, 'cite'
+        # answers whether an existing citation still holds. Both reach the
+        # same core the ingest path writes, so the REST twin
+        # (/graph/document-tree) gets them with no second implementation.
+        fragments, resolved_artifact, error_response = (
+            _graph_document_tree_spine_resolve(
+                engine, action, text, artifact_id, document_id
+            )
+        )
+        if error_response is not None:
+            return error_response
+        if action == "cite":
+            return _graph_document_tree_spine_cite(
+                fragments, resolved_artifact, fragment_id, content_hash
+            )
+        return _graph_document_tree_spine_fragments(
+            fragments, resolved_artifact, document_id, kinds
+        )
+
     # ══════════════════════════════════════════════════════════════════
     # graph_document_tree — CONCEPT:AU-KG.retrieval.section-tree +
     # CONCEPT:AU-KG.retrieval.tree-navigation. PageIndex-style map-then-fetch over
@@ -2088,190 +2330,30 @@ def register_query_tools(mcp):
         ),
     ) -> str:
         """Map-then-fetch + tree-navigation retrieval over a document section tree."""
-        from agent_utilities.knowledge_graph.ontology.document_processing import (
-            SectionTreeConfig,
-            build_section_tree,
-            section_nodes_and_edges,
-        )
-        from agent_utilities.knowledge_graph.retrieval.hierarchical_document_retriever import (
-            HierarchicalDocumentRetriever,
-            content_for_ranges,
-            structure_view,
-        )
-
         engine = kg_server._get_engine()
 
         if action == "build":
-            if not text and not document_id:
-                return json.dumps({"error": "build requires 'text' or 'document_id'"})
-            cfg = SectionTreeConfig(thin=thin, summarize=summarize)
-            roots = build_section_tree(text, config=cfg)
-            nodes, edges = section_nodes_and_edges(document_id or "doc:inline", roots)
-            persisted = False
-            if persist and document_id and engine is not None:
-                persisted = _persist_sections(engine, nodes, edges)
-            return json.dumps(
-                {
-                    "action": "build",
-                    "document_id": document_id,
-                    "section_count": len(nodes),
-                    "persisted": persisted,
-                    "structure": structure_view(roots),
-                },
-                default=str,
+            return _graph_document_tree_build(
+                document_id, text, persist, thin, summarize, engine
             )
-
         if action == "structure":
-            if not document_id:
-                return json.dumps({"error": "structure requires 'document_id'"})
-            if engine is None:
-                return json.dumps({"error": "IntelligenceGraphEngine not active"})
-            roots = HierarchicalDocumentRetriever(engine).load_tree(document_id)
-            if not roots:
-                return json.dumps(
-                    {"error": f"no section tree for document {document_id!r}"}
-                )
-            return json.dumps(
-                {
-                    "action": "structure",
-                    "document_id": document_id,
-                    "structure": structure_view(roots),
-                },
-                default=str,
-            )
-
+            return _graph_document_tree_structure(document_id, engine)
         if action == "content":
-            if not document_id:
-                return json.dumps({"error": "content requires 'document_id'"})
-            if engine is None:
-                return json.dumps({"error": "IntelligenceGraphEngine not active"})
-            try:
-                parsed = _parse_ranges(ranges)
-            except ValueError as e:
-                return public_error_json(e)
-            roots = HierarchicalDocumentRetriever(engine).load_tree(document_id)
-            if not roots:
-                return json.dumps(
-                    {"error": f"no section tree for document {document_id!r}"}
-                )
-            return json.dumps(
-                {
-                    "action": "content",
-                    "document_id": document_id,
-                    "sections": content_for_ranges(roots, parsed),
-                },
-                default=str,
-            )
-
+            return _graph_document_tree_content(document_id, ranges, engine)
         if action == "retrieve":
-            if not query:
-                return json.dumps({"error": "retrieve requires 'query'"})
-            retriever = HierarchicalDocumentRetriever(engine)
-            tree = None
-            if text:
-                tree = build_section_tree(
-                    text, config=SectionTreeConfig(thin=True, summarize=True)
-                )
-            elif not document_id:
-                return json.dumps(
-                    {"error": "retrieve requires 'text' or 'document_id'"}
-                )
-            matches = retriever.retrieve(
-                query,
-                document_id=document_id,
-                tree=tree,
-                top_k=top_k,
-                use_llm=use_llm,
+            return _graph_document_tree_retrieve(
+                query, text, document_id, top_k, use_llm, engine
             )
-            return json.dumps(
-                {
-                    "action": "retrieve",
-                    "query": query,
-                    "results": [m.as_dict() for m in matches],
-                },
-                default=str,
-            )
-
-        # ── evidence spine (CONCEPT:AU-KG.ingest.stable-fragment-address) ─────
-        # The citation surface: 'fragments' lists what can be cited, 'cite'
-        # answers whether an existing citation still holds.  Both reach the same
-        # core the ingest path writes, so the REST twin (/graph/document-tree)
-        # gets them with no second implementation.
         if action in {"fragments", "cite"}:
-            from agent_utilities.knowledge_graph.ingestion.evidence_spine import (
-                artifact_id_for,
-                citation_status,
-                fragment_markdown,
-                load_fragments,
-            )
-
-            if text:
-                # Inline text is fragmented deterministically — the same call the
-                # ingest path makes, so an inline preview and a stored spine
-                # agree on every address.
-                resolved_artifact = artifact_id or artifact_id_for(
-                    "inline", "", document_id or "inline-document"
-                )
-                fragments = fragment_markdown(text, artifact_id=resolved_artifact)
-            elif artifact_id or document_id:
-                fragments = load_fragments(
-                    engine, artifact_id=artifact_id, document_id=document_id
-                )
-                resolved_artifact = artifact_id or (
-                    fragments[0].artifact_id if fragments else ""
-                )
-            else:
-                return json.dumps(
-                    {
-                        "error": f"{action} requires 'text', 'artifact_id' or 'document_id'"
-                    }
-                )
-
-            if action == "cite":
-                if not (fragment_id or content_hash):
-                    return json.dumps(
-                        {"error": "cite requires 'fragment_id' and/or 'content_hash'"}
-                    )
-                return json.dumps(
-                    {
-                        "action": "cite",
-                        "artifact_id": resolved_artifact,
-                        **citation_status(
-                            fragments,
-                            fragment_id=fragment_id,
-                            content_hash=content_hash,
-                        ),
-                    },
-                    default=str,
-                )
-
-            wanted = {k.strip() for k in kinds.split(",") if k.strip()}
-            selected = [f for f in fragments if not wanted or f.kind in wanted]
-            return json.dumps(
-                {
-                    "action": "fragments",
-                    "artifact_id": resolved_artifact,
-                    "document_id": document_id,
-                    "fragment_count": len(selected),
-                    "fragments": [
-                        {
-                            "fragment_id": f.fragment_id,
-                            "address": f.address,
-                            "kind": f.kind,
-                            "content_hash": f.content_hash,
-                            "version_id": f.version_id,
-                            "sequence": f.sequence,
-                            "ordinal": f.ordinal,
-                            "depth": f.depth,
-                            "parent_fragment_id": f.parent_fragment_id,
-                            "char_start": f.char_start,
-                            "char_end": f.char_end,
-                            "text": f.text,
-                        }
-                        for f in selected
-                    ],
-                },
-                default=str,
+            return _graph_document_tree_spine(
+                action,
+                engine,
+                text,
+                artifact_id,
+                document_id,
+                fragment_id,
+                content_hash,
+                kinds,
             )
 
         return json.dumps(
