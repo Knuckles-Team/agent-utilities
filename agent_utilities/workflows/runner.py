@@ -1026,43 +1026,295 @@ class WorkflowRunner:
             logger.debug("[ORCH.gate] run-state decode failed: %s", exc)
             return {}
 
-    async def _execute_plan_via_agents(
+    async def _process_gate_steps(
         self,
-        plan: GraphPlan,
+        gate_steps: list[Any],
         engine: IntelligenceGraphEngine,
-        workflow_name: str,
-        trace_session: str | None = None,
-        task: str | None = None,
-        resume_state: dict[str, Any] | None = None,
-        grounding: GroundingPolicy = "required",
-    ) -> WorkflowResult:
-        """Run a stored plan's steps via :func:`run_agent`, respecting dependencies.
+        wave_idx: int,
+        session_id: str,
+        completed: dict[str, StepResult],
+        outputs: dict[str, str],
+        satisfied: set[str],
+        mark_reject_downstream: Callable[[str, str | None], None],
+    ) -> tuple[str | None, bool]:
+        """Resolve this wave's gate/approval steps via ``self.gate_checker``.
 
-        CONCEPT:AU-ORCH.execution.workflow-engine-wiring — wires the EXISTING ``run_agent`` executor (not a new one)
-        into named-workflow execution: steps with satisfied dependencies run
-        concurrently as a wave, each via ``run_agent(step.id, step.task, engine=...)``
-        on the local LLM with its resolved MCP toolset. Upstream step outputs are
-        threaded into a dependent step's context. ``run_agent`` records each step's
-        own RunTrace + :ToolCall nodes, so workflow execution is fully visible over
-        graph-os with zero extra plumbing.
+        Extracted verbatim from ``_execute_plan_via_agents`` (pure extract-method,
+        no behaviour change). Returns ``(suspended_gate, gate_progressed)`` --
+        mirrors the original inline loop's own local variables, which the caller
+        (still holding ``suspended_gate`` in its own scope across while-loop
+        iterations) reassigns from the return value.
+        """
+        gate_progressed = False
+        suspended_gate: str | None = None
+        for gstep in gate_steps:
+            gsid = getattr(gstep, "id", "") or f"gate-{wave_idx}"
+            verdict = await run_blocking_ordered(self.gate_checker, engine, gstep)
+            if verdict == "approved":
+                completed[gsid] = StepResult(
+                    step_index=wave_idx,
+                    node_id=gsid,
+                    task=str(getattr(gstep, "refined_subtask", "") or gsid),
+                    output="gate approved",
+                    status="completed",
+                    duration_ms=0.0,
+                    trace_id=session_id,
+                )
+                outputs[gsid] = "gate approved"
+                satisfied.add(gsid)
+                gate_progressed = True
+            elif verdict == "rejected":
+                completed[gsid] = StepResult(
+                    step_index=wave_idx,
+                    node_id=gsid,
+                    task=str(getattr(gstep, "refined_subtask", "") or gsid),
+                    output="gate rejected",
+                    status=STATUS_REJECTED,
+                    duration_ms=0.0,
+                    error="gate rejected",
+                    trace_id=session_id,
+                )
+                outputs[gsid] = "gate rejected"
+                mark_reject_downstream(gsid, getattr(gstep, "on_reject", None))
+                gate_progressed = True
+            else:
+                # Pending → suspend the whole run at the first blocking gate.
+                suspended_gate = gsid
+                break
+        return suspended_gate, gate_progressed
 
-        CONCEPT:AU-ORCH.execution.workflow-lifecycle-management — §7.1 delta 3: a ready step whose
-        ``kind`` is ``"gate"``/``"approval"`` is NOT run by an agent; instead the
-        ``gate_checker`` is consulted. Approved → the step completes and its
-        on-success dependents proceed; rejected → the step and its on-success
-        downstream are marked skipped (its ``on_reject`` target, if any, still runs);
-        pending → the whole run SUSPENDS: state is persisted (``:WorkflowRun``) and a
-        ``status="suspended"`` WorkflowResult is returned rather than blocking. Call
-        :meth:`resume` once the gate's ``:satisfiedBy`` edge is recorded.
+
+    async def _run_workflow_step(
+        self,
+        step: Any,
+        wave: int,
+        session_id: str,
+        task: str | None,
+        outputs: dict[str, str],
+        grounding: GroundingPolicy,
+        engine: IntelligenceGraphEngine,
+    ) -> StepResult:
+        """Run one workflow step via :func:`run_agent`.
+
+        Extracted verbatim from ``_execute_plan_via_agents``'s nested ``_run_step``
+        closure (pure extract-method, no behaviour change) -- ``wave`` was a
+        captured default-arg snapshot of the enclosing loop's ``wave_idx``
+        (``wave: int = wave_idx``); now an explicit parameter the caller passes
+        the same value for at each call site.
         """
         import time as _time
 
         from agent_utilities.orchestration.agent_runner import run_agent
 
-        session_id = trace_session or f"wf-{uuid.uuid4().hex}"
-        wf_started = _time.monotonic()
+        sid = getattr(step, "id", "") or f"step-{wave}"
+        step_task = (
+            getattr(step, "refined_subtask", None)
+            or getattr(step, "description", None)
+            or task
+            or sid
+        )
+        # Thread completed upstream outputs in as context.
+        deps = getattr(step, "depends_on", None) or []
+        ctx = "\n\n".join(
+            f"Output of '{d}':\n{outputs.get(d, '')}"
+            for d in deps
+            if outputs.get(d)
+        )
+        # CONCEPT:AU-ORCH.routing.functional-role-resolution — model-tier routing hint (ATG
+        # paper idea #3). Only honored when the step didn't already pin an
+        # exact model_id (which always wins); unrecognized/absent tiers pass
+        # reasoning_effort=None through unchanged (today's default).
+        tier = str(getattr(step, "model_tier", "") or "").lower() or None
+        effort = (
+            MODEL_TIER_REASONING_EFFORT.get(tier)
+            if tier and not getattr(step, "model_id", None)
+            else None
+        )
+        t0 = _time.monotonic()
+        try:
+            with use_grounding_policy(grounding):
+                out = await run_agent(
+                    agent_name=sid,
+                    task=str(step_task),
+                    engine=engine,
+                    max_steps=self.max_steps_per_agent,
+                    context=ctx or None,
+                    session_id=session_id,
+                    reasoning_effort=effort,
+                )
+            ok = not str(out).startswith("Agent execution failed")
+            return StepResult(
+                step_index=wave,
+                node_id=sid,
+                task=str(step_task),
+                output=str(out),
+                status="completed" if ok else "failed",
+                duration_ms=(_time.monotonic() - t0) * 1000,
+                error=None if ok else str(out)[:300],
+                trace_id=session_id,
+                model_tier=tier,
+            )
+        except Exception as exc:  # noqa: BLE001 — one step must not kill the DAG
+            return StepResult(
+                step_index=wave,
+                node_id=sid,
+                task=str(step_task),
+                output="",
+                status="failed",
+                duration_ms=(_time.monotonic() - t0) * 1000,
+                error=str(exc)[:300],
+                model_tier=tier,
+                trace_id=session_id,
+            )
 
-        steps = list(plan.steps)
+
+    async def _finalize_suspended_workflow(
+        self,
+        steps: list[Any],
+        suspended_gate: str,
+        wave_idx: int,
+        session_id: str,
+        workflow_name: str,
+        plan: GraphPlan,
+        wf_started: float,
+        completed: dict[str, StepResult],
+        satisfied: set[str],
+        engine: IntelligenceGraphEngine,
+    ) -> WorkflowResult:
+        """Persist + return the suspended-run WorkflowResult for a pending gate.
+
+        Extracted verbatim from ``_execute_plan_via_agents`` (pure extract-method,
+        no behaviour change).
+        """
+        import time as _time
+
+        for s in steps:
+            if (getattr(s, "id", "") or "") == suspended_gate:
+                completed[suspended_gate] = StepResult(
+                    step_index=wave_idx,
+                    node_id=suspended_gate,
+                    task=str(getattr(s, "refined_subtask", "") or suspended_gate),
+                    output="",
+                    status=STATUS_BLOCKED,
+                    duration_ms=0.0,
+                    error="awaiting gate satisfaction",
+                    trace_id=session_id,
+                )
+                break
+        step_results = [
+            completed[getattr(s, "id", "")]
+            for s in steps
+            if getattr(s, "id", "") in completed
+        ]
+        result = WorkflowResult(
+            workflow_name=workflow_name,
+            session_id=session_id,
+            step_results=step_results,
+            total_duration_ms=(_time.monotonic() - wf_started) * 1000,
+            status="suspended",
+            mermaid=plan.to_mermaid(title=workflow_name)
+            if hasattr(plan, "to_mermaid")
+            else "",
+        )
+        persisted = await run_blocking_ordered(
+            self._persist_run_state,
+            engine,
+            session_id,
+            workflow_name,
+            "suspended",
+            {k: v for k, v in completed.items() if v.status != STATUS_BLOCKED},
+            satisfied,
+            [suspended_gate],
+        )
+        if not persisted:
+            # Do NOT return a "suspended" result the caller would read as
+            # safely resumable — the write it depends on never landed.
+            # Fail closed rather than let resume() silently restart the
+            # whole plan and re-run already-completed non-idempotent steps.
+            raise WorkflowSuspendPersistError(
+                f"Workflow '{workflow_name}' session {session_id} suspended "
+                f"on gate '{suspended_gate}' but its run state failed to "
+                "persist durably; refusing to report status=suspended for "
+                "a resume that would silently restart from scratch."
+            )
+        _active_workflows[session_id] = result
+        logger.info(
+            "[ORCH.gate] workflow %s suspended on gate %s (session %s)",
+            workflow_name,
+            suspended_gate,
+            session_id,
+        )
+        return result
+
+
+    async def _finalize_completed_workflow(
+        self,
+        steps: list[Any],
+        skipped: set[str],
+        completed: dict[str, StepResult],
+        wave_idx: int,
+        session_id: str,
+        workflow_name: str,
+        plan: GraphPlan,
+        wf_started: float,
+        engine: IntelligenceGraphEngine,
+    ) -> WorkflowResult:
+        """Record skipped steps + build/persist the normal-completion WorkflowResult.
+
+        Extracted verbatim from ``_execute_plan_via_agents`` (pure extract-method,
+        no behaviour change).
+        """
+        import time as _time
+
+        # Skipped (rejected-downstream) steps are recorded for visibility.
+        for sid in skipped:
+            if sid not in completed:
+                completed[sid] = StepResult(
+                    step_index=wave_idx,
+                    node_id=sid,
+                    task="",
+                    output="",
+                    status=STATUS_SKIPPED,
+                    duration_ms=0.0,
+                    error="skipped (upstream gate rejected)",
+                    trace_id=session_id,
+                )
+
+        step_results = [
+            completed[getattr(s, "id", "")]
+            for s in steps
+            if getattr(s, "id", "") in completed
+        ]
+        n_failed = sum(1 for r in step_results if r.status == "failed")
+        n_ok = sum(1 for r in step_results if r.status == "completed")
+        status = "completed" if n_failed == 0 else ("partial" if n_ok else "failed")
+
+        result = WorkflowResult(
+            workflow_name=workflow_name,
+            session_id=session_id,
+            step_results=step_results,
+            total_duration_ms=(_time.monotonic() - wf_started) * 1000,
+            status=status,
+            mermaid=plan.to_mermaid(title=workflow_name)
+            if hasattr(plan, "to_mermaid")
+            else "",
+        )
+        _active_workflows[session_id] = result
+        # Same provenance close-out as the manifest path (ORCH-1.43).
+        await run_blocking_ordered(
+            self._close_out_process_lineage, engine, workflow_name, result
+        )
+        return result
+
+
+    def _validate_workflow_steps(
+        self, steps: list[Any], engine: IntelligenceGraphEngine, workflow_name: str
+    ) -> None:
+        """Refuse a zero-step plan or an invalid dependency DAG, before any wave runs.
+
+        Extracted verbatim from ``_execute_plan_via_agents`` (pure extract-method,
+        no behaviour change).
+        """
         if not steps:
             # D-FSR-1 — a stored WorkflowDefinition with zero WorkflowStep
             # nodes must refuse execution, not fall through the (necessarily
@@ -1096,6 +1348,44 @@ class WorkflowRunner:
             if hint:
                 message = f"{message} {hint}"
             raise WorkflowDagInvalidError(message)
+
+
+    async def _execute_plan_via_agents(
+        self,
+        plan: GraphPlan,
+        engine: IntelligenceGraphEngine,
+        workflow_name: str,
+        trace_session: str | None = None,
+        task: str | None = None,
+        resume_state: dict[str, Any] | None = None,
+        grounding: GroundingPolicy = "required",
+    ) -> WorkflowResult:
+        """Run a stored plan's steps via :func:`run_agent`, respecting dependencies.
+
+        CONCEPT:AU-ORCH.execution.workflow-engine-wiring — wires the EXISTING ``run_agent`` executor (not a new one)
+        into named-workflow execution: steps with satisfied dependencies run
+        concurrently as a wave, each via ``run_agent(step.id, step.task, engine=...)``
+        on the local LLM with its resolved MCP toolset. Upstream step outputs are
+        threaded into a dependent step's context. ``run_agent`` records each step's
+        own RunTrace + :ToolCall nodes, so workflow execution is fully visible over
+        graph-os with zero extra plumbing.
+
+        CONCEPT:AU-ORCH.execution.workflow-lifecycle-management — §7.1 delta 3: a ready step whose
+        ``kind`` is ``"gate"``/``"approval"`` is NOT run by an agent; instead the
+        ``gate_checker`` is consulted. Approved → the step completes and its
+        on-success dependents proceed; rejected → the step and its on-success
+        downstream are marked skipped (its ``on_reject`` target, if any, still runs);
+        pending → the whole run SUSPENDS: state is persisted (``:WorkflowRun``) and a
+        ``status="suspended"`` WorkflowResult is returned rather than blocking. Call
+        :meth:`resume` once the gate's ``:satisfiedBy`` edge is recorded.
+        """
+        import time as _time
+
+        session_id = trace_session or f"wf-{uuid.uuid4().hex}"
+        wf_started = _time.monotonic()
+
+        steps = list(plan.steps)
+        self._validate_workflow_steps(steps, engine, workflow_name)
         # Resolve per-step (agent_name, task) from the canonical WorkflowStep shape:
         # step.id is the resolvable agent/skill/server name, step.refined_subtask the
         # task (falling back to the step description / the workflow-level task).
@@ -1184,41 +1474,16 @@ class WorkflowRunner:
             gate_steps = [s for s in ready if _is_gate_step(s)]
             agent_steps = [s for s in ready if not _is_gate_step(s)]
 
-            gate_progressed = False
-            for gstep in gate_steps:
-                gsid = getattr(gstep, "id", "") or f"gate-{wave_idx}"
-                verdict = await run_blocking_ordered(self.gate_checker, engine, gstep)
-                if verdict == "approved":
-                    completed[gsid] = StepResult(
-                        step_index=wave_idx,
-                        node_id=gsid,
-                        task=str(getattr(gstep, "refined_subtask", "") or gsid),
-                        output="gate approved",
-                        status="completed",
-                        duration_ms=0.0,
-                        trace_id=session_id,
-                    )
-                    outputs[gsid] = "gate approved"
-                    satisfied.add(gsid)
-                    gate_progressed = True
-                elif verdict == "rejected":
-                    completed[gsid] = StepResult(
-                        step_index=wave_idx,
-                        node_id=gsid,
-                        task=str(getattr(gstep, "refined_subtask", "") or gsid),
-                        output="gate rejected",
-                        status=STATUS_REJECTED,
-                        duration_ms=0.0,
-                        error="gate rejected",
-                        trace_id=session_id,
-                    )
-                    outputs[gsid] = "gate rejected"
-                    _mark_reject_downstream(gsid, getattr(gstep, "on_reject", None))
-                    gate_progressed = True
-                else:
-                    # Pending → suspend the whole run at the first blocking gate.
-                    suspended_gate = gsid
-                    break
+            suspended_gate, gate_progressed = await self._process_gate_steps(
+                gate_steps,
+                engine,
+                wave_idx,
+                session_id,
+                completed,
+                outputs,
+                satisfied,
+                _mark_reject_downstream,
+            )
 
             if suspended_gate is not None:
                 break
@@ -1231,69 +1496,15 @@ class WorkflowRunner:
                 wave_idx += 1
                 continue
 
-            async def _run_step(step: Any, wave: int = wave_idx) -> StepResult:
-                sid = getattr(step, "id", "") or f"step-{wave}"
-                step_task = (
-                    getattr(step, "refined_subtask", None)
-                    or getattr(step, "description", None)
-                    or task
-                    or sid
-                )
-                # Thread completed upstream outputs in as context.
-                deps = getattr(step, "depends_on", None) or []
-                ctx = "\n\n".join(
-                    f"Output of '{d}':\n{outputs.get(d, '')}"
-                    for d in deps
-                    if outputs.get(d)
-                )
-                # CONCEPT:AU-ORCH.routing.functional-role-resolution — model-tier routing hint (ATG
-                # paper idea #3). Only honored when the step didn't already pin an
-                # exact model_id (which always wins); unrecognized/absent tiers pass
-                # reasoning_effort=None through unchanged (today's default).
-                tier = str(getattr(step, "model_tier", "") or "").lower() or None
-                effort = (
-                    MODEL_TIER_REASONING_EFFORT.get(tier)
-                    if tier and not getattr(step, "model_id", None)
-                    else None
-                )
-                t0 = _time.monotonic()
-                try:
-                    with use_grounding_policy(grounding):
-                        out = await run_agent(
-                            agent_name=sid,
-                            task=str(step_task),
-                            engine=engine,
-                            max_steps=self.max_steps_per_agent,
-                            context=ctx or None,
-                            session_id=session_id,
-                            reasoning_effort=effort,
-                        )
-                    ok = not str(out).startswith("Agent execution failed")
-                    return StepResult(
-                        step_index=wave,
-                        node_id=sid,
-                        task=str(step_task),
-                        output=str(out),
-                        status="completed" if ok else "failed",
-                        duration_ms=(_time.monotonic() - t0) * 1000,
-                        error=None if ok else str(out)[:300],
-                        trace_id=session_id,
-                        model_tier=tier,
+            results = await asyncio.gather(
+                *(
+                    self._run_workflow_step(
+                        s, wave_idx, session_id, task, outputs, grounding, engine
                     )
-                except Exception as exc:  # noqa: BLE001 — one step must not kill the DAG
-                    return StepResult(
-                        step_index=wave,
-                        node_id=sid,
-                        task=str(step_task),
-                        output="",
-                        status="failed",
-                        duration_ms=(_time.monotonic() - t0) * 1000,
-                        error=str(exc)[:300],
-                        model_tier=tier,
-                        trace_id=session_id,
-                    )
+                    for s in agent_steps
+                )
+            )
 
-            results = await asyncio.gather(*(_run_step(s) for s in agent_steps))
             for step, res in zip(agent_steps, results, strict=False):
                 sid = getattr(step, "id", "") or res.node_id
                 completed[sid] = res
@@ -1304,100 +1515,21 @@ class WorkflowRunner:
 
         # A suspended run persists its state and returns early (not completed/failed).
         if suspended_gate is not None:
-            for s in steps:
-                if (getattr(s, "id", "") or "") == suspended_gate:
-                    completed[suspended_gate] = StepResult(
-                        step_index=wave_idx,
-                        node_id=suspended_gate,
-                        task=str(getattr(s, "refined_subtask", "") or suspended_gate),
-                        output="",
-                        status=STATUS_BLOCKED,
-                        duration_ms=0.0,
-                        error="awaiting gate satisfaction",
-                        trace_id=session_id,
-                    )
-                    break
-            step_results = [
-                completed[getattr(s, "id", "")]
-                for s in steps
-                if getattr(s, "id", "") in completed
-            ]
-            result = WorkflowResult(
-                workflow_name=workflow_name,
-                session_id=session_id,
-                step_results=step_results,
-                total_duration_ms=(_time.monotonic() - wf_started) * 1000,
-                status="suspended",
-                mermaid=plan.to_mermaid(title=workflow_name)
-                if hasattr(plan, "to_mermaid")
-                else "",
-            )
-            persisted = await run_blocking_ordered(
-                self._persist_run_state,
-                engine,
-                session_id,
-                workflow_name,
-                "suspended",
-                {k: v for k, v in completed.items() if v.status != STATUS_BLOCKED},
-                satisfied,
-                [suspended_gate],
-            )
-            if not persisted:
-                # Do NOT return a "suspended" result the caller would read as
-                # safely resumable — the write it depends on never landed.
-                # Fail closed rather than let resume() silently restart the
-                # whole plan and re-run already-completed non-idempotent steps.
-                raise WorkflowSuspendPersistError(
-                    f"Workflow '{workflow_name}' session {session_id} suspended "
-                    f"on gate '{suspended_gate}' but its run state failed to "
-                    "persist durably; refusing to report status=suspended for "
-                    "a resume that would silently restart from scratch."
-                )
-            _active_workflows[session_id] = result
-            logger.info(
-                "[ORCH.gate] workflow %s suspended on gate %s (session %s)",
-                workflow_name,
+            return await self._finalize_suspended_workflow(
+                steps,
                 suspended_gate,
+                wave_idx,
                 session_id,
+                workflow_name,
+                plan,
+                wf_started,
+                completed,
+                satisfied,
+                engine,
             )
-            return result
 
-        # Skipped (rejected-downstream) steps are recorded for visibility.
-        for sid in skipped:
-            if sid not in completed:
-                completed[sid] = StepResult(
-                    step_index=wave_idx,
-                    node_id=sid,
-                    task="",
-                    output="",
-                    status=STATUS_SKIPPED,
-                    duration_ms=0.0,
-                    error="skipped (upstream gate rejected)",
-                    trace_id=session_id,
-                )
 
-        step_results = [
-            completed[getattr(s, "id", "")]
-            for s in steps
-            if getattr(s, "id", "") in completed
-        ]
-        n_failed = sum(1 for r in step_results if r.status == "failed")
-        n_ok = sum(1 for r in step_results if r.status == "completed")
-        status = "completed" if n_failed == 0 else ("partial" if n_ok else "failed")
 
-        result = WorkflowResult(
-            workflow_name=workflow_name,
-            session_id=session_id,
-            step_results=step_results,
-            total_duration_ms=(_time.monotonic() - wf_started) * 1000,
-            status=status,
-            mermaid=plan.to_mermaid(title=workflow_name)
-            if hasattr(plan, "to_mermaid")
-            else "",
+        return await self._finalize_completed_workflow(
+            steps, skipped, completed, wave_idx, session_id, workflow_name, plan, wf_started, engine
         )
-        _active_workflows[session_id] = result
-        # Same provenance close-out as the manifest path (ORCH-1.43).
-        await run_blocking_ordered(
-            self._close_out_process_lineage, engine, workflow_name, result
-        )
-        return result
