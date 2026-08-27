@@ -1515,7 +1515,25 @@ class OWLBridge:
 
         Supports automatic TTL expiration tracking.
         """
-        # R2RML mappings based on ontology.ttl classes & properties
+        # R2RML mappings based on ontology.ttl classes & properties.
+        #
+        # CA-23-W05 (DEC-CA-06, 2026-08-26): this dict is meant to be replaced by
+        # ``ontology.r2rml_generator.derive_stream_mapping``, generated from the
+        # SAME ``connector_manifest.yml`` files ``ontology.manifest_compiler``
+        # already compiles (69 exist; ``servicenow-api``/``gitlab-api`` cover the
+        # 3 entries below). NOT done: the generator does not yet reach parity —
+        # MEASURED, ``derive_stream_mapping`` returns ``edges: {}`` for all 3
+        # entries, because the live manifests declare zero ``relations`` on the
+        # ``Incident``/``Project``/``Pipeline`` resources (the source ontologies'
+        # ``assignedTo``/``authoredBy``/``belongsToProject`` relations exist but
+        # were never attached to a resolved ``rdfs:domain`` — see each manifest's
+        # own ``review_todos``). Deleting this dict today would silently drop the
+        # ``assigned_to``/``cmdb_ci``/``owner``/``project_id`` edges below — kept
+        # per ``DEC-CA-06``'s rollback clause until that upstream gap closes and
+        # the comparison in ``tests/unit/knowledge_graph/ontology/
+        # test_r2rml_generator.py`` (``test_derive_stream_mapping_does_not_reach_
+        # edge_parity_with_dict_*``) passes with real edge equality, not just
+        # class/id_field equality.
         r2rml_mappings = {
             "servicenow:incident": {
                 "class": "Incident",
