@@ -27,17 +27,17 @@ Other categories (``never_executed``, ``untyped_seams``, ``orphan_read_keys``,
 analyzer unchanged — this reconciliation is scoped to the two categories with
 a confirmed, located defect.
 
-Ratchets against a committed baseline (`.liveness_baseline.json`, now storing
-CORRECTED counts): the build fails only when a category REGRESSES (more
-findings than the baseline), so dead pathways can only shrink. A second,
+Compares against ``CAPS`` (module-level constant, below): the build fails
+only when a category exceeds its cap (more findings than the cap allows), so
+dead pathways can only shrink. Not a baseline file -- seven integers in this
+file's own source, printed on every run, moved only by a reviewed diff to
+this file (CX-RAT-11: no-ratchet policy, see the comment on CAPS). A second,
 independent check enforces ``scripts/liveness_deferred.tsv``'s owner +
 review-by expiry (GOC-68: "a bare ratchet lets deferral become permanent") —
 a past-due deferred entry also fails the gate.
 
 If the code-enhancer skill is not installed, the gate skips cleanly (exit 0) rather
 than blocking CI — install `universal-skills` to enable it.
-
-Run ``--update-baseline`` to re-baseline after an intentional, reviewed change.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ import importlib.util
 import json
 import subprocess
 import sys
-from datetime import UTC, date, datetime
+from datetime import date
 from pathlib import Path
 
 # ABSOLUTE caps. NOT a baseline: seven integers, in the gate's own source,
@@ -75,7 +75,6 @@ CAPS = {
 
 REPO = Path(__file__).resolve().parent.parent
 TARGET = REPO / "agent_utilities"
-BASELINE = REPO / ".liveness_baseline.json"
 
 
 def _load_sibling(name: str):
@@ -100,20 +99,6 @@ def _load_sibling(name: str):
 
 liveness_reconciler = _load_sibling("liveness_reconciler")
 liveness_deferred = _load_sibling("liveness_deferred")
-
-
-def _head_commit() -> str:
-    """The commit a baseline is being taken against (best effort)."""
-    try:
-        res = subprocess.run(
-            ["git", "-C", str(REPO), "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except OSError:
-        return "unknown"
-    return res.stdout.strip() or "unknown"
 
 
 def _find_analyzer() -> Path | None:
@@ -145,7 +130,6 @@ def main() -> int:
         )
         return 0
 
-    update = "--update-baseline" in sys.argv
     cmd = [sys.executable, str(analyzer), str(TARGET)]
     cov = REPO / "coverage.json"
     if cov.exists():
@@ -203,30 +187,15 @@ def main() -> int:
             "directory was treated fail-open (not dead), not guessed at."
         )
 
-    if update:
-        # Record WHAT the baseline was taken against, not just the numbers. A
-        # bare counts blob cannot be told apart from a fresh one, which is how
-        # this file silently drifted ~4 days behind `main` (D-KCI-11) while the
-        # gate kept reporting "regressed" against the wrong reference. Extra
-        # keys are inert to callers that read only ``counts``.
-        BASELINE.write_text(
-            json.dumps(
-                {
-                    "counts": corrected_counts,
-                    "taken_at": datetime.now(UTC).isoformat(timespec="seconds"),
-                    "taken_against": _head_commit(),
-                },
-                indent=2,
-            )
-            + "\n"
-        )
-        print(f"liveness baseline updated (corrected counts): {corrected_counts}")
-        return 0
-
     # Step B (CX-RAT-11): the source of the compared-against numbers is now
     # CAPS (module-level, above) instead of a committed baseline file --
     # identical `>` comparison, identical failure message. Zero other
     # behaviour change.
+    #
+    # Step C (CX-RAT-11): the `--update-baseline` branch, the `BASELINE`
+    # constant, and `_head_commit()` are gone -- there is no baseline file
+    # left to write. CAPS only moves by editing this source file (see the
+    # comment on CAPS above).
     regressed = {
         cat: (now, CAPS.get(cat, 0))
         for cat, now in corrected_counts.items()
@@ -234,6 +203,7 @@ def main() -> int:
     }
 
     print(f"Liveness counts={corrected_counts}")
+    print(f"Liveness caps  ={CAPS}")
 
     gate_failed = False
     if regressed:
@@ -243,7 +213,8 @@ def main() -> int:
             print(f"  - {cat}: {base} → {now}")
         print(
             "\nWire the new code into a live path, type the seam, or — if intentional "
-            "and reviewed — `python scripts/check_liveness.py --update-baseline`."
+            "and reviewed, raise the relevant CAPS entry in scripts/check_liveness.py "
+            "itself (reviewed in the diff, not a hidden re-baseline)."
         )
 
     # Ratchet expiry (GOC-68: "a bare ratchet lets deferral become permanent").
