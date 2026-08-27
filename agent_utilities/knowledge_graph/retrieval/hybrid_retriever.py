@@ -771,11 +771,62 @@ class HybridRetriever:
                 makes it into this method's return value at all, so no
                 downstream ACL pass could ever recover it.
         """
-        # Query analysis (CONCEPT:AU-ECO.connector.apply-any-query-analysis) — opt-in. Derive a time window
-        # (``as_of``) and source-type restriction from the natural-language query.
-        # Default off so existing callers are unaffected; when on, a derived
-        # ``as_of`` only fills an unset one (explicit caller value always wins),
-        # and detected source types post-filter the result.
+        qa_source_types, as_of = self._resolve_query_analysis_filters(query, query_analysis, as_of)
+        corpus_doc_ids = self._resolve_corpus_constraint(corpus_id)
+        relational_nodes = self._relational_intent_arm(query, context_window)
+
+        # GOC-83-W04: when a session is present, gather a WIDER raw candidate
+        # pool than `context_window` — a bounded overfetch, not unbounded — so
+        # ACL filtering (applied below, BEFORE this method's own internal
+        # sort/rerank/trim) still has enough authorized candidates left to
+        # fill a full `context_window` after denied rows are removed. `None`
+        # (no session) keeps the EXACT prior fetch size for every existing
+        # caller — zero behavior change when this feature isn't opted into.
+        acl_fetch_window = (
+            context_window * _ACL_RETRIEVAL_OVERFETCH
+            if session is not None
+            else context_window
+        )
+
+        base_nodes = self._semantic_search_arm(
+            query,
+            context_window,
+            acl_fetch_window,
+            relevance_threshold,
+            target_paths,
+            corpus_doc_ids,
+            active_task,
+            hard_negatives,
+            as_of,
+            session,
+        )
+
+        # 1d. Merge the relational-intent arm (CONCEPT:AU-KG.retrieval.relational-intent-retrieval) additively: typed-edge
+        # hits are prepended (high priority) without displacing the vector arm, so
+        # recall never regresses. De-duplicate by node id, keeping the first seen.
+        base_nodes = self._merge_relational_arm(relational_nodes, base_nodes)
+
+        # 1e. Autocut: trim the long tail at the largest relative score drop. Gated
+        # by the active pack; recall-safe — never trims < min (CONCEPT:EG-KG.compute.rust-native-training-loss).
+        base_nodes = self._apply_autocut(base_nodes)
+
+        # 2. Graph Traversal (Multi-hop context assembly)
+        assembled_subgraph = self._assemble_multi_hop_subgraph(base_nodes, multi_hop_depth)
+
+        # CONCEPT:AU-KG.research.research-pipeline-runner — Assess retrieval quality
+        return self._finalize_retrieval(
+            assembled_subgraph, query, skip_quality_gate, qa_source_types
+        )
+
+    def _resolve_query_analysis_filters(
+        self, query: str, query_analysis: bool, as_of: str | None
+    ) -> tuple[list[str], str | None]:
+        """Query analysis (CONCEPT:AU-ECO.connector.apply-any-query-analysis) — opt-in. Derive a time window
+        (``as_of``) and source-type restriction from the natural-language query.
+        Default off so existing callers are unaffected; when on, a derived
+        ``as_of`` only fills an unset one (explicit caller value always wins),
+        and detected source types post-filter the result.
+        """
         qa_source_types: list[str] = []
         if query_analysis:
             try:
@@ -787,8 +838,10 @@ class HybridRetriever:
                     as_of = filters.as_of
             except Exception as e:  # noqa: BLE001 — analysis must never break retrieval
                 logger.debug("query analysis failed: %s", e)
+        return qa_source_types, as_of
 
-        # Resolve corpus constraint (CONCEPT:AU-KG.memory.auto-similarity-memory-graph)
+    def _resolve_corpus_constraint(self, corpus_id: str | None) -> set[str] | None:
+        """Resolve corpus constraint (CONCEPT:AU-KG.memory.auto-similarity-memory-graph)"""
         corpus_doc_ids: set[str] | None = None
         if corpus_id:
             try:
@@ -800,11 +853,16 @@ class HybridRetriever:
                     logger.warning("Corpus %s is empty or not found", corpus_id)
             except Exception as e:  # noqa: BLE001 — corpus resolution is an optional pre-filter; corpus_doc_ids stays at its initialized default so retrieve_hybrid proceeds unfiltered by corpus rather than failing the whole retrieval
                 logger.debug("Corpus resolution failed: %s", e)
+        return corpus_doc_ids
 
-        # 0. Relational-intent arm (CONCEPT:AU-KG.retrieval.relational-intent-retrieval): deterministic, zero-LLM.
-        # Parses "which papers support X" / "what contradicts Y" using the active
-        # pack's verb vocabulary and walks typed edges. No-op (empty) for
-        # non-relational queries or when the pack declares no relational verbs.
+    def _relational_intent_arm(
+        self, query: str, context_window: int
+    ) -> list[dict[str, Any]]:
+        """0. Relational-intent arm (CONCEPT:AU-KG.retrieval.relational-intent-retrieval): deterministic, zero-LLM.
+        Parses "which papers support X" / "what contradicts Y" using the active
+        pack's verb vocabulary and walks typed edges. No-op (empty) for
+        non-relational queries or when the pack declares no relational verbs.
+        """
         relational_nodes: list[dict[str, Any]] = []
         if self._schema_pack and self._schema_pack.relational_verbs:
             try:
@@ -815,217 +873,365 @@ class HybridRetriever:
                     relational_nodes = traverse(self.engine, rq, context_window)
             except Exception as e:  # noqa: BLE001 — the relational-intent arm is explicitly a zero-LLM optional arm (comment above); relational_nodes stays at its initialized [] so the semantic/keyword arms below still run
                 logger.debug("Relational-intent arm failed: %s", e)
+        return relational_nodes
 
-        # GOC-83-W04: when a session is present, gather a WIDER raw candidate
-        # pool than `context_window` — a bounded overfetch, not unbounded — so
-        # ACL filtering (applied below, BEFORE this method's own internal
-        # sort/rerank/trim) still has enough authorized candidates left to
-        # fill a full `context_window` after denied rows are removed. `None`
-        # (no session) keeps the EXACT prior fetch size for every existing
-        # caller — zero behavior change when this feature isn't opted into.
-        _acl_fetch_window = (
-            context_window * _ACL_RETRIEVAL_OVERFETCH
-            if session is not None
-            else context_window
+    def _acl_filter_keyword_fallback(
+        self,
+        nodes: list[dict[str, Any]],
+        context_window: int,
+        session: Any | None,
+    ) -> list[dict[str, Any]]:
+        """ACL-filter an overfetched keyword-fallback pool, then re-trim to
+        `context_window` — the keyword-fallback branches assign straight
+        to `base_nodes` (they never pass through `_rerank_candidates`'s
+        own trim), so this method must re-trim itself after overfetching."""
+        if session is None:
+            return nodes
+        governed = self.engine._enforce_acl_on_results(
+            nodes, session=session, summary="hybrid-retrieve-keyword"
+        )
+        return governed[:context_window]
+
+    def _keyword_fallback_arm(
+        self,
+        query: str,
+        acl_fetch_window: int,
+        context_window: int,
+        session: Any | None,
+    ) -> list[dict[str, Any]]:
+        return self._acl_filter_keyword_fallback(
+            self.engine._search_keyword(query, top_k=acl_fetch_window),
+            context_window,
+            session,
         )
 
-        def _acl_filter_keyword_fallback(
-            nodes: list[dict[str, Any]],
-        ) -> list[dict[str, Any]]:
-            """ACL-filter an overfetched keyword-fallback pool, then re-trim to
-            `context_window` — the keyword-fallback branches assign straight
-            to `base_nodes` (they never pass through `_rerank_candidates`'s
-            own trim), so this method must re-trim itself after overfetching."""
-            if session is None:
-                return nodes
-            governed = self.engine._enforce_acl_on_results(
-                nodes, session=session, summary="hybrid-retrieve-keyword"
-            )
-            return governed[:context_window]
+    def _semantic_search_arm(
+        self,
+        query: str,
+        context_window: int,
+        acl_fetch_window: int,
+        relevance_threshold: float | None,
+        target_paths: list[str] | None,
+        corpus_doc_ids: set[str] | None,
+        active_task: str | None,
+        hard_negatives: set[str] | None,
+        as_of: str | None,
+        session: Any | None,
+    ) -> list[dict[str, Any]]:
+        """1. Semantic Search (Vector) — ONE engine unified plan.
 
-        # 1. Semantic Search (Vector) — ONE engine unified plan.
-        # The vector neighbourhood is computed by the engine's native ANN inside a
-        # single costed cross-modal plan (filter + vector ``Rank``), NOT by an O(N)
-        # Python cosine scan. There is no SQLite-style fallback: if the engine has
-        # no embeddings the arm is empty and we degrade to keyword search.
-        base_nodes = []
-        if self.embed_model and self.engine.backend:
-            # Generate query embedding. CONCEPT:AU-KG.retrieval.embedding-fast-fail —
-            # resolve the ACTIVE embedder endpoint's circuit breaker first: if it is
-            # already OPEN (a prior call on this same endpoint just failed), skip the
-            # network attempt ENTIRELY instead of re-paying the connection/SDK-retry
-            # cost on every single query. This is what makes the keyword fallback
-            # IMMEDIATE once the endpoint is known-bad, rather than a silent stall on
-            # every call while semantic search is degraded.
-            _embed_endpoint, _embed_breaker = _query_embedding_circuit_breaker()
-            try:
-                if _embed_breaker is not None and _embed_breaker.is_tripped():
-                    logger.debug(
-                        "embedding circuit breaker OPEN (endpoint=%s) — skipping "
-                        "semantic search and falling back to keyword immediately",
-                        _embed_endpoint.model_key if _embed_endpoint else "embedding",
-                    )
-                    raise _EmbeddingCircuitOpenError()
-
-                query_emb = self.embed_model.get_text_embedding(query)
-                if _embed_breaker is not None:
-                    _embed_breaker.record(ok=True)
-
-                threshold = (
-                    relevance_threshold
-                    if relevance_threshold is not None
-                    else self._relevance_threshold
-                )
-                scored_nodes = self._engine_vector_search(
-                    query_emb,
-                    _acl_fetch_window,
-                    threshold=threshold,
-                    target_paths=target_paths,
-                    corpus_doc_ids=corpus_doc_ids,
-                )
-                # GOC-83-W04 (CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval):
-                # ACL-filter the RAW vector-arm candidate pool before ANY
-                # fusion/boost/rank/trim step below — not just before
-                # `search_hybrid`'s own final return. Without this, a denied
-                # high-score row could consume one of the `_acl_fetch_window`
-                # (nee `context_window`) slots that `_rerank_candidates`
-                # later trims down to, starving an authorized lower-scored
-                # candidate before `search_hybrid` ever sees either row.
-                # No-op when `session` is None — identical prior behavior.
-                if session is not None:
-                    scored_nodes = self.engine._enforce_acl_on_results(
-                        scored_nodes, session=session, summary="hybrid-retrieve-vector"
-                    )
-                for node in scored_nodes:
-                    node["_score"] *= self._compute_query_weight(query)
-
-                # 1b. Apply backlink-density boost (CONCEPT:AU-KG.ingest.engineering-rules)
-                if self._boost_strategy == "global":
-                    for node in scored_nodes:
-                        node["_score"] *= self._backlink_boost(node["id"])
-
-                # 1b'. Pack-driven retrieval signals (CONCEPT:EG-KG.compute.rust-native-training-loss):
-                # temporal recency decay + source-trust authority weighting. Both
-                # are no-ops under the default ``core`` pack (empty config).
-                if self._schema_pack and (
-                    self._schema_pack.recency_decay or self._schema_pack.source_trust
-                ):
-                    for node in scored_nodes:
-                        rb = self._recency_boost(node, as_of=as_of)
-                        sb = self._source_trust_boost(node)
-                        if rb != 1.0:
-                            node["_recency_boost"] = rb
-                        if sb != 1.0:
-                            node["_source_trust_boost"] = sb
-                        node["_score"] *= rb * sb
-
-                # 1c. Apply Attention-Driven Context Filter (Retrieve query boost on active_task)
-                if active_task:
-                    try:
-                        if self.embed_model and not (
-                            _embed_breaker is not None and _embed_breaker.is_tripped()
-                        ):
-                            active_task_emb = self.embed_model.get_text_embedding(
-                                active_task
-                            )
-                            for node in scored_nodes:
-                                node_emb = node.get("embedding")
-                                if node_emb:
-                                    task_sim = cosine_similarity(
-                                        active_task_emb, node_emb
-                                    )
-                                    if task_sim > 0.0:
-                                        node["_score"] *= 1.0 + 0.5 * task_sim
-                                        node["_active_task_boost"] = task_sim
-                                else:
-                                    # Overlap-based attention boost fallback
-                                    overlap = sum(
-                                        1
-                                        for w in active_task.lower().split()
-                                        if w in str(node.get("name", "")).lower()
-                                        or w in str(node.get("description", "")).lower()
-                                    )
-                                    if overlap > 0:
-                                        node["_score"] *= 1.0 + 0.1 * overlap
-                                        node["_active_task_boost_overlap"] = overlap
-                        else:
-                            # Overlap-based attention boost fallback if no embed model
-                            for node in scored_nodes:
-                                overlap = sum(
-                                    1
-                                    for w in active_task.lower().split()
-                                    if w in str(node.get("name", "")).lower()
-                                    or w in str(node.get("description", "")).lower()
-                                )
-                                if overlap > 0:
-                                    node["_score"] *= 1.0 + 0.1 * overlap
-                                    node["_active_task_boost_overlap"] = overlap
-                    except Exception as e:  # noqa: BLE001 — active-task attention boost is a scoring refinement over scored_nodes, which is already fully populated before this optional boost step runs
-                        logger.debug("Active task boost computation failed: %s", e)
-
-                # Apply hard negative penalties (CONCEPT:AU-KG.memory.auto-similarity-memory-graph)
-                if hard_negatives:
-                    for node in scored_nodes:
-                        if node.get("id") in hard_negatives:
-                            node["_score"] *= 0.5
-                            node["_hard_negative"] = True
-
-                scored_nodes.sort(key=lambda x: x["_score"], reverse=True)
-                if scored_nodes:
-                    base_nodes = self._rerank_candidates(
-                        query,
-                        scored_nodes,
-                        context_window,
-                        instruction=active_task or "",
-                    )
-                else:
-                    logger.debug("No semantic matches found, falling back to keyword")
-                    base_nodes = _acl_filter_keyword_fallback(
-                        self.engine._search_keyword(query, top_k=_acl_fetch_window)
-                    )
-            except _EmbeddingCircuitOpenError:
-                base_nodes = _acl_filter_keyword_fallback(
-                    self.engine._search_keyword(query, top_k=_acl_fetch_window)
-                )
-            except Exception as e:
-                if _embed_breaker is not None:
-                    _embed_breaker.record(ok=False, status=_http_status_of(e))
-                logger.warning(
-                    "Vector search failed, falling back to keyword: %s",
-                    _describe_embedding_failure(e),
-                )
-                base_nodes = _acl_filter_keyword_fallback(
-                    self.engine._search_keyword(query, top_k=_acl_fetch_window)
-                )
-        else:
+        The vector neighbourhood is computed by the engine's native ANN inside a
+        single costed cross-modal plan (filter + vector ``Rank``), NOT by an O(N)
+        Python cosine scan. There is no SQLite-style fallback: if the engine has
+        no embeddings the arm is empty and we degrade to keyword search.
+        """
+        if not (self.embed_model and self.engine.backend):
             # Fallback to keyword search
-            base_nodes = _acl_filter_keyword_fallback(
-                self.engine._search_keyword(query, top_k=_acl_fetch_window)
+            return self._keyword_fallback_arm(
+                query, acl_fetch_window, context_window, session
             )
 
-        # 1d. Merge the relational-intent arm (CONCEPT:AU-KG.retrieval.relational-intent-retrieval) additively: typed-edge
-        # hits are prepended (high priority) without displacing the vector arm, so
-        # recall never regresses. De-duplicate by node id, keeping the first seen.
-        if relational_nodes:
-            seen_ids = {n.get("id") for n in relational_nodes}
-            base_nodes = relational_nodes + [
-                n for n in base_nodes if n.get("id") not in seen_ids
-            ]
-
-        # 1e. Autocut: trim the long tail at the largest relative score drop. Gated
-        # by the active pack; recall-safe — never trims < min (CONCEPT:EG-KG.compute.rust-native-training-loss).
-        if self._schema_pack and self._schema_pack.autocut_enabled and base_nodes:
-            from .autocut import autocut
-
-            base_nodes = autocut(
-                base_nodes,
-                threshold=self._schema_pack.autocut_threshold,
-                min_results=self._schema_pack.autocut_min_results,
+        # Generate query embedding. CONCEPT:AU-KG.retrieval.embedding-fast-fail —
+        # resolve the ACTIVE embedder endpoint's circuit breaker first: if it is
+        # already OPEN (a prior call on this same endpoint just failed), skip the
+        # network attempt ENTIRELY instead of re-paying the connection/SDK-retry
+        # cost on every single query. This is what makes the keyword fallback
+        # IMMEDIATE once the endpoint is known-bad, rather than a silent stall on
+        # every call while semantic search is degraded.
+        _embed_endpoint, _embed_breaker = _query_embedding_circuit_breaker()
+        try:
+            return self._vector_search_try(
+                query,
+                context_window,
+                acl_fetch_window,
+                relevance_threshold,
+                target_paths,
+                corpus_doc_ids,
+                active_task,
+                hard_negatives,
+                as_of,
+                session,
+                _embed_breaker,
+                _embed_endpoint,
+            )
+        except _EmbeddingCircuitOpenError:
+            return self._keyword_fallback_arm(
+                query, acl_fetch_window, context_window, session
+            )
+        except Exception as e:
+            if _embed_breaker is not None:
+                _embed_breaker.record(ok=False, status=_http_status_of(e))
+            logger.warning(
+                "Vector search failed, falling back to keyword: %s",
+                _describe_embedding_failure(e),
+            )
+            return self._keyword_fallback_arm(
+                query, acl_fetch_window, context_window, session
             )
 
-        # 2. Graph Traversal (Multi-hop context assembly)
-        assembled_subgraph = []
-        visited = set()
+    def _vector_search_try(
+        self,
+        query: str,
+        context_window: int,
+        acl_fetch_window: int,
+        relevance_threshold: float | None,
+        target_paths: list[str] | None,
+        corpus_doc_ids: set[str] | None,
+        active_task: str | None,
+        hard_negatives: set[str] | None,
+        as_of: str | None,
+        session: Any | None,
+        embed_breaker: Any,
+        embed_endpoint: Any,
+    ) -> list[dict[str, Any]]:
+        if embed_breaker is not None and embed_breaker.is_tripped():
+            logger.debug(
+                "embedding circuit breaker OPEN (endpoint=%s) — skipping "
+                "semantic search and falling back to keyword immediately",
+                embed_endpoint.model_key if embed_endpoint else "embedding",
+            )
+            raise _EmbeddingCircuitOpenError()
+
+        query_emb = self.embed_model.get_text_embedding(query)
+        if embed_breaker is not None:
+            embed_breaker.record(ok=True)
+
+        threshold = (
+            relevance_threshold
+            if relevance_threshold is not None
+            else self._relevance_threshold
+        )
+        scored_nodes = self._engine_vector_search(
+            query_emb,
+            acl_fetch_window,
+            threshold=threshold,
+            target_paths=target_paths,
+            corpus_doc_ids=corpus_doc_ids,
+        )
+        # GOC-83-W04 (CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval):
+        # ACL-filter the RAW vector-arm candidate pool before ANY
+        # fusion/boost/rank/trim step below — not just before
+        # `search_hybrid`'s own final return. Without this, a denied
+        # high-score row could consume one of the `acl_fetch_window`
+        # (nee `context_window`) slots that `_rerank_candidates`
+        # later trims down to, starving an authorized lower-scored
+        # candidate before `search_hybrid` ever sees either row.
+        # No-op when `session` is None — identical prior behavior.
+        if session is not None:
+            scored_nodes = self.engine._enforce_acl_on_results(
+                scored_nodes, session=session, summary="hybrid-retrieve-vector"
+            )
+
+        self._apply_scoring_boosts(
+            scored_nodes, query, active_task, hard_negatives, as_of, embed_breaker
+        )
+
+        scored_nodes.sort(key=lambda x: x["_score"], reverse=True)
+        if scored_nodes:
+            return self._rerank_candidates(
+                query,
+                scored_nodes,
+                context_window,
+                instruction=active_task or "",
+            )
+        logger.debug("No semantic matches found, falling back to keyword")
+        return self._keyword_fallback_arm(
+            query, acl_fetch_window, context_window, session
+        )
+
+    def _apply_scoring_boosts(
+        self,
+        scored_nodes: list[dict[str, Any]],
+        query: str,
+        active_task: str | None,
+        hard_negatives: set[str] | None,
+        as_of: str | None,
+        embed_breaker: Any,
+    ) -> None:
+        for node in scored_nodes:
+            node["_score"] *= self._compute_query_weight(query)
+
+        # 1b. Apply backlink-density boost (CONCEPT:AU-KG.ingest.engineering-rules)
+        if self._boost_strategy == "global":
+            for node in scored_nodes:
+                node["_score"] *= self._backlink_boost(node["id"])
+
+        # 1b'. Pack-driven retrieval signals (CONCEPT:EG-KG.compute.rust-native-training-loss):
+        # temporal recency decay + source-trust authority weighting. Both
+        # are no-ops under the default ``core`` pack (empty config).
+        if self._schema_pack and (
+            self._schema_pack.recency_decay or self._schema_pack.source_trust
+        ):
+            self._apply_pack_signal_boosts(scored_nodes, as_of)
+
+        # 1c. Apply Attention-Driven Context Filter (Retrieve query boost on active_task)
+        if active_task:
+            self._apply_active_task_boost(scored_nodes, active_task, embed_breaker)
+
+        # Apply hard negative penalties (CONCEPT:AU-KG.memory.auto-similarity-memory-graph)
+        if hard_negatives:
+            self._apply_hard_negative_penalties(scored_nodes, hard_negatives)
+
+    def _apply_pack_signal_boosts(
+        self, scored_nodes: list[dict[str, Any]], as_of: str | None
+    ) -> None:
+        for node in scored_nodes:
+            rb = self._recency_boost(node, as_of=as_of)
+            sb = self._source_trust_boost(node)
+            if rb != 1.0:
+                node["_recency_boost"] = rb
+            if sb != 1.0:
+                node["_source_trust_boost"] = sb
+            node["_score"] *= rb * sb
+
+    def _apply_active_task_boost(
+        self,
+        scored_nodes: list[dict[str, Any]],
+        active_task: str,
+        embed_breaker: Any,
+    ) -> None:
+        try:
+            if self.embed_model and not (
+                embed_breaker is not None and embed_breaker.is_tripped()
+            ):
+                active_task_emb = self.embed_model.get_text_embedding(active_task)
+                for node in scored_nodes:
+                    node_emb = node.get("embedding")
+                    if node_emb:
+                        task_sim = cosine_similarity(active_task_emb, node_emb)
+                        if task_sim > 0.0:
+                            node["_score"] *= 1.0 + 0.5 * task_sim
+                            node["_active_task_boost"] = task_sim
+                    else:
+                        # Overlap-based attention boost fallback
+                        self._apply_active_task_overlap_boost(node, active_task)
+            else:
+                # Overlap-based attention boost fallback if no embed model
+                for node in scored_nodes:
+                    self._apply_active_task_overlap_boost(node, active_task)
+        except Exception as e:  # noqa: BLE001 — active-task attention boost is a scoring refinement over scored_nodes, which is already fully populated before this optional boost step runs
+            logger.debug("Active task boost computation failed: %s", e)
+
+    @staticmethod
+    def _apply_active_task_overlap_boost(
+        node: dict[str, Any], active_task: str
+    ) -> None:
+        overlap = sum(
+            1
+            for w in active_task.lower().split()
+            if w in str(node.get("name", "")).lower()
+            or w in str(node.get("description", "")).lower()
+        )
+        if overlap > 0:
+            node["_score"] *= 1.0 + 0.1 * overlap
+            node["_active_task_boost_overlap"] = overlap
+
+    @staticmethod
+    def _apply_hard_negative_penalties(
+        scored_nodes: list[dict[str, Any]], hard_negatives: set[str]
+    ) -> None:
+        for node in scored_nodes:
+            if node.get("id") in hard_negatives:
+                node["_score"] *= 0.5
+                node["_hard_negative"] = True
+
+    @staticmethod
+    def _merge_relational_arm(
+        relational_nodes: list[dict[str, Any]], base_nodes: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        if not relational_nodes:
+            return base_nodes
+        seen_ids = {n.get("id") for n in relational_nodes}
+        return relational_nodes + [
+            n for n in base_nodes if n.get("id") not in seen_ids
+        ]
+
+    def _apply_autocut(
+        self, base_nodes: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        if not (
+            self._schema_pack and self._schema_pack.autocut_enabled and base_nodes
+        ):
+            return base_nodes
+        from .autocut import autocut
+
+        return autocut(
+            base_nodes,
+            threshold=self._schema_pack.autocut_threshold,
+            min_results=self._schema_pack.autocut_min_results,
+        )
+
+    def _expand_neighbor_budget(
+        self,
+        ids: list[str],
+        neighbors: dict[str, list[str]],
+        expansion_budget: list[int],
+    ) -> None:
+        """Resolve up to the remaining budget of neighbourhoods, in one wave."""
+        todo = [nid for nid in ids if nid and nid not in neighbors]
+        if not todo or expansion_budget[0] <= 0:
+            return
+        if len(todo) > expansion_budget[0]:
+            # Deterministic truncation: sorted ids, so the same query against
+            # the same graph always compiles the same evidence.
+            todo = sorted(todo)[: expansion_budget[0]]
+            logger.debug(
+                "[CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch] frontier "
+                "wider than the remaining expansion budget; assembling context "
+                "from the first %d neighbourhoods.",
+                len(todo),
+            )
+        expansion_budget[0] -= len(todo)
+        neighbors.update(self._neighbors_batch(todo))
+
+    @staticmethod
+    def _base_node_ids(base_nodes: list[dict[str, Any]]) -> list[str]:
+        ids = [str(n.get("id") or "") for n in base_nodes if isinstance(n, dict)]
+        return [nid for nid in ids if nid]
+
+    def _prefetch_neighbor_state(
+        self, base_ids: list[str], multi_hop_depth: int
+    ) -> tuple[dict[str, bool], dict[str, list[str]], dict[str, list[dict[str, Any]]]]:
+        """CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch — resolve the
+        existence + first-hop neighbourhood of EVERY base node up front, in
+        batched/overlapped round-trips, instead of paying three serial
+        point-reads (`has_node`, `get_successors`, `get_predecessors`) per base
+        node inside the caller's loop.
+
+        Why this mattered: an engine point-read costs a full round-trip
+        regardless of payload (measured 2.5-3.0s each against a contended
+        engine, even when the answer is zero rows). With the default
+        context_window=10 the old shape issued ~4 serial round-trips per base
+        node, so the mandatory evidence compilation at the model-transport
+        boundary took >90s against its hard 10s budget
+        (CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract) — which, under
+        the default grounding='required', made EVERY delegated run fail closed
+        with GroundingUnavailableError before it ever reached the model. The
+        prefetch is pure round-trip amortization: it fetches exactly what the
+        loop would have fetched, so `visited` semantics and the assembled node
+        set are unchanged.
+
+        CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch (D-DPF-3) — the
+        varlen-neighbours call used to be one `MATCH (n {id:$id})-[*1..N]-(m)
+        RETURN m` Cypher round trip PER base node. Collapsed into ONE
+        `UNWIND`-driven call across every base node up front; the caller's
+        loop then looks results up from this dict instead of calling the
+        backend itself.
+        """
+        if not base_ids:
+            return {}, {}, {}
+        exists = self._exists_batch(base_ids)
+        neighbors = self._neighbors_batch(base_ids[:_MAX_NEIGHBOR_EXPANSIONS])
+        varlen_neighbors_by_base = self._varlen_neighbors_batch(
+            base_ids, multi_hop_depth
+        )
+        return exists, neighbors, varlen_neighbors_by_base
+
+    def _assemble_multi_hop_subgraph(
+        self, base_nodes: list[dict[str, Any]], multi_hop_depth: int
+    ) -> list[dict[str, Any]]:
+        assembled_subgraph: list[dict[str, Any]] = []
+        visited: set[str] = set()
 
         # CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch — resolve the
         # existence + first-hop neighbourhood of EVERY base node up front, in
@@ -1045,45 +1251,16 @@ class HybridRetriever:
         # prefetch is pure round-trip amortization: it fetches exactly what the
         # loop would have fetched, so `visited` semantics and the assembled node
         # set are unchanged.
-        _base_ids = [str(n.get("id") or "") for n in base_nodes if isinstance(n, dict)]
-        _base_ids = [nid for nid in _base_ids if nid]
-        _exists = self._exists_batch(_base_ids) if _base_ids else {}
-        _neighbors: dict[str, list[str]] = (
-            self._neighbors_batch(_base_ids[:_MAX_NEIGHBOR_EXPANSIONS])
-            if _base_ids
-            else {}
-        )
-
-        # CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch (D-DPF-3) — the
-        # loop below used to issue one `MATCH (n {id:$id})-[*1..N]-(m) RETURN m`
-        # Cypher round trip PER base node. Collapse that into ONE `UNWIND`-driven
-        # call across every base node up front; the loop then looks results up
-        # from this dict instead of calling the backend itself.
-        _varlen_neighbors_by_base = (
-            self._varlen_neighbors_batch(_base_ids, multi_hop_depth)
-            if _base_ids
-            else {}
+        _base_ids = self._base_node_ids(base_nodes)
+        _exists, _neighbors, _varlen_neighbors_by_base = self._prefetch_neighbor_state(
+            _base_ids, multi_hop_depth
         )
 
         _expansion_budget = [_MAX_NEIGHBOR_EXPANSIONS - len(_neighbors)]
 
         def _expand(ids: list[str]) -> None:
             """Resolve up to the remaining budget of neighbourhoods, in one wave."""
-            todo = [nid for nid in ids if nid and nid not in _neighbors]
-            if not todo or _expansion_budget[0] <= 0:
-                return
-            if len(todo) > _expansion_budget[0]:
-                # Deterministic truncation: sorted ids, so the same query against
-                # the same graph always compiles the same evidence.
-                todo = sorted(todo)[: _expansion_budget[0]]
-                logger.debug(
-                    "[CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch] frontier "
-                    "wider than the remaining expansion budget; assembling context "
-                    "from the first %d neighbourhoods.",
-                    len(todo),
-                )
-            _expansion_budget[0] -= len(todo)
-            _neighbors.update(self._neighbors_batch(todo))
+            self._expand_neighbor_budget(ids, _neighbors, _expansion_budget)
 
         def _neighbors_of(nid: str) -> list[str]:
             """Prefetched undirected neighbours for ``nid``.
@@ -1109,108 +1286,167 @@ class HybridRetriever:
         _hydrate_ids: set[str] = set()
 
         for node in base_nodes:
-            node_id = node["id"]
-            if node_id in visited:
-                continue
-
-            # Immediate (1..multi_hop_depth) neighborhood, from the ONE
-            # UNWIND-batched Cypher call issued for every base node up front
-            # (D-DPF-3) — never a per-node backend round trip.
-            context_nodes: list[dict[str, Any]] = []
-            for m in _varlen_neighbors_by_base.get(node_id, []):
-                if m.get("id") not in visited:
-                    # Apply backlink boost during context assembly (CONCEPT:AU-KG.ingest.engineering-rules)
-                    if self._boost_strategy == "context_only":
-                        m_id = m.get("id", "")
-                        boost = self._backlink_boost(m_id)
-                        m["_context_boost"] = boost
-                    visited.add(m["id"])
-                    context_nodes.append(m)
-
-            # A backend that rejects the batched UNWIND+variable-length shape
-            # (`_varlen_batch_unsupported`) is not authoritative for "no
-            # neighbors" either — fall through to the resident-graph BFS
-            # traversal in that case, same as an empty-but-supported result.
-            if context_nodes:
-                assembled_subgraph.append(node)
-                assembled_subgraph.extend(context_nodes)
-            else:
-                # GraphComputeEngine BFS fallback — discovery only; hydration is
-                # batched across every base node after this loop (see PHASE 2).
-                try:
-                    if _exists.get(node_id, False):
-                        # BFS traversal up to multi_hop_depth
-                        all_discovered = [node_id]
-                        frontier = {node_id}
-                        for _depth in range(multi_hop_depth):
-                            next_frontier: set[str] = set()
-                            # Resolve the WHOLE frontier's neighbourhoods in one
-                            # overlapped wave, then filter — same id set as the
-                            # per-node successors/predecessors pair, one wave of
-                            # round-trips instead of 2x|frontier| serial ones.
-                            _expand(sorted(frontier))
-                            for nid in frontier:
-                                for n in _neighbors_of(nid):
-                                    if n not in visited and n not in all_discovered:
-                                        next_frontier.add(n)
-                            frontier = next_frontier
-                            for f_node in sorted(frontier):
-                                if f_node not in all_discovered:
-                                    all_discovered.append(f_node)
-                        # Mark every discovered id visited NOW — same dedup
-                        # contract as before, so a later base node's BFS still
-                        # excludes anything this one already found — but queue
-                        # the actual hydration for the single PHASE 2 batch call
-                        # instead of paying its own round-trip here.
-                        visited.update(all_discovered)
-                        _pending_hydrate.append((node_id, all_discovered))
-                        _hydrate_ids.update(all_discovered)
-                except Exception as e:  # noqa: BLE001 — read-path retrieval enrichment; falls back to the bare vector-scored node (already fully valid, just unenriched) rather than losing it from the result set
-                    logger.debug(f"Graph traversal fallback failed: {e}")
-                    if node_id not in visited:
-                        visited.add(node_id)
-                        assembled_subgraph.append(node)
+            self._process_base_node_for_subgraph(
+                node,
+                _varlen_neighbors_by_base,
+                visited,
+                assembled_subgraph,
+                _exists,
+                multi_hop_depth,
+                _expand,
+                _neighbors_of,
+                _pending_hydrate,
+                _hydrate_ids,
+            )
 
         # PHASE 2 — hydrate the UNION of every deferred base node's discovered
         # ids in ONE `properties_batch` round-trip (CONCEPT:AU-KG.retrieval.batch-hydrate).
         if _pending_hydrate:
-            try:
-                hydrated_all = self._batch_node_properties(sorted(_hydrate_ids))
-            except Exception as e:  # noqa: BLE001 — a hydration failure must never drop the already-discovered nodes, only their enrichment (mirrors the per-node fallback this replaces)
-                logger.debug(f"Batched hydration failed: {e}")
-                hydrated_all = {}
-            _node_by_id = {
-                str(n.get("id")): n for n in base_nodes if isinstance(n, dict)
-            }
-            for node_id, all_discovered in _pending_hydrate:
-                base_node = _node_by_id.get(node_id) or {"id": node_id}
-                for nid in all_discovered:
-                    if nid == node_id:
-                        # Preserve the vector-scored base node — it carries
-                        # _score, the active-task attention boost and its
-                        # embedding. Enrich (don't overwrite) with any graph
-                        # properties (e.g. type) it lacks rather than
-                        # refetching a bare graph projection.
-                        d = dict(base_node)
-                        for k, v in hydrated_all.get(nid, {}).items():
-                            d.setdefault(k, v)
-                    else:
-                        d = dict(hydrated_all.get(nid, {}))
-                    d["id"] = nid
-                    if self._boost_strategy == "context_only":
-                        d["_context_boost"] = self._backlink_boost(nid)
-                    assembled_subgraph.append(d)
+            self._hydrate_pending_nodes(
+                _pending_hydrate, _hydrate_ids, base_nodes, assembled_subgraph
+            )
 
-        # CONCEPT:AU-ECO.connector.apply-any-query-analysis — apply any query-analysis source-type restriction to
-        # the assembled result (no-op when query_analysis is off / no types).
+        return assembled_subgraph
+
+    def _process_base_node_for_subgraph(
+        self,
+        node: dict[str, Any],
+        varlen_neighbors_by_base: dict[str, list[dict[str, Any]]],
+        visited: set[str],
+        assembled_subgraph: list[dict[str, Any]],
+        exists_map: dict[str, bool],
+        multi_hop_depth: int,
+        expand_fn: Any,
+        neighbors_of_fn: Any,
+        pending_hydrate: list[tuple[str, list[str]]],
+        hydrate_ids: set[str],
+    ) -> None:
+        node_id = node["id"]
+        if node_id in visited:
+            return
+
+        # Immediate (1..multi_hop_depth) neighborhood, from the ONE
+        # UNWIND-batched Cypher call issued for every base node up front
+        # (D-DPF-3) — never a per-node backend round trip.
+        context_nodes: list[dict[str, Any]] = []
+        for m in varlen_neighbors_by_base.get(node_id, []):
+            if m.get("id") not in visited:
+                # Apply backlink boost during context assembly (CONCEPT:AU-KG.ingest.engineering-rules)
+                if self._boost_strategy == "context_only":
+                    m_id = m.get("id", "")
+                    boost = self._backlink_boost(m_id)
+                    m["_context_boost"] = boost
+                visited.add(m["id"])
+                context_nodes.append(m)
+
+        # A backend that rejects the batched UNWIND+variable-length shape
+        # (`_varlen_batch_unsupported`) is not authoritative for "no
+        # neighbors" either — fall through to the resident-graph BFS
+        # traversal in that case, same as an empty-but-supported result.
+        if context_nodes:
+            assembled_subgraph.append(node)
+            assembled_subgraph.extend(context_nodes)
+            return
+
+        # GraphComputeEngine BFS fallback — discovery only; hydration is
+        # batched across every base node after this loop (see PHASE 2).
+        try:
+            if exists_map.get(node_id, False):
+                all_discovered = self._bfs_discover_neighborhood(
+                    node_id, multi_hop_depth, visited, expand_fn, neighbors_of_fn
+                )
+                # Mark every discovered id visited NOW — same dedup
+                # contract as before, so a later base node's BFS still
+                # excludes anything this one already found — but queue
+                # the actual hydration for the single PHASE 2 batch call
+                # instead of paying its own round-trip here.
+                visited.update(all_discovered)
+                pending_hydrate.append((node_id, all_discovered))
+                hydrate_ids.update(all_discovered)
+        except Exception as e:  # noqa: BLE001 — read-path retrieval enrichment; falls back to the bare vector-scored node (already fully valid, just unenriched) rather than losing it from the result set
+            logger.debug(f"Graph traversal fallback failed: {e}")
+            if node_id not in visited:
+                visited.add(node_id)
+                assembled_subgraph.append(node)
+
+    @staticmethod
+    def _bfs_discover_neighborhood(
+        node_id: str,
+        multi_hop_depth: int,
+        visited: set[str],
+        expand_fn: Any,
+        neighbors_of_fn: Any,
+    ) -> list[str]:
+        # BFS traversal up to multi_hop_depth
+        all_discovered = [node_id]
+        frontier = {node_id}
+        for _depth in range(multi_hop_depth):
+            next_frontier: set[str] = set()
+            # Resolve the WHOLE frontier's neighbourhoods in one
+            # overlapped wave, then filter — same id set as the
+            # per-node successors/predecessors pair, one wave of
+            # round-trips instead of 2x|frontier| serial ones.
+            expand_fn(sorted(frontier))
+            for nid in frontier:
+                for n in neighbors_of_fn(nid):
+                    if n not in visited and n not in all_discovered:
+                        next_frontier.add(n)
+            frontier = next_frontier
+            for f_node in sorted(frontier):
+                if f_node not in all_discovered:
+                    all_discovered.append(f_node)
+        return all_discovered
+
+    def _hydrate_pending_nodes(
+        self,
+        pending_hydrate: list[tuple[str, list[str]]],
+        hydrate_ids: set[str],
+        base_nodes: list[dict[str, Any]],
+        assembled_subgraph: list[dict[str, Any]],
+    ) -> None:
+        try:
+            hydrated_all = self._batch_node_properties(sorted(hydrate_ids))
+        except Exception as e:  # noqa: BLE001 — a hydration failure must never drop the already-discovered nodes, only their enrichment (mirrors the per-node fallback this replaces)
+            logger.debug(f"Batched hydration failed: {e}")
+            hydrated_all = {}
+        _node_by_id = {
+            str(n.get("id")): n for n in base_nodes if isinstance(n, dict)
+        }
+        for node_id, all_discovered in pending_hydrate:
+            base_node = _node_by_id.get(node_id) or {"id": node_id}
+            for nid in all_discovered:
+                if nid == node_id:
+                    # Preserve the vector-scored base node — it carries
+                    # _score, the active-task attention boost and its
+                    # embedding. Enrich (don't overwrite) with any graph
+                    # properties (e.g. type) it lacks rather than
+                    # refetching a bare graph projection.
+                    d = dict(base_node)
+                    for k, v in hydrated_all.get(nid, {}).items():
+                        d.setdefault(k, v)
+                else:
+                    d = dict(hydrated_all.get(nid, {}))
+                d["id"] = nid
+                if self._boost_strategy == "context_only":
+                    d["_context_boost"] = self._backlink_boost(nid)
+                assembled_subgraph.append(d)
+
+    def _finalize_retrieval(
+        self,
+        assembled_subgraph: list[dict[str, Any]],
+        query: str,
+        skip_quality_gate: bool,
+        qa_source_types: list[str],
+    ) -> list[dict[str, Any]]:
         def _qa(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            # CONCEPT:AU-ECO.connector.apply-any-query-analysis — apply any query-analysis source-type restriction to
+            # the assembled result (no-op when query_analysis is off / no types).
             if not qa_source_types:
                 return nodes
             from .query_analysis import filter_nodes_by_source
 
             return filter_nodes_by_source(nodes, qa_source_types)
 
-        # CONCEPT:AU-KG.research.research-pipeline-runner — Assess retrieval quality
         if skip_quality_gate:
             return _qa(assembled_subgraph)
 
