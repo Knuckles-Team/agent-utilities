@@ -722,12 +722,9 @@ def _amount_at_least(amount: ResourceAmount, minimum: int) -> bool:
     )
 
 
-def _check_snapshot(
-    snapshot: ResourcePoolSnapshot,
-    requirement: PlacementRequirement,
-    now: datetime,
-) -> tuple[DenialReason, ...]:
-    reasons: list[DenialReason] = []
+def _check_snapshot_freshness_and_attestation(
+    snapshot: ResourcePoolSnapshot, now: datetime, reasons: list[DenialReason]
+) -> None:
     if now < snapshot.observed_at:
         reasons.append("future_snapshot")
     elif now >= snapshot.expires_at:
@@ -737,6 +734,12 @@ def _check_snapshot(
     elif snapshot.attestation.status != "verified":
         reasons.append("unverified_attestation")
 
+
+def _check_cpu_capability(
+    snapshot: ResourcePoolSnapshot,
+    requirement: PlacementRequirement,
+    reasons: list[DenialReason],
+) -> None:
     cpu = snapshot.capabilities.cpu
     if requirement.architecture is not None:
         if cpu.architecture_state != "known":
@@ -756,12 +759,24 @@ def _check_snapshot(
     ):
         reasons.append("insufficient_cpu")
 
+
+def _check_memory_capability(
+    snapshot: ResourcePoolSnapshot,
+    requirement: PlacementRequirement,
+    reasons: list[DenialReason],
+) -> None:
     memory = snapshot.capabilities.memory
     if not _known(memory):
         reasons.append("unknown_memory")
     elif memory.available is None or memory.available < requirement.memory_mib:
         reasons.append("insufficient_memory")
 
+
+def _check_storage_disk_capability(
+    snapshot: ResourcePoolSnapshot,
+    requirement: PlacementRequirement,
+    reasons: list[DenialReason],
+) -> None:
     storage = snapshot.capabilities.storage
     disk = storage.disk
     if requirement.disk_mib:
@@ -786,6 +801,12 @@ def _check_snapshot(
             else "disk_insufficient"
         )
 
+
+def _check_gpu_capability(
+    snapshot: ResourcePoolSnapshot,
+    requirement: PlacementRequirement,
+    reasons: list[DenialReason],
+) -> None:
     gpu_req = requirement.gpu
     gpu = snapshot.capabilities.gpu
     if gpu_req.count:
@@ -816,6 +837,13 @@ def _check_snapshot(
                 ):
                     reasons.append("gpu_mig_unavailable")
 
+
+def _check_nvme_capability(
+    snapshot: ResourcePoolSnapshot,
+    requirement: PlacementRequirement,
+    reasons: list[DenialReason],
+) -> None:
+    storage = snapshot.capabilities.storage
     nvme_req = requirement.nvme
     if nvme_req.required:
         if storage.nvme_state == "absent":
@@ -830,6 +858,12 @@ def _check_snapshot(
             if not _amount_at_least(storage.nvme_write_iops, nvme_req.write_iops):
                 reasons.append("nvme_iops_insufficient")
 
+
+def _check_network_capability(
+    snapshot: ResourcePoolSnapshot,
+    requirement: PlacementRequirement,
+    reasons: list[DenialReason],
+) -> None:
     network_req = requirement.network
     network = snapshot.capabilities.network
     if (
@@ -850,6 +884,12 @@ def _check_snapshot(
         ):
             reasons.append("network_insufficient")
 
+
+def _check_energy_capability(
+    snapshot: ResourcePoolSnapshot,
+    requirement: PlacementRequirement,
+    reasons: list[DenialReason],
+) -> None:
     energy = snapshot.capabilities.energy
     if requirement.max_power_watts is not None:
         if energy.state != "known" or not _amount_at_least(energy.max_power_watts, 0):
@@ -860,6 +900,12 @@ def _check_snapshot(
         ):
             reasons.append("energy_limit")
 
+
+def _check_cost_capability(
+    snapshot: ResourcePoolSnapshot,
+    requirement: PlacementRequirement,
+    reasons: list[DenialReason],
+) -> None:
     cost = snapshot.capabilities.cost
     if requirement.max_cost_micros_per_hour is not None:
         if cost.state != "known" or not _amount_at_least(cost.micros_per_hour, 0):
@@ -870,8 +916,24 @@ def _check_snapshot(
         ):
             reasons.append("cost_limit")
 
-    return tuple(dict.fromkeys(reasons))[:MAX_DENIAL_REASONS]
 
+def _check_snapshot(
+    snapshot: ResourcePoolSnapshot,
+    requirement: PlacementRequirement,
+    now: datetime,
+) -> tuple[DenialReason, ...]:
+    reasons: list[DenialReason] = []
+    _check_snapshot_freshness_and_attestation(snapshot, now, reasons)
+    _check_cpu_capability(snapshot, requirement, reasons)
+    _check_memory_capability(snapshot, requirement, reasons)
+    _check_storage_disk_capability(snapshot, requirement, reasons)
+    _check_gpu_capability(snapshot, requirement, reasons)
+    _check_nvme_capability(snapshot, requirement, reasons)
+    _check_network_capability(snapshot, requirement, reasons)
+    _check_energy_capability(snapshot, requirement, reasons)
+    _check_cost_capability(snapshot, requirement, reasons)
+
+    return tuple(dict.fromkeys(reasons))[:MAX_DENIAL_REASONS]
 
 def _candidate_rank(snapshot: ResourcePoolSnapshot) -> tuple[int, int, int, int, str]:
     """Rank only capability headroom; the digest is a stable final tie-breaker."""
