@@ -61,6 +61,63 @@ def _norm_num(tok: str) -> str:
     return tok.replace(",", "").rstrip("%")
 
 
+def _numeric_grounding(
+    sentences: list[str], valid_sources: set[str], tool_norm: set[str]
+) -> tuple[list[str], list[str], list[str], float]:
+    """Returns (all_numbers, ungrounded_numbers, invalid_citations, numeric_grounded)."""
+    all_numbers: list[str] = []
+    ungrounded_numbers: list[str] = []
+    invalid_citations: list[str] = []
+    for sent in sentences:
+        cites = _CITATION.findall(sent)
+        sent_has_valid_cite = any(c.strip() in valid_sources for c in cites)
+        for c in cites:
+            if c.strip() not in valid_sources:
+                invalid_citations.append(c.strip())
+        for num in _NUMBER.findall(sent):
+            all_numbers.append(num)
+            grounded = _norm_num(num) in tool_norm or sent_has_valid_cite
+            if not grounded:
+                ungrounded_numbers.append(num)
+
+    numeric_grounded = (
+        1.0 - len(ungrounded_numbers) / len(all_numbers) if all_numbers else 1.0
+    )
+    return all_numbers, ungrounded_numbers, invalid_citations, numeric_grounded
+
+
+def _build_reasons(
+    ungrounded_numbers: list[str],
+    uncited_claims: list[str],
+    invalid_citations: list[str],
+) -> list[str]:
+    reasons: list[str] = []
+    if ungrounded_numbers:
+        reasons.append(f"{len(ungrounded_numbers)} ungrounded numeric claim(s)")
+    if uncited_claims:
+        reasons.append(f"{len(uncited_claims)} uncited substantive claim(s)")
+    if invalid_citations:
+        reasons.append(
+            f"citation(s) to unknown sources: {sorted(set(invalid_citations))}"
+        )
+    return reasons
+
+
+def _gate_decision(
+    *,
+    completeness: float,
+    accept_threshold: float,
+    invalid_citations: list[str],
+    attempt: int,
+    max_revise: int,
+) -> Decision:
+    if completeness >= accept_threshold and not invalid_citations:
+        return "accept"
+    if attempt < max_revise:
+        return "revise"
+    return "escalate"
+
+
 @dataclass
 class ProvenanceCriticGate:
     """Deterministic provenance-completeness gate.
@@ -100,55 +157,20 @@ class ProvenanceCriticGate:
 
         sentences = _sentences(answer)
 
-        # --- numeric grounding -------------------------------------------------
-        all_numbers: list[str] = []
-        ungrounded_numbers: list[str] = []
-        invalid_citations: list[str] = []
-        for sent in sentences:
-            cites = _CITATION.findall(sent)
-            sent_has_valid_cite = any(c.strip() in valid_sources for c in cites)
-            for c in cites:
-                if c.strip() not in valid_sources:
-                    invalid_citations.append(c.strip())
-            for num in _NUMBER.findall(sent):
-                all_numbers.append(num)
-                grounded = _norm_num(num) in tool_norm or sent_has_valid_cite
-                if not grounded:
-                    ungrounded_numbers.append(num)
-
-        numeric_grounded = (
-            1.0 - len(ungrounded_numbers) / len(all_numbers) if all_numbers else 1.0
+        _all_numbers, ungrounded_numbers, invalid_citations, numeric_grounded = (
+            _numeric_grounding(sentences, valid_sources, tool_norm)
         )
-
-        # --- claim (sentence) grounding ---------------------------------------
-        substantive = [s for s in sentences if self._is_substantive(s)]
-        uncited_claims: list[str] = []
-        for sent in substantive:
-            cites = _CITATION.findall(sent)
-            if not any(c.strip() in valid_sources for c in cites):
-                uncited_claims.append(sent[:120])
-        claim_grounded = (
-            1.0 - len(uncited_claims) / len(substantive) if substantive else 1.0
-        )
+        uncited_claims, claim_grounded = self._claim_grounding(sentences, valid_sources)
 
         completeness = 0.5 * numeric_grounded + 0.5 * claim_grounded
-
-        reasons: list[str] = []
-        if ungrounded_numbers:
-            reasons.append(f"{len(ungrounded_numbers)} ungrounded numeric claim(s)")
-        if uncited_claims:
-            reasons.append(f"{len(uncited_claims)} uncited substantive claim(s)")
-        if invalid_citations:
-            reasons.append(
-                f"citation(s) to unknown sources: {sorted(set(invalid_citations))}"
-            )
-
-        if completeness >= self.accept_threshold and not invalid_citations:
-            decision: Decision = "accept"
-        elif attempt < self.max_revise:
-            decision = "revise"
-        else:
-            decision = "escalate"
+        reasons = _build_reasons(ungrounded_numbers, uncited_claims, invalid_citations)
+        decision = _gate_decision(
+            completeness=completeness,
+            accept_threshold=self.accept_threshold,
+            invalid_citations=invalid_citations,
+            attempt=attempt,
+            max_revise=self.max_revise,
+        )
 
         return ProvenanceVerdict(
             decision=decision,
@@ -166,3 +188,17 @@ class ProvenanceCriticGate:
             return True
         words = [w for w in re.findall(r"[A-Za-z0-9']+", sentence)]
         return len(words) >= self.min_claim_words
+
+    def _claim_grounding(
+        self, sentences: list[str], valid_sources: set[str]
+    ) -> tuple[list[str], float]:
+        substantive = [s for s in sentences if self._is_substantive(s)]
+        uncited_claims: list[str] = []
+        for sent in substantive:
+            cites = _CITATION.findall(sent)
+            if not any(c.strip() in valid_sources for c in cites):
+                uncited_claims.append(sent[:120])
+        claim_grounded = (
+            1.0 - len(uncited_claims) / len(substantive) if substantive else 1.0
+        )
+        return uncited_claims, claim_grounded
