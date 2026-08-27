@@ -339,6 +339,22 @@ class GovernedAutoMerger:
         """
         evaluation = self.evaluate(spec)
         promote = self.policy.enabled and evaluation.eligible
+        promote, denied_reason = self._gate_by_action_policy(spec, evaluation, promote)
+        if promote:
+            self._execute_promotion(spec, evaluation)
+        else:
+            evaluation.reason = self._not_promoted_reason(evaluation, denied_reason)
+        self._audit(evaluation)
+        return evaluation
+
+    def _gate_by_action_policy(
+        self, spec: Any, evaluation: MergeEvaluation, promote: bool
+    ) -> tuple[bool, str]:
+        """Consult the OS-5.24 ActionPolicy when a promotion is otherwise due.
+
+        Returns the (possibly vetoed) ``promote`` flag plus a denial reason
+        string (empty unless the policy denied this promotion).
+        """
         denied_reason = ""
         if promote:
             decision = self._consult_action_policy(spec)
@@ -354,34 +370,36 @@ class GovernedAutoMerger:
                         "blocked by action policy (merge_promotion): "
                         f"{evaluation.action_decision['reason']}"
                     )
-        if promote:
-            try:
-                evaluation.merged = self._promote(spec)
-                evaluation.reason = (
-                    "auto-merged" if evaluation.merged else "promotion failed"
-                )
-            except Exception as exc:  # noqa: BLE001 — never crash the loop
-                logger.warning(
-                    "auto-merge promotion error for %s: %s", evaluation.proposal_id, exc
-                )
-                evaluation.reason = f"promotion error: {exc}"
-            if evaluation.merged:
-                # Evolution→branch bridge (CONCEPT:AU-AHE.harness.evolution-branch-bridge): a merged proposal
-                # becomes a reviewable git branch — gated by the OS-5.24
-                # ActionPolicy's reserved ``merge_promotion`` kind (the shipped
-                # default queues a human approval; publication then proceeds
-                # via the one-shot ``publish_proposal`` action).
-                evaluation.publication = self._publish(spec)
-        elif denied_reason:
-            evaluation.reason = denied_reason
-        else:
+        return promote, denied_reason
+
+    def _execute_promotion(self, spec: Any, evaluation: MergeEvaluation) -> None:
+        """Attempt the proposal→active flip, then publish on success."""
+        try:
+            evaluation.merged = self._promote(spec)
             evaluation.reason = (
-                "proposal-only (auto-merge disabled)"
-                if not self.policy.enabled
-                else "proposal-only: " + "; ".join(evaluation.failures)
+                "auto-merged" if evaluation.merged else "promotion failed"
             )
-        self._audit(evaluation)
-        return evaluation
+        except Exception as exc:  # noqa: BLE001 — never crash the loop
+            logger.warning(
+                "auto-merge promotion error for %s: %s", evaluation.proposal_id, exc
+            )
+            evaluation.reason = f"promotion error: {exc}"
+        if evaluation.merged:
+            # Evolution→branch bridge (CONCEPT:AU-AHE.harness.evolution-branch-bridge): a merged proposal
+            # becomes a reviewable git branch — gated by the OS-5.24
+            # ActionPolicy's reserved ``merge_promotion`` kind (the shipped
+            # default queues a human approval; publication then proceeds
+            # via the one-shot ``publish_proposal`` action).
+            evaluation.publication = self._publish(spec)
+
+    def _not_promoted_reason(
+        self, evaluation: MergeEvaluation, denied_reason: str
+    ) -> str:
+        if denied_reason:
+            return denied_reason
+        if not self.policy.enabled:
+            return "proposal-only (auto-merge disabled)"
+        return "proposal-only: " + "; ".join(evaluation.failures)
 
     def _consult_action_policy(self, spec: Any) -> Any:
         """Decide ``merge_promotion`` for this proposal via the shared gate.
