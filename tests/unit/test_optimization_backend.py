@@ -504,3 +504,84 @@ def test_native_result_validator_rejects_non_governed_references() -> None:
 
     with pytest.raises(RuntimeError, match="reference list"):
         GraphComputeEngine.program_optimization_result(job)
+
+
+def _plan_step_job() -> dict[str, Any]:
+    """CXA-AU-03-04 characterization: the 'program_optimization_plan_step'
+    kind branch of GraphComputeEngine.program_optimization_result has no
+    existing coverage -- every existing fixture in this file builds a
+    'program_candidate' row instead."""
+    reference = "eg:test:" + "a" * 64
+    schema = [
+        {"name": name, "logical_type": logical_type, "nullable": nullable}
+        for name, logical_type, nullable in _PROGRAM_RESULT_SCHEMA
+    ]
+    row = {
+        "id": reference,
+        "kind": "program_optimization_plan_step",
+        "confidence": 1.0,
+        "evidence_refs": [reference],
+        "source_refs": [reference],
+        "proof_ids": [],
+        "contradiction_ids": [],
+        "program_ref": reference,
+        "optimizer": "avatar",
+        "execution": "model_transport_plan",
+        "candidate_role": None,
+        "demonstration_refs": [],
+        "artifact_refs": [],
+        "composition_refs": [],
+        "instruction_ref": None,
+        "tool_policy_ref": None,
+        "model_profile_ref": None,
+        "modalities": ["text"],
+        "plan_ref": reference,
+        "plan_step_kinds": ["propose_instruction"],
+        "plan_executors": ["model_transport"],
+        "plan_input_refs": [reference],
+        "plan_output_refs": [reference],
+        "plan_depends_on": [],
+        "max_operations": 8,
+        "selected": False,
+    }
+    return {
+        "state": {"Succeeded": {"result_ref": reference, "checkpoint": {}}},
+        "output": {"schema": schema, "rows": [row]},
+    }
+
+
+def test_native_result_validator_accepts_a_well_formed_plan_step_row() -> None:
+    job = _plan_step_job()
+
+    result = GraphComputeEngine.program_optimization_result(job)
+
+    assert result["rows"][0]["kind"] == "program_optimization_plan_step"
+    assert result["rows"][0]["plan_ref"] == job["output"]["rows"][0]["plan_ref"]
+    assert result["rows"][0]["selected"] is False
+
+
+def test_native_result_validator_rejects_plan_step_missing_plan_ref() -> None:
+    job = _plan_step_job()
+    job["output"]["rows"][0]["plan_ref"] = None
+
+    with pytest.raises(RuntimeError, match="plan shape"):
+        GraphComputeEngine.program_optimization_result(job)
+
+
+def test_native_result_validator_rejects_plan_step_with_wrong_step_kind_count() -> None:
+    job = _plan_step_job()
+    job["output"]["rows"][0]["plan_step_kinds"] = [
+        "propose_instruction",
+        "propose_instruction",
+    ]
+
+    with pytest.raises(RuntimeError, match="plan shape"):
+        GraphComputeEngine.program_optimization_result(job)
+
+
+def test_native_result_validator_rejects_plan_step_missing_max_operations() -> None:
+    job = _plan_step_job()
+    job["output"]["rows"][0]["max_operations"] = None
+
+    with pytest.raises(RuntimeError, match="plan shape"):
+        GraphComputeEngine.program_optimization_result(job)
