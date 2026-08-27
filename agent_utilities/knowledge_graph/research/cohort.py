@@ -114,16 +114,51 @@ def create_cohort(
     because durable tasks must not contain machine locations. Returns the
     ``cohort_id`` and the submitted job ids.
     """
+    paper_ids, repos = _validated_cohort_members(papers, repos)
+    cohort_id = f"cohort-{uuid.uuid4().hex}"
+    deadline = time.time() + float(max_wait_s)
+
+    _commit_cohort_start_state(engine, cohort_id, paper_ids, repos, goal, deadline)
+    members = _submit_cohort_members(engine, cohort_id, paper_ids, repos)
+    synth = _submit_synthesize_gate(engine, cohort_id, deadline)
+
+    logger.info(
+        "cohort %s: %d papers + %d repos fanned out → gate %s",
+        cohort_id,
+        len(paper_ids),
+        len(repos),
+        synth,
+    )
+    return {
+        "cohort_id": cohort_id,
+        "members": members,
+        "synthesize_job": synth,
+        "papers": len(paper_ids),
+        "repos": len(repos),
+    }
+
+
+def _validated_cohort_members(
+    papers: list[str] | None, repos: list[str] | None
+) -> tuple[list[str], list[str]]:
+    """Parse + validate raw cohort inputs; raises on the first bad repo URL."""
     paper_ids = [_arxiv_id(p) for p in (papers or []) if p]
-    repos = [str(r) for r in (repos or []) if r]
-    if any(not repo.startswith("https://") for repo in repos):
+    repo_urls = [str(r) for r in (repos or []) if r]
+    if any(not repo.startswith("https://") for repo in repo_urls):
         raise ValueError(
             "cohort repositories must be HTTPS URLs; local paths cannot be persisted"
         )
-    cohort_id = f"cohort-{uuid.uuid4().hex}"
-    now = time.time()
-    deadline = now + float(max_wait_s)
+    return paper_ids, repo_urls
 
+
+def _commit_cohort_start_state(
+    engine: Any,
+    cohort_id: str,
+    paper_ids: list[str],
+    repos: list[str],
+    goal: str,
+    deadline: float,
+) -> None:
     from ...security.persistence_privacy import PersistencePrivacyGuard
 
     safe_goal, _ = PersistencePrivacyGuard().sanitize_text(goal)
@@ -142,6 +177,11 @@ def create_cohort(
         },
     )
 
+
+def _submit_cohort_members(
+    engine: Any, cohort_id: str, paper_ids: list[str], repos: list[str]
+) -> list[str]:
+    """Fan every paper + repo out as a cohort-tagged task; returns their job ids."""
     members: list[str] = []
     for i, pid in enumerate(paper_ids):
         url = f"https://arxiv.org/abs/{pid}"
@@ -178,8 +218,11 @@ def create_cohort(
                 skip_dedupe=True,
             )
         )
+    return members
 
-    synth = engine.submit_task(
+
+def _submit_synthesize_gate(engine: Any, cohort_id: str, deadline: float) -> str:
+    return engine.submit_task(
         f"cohort:{cohort_id}",
         False,
         {},
@@ -188,20 +231,6 @@ def create_cohort(
         job_id=f"{cohort_id}:synth",
         skip_dedupe=True,
     )
-    logger.info(
-        "cohort %s: %d papers + %d repos fanned out → gate %s",
-        cohort_id,
-        len(paper_ids),
-        len(repos),
-        synth,
-    )
-    return {
-        "cohort_id": cohort_id,
-        "members": members,
-        "synthesize_job": synth,
-        "papers": len(paper_ids),
-        "repos": len(repos),
-    }
 
 
 def cohort_member_status(engine: Any, cohort_id: str) -> dict[str, int]:
