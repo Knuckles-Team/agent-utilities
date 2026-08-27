@@ -85,7 +85,17 @@ async def test_relevance_sweep_scores_papers_and_repos_and_sorts_descending():
             [
                 {
                     "id": "code1",
-                    "path": "/home/apps/workspace/agent-packages/otherrepo/file.py",
+                    # WD1-GATE-01A: this used to be rooted under a home
+                    # directory, which `check_tracked_privacy.py` flags as a
+                    # machine-specific home path in runtime source (it scans
+                    # the tracked .py source text itself, not just the value
+                    # at runtime). Only the 7-segment shape and the
+                    # "agent-packages" + differing-repo-name content matter to
+                    # `_relevance_sweep_repo_set`'s `parts[5] if
+                    # "agent-packages" in path else parts[4]` indexing below —
+                    # a differently-rooted path reproduces both identically
+                    # without embedding a literal the scanner matches.
+                    "path": "/srv/a/b/agent-packages/otherrepo/file.py",
                 }
             ],
         ),  # repo set: split("/") has 7 parts, "agent-packages" present -> parts[5]

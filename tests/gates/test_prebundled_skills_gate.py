@@ -84,8 +84,20 @@ def test_validate_skill_flags_every_broken_facet_of_a_malformed_skill(
         "No workflow section here, no imperative steps, no cost guidance.\n",
         encoding="utf-8",
     )
+    # WD1-GATE-01A: this literal used to use a home-directory root, which is
+    # exactly the shape `check_tracked_privacy.py`'s own
+    # `classify_runtime_source_line` flags as a machine-specific home path
+    # in runtime source (it scans tracked .py source text, not just what
+    # this write_text call produces at runtime) -- a false-positive collision
+    # between two independent scanners, not a real leak. `_validate_skill`'s
+    # "absolute filesystem path" pattern
+    # (`agent_utilities/skills/validation.py::_PRIVATE_PATTERNS`) matches a
+    # much wider set of path roots than the privacy gate's narrow allowlist
+    # of home-directory conventions, so a root outside that narrower
+    # allowlist still trips the validator under test while never matching
+    # the privacy gate's pattern.
     skill_dir.joinpath("README.md").write_text(
-        "See /home/someone/notes for details.\n", encoding="utf-8"
+        "See /srv/someone/notes for details.\n", encoding="utf-8"
     )
 
     errors = _validate_skill(skill_dir)
