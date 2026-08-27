@@ -39,6 +39,11 @@ agent_utilities/harness/tool_judge.py
 # surfaces via graph_writeback(asset_mirror=true) + its REST twin — this module is the
 # co-located CLI transport, not a separate capability.
 agent_utilities/knowledge_graph/enrichment/writeback/asset_mirror.py
+# CA-23 (DEC-CA-06): the pipeline function + generator CA-45 will wire to a
+# jena-mcp typed Action (publish/verify) -- explicitly that lane's scope, not this
+# one's (see the lane doc's own Non-goals). Baselined pending CA-45.
+agent_utilities/knowledge_graph/ontology/pack_pipeline.py
+agent_utilities/knowledge_graph/ontology/r2rml_generator.py
 agent_utilities/knowledge_graph/retrieval/active_reconstruction.py
 agent_utilities/knowledge_graph/retrieval/analytics_job_registry.py
 agent_utilities/knowledge_graph/retrieval/capability_descriptor.py
