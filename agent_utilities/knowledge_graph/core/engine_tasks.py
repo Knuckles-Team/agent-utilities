@@ -112,6 +112,109 @@ def _safe_graph_identifier(value: object, *, default: str = "") -> str:
     return rendered if _GRAPH_IDENTIFIER.fullmatch(rendered) else default
 
 
+def _resolve_staged_node_label(raw_type: str) -> str:
+    """Compute the MERGE label for a staged node's raw type string.
+
+    Extracted verbatim from ``_merge_staged_node`` (pure extract-method, no
+    behaviour change).
+    """
+    from agent_utilities.knowledge_graph.pipeline.phases.sync import _TYPE_TO_TABLE
+
+    label = _TYPE_TO_TABLE.get(raw_type) or "".join(
+        word.capitalize() for word in raw_type.replace("_", " ").split()
+    )
+    label = _safe_graph_identifier(label, default="Code")
+    if not label:
+        label = "Code"
+    return label
+
+
+def _fold_staged_node_metadata(props: dict, valid_keys: set | None) -> None:
+    """Fold unrecognized keys into ``props["metadata"]``, mirroring sync.py logic.
+
+    Extracted verbatim from ``_merge_staged_node`` (pure extract-method, no
+    behaviour change). Mutates ``props`` in place.
+    """
+    if valid_keys is None or "metadata" not in valid_keys:
+        return
+
+    extra_props = {}
+    for k in list(props.keys()):
+        if k != "id" and k not in valid_keys:
+            extra_props[k] = props.pop(k)
+    if not extra_props:
+        return
+
+    curr_meta = props.get("metadata", {})
+    if isinstance(curr_meta, str):
+        try:
+            import json
+
+            curr_meta = json.loads(curr_meta)
+        except Exception:
+            curr_meta = {}
+    if not isinstance(curr_meta, dict):
+        curr_meta = {}
+    curr_meta.update(extra_props)
+    props["metadata"] = curr_meta
+
+
+def _serialize_staged_node_props(props: dict) -> None:
+    """JSON-serialize dict/list property values in place.
+
+    Extracted verbatim from ``_merge_staged_node`` (pure extract-method, no
+    behaviour change).
+    """
+    for k, v in list(props.items()):
+        if isinstance(v, dict | list):
+            import json
+
+            props[k] = json.dumps(v)
+
+
+def _build_staged_node_merge_query(
+    label: str, nid: str, safe_properties: dict
+) -> tuple[str, dict]:
+    """Build the MERGE Cypher query + params for a staged node.
+
+    Extracted verbatim from ``_merge_staged_node`` (pure extract-method, no
+    behaviour change).
+    """
+    set_clause = ", ".join([f"n.{key} = $props_{key}" for key in safe_properties])
+    if set_clause:
+        set_clause = " SET " + set_clause
+    query = f"MERGE (n:{label} {{id: $id}}){set_clause}"
+
+    params = {"id": nid}
+    for key, value in safe_properties.items():
+        params[f"props_{key}"] = value
+    return query, params
+
+
+def _filter_non_null_props(node: dict) -> dict:
+    """Extracted verbatim from ``_merge_staged_node`` (pure extract-method)."""
+    return {k: v for k, v in node.items() if v is not None}
+
+
+def _is_non_code_symbol_type(label: str, raw_type: str) -> bool:
+    """Extracted verbatim from ``_merge_staged_node`` (pure extract-method)."""
+    return label == "Code" and bool(raw_type) and raw_type != "code"
+
+
+def _filter_props_to_schema(props: dict, valid_keys: set) -> dict:
+    """Extracted verbatim from ``_merge_staged_node`` (pure extract-method)."""
+    return {k: v for k, v in props.items() if k in valid_keys}
+
+
+def _filter_safe_properties(props: dict) -> dict:
+    """Extracted verbatim from ``_merge_staged_node`` (pure extract-method)."""
+    return {
+        key: value
+        for key, value in props.items()
+        if isinstance(key, str) and _GRAPH_IDENTIFIER.fullmatch(key)
+    }
+
+
 def daemon_role() -> str:
     """Resolve this process's KG background-daemon role (CONCEPT:AU-KG.coordination.embedder-breaker / OS-5.0).
 
@@ -3423,11 +3526,117 @@ class TaskManagerMixin(GraphEngineProtocol):
         # workflow sweep referenced a workflow that was never defined (it raised
         # ValueError every cycle), so it has been removed in favor of that tick.
 
+    def _merge_staged_node(
+        self, node: dict, schema_cache: dict, node_type_map: dict
+    ) -> None:
+        """MERGE a single staged node into the backend.
+
+        Extracted verbatim from ``_graph_writer_loop`` (pure extract-method, no
+        behaviour change) -- the body of the ``for node in nodes:`` loop.
+        """
+        nid = node.pop("id")
+        raw_type = str(node.pop("type")).lower()
+        label = _resolve_staged_node_label(raw_type)
+        node_type_map[nid] = label
+
+        # Filter valid properties
+        valid_keys = schema_cache.get(label)
+        props = _filter_non_null_props(node)
+        # Preserve original semantic type for Code nodes (file/symbol/module).
+        # The Code table declares ``symbol_type`` (not a bare ``type``, which
+        # the schema retired in favor of ``node_type``) for exactly this — the
+        # same column parse.py/graph_compute.py/blast_radius.py already read
+        # and write. Writing "type" here used to alias the schema's generic
+        # column; now it would be silently dropped by the valid_keys filter
+        # below, so route it to the dedicated column instead.
+        if _is_non_code_symbol_type(label, raw_type):
+            props["symbol_type"] = raw_type
+
+        # Collect extra properties into metadata dict, mirroring sync.py logic
+        _fold_staged_node_metadata(props, valid_keys)
+
+        if valid_keys:
+            props = _filter_props_to_schema(props, valid_keys)
+
+        # Serialize dict/list values to JSON strings
+        _serialize_staged_node_props(props)
+
+        # Execute MERGE
+        # Using query_cypher to pass props nicely
+        safe_properties = _filter_safe_properties(props)
+        query, params = _build_staged_node_merge_query(label, nid, safe_properties)
+        self.backend.execute(query, params)
+
+    def _write_staged_nodes(self, nodes: list, schema_cache: dict) -> None:
+        """Execute all staged nodes sequentially (MERGE).
+
+        Extracted verbatim from ``_graph_writer_loop`` (pure extract-method, no
+        behaviour change).
+        """
+        node_type_map: dict = {}
+        for node in nodes:
+            if "id" in node and "type" in node:
+                self._merge_staged_node(node, schema_cache, node_type_map)
+
+    def _write_staged_edges(self, edges: list) -> None:
+        """Execute all staged edges sequentially (best-effort ``link_nodes``).
+
+        Extracted verbatim from ``_graph_writer_loop`` (pure extract-method, no
+        behaviour change). A comma-pattern MATCH plus an edge MERGE both exceed
+        the engine's native Cypher write subset (one leading MATCH, MERGE on a
+        single bare node only; epistemic-graph/crates/eg-query/src/cypher/
+        parser.rs:1184); ``link_nodes`` dispatches through the typed engine API
+        for a native authority (which requires both endpoints to already
+        exist, unlike the portable Cypher fallback used for a non-native
+        store) and per-edge best effort (matching the original MATCH's silent
+        no-op for a dangling reference): the staged item is retried wholesale
+        on failure by the caller, so one edge referencing a node outside this
+        batch must not doom the whole item to an infinite retry loop.
+        """
+        for edge in edges:
+            if "source" in edge and "target" in edge and "type" in edge:
+                src = edge.pop("source")
+                tgt = edge.pop("target")
+                etype = _safe_graph_identifier(str(edge.pop("type")).upper())
+
+                if not etype:
+                    continue
+
+                try:
+                    self.link_nodes(src, tgt, etype)
+                except Exception as exc:  # noqa: BLE001 — dangling edge reference against a native authority; logged and skipped so it can't wedge this staged item in an infinite retry loop
+                    logger.debug(
+                        "Skipped staged edge %s -[%s]-> %s: %s",
+                        src,
+                        etype,
+                        tgt,
+                        exc,
+                    )
+
+    def _process_one_staged_graph_item(self, item: tuple, schema_cache: dict) -> None:
+        """Persist one staged graph payload (nodes then edges), ack on success.
+
+        Extracted verbatim from ``_graph_writer_loop`` (pure extract-method, no
+        behaviour change).
+        """
+        item_id, job_id, graph_data = item
+        nodes = graph_data.get("nodes", [])
+        edges = graph_data.get("edges", [])
+
+        logger.info(
+            f"GraphWriterDaemon processing payload for {job_id}: {len(nodes)} nodes, {len(edges)} edges"
+        )
+
+        self._write_staged_nodes(nodes, schema_cache)
+        self._write_staged_edges(edges)
+
+        # Only acknowledge and remove from staging if successful
+        self._submission_queue.ack_staged_graph(item_id)
+
     def _graph_writer_loop(self):
         """Background daemon thread to drain the staging SQLite queue and insert heavy graph payloads sequentially to prevent lock contention."""
         import time
 
-        from agent_utilities.knowledge_graph.pipeline.phases.sync import _TYPE_TO_TABLE
         from agent_utilities.models.schema_definition import SCHEMA
 
         # Build schema cache
@@ -3446,128 +3655,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     time.sleep(1.0)
                     continue
 
-                item_id, job_id, graph_data = item
-                nodes = graph_data.get("nodes", [])
-                edges = graph_data.get("edges", [])
-
-                logger.info(
-                    f"GraphWriterDaemon processing payload for {job_id}: {len(nodes)} nodes, {len(edges)} edges"
-                )
-
-                node_type_map = {}
-
-                # Execute all nodes sequentially.
-                for node in nodes:
-                    if "id" in node and "type" in node:
-                        nid = node.pop("id")
-                        raw_type = str(node.pop("type")).lower()
-                        label = _TYPE_TO_TABLE.get(raw_type) or "".join(
-                            word.capitalize()
-                            for word in raw_type.replace("_", " ").split()
-                        )
-                        label = _safe_graph_identifier(label, default="Code")
-                        if not label:
-                            label = "Code"
-
-                        node_type_map[nid] = label
-
-                        # Filter valid properties
-                        valid_keys = schema_cache.get(label)
-                        props = {k: v for k, v in node.items() if v is not None}
-                        # Preserve original semantic type for Code nodes (file/symbol/module).
-                        # The Code table declares ``symbol_type`` (not a bare ``type``, which
-                        # the schema retired in favor of ``node_type``) for exactly this — the
-                        # same column parse.py/graph_compute.py/blast_radius.py already read
-                        # and write. Writing "type" here used to alias the schema's generic
-                        # column; now it would be silently dropped by the valid_keys filter
-                        # below, so route it to the dedicated column instead.
-                        if label == "Code" and raw_type and raw_type != "code":
-                            props["symbol_type"] = raw_type
-
-                        # Collect extra properties into metadata dict, mirroring sync.py logic
-                        if valid_keys is not None and "metadata" in valid_keys:
-                            extra_props = {}
-                            for k in list(props.keys()):
-                                if k != "id" and k not in valid_keys:
-                                    extra_props[k] = props.pop(k)
-                            if extra_props:
-                                curr_meta = props.get("metadata", {})
-                                if isinstance(curr_meta, str):
-                                    try:
-                                        import json
-
-                                        curr_meta = json.loads(curr_meta)
-                                    except Exception:
-                                        curr_meta = {}
-                                if not isinstance(curr_meta, dict):
-                                    curr_meta = {}
-                                curr_meta.update(extra_props)
-                                props["metadata"] = curr_meta
-
-                        if valid_keys:
-                            props = {k: v for k, v in props.items() if k in valid_keys}
-
-                        # Serialize dict/list values to JSON strings
-                        for k, v in list(props.items()):
-                            if isinstance(v, dict | list):
-                                import json
-
-                                props[k] = json.dumps(v)
-
-                        # Execute MERGE
-                        # Using query_cypher to pass props nicely
-                        safe_properties = {
-                            key: value
-                            for key, value in props.items()
-                            if isinstance(key, str) and _GRAPH_IDENTIFIER.fullmatch(key)
-                        }
-                        set_clause = ", ".join(
-                            [f"n.{key} = $props_{key}" for key in safe_properties]
-                        )
-                        if set_clause:
-                            set_clause = " SET " + set_clause
-                        query = f"MERGE (n:{label} {{id: $id}}){set_clause}"
-
-                        params = {"id": nid}
-                        for key, value in safe_properties.items():
-                            params[f"props_{key}"] = value
-
-                        self.backend.execute(query, params)
-
-                # Execute all edges sequentially. A comma-pattern MATCH plus an
-                # edge MERGE both exceed the engine's native Cypher write
-                # subset (one leading MATCH, MERGE on a single bare node only;
-                # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184);
-                # ``link_nodes`` dispatches through the typed engine API for a
-                # native authority (which requires both endpoints to already
-                # exist, unlike the portable Cypher fallback used for a
-                # non-native store) and per-edge best effort (matching the
-                # original MATCH's silent no-op for a dangling reference): the
-                # staged item is retried wholesale on failure (below), so one
-                # edge referencing a node outside this batch must not doom the
-                # whole item to an infinite retry loop.
-                for edge in edges:
-                    if "source" in edge and "target" in edge and "type" in edge:
-                        src = edge.pop("source")
-                        tgt = edge.pop("target")
-                        etype = _safe_graph_identifier(str(edge.pop("type")).upper())
-
-                        if not etype:
-                            continue
-
-                        try:
-                            self.link_nodes(src, tgt, etype)
-                        except Exception as exc:  # noqa: BLE001 — dangling edge reference against a native authority; logged and skipped so it can't wedge this staged item in an infinite retry loop
-                            logger.debug(
-                                "Skipped staged edge %s -[%s]-> %s: %s",
-                                src,
-                                etype,
-                                tgt,
-                                exc,
-                            )
-
-                # Only acknowledge and remove from staging if successful
-                self._submission_queue.ack_staged_graph(item_id)
+                self._process_one_staged_graph_item(item, schema_cache)
             except Exception as exc:
                 logger.error(
                     "Error persisting staged graph; will retry: %s",
@@ -6267,7 +6355,9 @@ class TaskManagerMixin(GraphEngineProtocol):
         return repo_set
 
     @staticmethod
-    def _relevance_paper_content_scores(content_lower: str) -> tuple[float, float, float, float]:
+    def _relevance_paper_content_scores(
+        content_lower: str,
+    ) -> tuple[float, float, float, float]:
         # Content keyword overlap (concept-level)
         concept_keywords = [
             "knowledge graph",
@@ -6516,7 +6606,6 @@ class TaskManagerMixin(GraphEngineProtocol):
         except Exception as e:
             logger.warning(f"RelevanceSweep: error scoring repo {repo_name}: {e}")
             return None
-
 
     def _persist_relevance_score(
         self,
@@ -7015,7 +7104,10 @@ class TaskManagerMixin(GraphEngineProtocol):
 
     @staticmethod
     def _profile_report_accumulate_tokens_cost(
-        grp: dict[str, Any], meta: dict[str, Any], usage: dict[str, Any], prof: dict[str, Any]
+        grp: dict[str, Any],
+        meta: dict[str, Any],
+        usage: dict[str, Any],
+        prof: dict[str, Any],
     ) -> None:
         # OS-5.69/70 — the ingest profile carries real token usage + per-stage
         # timing (read/extract/embed/write), so the report is no longer tokens=0
@@ -7158,7 +7250,6 @@ class TaskManagerMixin(GraphEngineProtocol):
             "total_task_ms": round(total_ms, 1),
             "slowest": tail_tasks[:slowest_n],
         }
-
 
     def _checkpoint_db(self) -> None:
         """Force a WAL checkpoint so a SQLite-backed store persists across restarts.

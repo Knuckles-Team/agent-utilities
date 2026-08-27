@@ -144,7 +144,6 @@ async def router_step(
         f"[LAYER:GRAPH:ROUTER] Routing started for query: '{ctx.state.query[:50]}...'"
     )
 
-
     # CONCEPT:AU-ORCH.execution.direct-completion-shape — a direct-completion / lean turn is answered OUTSIDE this graph by
     # ``agent_runner._run_direct_completion`` (the planner's ``direct_complete`` shape, or the
     # structural classifier for a shape-less caller, short-circuits _execute_graph before the
@@ -1521,15 +1520,11 @@ async def _expert_dispatch_step_handler(
 
     # DYNAMIC GRAPH-NATIVE AGENT SPAWNING
     else:
-        logger.info(
-            f"Expert Execution: Spawning dynamic agent for task '{node_id}'"
-        )
+        logger.info(f"Expert Execution: Spawning dynamic agent for task '{node_id}'")
 
         # 1. Query Knowledge Graph for best tools & prompts
         engine = ctx.deps.knowledge_engine
-        system_prompt = (
-            f"You are a specialized agent handling the task: {node_id}."
-        )
+        system_prompt = f"You are a specialized agent handling the task: {node_id}."
         tools_to_inject = []
 
         if engine:
@@ -1569,9 +1564,7 @@ async def _expert_dispatch_step_handler(
                 )
 
             # Check for explicit prompt node
-            prompt_res, tool_res = await asyncio.to_thread(
-                _read_dynamic_bindings
-            )
+            prompt_res, tool_res = await asyncio.to_thread(_read_dynamic_bindings)
             if prompt_res and "sp" in prompt_res[0]:
                 system_prompt = prompt_res[0]["sp"]
 
@@ -1600,9 +1593,7 @@ async def _expert_dispatch_step_handler(
         native_toolsets = [
             toolset
             for toolset in ctx.deps.mcp_toolsets
-            if isinstance(
-                (metadata := getattr(toolset, "metadata", None)), dict
-            )
+            if isinstance((metadata := getattr(toolset, "metadata", None)), dict)
             and metadata.get("graphos_native") is True
         ]
         if native_toolsets:
@@ -1622,9 +1613,7 @@ async def _expert_dispatch_step_handler(
 
         # Filter down to the exact tools
         if tools_to_inject:
-            filtered_tools = [
-                t for t in domain_tools if t.__name__ in tools_to_inject
-            ]
+            filtered_tools = [t for t in domain_tools if t.__name__ in tools_to_inject]
             if filtered_tools:
                 domain_tools = filtered_tools
 
@@ -1651,9 +1640,7 @@ async def _expert_dispatch_step_handler(
         # context into a valid AgentDeps so injected tools AND MCP toolsets work.
         from .executor import agent_deps_from_graph
 
-        _agent_deps = agent_deps_from_graph(
-            ctx.deps, domain_toolsets, state=ctx.state
-        )
+        _agent_deps = agent_deps_from_graph(ctx.deps, domain_toolsets, state=ctx.state)
 
         # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid/1.38 — bound requests + enforce the invoker's token budget.
         async with dynamic_agent.run_stream(
@@ -1666,6 +1653,143 @@ async def _expert_dispatch_step_handler(
             )
 
         ctx.state.results_registry[node_id] = str(res)
+
+
+async def _expert_execute_attempt(
+    ctx: StepContext, node_id: str, step: Any, max_retries: int
+) -> None:
+    """Execute one retry attempt of an expert step: contract checks, state
+    fork, dispatch, state merge.
+
+    Extracted verbatim from ``expert_executor_step`` (pure extract-method, no
+    behaviour change) -- the body of the per-attempt ``try:`` block, including
+    both nested contract-check ``try/except`` blocks exactly as before (the
+    ``validator`` name is intentionally shared across both, matching the
+    pre-refactor scoping -- see BUGS FOUND in the lane report for the latent
+    UnboundLocalError-on-swallow this preserves). Raises on failure; the
+    caller's retry loop catches and handles it.
+    """
+    logger.info(
+        f"Expert Execution: Attempt {ctx.state.current_node_retries + 1}/{max_retries + 1} for node '{node_id}'"
+    )
+
+    # Declarative Pre-condition Contract Check (CONCEPT: OS-5.3 / AHE-3.7)
+    try:
+        from ..harness.contract_validator import ContractValidator
+
+        validator = ContractValidator.instance()
+        state_context = {
+            "query": ctx.state.query,
+            "results_registry": ctx.state.results_registry,
+            "step": step.model_dump() if hasattr(step, "model_dump") else str(step),
+        }
+        if not validator.validate_pre(node_id, state_context):
+            logger.error(f"Contract: Pre-condition check failed for node '{node_id}'")
+            raise ValueError(
+                f"Pre-condition contract validation failed for node '{node_id}'"
+            )
+        logger.info(f"Contract: Pre-condition check passed for node '{node_id}'")
+    except Exception as ce:
+        if "validation failed" in str(ce):
+            raise
+        logger.debug(f"Contract pre-validation skipped: {ce}")
+
+    # Transactional State Forking (CONCEPT: AHE-3.7)
+    from ..harness.distributed_state_manager import BranchMergeStateLocker
+
+    locker = BranchMergeStateLocker()
+    base_key = f"execution_state:{ctx.state.query[:30]}"
+    branch_name = f"branch_{node_id}"
+    locker.fork_state(base_key, branch_name)
+    locker.update_branch_state(
+        base_key,
+        branch_name,
+        {
+            "node_id": node_id,
+            "input_data": step.description,
+            "results_registry": dict(ctx.state.results_registry),
+        },
+    )
+
+    await _expert_dispatch_step_handler(ctx, node_id, step)
+
+    # Update branched state with execution output
+    node_result = ctx.state.results_registry.get(node_id, {})
+    if not isinstance(node_result, dict):
+        node_result = {"output": node_result}
+
+    locker.update_branch_state(
+        base_key,
+        branch_name,
+        {
+            "node_id": node_id,
+            "input_data": step.description,
+            "output": node_result,
+            "results_registry": dict(ctx.state.results_registry),
+        },
+    )
+
+    # Declarative Post-condition Contract Check (CONCEPT: OS-5.3 / AHE-3.7)
+    try:
+        if not validator.validate_post(node_id, node_result):
+            logger.error(f"Contract: Post-condition check failed for node '{node_id}'")
+            raise ValueError(
+                f"Post-condition contract validation failed for node '{node_id}'"
+            )
+        logger.info(f"Contract: Post-condition check passed for node '{node_id}'")
+    except Exception as ce:
+        if "validation failed" in str(ce):
+            raise
+        logger.debug(f"Contract post-validation skipped: {ce}")
+
+    # Transactional State Merging (CONCEPT: AHE-3.7)
+    merge_success = locker.merge_state(base_key, branch_name)
+    if merge_success:
+        logger.info(
+            f"Transactional State: Successfully merged branch '{branch_name}' back to '{base_key}'"
+        )
+    else:
+        logger.warning(
+            f"Transactional State: Failed to merge branch '{branch_name}' back to '{base_key}' (FF mismatch or lock conflict)"
+        )
+
+    # Execution successful, clear error
+    ctx.state.error = None
+
+
+async def _expert_handle_attempt_failure(
+    ctx: StepContext, node_id: str, e: Exception, max_retries: int
+) -> bool:
+    """Log + record one failed attempt; return True if retries are exhausted.
+
+    Extracted verbatim from ``expert_executor_step`` (pure extract-method, no
+    behaviour change) -- the body of the outer ``except Exception as e:``
+    block, minus the terminal ``break``/``sleep`` (left to the caller, which
+    owns the loop).
+    """
+    # CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap — an expert step that fails by calling a remote MCP tool
+    # raises an anyio ``BaseExceptionGroup`` whose ``str()`` is the opaque
+    # "unhandled errors in a TaskGroup" (or empty). Flatten to the real leaf
+    # cause(s) so the node-failure log is actionable (e.g. the portainer 401 /
+    # connect error behind a research-step retry storm) instead of blank.
+    from agent_utilities.orchestration.agent_runner import (
+        _flatten_exception_group,
+    )
+
+    detail = _flatten_exception_group(e)
+    logger.error(
+        f"Execution failed for node '{node_id}' (Attempt {ctx.state.current_node_retries + 1}): {detail}"
+    )
+    ctx.state.error = f"Node {node_id} failed: {detail}"
+    ctx.state.current_node_retries += 1
+
+    if ctx.state.current_node_retries > max_retries:
+        logger.warning(
+            f"Node '{node_id}' exhausted all retries. Escalating to re-planning."
+        )
+        ctx.state.needs_replan = True
+        return True
+    return False
 
 
 async def expert_executor_step(
@@ -1693,128 +1817,14 @@ async def expert_executor_step(
 
     while ctx.state.current_node_retries <= max_retries:
         try:
-            logger.info(
-                f"Expert Execution: Attempt {ctx.state.current_node_retries + 1}/{max_retries + 1} for node '{node_id}'"
-            )
-
-            # Declarative Pre-condition Contract Check (CONCEPT: OS-5.3 / AHE-3.7)
-            try:
-                from ..harness.contract_validator import ContractValidator
-
-                validator = ContractValidator.instance()
-                state_context = {
-                    "query": ctx.state.query,
-                    "results_registry": ctx.state.results_registry,
-                    "step": step.model_dump()
-                    if hasattr(step, "model_dump")
-                    else str(step),
-                }
-                if not validator.validate_pre(node_id, state_context):
-                    logger.error(
-                        f"Contract: Pre-condition check failed for node '{node_id}'"
-                    )
-                    raise ValueError(
-                        f"Pre-condition contract validation failed for node '{node_id}'"
-                    )
-                logger.info(
-                    f"Contract: Pre-condition check passed for node '{node_id}'"
-                )
-            except Exception as ce:
-                if "validation failed" in str(ce):
-                    raise
-                logger.debug(f"Contract pre-validation skipped: {ce}")
-
-            # Transactional State Forking (CONCEPT: AHE-3.7)
-            from ..harness.distributed_state_manager import BranchMergeStateLocker
-
-            locker = BranchMergeStateLocker()
-            base_key = f"execution_state:{ctx.state.query[:30]}"
-            branch_name = f"branch_{node_id}"
-            locker.fork_state(base_key, branch_name)
-            locker.update_branch_state(
-                base_key,
-                branch_name,
-                {
-                    "node_id": node_id,
-                    "input_data": step.description,
-                    "results_registry": dict(ctx.state.results_registry),
-                },
-            )
-
-            await _expert_dispatch_step_handler(ctx, node_id, step)
-
-            # Update branched state with execution output
-            node_result = ctx.state.results_registry.get(node_id, {})
-            if not isinstance(node_result, dict):
-                node_result = {"output": node_result}
-
-            locker.update_branch_state(
-                base_key,
-                branch_name,
-                {
-                    "node_id": node_id,
-                    "input_data": step.description,
-                    "output": node_result,
-                    "results_registry": dict(ctx.state.results_registry),
-                },
-            )
-
-            # Declarative Post-condition Contract Check (CONCEPT: OS-5.3 / AHE-3.7)
-            try:
-                if not validator.validate_post(node_id, node_result):
-                    logger.error(
-                        f"Contract: Post-condition check failed for node '{node_id}'"
-                    )
-                    raise ValueError(
-                        f"Post-condition contract validation failed for node '{node_id}'"
-                    )
-                logger.info(
-                    f"Contract: Post-condition check passed for node '{node_id}'"
-                )
-            except Exception as ce:
-                if "validation failed" in str(ce):
-                    raise
-                logger.debug(f"Contract post-validation skipped: {ce}")
-
-            # Transactional State Merging (CONCEPT: AHE-3.7)
-            merge_success = locker.merge_state(base_key, branch_name)
-            if merge_success:
-                logger.info(
-                    f"Transactional State: Successfully merged branch '{branch_name}' back to '{base_key}'"
-                )
-            else:
-                logger.warning(
-                    f"Transactional State: Failed to merge branch '{branch_name}' back to '{base_key}' (FF mismatch or lock conflict)"
-                )
-
-            # Execution successful, clear error and break retry loop
-            ctx.state.error = None
+            await _expert_execute_attempt(ctx, node_id, step, max_retries)
             break
-
         except Exception as e:
-            # CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap — an expert step that fails by calling a remote MCP tool
-            # raises an anyio ``BaseExceptionGroup`` whose ``str()`` is the opaque
-            # "unhandled errors in a TaskGroup" (or empty). Flatten to the real leaf
-            # cause(s) so the node-failure log is actionable (e.g. the portainer 401 /
-            # connect error behind a research-step retry storm) instead of blank.
-            from agent_utilities.orchestration.agent_runner import (
-                _flatten_exception_group,
+            exhausted = await _expert_handle_attempt_failure(
+                ctx, node_id, e, max_retries
             )
-
-            detail = _flatten_exception_group(e)
-            logger.error(
-                f"Execution failed for node '{node_id}' (Attempt {ctx.state.current_node_retries + 1}): {detail}"
-            )
-            ctx.state.error = f"Node {node_id} failed: {detail}"
-            ctx.state.current_node_retries += 1
-
-            if ctx.state.current_node_retries > max_retries:
-                logger.warning(
-                    f"Node '{node_id}' exhausted all retries. Escalating to re-planning."
-                )
-                ctx.state.needs_replan = True
+            if exhausted:
                 break
-
             # Short sleep before local retry
             await asyncio.sleep(1)
 
