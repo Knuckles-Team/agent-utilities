@@ -21,6 +21,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import difflib
 import sys
 import tomllib
 from pathlib import Path
@@ -201,11 +202,51 @@ def main() -> int:
         default=None,
         help="registry whose published host ports must be preserved (default: --out)",
     )
+    ap.add_argument(
+        "--check",
+        action="store_true",
+        help=(
+            "Do not write --out. Regenerate in memory (preserving --out's own "
+            "already-published host ports, same as a normal run) and diff "
+            "against --out's current contents. Exit 0 with no output on a "
+            "match; exit 1 with a unified diff naming every drifted line "
+            "(e.g. a hand-edited entry) otherwise. Requires --out (there is "
+            "nothing to check against without it)."
+        ),
+    )
     args = ap.parse_args()
 
     if not args.agents_dir.is_dir():
         print(f"error: {args.agents_dir} is not a directory", file=sys.stderr)
         return 2
+
+    if args.check:
+        if not args.out:
+            print("error: --check requires --out", file=sys.stderr)
+            return 2
+        if not args.out.is_file():
+            print(f"error: --check: {args.out} does not exist", file=sys.stderr)
+            return 2
+        services = discover(args.agents_dir)
+        assign_host_ports(
+            services, allocated_host_ports(args.allocated_ports or args.out)
+        )
+        generated = render(services)
+        current = args.out.read_text(encoding="utf-8")
+        if generated == current:
+            return 0
+        diff = difflib.unified_diff(
+            current.splitlines(keepends=True),
+            generated.splitlines(keepends=True),
+            fromfile=str(args.out),
+            tofile=f"{args.out} (regenerated)",
+        )
+        sys.stdout.writelines(diff)
+        print(
+            f"error: {args.out} is stale/drifted -- regenerate it, do not hand-edit.",
+            file=sys.stderr,
+        )
+        return 1
 
     services = discover(args.agents_dir)
     assign_host_ports(services, allocated_host_ports(args.allocated_ports or args.out))

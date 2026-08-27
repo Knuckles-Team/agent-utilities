@@ -1003,6 +1003,79 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "text_field": "name",
         "doc_type": "erpnext_doctype",
     },
+    # ── CA-29 W1-end fleet transcription (DEC-CA-08) ───────────────────────────
+    #
+    # lakekeeper-mcp: catalog sweep, independent of its own native
+    # `lakekeeper_ingest_catalog` typed-node tool (CA-40, `mcp_lakekeeper.py:110`
+    # `lakekeeper_list_tables(namespace, warehouse="")` — plain kwargs, hence
+    # "args" — returning `{"tables": [<Iceberg TableIdentifier: name, namespace>], "count"}`).
+    # Extend with {"params": {"namespace": "<ns>"}}.
+    "lakekeeper-catalog": {
+        "server": "lakekeeper-mcp",
+        "tool": "lakekeeper_list_tables",
+        "params_style": "args",
+        "records_path": "tables",
+        "id_field": "name",
+        "title_field": "name",
+        "doc_type": "table",
+    },
+    # spark-mcp: the two presets CA-27 designed and CA-29 applies (its own
+    # `mcp_tool.py` write is exclusive to this lane per LANE-SPECS). These are
+    # single-call WRITE/poll routes for `backends/spark_jobs.py` via
+    # `call_preset_once`/`call_tool_once` (submit a Transform, poll its runs) —
+    # not the generic document-sync path, so no records_path/id_field.
+    # `spark_submit_transform(transform, kind, body, output_table,
+    # output_mode="append", inputs=[])` is a mutating `plain-kwargs` tool
+    # (`mcp_spark.py:78`) — an `OntologyAction` pending CA-32's `ActionSpec`
+    # schema (DEC-CA-07, deferred per this package's AGENTS.md), gated today by
+    # `SPARK_ENABLE_TRANSFORMS` client-side and `dispatch_intent`'s
+    # session-load check.
+    "spark-transform-submit": {
+        "server": "spark-mcp",
+        "tool": "spark_submit_transform",
+        "params_style": "args",
+    },
+    # `spark_list_transform_runs(limit=100, transform="")` (`mcp_spark.py:115`) —
+    # this package's own run ledger (no Spark History Server exists).
+    "spark-transform-status": {
+        "server": "spark-mcp",
+        "tool": "spark_list_transform_runs",
+        "params_style": "args",
+    },
+    # opensearch-mcp: document-sync sweep via `opensearch_search` (BM25,
+    # `mcp_opensearch.py:213`, plain kwargs `index, query, size=10,
+    # source_fields=None`) — runs as the calling principal, so DLS narrows
+    # results server-side; this preset never widens or bypasses that filter.
+    # Response is the raw OpenSearch hits envelope (`{"hits": {"hits": [{"_id",
+    # "_source", ...}]}}`). Extend with {"params": {"index": "<idx>", "query":
+    # {...}}}; default query is match_all so the preset is runnable unextended.
+    "opensearch-index": {
+        "server": "opensearch-mcp",
+        "tool": "opensearch_search",
+        "params_style": "args",
+        "params": {"query": {"query": {"match_all": {}}}},
+        "records_path": "hits.hits",
+        "id_field": "_id",
+        "doc_type": "search_hit",
+    },
+    # kafka-mcp: Connect connector inventory via the action-dispatch
+    # `kafka_connect(action, params_json)` tool (CA-44, `mcp_kafka_connect.py:21`).
+    # `action="list"` with `{"expand": "status"}` returns a MAPPING keyed by
+    # connector name (`{name: {"status": ..., "info": ...}}`), not a list —
+    # `records_is_mapping=True` folds the key back into each record via
+    # `mapping_key_field` (the connector responses carry no own "name" field at
+    # that nesting) so `id_field`/`title_field` can read it directly.
+    "kafka-connect-connectors": {
+        "server": "kafka-mcp",
+        "tool": "kafka_connect",
+        "action": "list",
+        "params": {"expand": "status"},
+        "records_is_mapping": True,
+        "mapping_key_field": "name",
+        "id_field": "name",
+        "title_field": "name",
+        "doc_type": "connector",
+    },
 }
 
 _MANDATORY_PRESET_FIELDS: dict[str, dict[str, Any]] = {
