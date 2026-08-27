@@ -1231,3 +1231,10 @@ repos:
   # this change; scripts/run_guardrails_lean.py stays on disk, unwired, if a
   # throwaway-venv-isolated run is ever needed again:
   #   python3 scripts/run_guardrails_lean.py
+
+  - id: check-gitignore-convergence
+    name: .gitignore carries the fleet-shared REQUIRED set
+    entry: python3 scripts/check_gitignore_convergence.py
+    language: system
+    pass_filenames: false
+    always_run: true
