@@ -1,8 +1,0 @@
-# Frozen baseline of bare os.environ/os.getenv reads across ALL prefixes
-# (ratchet — burn-down toward zero). The KG_/GRAPH_/EPISTEMIC_ reads were
-# folded onto config.setting()/AgentConfig fields; what remains here (AGENT_/
-# VAULT_/OTEL_/connector creds/…) is the tracked burn-down. New entries fail
-# scripts/check_no_env_sprawl.py — route reads through config.setting(...) or a
-# typed AgentConfig field instead. Regenerate with --update-baseline after
-# removing reads. See docs/architecture/configuration.md.
-

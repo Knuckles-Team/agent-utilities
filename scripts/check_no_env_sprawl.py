@@ -6,22 +6,27 @@ environment variables must be declared as typed fields on ``AgentConfig``
 (``agent_utilities/core/config.py``) and read via the ``config`` object — NOT with
 bare ``os.environ.get("KG_...")`` / ``os.getenv("GRAPH_...")`` scattered across modules.
 
-Because the codebase already carries ~96 such reads, this is a **ratchet**: the
-current set is frozen in ``scripts/env_flag_baseline.txt`` and the gate fails only on
-*new* bare reads not in the baseline. Removing a read (routing it through
-``AgentConfig``) is always allowed and shrinks the baseline on the next
-``--update-baseline``.
+**Absolute gate, no ratchet.** The burn-down finished (the frozen baseline this gate
+used to compare against reached zero entries), so per the workspace's no-ratchet policy
+the gate now enforces a fixed threshold (``MAX``, a module-level constant — see below)
+against the REAL count on every run, pass or fail, instead of comparing against a
+baseline file. There is no ``--update-baseline`` escape hatch and no way to freeze a new
+violation as "already there": every bare env read outside the allowed files is a failure.
+
+``MAX`` is a module-level constant rather than a ``--max``/CLI flag because both callers
+of this script invoke it with **zero arguments**: pre-commit's ``check-no-env-sprawl``
+hook (``.pre-commit-config.yaml``, default/blocking stage, ``pass_filenames: false``, no
+extra ``args:``) and CI's ``advisory.yml`` (``python3 scripts/check_no_env_sprawl.py``). A
+CLI flag would never be passed by either caller, so the threshold has to live in code.
 
 Usage:
-  python3 scripts/check_no_env_sprawl.py            # check (exit 1 on new sprawl)
-  python3 scripts/check_no_env_sprawl.py --update-baseline   # freeze current set
+  python3 scripts/check_no_env_sprawl.py     # check; prints the real count unconditionally
 
-Exit 0 = no new sprawl, 1 = new bare env reads found.
+Exit 0 = count <= MAX, 1 = count > MAX (new/remaining bare env reads found).
 """
 
 from __future__ import annotations
 
-import argparse
 import re
 import sys
 from pathlib import Path
@@ -31,7 +36,12 @@ sys.path.insert(0, str(ROOT))
 from scripts._git_scan import tracked_or_walked  # noqa: E402
 
 PKG = ROOT / "agent_utilities"
-BASELINE = ROOT / "scripts" / "env_flag_baseline.txt"
+
+# Absolute threshold — NOT a ratchet baseline. The burn-down already reached zero
+# (the last frozen baseline was empty); this constant enforces that permanently. Per
+# the workspace's no-ratchet policy, lower this only by actually fixing violations,
+# never by re-introducing a baseline file to freeze new ones.
+MAX = 0
 
 # Bare env *reads* of ANY variable (not just KG_/GRAPH_/EPISTEMIC_). Modules must
 # route every read through ``config.setting(...)`` or a typed ``AgentConfig``
@@ -98,59 +108,21 @@ def scan() -> set[tuple[str, str]]:
     return found
 
 
-def load_baseline() -> set[tuple[str, str]]:
-    if not BASELINE.exists():
-        return set()
-    out: set[tuple[str, str]] = set()
-    for line in BASELINE.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        rel, _, key = line.partition("\t")
-        if rel and key:
-            out.add((rel, key))
-    return out
-
-
-def write_baseline(entries: set[tuple[str, str]]) -> None:
-    body = "\n".join(f"{rel}\t{key}" for rel, key in sorted(entries))
-    BASELINE.write_text(
-        "# Frozen baseline of bare os.environ/os.getenv reads across ALL prefixes\n"
-        "# (ratchet — burn-down toward zero). The KG_/GRAPH_/EPISTEMIC_ reads were\n"
-        "# folded onto config.setting()/AgentConfig fields; what remains here (AGENT_/\n"
-        "# VAULT_/OTEL_/connector creds/…) is the tracked burn-down. New entries fail\n"
-        "# scripts/check_no_env_sprawl.py — route reads through config.setting(...) or a\n"
-        "# typed AgentConfig field instead. Regenerate with --update-baseline after\n"
-        "# removing reads. See docs/architecture/configuration.md.\n" + body + "\n",
-        encoding="utf-8",
-    )
-
-
 def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--update-baseline", action="store_true")
-    args = ap.parse_args()
-
-    current = scan()
-    if args.update_baseline:
-        write_baseline(current)
-        print(f"Baseline updated: {len(current)} entries → {BASELINE.name}")
-        return 0
-
-    baseline = load_baseline()
-    new = sorted(current - baseline)
-    if new:
-        print("New bare env reads found (add the flag to AgentConfig instead):\n")
-        for rel, key in new:
+    current = sorted(scan())
+    # No-ratchet policy: print the REAL count unconditionally, pass or fail —
+    # never silently absorbed into a frozen baseline.
+    print(f"env-sprawl bare reads found: {len(current)} (max allowed: {MAX})")
+    if len(current) > MAX:
+        print("\nBare env reads found (add the flag to AgentConfig instead):\n")
+        for rel, key in current:
             print(f"  {rel}: {key}")
         print(
             "\nSee AGENTS.md → 'Configuration discipline' and "
             "docs/architecture/configuration.md."
         )
         return 1
-    removed = len(baseline) - len(current & baseline)
-    msg = f"OK — no new env sprawl ({len(current)} baselined reads"
-    print(msg + (f", {removed} removed since baseline)." if removed else ")."))
+    print("OK — no env sprawl.")
     return 0
 
 
