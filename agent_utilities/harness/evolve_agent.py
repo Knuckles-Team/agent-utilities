@@ -236,6 +236,126 @@ def _verification_section(result: Any) -> dict[str, Any]:
     }
 
 
+def _validate_proposal_evidence(
+    evidence_refs: list[str], status: str, before: float, after: float
+) -> None:
+    import math
+
+    from .optimization_backend import is_opaque_program_reference
+
+    if any(not is_opaque_program_reference(reference) for reference in evidence_refs):
+        raise ValueError("proposal evidence references are invalid")
+    if status not in {"applied", "proposed", "rejected", "error"}:
+        raise ValueError("proposal status is invalid")
+    if (
+        not math.isfinite(before)
+        or not math.isfinite(after)
+        or not 0.0 <= before <= 1.0
+        or not 0.0 <= after <= 1.0
+    ):
+        raise ValueError("proposal scores must be bounded")
+
+
+def _resolve_agent_ref(meta: dict[str, Any], compiled_state: dict[str, Any]) -> str:
+    from .optimization_backend import (
+        is_opaque_program_reference,
+        opaque_program_reference,
+    )
+
+    agent_ref = str(meta.get("agent_ref") or "")
+    if not is_opaque_program_reference(agent_ref, namespace="agent"):
+        agent_ref = opaque_program_reference(
+            "agent", agent_ref or compiled_state["program_ref"]
+        )
+    return agent_ref
+
+
+def _resolve_component_ref(meta: dict[str, Any], file_path: str) -> str:
+    from .optimization_backend import (
+        is_opaque_program_reference,
+        opaque_program_reference,
+    )
+
+    component_ref = str(meta.get("component_ref") or file_path)
+    if not is_opaque_program_reference(component_ref, namespace="component"):
+        component_ref = opaque_program_reference("component", component_ref)
+    return component_ref
+
+
+def _resolve_version_hash(meta: dict[str, Any], compiled_state: dict[str, Any]) -> str:
+    import re
+
+    version_hash = str(meta.get("candidate_version_hash") or "")
+    if re.fullmatch(r"[0-9a-f]{16}", version_hash) is None:
+        version_hash = compiled_state["id"].rsplit(":", 1)[-1][:16]
+    return version_hash
+
+
+def _resolve_trainset_size(meta: dict[str, Any]) -> int:
+    try:
+        return min(max(int(meta.get("trainset_size", 0)), 0), 1_000_000)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _build_proposal_record(
+    *,
+    proposal_id: str,
+    edit: ComponentEdit,
+    manifest: ChangeManifest,
+    status: str,
+    before: float,
+    after: float,
+    applied: bool,
+    compiled_state: dict[str, Any],
+    evidence_refs: list[str],
+    agent_ref: str,
+    component_ref: str,
+    version_hash: str,
+    trainset_size: int,
+) -> dict[str, Any]:
+    from .optimization_backend import opaque_program_reference
+
+    meta = edit.metadata
+    return {
+        "id": proposal_id,
+        "node_type": "ProposedPromptChange",
+        "agent_ref": agent_ref,
+        "component_ref": component_ref,
+        "round_ref": opaque_program_reference("round", manifest.round_id),
+        "edit_ref": opaque_program_reference("edit", edit.id),
+        "status": status,
+        "applied": bool(applied),
+        "baseline_score": round(before, 4),
+        "candidate_score": round(after, 4),
+        "delta": round(after - before, 4),
+        "optimizer": compiled_state["optimizer"],
+        "trainset_size": trainset_size,
+        "candidate_version_hash": version_hash,
+        "auto_apply_eligible": bool(meta.get("auto_apply_eligible", True)),
+        # The action_policy veto's verdict (CONCEPT:AU-AHE.harness.unified-promotion-gate)
+        # — "" when the candidate never beat baseline (the gate was never
+        # consulted; mirrors run_reflact_cycle's "a benchmark loss never
+        # reaches action_policy").
+        "action_decision": str(meta.get("action_decision") or ""),
+        "program_compiled_state": compiled_state,
+        "evidence_refs": evidence_refs,
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+
+
+def _with_integrity_ref(record: dict[str, Any]) -> dict[str, Any]:
+    import json
+
+    from .optimization_backend import opaque_program_reference
+
+    integrity_material = json.dumps(record, sort_keys=True, separators=(",", ":"))
+    record["integrity_ref"] = opaque_program_reference(
+        "proposal_integrity", integrity_material
+    )
+    return record
+
+
 class EvolveAgent:
     """AHE Evolve Agent — proposes and applies harness improvements.
 
@@ -900,6 +1020,39 @@ class EvolveAgent:
         edit.metadata["apply_status"] = status
         self._record_proposed_change(edit, manifest, status, before, after, applied)
 
+    def _write_proposal_record(self, proposal_id: str, record: dict[str, Any]) -> None:
+        import json
+        import os
+
+        proposals_dir = self._resolve_component_path(".specify/proposals")
+        os.makedirs(proposals_dir, exist_ok=True)
+        proposal_token = proposal_id.rsplit(":", 1)[-1]
+        proposal_path = os.path.join(
+            proposals_dir, f"prompt-proposal-{proposal_token}.json"
+        )
+        with open(proposal_path, "w", encoding="utf-8") as f:
+            json.dump(record, f, indent=2)
+
+    def _persist_proposal_to_kg(self, proposal_id: str, record: dict[str, Any]) -> None:
+        import json
+
+        if self.knowledge_engine is None or not hasattr(
+            self.knowledge_engine, "add_node"
+        ):
+            return
+        props = {k: v for k, v in record.items() if k != "program_compiled_state"}
+        props["program_compiled_state_json"] = json.dumps(
+            record["program_compiled_state"], sort_keys=True
+        )
+        try:
+            self.knowledge_engine.add_node(
+                proposal_id, "ProposedPromptChange", properties=props
+            )
+        except Exception as exc:  # noqa: BLE001 - persistence best-effort
+            logger.debug(
+                "ProposedPromptChange KG persist failed (%s)", type(exc).__name__
+            )
+
     def _record_proposed_change(
         self,
         edit: ComponentEdit,
@@ -917,112 +1070,43 @@ class EvolveAgent:
         a reviewer can inspect the before/after metric and compiled references and approve
         them (:meth:`approve_proposed_change`) rather than have them land silently.
         """
-        import json
-        import math
-        import os
-        import re
-
         from agent_utilities.prompting.structured import ProgramCompiledState
 
-        from .optimization_backend import (
-            is_opaque_program_reference,
-            opaque_program_reference,
-        )
+        from .optimization_backend import opaque_program_reference
 
         meta = edit.metadata
         compiled_state = ProgramCompiledState.model_validate(
             meta.get("program_compiled_state") or {}
         ).model_dump()
         evidence_refs = list(dict.fromkeys(edit.evidence_references))
-        if any(
-            not is_opaque_program_reference(reference) for reference in evidence_refs
-        ):
-            raise ValueError("proposal evidence references are invalid")
-        if status not in {"applied", "proposed", "rejected", "error"}:
-            raise ValueError("proposal status is invalid")
-        if (
-            not math.isfinite(before)
-            or not math.isfinite(after)
-            or not 0.0 <= before <= 1.0
-            or not 0.0 <= after <= 1.0
-        ):
-            raise ValueError("proposal scores must be bounded")
+        _validate_proposal_evidence(evidence_refs, status, before, after)
+
         proposal_id = opaque_program_reference("proposal", edit.id)
-        agent_ref = str(meta.get("agent_ref") or "")
-        if not is_opaque_program_reference(agent_ref, namespace="agent"):
-            agent_ref = opaque_program_reference(
-                "agent", agent_ref or compiled_state["program_ref"]
-            )
-        component_ref = str(meta.get("component_ref") or edit.file_path)
-        if not is_opaque_program_reference(component_ref, namespace="component"):
-            component_ref = opaque_program_reference("component", component_ref)
-        version_hash = str(meta.get("candidate_version_hash") or "")
-        if re.fullmatch(r"[0-9a-f]{16}", version_hash) is None:
-            version_hash = compiled_state["id"].rsplit(":", 1)[-1][:16]
-        try:
-            trainset_size = min(max(int(meta.get("trainset_size", 0)), 0), 1_000_000)
-        except (TypeError, ValueError):
-            trainset_size = 0
-        record = {
-            "id": proposal_id,
-            "node_type": "ProposedPromptChange",
-            "agent_ref": agent_ref,
-            "component_ref": component_ref,
-            "round_ref": opaque_program_reference("round", manifest.round_id),
-            "edit_ref": opaque_program_reference("edit", edit.id),
-            "status": status,
-            "applied": bool(applied),
-            "baseline_score": round(before, 4),
-            "candidate_score": round(after, 4),
-            "delta": round(after - before, 4),
-            "optimizer": compiled_state["optimizer"],
-            "trainset_size": trainset_size,
-            "candidate_version_hash": version_hash,
-            "auto_apply_eligible": bool(meta.get("auto_apply_eligible", True)),
-            # The action_policy veto's verdict (CONCEPT:AU-AHE.harness.unified-promotion-gate)
-            # — "" when the candidate never beat baseline (the gate was never
-            # consulted; mirrors run_reflact_cycle's "a benchmark loss never
-            # reaches action_policy").
-            "action_decision": str(meta.get("action_decision") or ""),
-            "program_compiled_state": compiled_state,
-            "evidence_refs": evidence_refs,
-            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        }
-        integrity_material = json.dumps(
-            record,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        record["integrity_ref"] = opaque_program_reference(
-            "proposal_integrity", integrity_material
-        )
+        agent_ref = _resolve_agent_ref(meta, compiled_state)
+        component_ref = _resolve_component_ref(meta, edit.file_path)
+        version_hash = _resolve_version_hash(meta, compiled_state)
+        trainset_size = _resolve_trainset_size(meta)
 
-        proposals_dir = self._resolve_component_path(".specify/proposals")
-        os.makedirs(proposals_dir, exist_ok=True)
-        proposal_token = proposal_id.rsplit(":", 1)[-1]
-        proposal_path = os.path.join(
-            proposals_dir, f"prompt-proposal-{proposal_token}.json"
+        record = _build_proposal_record(
+            proposal_id=proposal_id,
+            edit=edit,
+            manifest=manifest,
+            status=status,
+            before=before,
+            after=after,
+            applied=applied,
+            compiled_state=compiled_state,
+            evidence_refs=evidence_refs,
+            agent_ref=agent_ref,
+            component_ref=component_ref,
+            version_hash=version_hash,
+            trainset_size=trainset_size,
         )
-        with open(proposal_path, "w", encoding="utf-8") as f:
-            json.dump(record, f, indent=2)
+        record = _with_integrity_ref(record)
+
+        self._write_proposal_record(proposal_id, record)
         self._proposal_targets[proposal_id] = edit.file_path
-
-        if self.knowledge_engine is not None and hasattr(
-            self.knowledge_engine, "add_node"
-        ):
-            props = {k: v for k, v in record.items() if k != "program_compiled_state"}
-            props["program_compiled_state_json"] = json.dumps(
-                record["program_compiled_state"], sort_keys=True
-            )
-            try:
-                self.knowledge_engine.add_node(
-                    proposal_id, "ProposedPromptChange", properties=props
-                )
-            except Exception as exc:  # noqa: BLE001 - persistence best-effort
-                logger.debug(
-                    "ProposedPromptChange KG persist failed (%s)",
-                    type(exc).__name__,
-                )
+        self._persist_proposal_to_kg(proposal_id, record)
 
         meta["proposal_ref"] = proposal_id
         return proposal_id
