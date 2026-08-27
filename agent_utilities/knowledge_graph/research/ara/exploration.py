@@ -87,17 +87,26 @@ class ExplorationGraphBuilder:
         root = ExplorationNode(id=self._nid("question"), kind="question", text=question)
         traj = ResearchTrajectory(root_id=root.id, nodes=[root])
 
-        for text in decisions or []:
-            traj.add(self._nid("decision"), "decision", text)
-        for text in experiments or []:
-            traj.add(self._nid("experiment"), "experiment", text)
-        for text in results or []:
-            traj.add(self._nid("result"), "result", text)
-        for cluster in failure_clusters or []:
-            traj.add(self._nid("dead_end"), "dead_end", _text_of(cluster))
-        for reject in matcher_rejects or []:
-            traj.add(self._nid("pivot"), "pivot", _text_of(reject))
+        self._add_plain(traj, "decision", decisions)
+        self._add_plain(traj, "experiment", experiments)
+        self._add_plain(traj, "result", results)
+        self._add_derived(traj, "dead_end", failure_clusters)
+        self._add_derived(traj, "pivot", matcher_rejects)
         return traj
+
+    def _add_plain(
+        self, traj: ResearchTrajectory, kind: str, texts: list[str] | None
+    ) -> None:
+        """Append one node per item, using the item as-is for text."""
+        for text in texts or []:
+            traj.add(self._nid(kind), kind, text)
+
+    def _add_derived(
+        self, traj: ResearchTrajectory, kind: str, items: list[Any] | None
+    ) -> None:
+        """Append one node per item, deriving text via ``_text_of``."""
+        for item in items or []:
+            traj.add(self._nid(kind), kind, _text_of(item))
 
     @staticmethod
     def attach(artifact: Any, trajectory: ResearchTrajectory) -> int:

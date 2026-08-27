@@ -204,24 +204,13 @@ class PromotionGovernanceValidator:
         try:
             from ..pipeline.phases.shacl_gate import SHACL_SUPPORT, build_data_graph
 
-            if not SHACL_SUPPORT:
-                return GovernanceCheck(
-                    "shacl", True, "pyshacl/rdflib not installed — not applicable"
-                )
-            if not Path(self.shapes_path).exists():
-                return GovernanceCheck(
-                    "shacl", True, f"shapes file not found: {self.shapes_path}"
-                )
+            unavailable = self._shacl_not_applicable_check(SHACL_SUPPORT)
+            if unavailable is not None:
+                return unavailable
 
             from ..core.shacl_validator import SHACLValidator
 
-            data = spec.model_dump() if hasattr(spec, "model_dump") else None
-            if data is None:
-                data = dict(spec) if isinstance(spec, dict) else {}
-                for attr in ("name", "goal", "description", "lead"):
-                    val = getattr(spec, attr, None)
-                    if val is not None:
-                        data.setdefault(attr, val)
+            data = self._spec_to_shacl_data(spec)
             # ``build_data_graph`` (pipeline/phases/shacl_gate.py) materializes
             # the focus node's ``rdf:type`` from the ``node_type`` key — the
             # SAME key every other KG write uses (``_upsert_node``'s
@@ -235,14 +224,44 @@ class PromotionGovernanceValidator:
             node_id = f"proposal_{abs(hash(_spec_text(spec))) % 10**8}"
             graph = build_data_graph(_OneNodeGraph(node_id, data))
             report = SHACLValidator().validate(graph, self.shapes_path)
-            if report.get("conforms", False):
-                return GovernanceCheck("shacl", True, "conforms")
-            messages = "; ".join(
-                str(v.get("message", "")) for v in report.get("violations", [])[:3]
-            )
-            return GovernanceCheck("shacl", False, messages or "shape violation")
+            return self._shacl_report_to_check(report)
         except Exception as exc:  # noqa: BLE001 — cannot prove conformance ⇒ hold
             return GovernanceCheck("shacl", False, f"validation error: {exc}")
+
+    def _shacl_not_applicable_check(
+        self, shacl_support: bool
+    ) -> GovernanceCheck | None:
+        """Guard checks that make SHACL not applicable (always pass)."""
+        if not shacl_support:
+            return GovernanceCheck(
+                "shacl", True, "pyshacl/rdflib not installed — not applicable"
+            )
+        if not Path(self.shapes_path).exists():
+            return GovernanceCheck(
+                "shacl", True, f"shapes file not found: {self.shapes_path}"
+            )
+        return None
+
+    @staticmethod
+    def _spec_to_shacl_data(spec: Any) -> dict[str, Any]:
+        """Flatten a spec (pydantic model or dict) into SHACL-checkable data."""
+        data = spec.model_dump() if hasattr(spec, "model_dump") else None
+        if data is None:
+            data = dict(spec) if isinstance(spec, dict) else {}
+            for attr in ("name", "goal", "description", "lead"):
+                val = getattr(spec, attr, None)
+                if val is not None:
+                    data.setdefault(attr, val)
+        return data
+
+    @staticmethod
+    def _shacl_report_to_check(report: dict[str, Any]) -> GovernanceCheck:
+        if report.get("conforms", False):
+            return GovernanceCheck("shacl", True, "conforms")
+        messages = "; ".join(
+            str(v.get("message", "")) for v in report.get("violations", [])[:3]
+        )
+        return GovernanceCheck("shacl", False, messages or "shape violation")
 
     def _check_regression_gate(self, spec: Any, proposal_id: str) -> GovernanceCheck:
         """(b) the latest *recorded* regression-gate verdict must be a pass.
@@ -313,20 +332,38 @@ class PromotionGovernanceValidator:
             return GovernanceCheck(
                 "constitution", True, "no engine — rules not applicable"
             )
-        try:
-            rows = self.engine.query_cypher(
-                "MATCH (r) WHERE r:ConstitutionRule OR r:Policy "
-                "OR r:governance_rule "
-                "RETURN r.id AS id, r.kind AS kind, r.target AS target, "
-                "r.description AS description, r.active AS active LIMIT 200"
-            )
-        except Exception as exc:  # noqa: BLE001 — unreadable rules ≠ a match
-            logger.debug("constitution rule lookup failed: %s", exc)
+        rows, ok = self._query_constitution_rules()
+        if not ok:
             return GovernanceCheck(
                 "constitution", True, "rules not queryable — not applicable"
             )
+        match = self._first_matching_forbid_rule(rows, _spec_text(spec))
+        if match is not None:
+            return match
+        return GovernanceCheck("constitution", True, "no forbid rule matched")
 
-        text = _spec_text(spec)
+    def _query_constitution_rules(self) -> tuple[list[Any] | None, bool]:
+        """Fetch active-governance-rule rows; ``ok`` is False only on an
+        unreadable store (an exception), NOT when the query legitimately
+        returns no/None rows."""
+        try:
+            return (
+                self.engine.query_cypher(
+                    "MATCH (r) WHERE r:ConstitutionRule OR r:Policy "
+                    "OR r:governance_rule "
+                    "RETURN r.id AS id, r.kind AS kind, r.target AS target, "
+                    "r.description AS description, r.active AS active LIMIT 200"
+                ),
+                True,
+            )
+        except Exception as exc:  # noqa: BLE001 — unreadable rules ≠ a match
+            logger.debug("constitution rule lookup failed: %s", exc)
+            return None, False
+
+    @staticmethod
+    def _first_matching_forbid_rule(
+        rows: list[Any], text: str
+    ) -> GovernanceCheck | None:
         for row in rows or []:
             if not isinstance(row, dict):
                 continue
@@ -341,4 +378,4 @@ class PromotionGovernanceValidator:
                     False,
                     f"forbid rule {row.get('id')} matches target {target!r}",
                 )
-        return GovernanceCheck("constitution", True, "no forbid rule matched")
+        return None

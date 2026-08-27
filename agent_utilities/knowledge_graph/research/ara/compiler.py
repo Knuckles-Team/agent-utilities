@@ -172,25 +172,34 @@ class ARACompiler:
         engine = self._engine
         if engine is None or not hasattr(engine, "query_cypher"):
             return None
+        return lambda statement: self._match_concepts_by_token(engine, statement)
 
-        def _ground(statement: str) -> list[str]:
-            try:
-                rows = engine.query_cypher(
-                    "MATCH (c:Concept) RETURN c.id AS id, c.name AS name LIMIT 200"
-                )
-            except Exception:  # noqa: BLE001
-                return []
-            toks = {t for t in statement.lower().split() if len(t) > 4}
-            hits: list[str] = []
-            for r in rows or []:
-                if not isinstance(r, dict) or not r.get("id"):
-                    continue
-                name = str(r.get("name") or "").lower()
-                if name and any(t in name for t in toks):
-                    hits.append(r["id"])
-            return hits
+    def _match_concepts_by_token(self, engine: Any, statement: str) -> list[str]:
+        """The default grounding heuristic: nearest existing Concepts by a
+        case-insensitive substring match on tokens longer than 4 chars."""
+        rows = self._query_concepts(engine)
+        toks = {t for t in statement.lower().split() if len(t) > 4}
+        return self._matching_concept_ids(rows, toks)
 
-        return _ground
+    @staticmethod
+    def _query_concepts(engine: Any) -> list[Any]:
+        try:
+            return engine.query_cypher(
+                "MATCH (c:Concept) RETURN c.id AS id, c.name AS name LIMIT 200"
+            )
+        except Exception:  # noqa: BLE001
+            return []
+
+    @staticmethod
+    def _matching_concept_ids(rows: list[Any], toks: set[str]) -> list[str]:
+        hits: list[str] = []
+        for r in rows or []:
+            if not isinstance(r, dict) or not r.get("id"):
+                continue
+            name = str(r.get("name") or "").lower()
+            if name and any(t in name for t in toks):
+                hits.append(r["id"])
+        return hits
 
 
 def evidence_from_groundings(article_id: str, node_ids: list[str]) -> list[Evidence]:

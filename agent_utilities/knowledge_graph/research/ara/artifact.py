@@ -144,26 +144,37 @@ class ResearchArtifact(BaseModel):
         edges: list[dict[str, Any]] = []
         aid = self.node_id
 
-        nodes.append(
-            {
-                "id": aid,
-                "type": RegistryNodeType.RESEARCH_ARTIFACT.value,
-                "properties": {
-                    "name": self.title,
-                    "title": self.title,
-                    "summary": self.summary,
-                    "authors": list(self.authors),
-                    "source_url": self.source_url,
-                    "timestamp": self.timestamp,
-                },
-            }
-        )
+        nodes.append(self._artifact_node(aid))
         # provenance: artifact -was_derived_from-> raw source (HasProvenance shape)
         if self.source_ref:
             edges.append(
                 self._edge(aid, self.source_ref, RegistryEdgeType.WAS_DERIVED_FROM)
             )
 
+        self._append_evidence_layer(nodes, edges)
+        self._append_code_spec_layer(nodes)
+        self._append_claim_layer(nodes, edges, aid)
+        self._append_exploration_layer(nodes, edges, aid)
+
+        return nodes, edges
+
+    def _artifact_node(self, aid: str) -> dict[str, Any]:
+        return {
+            "id": aid,
+            "type": RegistryNodeType.RESEARCH_ARTIFACT.value,
+            "properties": {
+                "name": self.title,
+                "title": self.title,
+                "summary": self.summary,
+                "authors": list(self.authors),
+                "source_url": self.source_url,
+                "timestamp": self.timestamp,
+            },
+        }
+
+    def _append_evidence_layer(
+        self, nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
+    ) -> None:
         for ev in self.evidence:
             nodes.append(
                 {
@@ -182,6 +193,7 @@ class ResearchArtifact(BaseModel):
                     self._edge(ev.id, ev.source_ref, RegistryEdgeType.WAS_DERIVED_FROM)
                 )
 
+    def _append_code_spec_layer(self, nodes: list[dict[str, Any]]) -> None:
         for cs in self.code_specs:
             nodes.append(
                 {
@@ -197,6 +209,9 @@ class ResearchArtifact(BaseModel):
                 }
             )
 
+    def _append_claim_layer(
+        self, nodes: list[dict[str, Any]], edges: list[dict[str, Any]], aid: str
+    ) -> None:
         for cl in self.claims:
             nodes.append(
                 {
@@ -217,6 +232,9 @@ class ResearchArtifact(BaseModel):
             for cs_id in cl.code_spec_ids:
                 edges.append(self._edge(cl.id, cs_id, RegistryEdgeType.IMPLEMENTED_BY))
 
+    def _append_exploration_layer(
+        self, nodes: list[dict[str, Any]], edges: list[dict[str, Any]], aid: str
+    ) -> None:
         for ex in self.exploration:
             nodes.append(
                 {
@@ -237,8 +255,6 @@ class ResearchArtifact(BaseModel):
                     "dead_end": RegistryEdgeType.REACHED_DEAD_END,
                 }.get(ex.kind, RegistryEdgeType.WAS_DERIVED_FROM)
                 edges.append(self._edge(ex.id, ex.parent_id, rel))
-
-        return nodes, edges
 
     @staticmethod
     def _edge(src: str, dst: str, rel: RegistryEdgeType) -> dict[str, Any]:
@@ -267,6 +283,43 @@ class ResearchArtifact(BaseModel):
         return {"nodes": n_ok, "edges": e_ok, "artifact": self.node_id}
 
     # -- builders ---------------------------------------------------------- #
+    @staticmethod
+    def _build_evidence_units(
+        article_id: str, evidence: list[str] | None
+    ) -> list[Evidence]:
+        return [
+            Evidence(id=f"evidence:{article_id}:{i}", content=text)
+            for i, text in enumerate(evidence or [])
+        ]
+
+    @staticmethod
+    def _build_code_units(
+        article_id: str, code_specs: list[str] | None
+    ) -> list[CodeSpec]:
+        return [
+            CodeSpec(id=f"code_spec:{article_id}:{i}", summary=text)
+            for i, text in enumerate(code_specs or [])
+        ]
+
+    @staticmethod
+    def _build_claim_units(
+        article_id: str,
+        claims: list[str] | None,
+        ev_ids: list[str],
+        code_ids: list[str],
+    ) -> list[Claim]:
+        # wires every claim to ALL evidence/code (the conservative full-binding
+        # the Seal later prunes).
+        return [
+            Claim(
+                id=f"claim:{article_id}:{_slug(text, limit=40)}:{i}",
+                statement=text,
+                evidence_ids=list(ev_ids),
+                code_spec_ids=list(code_ids),
+            )
+            for i, text in enumerate(claims or [])
+        ]
+
     @classmethod
     def from_extracted(
         cls,
@@ -283,25 +336,11 @@ class ResearchArtifact(BaseModel):
     ) -> ResearchArtifact:
         """Build an ARA from flat extractor output, wiring every claim to all
         evidence/code (the conservative full-binding the Seal later prunes)."""
-        ev_units = [
-            Evidence(id=f"evidence:{article_id}:{i}", content=text)
-            for i, text in enumerate(evidence or [])
-        ]
-        code_units = [
-            CodeSpec(id=f"code_spec:{article_id}:{i}", summary=text)
-            for i, text in enumerate(code_specs or [])
-        ]
-        ev_ids = [e.id for e in ev_units]
-        code_ids = [c.id for c in code_units]
-        claim_units = [
-            Claim(
-                id=f"claim:{article_id}:{_slug(text, limit=40)}:{i}",
-                statement=text,
-                evidence_ids=list(ev_ids),
-                code_spec_ids=list(code_ids),
-            )
-            for i, text in enumerate(claims or [])
-        ]
+        ev_units = cls._build_evidence_units(article_id, evidence)
+        code_units = cls._build_code_units(article_id, code_specs)
+        claim_units = cls._build_claim_units(
+            article_id, claims, [e.id for e in ev_units], [c.id for c in code_units]
+        )
         return cls(
             article_id=article_id,
             title=title,

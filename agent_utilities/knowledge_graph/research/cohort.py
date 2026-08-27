@@ -114,16 +114,51 @@ def create_cohort(
     because durable tasks must not contain machine locations. Returns the
     ``cohort_id`` and the submitted job ids.
     """
+    paper_ids, repos = _validated_cohort_members(papers, repos)
+    cohort_id = f"cohort-{uuid.uuid4().hex}"
+    deadline = time.time() + float(max_wait_s)
+
+    _commit_cohort_start_state(engine, cohort_id, paper_ids, repos, goal, deadline)
+    members = _submit_cohort_members(engine, cohort_id, paper_ids, repos)
+    synth = _submit_synthesize_gate(engine, cohort_id, deadline)
+
+    logger.info(
+        "cohort %s: %d papers + %d repos fanned out → gate %s",
+        cohort_id,
+        len(paper_ids),
+        len(repos),
+        synth,
+    )
+    return {
+        "cohort_id": cohort_id,
+        "members": members,
+        "synthesize_job": synth,
+        "papers": len(paper_ids),
+        "repos": len(repos),
+    }
+
+
+def _validated_cohort_members(
+    papers: list[str] | None, repos: list[str] | None
+) -> tuple[list[str], list[str]]:
+    """Parse + validate raw cohort inputs; raises on the first bad repo URL."""
     paper_ids = [_arxiv_id(p) for p in (papers or []) if p]
-    repos = [str(r) for r in (repos or []) if r]
-    if any(not repo.startswith("https://") for repo in repos):
+    repo_urls = [str(r) for r in (repos or []) if r]
+    if any(not repo.startswith("https://") for repo in repo_urls):
         raise ValueError(
             "cohort repositories must be HTTPS URLs; local paths cannot be persisted"
         )
-    cohort_id = f"cohort-{uuid.uuid4().hex}"
-    now = time.time()
-    deadline = now + float(max_wait_s)
+    return paper_ids, repo_urls
 
+
+def _commit_cohort_start_state(
+    engine: Any,
+    cohort_id: str,
+    paper_ids: list[str],
+    repos: list[str],
+    goal: str,
+    deadline: float,
+) -> None:
     from ...security.persistence_privacy import PersistencePrivacyGuard
 
     safe_goal, _ = PersistencePrivacyGuard().sanitize_text(goal)
@@ -142,6 +177,11 @@ def create_cohort(
         },
     )
 
+
+def _submit_cohort_members(
+    engine: Any, cohort_id: str, paper_ids: list[str], repos: list[str]
+) -> list[str]:
+    """Fan every paper + repo out as a cohort-tagged task; returns their job ids."""
     members: list[str] = []
     for i, pid in enumerate(paper_ids):
         url = f"https://arxiv.org/abs/{pid}"
@@ -178,8 +218,11 @@ def create_cohort(
                 skip_dedupe=True,
             )
         )
+    return members
 
-    synth = engine.submit_task(
+
+def _submit_synthesize_gate(engine: Any, cohort_id: str, deadline: float) -> str:
+    return engine.submit_task(
         f"cohort:{cohort_id}",
         False,
         {},
@@ -188,20 +231,6 @@ def create_cohort(
         job_id=f"{cohort_id}:synth",
         skip_dedupe=True,
     )
-    logger.info(
-        "cohort %s: %d papers + %d repos fanned out → gate %s",
-        cohort_id,
-        len(paper_ids),
-        len(repos),
-        synth,
-    )
-    return {
-        "cohort_id": cohort_id,
-        "members": members,
-        "synthesize_job": synth,
-        "papers": len(paper_ids),
-        "repos": len(repos),
-    }
 
 
 def cohort_member_status(engine: Any, cohort_id: str) -> dict[str, int]:
@@ -224,35 +253,44 @@ def cohort_member_status(engine: Any, cohort_id: str) -> dict[str, int]:
         counts["unknown"] = 1
         return counts
     for item in work.values():
-        meta = item.get("metadata") or {}
-        if (
-            meta.get("cohort_id") != cohort_id
-            or meta.get("type") == SYNTHESIZE_TASK_TYPE
-        ):
-            continue
-        counts["total"] += 1
-        s = str(item.get("status") or "").lower()
-        if s in _WORK_DONE:
-            counts["completed"] += 1
-        elif s in _WORK_FAILED:
-            counts["failed"] += 1
-        elif s in {"leased", "running"}:
-            counts["running"] += 1
-        elif s == "submitted":
-            counts["blocked"] += 1
-        elif s == "ready":
-            retry_at = float(item.get("next_retry_at") or 0.0)
-            if retry_at > time.time():
-                counts["scheduled"] += 1
-            else:
-                counts["pending"] += 1
-        elif not s:
-            counts["unknown"] += 1
-        else:
-            counts["pending"] += 1
-        if s in _WORK_DONE | _WORK_FAILED:
-            counts["terminal"] += 1
+        if _is_cohort_member(item, cohort_id):
+            counts["total"] += 1
+            _tally_member_status(item, counts)
     return counts
+
+
+def _is_cohort_member(item: dict[str, Any], cohort_id: str) -> bool:
+    """Whether a WorkItem is a (non-gate) member of this cohort."""
+    meta = item.get("metadata") or {}
+    return (
+        meta.get("cohort_id") == cohort_id and meta.get("type") != SYNTHESIZE_TASK_TYPE
+    )
+
+
+def _tally_member_status(item: dict[str, Any], counts: dict[str, int]) -> None:
+    """Bucket one member's status into ``counts`` in place."""
+    s = str(item.get("status") or "").lower()
+    counts[_status_bucket(item, s)] += 1
+    if s in _WORK_DONE | _WORK_FAILED:
+        counts["terminal"] += 1
+
+
+def _status_bucket(item: dict[str, Any], s: str) -> str:
+    """Map one WorkItem's lowercased status to its counts bucket name."""
+    if s in _WORK_DONE:
+        return "completed"
+    if s in _WORK_FAILED:
+        return "failed"
+    if s in {"leased", "running"}:
+        return "running"
+    if s == "submitted":
+        return "blocked"
+    if s == "ready":
+        retry_at = float(item.get("next_retry_at") or 0.0)
+        return "scheduled" if retry_at > time.time() else "pending"
+    if not s:
+        return "unknown"
+    return "pending"
 
 
 def cohort_source_ids(engine: Any, cohort_id: str) -> set[str]:
