@@ -24,6 +24,61 @@ from agent_utilities.security.error_surface import (
 logger = logging.getLogger(__name__)
 
 
+def propose_lakehouse_maintenance_gap(
+    engine: Any,
+    *,
+    source: str,
+    statement: str,
+    signature: str = "",
+    domain: str = "lakehouse-maintenance",
+    severity: float = 0.5,
+    concept_ids: list[str] | None = None,
+) -> dict[str, Any] | None:
+    """CA-28's Loop-engine hook: let a lakehouse-maintenance detector propose
+    a Transform run or index rebuild the SAME way every other discovery track
+    does (CONCEPT:AU-AHE.harness.canonical-gap-lifecycle).
+
+    ``core.schedule_engine``'s three ``lakehouse-maintenance`` dispatch
+    targets (``debezium_lag_check``/``opensearch_reindex_staleness_check``/
+    ``lineage_sweep`` — CA-21/24/15/25's real detection logic, still to land)
+    call this on a genuine finding instead of inventing a second execution
+    path: it files one canonical ``:Gap`` via
+    :func:`agent_utilities.knowledge_graph.research.gaps.submit_gap` and lets
+    it flow through the EXISTING gaps -> SpecProposal -> ``review``
+    (approve|edit|reject) -> develop-Loop lifecycle ``graph_loops`` already
+    exposes (see :func:`register_state_tools`'s ``graph_loops`` tool, actions
+    ``gaps``/``submit_gap``/``review``).
+
+    Deliberately PROPOSE-ONLY — this function has no develop/apply path of
+    its own and never mutates lakehouse state, matching ``graph_loops``
+    ``run``'s existing ``mine_discovery`` default-ON-but-propose-only
+    contract (CONCEPT:AU-KG.evolution.mining-flywheel): a mined/detected
+    issue becomes a reviewable proposal, never an automatic change.
+
+    ``signature`` defaults to a stable hash of ``source``+``statement`` so a
+    repeated identical finding is idempotent (``submit_gap``'s own
+    ``gap:<source>:<signature>`` id dedupes re-detection rather than filing a
+    duplicate gap on every tick).
+    """
+    import hashlib
+
+    from agent_utilities.knowledge_graph.research.gaps import submit_gap
+
+    statement = (statement or "").strip()
+    if not statement:
+        return None
+    sig = signature or hashlib.sha256(f"{source}:{statement}".encode()).hexdigest()[:16]
+    return submit_gap(
+        engine,
+        source=source,
+        signature=sig,
+        statement=statement,
+        domain=domain,
+        severity=severity,
+        concept_ids=concept_ids or [],
+    )
+
+
 def register_state_tools(mcp):
     """Register the state_tools group on the given FastMCP server."""
 

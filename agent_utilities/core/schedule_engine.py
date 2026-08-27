@@ -413,6 +413,49 @@ def _load_one(engine: Any, name: str) -> ScheduleSpec | None:
     return ScheduleSpec.from_row(rows[0]) if rows else None
 
 
+class ScheduleFileError(ValueError):
+    """Raised when a seeded schedule doc (``deploy/schedules.yml``) contains a
+    malformed entry (CA-28-P12).
+
+    Deliberately a WHOLE-FILE failure, not a per-entry skip: a schedule file is
+    desired STATE, not a best-effort batch of independent jobs, so silently
+    dropping one malformed entry while seeding its siblings is indistinguishable
+    from an operator's cron typo permanently and invisibly losing ONE recurring
+    job — exactly the "built but not wired" failure shape this program keeps
+    finding elsewhere. :func:`seed_schedules` validates every entry BEFORE
+    writing any of them, and this carries the bad entry's name (or its 0-based
+    position when even ``name`` is missing) in its message so the fix is a
+    one-line diff, not a graph-wide hunt.
+    """
+
+
+def _validate_seed_entry(entry: Any, index: int) -> None:
+    """Validate one desired-state schedule entry; raise :class:`ScheduleFileError`
+    naming it on any defect. Called for every entry BEFORE :func:`seed_schedules`
+    upserts any of them (see :class:`ScheduleFileError`)."""
+
+    if not isinstance(entry, dict):
+        raise ScheduleFileError(f"schedule entry #{index} is not a mapping")
+    name = entry.get("name")
+    if not name or not isinstance(name, str):
+        raise ScheduleFileError(f"schedule entry #{index} is missing a 'name'")
+    cron = entry.get("cron")
+    if not cron or not isinstance(cron, str):
+        raise ScheduleFileError(f"schedule {name!r}: missing or invalid 'cron'")
+    try:
+        # cron_matches raises ValueError on a field-count/token defect (e.g. the
+        # 4-field "* * * *" P12 negative case) — reuse it as the load-time
+        # validator so there is exactly one cron-shape check in this module.
+        cron_matches(cron, datetime.now())
+    except ValueError as exc:
+        raise ScheduleFileError(
+            f"schedule {name!r}: invalid cron {cron!r}: {exc}"
+        ) from exc
+    kind = entry.get("kind", "skill")
+    if kind not in _SCHEDULE_KINDS:
+        raise ScheduleFileError(f"schedule {name!r}: unsupported kind {kind!r}")
+
+
 # ── Seeding from deploy/schedules.yml ────────────────────────────────────────
 def seed_schedules(engine: Any) -> int:
     """Upsert every ``deploy/schedules.yml`` entry as a ``:Schedule`` node.
@@ -420,17 +463,26 @@ def seed_schedules(engine: Any) -> int:
     YAML is the desired-state seed; the node is the live record. Re-seeding is
     idempotent: it refreshes trigger/payload/enabled/cron but preserves live
     runtime state (last_minute / next_run_unix / failure backoff).
+
+    ALL-OR-NOTHING (CA-28-P12): every entry is validated (see
+    :func:`_validate_seed_entry`) BEFORE any is written. One malformed entry
+    raises :class:`ScheduleFileError` naming it and seeds NOTHING from this
+    call — never a partial load that seeds the good entries and silently
+    drops the bad one. :func:`run_scheduler_tick`'s caller already treats a
+    seed failure as retry-next-tick (it never marks ``_schedules_seeded`` on
+    an exception), so this fails closed without losing any due tick.
     """
     path = _registry_path()
     if not path.exists():
         return 0
     doc = yaml.safe_load(path.read_text()) or {}
+    entries = doc.get("schedules") or []
+    for i, entry in enumerate(entries):
+        _validate_seed_entry(entry, i)
     seeded = 0
-    for entry in doc.get("schedules") or []:
+    for entry in entries:
         name = entry.get("name")
         cron = entry.get("cron")
-        if not name or not cron:
-            continue
         payload = {
             "kind": entry.get("kind", "skill"),
             "ref": entry.get("ref", ""),
@@ -813,12 +865,124 @@ def _dispatch_memory_lifecycle(engine: Any, payload: dict[str, Any]) -> dict[str
     return run_memory_lifecycle(engine)
 
 
+def _lakehouse_maintenance_dispatch(
+    engine: Any,
+    *,
+    check: str,
+    owner: str,
+    module_path: str,
+    finding_fn_name: str,
+    source: str,
+) -> dict[str, Any]:
+    """The one body every ``lakehouse-maintenance`` dispatch target shares
+    (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent) — this IS the
+    live wiring itself: it looks up ``finding_fn_name`` on
+    ``module_path`` via ``getattr`` (never a static ``from X import Y``,
+    which would be an unconditional mypy attr-defined error against a symbol
+    that does not exist yet — the same rationale as
+    ``intent_tools._lakehouse_status``), and — real callers only, no test
+    reaches this line except by monkeypatching the looked-up module — when a
+    lane (CA-21/24/25) lands that function and it returns a non-empty
+    finding string, calls
+    :func:`agent_utilities.mcp.tools.state_tools.propose_lakehouse_maintenance_gap`
+    to file it as a canonical, reviewable :Gap (propose-only — see that
+    function's docstring). Per this program's non-goals, CA-28 does not
+    define what a check computes; it defines how a real finding, once
+    computed, reaches the SAME gap lifecycle every other discovery track
+    uses. Today none of ``kafka_adapter``/the OpenSearch indexer/
+    ``etl.lineage`` exposes ``finding_fn_name`` yet, so this always returns
+    the typed ``not_yet_implemented`` result — that is the CORRECT behavior
+    for a check with nothing to report, not a bug to work around.
+    """
+    try:
+        module = __import__(module_path, fromlist=["_"])
+    except ImportError:
+        return {"status": "not_yet_implemented", "check": check, "owner": owner}
+    finding_fn = getattr(module, finding_fn_name, None)
+    if finding_fn is None:
+        return {"status": "not_yet_implemented", "check": check, "owner": owner}
+    finding = finding_fn(engine)
+    if not finding:
+        return {"status": "ok", "check": check}
+    from agent_utilities.mcp.tools.state_tools import (
+        propose_lakehouse_maintenance_gap,
+    )
+
+    gap = propose_lakehouse_maintenance_gap(
+        engine, source=source, statement=str(finding)
+    )
+    return {"status": "gap_proposed", "check": check, "gap": gap}
+
+
+def _dispatch_debezium_lag_check(
+    engine: Any, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """CA-21's Debezium-consumer-lag check, wired via
+    :func:`_lakehouse_maintenance_dispatch` — lag measurement itself lands in
+    ``agent_utilities.knowledge_graph.streams.kafka_adapter`` (CA-21's to
+    land); until it exposes ``lag_finding``, this returns the typed
+    ``not_yet_implemented`` result."""
+
+    return _lakehouse_maintenance_dispatch(
+        engine,
+        check="debezium_lag",
+        owner="CA-21",
+        module_path="agent_utilities.knowledge_graph.streams.kafka_adapter",
+        finding_fn_name="lag_finding",
+        source="lakehouse-maintenance:debezium_lag_check",
+    )
+
+
+def _dispatch_opensearch_reindex_staleness_check(
+    engine: Any, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """CA-24's OpenSearch CDC-vs-index staleness scan, wired via
+    :func:`_lakehouse_maintenance_dispatch`. The rebuild ACTION itself
+    already exists and is real (``graph_ingest`` ``action=opensearch_reindex``,
+    CA-24) — this is the DETECTION half (when is a rebuild actually due),
+    which lands in ``agent_utilities.knowledge_graph.search.indexer`` (CA-24's
+    to land); until it exposes ``staleness_finding``, this returns the typed
+    ``not_yet_implemented`` result."""
+
+    return _lakehouse_maintenance_dispatch(
+        engine,
+        check="opensearch_reindex_staleness",
+        owner="CA-24",
+        module_path="agent_utilities.knowledge_graph.search.indexer",
+        finding_fn_name="staleness_finding",
+        source="lakehouse-maintenance:opensearch_reindex_staleness_check",
+    )
+
+
+def _dispatch_lineage_sweep(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    """CA-25's OpenLineage-vs-PROV-O backfill sweep, wired via
+    :func:`_lakehouse_maintenance_dispatch` — real detection lands in
+    ``agent_utilities.knowledge_graph.etl.lineage`` (CA-25's to land); until
+    it exposes ``sweep_finding``, this returns the typed
+    ``not_yet_implemented`` result."""
+
+    return _lakehouse_maintenance_dispatch(
+        engine,
+        check="lineage_sweep",
+        owner="CA-25",
+        module_path="agent_utilities.knowledge_graph.etl.lineage",
+        finding_fn_name="sweep_finding",
+        source="lakehouse-maintenance:lineage_sweep",
+    )
+
+
 # Deterministic skill actions runnable unattended on the daemon, keyed (ref, action).
 _SKILL_HANDLERS: dict[
     tuple[str, str], Callable[[Any, dict[str, Any]], dict[str, Any]]
 ] = {
     ("code-enhancer", "liveness"): _dispatch_liveness,
     ("memory-lifecycle", "maintain"): _dispatch_memory_lifecycle,
+    ("lakehouse-maintenance", "debezium_lag_check"): _dispatch_debezium_lag_check,
+    (
+        "lakehouse-maintenance",
+        "opensearch_reindex_staleness_check",
+    ): _dispatch_opensearch_reindex_staleness_check,
+    ("lakehouse-maintenance", "lineage_sweep"): _dispatch_lineage_sweep,
 }
 
 
