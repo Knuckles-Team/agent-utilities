@@ -584,6 +584,24 @@ _INGEST_TERMINAL_STATUS_TO_WORK_ITEM: dict[str, str] = {
 }
 
 
+def _pct(values: list[float], p: float) -> float:
+    """Linear-interpolated percentile, used by ``TaskManagerMixin.profile_report``.
+
+    Module-level (was a nested closure inside ``profile_report``) so the
+    decomposed per-group finalization helper can call it without capturing
+    ``profile_report``'s own frame.
+    """
+    if not values:
+        return 0.0
+    if len(values) == 1:
+        return values[0]
+    k = (len(values) - 1) * (p / 100.0)
+    lo = int(k)
+    hi = min(lo + 1, len(values) - 1)
+    frac = k - lo
+    return values[lo] * (1 - frac) + values[hi] * frac
+
+
 def _task_status_from_work_item(item: dict[str, Any] | None) -> str:
     """Render the public job-status vocabulary from the sole WorkItem."""
     status = str((item or {}).get("status") or "")
@@ -6017,6 +6035,61 @@ class TaskManagerMixin(GraphEngineProtocol):
 
         CONCEPT:AU-KG.retrieval.per-item-relevance-ranking — Per-Item Relevance Ranking
         """
+        deferred = self._relevance_sweep_defer_check()
+        if deferred is not None:
+            return deferred
+
+        logger.info(f"RelevanceSweep: starting sweep against '{target_codebase}'")
+
+        centroid = self._relevance_sweep_target_centroid(target_codebase)
+        if centroid is None:
+            return {
+                "status": "no_target_data",
+                "target": target_codebase,
+                "message": f"No embeddings found for target '{target_codebase}'",
+            }
+
+        unique_papers = self._relevance_sweep_unique_papers()
+        repo_set = self._relevance_sweep_repo_set(target_codebase)
+
+        logger.info(
+            f"RelevanceSweep: scoring {len(unique_papers)} papers + {len(repo_set)} repos"
+        )
+
+        scored_items = []
+        timestamp = datetime.now(UTC).isoformat()
+
+        for paper_path in unique_papers:
+            item = self._score_relevance_paper(
+                paper_path, centroid, target_codebase, timestamp
+            )
+            if item is not None:
+                scored_items.append(item)
+
+        for repo_name in repo_set:
+            item = self._score_relevance_repo(
+                repo_name, centroid, target_codebase, timestamp
+            )
+            if item is not None:
+                scored_items.append(item)
+
+        # Sort by composite score descending
+        scored_items.sort(key=lambda x: x["score"], reverse=True)
+
+        logger.info(
+            f"RelevanceSweep: completed — {len(scored_items)} items scored against '{target_codebase}'"
+        )
+
+        return {
+            "status": "completed",
+            "target_codebase": target_codebase,
+            "items_scored": len(scored_items),
+            "top_10": scored_items[:10],
+            "scored_at": timestamp,
+            "type": "relevance_sweep",
+        }
+
+    def _relevance_sweep_defer_check(self) -> dict | None:
         # Defer while a bulk ingest is in flight: this sweep scores every paper +
         # repo (heavy queries + embeddings) and, as a worker-pool task, runs
         # CONCURRENTLY with ingest on the single-writer engine. It's periodic, so
@@ -6035,21 +6108,47 @@ class TaskManagerMixin(GraphEngineProtocol):
             logger.debug(
                 "background-throttle check skipped (optional dependency): %s", exc
             )
+        return None
 
-        logger.info(f"RelevanceSweep: starting sweep against '{target_codebase}'")
+    @staticmethod
+    def _collect_row_embeddings(rows: Any) -> list:
+        embeddings = []
+        for row in rows:
+            emb = row.get("emb")
+            if emb and isinstance(emb, list):
+                embeddings.append(emb)
+        return embeddings
 
+    @staticmethod
+    def _collect_chunk_embeddings_and_sample(chunks: Any) -> tuple[list, str]:
+        embeddings = []
+        content_sample = ""
+        for chunk in chunks:
+            emb = chunk.get("emb")
+            if emb and isinstance(emb, list):
+                embeddings.append(emb)
+            if not content_sample and chunk.get("content"):
+                content_sample = chunk["content"][:500]
+        return embeddings, content_sample
+
+    @staticmethod
+    def _normalize_centroid(embeddings: list) -> Any:
+        from agent_utilities.numeric import xp
+
+        centroid = xp.mean(embeddings, axis=0)
+        norm = xp.linalg.norm(centroid)
+        if norm > 0:
+            centroid = [value / norm for value in centroid]
+        return centroid
+
+    def _relevance_sweep_target_centroid(self, target_codebase: str) -> Any:
         # ── Step 1: Compute target codebase centroid embedding ──
         target_articles = self.query_cypher(
             "MATCH (c:Code) WHERE c.file_path CONTAINS $name "
             "RETURN c.id AS id, c.embedding AS emb LIMIT 200",
             {"name": target_codebase},
         )
-
-        target_embeddings = []
-        for row in target_articles:
-            emb = row.get("emb")
-            if emb and isinstance(emb, list):
-                target_embeddings.append(emb)
+        target_embeddings = self._collect_row_embeddings(target_articles)
 
         if not target_embeddings:
             # Fallback: try Article nodes related to the target
@@ -6058,33 +6157,23 @@ class TaskManagerMixin(GraphEngineProtocol):
                 "RETURN a.id AS id, a.embedding AS emb LIMIT 100",
                 {"name": target_codebase},
             )
-            for row in target_articles:
-                emb = row.get("emb")
-                if emb and isinstance(emb, list):
-                    target_embeddings.append(emb)
+            target_embeddings = self._collect_row_embeddings(target_articles)
 
         if not target_embeddings:
-            return {
-                "status": "no_target_data",
-                "target": target_codebase,
-                "message": f"No embeddings found for target '{target_codebase}'",
-            }
+            return None
 
         # Compute centroid
-        from agent_utilities.numeric import xp
+        return self._normalize_centroid(target_embeddings)
 
-        centroid = xp.mean(target_embeddings, axis=0)
-        centroid_norm = xp.linalg.norm(centroid)
-        if centroid_norm > 0:
-            centroid = [value / centroid_norm for value in centroid]
-
+    def _relevance_sweep_unique_papers(self) -> list[str]:
         # ── Step 2: Gather all unique papers (grouped by target_path) ──
         paper_rows = self.query_cypher(
             "MATCH (a:Article) WHERE a.target_path IS NOT NULL "
             "RETURN DISTINCT a.target_path AS paper_path"
         )
-        unique_papers = [r["paper_path"] for r in paper_rows if r.get("paper_path")]
+        return [r["paper_path"] for r in paper_rows if r.get("paper_path")]
 
+    def _relevance_sweep_repo_set(self, target_codebase: str) -> set[str]:
         # ── Step 3: Gather all unique repositories (grouped by file_path prefix) ──
         code_rows = self.query_cypher(
             "MATCH (c:Code) WHERE c.file_path IS NOT NULL "
@@ -6100,274 +6189,259 @@ class TaskManagerMixin(GraphEngineProtocol):
                 repo_name = parts[5] if "agent-packages" in path else parts[4]
                 if repo_name != target_codebase:
                     repo_set.add(repo_name)
+        return repo_set
 
-        logger.info(
-            f"RelevanceSweep: scoring {len(unique_papers)} papers + {len(repo_set)} repos"
-        )
+    @staticmethod
+    def _relevance_paper_content_scores(content_lower: str) -> tuple[float, float, float, float]:
+        # Content keyword overlap (concept-level)
+        concept_keywords = [
+            "knowledge graph",
+            "orchestration",
+            "agent",
+            "mcp",
+            "pydantic",
+            "memory",
+            "embedding",
+            "protocol",
+            "reasoning",
+            "multi-agent",
+            "context",
+            "planning",
+            "tool",
+            "inference",
+            "coordination",
+        ]
+        overlap_count = sum(1 for kw in concept_keywords if kw in content_lower)
+        concept_score = min(20.0, overlap_count * 4.0)
 
+        # Architecture match (heuristic based on content signals)
+        arch_keywords = [
+            "plugin",
+            "mixin",
+            "factory",
+            "protocol",
+            "registry",
+            "dependency injection",
+            "event-driven",
+            "microservice",
+        ]
+        arch_count = sum(1 for kw in arch_keywords if kw in content_lower)
+        arch_score = min(20.0, arch_count * 5.0)
+
+        # Innovation potential (unique concepts)
+        innovation_keywords = [
+            "novel",
+            "propose",
+            "introduce",
+            "framework",
+            "benchmark",
+            "state-of-the-art",
+            "outperform",
+            "sota",
+            "contribution",
+        ]
+        innov_count = sum(1 for kw in innovation_keywords if kw in content_lower)
+        innovation_score = min(20.0, innov_count * 5.0)
+
+        # Feasibility (integration ease)
+        feasibility_keywords = [
+            "python",
+            "pip",
+            "api",
+            "library",
+            "open-source",
+            "github",
+        ]
+        feas_count = sum(1 for kw in feasibility_keywords if kw in content_lower)
+        feasibility_score = min(10.0, feas_count * 2.5)
+
+        return concept_score, arch_score, innovation_score, feasibility_score
+
+    def _score_relevance_paper(
+        self, paper_path: str, centroid: Any, target_codebase: str, timestamp: str
+    ) -> dict | None:
         # ── Step 4: Score each paper ──
-        scored_items = []
-        timestamp = datetime.now(UTC).isoformat()
+        try:
+            from agent_utilities.numeric import xp
 
-        for paper_path in unique_papers:
-            try:
-                # Get all chunks for this paper
-                chunks = self.query_cypher(
-                    "MATCH (a:Article) WHERE a.target_path = $path "
-                    "RETURN a.id AS id, a.embedding AS emb, a.content AS content LIMIT 50",
-                    {"path": paper_path},
-                )
+            # Get all chunks for this paper
+            chunks = self.query_cypher(
+                "MATCH (a:Article) WHERE a.target_path = $path "
+                "RETURN a.id AS id, a.embedding AS emb, a.content AS content LIMIT 50",
+                {"path": paper_path},
+            )
 
-                if not chunks:
-                    continue
+            if not chunks:
+                return None
 
-                # Compute paper-level embedding (mean of chunk embeddings)
-                paper_embeddings = []
-                paper_content_sample = ""
-                for chunk in chunks:
-                    emb = chunk.get("emb")
-                    if emb and isinstance(emb, list):
-                        paper_embeddings.append(emb)
-                    if not paper_content_sample and chunk.get("content"):
-                        paper_content_sample = chunk["content"][:500]
+            # Compute paper-level embedding (mean of chunk embeddings)
+            paper_embeddings, paper_content_sample = (
+                self._collect_chunk_embeddings_and_sample(chunks)
+            )
 
-                if not paper_embeddings:
-                    continue
+            if not paper_embeddings:
+                return None
 
-                paper_centroid = xp.mean(paper_embeddings, axis=0)
-                paper_norm = xp.linalg.norm(paper_centroid)
-                if paper_norm > 0:
-                    paper_centroid = [value / paper_norm for value in paper_centroid]
+            paper_centroid = self._normalize_centroid(paper_embeddings)
 
-                # Semantic similarity (cosine)
-                semantic_score = float(xp.dot(centroid, paper_centroid)) * 30.0
-                semantic_score = max(0.0, min(30.0, semantic_score))
+            # Semantic similarity (cosine)
+            semantic_score = float(xp.dot(centroid, paper_centroid)) * 30.0
+            semantic_score = max(0.0, min(30.0, semantic_score))
 
-                # Content keyword overlap (concept-level)
-                content_lower = paper_content_sample.lower()
-                concept_keywords = [
-                    "knowledge graph",
-                    "orchestration",
-                    "agent",
-                    "mcp",
-                    "pydantic",
-                    "memory",
-                    "embedding",
-                    "protocol",
-                    "reasoning",
-                    "multi-agent",
-                    "context",
-                    "planning",
-                    "tool",
-                    "inference",
-                    "coordination",
-                ]
-                overlap_count = sum(1 for kw in concept_keywords if kw in content_lower)
-                concept_score = min(20.0, overlap_count * 4.0)
+            content_lower = paper_content_sample.lower()
+            (
+                concept_score,
+                arch_score,
+                innovation_score,
+                feasibility_score,
+            ) = self._relevance_paper_content_scores(content_lower)
 
-                # Architecture match (heuristic based on content signals)
-                arch_keywords = [
-                    "plugin",
-                    "mixin",
-                    "factory",
-                    "protocol",
-                    "registry",
-                    "dependency injection",
-                    "event-driven",
-                    "microservice",
-                ]
-                arch_count = sum(1 for kw in arch_keywords if kw in content_lower)
-                arch_score = min(20.0, arch_count * 5.0)
+            composite = (
+                semantic_score
+                + concept_score
+                + arch_score
+                + innovation_score
+                + feasibility_score
+            )
+            composite = round(min(100.0, composite), 2)
 
-                # Innovation potential (unique concepts)
-                innovation_keywords = [
-                    "novel",
-                    "propose",
-                    "introduce",
-                    "framework",
-                    "benchmark",
-                    "state-of-the-art",
-                    "outperform",
-                    "sota",
-                    "contribution",
-                ]
-                innov_count = sum(
-                    1 for kw in innovation_keywords if kw in content_lower
-                )
-                innovation_score = min(20.0, innov_count * 5.0)
+            item_id = f"paper:{Path(paper_path).stem}"
+            item = {
+                "id": item_id,
+                "type": "paper",
+                "path": paper_path,
+                "score": composite,
+                "semantic": round(semantic_score, 2),
+                "concept_overlap": round(concept_score, 2),
+                "arch_compat": round(arch_score, 2),
+                "innovation": round(innovation_score, 2),
+                "feasibility": round(feasibility_score, 2),
+            }
 
-                # Feasibility (integration ease)
-                feasibility_keywords = [
-                    "python",
-                    "pip",
-                    "api",
-                    "library",
-                    "open-source",
-                    "github",
-                ]
-                feas_count = sum(
-                    1 for kw in feasibility_keywords if kw in content_lower
-                )
-                feasibility_score = min(10.0, feas_count * 2.5)
+            # Persist as edge in KG
+            self._persist_relevance_score(
+                item_id,
+                target_codebase,
+                composite,
+                semantic_score,
+                concept_score,
+                arch_score,
+                innovation_score,
+                feasibility_score,
+                timestamp,
+            )
+            return item
 
-                composite = (
-                    semantic_score
-                    + concept_score
-                    + arch_score
-                    + innovation_score
-                    + feasibility_score
-                )
-                composite = round(min(100.0, composite), 2)
+        except Exception as e:
+            logger.warning("RelevanceSweep: paper scoring failed: %s", e)
+            return None
 
-                item_id = f"paper:{Path(paper_path).stem}"
-                scored_items.append(
-                    {
-                        "id": item_id,
-                        "type": "paper",
-                        "path": paper_path,
-                        "score": composite,
-                        "semantic": round(semantic_score, 2),
-                        "concept_overlap": round(concept_score, 2),
-                        "arch_compat": round(arch_score, 2),
-                        "innovation": round(innovation_score, 2),
-                        "feasibility": round(feasibility_score, 2),
-                    }
-                )
-
-                # Persist as edge in KG
-                self._persist_relevance_score(
-                    item_id,
-                    target_codebase,
-                    composite,
-                    semantic_score,
-                    concept_score,
-                    arch_score,
-                    innovation_score,
-                    feasibility_score,
-                    timestamp,
-                )
-
-            except Exception as e:
-                logger.warning("RelevanceSweep: paper scoring failed: %s", e)
-
-        # ── Step 5: Score each repository ──
-        for repo_name in repo_set:
-            try:
-                repo_chunks = self.query_cypher(
-                    "MATCH (c:Code) WHERE c.file_path CONTAINS $name "
-                    "RETURN c.id AS id, c.embedding AS emb, c.content AS content LIMIT 100",
-                    {"name": repo_name},
-                )
-
-                if not repo_chunks:
-                    continue
-
-                repo_embeddings = []
-                repo_content_sample = ""
-                for chunk in repo_chunks:
-                    emb = chunk.get("emb")
-                    if emb and isinstance(emb, list):
-                        repo_embeddings.append(emb)
-                    if not repo_content_sample and chunk.get("content"):
-                        repo_content_sample = chunk["content"][:500]
-
-                if not repo_embeddings:
-                    continue
-
-                repo_centroid = xp.mean(repo_embeddings, axis=0)
-                repo_norm = xp.linalg.norm(repo_centroid)
-                if repo_norm > 0:
-                    repo_centroid = [value / repo_norm for value in repo_centroid]
-
-                semantic_score = float(xp.dot(centroid, repo_centroid)) * 30.0
-                semantic_score = max(0.0, min(30.0, semantic_score))
-
-                content_lower = repo_content_sample.lower()
-                concept_keywords = [
-                    "knowledge graph",
-                    "orchestration",
-                    "agent",
-                    "mcp",
-                    "pydantic",
-                    "memory",
-                    "embedding",
-                    "protocol",
-                    "reasoning",
-                    "multi-agent",
-                ]
-                concept_score = min(
-                    20.0, sum(1 for kw in concept_keywords if kw in content_lower) * 4.0
-                )
-
-                arch_keywords = [
-                    "plugin",
-                    "mixin",
-                    "factory",
-                    "protocol",
-                    "registry",
-                    "dependency injection",
-                ]
-                arch_score = min(
-                    20.0, sum(1 for kw in arch_keywords if kw in content_lower) * 5.0
-                )
-
-                innovation_score = 10.0  # Codebases get baseline innovation score
-                feasibility_score = 8.0  # Codebases are inherently more feasible
-
-                composite = (
-                    semantic_score
-                    + concept_score
-                    + arch_score
-                    + innovation_score
-                    + feasibility_score
-                )
-                composite = round(min(100.0, composite), 2)
-
-                item_id = f"repo:{repo_name}"
-                scored_items.append(
-                    {
-                        "id": item_id,
-                        "type": "codebase",
-                        "name": repo_name,
-                        "score": composite,
-                        "semantic": round(semantic_score, 2),
-                        "concept_overlap": round(concept_score, 2),
-                        "arch_compat": round(arch_score, 2),
-                        "innovation": round(innovation_score, 2),
-                        "feasibility": round(feasibility_score, 2),
-                    }
-                )
-
-                self._persist_relevance_score(
-                    item_id,
-                    target_codebase,
-                    composite,
-                    semantic_score,
-                    concept_score,
-                    arch_score,
-                    innovation_score,
-                    feasibility_score,
-                    timestamp,
-                )
-
-            except Exception as e:
-                logger.warning(f"RelevanceSweep: error scoring repo {repo_name}: {e}")
-
-        # Sort by composite score descending
-        scored_items.sort(key=lambda x: x["score"], reverse=True)
-
-        logger.info(
-            f"RelevanceSweep: completed — {len(scored_items)} items scored against '{target_codebase}'"
+    @staticmethod
+    def _relevance_repo_content_scores(content_lower: str) -> tuple[float, float]:
+        concept_keywords = [
+            "knowledge graph",
+            "orchestration",
+            "agent",
+            "mcp",
+            "pydantic",
+            "memory",
+            "embedding",
+            "protocol",
+            "reasoning",
+            "multi-agent",
+        ]
+        concept_score = min(
+            20.0, sum(1 for kw in concept_keywords if kw in content_lower) * 4.0
         )
 
-        return {
-            "status": "completed",
-            "target_codebase": target_codebase,
-            "items_scored": len(scored_items),
-            "top_10": scored_items[:10],
-            "scored_at": timestamp,
-            "type": "relevance_sweep",
-        }
+        arch_keywords = [
+            "plugin",
+            "mixin",
+            "factory",
+            "protocol",
+            "registry",
+            "dependency injection",
+        ]
+        arch_score = min(
+            20.0, sum(1 for kw in arch_keywords if kw in content_lower) * 5.0
+        )
+        return concept_score, arch_score
+
+    def _score_relevance_repo(
+        self, repo_name: str, centroid: Any, target_codebase: str, timestamp: str
+    ) -> dict | None:
+        # ── Step 5: Score each repository ──
+        try:
+            from agent_utilities.numeric import xp
+
+            repo_chunks = self.query_cypher(
+                "MATCH (c:Code) WHERE c.file_path CONTAINS $name "
+                "RETURN c.id AS id, c.embedding AS emb, c.content AS content LIMIT 100",
+                {"name": repo_name},
+            )
+
+            if not repo_chunks:
+                return None
+
+            repo_embeddings, repo_content_sample = (
+                self._collect_chunk_embeddings_and_sample(repo_chunks)
+            )
+
+            if not repo_embeddings:
+                return None
+
+            repo_centroid = self._normalize_centroid(repo_embeddings)
+
+            semantic_score = float(xp.dot(centroid, repo_centroid)) * 30.0
+            semantic_score = max(0.0, min(30.0, semantic_score))
+
+            content_lower = repo_content_sample.lower()
+            concept_score, arch_score = self._relevance_repo_content_scores(
+                content_lower
+            )
+
+            innovation_score = 10.0  # Codebases get baseline innovation score
+            feasibility_score = 8.0  # Codebases are inherently more feasible
+
+            composite = (
+                semantic_score
+                + concept_score
+                + arch_score
+                + innovation_score
+                + feasibility_score
+            )
+            composite = round(min(100.0, composite), 2)
+
+            item_id = f"repo:{repo_name}"
+            item = {
+                "id": item_id,
+                "type": "codebase",
+                "name": repo_name,
+                "score": composite,
+                "semantic": round(semantic_score, 2),
+                "concept_overlap": round(concept_score, 2),
+                "arch_compat": round(arch_score, 2),
+                "innovation": round(innovation_score, 2),
+                "feasibility": round(feasibility_score, 2),
+            }
+
+            self._persist_relevance_score(
+                item_id,
+                target_codebase,
+                composite,
+                semantic_score,
+                concept_score,
+                arch_score,
+                innovation_score,
+                feasibility_score,
+                timestamp,
+            )
+            return item
+
+        except Exception as e:
+            logger.warning(f"RelevanceSweep: error scoring repo {repo_name}: {e}")
+            return None
+
 
     def _persist_relevance_score(
         self,
@@ -6742,18 +6816,25 @@ class TaskManagerMixin(GraphEngineProtocol):
 
         This is a read-only projection and adds no competing work-state writer.
         """
+        rows = self._profile_report_rows()
+        cutoff = self._profile_report_cutoff(window_sec)
+        key = group_by if group_by in ("lane", "type", "tkind") else "lane"
+        groups: dict[str, dict[str, Any]] = {}
+        starts: list[float] = []
+        ends: list[float] = []
+        # CONCEPT:AU-KG.compute.p99-latency-metric — keep each work identity+duration so the
+        # report can name the slowest-N outliers (the p95/max offenders), not just
+        # per-lane percentiles. This is what makes a 13-min codebase pin or a 456s
+        # hung connector VISIBLE as a specific task, not a lane statistic.
+        tail_tasks: list[dict[str, Any]] = []
+        for r in rows or []:
+            self._profile_report_process_row(
+                r, key, cutoff, groups, starts, ends, tail_tasks
+            )
+        self._profile_report_finalize_groups(groups)
+        return self._profile_report_summary(key, groups, starts, ends, tail_tasks)
 
-        def _pct(values: list[float], p: float) -> float:
-            if not values:
-                return 0.0
-            if len(values) == 1:
-                return values[0]
-            k = (len(values) - 1) * (p / 100.0)
-            lo = int(k)
-            hi = min(lo + 1, len(values) - 1)
-            frac = k - lo
-            return values[lo] * (1 - frac) + values[hi] * frac
-
+    def _profile_report_rows(self) -> list[dict[str, Any]]:
         work = self._ingest_work_item_index()
         rows: list[dict[str, Any]] = []
         for job_id, item in work.items():
@@ -6780,139 +6861,186 @@ class TaskManagerMixin(GraphEngineProtocol):
                 rows = list(rows or []) + list(spans)
         except Exception:  # noqa: BLE001 — spans are best-effort, never block the report
             pass
-        cutoff = None
-        if window_sec:
-            try:
-                cutoff = datetime.now(UTC) - timedelta(seconds=window_sec)
-            except Exception:  # noqa: BLE001
-                cutoff = None
+        return rows
 
-        key = group_by if group_by in ("lane", "type", "tkind") else "lane"
-        groups: dict[str, dict[str, Any]] = {}
-        starts: list[float] = []
-        ends: list[float] = []
-        # CONCEPT:AU-KG.compute.p99-latency-metric — keep each work identity+duration so the
-        # report can name the slowest-N outliers (the p95/max offenders), not just
-        # per-lane percentiles. This is what makes a 13-min codebase pin or a 456s
-        # hung connector VISIBLE as a specific task, not a lane statistic.
-        tail_tasks: list[dict[str, Any]] = []
-        for r in rows or []:
-            raw_meta = r.get("meta")
-            meta = (
-                dict(raw_meta)
-                if isinstance(raw_meta, dict)
-                else _decode_metadata(raw_meta)
+    @staticmethod
+    def _profile_report_cutoff(window_sec: int) -> Any:
+        if not window_sec:
+            return None
+        try:
+            return datetime.now(UTC) - timedelta(seconds=window_sec)
+        except Exception:  # noqa: BLE001
+            return None
+
+    @staticmethod
+    def _profile_report_row_meta(r: dict[str, Any]) -> dict[str, Any]:
+        raw_meta = r.get("meta")
+        return (
+            dict(raw_meta) if isinstance(raw_meta, dict) else _decode_metadata(raw_meta)
+        )
+
+    @staticmethod
+    def _profile_report_completed_before_cutoff(ca: Any, cutoff: Any) -> bool:
+        if cutoff is None or not ca:
+            return False
+        try:
+            completed_dt = (
+                datetime.fromtimestamp(float(ca), UTC)
+                if isinstance(ca, int | float)
+                else datetime.fromisoformat(str(ca))
             )
-            ca = r.get("completed_at") or meta.get("completed_at")
-            if cutoff is not None and ca:
+            return completed_dt < cutoff
+        except (ValueError, TypeError) as exc:  # noqa: BLE001 — unparseable completed_at timestamp in the tail-tasks profile report — same documented un-window-filtered fallback as aggregate_ingest_metrics above
+            logger.debug(
+                "ingest tail tasks: unparseable completed_at %r, not window-filtered: %s",
+                ca,
+                exc,
+            )
+            return False
+
+    @staticmethod
+    def _profile_report_new_group() -> dict[str, Any]:
+        return {
+            "count": 0,
+            "completed": 0,
+            "failed": 0,
+            "dead_letter": 0,
+            "_durations": [],
+            "tokens": 0,
+            "cost": 0.0,
+            "nodes": 0,
+            "edges": 0,
+            "llm_calls": 0,
+            "embed_calls": 0,
+            "_stages": {},
+        }
+
+    @staticmethod
+    def _profile_report_tally_status(grp: dict[str, Any], status: str) -> None:
+        st = (status or "").lower()
+        if st in ("completed", "done", "success"):
+            grp["completed"] += 1
+        elif st in ("failed", "error"):
+            grp["failed"] += 1
+        elif st == "dead_letter":
+            grp["dead_letter"] += 1
+
+    @staticmethod
+    def _profile_report_row_duration(
+        meta: dict[str, Any], submitted: Any, completed: Any
+    ) -> float:
+        dur = float(meta.get("duration_ms", 0) or 0)
+        if (
+            dur <= 0
+            and isinstance(submitted, int | float)
+            and isinstance(completed, int | float)
+        ):
+            dur = max(0.0, (completed - submitted) * 1000.0)
+        return dur
+
+    @staticmethod
+    def _profile_report_accumulate_tokens_cost(
+        grp: dict[str, Any], meta: dict[str, Any], usage: dict[str, Any], prof: dict[str, Any]
+    ) -> None:
+        # OS-5.69/70 — the ingest profile carries real token usage + per-stage
+        # timing (read/extract/embed/write), so the report is no longer tokens=0
+        # and can show WHERE ingest time goes.
+        grp["tokens"] += int(
+            meta.get("tokens", usage.get("total", prof.get("total_tokens", 0))) or 0
+        )
+        grp["cost"] += float(
+            meta.get("cost", usage.get("cost", prof.get("cost", 0))) or 0
+        )
+        grp["llm_calls"] += int(prof.get("llm_calls", 0) or 0)
+        grp["embed_calls"] += int(prof.get("embed_calls", 0) or 0)
+
+    @staticmethod
+    def _profile_report_accumulate_usage(
+        grp: dict[str, Any], meta: dict[str, Any]
+    ) -> None:
+        usage = meta.get("usage") or {}
+        prof = meta.get("profile") or {}
+        TaskManagerMixin._profile_report_accumulate_tokens_cost(grp, meta, usage, prof)
+        for _sname, _sms in (prof.get("stages_ms") or {}).items():
+            grp["_stages"].setdefault(_sname, []).append(float(_sms or 0))
+        grp["nodes"] += int(meta.get("nodes_added", meta.get("nodes_created", 0)) or 0)
+        grp["edges"] += int(meta.get("edges_added", meta.get("edges_created", 0)) or 0)
+
+    @staticmethod
+    def _profile_report_record_timestamps(
+        r: dict[str, Any], meta: dict[str, Any], ca: Any, starts: list, ends: list
+    ) -> None:
+        for ts, bucket in (
+            (r.get("submitted_at") or meta.get("started_at"), starts),
+            (ca, ends),
+        ):
+            if ts:
                 try:
-                    completed_dt = (
-                        datetime.fromtimestamp(float(ca), UTC)
-                        if isinstance(ca, int | float)
-                        else datetime.fromisoformat(str(ca))
+                    bucket.append(
+                        float(ts)
+                        if isinstance(ts, int | float)
+                        else datetime.fromisoformat(str(ts)).timestamp()
                     )
-                    if completed_dt < cutoff:
-                        continue
-                except (ValueError, TypeError) as exc:  # noqa: BLE001 — unparseable completed_at timestamp in the tail-tasks profile report — same documented un-window-filtered fallback as aggregate_ingest_metrics above
+                except (ValueError, TypeError) as exc:  # noqa: BLE001 — unparseable timestamp is excluded from this one latency bucket (as the log message says) — a metrics-precision loss, not a correctness issue, since the item is simply absent from the bucket
                     logger.debug(
-                        "ingest tail tasks: unparseable completed_at %r, not window-filtered: %s",
-                        ca,
+                        "ingest metrics: unparseable timestamp %r, excluded from bucket: %s",
+                        ts,
                         exc,
                     )
-            g = (
-                meta.get(key)
-                or meta.get("type")
-                or meta.get("content_type")
-                or "unknown"
-            )
-            grp = groups.setdefault(
-                g,
-                {
-                    "count": 0,
-                    "completed": 0,
-                    "failed": 0,
-                    "dead_letter": 0,
-                    "_durations": [],
-                    "tokens": 0,
-                    "cost": 0.0,
-                    "nodes": 0,
-                    "edges": 0,
-                    "llm_calls": 0,
-                    "embed_calls": 0,
-                    "_stages": {},
-                },
-            )
-            grp["count"] += 1
-            st = (r.get("status") or "").lower()
-            if st in ("completed", "done", "success"):
-                grp["completed"] += 1
-            elif st in ("failed", "error"):
-                grp["failed"] += 1
-            elif st == "dead_letter":
-                grp["dead_letter"] += 1
-            dur = float(meta.get("duration_ms", 0) or 0)
-            submitted = r.get("submitted_at")
-            completed = r.get("completed_at")
-            if (
-                dur <= 0
-                and isinstance(submitted, int | float)
-                and isinstance(completed, int | float)
-            ):
-                dur = max(0.0, (completed - submitted) * 1000.0)
-            if dur > 0:
-                grp["_durations"].append(dur)
-                # CONCEPT:AU-KG.compute.p99-latency-metric — record the per-task tail entry.
-                tail_tasks.append(
-                    {
-                        "id": r.get("id"),
-                        "duration_ms": round(dur, 1),
-                        "type": meta.get("type")
-                        or meta.get("content_type")
-                        or "unknown",
-                        "lane": meta.get("lane") or g,
-                        "status": st,
-                        "target": str(meta.get("target", ""))[:120],
-                    }
-                )
-            usage = meta.get("usage") or {}
-            # OS-5.69/70 — the ingest profile carries real token usage + per-stage
-            # timing (read/extract/embed/write), so the report is no longer tokens=0
-            # and can show WHERE ingest time goes.
-            prof = meta.get("profile") or {}
-            grp["tokens"] += int(
-                meta.get("tokens", usage.get("total", prof.get("total_tokens", 0))) or 0
-            )
-            grp["cost"] += float(
-                meta.get("cost", usage.get("cost", prof.get("cost", 0))) or 0
-            )
-            grp["llm_calls"] += int(prof.get("llm_calls", 0) or 0)
-            grp["embed_calls"] += int(prof.get("embed_calls", 0) or 0)
-            for _sname, _sms in (prof.get("stages_ms") or {}).items():
-                grp["_stages"].setdefault(_sname, []).append(float(_sms or 0))
-            grp["nodes"] += int(
-                meta.get("nodes_added", meta.get("nodes_created", 0)) or 0
-            )
-            grp["edges"] += int(
-                meta.get("edges_added", meta.get("edges_created", 0)) or 0
-            )
-            for ts, bucket in (
-                (r.get("submitted_at") or meta.get("started_at"), starts),
-                (ca, ends),
-            ):
-                if ts:
-                    try:
-                        bucket.append(
-                            float(ts)
-                            if isinstance(ts, int | float)
-                            else datetime.fromisoformat(str(ts)).timestamp()
-                        )
-                    except (ValueError, TypeError) as exc:  # noqa: BLE001 — unparseable timestamp is excluded from this one latency bucket (as the log message says) — a metrics-precision loss, not a correctness issue, since the item is simply absent from the bucket
-                        logger.debug(
-                            "ingest metrics: unparseable timestamp %r, excluded from bucket: %s",
-                            ts,
-                            exc,
-                        )
 
+    @staticmethod
+    def _profile_report_record_duration(
+        grp: dict[str, Any],
+        tail_tasks: list[dict[str, Any]],
+        r: dict[str, Any],
+        meta: dict[str, Any],
+        g: str,
+        status: str,
+        dur: float,
+    ) -> None:
+        if dur <= 0:
+            return
+        grp["_durations"].append(dur)
+        # CONCEPT:AU-KG.compute.p99-latency-metric — record the per-task tail entry.
+        tail_tasks.append(
+            {
+                "id": r.get("id"),
+                "duration_ms": round(dur, 1),
+                "type": meta.get("type") or meta.get("content_type") or "unknown",
+                "lane": meta.get("lane") or g,
+                "status": status.lower(),
+                "target": str(meta.get("target", ""))[:120],
+            }
+        )
+
+    def _profile_report_process_row(
+        self,
+        r: dict[str, Any],
+        key: str,
+        cutoff: Any,
+        groups: dict[str, dict[str, Any]],
+        starts: list,
+        ends: list,
+        tail_tasks: list[dict[str, Any]],
+    ) -> None:
+        meta = self._profile_report_row_meta(r)
+        ca = r.get("completed_at") or meta.get("completed_at")
+        if self._profile_report_completed_before_cutoff(ca, cutoff):
+            return
+        g = meta.get(key) or meta.get("type") or meta.get("content_type") or "unknown"
+        grp = groups.setdefault(g, self._profile_report_new_group())
+        grp["count"] += 1
+        status = r.get("status") or ""
+        self._profile_report_tally_status(grp, status)
+        dur = self._profile_report_row_duration(
+            meta, r.get("submitted_at"), r.get("completed_at")
+        )
+        self._profile_report_record_duration(grp, tail_tasks, r, meta, g, status, dur)
+        self._profile_report_accumulate_usage(grp, meta)
+        self._profile_report_record_timestamps(r, meta, ca, starts, ends)
+
+    @staticmethod
+    def _profile_report_finalize_groups(groups: dict[str, dict[str, Any]]) -> None:
         for grp in groups.values():
             durs = sorted(grp.pop("_durations"))
             grp["total_ms"] = round(sum(durs), 1)
@@ -6933,6 +7061,14 @@ class TaskManagerMixin(GraphEngineProtocol):
                 for s, v in grp.pop("_stages").items()
             }
 
+    @staticmethod
+    def _profile_report_summary(
+        key: str,
+        groups: dict[str, dict[str, Any]],
+        starts: list,
+        ends: list,
+        tail_tasks: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         total_ms = sum(g["total_ms"] for g in groups.values())
         wall_ms = (max(ends) - min(starts)) * 1000.0 if starts and ends else 0.0
         # CONCEPT:AU-KG.compute.p99-latency-metric — the slowest-N tasks overall: the concrete outliers a
@@ -6947,6 +7083,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             "total_task_ms": round(total_ms, 1),
             "slowest": tail_tasks[:slowest_n],
         }
+
 
     def _checkpoint_db(self) -> None:
         """Force a WAL checkpoint so a SQLite-backed store persists across restarts.
