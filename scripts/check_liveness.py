@@ -223,13 +223,14 @@ def main() -> int:
         print(f"liveness baseline updated (corrected counts): {corrected_counts}")
         return 0
 
-    base_counts: dict[str, int] = {}
-    if BASELINE.exists():
-        base_counts = json.loads(BASELINE.read_text()).get("counts", {})
+    # Step B (CX-RAT-11): the source of the compared-against numbers is now
+    # CAPS (module-level, above) instead of a committed baseline file --
+    # identical `>` comparison, identical failure message. Zero other
+    # behaviour change.
     regressed = {
-        cat: (now, base_counts.get(cat, 0))
+        cat: (now, CAPS.get(cat, 0))
         for cat, now in corrected_counts.items()
-        if now > base_counts.get(cat, 0)
+        if now > CAPS.get(cat, 0)
     }
 
     print(f"Liveness counts={corrected_counts}")
