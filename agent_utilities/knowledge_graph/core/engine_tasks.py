@@ -5041,952 +5041,61 @@ class TaskManagerMixin(GraphEngineProtocol):
         )
         return result
 
+    _EARLY_TASK_HANDLERS = {
+        "scheduled_job": "_bg_scheduled_job",
+        "enrichment_backfill": "_bg_scheduled_job",
+        "research_paper_fetch": "_bg_research_paper_fetch",
+        "kg_memory": "_bg_kg_memory",
+        "conversation": "_bg_conversation",
+        "content_url": "_bg_content_url",
+        "feed_ingest": "_bg_feed_ingest",
+        "feed_sweep": "_bg_feed_sweep",
+        "skill_workflows": "_bg_skill_workflows",
+        "diff": "_bg_diff",
+        "deep_analysis": "_bg_deep_analysis",
+    }
+
+    _LATE_TASK_HANDLERS = {
+        "relevance_sweep": "_bg_relevance_sweep",
+        "self_tool_surface": "_bg_self_tool_surface",
+        "connector_sync": "_bg_connector_sync",
+        "capability_hydration": "_bg_connector_sync",
+        "connector_drain": "_bg_connector_drain",
+        "fleet_event_triage": "_bg_fleet_event_triage",
+        "deploy_watch": "_bg_deploy_watch",
+        "synthesize": "_bg_analyzer_task",
+        "deep_extract": "_bg_analyzer_task",
+        "background_research": "_bg_analyzer_task",
+        "cohort_synthesize": "_bg_cohort_synthesize",
+        "session_upload": "_bg_session_upload",
+    }
+
     async def _run_background_task(
         self, job_id: str, target: Path, is_codebase: bool, task_type: str = "document"
     ):
-        """Execute the ingestion logic."""
+        """Execute the ingestion logic.
+
+        Dispatch table, extracted from a single 21-way if/elif chain
+        (CX-AU-01, CCN 106 -> see handler methods below). ``_EARLY_TASK_HANDLERS``
+        preserves the original priority of the three independent leading
+        ``if ... return`` checks plus the first seven ``elif`` branches, all of
+        which took precedence over the ``is_codebase`` catch-all in the
+        original source; ``_LATE_TASK_HANDLERS`` preserves the remaining
+        branches, which were only reachable once ``is_codebase`` was False and
+        ``task_type`` was not the literal ``"codebase"``. Unmatched task types
+        fall through to ``_bg_document``, matching the original trailing
+        ``else``.
+        """
         try:
-            if task_type in ("scheduled_job", "enrichment_backfill"):
-                # A recurring job enqueued by the unified scheduler (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent).
-                # ``enrichment_backfill`` is the same dispatch, only landed in the
-                # dedicated enrichment lane so it isn't capped at the maint floor
-                # (CONCEPT:AU-KG.ontology.capability-card-backfill-lane).
-                # The payload (the dispatch descriptor) rides on the task metadata;
-                # run it through the single dispatcher and let the schedule's own
-                # failure backoff govern cadence (so we do NOT route a job failure
-                # through the task-level retry — that would double-retry).
-                from agent_utilities.core.schedule_engine import (
-                    record_schedule_result,
-                    run_scheduled_job,
-                )
-
-                meta = self._ingest_task_metadata(job_id)
-                sched_name = meta.get("schedule", "")
-                payload = meta.get("payload", {})
-                try:
-                    result = run_scheduled_job(self, payload)
-                    ok = str(result.get("status", "ok")) not in {"error", "failed"}
-                except Exception as e:  # noqa: BLE001 — recorded as a schedule failure
-                    result = {"status": "error", "error": str(e)}
-                    ok = False
-                if sched_name:
-                    record_schedule_result(
-                        self,
-                        sched_name,
-                        ok,
-                        duration_s=result.get("duration_s"),
-                        status=result.get("status"),
-                    )
-                self._update_task_status(
-                    job_id,
-                    "completed" if ok else "failed",
-                    {
-                        "target": str(target),
-                        "type": task_type,
-                        "schedule": sched_name,
-                        "result": result,
-                    },
-                )
-                return
-            if task_type == "research_paper_fetch":
-                # A high-graded RSS item: download the full paper and ingest it
-                # (CONCEPT:AU-KG.research.scholarx-rss-research-feed). Enqueued by the RSS feed screen with a
-                # grade-derived priority, so the best papers are fetched first.
-                from agent_utilities.automation.research_pipeline import (
-                    ResearchPipelineRunner,
-                )
-
-                meta = self._ingest_task_metadata(job_id)
-                paper = meta.get("paper", {})
-                runner = ResearchPipelineRunner(engine=self)  # type: ignore[arg-type]  # self is the engine
-                from ..research.cohort import resolve_ephemeral_paper_pdf
-                from .ingest_profile import profile_ingest
-
-                # OS-5.69/70 — profile token usage + per-stage timing for this paper.
-                with profile_ingest(str(paper.get("id", ""))) as _prof:
-                    article_id = await runner.ingest_paper_full(
-                        paper.get("id", ""),
-                        paper.get("title", ""),
-                        paper.get("abstract", ""),
-                        paper.get("authors", []),
-                        # Resolve a pre-downloaded PDF only in worker memory. The
-                        # durable task carries the paper id, never a machine path.
-                        pdf_path=resolve_ephemeral_paper_pdf(str(paper.get("id", ""))),
-                        source_url=paper.get("url", ""),
-                        relevance_score=float(paper.get("score", 0.0) or 0.0),
-                        domains=paper.get("domains"),
-                    )
-                self._update_task_status(
-                    job_id,
-                    "completed",
-                    {
-                        "target": paper.get("id", ""),
-                        "type": task_type,
-                        "article_id": article_id,
-                        "score": paper.get("score"),
-                        "profile": _prof.to_dict(),
-                    },
-                )
-                return
-            if task_type == "kg_memory":
-                # CONCEPT:AU-KG.compute.offloaded-memory-write — a memory write offloaded from a SERVING process. The
-                # host performs the embed+write here (inline, _local=True so it never
-                # re-enqueues), isolating heavy ingestion from the serving/read plane.
-                meta = self._ingest_task_metadata(job_id)
-                p = meta.get("payload", {})
-                mid = self.store_memory(  # type: ignore[attr-defined]  # MemoryMixin, composed onto the engine
-                    content=p.get("content", ""),
-                    memory_type=p.get("memory_type", "episodic"),
-                    name=p.get("name", ""),
-                    tags=p.get("tags", []),
-                    trust_score=p.get("trust_score", 0.8),
-                    agent_id=p.get("agent_ref", ""),
-                    extra_props=p.get("extra_props") or None,
-                    _local=True,
-                    _memory_id=p.get("memory_id"),
-                )
-                self._update_task_status(
-                    job_id, "completed", {"memory_id": mid, "type": "kg_memory"}
-                )
-                return
-            if task_type == "conversation":
-                # Process a single conversation from a JSON or overview file
-                from agent_utilities.knowledge_graph.core.conversation_ingestion import (
-                    ingest_conversations_to_kg,
-                    parse_antigravity_logs,
-                    parse_claude_logs,
-                    parse_codex_logs,
-                    parse_windsurf_logs,
-                )
-
-                # Determine source from target path
-                target_str = str(target)
-                convs = []
-
-                if "antigravity" in target_str:
-                    # Antigravity target is the parent dir of overview.txt
-                    convs = parse_antigravity_logs(target.parent.parent.parent)
-                elif "windsurf" in target_str:
-                    convs = parse_windsurf_logs(target.parent)
-                elif "claude" in target_str:
-                    convs = parse_claude_logs(target.parent)
-                elif "codex" in target_str:
-                    convs = parse_codex_logs(target.parent)
-
-                # Filter for the specific target file
-                convs = [c for c in convs if c.get("path") == target_str]
-
-                if not convs:
-                    raise Exception(f"Could not parse conversation at {target_str}")
-
-                result = ingest_conversations_to_kg(conversations=convs)
-                self._update_task_status(
-                    job_id,
-                    "completed",
-                    {
-                        "total_ingested": result.get("total_ingested", 0),
-                        "total_messages": result.get("total_messages", 0),
-                        "target": target_str,
-                        "type": "conversation",
-                    },
-                )
-
-            elif task_type == "content_url":
-                # Content-aware URL ingest OFF the request path (CONCEPT:AU-KG.compute.registered-edge-type):
-                # route through the unified IngestionEngine DOCUMENT path so the page
-                # is fetched via the resolver (ArchiveBox→crawl4ai→requests) and a
-                # research roundup auto-acquires the papers it cites. The real URL
-                # rides in WorkItem metadata because the claim path
-                # wraps ``target`` in Path() (which would collapse ``https://``).
-                from agent_utilities.knowledge_graph.ingestion.engine import (
-                    ContentType,
-                    IngestionEngine,
-                    IngestionManifest,
-                )
-
-                tprops = self._ingest_task_metadata(job_id)
-                url = str(tprops.get("source_url") or "").strip()
-                if not url:
-                    # Fallback: repair the Path()-mangled scheme separator.
-                    url = re.sub(r"^(https?):/(?!/)", r"\1://", str(target))
-                meta = {}
-                ep = tprops.get("extract_papers")
-                if ep is not None:
-                    meta["extract_papers"] = (
-                        ep if isinstance(ep, bool) else str(ep).lower() == "true"
-                    )
-                # CONCEPT:AU-KG.ingest.chunk-overlap-stage — ``ingest_url`` defaults these ON (set by the
-                # MCP tool) so a URL ingest gets first-class embedded Chunk objects
-                # + contextual-retrieval enrichment, at parity with connector
-                # ingestion (KG-2.50) rather than only the plain idea_block chunks.
-                for _bool_key in ("chunk_objects", "contextual"):
-                    _val = tprops.get(_bool_key)
-                    if _val is not None:
-                        meta[_bool_key] = (
-                            _val
-                            if isinstance(_val, bool)
-                            else str(_val).lower() == "true"
-                        )
-                ing = IngestionEngine(kg_engine=self)
-                r = await ing.ingest(
-                    IngestionManifest(
-                        content_type=ContentType.DOCUMENT,
-                        source_uri=url,
-                        metadata=meta,
-                    )
-                )
-                self._update_task_status(
-                    job_id,
-                    "completed" if r.status == "success" else "failed",
-                    {
-                        "target": url,
-                        "type": task_type,
-                        "status": r.status,
-                        "nodes": r.nodes_created,
-                        "details": r.details,
-                        "error": r.error,
-                    },
-                )
-
-            elif task_type == "feed_ingest":
-                # Async full-ingest of a relevance-gated feed article OFF the sweep
-                # path (CONCEPT:AU-KG.ingest.rss-feed-connector). The world-model gate enqueues; the worker
-                # pool drains these in parallel, so "reviews" (the sweep) scale
-                # independently of "ingest" (chunk + embed + contextual-enrich),
-                # and ingest scales 1→N with the model-concurrency controller. The
-                # already-fetched article text rides on the task — no re-crawl. Run
-                # the (sync) DocumentProcessor in a worker thread so concurrent
-                # feed_ingest tasks don't serialize on the event loop.
-                from agent_utilities.knowledge_graph.ontology.document_processing import (
-                    ChunkingConfig,
-                    DocumentProcessor,
-                )
-
-                meta_t = self._ingest_task_metadata(job_id)
-                fd = (meta_t or {}).get("feed_doc") or {}
-                if not fd.get("document_id"):
-                    self._update_task_status(
-                        job_id,
-                        "failed",
-                        {"type": task_type, "error": "no feed_doc payload"},
-                    )
+            handler_name = self._EARLY_TASK_HANDLERS.get(task_type)
+            if handler_name is None:
+                if is_codebase or task_type == "codebase":
+                    handler_name = "_bg_codebase"
                 else:
-                    proc = DocumentProcessor(
-                        getattr(self, "backend", None),
-                        engine=self,
-                        chunking=ChunkingConfig(),
-                        contextual=True,
+                    handler_name = self._LATE_TASK_HANDLERS.get(
+                        task_type, "_bg_document"
                     )
-                    try:
-                        await asyncio.to_thread(
-                            proc.process,
-                            fd.get("text", "") or "",
-                            document_id=fd["document_id"],
-                            title=fd.get("title") or fd["document_id"],
-                            doc_type=fd.get("doc_type", "news_article"),
-                            source=fd.get("source", ""),
-                            metadata=fd.get("metadata") or {},
-                            connector="feed",
-                            source_instance="feed-ingest-worker",
-                        )
-                        # Unified always-on intelligence layer (CONCEPT:AU-KG.enrichment.topic-classification-topology):
-                        # DocumentProcessor.process only chunks + contextual-
-                        # enriches — route the article body through the SAME
-                        # central seam every other ingestion adaptor drains
-                        # (concepts + facts + WorldView topic classification) so a
-                        # feed_ingest article isn't a shallower write than a
-                        # directly-ingested document. Best-effort; never fails the task.
-                        try:
-                            from agent_utilities.knowledge_graph.ingestion.engine import (
-                                IngestionEngine as _IngestionEngine,
-                            )
-
-                            await _IngestionEngine(kg_engine=self).enrich_text(
-                                fd["document_id"],
-                                fd.get("text", "") or "",
-                                fd.get("doc_type", "news_article"),
-                                fd.get("title") or fd["document_id"],
-                            )
-                        except Exception:  # noqa: BLE001 — enrichment never breaks the task
-                            logger.debug(
-                                "[feed_ingest] central enrichment seam failed for %s",
-                                fd["document_id"],
-                                exc_info=True,
-                            )
-                        self._update_task_status(
-                            job_id,
-                            "completed",
-                            {"target": fd["document_id"], "type": task_type},
-                        )
-                    except Exception as fe:  # noqa: BLE001
-                        self._update_task_status(
-                            job_id,
-                            "failed",
-                            {
-                                "target": fd["document_id"],
-                                "type": task_type,
-                                "error": str(fe),
-                            },
-                        )
-
-            elif task_type == "feed_sweep":
-                # The RSS/FreshRSS sweep run OFF the request path (CONCEPT:AU-KG.ingest.rss-feed-connector).
-                # The sweep is the "review" producer: it fetches (concurrently),
-                # runs the world-model gate, and ENQUEUES per-article worldview/
-                # research tasks. It does NOT ride the 300s MCP call — graph_feeds
-                # sync enqueues this and returns immediately. The gate loop does
-                # per-item engine work, so run it in a worker thread.
-                from agent_utilities.knowledge_graph.core.source_sync import sync_source
-
-                meta_t = self._ingest_task_metadata(job_id)
-                source = str((meta_t or {}).get("feed_source") or "rss")
-                fmode = str((meta_t or {}).get("feed_mode") or "delta")
-                try:
-                    res = await asyncio.to_thread(sync_source, self, source, mode=fmode)
-                    self._update_task_status(
-                        job_id,
-                        "completed",
-                        {"target": f"feed:{source}", "type": task_type, "result": res},
-                    )
-                except Exception as se:  # noqa: BLE001
-                    self._update_task_status(
-                        job_id,
-                        "failed",
-                        {
-                            "target": f"feed:{source}",
-                            "type": task_type,
-                            "error": str(se),
-                        },
-                    )
-
-            elif task_type == "skill_workflows":
-                # CONCEPT:AU-KG.ingest.skill-workflow-corpus — ingest the universal-skills workflow corpus as
-                # dispatchable WorkflowDefinition DAGs, OFF the request path. The
-                # per-node durable writes (~150s for ~315 workflows) exceed the MCP
-                # 300s call ceiling, so the action enqueues this job and returns a
-                # job_id; the worker runs it to completion here. ``target`` is the
-                # corpus root, or the ``"universal-skills"`` sentinel = default
-                # installed package.
-                #
-                # Also runs the atomic-skill sibling leg (CONCEPT:AU-KG.ingest.skill-workflow-ingestion) on the
-                # SAME job: ``package_install_ingest.py::_ingest_skills_leg`` already
-                # pairs ``ingest_skill_workflows``+``ingest_atomic_skills`` on its one
-                # watermarked ``:Schedule`` tick, but that is this corpus's ONLY
-                # automatic trigger and it fires solely on a package-install manifest
-                # change -- a deployment whose skill corpus is baked into the image
-                # rather than installed via the universal-installer never produces
-                # that manifest, so the atomic leg never ran here. This on-demand
-                # action was already the corpus's manual full-sweep entrypoint for
-                # workflows; pairing the same two primitives here (reused verbatim,
-                # no new ingestion path) gives atomic skills the same manually- and
-                # background-job-triggerable reach workflows already had.
-                from agent_utilities.knowledge_graph.core.engine import (
-                    IntelligenceGraphEngine,
-                )
-                from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
-                    ingest_atomic_skills,
-                    ingest_skill_workflows,
-                )
-
-                root = None if str(target) == "universal-skills" else str(target)
-                # ``self`` is the engine (this mixin is mixed into it).
-                typed_engine = cast(IntelligenceGraphEngine, self)
-                summary = ingest_skill_workflows(typed_engine, root=root)
-                try:
-                    atomic_summary = ingest_atomic_skills(typed_engine, root=root)
-                except Exception as ae:  # noqa: BLE001 — the workflow leg already ran/reported
-                    logger.error(
-                        "[KG-2.97] atomic-skill leg failed inside skill_workflows job: %s",
-                        type(ae).__name__,
-                    )
-                    atomic_summary = {
-                        "skills": 0,
-                        "errors": 1,
-                        "error_detail": [type(ae).__name__],
-                    }
-                self._update_task_status(
-                    job_id,
-                    "completed",
-                    {
-                        "workflows": summary.get("workflows", 0),
-                        "steps": summary.get("steps", 0),
-                        "skill_links": summary.get("skill_links", 0),
-                        "skipped": summary.get("skipped", 0),
-                        "errors": summary.get("errors", 0),
-                        "atomic_skills": atomic_summary.get("skills", 0),
-                        "atomic_skipped": atomic_summary.get("skipped", 0),
-                        "atomic_not_skill": atomic_summary.get("not_skill", 0),
-                        "atomic_errors": atomic_summary.get("errors", 0),
-                        "target": str(target),
-                        "type": "skill_workflows",
-                    },
-                )
-
-            elif task_type == "diff":
-                # Process a patch file or diff string
-                import hashlib
-
-                from agent_utilities.core.embedding_utilities import (
-                    create_embedding_model,
-                )
-
-                embed_model = create_embedding_model()
-
-                # KG-2.134/LANE-6: read/embed/write are each a real blocking
-                # call (file I/O, remote-embedder network round trip, native
-                # engine write) — hop each off the event loop via
-                # ``asyncio.to_thread`` (contextvar-propagating, unlike a bare
-                # executor submit) so the ambient GraphSession/PriorityClass
-                # still reach the offloaded call. Kept strictly sequential
-                # (read -> embed -> write), matching the prior in-line order.
-                diff_content = (
-                    await asyncio.to_thread(
-                        target.read_text, encoding="utf-8", errors="replace"
-                    )
-                    if target.is_file()
-                    else str(target)
-                )
-                if not diff_content.strip():
-                    raise Exception("Empty diff content")
-
-                nid = f"diff-{hashlib.sha256(diff_content.encode()).hexdigest()[:8]}"
-                embedding = await asyncio.to_thread(
-                    embed_model.get_text_embedding, diff_content
-                )
-
-                props: dict[str, Any] = {
-                    "content": diff_content,
-                    "embedding": embedding,
-                    "target_path": str(target),
-                    "last_seen_timestamp": datetime.now(UTC).isoformat(),
-                }
-                await asyncio.to_thread(
-                    self.add_node, nid, "DiffEntry", properties=props
-                )
-
-                self._update_task_status(
-                    job_id,
-                    "completed",
-                    {
-                        "diffs_added": 1,
-                        "target": str(target),
-                        "type": "diff",
-                    },
-                )
-            elif task_type == "deep_analysis":
-                from agent_utilities.core.config import DEFAULT_KG_ANALYSIS_MAX_DEPTH
-
-                # 'target' path is repurposed as the 'query' or 'concept_id' for deep_analysis
-                query = str(target)
-
-                # Fetch metadata to track depth
-                t_props = self._ingest_task_metadata(job_id)
-                current_depth = int(t_props.get("current_depth", 0))
-                max_depth = int(t_props.get("max_depth", DEFAULT_KG_ANALYSIS_MAX_DEPTH))
-
-                # While a bulk codebase ingest is draining, run deep_analysis flat
-                # (no recursive fan-out) so its 0-node, blocking-LLM jobs don't
-                # flood the queue ahead of structural ingest. (CONCEPT:AU-KG.compute.registered-edge-type)
-                if max_depth > 0 and self._bulk_ingest_active():
-                    logger.info(
-                        "deep_analysis: bulk ingest active — capping max_depth to 0 "
-                        "(was %d) to defer recursive fan-out",
-                        max_depth,
-                    )
-                    max_depth = 0
-
-                logger.info(
-                    f"Executing deep_analysis for {query} (depth {current_depth}/{max_depth})"
-                )
-
-                # Call the method from IntelligenceGraphEngine (which this class is mixed into)
-                exec_fn = getattr(self, "execute_deep_analysis", None)
-                if exec_fn:
-                    result = exec_fn(query, max_depth)
-                else:
-                    result = {
-                        "status": "error",
-                        "reason": "execute_deep_analysis not found",
-                    }
-
-                if result.get("status") == "success":
-                    new_targets = result.get("discovered_targets", [])
-                    if current_depth < max_depth and new_targets:
-                        # Queue subsequent background jobs for discovered concepts.
-                        # KG-2.134/LANE-6: durable-queue enqueue is a synchronous
-                        # engine write — hop it off the loop via ``to_thread``.
-                        # Awaited per-iteration (not gathered) to preserve the
-                        # original one-at-a-time submission order.
-                        for new_target in new_targets:
-                            # Avoid immediate loops by checking if it's the exact same query
-                            if new_target != query:
-                                await asyncio.to_thread(
-                                    self.submit_task,
-                                    target_path=new_target,
-                                    is_codebase=False,
-                                    task_type="deep_analysis",
-                                    provenance={
-                                        "current_depth": current_depth + 1,
-                                        "max_depth": max_depth,
-                                        "parent_concept": query,
-                                    },
-                                )
-
-                self._update_task_status(
-                    job_id,
-                    "completed",
-                    {
-                        "target": query,
-                        "type": "deep_analysis",
-                        "depth": current_depth,
-                        "result": result,
-                    },
-                )
-
-            elif is_codebase or task_type == "codebase":
-                # Unified path: the async worker and the synchronous MCP/engine
-                # callers share ONE implementation — the structural
-                # EnrichmentPipeline via IngestionEngine (CONCEPT:AU-KG.coordination.embedder-breaker). The
-                # old per-repo subprocess (`--maintain --stage-to-queue`) is
-                # gone; LLM enrichment is deferred to the background card daemon.
-                from ..ingestion.engine import (
-                    ContentType,
-                    IngestionEngine,
-                    IngestionManifest,
-                )
-
-                # Per-repo call-graph community detection is always on. The
-                # engine's community_detection is now deterministically bounded
-                # (15s wall-clock + iteration cap, epistemic-graph KG-2.16) and
-                # loads its scratch tenant in one batch round-trip, so it can no
-                # longer hang or stall a bulk load — the old KG_INGEST_FEATURES /
-                # KG_INGEST_PROFILE opt-out knobs are gone. (CONCEPT:AU-KG.compute.registered-edge-type)
-                # Forward a caller-scoped file subset (CONCEPT:AU-KG.ingest.agent-utilities-checkout): the
-                # agent-utilities self-ingest scopes a DIRTY tree to its
-                # git-status-modified files via ``only_files`` on the task
-                # metadata; pass it through so the ingest engine parses only those.
-                cb_meta = self._ingest_task_metadata(job_id)
-
-                # CONCEPT:AU-KG.ingest.subtask-routing-key — big-repo tail: if this is a whole-repo task for a
-                # repo large enough to pin one worker/shard for minutes, fan it out
-                # into K shard-routed sub-tasks instead of ingesting inline. Returns
-                # True when it fanned out (this parent is done); the children run in
-                # parallel across the K redb shard writers.
-                if self._maybe_fanout_codebase(job_id, target, cb_meta):
-                    return
-
-                cb_manifest_meta: dict[str, Any] = {"features": True}
-                only_files = cb_meta.get("only_files")
-                if isinstance(only_files, list) and only_files:
-                    cb_manifest_meta["only_files"] = [
-                        str(_resolve_task_target(str(path))) for path in only_files
-                    ]
-                # CONCEPT:AU-KG.ingest.subtask-routing-key — a split sub-task carries its own routing key so
-                # its structural writes land on a distinct per-shard graph
-                # (``code:<repo>__s<i>``) instead of the shared ``code:<repo>``.
-                route_repo = cb_meta.get("route_repo")
-                if route_repo:
-                    cb_manifest_meta["route_repo"] = route_repo
-                # U-06: an explicit `graph` recorded on this WorkItem's own
-                # metadata by `submit_task` (the caller's already-validated
-                # selection, persisted precisely because THIS worker's own
-                # ambient session is unrelated to whoever submitted the job)
-                # re-narrows the verified session for the duration of this
-                # write, exactly like every other explicit-graph call site.
-                # A no-op when absent — unchanged default behavior.
-                explicit_graph = str(cb_meta.get("graph") or "").strip()
-                ing = IngestionEngine(kg_engine=self)
-                with _bound_to_explicit_ingest_graph(explicit_graph):
-                    cb_res = await ing.ingest(
-                        IngestionManifest(
-                            content_type=ContentType.CODEBASE,
-                            source_uri=str(target),
-                            metadata=cb_manifest_meta,
-                        )
-                    )
-                if cb_res.status == "failed":
-                    raise Exception(f"Codebase ingestion failed: {cb_res.error}")
-
-                self._update_task_status(
-                    job_id,
-                    "completed",
-                    {
-                        "nodes_added": cb_res.nodes_created,
-                        "edges_added": cb_res.edges_created,
-                        "target": str(target),
-                        "type": "codebase",
-                        "status": cb_res.status,
-                        "cards_pending": cb_res.details.get("cards_pending", 0),
-                    },
-                )
-            elif task_type == "relevance_sweep":
-                # Score all ingested papers and codebases against a target
-                result = await self._run_relevance_sweep(job_id, str(target))
-                self._update_task_status(job_id, "completed", result)
-            elif task_type == "self_tool_surface":
-                # graph-os registers the provider before publishing this
-                # priority-one WorkItem. Keep the ChangeEnvelope write on the
-                # bounded memory-generation lane so cold materialization or
-                # write contention never blocks the boot-plan producer.
-                from agent_utilities.knowledge_graph.ingestion.engine import (
-                    IngestionEngine,
-                )
-
-                self_tools = await IngestionEngine(kg_engine=self)._ingest_self_tools()
-                if self_tools.status == "failed":
-                    raise RuntimeError("self tool-surface ingestion failed")
-                self._update_task_status(
-                    job_id,
-                    "completed",
-                    {
-                        "target": str(target),
-                        "type": task_type,
-                        "status": self_tools.status,
-                        "nodes_added": self_tools.nodes_created,
-                        "edges_added": self_tools.edges_created,
-                    },
-                )
-            elif task_type in ("connector_sync", "capability_hydration"):
-                # CONCEPT:AU-ORCH.scheduling.connector-sync-lane — one external connector's delta sync, run as a LANED task
-                # (the 'connectors' lane). The */20m fleet sweep enqueues one of these per
-                # connector so they fan out in PARALLEL instead of one slow connector
-                # (gitlab/servicenow) blocking the rest in a sequential inline loop.
-                #
-                # ``capability_hydration`` (CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness) is the SAME
-                # dispatch — its metadata's ``target`` is always ``"fleet"`` — but a
-                # distinct task type so it can be given its own reserved-worker floor
-                # (see ``start_task_workers``) instead of competing 1:1 with however
-                # many ordinary ``connector_sync`` jobs the */20m sweep has in flight.
-                from agent_utilities.knowledge_graph.core.source_sync import sync_source
-
-                connector_meta = self._ingest_task_metadata(job_id)
-                mode = str(connector_meta.get("sync_mode") or "delta")
-                sync_res = sync_source(self, str(target), mode=mode)
-                self._update_task_status(
-                    job_id,
-                    "completed",
-                    {
-                        "target": str(target),
-                        "type": task_type,
-                        **(
-                            sync_res
-                            if isinstance(sync_res, dict)
-                            else {"result": sync_res}
-                        ),
-                    },
-                )
-            elif task_type == "connector_drain":
-                # CONCEPT:AU-KG.ontology.single-source-full-drain — ONE paginated page of a chunked full-corpus drain. The
-                # WorkItem metadata carries the drain identity and resumable
-                # connector checkpoint; ``run_drain_page`` drains this page, ingests
-                # it, and self-continues by enqueuing the NEXT page-task while the cursor has
-                # more — so a single ``source_sync(full)`` drains the whole corpus across many
-                # capacity-guarded background tasks without ever blocking the request.
-                from agent_utilities.knowledge_graph.core.chunked_drain import (
-                    run_drain_page,
-                )
-
-                dmeta = self._ingest_task_metadata(job_id)
-                drain_res = run_drain_page(
-                    self,
-                    source=str(dmeta.get("drain_source") or target),
-                    mode=str(dmeta.get("sync_mode") or "full"),
-                    drain_id=str(dmeta.get("drain_id") or ""),
-                    page=int(dmeta.get("drain_page") or 0),
-                    checkpoint_json=dmeta.get("drain_checkpoint"),
-                )
-                self._update_task_status(
-                    job_id,
-                    "completed",
-                    {"target": str(target), "type": task_type, **drain_res},
-                )
-            elif task_type == "fleet_event_triage":
-                # Fleet-event triage (CONCEPT:AU-OS.config.fleet-event-ingress): 'target' is the
-                # FleetEvent node id enqueued by the gateway's
-                # POST /api/fleet/events webhook receiver, not a filesystem
-                # path. Correlates the event to known KG entities and files a
-                # failure_gap topic when severity warrants. Remediation
-                # playbooks (CONCEPT:AU-OS.host.remediation-playbooks) register on the dispatch seam
-                # here, so wherever triage runs they are live.
-                from agent_utilities.knowledge_graph.adaptation.fleet_event_triage import (
-                    triage_fleet_event,
-                )
-                from agent_utilities.knowledge_graph.adaptation.remediation_playbooks import (
-                    ensure_registered as _ensure_playbooks,
-                )
-
-                _ensure_playbooks()
-                result = triage_fleet_event(self, str(target))
-                self._update_task_status(
-                    job_id,
-                    "completed",
-                    {"target": str(target), "type": task_type, **result},
-                )
-            elif task_type == "deploy_watch":
-                # Health-gated deploy watch (CONCEPT:AU-OS.config.health-gated-deploy-rollback): 'target' is the
-                # watched service name; the watch spec (window, deadline,
-                # rollback params) rides on the WorkItem, so a reclaimed watch
-                # resumes against its original
-                # deadline. Failure invokes the policy-gated rollback.
-                from agent_utilities.orchestration.deploy_watch import (
-                    run_deploy_watch,
-                )
-
-                result = run_deploy_watch(self, str(target), job_id)
-                self._update_task_status(
-                    job_id,
-                    "completed",
-                    {"target": str(target), "type": task_type, **result},
-                )
-            elif task_type in ("synthesize", "deep_extract", "background_research"):
-                from agent_utilities.analysis.analyzer import GraphAnalyzer
-
-                analyzer = GraphAnalyzer(self)
-                query = str(target)
-
-                # Fetch metadata to track top_k if provided
-                t_props = self._ingest_task_metadata(job_id)
-                top_k = int(t_props.get("top_k", 10))
-
-                try:
-                    if task_type == "synthesize":
-                        result = await analyzer.synthesize(query, top_k)
-                    elif task_type == "deep_extract":
-                        result = await analyzer.deep_extract(query)
-                    elif task_type == "background_research":
-                        result = await analyzer.background_research(query)
-
-                    self._update_task_status(
-                        job_id,
-                        "completed",
-                        {
-                            "target": query,
-                            "type": task_type,
-                            "result": result,
-                        },
-                    )
-                except Exception as e:
-                    self._fail_or_retry_task(job_id, str(e), {"type": task_type})
-
-            elif task_type == "cohort_synthesize":
-                # Self-polling barrier gate for a research cohort (CONCEPT:AU-KG.coordination.research-cohort-barrier):
-                # once every member task is terminal (completed OR failed — a poison
-                # member never wedges the cohort) or the deadline passes, run the
-                # assimilation pass + materialize the feature matrix over whatever was
-                # ingested. Until then re-defer ONE poll interval as 'scheduled' (NOT
-                # a failure attempt); native availability makes it claimable later.
-                from agent_utilities.knowledge_graph.research.cohort import (
-                    cohort_ready,
-                    finalize_cohort,
-                )
-
-                cmeta = self._ingest_task_metadata(job_id)
-                cohort_id = str(cmeta.get("cohort_id") or "")
-                deadline = float(cmeta.get("deadline_unix", 0.0) or 0.0)
-                ready, member_st = cohort_ready(self, cohort_id, deadline_unix=deadline)
-                if not ready:
-                    eta = time.time() + 60.0
-                    cmeta["eta_unix"] = eta
-                    cmeta["member_status"] = member_st
-                    from agent_utilities.orchestration import work_item as _wi
-
-                    work_item_id = str(cmeta.get("work_item_id") or "")
-                    if not work_item_id:
-                        raise _wi.WorkItemBackendUnavailable(
-                            f"cohort barrier {job_id} has no authoritative WorkItem"
-                        )
-                    claim = self._active_work_item_claim(job_id)
-                    if claim is None:
-                        raise _wi.WorkItemBackendUnavailable(
-                            f"cohort barrier {job_id} has no active native claim"
-                        )
-                    if not _wi.defer_work_item(
-                        self._work_item_engine,
-                        work_item_id,
-                        claim,
-                        next_retry_at=eta,
-                        reason_ref="cohort_barrier",
-                    ):
-                        raise _wi.WorkItemBackendUnavailable(
-                            f"cohort barrier {job_id} deferral was fenced"
-                        )
-                    self._active_work_item_claim(job_id, pop=True)
-                else:
-                    try:
-                        result = finalize_cohort(self, cohort_id)
-                        self._update_task_status(
-                            job_id,
-                            "completed",
-                            {
-                                "type": task_type,
-                                "cohort_id": cohort_id,
-                                "members": member_st,
-                                "feature_matrix": (
-                                    result.get("feature_matrix") or {}
-                                ).get("counts", {}),
-                            },
-                        )
-                    except Exception as e:
-                        self._fail_or_retry_task(job_id, str(e), {"type": task_type})
-
-            elif task_type == "session_upload":
-                # CONCEPT:AU-KG.ingest.drain-session-bundle — drain a remote session-bundle upload that the
-                # ``ingest_sessions`` MCP/REST handler enqueued (its synchronous
-                # record_bundle loop blew past the 60s MCP window). Body extracted
-                # to a helper so it is unit-testable without a live worker loop.
-                self._drain_session_upload(job_id, task_type)
-                return
-
-            else:
-                import hashlib
-
-                from llama_index.core import SimpleDirectoryReader
-
-                from agent_utilities.core.embedding_utilities import (
-                    create_embedding_model,
-                )
-
-                embed_model = create_embedding_model()
-                # Override the library default with the governed pypdf adapter,
-                # which enforces file, page, and extracted-character bounds.
-                pdf_extractor = _pdf_file_extractor()
-                if target.is_dir():
-                    # exclude_hidden=False is REQUIRED: the research store lives
-                    # under ``~/.local/share/...`` and SimpleDirectoryReader treats
-                    # any file beneath a dot-dir (``.local``) as hidden, excluding
-                    # everything → "No files found" despite PDFs present.
-                    # recursive=False skips the ``.metadata`` sidecar dir;
-                    # required_exts limits to real documents. (CONCEPT:AU-KG.coordination.embedder-breaker)
-                    docs = SimpleDirectoryReader(
-                        input_dir=str(target),
-                        recursive=False,
-                        exclude_hidden=False,
-                        required_exts=sorted(SUPPORTED_EXTENSIONS),
-                        file_extractor=pdf_extractor,
-                    ).load_data()
-                else:
-                    docs = SimpleDirectoryReader(
-                        input_files=[str(target)],
-                        exclude_hidden=False,
-                        file_extractor=pdf_extractor,
-                    ).load_data()
-
-                created = []
-                skipped = 0
-                ingestion_timestamp = datetime.now(UTC).isoformat()
-
-                # Pass 1 — dedup (O(1) id-keyed lookup per chunk) and collect the NEW
-                # chunks. Embeddings are NOT computed here: a per-chunk
-                # ``get_text_embedding`` is one network round-trip to the embedding
-                # service, and doing it inside this loop made a single PDF take
-                # minutes. We gather first, then embed the whole document in one
-                # batched call below. (CONCEPT:AU-KG.coordination.embedder-breaker ingestion throughput; see
-                # [[epistemic-graph-transport]] — batch over the wire, never per-element.)
-                pending: list[tuple[str, str, int, dict[str, Any]]] = []
-                for idx, doc in enumerate(docs):
-                    chunk_text = doc.text
-                    # Sanitize to prevent UnicodeEncodeError (surrogates) when sending to LLM
-                    chunk_text = chunk_text.encode("utf-8", errors="replace").decode(
-                        "utf-8"
-                    )
-                    if not chunk_text.strip():
-                        continue
-                    file_path = doc.metadata.get("file_path", str(target))
-                    raw_id = f"{file_path}::{chunk_text}".encode(errors="replace")
-                    nid = f"doc-{hashlib.sha256(raw_id).hexdigest()[:8]}"
-
-                    # KG-2.134/LANE-6: per-chunk dedup read is a synchronous
-                    # engine call inside a hot ingestion loop — hop it off the
-                    # loop. Awaited per-iteration (not gathered) to preserve
-                    # the original one-chunk-at-a-time processing order.
-                    existing = await asyncio.to_thread(
-                        self.query_cypher,
-                        "MATCH (n:Article {id: $nid}) RETURN n.id as id",
-                        {"nid": nid},
-                    )
-                    if existing:
-                        self.backend.execute(
-                            "MATCH (n:Article {id: $nid}) SET n.last_seen_timestamp = $ts",
-                            {"nid": nid, "ts": ingestion_timestamp},
-                        )
-                        skipped += 1
-                        continue
-                    pending.append((nid, chunk_text, idx, doc.metadata))
-
-                # Pass 2 — batch-embed every new chunk in one shot (sub-batched). The
-                # LlamaIndex embedding models expose ``get_text_embedding_batch`` which
-                # packs many chunks into a single request; this replaces N serial
-                # round-trips with ~N/64, the change that takes a document from minutes
-                # to seconds. Fall back to per-chunk only if the model lacks the batch API.
-                # KG-2.134/LANE-6: each embed call is a blocking remote round
-                # trip — hop it off the loop. The batch sub-loop and the
-                # per-chunk fallback both stay sequential (awaited in order,
-                # not gathered), matching the prior in-line iteration order;
-                # the batch call itself already amortizes the network cost, so
-                # this only removes it from the event loop, not from being one
-                # call per sub-batch.
-                texts = [c[1] for c in pending]
-                embeddings: list = []
-                _embed_batch = getattr(embed_model, "get_text_embedding_batch", None)
-                if callable(_embed_batch):
-                    _BATCH = 64
-                    for _i in range(0, len(texts), _BATCH):
-                        embeddings.extend(
-                            await asyncio.to_thread(
-                                _embed_batch, texts[_i : _i + _BATCH]
-                            )
-                        )
-                else:
-                    for _text in texts:
-                        embeddings.append(
-                            await asyncio.to_thread(
-                                embed_model.get_text_embedding, _text
-                            )
-                        )
-
-                for (nid, chunk_text, idx, meta), embedding in zip(
-                    pending, embeddings, strict=False
-                ):
-                    props = {
-                        "content": chunk_text,
-                        "embedding": embedding,
-                        "metadata": json.dumps(meta),
-                        "last_seen_timestamp": ingestion_timestamp,
-                        "target_path": str(target),
-                        "chunk_index": idx,
-                    }
-                    # KG-2.134/LANE-6: synchronous engine write, hopped off the
-                    # loop; awaited per-iteration to keep node-creation order
-                    # (and the ``created`` bookkeeping list it feeds) unchanged.
-                    await asyncio.to_thread(
-                        self.add_node, nid, "Article", properties=props
-                    )
-                    created.append(nid)
-
-                self.backend.execute(
-                    "MATCH (n:Article) WHERE n.target_path = $target AND n.last_seen_timestamp < $ts DETACH DELETE n",
-                    {"target": str(target), "ts": ingestion_timestamp},
-                )
-                self._update_task_status(
-                    job_id,
-                    "completed",
-                    {
-                        # ``nodes_added``/``edges_added`` are the canonical keys the
-                        # per-category metrics aggregator reads (see
-                        # aggregate_ingest_metrics). The async document worker writes
-                        # one Article node per new chunk and no edges; surface those
-                        # counts here so completed document jobs no longer report 0
-                        # nodes. ``chunks_added`` is retained as a descriptive alias.
-                        "nodes_added": len(created),
-                        "edges_added": 0,
-                        "chunks_added": len(created),
-                        "chunks_skipped": skipped,
-                        "skip_reason": "Hash match exists in DB",
-                        "target": str(target),
-                        "type": "document",
-                    },
-                )
-
+            await getattr(self, handler_name)(job_id, target, task_type)
         except Exception as e:
             import traceback
 
@@ -6007,6 +5116,972 @@ class TaskManagerMixin(GraphEngineProtocol):
         finally:
             # Force WAL checkpoint to ensure data persists across server restarts for ALL task types
             self._checkpoint_db()
+
+    async def _bg_scheduled_job(
+        self, job_id: str, target: Path, task_type: str
+    ) -> None:
+        # A recurring job enqueued by the unified scheduler (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent).
+        # ``enrichment_backfill`` is the same dispatch, only landed in the
+        # dedicated enrichment lane so it isn't capped at the maint floor
+        # (CONCEPT:AU-KG.ontology.capability-card-backfill-lane).
+        # The payload (the dispatch descriptor) rides on the task metadata;
+        # run it through the single dispatcher and let the schedule's own
+        # failure backoff govern cadence (so we do NOT route a job failure
+        # through the task-level retry — that would double-retry).
+        from agent_utilities.core.schedule_engine import (
+            record_schedule_result,
+            run_scheduled_job,
+        )
+
+        meta = self._ingest_task_metadata(job_id)
+        sched_name = meta.get("schedule", "")
+        payload = meta.get("payload", {})
+        try:
+            result = run_scheduled_job(self, payload)
+            ok = str(result.get("status", "ok")) not in {"error", "failed"}
+        except Exception as e:  # noqa: BLE001 — recorded as a schedule failure
+            result = {"status": "error", "error": str(e)}
+            ok = False
+        if sched_name:
+            record_schedule_result(
+                self,
+                sched_name,
+                ok,
+                duration_s=result.get("duration_s"),
+                status=result.get("status"),
+            )
+        self._update_task_status(
+            job_id,
+            "completed" if ok else "failed",
+            {
+                "target": str(target),
+                "type": task_type,
+                "schedule": sched_name,
+                "result": result,
+            },
+        )
+        return
+
+    async def _bg_research_paper_fetch(
+        self, job_id: str, target: Path, task_type: str
+    ) -> None:
+        # A high-graded RSS item: download the full paper and ingest it
+        # (CONCEPT:AU-KG.research.scholarx-rss-research-feed). Enqueued by the RSS feed screen with a
+        # grade-derived priority, so the best papers are fetched first.
+        from agent_utilities.automation.research_pipeline import (
+            ResearchPipelineRunner,
+        )
+
+        meta = self._ingest_task_metadata(job_id)
+        paper = meta.get("paper", {})
+        runner = ResearchPipelineRunner(engine=self)  # type: ignore[arg-type]  # self is the engine
+        from ..research.cohort import resolve_ephemeral_paper_pdf
+        from .ingest_profile import profile_ingest
+
+        # OS-5.69/70 — profile token usage + per-stage timing for this paper.
+        with profile_ingest(str(paper.get("id", ""))) as _prof:
+            article_id = await runner.ingest_paper_full(
+                paper.get("id", ""),
+                paper.get("title", ""),
+                paper.get("abstract", ""),
+                paper.get("authors", []),
+                # Resolve a pre-downloaded PDF only in worker memory. The
+                # durable task carries the paper id, never a machine path.
+                pdf_path=resolve_ephemeral_paper_pdf(str(paper.get("id", ""))),
+                source_url=paper.get("url", ""),
+                relevance_score=float(paper.get("score", 0.0) or 0.0),
+                domains=paper.get("domains"),
+            )
+        self._update_task_status(
+            job_id,
+            "completed",
+            {
+                "target": paper.get("id", ""),
+                "type": task_type,
+                "article_id": article_id,
+                "score": paper.get("score"),
+                "profile": _prof.to_dict(),
+            },
+        )
+        return
+
+    async def _bg_kg_memory(self, job_id: str, target: Path, task_type: str) -> None:
+        # CONCEPT:AU-KG.compute.offloaded-memory-write — a memory write offloaded from a SERVING process. The
+        # host performs the embed+write here (inline, _local=True so it never
+        # re-enqueues), isolating heavy ingestion from the serving/read plane.
+        meta = self._ingest_task_metadata(job_id)
+        p = meta.get("payload", {})
+        mid = self.store_memory(  # type: ignore[attr-defined]  # MemoryMixin, composed onto the engine
+            content=p.get("content", ""),
+            memory_type=p.get("memory_type", "episodic"),
+            name=p.get("name", ""),
+            tags=p.get("tags", []),
+            trust_score=p.get("trust_score", 0.8),
+            agent_id=p.get("agent_ref", ""),
+            extra_props=p.get("extra_props") or None,
+            _local=True,
+            _memory_id=p.get("memory_id"),
+        )
+        self._update_task_status(
+            job_id, "completed", {"memory_id": mid, "type": "kg_memory"}
+        )
+        return
+
+    async def _bg_conversation(self, job_id: str, target: Path, task_type: str) -> None:
+        # Process a single conversation from a JSON or overview file
+        from agent_utilities.knowledge_graph.core.conversation_ingestion import (
+            ingest_conversations_to_kg,
+            parse_antigravity_logs,
+            parse_claude_logs,
+            parse_codex_logs,
+            parse_windsurf_logs,
+        )
+
+        # Determine source from target path
+        target_str = str(target)
+        convs = []
+
+        if "antigravity" in target_str:
+            # Antigravity target is the parent dir of overview.txt
+            convs = parse_antigravity_logs(target.parent.parent.parent)
+        elif "windsurf" in target_str:
+            convs = parse_windsurf_logs(target.parent)
+        elif "claude" in target_str:
+            convs = parse_claude_logs(target.parent)
+        elif "codex" in target_str:
+            convs = parse_codex_logs(target.parent)
+
+        # Filter for the specific target file
+        convs = [c for c in convs if c.get("path") == target_str]
+
+        if not convs:
+            raise Exception(f"Could not parse conversation at {target_str}")
+
+        result = ingest_conversations_to_kg(conversations=convs)
+        self._update_task_status(
+            job_id,
+            "completed",
+            {
+                "total_ingested": result.get("total_ingested", 0),
+                "total_messages": result.get("total_messages", 0),
+                "target": target_str,
+                "type": "conversation",
+            },
+        )
+
+    async def _bg_content_url(self, job_id: str, target: Path, task_type: str) -> None:
+        # Content-aware URL ingest OFF the request path (CONCEPT:AU-KG.compute.registered-edge-type):
+        # route through the unified IngestionEngine DOCUMENT path so the page
+        # is fetched via the resolver (ArchiveBox→crawl4ai→requests) and a
+        # research roundup auto-acquires the papers it cites. The real URL
+        # rides in WorkItem metadata because the claim path
+        # wraps ``target`` in Path() (which would collapse ``https://``).
+        from agent_utilities.knowledge_graph.ingestion.engine import (
+            ContentType,
+            IngestionEngine,
+            IngestionManifest,
+        )
+
+        tprops = self._ingest_task_metadata(job_id)
+        url = str(tprops.get("source_url") or "").strip()
+        if not url:
+            # Fallback: repair the Path()-mangled scheme separator.
+            url = re.sub(r"^(https?):/(?!/)", r"\1://", str(target))
+        meta = {}
+        ep = tprops.get("extract_papers")
+        if ep is not None:
+            meta["extract_papers"] = (
+                ep if isinstance(ep, bool) else str(ep).lower() == "true"
+            )
+        # CONCEPT:AU-KG.ingest.chunk-overlap-stage — ``ingest_url`` defaults these ON (set by the
+        # MCP tool) so a URL ingest gets first-class embedded Chunk objects
+        # + contextual-retrieval enrichment, at parity with connector
+        # ingestion (KG-2.50) rather than only the plain idea_block chunks.
+        for _bool_key in ("chunk_objects", "contextual"):
+            _val = tprops.get(_bool_key)
+            if _val is not None:
+                meta[_bool_key] = (
+                    _val if isinstance(_val, bool) else str(_val).lower() == "true"
+                )
+        ing = IngestionEngine(kg_engine=self)
+        r = await ing.ingest(
+            IngestionManifest(
+                content_type=ContentType.DOCUMENT,
+                source_uri=url,
+                metadata=meta,
+            )
+        )
+        self._update_task_status(
+            job_id,
+            "completed" if r.status == "success" else "failed",
+            {
+                "target": url,
+                "type": task_type,
+                "status": r.status,
+                "nodes": r.nodes_created,
+                "details": r.details,
+                "error": r.error,
+            },
+        )
+
+    async def _bg_feed_ingest(self, job_id: str, target: Path, task_type: str) -> None:
+        # Async full-ingest of a relevance-gated feed article OFF the sweep
+        # path (CONCEPT:AU-KG.ingest.rss-feed-connector). The world-model gate enqueues; the worker
+        # pool drains these in parallel, so "reviews" (the sweep) scale
+        # independently of "ingest" (chunk + embed + contextual-enrich),
+        # and ingest scales 1→N with the model-concurrency controller. The
+        # already-fetched article text rides on the task — no re-crawl. Run
+        # the (sync) DocumentProcessor in a worker thread so concurrent
+        # feed_ingest tasks don't serialize on the event loop.
+        from agent_utilities.knowledge_graph.ontology.document_processing import (
+            ChunkingConfig,
+            DocumentProcessor,
+        )
+
+        meta_t = self._ingest_task_metadata(job_id)
+        fd = (meta_t or {}).get("feed_doc") or {}
+        if not fd.get("document_id"):
+            self._update_task_status(
+                job_id,
+                "failed",
+                {"type": task_type, "error": "no feed_doc payload"},
+            )
+        else:
+            proc = DocumentProcessor(
+                getattr(self, "backend", None),
+                engine=self,
+                chunking=ChunkingConfig(),
+                contextual=True,
+            )
+            try:
+                await asyncio.to_thread(
+                    proc.process,
+                    fd.get("text", "") or "",
+                    document_id=fd["document_id"],
+                    title=fd.get("title") or fd["document_id"],
+                    doc_type=fd.get("doc_type", "news_article"),
+                    source=fd.get("source", ""),
+                    metadata=fd.get("metadata") or {},
+                    connector="feed",
+                    source_instance="feed-ingest-worker",
+                )
+                await self._bg_feed_ingest_enrich(fd)
+                self._update_task_status(
+                    job_id,
+                    "completed",
+                    {"target": fd["document_id"], "type": task_type},
+                )
+            except Exception as fe:  # noqa: BLE001
+                self._update_task_status(
+                    job_id,
+                    "failed",
+                    {
+                        "target": fd["document_id"],
+                        "type": task_type,
+                        "error": str(fe),
+                    },
+                )
+
+    async def _bg_feed_ingest_enrich(self, fd: dict[str, Any]) -> None:
+        """Best-effort central-enrichment leg of ``_bg_feed_ingest``, split out
+        to keep the caller under the CCN cap (CX-AU-01).
+
+        Unified always-on intelligence layer (CONCEPT:AU-KG.enrichment.topic-classification-topology):
+        ``DocumentProcessor.process`` only chunks + contextual-enriches —
+        route the article body through the SAME central seam every other
+        ingestion adaptor drains (concepts + facts + WorldView topic
+        classification) so a feed_ingest article isn't a shallower write than
+        a directly-ingested document. Never fails the task.
+        """
+        from agent_utilities.knowledge_graph.ingestion.engine import (
+            IngestionEngine as _IngestionEngine,
+        )
+
+        try:
+            await _IngestionEngine(kg_engine=self).enrich_text(
+                fd["document_id"],
+                fd.get("text", "") or "",
+                fd.get("doc_type", "news_article"),
+                fd.get("title") or fd["document_id"],
+            )
+        except Exception:  # noqa: BLE001 — enrichment never breaks the task
+            logger.debug(
+                "[feed_ingest] central enrichment seam failed for %s",
+                fd["document_id"],
+                exc_info=True,
+            )
+
+    async def _bg_feed_sweep(self, job_id: str, target: Path, task_type: str) -> None:
+        # The RSS/FreshRSS sweep run OFF the request path (CONCEPT:AU-KG.ingest.rss-feed-connector).
+        # The sweep is the "review" producer: it fetches (concurrently),
+        # runs the world-model gate, and ENQUEUES per-article worldview/
+        # research tasks. It does NOT ride the 300s MCP call — graph_feeds
+        # sync enqueues this and returns immediately. The gate loop does
+        # per-item engine work, so run it in a worker thread.
+        from agent_utilities.knowledge_graph.core.source_sync import sync_source
+
+        meta_t = self._ingest_task_metadata(job_id)
+        source = str((meta_t or {}).get("feed_source") or "rss")
+        fmode = str((meta_t or {}).get("feed_mode") or "delta")
+        try:
+            res = await asyncio.to_thread(sync_source, self, source, mode=fmode)
+            self._update_task_status(
+                job_id,
+                "completed",
+                {"target": f"feed:{source}", "type": task_type, "result": res},
+            )
+        except Exception as se:  # noqa: BLE001
+            self._update_task_status(
+                job_id,
+                "failed",
+                {
+                    "target": f"feed:{source}",
+                    "type": task_type,
+                    "error": str(se),
+                },
+            )
+
+    async def _bg_skill_workflows(
+        self, job_id: str, target: Path, task_type: str
+    ) -> None:
+        # CONCEPT:AU-KG.ingest.skill-workflow-corpus — ingest the universal-skills workflow corpus as
+        # dispatchable WorkflowDefinition DAGs, OFF the request path. The
+        # per-node durable writes (~150s for ~315 workflows) exceed the MCP
+        # 300s call ceiling, so the action enqueues this job and returns a
+        # job_id; the worker runs it to completion here. ``target`` is the
+        # corpus root, or the ``"universal-skills"`` sentinel = default
+        # installed package.
+        #
+        # Also runs the atomic-skill sibling leg (CONCEPT:AU-KG.ingest.skill-workflow-ingestion) on the
+        # SAME job: ``package_install_ingest.py::_ingest_skills_leg`` already
+        # pairs ``ingest_skill_workflows``+``ingest_atomic_skills`` on its one
+        # watermarked ``:Schedule`` tick, but that is this corpus's ONLY
+        # automatic trigger and it fires solely on a package-install manifest
+        # change -- a deployment whose skill corpus is baked into the image
+        # rather than installed via the universal-installer never produces
+        # that manifest, so the atomic leg never ran here. This on-demand
+        # action was already the corpus's manual full-sweep entrypoint for
+        # workflows; pairing the same two primitives here (reused verbatim,
+        # no new ingestion path) gives atomic skills the same manually- and
+        # background-job-triggerable reach workflows already had.
+        from agent_utilities.knowledge_graph.core.engine import (
+            IntelligenceGraphEngine,
+        )
+        from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+            ingest_atomic_skills,
+            ingest_skill_workflows,
+        )
+
+        root = None if str(target) == "universal-skills" else str(target)
+        # ``self`` is the engine (this mixin is mixed into it).
+        typed_engine = cast(IntelligenceGraphEngine, self)
+        summary = ingest_skill_workflows(typed_engine, root=root)
+        try:
+            atomic_summary = ingest_atomic_skills(typed_engine, root=root)
+        except Exception as ae:  # noqa: BLE001 — the workflow leg already ran/reported
+            logger.error(
+                "[KG-2.97] atomic-skill leg failed inside skill_workflows job: %s",
+                type(ae).__name__,
+            )
+            atomic_summary = {
+                "skills": 0,
+                "errors": 1,
+                "error_detail": [type(ae).__name__],
+            }
+        self._update_task_status(
+            job_id,
+            "completed",
+            {
+                "workflows": summary.get("workflows", 0),
+                "steps": summary.get("steps", 0),
+                "skill_links": summary.get("skill_links", 0),
+                "skipped": summary.get("skipped", 0),
+                "errors": summary.get("errors", 0),
+                "atomic_skills": atomic_summary.get("skills", 0),
+                "atomic_skipped": atomic_summary.get("skipped", 0),
+                "atomic_not_skill": atomic_summary.get("not_skill", 0),
+                "atomic_errors": atomic_summary.get("errors", 0),
+                "target": str(target),
+                "type": "skill_workflows",
+            },
+        )
+
+    async def _bg_diff(self, job_id: str, target: Path, task_type: str) -> None:
+        # Process a patch file or diff string
+        import hashlib
+
+        from agent_utilities.core.embedding_utilities import (
+            create_embedding_model,
+        )
+
+        embed_model = create_embedding_model()
+
+        # KG-2.134/LANE-6: read/embed/write are each a real blocking
+        # call (file I/O, remote-embedder network round trip, native
+        # engine write) — hop each off the event loop via
+        # ``asyncio.to_thread`` (contextvar-propagating, unlike a bare
+        # executor submit) so the ambient GraphSession/PriorityClass
+        # still reach the offloaded call. Kept strictly sequential
+        # (read -> embed -> write), matching the prior in-line order.
+        diff_content = (
+            await asyncio.to_thread(
+                target.read_text, encoding="utf-8", errors="replace"
+            )
+            if target.is_file()
+            else str(target)
+        )
+        if not diff_content.strip():
+            raise Exception("Empty diff content")
+
+        nid = f"diff-{hashlib.sha256(diff_content.encode()).hexdigest()[:8]}"
+        embedding = await asyncio.to_thread(
+            embed_model.get_text_embedding, diff_content
+        )
+
+        props: dict[str, Any] = {
+            "content": diff_content,
+            "embedding": embedding,
+            "target_path": str(target),
+            "last_seen_timestamp": datetime.now(UTC).isoformat(),
+        }
+        await asyncio.to_thread(self.add_node, nid, "DiffEntry", properties=props)
+
+        self._update_task_status(
+            job_id,
+            "completed",
+            {
+                "diffs_added": 1,
+                "target": str(target),
+                "type": "diff",
+            },
+        )
+
+    async def _bg_deep_analysis(
+        self, job_id: str, target: Path, task_type: str
+    ) -> None:
+        from agent_utilities.core.config import DEFAULT_KG_ANALYSIS_MAX_DEPTH
+
+        # 'target' path is repurposed as the 'query' or 'concept_id' for deep_analysis
+        query = str(target)
+
+        # Fetch metadata to track depth
+        t_props = self._ingest_task_metadata(job_id)
+        current_depth = int(t_props.get("current_depth", 0))
+        max_depth = int(t_props.get("max_depth", DEFAULT_KG_ANALYSIS_MAX_DEPTH))
+
+        # While a bulk codebase ingest is draining, run deep_analysis flat
+        # (no recursive fan-out) so its 0-node, blocking-LLM jobs don't
+        # flood the queue ahead of structural ingest. (CONCEPT:AU-KG.compute.registered-edge-type)
+        if max_depth > 0 and self._bulk_ingest_active():
+            logger.info(
+                "deep_analysis: bulk ingest active — capping max_depth to 0 "
+                "(was %d) to defer recursive fan-out",
+                max_depth,
+            )
+            max_depth = 0
+
+        logger.info(
+            f"Executing deep_analysis for {query} (depth {current_depth}/{max_depth})"
+        )
+
+        # Call the method from IntelligenceGraphEngine (which this class is mixed into)
+        exec_fn = getattr(self, "execute_deep_analysis", None)
+        if exec_fn:
+            result = exec_fn(query, max_depth)
+        else:
+            result = {
+                "status": "error",
+                "reason": "execute_deep_analysis not found",
+            }
+
+        if result.get("status") == "success":
+            new_targets = result.get("discovered_targets", [])
+            if current_depth < max_depth and new_targets:
+                # Queue subsequent background jobs for discovered concepts.
+                # KG-2.134/LANE-6: durable-queue enqueue is a synchronous
+                # engine write — hop it off the loop via ``to_thread``.
+                # Awaited per-iteration (not gathered) to preserve the
+                # original one-at-a-time submission order.
+                for new_target in new_targets:
+                    # Avoid immediate loops by checking if it's the exact same query
+                    if new_target != query:
+                        await asyncio.to_thread(
+                            self.submit_task,
+                            target_path=new_target,
+                            is_codebase=False,
+                            task_type="deep_analysis",
+                            provenance={
+                                "current_depth": current_depth + 1,
+                                "max_depth": max_depth,
+                                "parent_concept": query,
+                            },
+                        )
+
+        self._update_task_status(
+            job_id,
+            "completed",
+            {
+                "target": query,
+                "type": "deep_analysis",
+                "depth": current_depth,
+                "result": result,
+            },
+        )
+
+    async def _bg_codebase(self, job_id: str, target: Path, task_type: str) -> None:
+        # Unified path: the async worker and the synchronous MCP/engine
+        # callers share ONE implementation — the structural
+        # EnrichmentPipeline via IngestionEngine (CONCEPT:AU-KG.coordination.embedder-breaker). The
+        # old per-repo subprocess (`--maintain --stage-to-queue`) is
+        # gone; LLM enrichment is deferred to the background card daemon.
+        from ..ingestion.engine import (
+            ContentType,
+            IngestionEngine,
+            IngestionManifest,
+        )
+
+        # Per-repo call-graph community detection is always on. The
+        # engine's community_detection is now deterministically bounded
+        # (15s wall-clock + iteration cap, epistemic-graph KG-2.16) and
+        # loads its scratch tenant in one batch round-trip, so it can no
+        # longer hang or stall a bulk load — the old KG_INGEST_FEATURES /
+        # KG_INGEST_PROFILE opt-out knobs are gone. (CONCEPT:AU-KG.compute.registered-edge-type)
+        # Forward a caller-scoped file subset (CONCEPT:AU-KG.ingest.agent-utilities-checkout): the
+        # agent-utilities self-ingest scopes a DIRTY tree to its
+        # git-status-modified files via ``only_files`` on the task
+        # metadata; pass it through so the ingest engine parses only those.
+        cb_meta = self._ingest_task_metadata(job_id)
+
+        # CONCEPT:AU-KG.ingest.subtask-routing-key — big-repo tail: if this is a whole-repo task for a
+        # repo large enough to pin one worker/shard for minutes, fan it out
+        # into K shard-routed sub-tasks instead of ingesting inline. Returns
+        # True when it fanned out (this parent is done); the children run in
+        # parallel across the K redb shard writers.
+        if self._maybe_fanout_codebase(job_id, target, cb_meta):
+            return
+
+        cb_manifest_meta: dict[str, Any] = {"features": True}
+        only_files = cb_meta.get("only_files")
+        if isinstance(only_files, list) and only_files:
+            cb_manifest_meta["only_files"] = [
+                str(_resolve_task_target(str(path))) for path in only_files
+            ]
+        # CONCEPT:AU-KG.ingest.subtask-routing-key — a split sub-task carries its own routing key so
+        # its structural writes land on a distinct per-shard graph
+        # (``code:<repo>__s<i>``) instead of the shared ``code:<repo>``.
+        route_repo = cb_meta.get("route_repo")
+        if route_repo:
+            cb_manifest_meta["route_repo"] = route_repo
+        # U-06: an explicit `graph` recorded on this WorkItem's own
+        # metadata by `submit_task` (the caller's already-validated
+        # selection, persisted precisely because THIS worker's own
+        # ambient session is unrelated to whoever submitted the job)
+        # re-narrows the verified session for the duration of this
+        # write, exactly like every other explicit-graph call site.
+        # A no-op when absent — unchanged default behavior.
+        explicit_graph = str(cb_meta.get("graph") or "").strip()
+        ing = IngestionEngine(kg_engine=self)
+        with _bound_to_explicit_ingest_graph(explicit_graph):
+            cb_res = await ing.ingest(
+                IngestionManifest(
+                    content_type=ContentType.CODEBASE,
+                    source_uri=str(target),
+                    metadata=cb_manifest_meta,
+                )
+            )
+        if cb_res.status == "failed":
+            raise Exception(f"Codebase ingestion failed: {cb_res.error}")
+
+        self._update_task_status(
+            job_id,
+            "completed",
+            {
+                "nodes_added": cb_res.nodes_created,
+                "edges_added": cb_res.edges_created,
+                "target": str(target),
+                "type": "codebase",
+                "status": cb_res.status,
+                "cards_pending": cb_res.details.get("cards_pending", 0),
+            },
+        )
+
+    async def _bg_relevance_sweep(
+        self, job_id: str, target: Path, task_type: str
+    ) -> None:
+        # Score all ingested papers and codebases against a target
+        result = await self._run_relevance_sweep(job_id, str(target))
+        self._update_task_status(job_id, "completed", result)
+
+    async def _bg_self_tool_surface(
+        self, job_id: str, target: Path, task_type: str
+    ) -> None:
+        # graph-os registers the provider before publishing this
+        # priority-one WorkItem. Keep the ChangeEnvelope write on the
+        # bounded memory-generation lane so cold materialization or
+        # write contention never blocks the boot-plan producer.
+        from agent_utilities.knowledge_graph.ingestion.engine import (
+            IngestionEngine,
+        )
+
+        self_tools = await IngestionEngine(kg_engine=self)._ingest_self_tools()
+        if self_tools.status == "failed":
+            raise RuntimeError("self tool-surface ingestion failed")
+        self._update_task_status(
+            job_id,
+            "completed",
+            {
+                "target": str(target),
+                "type": task_type,
+                "status": self_tools.status,
+                "nodes_added": self_tools.nodes_created,
+                "edges_added": self_tools.edges_created,
+            },
+        )
+
+    async def _bg_connector_sync(
+        self, job_id: str, target: Path, task_type: str
+    ) -> None:
+        # CONCEPT:AU-ORCH.scheduling.connector-sync-lane — one external connector's delta sync, run as a LANED task
+        # (the 'connectors' lane). The */20m fleet sweep enqueues one of these per
+        # connector so they fan out in PARALLEL instead of one slow connector
+        # (gitlab/servicenow) blocking the rest in a sequential inline loop.
+        #
+        # ``capability_hydration`` (CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness) is the SAME
+        # dispatch — its metadata's ``target`` is always ``"fleet"`` — but a
+        # distinct task type so it can be given its own reserved-worker floor
+        # (see ``start_task_workers``) instead of competing 1:1 with however
+        # many ordinary ``connector_sync`` jobs the */20m sweep has in flight.
+        from agent_utilities.knowledge_graph.core.source_sync import sync_source
+
+        connector_meta = self._ingest_task_metadata(job_id)
+        mode = str(connector_meta.get("sync_mode") or "delta")
+        sync_res = sync_source(self, str(target), mode=mode)
+        self._update_task_status(
+            job_id,
+            "completed",
+            {
+                "target": str(target),
+                "type": task_type,
+                **(sync_res if isinstance(sync_res, dict) else {"result": sync_res}),
+            },
+        )
+
+    async def _bg_connector_drain(
+        self, job_id: str, target: Path, task_type: str
+    ) -> None:
+        # CONCEPT:AU-KG.ontology.single-source-full-drain — ONE paginated page of a chunked full-corpus drain. The
+        # WorkItem metadata carries the drain identity and resumable
+        # connector checkpoint; ``run_drain_page`` drains this page, ingests
+        # it, and self-continues by enqueuing the NEXT page-task while the cursor has
+        # more — so a single ``source_sync(full)`` drains the whole corpus across many
+        # capacity-guarded background tasks without ever blocking the request.
+        from agent_utilities.knowledge_graph.core.chunked_drain import (
+            run_drain_page,
+        )
+
+        dmeta = self._ingest_task_metadata(job_id)
+        drain_res = run_drain_page(
+            self,
+            source=str(dmeta.get("drain_source") or target),
+            mode=str(dmeta.get("sync_mode") or "full"),
+            drain_id=str(dmeta.get("drain_id") or ""),
+            page=int(dmeta.get("drain_page") or 0),
+            checkpoint_json=dmeta.get("drain_checkpoint"),
+        )
+        self._update_task_status(
+            job_id,
+            "completed",
+            {"target": str(target), "type": task_type, **drain_res},
+        )
+
+    async def _bg_fleet_event_triage(
+        self, job_id: str, target: Path, task_type: str
+    ) -> None:
+        # Fleet-event triage (CONCEPT:AU-OS.config.fleet-event-ingress): 'target' is the
+        # FleetEvent node id enqueued by the gateway's
+        # POST /api/fleet/events webhook receiver, not a filesystem
+        # path. Correlates the event to known KG entities and files a
+        # failure_gap topic when severity warrants. Remediation
+        # playbooks (CONCEPT:AU-OS.host.remediation-playbooks) register on the dispatch seam
+        # here, so wherever triage runs they are live.
+        from agent_utilities.knowledge_graph.adaptation.fleet_event_triage import (
+            triage_fleet_event,
+        )
+        from agent_utilities.knowledge_graph.adaptation.remediation_playbooks import (
+            ensure_registered as _ensure_playbooks,
+        )
+
+        _ensure_playbooks()
+        result = triage_fleet_event(self, str(target))
+        self._update_task_status(
+            job_id,
+            "completed",
+            {"target": str(target), "type": task_type, **result},
+        )
+
+    async def _bg_deploy_watch(self, job_id: str, target: Path, task_type: str) -> None:
+        # Health-gated deploy watch (CONCEPT:AU-OS.config.health-gated-deploy-rollback): 'target' is the
+        # watched service name; the watch spec (window, deadline,
+        # rollback params) rides on the WorkItem, so a reclaimed watch
+        # resumes against its original
+        # deadline. Failure invokes the policy-gated rollback.
+        from agent_utilities.orchestration.deploy_watch import (
+            run_deploy_watch,
+        )
+
+        result = run_deploy_watch(self, str(target), job_id)
+        self._update_task_status(
+            job_id,
+            "completed",
+            {"target": str(target), "type": task_type, **result},
+        )
+
+    async def _bg_analyzer_task(
+        self, job_id: str, target: Path, task_type: str
+    ) -> None:
+        from agent_utilities.analysis.analyzer import GraphAnalyzer
+
+        analyzer = GraphAnalyzer(self)
+        query = str(target)
+
+        # Fetch metadata to track top_k if provided
+        t_props = self._ingest_task_metadata(job_id)
+        top_k = int(t_props.get("top_k", 10))
+
+        try:
+            if task_type == "synthesize":
+                result = await analyzer.synthesize(query, top_k)
+            elif task_type == "deep_extract":
+                result = await analyzer.deep_extract(query)
+            elif task_type == "background_research":
+                result = await analyzer.background_research(query)
+
+            self._update_task_status(
+                job_id,
+                "completed",
+                {
+                    "target": query,
+                    "type": task_type,
+                    "result": result,
+                },
+            )
+        except Exception as e:
+            self._fail_or_retry_task(job_id, str(e), {"type": task_type})
+
+    async def _bg_cohort_synthesize(
+        self, job_id: str, target: Path, task_type: str
+    ) -> None:
+        # Self-polling barrier gate for a research cohort (CONCEPT:AU-KG.coordination.research-cohort-barrier):
+        # once every member task is terminal (completed OR failed — a poison
+        # member never wedges the cohort) or the deadline passes, run the
+        # assimilation pass + materialize the feature matrix over whatever was
+        # ingested. Until then re-defer ONE poll interval as 'scheduled' (NOT
+        # a failure attempt); native availability makes it claimable later.
+        from agent_utilities.knowledge_graph.research.cohort import (
+            cohort_ready,
+            finalize_cohort,
+        )
+
+        cmeta = self._ingest_task_metadata(job_id)
+        cohort_id = str(cmeta.get("cohort_id") or "")
+        deadline = float(cmeta.get("deadline_unix", 0.0) or 0.0)
+        ready, member_st = cohort_ready(self, cohort_id, deadline_unix=deadline)
+        if not ready:
+            eta = time.time() + 60.0
+            cmeta["eta_unix"] = eta
+            cmeta["member_status"] = member_st
+            from agent_utilities.orchestration import work_item as _wi
+
+            work_item_id = str(cmeta.get("work_item_id") or "")
+            if not work_item_id:
+                raise _wi.WorkItemBackendUnavailable(
+                    f"cohort barrier {job_id} has no authoritative WorkItem"
+                )
+            claim = self._active_work_item_claim(job_id)
+            if claim is None:
+                raise _wi.WorkItemBackendUnavailable(
+                    f"cohort barrier {job_id} has no active native claim"
+                )
+            if not _wi.defer_work_item(
+                self._work_item_engine,
+                work_item_id,
+                claim,
+                next_retry_at=eta,
+                reason_ref="cohort_barrier",
+            ):
+                raise _wi.WorkItemBackendUnavailable(
+                    f"cohort barrier {job_id} deferral was fenced"
+                )
+            self._active_work_item_claim(job_id, pop=True)
+        else:
+            try:
+                result = finalize_cohort(self, cohort_id)
+                self._update_task_status(
+                    job_id,
+                    "completed",
+                    {
+                        "type": task_type,
+                        "cohort_id": cohort_id,
+                        "members": member_st,
+                        "feature_matrix": (result.get("feature_matrix") or {}).get(
+                            "counts", {}
+                        ),
+                    },
+                )
+            except Exception as e:
+                self._fail_or_retry_task(job_id, str(e), {"type": task_type})
+
+    async def _bg_session_upload(
+        self, job_id: str, target: Path, task_type: str
+    ) -> None:
+        # CONCEPT:AU-KG.ingest.drain-session-bundle — drain a remote session-bundle upload that the
+        # ``ingest_sessions`` MCP/REST handler enqueued (its synchronous
+        # record_bundle loop blew past the 60s MCP window). Body extracted
+        # to a helper so it is unit-testable without a live worker loop.
+        self._drain_session_upload(job_id, task_type)
+        return
+
+    async def _bg_document(self, job_id: str, target: Path, task_type: str) -> None:
+        import hashlib
+
+        from llama_index.core import SimpleDirectoryReader
+
+        from agent_utilities.core.embedding_utilities import (
+            create_embedding_model,
+        )
+
+        embed_model = create_embedding_model()
+        # Override the library default with the governed pypdf adapter,
+        # which enforces file, page, and extracted-character bounds.
+        pdf_extractor = _pdf_file_extractor()
+        if target.is_dir():
+            # exclude_hidden=False is REQUIRED: the research store lives
+            # under ``~/.local/share/...`` and SimpleDirectoryReader treats
+            # any file beneath a dot-dir (``.local``) as hidden, excluding
+            # everything → "No files found" despite PDFs present.
+            # recursive=False skips the ``.metadata`` sidecar dir;
+            # required_exts limits to real documents. (CONCEPT:AU-KG.coordination.embedder-breaker)
+            docs = SimpleDirectoryReader(
+                input_dir=str(target),
+                recursive=False,
+                exclude_hidden=False,
+                required_exts=sorted(SUPPORTED_EXTENSIONS),
+                file_extractor=pdf_extractor,
+            ).load_data()
+        else:
+            docs = SimpleDirectoryReader(
+                input_files=[str(target)],
+                exclude_hidden=False,
+                file_extractor=pdf_extractor,
+            ).load_data()
+
+        created = []
+        skipped = 0
+        ingestion_timestamp = datetime.now(UTC).isoformat()
+
+        # Pass 1 — dedup (O(1) id-keyed lookup per chunk) and collect the NEW
+        # chunks. Embeddings are NOT computed here: a per-chunk
+        # ``get_text_embedding`` is one network round-trip to the embedding
+        # service, and doing it inside this loop made a single PDF take
+        # minutes. We gather first, then embed the whole document in one
+        # batched call below. (CONCEPT:AU-KG.coordination.embedder-breaker ingestion throughput; see
+        # [[epistemic-graph-transport]] — batch over the wire, never per-element.)
+        pending: list[tuple[str, str, int, dict[str, Any]]] = []
+        for idx, doc in enumerate(docs):
+            chunk_text = doc.text
+            # Sanitize to prevent UnicodeEncodeError (surrogates) when sending to LLM
+            chunk_text = chunk_text.encode("utf-8", errors="replace").decode("utf-8")
+            if not chunk_text.strip():
+                continue
+            file_path = doc.metadata.get("file_path", str(target))
+            raw_id = f"{file_path}::{chunk_text}".encode(errors="replace")
+            nid = f"doc-{hashlib.sha256(raw_id).hexdigest()[:8]}"
+
+            # KG-2.134/LANE-6: per-chunk dedup read is a synchronous
+            # engine call inside a hot ingestion loop — hop it off the
+            # loop. Awaited per-iteration (not gathered) to preserve
+            # the original one-chunk-at-a-time processing order.
+            existing = await asyncio.to_thread(
+                self.query_cypher,
+                "MATCH (n:Article {id: $nid}) RETURN n.id as id",
+                {"nid": nid},
+            )
+            if existing:
+                self.backend.execute(
+                    "MATCH (n:Article {id: $nid}) SET n.last_seen_timestamp = $ts",
+                    {"nid": nid, "ts": ingestion_timestamp},
+                )
+                skipped += 1
+                continue
+            pending.append((nid, chunk_text, idx, doc.metadata))
+
+        # Pass 2 — batch-embed every new chunk in one shot (sub-batched). The
+        # LlamaIndex embedding models expose ``get_text_embedding_batch`` which
+        # packs many chunks into a single request; this replaces N serial
+        # round-trips with ~N/64, the change that takes a document from minutes
+        # to seconds. Fall back to per-chunk only if the model lacks the batch API.
+        # KG-2.134/LANE-6: each embed call is a blocking remote round
+        # trip — hop it off the loop. The batch sub-loop and the
+        # per-chunk fallback both stay sequential (awaited in order,
+        # not gathered), matching the prior in-line iteration order;
+        # the batch call itself already amortizes the network cost, so
+        # this only removes it from the event loop, not from being one
+        # call per sub-batch.
+        texts = [c[1] for c in pending]
+        embeddings: list = []
+        _embed_batch = getattr(embed_model, "get_text_embedding_batch", None)
+        if callable(_embed_batch):
+            _BATCH = 64
+            for _i in range(0, len(texts), _BATCH):
+                embeddings.extend(
+                    await asyncio.to_thread(_embed_batch, texts[_i : _i + _BATCH])
+                )
+        else:
+            for _text in texts:
+                embeddings.append(
+                    await asyncio.to_thread(embed_model.get_text_embedding, _text)
+                )
+
+        for (nid, chunk_text, idx, meta), embedding in zip(
+            pending, embeddings, strict=False
+        ):
+            props = {
+                "content": chunk_text,
+                "embedding": embedding,
+                "metadata": json.dumps(meta),
+                "last_seen_timestamp": ingestion_timestamp,
+                "target_path": str(target),
+                "chunk_index": idx,
+            }
+            # KG-2.134/LANE-6: synchronous engine write, hopped off the
+            # loop; awaited per-iteration to keep node-creation order
+            # (and the ``created`` bookkeeping list it feeds) unchanged.
+            await asyncio.to_thread(self.add_node, nid, "Article", properties=props)
+            created.append(nid)
+
+        self.backend.execute(
+            "MATCH (n:Article) WHERE n.target_path = $target AND n.last_seen_timestamp < $ts DETACH DELETE n",
+            {"target": str(target), "ts": ingestion_timestamp},
+        )
+        self._update_task_status(
+            job_id,
+            "completed",
+            {
+                # ``nodes_added``/``edges_added`` are the canonical keys the
+                # per-category metrics aggregator reads (see
+                # aggregate_ingest_metrics). The async document worker writes
+                # one Article node per new chunk and no edges; surface those
+                # counts here so completed document jobs no longer report 0
+                # nodes. ``chunks_added`` is retained as a descriptive alias.
+                "nodes_added": len(created),
+                "edges_added": 0,
+                "chunks_added": len(created),
+                "chunks_skipped": skipped,
+                "skip_reason": "Hash match exists in DB",
+                "target": str(target),
+                "type": "document",
+            },
+        )
 
     async def _run_relevance_sweep(self, job_id: str, target_codebase: str) -> dict:
         """Score all ingested papers and codebases against a target codebase.
