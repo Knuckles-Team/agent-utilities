@@ -16,6 +16,7 @@ import ipaddress
 import logging
 import os
 import re
+import sys
 from typing import Any, cast
 from urllib.parse import urlsplit
 
@@ -943,26 +944,14 @@ def create_mcp_parser(
     return parser
 
 
-def _configure_auth(args: argparse.Namespace) -> Any:
-    """Configure authentication provider based on parsed CLI args.
-
-    Returns the auth provider instance or None.
-    """
-    if args.auth_type == "none" or not args.auth_type:
-        return None
-
-    import sys as _sys
-
-    from fastmcp.server.auth import OAuthProxy, RemoteAuthProvider
-    from fastmcp.server.auth.oidc_proxy import OIDCProxy
-    from pydantic import AnyHttpUrl
-
+def _apply_mcp_auth_config_overrides(args: argparse.Namespace) -> None:
+    """Layer parsed CLI auth/delegation flags onto the module-level
+    ``mcp_auth_config`` dict (unchanged from the original inline block)."""
     mcp_auth_config["enable_delegation"] = args.enable_delegation
     mcp_auth_config["audience"] = args.audience or mcp_auth_config["audience"]
     mcp_auth_config["delegated_scopes"] = (
         args.delegated_scopes or mcp_auth_config["delegated_scopes"]
     )
-
     if hasattr(args, "oidc_config_url"):
         mcp_auth_config["oidc_config_url"] = (
             args.oidc_config_url or mcp_auth_config["oidc_config_url"]
@@ -976,289 +965,368 @@ def _configure_auth(args: argparse.Namespace) -> Any:
             args.oidc_client_secret or mcp_auth_config["oidc_client_secret"]
         )
 
-    if mcp_auth_config["enable_delegation"]:
-        if args.auth_type != "oidc-proxy":
-            logger.error("Error: Token delegation requires auth-type=oidc-proxy")
-            _sys.exit(1)
-        if not mcp_auth_config["audience"]:
-            logger.error("Error: audience is required for delegation")
-            _sys.exit(1)
-        if not all(
-            [
-                mcp_auth_config["oidc_config_url"],
-                mcp_auth_config["oidc_client_id"],
-                mcp_auth_config["oidc_client_secret"],
-            ]
-        ):
-            logger.error("Error: Delegation requires complete OIDC configuration")
-            _sys.exit(1)
-        try:
-            config_url = mcp_auth_config["oidc_config_url"]
-            if not isinstance(config_url, str):
-                raise ValueError("oidc_config_url must be a string")
-            suffix = "/.well-known/openid-configuration"
-            issuer = (
-                config_url[: -len(suffix)]
-                if config_url.endswith(suffix)
-                else config_url
-            )
-            from agent_utilities.security.oidc_discovery import discover
 
-            oidc_config = discover(issuer)
-            mcp_auth_config["token_endpoint"] = oidc_config.get("token_endpoint")
-            if not mcp_auth_config["token_endpoint"]:
-                raise ValueError("No token_endpoint found in OIDC configuration")
-        except Exception as exc:
-            logger.error(
-                "Failed to fetch OIDC configuration (exception_type=%s)",
-                type(exc).__name__,
-            )
-            _sys.exit(1)
+def _discover_delegation_token_endpoint(config_url: str) -> str:
+    """OIDC-discover the token endpoint for token delegation. Raises
+    ValueError on any failure (unavailable issuer, no token_endpoint)."""
+    if not isinstance(config_url, str):
+        raise ValueError("oidc_config_url must be a string")
+    suffix = "/.well-known/openid-configuration"
+    issuer = config_url[: -len(suffix)] if config_url.endswith(suffix) else config_url
 
+    from agent_utilities.security.oidc_discovery import discover
+
+    oidc_config = discover(issuer)
+    token_endpoint = oidc_config.get("token_endpoint")
+    if not token_endpoint:
+        raise ValueError("No token_endpoint found in OIDC configuration")
+    return token_endpoint
+
+
+def _enforce_delegation_requirements(args: argparse.Namespace) -> None:
+    """When token delegation is enabled, require oidc-proxy + a complete
+    OIDC configuration, and resolve the delegation token endpoint."""
+    if not mcp_auth_config["enable_delegation"]:
+        return
+    if args.auth_type != "oidc-proxy":
+        logger.error("Error: Token delegation requires auth-type=oidc-proxy")
+        sys.exit(1)
+    if not mcp_auth_config["audience"]:
+        logger.error("Error: audience is required for delegation")
+        sys.exit(1)
+    if not all(
+        [
+            mcp_auth_config["oidc_config_url"],
+            mcp_auth_config["oidc_client_id"],
+            mcp_auth_config["oidc_client_secret"],
+        ]
+    ):
+        logger.error("Error: Delegation requires complete OIDC configuration")
+        sys.exit(1)
     try:
-        allowed_uris = _validated_redirect_uris(args.allowed_client_redirect_uris)
+        mcp_auth_config["token_endpoint"] = _discover_delegation_token_endpoint(
+            mcp_auth_config["oidc_config_url"]
+        )
+    except Exception as exc:
+        logger.error(
+            "Failed to fetch OIDC configuration (exception_type=%s)",
+            type(exc).__name__,
+        )
+        sys.exit(1)
+
+
+def _validate_allowed_redirect_uris(args: argparse.Namespace) -> list[str] | None:
+    try:
+        return _validated_redirect_uris(args.allowed_client_redirect_uris)
     except ValueError:
         logger.error("Error: allowed client redirect URI policy is invalid")
-        _sys.exit(1)
+        sys.exit(1)
+
+
+def _resolve_static_tokens_ref(reference: str) -> Any:
+    if reference.startswith("env://"):
+        return setting(reference[len("env://") :])
+    from agent_utilities.security.secrets_client import create_secrets_client
+
+    return create_secrets_client().resolve_ref(reference)
+
+
+def _validate_static_token_string(token: Any) -> None:
+    if not isinstance(token, str) or len(token) < 32 or len(token) > 4096:
+        raise ValueError("invalid token")
+
+
+def _validate_static_claims_shape(claims: Any) -> tuple[str, list]:
+    if not isinstance(claims, dict):
+        raise ValueError("invalid claims")
+    client_id = claims.get("client_id")
+    scopes = claims.get("scopes", [])
+    if not isinstance(client_id, str) or not 1 <= len(client_id) <= 256:
+        raise ValueError("invalid client id")
+    if not isinstance(scopes, list) or not all(
+        isinstance(scope, str) and 1 <= len(scope) <= 256 for scope in scopes
+    ):
+        raise ValueError("invalid scopes")
+    return client_id, scopes
+
+
+def _validate_static_expiry(claims: dict) -> Any:
+    expires_at = claims.get("expires_at")
+    if expires_at is None:
+        return None
+    import math
+
+    if (
+        isinstance(expires_at, bool)
+        or not isinstance(expires_at, int | float)
+        or not math.isfinite(float(expires_at))
+    ):
+        raise ValueError("invalid expiry")
+    return expires_at
+
+
+def _validate_one_static_token_entry(token: Any, claims: Any) -> tuple[str, dict]:
+    _validate_static_token_string(token)
+    client_id, scopes = _validate_static_claims_shape(claims)
+    expires_at = _validate_static_expiry(claims)
+    entry: dict[str, Any] = {"client_id": client_id, "scopes": scopes}
+    if expires_at is not None:
+        entry["expires_at"] = expires_at
+    return token, entry
+
+
+def _validate_static_token_map(token_map: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(token_map, dict) or not token_map:
+        raise ValueError("empty token map")
+    validated: dict[str, dict[str, Any]] = {}
+    for token, claims in token_map.items():
+        key, entry = _validate_one_static_token_entry(token, claims)
+        validated[key] = entry
+    return validated
+
+
+def _configure_static_auth(args: argparse.Namespace) -> Any:
+    reference = str(getattr(args, "static_tokens_ref", "") or "").strip()
+    if not reference:
+        logger.error(
+            "Error: static auth requires --static-tokens-ref; inline and "
+            "built-in tokens are not permitted"
+        )
+        sys.exit(1)
+    try:
+        import json as _json
+
+        raw_tokens = _resolve_static_tokens_ref(reference)
+        token_map = _json.loads(str(raw_tokens or ""))
+        validated = _validate_static_token_map(token_map)
+    except Exception as exc:
+        logger.error(
+            "Error: static authentication token reference is unavailable or invalid (%s)",
+            type(exc).__name__,
+        )
+        sys.exit(1)
+
+    import hashlib as _hashlib
+    import hmac as _hmac
+    import secrets as _secrets
+    import time as _time
+
+    from fastmcp.server.auth import AccessToken, TokenVerifier
+
+    class _ConstantTimeStaticVerifier(TokenVerifier):
+        def __init__(self, tokens: dict[str, dict[str, Any]]) -> None:
+            super().__init__()
+            self._key = _secrets.token_bytes(32)
+            self._entries = [
+                (
+                    _hmac.new(
+                        self._key,
+                        token.encode("utf-8"),
+                        _hashlib.sha256,
+                    ).digest(),
+                    dict(claims),
+                )
+                for token, claims in tokens.items()
+            ]
+
+        async def verify_token(self, token: str) -> Any:
+            if not isinstance(token, str) or len(token) > 4_096:
+                return None
+            candidate = _hmac.new(
+                self._key,
+                token.encode("utf-8"),
+                _hashlib.sha256,
+            ).digest()
+            matched: dict[str, Any] | None = None
+            for expected, claims in self._entries:
+                if _secrets.compare_digest(candidate, expected):
+                    matched = claims
+            if matched is None:
+                return None
+            expires_at = matched.get("expires_at")
+            if expires_at is not None and float(expires_at) < _time.time():
+                return None
+            return AccessToken(
+                token=token,
+                client_id=matched["client_id"],
+                scopes=list(matched.get("scopes", [])),
+                expires_at=int(expires_at) if expires_at is not None else None,
+                claims=matched,
+            )
+
+    return _ConstantTimeStaticVerifier(validated)
+
+
+def _configure_oauth_proxy_auth(
+    args: argparse.Namespace, allowed_uris: list[str] | None
+) -> Any:
+    from fastmcp.server.auth import OAuthProxy
+
+    if not all(
+        [
+            args.oauth_upstream_auth_endpoint,
+            args.oauth_upstream_token_endpoint,
+            args.oauth_upstream_client_id,
+            args.oauth_upstream_client_secret,
+            args.oauth_base_url,
+            args.token_jwks_uri,
+            args.token_issuer,
+            args.token_audience,
+        ]
+    ):
+        logger.error(
+            "Error: oauth-proxy requires all upstream endpoints and JWT params"
+        )
+        sys.exit(1)
+    try:
+        upstream_auth = _secure_auth_url(
+            args.oauth_upstream_auth_endpoint,
+            field="OAuth authorization endpoint",
+        )
+        upstream_token = _secure_auth_url(
+            args.oauth_upstream_token_endpoint,
+            field="OAuth token endpoint",
+        )
+        base_url = _secure_auth_url(args.oauth_base_url, field="OAuth base URL")
+    except ValueError:
+        logger.error("Error: OAuth proxy URL policy is invalid")
+        sys.exit(1)
+    token_verifier = _hardened_jwt_verifier(
+        jwks_uri=args.token_jwks_uri,
+        issuer=args.token_issuer,
+        audience=args.token_audience,
+    )
+    return OAuthProxy(
+        upstream_authorization_endpoint=upstream_auth,
+        upstream_token_endpoint=upstream_token,
+        upstream_client_id=args.oauth_upstream_client_id,
+        upstream_client_secret=args.oauth_upstream_client_secret,
+        token_verifier=token_verifier,
+        base_url=base_url,
+        allowed_client_redirect_uris=allowed_uris,
+    )
+
+
+def _configure_oidc_proxy_auth(
+    args: argparse.Namespace, allowed_uris: list[str] | None
+) -> Any:
+    from fastmcp.server.auth.oidc_proxy import OIDCProxy
+
+    if not all(
+        [
+            args.oidc_config_url,
+            args.oidc_client_id,
+            args.oidc_client_secret,
+            args.oidc_base_url,
+        ]
+    ):
+        logger.error(
+            "Error: oidc-proxy requires OIDC metadata, client identity, "
+            "a resolved client-secret reference, and base URL"
+        )
+        sys.exit(1)
+    inbound_audience = args.token_audience or args.audience
+    if not inbound_audience:
+        logger.error("Error: oidc-proxy requires an explicit token audience")
+        sys.exit(1)
+    try:
+        config_url = _secure_auth_url(
+            args.oidc_config_url, field="OIDC configuration URL"
+        )
+        base_url = _secure_auth_url(args.oidc_base_url, field="OIDC base URL")
+    except ValueError:
+        logger.error("Error: OIDC proxy URL policy is invalid")
+        sys.exit(1)
+    return OIDCProxy(
+        config_url=config_url,
+        client_id=args.oidc_client_id,
+        client_secret=args.oidc_client_secret,
+        audience=inbound_audience,
+        base_url=base_url,
+        allowed_client_redirect_uris=allowed_uris,
+    )
+
+
+def _configure_remote_oauth_auth(args: argparse.Namespace) -> Any:
+    from fastmcp.server.auth import RemoteAuthProvider
+    from pydantic import AnyHttpUrl
+
+    if not all(
+        [
+            args.remote_auth_servers,
+            args.remote_base_url,
+            args.token_jwks_uri,
+            args.token_issuer,
+            args.token_audience,
+        ]
+    ):
+        logger.error(
+            "Error: remote-oauth requires remote-auth-servers, remote-base-url, and JWT params"
+        )
+        sys.exit(1)
+    try:
+        auth_servers = [
+            _secure_auth_url(url.strip(), field="authorization server")
+            for url in args.remote_auth_servers.split(",")
+            if url.strip()
+        ]
+        remote_base_url = _secure_auth_url(
+            args.remote_base_url, field="remote OAuth base URL"
+        )
+    except ValueError:
+        logger.error("Error: remote OAuth URL policy is invalid")
+        sys.exit(1)
+    if not auth_servers or len(auth_servers) > 16:
+        logger.error("Error: remote authorization-server policy is invalid")
+        sys.exit(1)
+    token_verifier = _hardened_jwt_verifier(
+        jwks_uri=args.token_jwks_uri,
+        issuer=args.token_issuer,
+        audience=args.token_audience,
+    )
+    return RemoteAuthProvider(
+        token_verifier=token_verifier,
+        authorization_servers=[AnyHttpUrl(u) for u in auth_servers],
+        base_url=remote_base_url,
+    )
+
+
+def _configure_auth(args: argparse.Namespace) -> Any:
+    """Configure authentication provider based on parsed CLI args.
+
+    Returns the auth provider instance or None.
+    """
+    if args.auth_type == "none" or not args.auth_type:
+        return None
+
+    _apply_mcp_auth_config_overrides(args)
+    _enforce_delegation_requirements(args)
+    allowed_uris = _validate_allowed_redirect_uris(args)
 
     if args.auth_type == "none":
         return None
-    elif args.auth_type == "static":
-        import json as _json
-
-        reference = str(getattr(args, "static_tokens_ref", "") or "").strip()
-        if not reference:
-            logger.error(
-                "Error: static auth requires --static-tokens-ref; inline and "
-                "built-in tokens are not permitted"
-            )
-            _sys.exit(1)
-        try:
-            if reference.startswith("env://"):
-                raw_tokens = setting(reference[len("env://") :])
-            else:
-                from agent_utilities.security.secrets_client import (
-                    create_secrets_client,
-                )
-
-                raw_tokens = create_secrets_client().resolve_ref(reference)
-            token_map = _json.loads(str(raw_tokens or ""))
-            if not isinstance(token_map, dict) or not token_map:
-                raise ValueError("empty token map")
-            validated: dict[str, dict[str, Any]] = {}
-            for token, claims in token_map.items():
-                if not isinstance(token, str) or len(token) < 32 or len(token) > 4096:
-                    raise ValueError("invalid token")
-                if not isinstance(claims, dict):
-                    raise ValueError("invalid claims")
-                client_id = claims.get("client_id")
-                scopes = claims.get("scopes", [])
-                if not isinstance(client_id, str) or not 1 <= len(client_id) <= 256:
-                    raise ValueError("invalid client id")
-                if not isinstance(scopes, list) or not all(
-                    isinstance(scope, str) and 1 <= len(scope) <= 256
-                    for scope in scopes
-                ):
-                    raise ValueError("invalid scopes")
-                expires_at = claims.get("expires_at")
-                if expires_at is not None:
-                    import math
-
-                    if (
-                        isinstance(expires_at, bool)
-                        or not isinstance(expires_at, int | float)
-                        or not math.isfinite(float(expires_at))
-                    ):
-                        raise ValueError("invalid expiry")
-                validated[token] = {
-                    "client_id": client_id,
-                    "scopes": scopes,
-                    **({"expires_at": expires_at} if expires_at is not None else {}),
-                }
-        except Exception as exc:
-            logger.error(
-                "Error: static authentication token reference is unavailable or invalid (%s)",
-                type(exc).__name__,
-            )
-            _sys.exit(1)
-        import hashlib as _hashlib
-        import hmac as _hmac
-        import secrets as _secrets
-        import time as _time
-
-        from fastmcp.server.auth import AccessToken, TokenVerifier
-
-        class _ConstantTimeStaticVerifier(TokenVerifier):
-            def __init__(self, tokens: dict[str, dict[str, Any]]) -> None:
-                super().__init__()
-                self._key = _secrets.token_bytes(32)
-                self._entries = [
-                    (
-                        _hmac.new(
-                            self._key,
-                            token.encode("utf-8"),
-                            _hashlib.sha256,
-                        ).digest(),
-                        dict(claims),
-                    )
-                    for token, claims in tokens.items()
-                ]
-
-            async def verify_token(self, token: str) -> Any:
-                if not isinstance(token, str) or len(token) > 4_096:
-                    return None
-                candidate = _hmac.new(
-                    self._key,
-                    token.encode("utf-8"),
-                    _hashlib.sha256,
-                ).digest()
-                matched: dict[str, Any] | None = None
-                for expected, claims in self._entries:
-                    if _secrets.compare_digest(candidate, expected):
-                        matched = claims
-                if matched is None:
-                    return None
-                expires_at = matched.get("expires_at")
-                if expires_at is not None and float(expires_at) < _time.time():
-                    return None
-                return AccessToken(
-                    token=token,
-                    client_id=matched["client_id"],
-                    scopes=list(matched.get("scopes", [])),
-                    expires_at=int(expires_at) if expires_at is not None else None,
-                    claims=matched,
-                )
-
-        return _ConstantTimeStaticVerifier(validated)
-    elif args.auth_type == "jwt":
+    if args.auth_type == "static":
+        return _configure_static_auth(args)
+    if args.auth_type == "jwt":
         return _configure_jwt_auth(args)
-    elif args.auth_type == "oauth-proxy":
-        if not all(
-            [
-                args.oauth_upstream_auth_endpoint,
-                args.oauth_upstream_token_endpoint,
-                args.oauth_upstream_client_id,
-                args.oauth_upstream_client_secret,
-                args.oauth_base_url,
-                args.token_jwks_uri,
-                args.token_issuer,
-                args.token_audience,
-            ]
-        ):
-            logger.error(
-                "Error: oauth-proxy requires all upstream endpoints and JWT params"
-            )
-            _sys.exit(1)
-        try:
-            upstream_auth = _secure_auth_url(
-                args.oauth_upstream_auth_endpoint,
-                field="OAuth authorization endpoint",
-            )
-            upstream_token = _secure_auth_url(
-                args.oauth_upstream_token_endpoint,
-                field="OAuth token endpoint",
-            )
-            base_url = _secure_auth_url(args.oauth_base_url, field="OAuth base URL")
-        except ValueError:
-            logger.error("Error: OAuth proxy URL policy is invalid")
-            _sys.exit(1)
-        token_verifier = _hardened_jwt_verifier(
-            jwks_uri=args.token_jwks_uri,
-            issuer=args.token_issuer,
-            audience=args.token_audience,
-        )
-        return OAuthProxy(
-            upstream_authorization_endpoint=upstream_auth,
-            upstream_token_endpoint=upstream_token,
-            upstream_client_id=args.oauth_upstream_client_id,
-            upstream_client_secret=args.oauth_upstream_client_secret,
-            token_verifier=token_verifier,
-            base_url=base_url,
-            allowed_client_redirect_uris=allowed_uris,
-        )
-    elif args.auth_type == "oidc-proxy":
-        if not all(
-            [
-                args.oidc_config_url,
-                args.oidc_client_id,
-                args.oidc_client_secret,
-                args.oidc_base_url,
-            ]
-        ):
-            logger.error(
-                "Error: oidc-proxy requires OIDC metadata, client identity, "
-                "a resolved client-secret reference, and base URL"
-            )
-            _sys.exit(1)
-        inbound_audience = args.token_audience or args.audience
-        if not inbound_audience:
-            logger.error("Error: oidc-proxy requires an explicit token audience")
-            _sys.exit(1)
-        try:
-            config_url = _secure_auth_url(
-                args.oidc_config_url, field="OIDC configuration URL"
-            )
-            base_url = _secure_auth_url(args.oidc_base_url, field="OIDC base URL")
-        except ValueError:
-            logger.error("Error: OIDC proxy URL policy is invalid")
-            _sys.exit(1)
-        return OIDCProxy(
-            config_url=config_url,
-            client_id=args.oidc_client_id,
-            client_secret=args.oidc_client_secret,
-            audience=inbound_audience,
-            base_url=base_url,
-            allowed_client_redirect_uris=allowed_uris,
-        )
-    elif args.auth_type == "remote-oauth":
-        if not all(
-            [
-                args.remote_auth_servers,
-                args.remote_base_url,
-                args.token_jwks_uri,
-                args.token_issuer,
-                args.token_audience,
-            ]
-        ):
-            logger.error(
-                "Error: remote-oauth requires remote-auth-servers, remote-base-url, and JWT params"
-            )
-            _sys.exit(1)
-        try:
-            auth_servers = [
-                _secure_auth_url(url.strip(), field="authorization server")
-                for url in args.remote_auth_servers.split(",")
-                if url.strip()
-            ]
-            remote_base_url = _secure_auth_url(
-                args.remote_base_url, field="remote OAuth base URL"
-            )
-        except ValueError:
-            logger.error("Error: remote OAuth URL policy is invalid")
-            _sys.exit(1)
-        if not auth_servers or len(auth_servers) > 16:
-            logger.error("Error: remote authorization-server policy is invalid")
-            _sys.exit(1)
-        token_verifier = _hardened_jwt_verifier(
-            jwks_uri=args.token_jwks_uri,
-            issuer=args.token_issuer,
-            audience=args.token_audience,
-        )
-        return RemoteAuthProvider(
-            token_verifier=token_verifier,
-            authorization_servers=[AnyHttpUrl(u) for u in auth_servers],
-            base_url=remote_base_url,
-        )
+    if args.auth_type == "oauth-proxy":
+        return _configure_oauth_proxy_auth(args, allowed_uris)
+    if args.auth_type == "oidc-proxy":
+        return _configure_oidc_proxy_auth(args, allowed_uris)
+    if args.auth_type == "remote-oauth":
+        return _configure_remote_oauth_auth(args)
     return None
 
 
-def _configure_jwt_auth(args: argparse.Namespace) -> Any:
-    """Configure JWT authentication from CLI args."""
-    import sys as _sys
-
+def _resolve_jwt_basic_params(
+    args: argparse.Namespace,
+) -> tuple[str | None, str | None, str | None, str | None, str | None]:
+    """(jwks_uri, issuer, audience, algorithm, secret_or_key) from CLI args
+    with their environment-variable fallbacks. OIDC_ISSUER is the
+    canonical, provider-agnostic var; FASTMCP_SERVER_AUTH_JWT_ISSUER is the
+    per-server alias. Either may be a comma-separated multi-issuer list
+    (OS-5.45)."""
     jwks_uri = args.token_jwks_uri or setting("FASTMCP_SERVER_AUTH_JWT_JWKS_URI")
-    # OIDC_ISSUER is the canonical, provider-agnostic var; FASTMCP_SERVER_AUTH_JWT_ISSUER
-    # is the per-server alias. Either may be a comma-separated multi-issuer list (OS-5.45).
     issuer = (
         setting("OIDC_ISSUER")
         or args.token_issuer
@@ -1267,42 +1335,79 @@ def _configure_jwt_auth(args: argparse.Namespace) -> Any:
     audience = args.token_audience or setting("FASTMCP_SERVER_AUTH_JWT_AUDIENCE")
     algorithm = args.token_algorithm
     secret_or_key = args.token_public_key
-    public_key_pem = None
+    return jwks_uri, issuer, audience, algorithm, secret_or_key
 
-    # CONCEPT:AU-OS.identity.resolve-token-endpoint-from — IdP-agnostic: with no explicit JWKS URI (and not a static key),
-    # resolve it from each issuer's OIDC discovery document, so config carries only the
-    # issuer (Keycloak, Okta, Auth0, Entra, …) — never a vendor-specific path.
-    if not jwks_uri and not secret_or_key and not args.token_secret_ref and issuer:
-        from agent_utilities.security.oidc_discovery import jwks_uri_for
 
-        _resolved = [
-            jwks_uri_for(i.strip()) for i in str(issuer).split(",") if i.strip()
-        ]
-        if _resolved and all(_resolved):
-            jwks_uri = ",".join(u for u in _resolved if u)
-        elif any(_resolved):
-            logger.warning(
-                "OIDC discovery resolved JWKS for only part of the issuer policy; "
-                "configure the JWKS policy explicitly"
-            )
+def _oidc_discover_jwks_uris(issuer: str) -> list[str | None]:
+    from agent_utilities.security.oidc_discovery import jwks_uri_for
 
+    return [jwks_uri_for(i.strip()) for i in str(issuer).split(",") if i.strip()]
+
+
+def _maybe_discover_jwks(
+    jwks_uri: str | None,
+    secret_or_key: str | None,
+    args: argparse.Namespace,
+    issuer: str | None,
+) -> str | None:
+    """CONCEPT:AU-OS.identity.resolve-token-endpoint-from -- IdP-agnostic:
+    with no explicit JWKS URI (and not a static key), resolve it from each
+    issuer's OIDC discovery document, so config carries only the issuer
+    (Keycloak, Okta, Auth0, Entra, ...) -- never a vendor-specific path.
+
+    ``args.token_secret_ref`` is read lazily, INSIDE this same short-
+    circuited condition (not pre-extracted at the call site), matching the
+    original inline expression's evaluation order exactly: a real
+    argparse.Namespace always defines the attribute, but a caller with a
+    truthy ``jwks_uri``/``secret_or_key`` (as in this repo's own JWT test
+    fixtures) never needed to.
+    """
+    if jwks_uri or secret_or_key or args.token_secret_ref or not issuer:
+        return jwks_uri
+    resolved = _oidc_discover_jwks_uris(issuer)
+    if resolved and all(resolved):
+        return ",".join(u for u in resolved if u)
+    if any(resolved):
+        logger.warning(
+            "OIDC discovery resolved JWKS for only part of the issuer policy; "
+            "configure the JWKS policy explicitly"
+        )
+    return jwks_uri
+
+
+def _validate_jwt_key_material_present(
+    jwks_uri: str | None, secret_or_key: str | None, args: argparse.Namespace
+) -> None:
+    """``args.token_secret_ref`` is read lazily -- see :func:`_maybe_discover_jwks`."""
     if not (jwks_uri or secret_or_key or args.token_secret_ref):
         logger.error(
             "Error: JWT auth requires --token-jwks-uri, --token-public-key, "
             "or --token-secret-ref"
         )
-        _sys.exit(1)
+        sys.exit(1)
+
+
+def _validate_jwt_issuer_audience_present(
+    issuer: str | None, audience: str | None
+) -> None:
     if not (issuer and audience):
         logger.error("Error: JWT requires --token-issuer and --token-audience")
-        _sys.exit(1)
+        sys.exit(1)
+
+
+def _validate_jwt_audience_format(audience: Any) -> None:
     if (
         not isinstance(audience, str)
         or not 1 <= len(audience) <= 512
         or any(character in audience for character in "\r\n\x00")
     ):
         logger.error("Error: JWT audience is invalid")
-        _sys.exit(1)
+        sys.exit(1)
 
+
+def _normalize_jwt_issuer_and_jwks(
+    issuer: str | None, jwks_uri: str | None
+) -> tuple[str, str | None, list[str]]:
     try:
         issuer_values = [
             _secure_auth_url(value.strip(), field="JWT issuer")
@@ -1323,109 +1428,145 @@ def _configure_jwt_auth(args: argparse.Namespace) -> Any:
             jwks_uri = ",".join(jwks_values)
     except ValueError:
         logger.error("Error: JWT issuer/JWKS URL policy is invalid")
-        _sys.exit(1)
+        sys.exit(1)
+    return issuer, jwks_uri, issuer_values
 
+
+def _resolve_jwt_public_key_pem(args: argparse.Namespace) -> str | None:
     if args.token_public_key and os.path.isfile(args.token_public_key):
         try:
             with open(args.token_public_key) as f:
-                public_key_pem = f.read()
+                return f.read()
         except Exception as exc:
             logger.error(
                 "Failed to read public key file (exception_type=%s)",
                 type(exc).__name__,
             )
-            _sys.exit(1)
+            sys.exit(1)
     elif args.token_public_key:
-        public_key_pem = args.token_public_key
+        return args.token_public_key
+    return None
 
-    if algorithm and algorithm.startswith("HS"):
-        secret_ref = str(getattr(args, "token_secret_ref", "") or "").strip()
-        if not secret_ref:
-            logger.error("Error: HMAC JWT verification requires --token-secret-ref")
-            _sys.exit(1)
-        try:
-            from agent_utilities.security.secrets_client import create_secrets_client
 
-            public_key = create_secrets_client().resolve_ref(secret_ref)
-            if not isinstance(public_key, str) or len(public_key.encode()) < 32:
-                raise ValueError("weak secret")
-        except Exception:
-            logger.error("Error: HMAC JWT secret reference is unavailable")
-            _sys.exit(1)
-    else:
-        public_key = public_key_pem
+def _resolve_jwt_secret_or_key(
+    args: argparse.Namespace, algorithm: str | None, public_key_pem: str | None
+) -> Any:
+    if not (algorithm and algorithm.startswith("HS")):
+        return public_key_pem
+    secret_ref = str(getattr(args, "token_secret_ref", "") or "").strip()
+    if not secret_ref:
+        logger.error("Error: HMAC JWT verification requires --token-secret-ref")
+        sys.exit(1)
+    try:
+        from agent_utilities.security.secrets_client import create_secrets_client
 
-    required_scopes = None
-    if args.required_scopes:
-        required_scopes = [
-            s.strip() for s in args.required_scopes.split(",") if s.strip()
-        ]
+        public_key = create_secrets_client().resolve_ref(secret_ref)
+        if not isinstance(public_key, str) or len(public_key.encode()) < 32:
+            raise ValueError("weak secret")
+    except Exception:
+        logger.error("Error: HMAC JWT secret reference is unavailable")
+        sys.exit(1)
+    return public_key
 
-    # CONCEPT:AU-OS.identity.native-multi-realm-jwt — native multi-realm JWT trust. FASTMCP_SERVER_AUTH_JWT_ISSUER and
-    # _JWKS_URI may each be a comma-separated, aligned-by-index list (one Keycloak realm per
-    # entry). FastMCP's JWTVerifier accepts an issuer list but only a SINGLE jwks_uri (one
-    # realm's signing keys), so during a realm migration the fleet must trust two realms'
-    # signing keys at once. Build one JWTVerifier per realm and accept a token if ANY verifies
-    # it — enabling a zero-downtime issuer cutover (add new realm → flip the minter → drop the
-    # old realm) with no signature gap and no auth lock-out window. A single value (the common
-    # case) falls through unchanged to the single-verifier path below.
-    _issuers = (
-        [s.strip() for s in str(issuer).split(",") if s.strip()] if issuer else []
-    )
-    _jwks_uris = (
-        [s.strip() for s in str(jwks_uri).split(",") if s.strip()] if jwks_uri else []
-    )
-    if len(_jwks_uris) > 1 or len(_issuers) > 1:
-        if len(_jwks_uris) != len(_issuers):
-            logger.error(
-                "Multi-realm JWT auth requires FASTMCP_SERVER_AUTH_JWT_ISSUER and "
-                "FASTMCP_SERVER_AUTH_JWT_JWKS_URI to be comma-separated lists of EQUAL length "
-                "(one entry per realm, aligned by index)."
-            )
-            _sys.exit(1)
-        from fastmcp.server.auth import TokenVerifier
 
-        class _MultiIssuerVerifier(TokenVerifier):
-            """Accept a JWT validated by ANY wrapped per-realm JWTVerifier (CONCEPT:AU-OS.identity.native-multi-realm-jwt)."""
+def _parse_required_scopes(args: argparse.Namespace) -> list[str] | None:
+    if not args.required_scopes:
+        return None
+    return _split_csv(args.required_scopes)
 
-            def __init__(self, verifiers: list, *, required_scopes: Any = None) -> None:
-                super().__init__(required_scopes=required_scopes)
-                self._verifiers = list(verifiers)
 
-            async def verify_token(self, token: str) -> Any:
-                for _v in self._verifiers:
-                    try:
-                        _result = await _v.verify_token(token)
-                    except Exception:  # noqa: BLE001 - try the next realm
-                        _result = None
-                    if _result is not None:
-                        return _result
-                return None
+def _build_multi_realm_verifiers(
+    jwks_uris: list[str],
+    issuers: list[str],
+    audience: str | None,
+    algorithm: str | None,
+    required_scopes: list[str] | None,
+) -> list[Any]:
+    return [
+        _hardened_jwt_verifier(
+            jwks_uri=u,
+            issuer=i,
+            audience=audience,
+            algorithm=algorithm or "RS256",
+            required_scopes=required_scopes,
+        )
+        for u, i in zip(jwks_uris, issuers, strict=False)
+    ]
 
-        try:
-            _verifiers = [
-                _hardened_jwt_verifier(
-                    jwks_uri=_u,
-                    issuer=_i,
-                    audience=audience,
-                    algorithm=algorithm or "RS256",
-                    required_scopes=required_scopes,
-                )
-                for _u, _i in zip(_jwks_uris, _issuers, strict=False)
-            ]
-            logger.info("JWT auth: native multi-issuer trust configured")
-            return _wrap_with_resource_metadata(
-                _MultiIssuerVerifier(_verifiers, required_scopes=required_scopes),
-                args,
-                _issuers,
-            )
-        except Exception as exc:
-            logger.error(
-                "Failed to initialize multi-realm JWTVerifier (exception_type=%s)",
-                type(exc).__name__,
-            )
-            _sys.exit(1)
 
+def _configure_multi_realm_jwt(
+    jwks_uris: list[str],
+    issuers: list[str],
+    audience: str | None,
+    algorithm: str | None,
+    required_scopes: list[str] | None,
+    args: argparse.Namespace,
+) -> Any:
+    """CONCEPT:AU-OS.identity.native-multi-realm-jwt -- native multi-realm
+    JWT trust. FASTMCP_SERVER_AUTH_JWT_ISSUER and _JWKS_URI may each be a
+    comma-separated, aligned-by-index list (one Keycloak realm per entry).
+    FastMCP's JWTVerifier accepts an issuer list but only a SINGLE
+    jwks_uri (one realm's signing keys), so during a realm migration the
+    fleet must trust two realms' signing keys at once. Build one
+    JWTVerifier per realm and accept a token if ANY verifies it --
+    enabling a zero-downtime issuer cutover (add new realm -> flip the
+    minter -> drop the old realm) with no signature gap and no auth
+    lock-out window."""
+    if len(jwks_uris) != len(issuers):
+        logger.error(
+            "Multi-realm JWT auth requires FASTMCP_SERVER_AUTH_JWT_ISSUER and "
+            "FASTMCP_SERVER_AUTH_JWT_JWKS_URI to be comma-separated lists of EQUAL length "
+            "(one entry per realm, aligned by index)."
+        )
+        sys.exit(1)
+
+    from fastmcp.server.auth import TokenVerifier
+
+    class _MultiIssuerVerifier(TokenVerifier):
+        """Accept a JWT validated by ANY wrapped per-realm JWTVerifier (CONCEPT:AU-OS.identity.native-multi-realm-jwt)."""
+
+        def __init__(self, verifiers: list, *, required_scopes: Any = None) -> None:
+            super().__init__(required_scopes=required_scopes)
+            self._verifiers = list(verifiers)
+
+        async def verify_token(self, token: str) -> Any:
+            for _v in self._verifiers:
+                try:
+                    _result = await _v.verify_token(token)
+                except Exception:  # noqa: BLE001 - try the next realm
+                    _result = None
+                if _result is not None:
+                    return _result
+            return None
+
+    try:
+        verifiers = _build_multi_realm_verifiers(
+            jwks_uris, issuers, audience, algorithm, required_scopes
+        )
+        logger.info("JWT auth: native multi-issuer trust configured")
+        return _wrap_with_resource_metadata(
+            _MultiIssuerVerifier(verifiers, required_scopes=required_scopes),
+            args,
+            issuers,
+        )
+    except Exception as exc:
+        logger.error(
+            "Failed to initialize multi-realm JWTVerifier (exception_type=%s)",
+            type(exc).__name__,
+        )
+        sys.exit(1)
+
+
+def _configure_single_realm_jwt(
+    jwks_uri: str | None,
+    public_key: Any,
+    issuer: str,
+    audience: str | None,
+    algorithm: str | None,
+    required_scopes: list[str] | None,
+    args: argparse.Namespace,
+    issuer_values: list[str],
+) -> Any:
     try:
         verifier = _hardened_jwt_verifier(
             jwks_uri=jwks_uri,
@@ -1441,7 +1582,40 @@ def _configure_jwt_auth(args: argparse.Namespace) -> Any:
             "Failed to initialize JWTVerifier (exception_type=%s)",
             type(exc).__name__,
         )
-        _sys.exit(1)
+        sys.exit(1)
+
+
+def _configure_jwt_auth(args: argparse.Namespace) -> Any:
+    """Configure JWT authentication from CLI args."""
+    jwks_uri, issuer, audience, algorithm, secret_or_key = _resolve_jwt_basic_params(
+        args
+    )
+    jwks_uri = _maybe_discover_jwks(jwks_uri, secret_or_key, args, issuer)
+    _validate_jwt_key_material_present(jwks_uri, secret_or_key, args)
+    _validate_jwt_issuer_audience_present(issuer, audience)
+    _validate_jwt_audience_format(audience)
+    issuer, jwks_uri, issuer_values = _normalize_jwt_issuer_and_jwks(issuer, jwks_uri)
+
+    public_key_pem = _resolve_jwt_public_key_pem(args)
+    public_key = _resolve_jwt_secret_or_key(args, algorithm, public_key_pem)
+    required_scopes = _parse_required_scopes(args)
+
+    issuers = _split_csv(str(issuer)) if issuer else []
+    jwks_uris = _split_csv(str(jwks_uri)) if jwks_uri else []
+    if len(jwks_uris) > 1 or len(issuers) > 1:
+        return _configure_multi_realm_jwt(
+            jwks_uris, issuers, audience, algorithm, required_scopes, args
+        )
+    return _configure_single_realm_jwt(
+        jwks_uri,
+        public_key,
+        issuer,
+        audience,
+        algorithm,
+        required_scopes,
+        args,
+        issuer_values,
+    )
 
 
 def _rate_limit_client_id(context: Any) -> str:
