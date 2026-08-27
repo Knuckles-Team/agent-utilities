@@ -1,0 +1,13 @@
+# CX program — cccc thresholds for agent-utilities.
+#
+# ═══ NOT A BASELINE. ═══════════════════════════════════════════════════════
+# These are cccc's OWN documented values, adopted as this program's gold
+# standard by the owner. Neither was derived from what this repo currently
+# passes -- the repo is a long way from passing them, and that is the point.
+#
+# ⚠ cccc ships NO compiled-in threshold: max-cognitive and max-cyclomatic are
+#   Option<u32>, and UNSET MEANS NO GATING AT ALL. Omitting them here would be a
+#   silently vacuous gate -- the same failure class as every other instrument
+#   defect this program has found. They must be stated.
+max-cyclomatic = 10   # McCabe's limit; NIST SP 500-235 adopts it
+max-cognitive  = 15   # SonarSource / G. Ann Campbell
