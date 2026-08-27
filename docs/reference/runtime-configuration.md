@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-572 typed fields · 372 runtime-only call-site inputs.
+572 typed fields · 378 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -1000,6 +1000,12 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `OPENAPI_USERNAME` | 1 |
 | `OPENMAINT_TOKEN` | 1 |
 | `OPENMAINT_URL` | 1 |
+| `OPENSEARCH_CA_CERTS` | 1 |
+| `OPENSEARCH_PASSWORD` | 1 |
+| `OPENSEARCH_TIMEOUT_S` | 1 |
+| `OPENSEARCH_URL` | 1 |
+| `OPENSEARCH_USER` | 1 |
+| `OPENSEARCH_VERIFY_CERTS` | 1 |
 | `OTEL_EXPORTER_OTLP_HEADERS` | 2 |
 | `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | 1 |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | 1 |

@@ -181,6 +181,14 @@ feeds = [
 kafka = [
     "aiokafka>=0.14.0"
 ]
+# CONCEPT:AU-KG.search.opensearch-cdc-indexer (CA-24, DEC-CA-09) — the search-tier
+# client. Optional so the base install stays light; `knowledge_graph/search/client.py`
+# import-guards it (mirrors `kafka_adapter.py`'s aiokafka optionality) — absent, only
+# constructing a LIVE connection fails, not the module import or the unit-test suite
+# (which runs against an injected fixture/mock client).
+opensearch = [
+    "opensearch-py>=2.6.0"
+]
 # CONCEPT:OS-5.23 — Python-tier gateway Prometheus metrics. Optional so the
 # base install stays light; without it every gateway metric degrades to a
 # no-op and GET /metrics returns a placeholder.
