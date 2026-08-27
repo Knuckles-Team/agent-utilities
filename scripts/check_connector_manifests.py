@@ -51,7 +51,13 @@ def _load(path: Path) -> ConnectorManifest:
     return ConnectorManifest.model_validate(data)
 
 
-def check_one(path: Path, *, verbose: bool = False) -> list[str]:
+def check_one(
+    path: Path,
+    *,
+    verbose: bool = False,
+    check_actions: bool = False,
+    agents_root: Path | None = None,
+) -> list[str]:
     del verbose
     label = f"{path.parent.name}/connector_manifest.yml"
     # In-repo artifacts are no longer signature-verified (see the
@@ -68,7 +74,22 @@ def check_one(path: Path, *, verbose: bool = False) -> list[str]:
     # Known, accepted gap: the signature covered the whole document, including
     # the `sync` preset/tool-schema block, which the ontology hash does not.
     # Tampering there is now caught by review of the commit, not by this gate.
-    violations = check_manifest_bytes(path, require_signature=False)
+    #
+    # `check_actions` (CA-32/DEC-CA-07, off by default) additionally requires
+    # every explicitly mutating-tagged MCP tool in this package to be declared
+    # in `actions[]`. Left off the default sweep because 8 of the 72 shipped
+    # packages (audio-transcriber, container-manager-mcp, lakekeeper-mcp,
+    # microsoft-agent, opensearch-mcp, spark-mcp, systems-manager,
+    # tunnel-manager — CA-32-W01 fleet audit) already have this real,
+    # pre-existing gap; closing it is a fleet-wide sweep out of THIS lane's
+    # scope. `--check-actions` makes the rule runnable today for anyone
+    # auditing the fleet (or CA-40..46's own CI, which starts clean).
+    violations = check_manifest_bytes(
+        path,
+        require_signature=False,
+        require_declared_actions=check_actions,
+        agents_root=agents_root,
+    )
 
     try:
         manifest = _load(path)
@@ -102,6 +123,17 @@ def main() -> int:
         help="sweep every agents/*/connector_manifest.yml under this root",
     )
     ap.add_argument("-v", "--verbose", action="store_true")
+    ap.add_argument(
+        "--check-actions",
+        action="store_true",
+        help=(
+            "additionally require every explicitly mutating-tagged MCP tool "
+            "(tags={'mutating'}, or an annotations={'destructiveHint': True}/"
+            "{'readOnlyHint': False}) to be declared in actions[] (CA-32/"
+            "DEC-CA-07). Off by default -- 8 shipped packages have this "
+            "pre-existing, out-of-lane-scope gap today; see check_one()."
+        ),
+    )
     args = ap.parse_args()
 
     paths: list[Path] = list(args.manifest or [])
@@ -115,7 +147,14 @@ def main() -> int:
 
     all_violations: list[str] = []
     for p in paths:
-        all_violations.extend(check_one(p, verbose=args.verbose))
+        all_violations.extend(
+            check_one(
+                p,
+                verbose=args.verbose,
+                check_actions=args.check_actions,
+                agents_root=args.agents_root,
+            )
+        )
 
     if all_violations:
         print(f"check_connector_manifests: {len(all_violations)} violation(s):")

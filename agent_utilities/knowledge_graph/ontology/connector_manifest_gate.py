@@ -40,6 +40,7 @@ __all__ = [
     "resolve_connector_package",
     "find_connector_manifest",
     "check_manifest_bytes",
+    "undeclared_mutating_tools",
     "precheck_source",
     "manifest_required",
     "required_connector_sources",
@@ -712,8 +713,37 @@ def check_manifest_bytes(
     require_signature: bool = False,
     require_release_pin: bool = False,
     require_provider: bool = False,
+    require_declared_actions: bool = False,
+    agents_root: Path | None = None,
 ) -> list[str]:
     """Compile + integrity-check one manifest file; returns violations (empty = OK).
+
+    ``agents_root`` (CA-32) is used ONLY by ``require_declared_actions``'s tool
+    discovery (:func:`undeclared_mutating_tools`) — ``path`` itself may be a
+    bundled in-repo manifest copy with no source tree next to it, so the
+    package's real source root cannot be inferred from ``path`` alone.
+    ``None`` (default) resolves via :func:`resolve_agents_root`.
+
+    ``require_declared_actions`` (CA-32/DEC-CA-07, off by default) additionally
+    runs :func:`undeclared_mutating_tools` against the manifest's own
+    ``agents/<pkg>`` package and fails closed if any of its tools carry an
+    explicit mutating signal (a ``{"mutating"}`` tag or a ``destructiveHint``/
+    ``readOnlyHint`` annotation) with no matching ``actions[].id``. Off by
+    default because it is a NEW invariant no shipped package has been swept
+    for yet (CA-32 lane Non-goals): 8 of 72 packages already tag a tool
+    mutating (a real, live ``annotations={"readOnlyHint": False, ...}``, not a
+    hypothetical signal — CA-32-W01 fleet audit, re-measured against the live
+    fleet) without declaring it in ``actions:``, so turning this on
+    unconditionally today would correctly, but out-of-lane-scope, fail those
+    8 (``audio-transcriber``, ``container-manager-mcp``, ``lakekeeper-mcp``,
+    ``microsoft-agent``, ``opensearch-mcp``, ``spark-mcp``,
+    ``systems-manager``, ``tunnel-manager``). The static scan only recognizes
+    ``@mcp.tool(...)`` decorator syntax, not a ``mcp.tool(...)(func)``
+    call-registration pattern (one further, known false-negative — e.g.
+    ``genius-agent`` registers a mutating tool that way and is invisible to
+    this scan); this rule is a best-effort signal, not an exhaustive one.
+    Callers that want it enforced (CA-40..46's own CI, which starts clean, or
+    a future fleet-wide sweep of the rest) opt in explicitly.
 
     Shares the exact compile/hash path :mod:`scripts.check_connector_manifests` uses
     (kept in sync deliberately — this is the ``source_sync``-side twin of that CLI
@@ -743,6 +773,8 @@ def check_manifest_bytes(
         require_signature=require_signature,
         require_release_pin=require_release_pin,
         require_provider=require_provider,
+        require_declared_actions=require_declared_actions,
+        agents_root=agents_root,
     )
 
 
@@ -1089,12 +1121,179 @@ def _provider_violations(manifest: Any, *, path: Path, label: str) -> list[str]:
     return violations
 
 
+# ── CA-32 / DEC-CA-07: undeclared-mutating-tool gate rule ──────────────────
+#
+# 2026-08-26 fleet audit (CA-32-W01, re-measured against the live fleet
+# post-rebase): most ``agents/<pkg>`` tool registrations only pass a
+# domain-grouping ``tags={"documents"}``-style set, but the signal this rule
+# looks for is REAL and already live in the fleet — e.g.
+# ``audio-transcriber``'s ``transcribe_audio``/``transcribe_media`` and seven
+# other packages already pass a standard MCP ``annotations={"readOnlyHint":
+# False, ...}``/``{"destructiveHint": True}`` (8/72 packages, 0 using a
+# ``{"mutating"}`` tag, as measured: ``audio-transcriber``,
+# ``container-manager-mcp``, ``lakekeeper-mcp``, ``microsoft-agent``,
+# ``opensearch-mcp``, ``spark-mcp``, ``systems-manager``, ``tunnel-manager``).
+# None of those 8 packages' ``connector_manifest.yml`` declares those tools
+# under ``actions:`` today (the block holds only the generic a2a-capability
+# pair, CA-32-W01) — a real, correct violation this rule WOULD raise the
+# moment it runs, not a false positive. It stays fail-OPEN-by-default (see
+# ``require_declared_actions`` below) precisely because retroactively fixing
+# those 8 (or the other 64 packages' undeclared CRUD actions) is a fleet-wide
+# sweep out of THIS lane's scope (CA-32 lane file Non-goals: "Editing any
+# package's manifest") — CA-40..46 opt new packages into it from day one
+# instead (DEC-CA-07 "Consequences"). The scan is decorator-only (see the
+# ``require_declared_actions`` docstring above); a package that registers
+# tools via ``mcp.tool(...)(func)`` call syntax instead of ``@mcp.tool(...)``
+# is a further, known false-negative (e.g. ``genius-agent``).
+#
+# Static/AST only, deliberately mirroring how ``scripts/gen_mcp_fleet_registry.
+# discover()`` already reads a sibling connector's source text without
+# importing it: connector packages are separate repos/venvs this package does
+# not install.
+_MUTATING_TOOL_TAG = "mutating"
+
+
+def _mcp_tool_decorator_call(node: ast.expr) -> ast.Call | None:
+    """``node`` itself, narrowed to :class:`ast.Call`, when it is a decorator
+    call shaped like ``<anything>.tool(...)`` — else ``None``.
+
+    Returns the narrowed node (not a bare bool) so callers can access
+    ``.keywords`` on the result without re-asserting ``isinstance`` — mypy
+    cannot narrow a caller's variable from a helper's boolean return alone.
+    """
+    if not isinstance(node, ast.Call):
+        return None
+    func = node.func
+    if (isinstance(func, ast.Attribute) and func.attr == "tool") or (
+        isinstance(func, ast.Name) and func.id == "tool"
+    ):
+        return node
+    return None
+
+
+def _literal_set_contains(node: ast.expr | None, target: str) -> bool:
+    if not isinstance(node, (ast.Set, ast.List, ast.Tuple)):
+        return False
+    return any(
+        isinstance(elt, ast.Constant) and elt.value == target for elt in node.elts
+    )
+
+
+def _bool_constant(node: ast.expr | None, *, expected: bool) -> bool:
+    return isinstance(node, ast.Constant) and node.value is expected
+
+
+def _annotations_mark_mutating(node: ast.expr | None) -> bool:
+    """``annotations={"destructiveHint": True}`` / ``{"readOnlyHint": False}``,
+    as either a dict literal or a ``ToolAnnotations(...)`` call — both are
+    valid ``fastmcp`` ``@mcp.tool(annotations=...)`` shapes."""
+    pairs: list[tuple[str, ast.expr]] = []
+    if isinstance(node, ast.Dict):
+        pairs = [
+            (key.value, value)
+            for key, value in zip(node.keys, node.values, strict=False)
+            if isinstance(key, ast.Constant) and isinstance(key.value, str)
+        ]
+    elif isinstance(node, ast.Call):
+        pairs = [(kw.arg, kw.value) for kw in node.keywords if kw.arg]
+    for name, value in pairs:
+        if name == "destructiveHint" and _bool_constant(value, expected=True):
+            return True
+        if name == "readOnlyHint" and _bool_constant(value, expected=False):
+            return True
+    return False
+
+
+def _is_explicitly_mutating_tool(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> bool:
+    for decorator in node.decorator_list:
+        call = _mcp_tool_decorator_call(decorator)
+        if call is None:
+            continue
+        for kw in call.keywords:
+            if kw.arg == "tags" and _literal_set_contains(kw.value, _MUTATING_TOOL_TAG):
+                return True
+            if kw.arg == "annotations" and _annotations_mark_mutating(kw.value):
+                return True
+    return False
+
+
+_TOOL_SCAN_EXCLUDED_DIR_NAMES = frozenset(
+    {".venv", "venv", "tests", "test", "build", "dist", "__pycache__", ".git"}
+)
+
+
+def undeclared_mutating_tools(
+    pkg: str,
+    *,
+    agents_root: Path | None = None,
+    manifest: Any = None,
+) -> list[str]:
+    """Names of ``pkg``'s own explicitly-mutating-tagged MCP tools that are
+    NOT declared in ``manifest.actions[].id`` (DEC-CA-07).
+
+    Static AST scan of every ``*.py`` file under ``agents_root/pkg`` (never a
+    live import — see the module comment above this function). Returns ``[]``
+    when the package directory or the manifest is absent, or when nothing in
+    it is explicitly tagged/annotated mutating — the fail-open-on-no-signal
+    half of the contract.
+    """
+    root = agents_root if agents_root is not None else resolve_agents_root()
+    pkg_root = root / pkg
+    if not pkg_root.is_dir():
+        return []
+    declared = {str(action.id) for action in (getattr(manifest, "actions", None) or ())}
+    mutating: set[str] = set()
+    for path in sorted(pkg_root.rglob("*.py")):
+        if _TOOL_SCAN_EXCLUDED_DIR_NAMES.intersection(path.parts):
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except (SyntaxError, UnicodeDecodeError, OSError):
+            continue
+        for candidate in ast.walk(tree):
+            if isinstance(
+                candidate, (ast.FunctionDef, ast.AsyncFunctionDef)
+            ) and _is_explicitly_mutating_tool(candidate):
+                mutating.add(candidate.name)
+    return sorted(mutating - declared)
+
+
+def _undeclared_action_violations(
+    manifest: Any, *, path: Path, label: str, agents_root: Path | None = None
+) -> list[str]:
+    """Note: ``path`` is deliberately NOT used to infer the source tree here.
+
+    ``path`` may be a live ``agents/<pkg>/connector_manifest.yml`` OR a
+    bundled in-repo copy under :func:`bundled_manifests_root` (no source, YAML
+    only) — ``path.parent.parent`` is only correct for the former. Tool
+    discovery always needs the package's real source, so this defers to
+    :func:`undeclared_mutating_tools`'s own :func:`resolve_agents_root`
+    default (or an explicit override) keyed on ``manifest.connector`` instead.
+    """
+    undeclared = undeclared_mutating_tools(
+        manifest.connector, agents_root=agents_root, manifest=manifest
+    )
+    if not undeclared:
+        return []
+    names = ", ".join(repr(name) for name in undeclared)
+    return [
+        f"[actions] {label}: tool(s) {names} are registered with an explicit "
+        "mutating signal (tags={'mutating'} or annotations={'destructiveHint': "
+        "True}/{'readOnlyHint': False}) but not declared in actions[] — add "
+        "an ActionSpec with a matching id (DEC-CA-07)."
+    ]
+
+
 def _check_manifest_bytes(
     path: Path,
     *,
     require_signature: bool = False,
     require_release_pin: bool = False,
     require_provider: bool = False,
+    require_declared_actions: bool = False,
+    agents_root: Path | None = None,
 ) -> list[str]:
     """Implementation shared by runtime and direct hash-only callers."""
     import yaml
@@ -1168,6 +1367,12 @@ def _check_manifest_bytes(
         )
     if require_provider:
         violations.extend(_provider_violations(manifest, path=path, label=label))
+    if require_declared_actions:
+        violations.extend(
+            _undeclared_action_violations(
+                manifest, path=path, label=label, agents_root=agents_root
+            )
+        )
     return violations
 
 

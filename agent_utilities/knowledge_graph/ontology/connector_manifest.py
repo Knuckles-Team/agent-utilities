@@ -19,9 +19,9 @@ documented heuristic default flagged in ``review_todos`` for human/LLM follow-up
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .leanix_metamodel import _XSD as XSD_TYPES
 
@@ -43,6 +43,7 @@ __all__ = [
     "ResourceRelation",
     "SchemaMapping",
     "ResourceSpec",
+    "ActionParameterSpec",
     "ActionSpec",
     "EventSpec",
     "IdentitySpec",
@@ -271,14 +272,90 @@ class ResourceSpec(BaseModel):
     relations: list[ResourceRelation] = Field(default_factory=list)
 
 
+class ActionParameterSpec(BaseModel):
+    """One typed input parameter to a declared connector :class:`ActionSpec`.
+
+    Mirrors :class:`agent_utilities.knowledge_graph.actions.models.ActionParameter`'s
+    shape without importing it — this module is pure schema (module docstring:
+    "no network, no LLM"; the same reasoning extends to not importing the
+    actions/executor runtime), so the two stay independently defined and
+    intentionally kept small enough to eyeball for drift.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    type: str = "string"
+    required: bool = True
+    description: str = ""
+
+
+#: Same vocabulary as ``agent_utilities.mcp.tools.intent_tools._DESTRUCTIVE_TERMS``
+#: (the one other place this codebase classifies an action as destructive from
+#: its name) — duplicated rather than imported, again because this module must
+#: stay free of the MCP tool-surface import graph it is validated ahead of.
+_DESTRUCTIVE_ACTION_TERMS: frozenset[str] = frozenset(
+    {
+        "clear",
+        "deactivate",
+        "delete",
+        "destroy",
+        "drop",
+        "evict",
+        "invalidate",
+        "prune",
+        "purge",
+        "remove",
+        "revoke",
+        "terminate",
+        "uninstall",
+        "unref",
+        "wipe",
+    }
+)
+
+
 class ActionSpec(BaseModel):
-    """One connector action/capability (from the connector's ``a2a.json``)."""
+    """One connector action/capability (from the connector's ``a2a.json``), plus
+    the typed ``OntologyAction``/backfeed-preflight declaration DEC-CA-07 adds
+    for any action that performs a governed mutating write through a live
+    connector (CONCEPT:AU-KG.ontology.connector-typed-actions).
+
+    ``id``/``name``/``description`` are the original triad every one of the 72
+    on-disk manifests already populates (as the generic a2a-capability pair
+    ``epistemic-answer``/``run_graph_flow``, or a connector-specific capability)
+    — unchanged. Every field below is new (CA-32/DEC-CA-07), optional, and
+    defaults to a value that makes an old-shape action dict parse identically
+    to before, so all 72 manifests keep validating byte-for-byte without
+    regeneration.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     id: str
     name: str = ""
     description: str = ""
+
+    # -- CA-32 / DEC-CA-07 typed-action extension (additive; all optional) --
+    label: str = ""
+    parameters: list[ActionParameterSpec] = Field(default_factory=list)
+    target_resource: str | None = None
+    """A ``resources[].name`` in THIS SAME manifest that the action writes to.
+    Cross-checked by :meth:`ConnectorManifest._check_actions_resolve`; ``None``
+    (the default) opts an action out of the check entirely, matching every
+    existing a2a-capability action, which targets no single resource."""
+    conflict_policy: (
+        Literal["source_wins", "graph_derived", "manual_review", "reject"] | None
+    ) = None
+    requires_approval: bool = True
+    """Fail-closed default (DEC-CA-07 "Authority, security, and failure
+    semantics"): a manifest cannot make an action auto-approved by omission.
+    :meth:`ConnectorManifest._check_actions_resolve` additionally refuses
+    ``requires_approval: false`` on an action whose id/name contains a
+    :data:`_DESTRUCTIVE_ACTION_TERMS` word — an explicit opt-out still isn't
+    enough for something that looks destructive by name."""
+    approval_class: str = "unclassified"
+    effects: list[str] = Field(default_factory=list)
 
 
 class EventSpec(BaseModel):
@@ -413,3 +490,43 @@ class ConnectorManifest(BaseModel):
     def resolved_ontology_source(self) -> str:
         """The ontology IRI/ttl-naming slug: ``ontology_source`` if set, else ``connector``."""
         return self.ontology_source or self.connector
+
+    @model_validator(mode="after")
+    def _check_actions_resolve(self) -> ConnectorManifest:
+        """DEC-CA-07 cross-field invariants over ``actions:`` (CA-32).
+
+        Both rules are no-ops for every field left at its default, so a
+        manifest that predates this lane — every action stops at
+        ``id``/``name``/``description`` — always passes trivially; this only
+        fires once a manifest actually opts into the new fields.
+        """
+        resource_names = {resource.name for resource in self.resources}
+        for action in self.actions:
+            if (
+                action.target_resource is not None
+                and action.target_resource not in resource_names
+            ):
+                raise ValueError(
+                    f"action {action.id!r} target_resource "
+                    f"{action.target_resource!r} does not name a resources[]."
+                    "name in this manifest"
+                )
+            if action.requires_approval is False:
+                import re
+
+                # Word-split on any non-alphanumeric run so "epistemic-answer",
+                # "run graph flow", and "delete_widget" all tokenize the same
+                # way as a single-word connector action id.
+                words = set(
+                    re.findall(r"[a-z0-9]+", f"{action.id} {action.name}".lower())
+                )
+                hit = words & _DESTRUCTIVE_ACTION_TERMS
+                if hit:
+                    raise ValueError(
+                        f"action {action.id!r} sets requires_approval: false "
+                        f"but its id/name contains destructive-looking term(s) "
+                        f"{sorted(hit)!r} — DEC-CA-07 requires an explicit "
+                        "approval_class review for a destructive action, not "
+                        "a bare opt-out"
+                    )
+        return self

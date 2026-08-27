@@ -252,6 +252,12 @@ parents:
     parent: AU-KG.ontology.classification-claim-multi-category
     rationale: same cluster head document (kgo-classification-claim-multi-category) covers the promotion
       FSM as Decision 3 — one design, three markers on the same module.
+  AU-KG.ontology.connector-typed-actions:
+    parent: AU-KG.ontology.connector-manifest-schema
+    rationale: Extends the SAME ActionSpec/actions field the parent's design document
+      (.specify/design/kgo-e1-connector-manifest-schema/design.md) already covers, adding
+      DEC-CA-07's parameters/target_resource/conflict_policy/requires_approval/approval_class/effects
+      as additive optional fields on the existing manifest action declaration, not an independent schema.
   AU-KG.ontology.cross-source-identity-proposal:
     parent: AU-KG.ontology.classification-claim-multi-category
     rationale: same cluster head document (kgo-classification-claim-multi-category) covers cross-source
