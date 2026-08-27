@@ -512,38 +512,284 @@ def set_active_backend(backend):
     _ACTIVE_BACKEND = backend
 
 
-def create_backend(
-    backend_type: str | None = None,
-    db_path: str | None = None,
-    host: str | None = None,
-    port: int | None = None,
-    uri: str | None = None,
-    user: str | None = None,
-    password: str | None = None,
-    db_name: str | None = None,
-    connection_profile_ref: str | None = None,
-    **kwargs,
+def _create_default_tier_backend(
+    backend_type: str, db_path: str | None, kwargs: dict
 ):
-    """Factory function to create the appropriate graph backend.
+    """memory/file/epistemic_graph -> the zero-dependency Rust-native backend."""
+    from .epistemic_graph_backend import EpistemicGraphBackend
 
-    With no explicit backend type this is the current operational construction:
-    the epistemic-graph engine is always the authority, and configured external
-    projections are attached automatically. Explicit backend types are reserved
-    for connection-registry source adapters, projection construction, and focused
-    backend tests; they do not alter GraphOS authority.
+    backend = EpistemicGraphBackend()
+    if backend_type == "file":
+        resolved_path = db_path or kwargs.get("json_path")
+        if resolved_path and os.path.exists(resolved_path):
+            try:
+                backend.load_from_json(resolved_path)
+            except Exception as e:  # pragma: no cover - best-effort load  # noqa: BLE001 — best-effort preload of a pre-existing on-disk JSON snapshot into a freshly constructed EpistemicGraphBackend; on failure the backend is simply returned empty rather than half-loaded
+                logger.debug(
+                    f"Failed to load epistemic graph from {resolved_path}: {e}"
+                )
+    return backend
 
-    Args:
-        backend_type: Explicit external source/projection adapter type. Omit for
-            the operational epistemic-graph authority with automatic mirrors.
-        connection_profile_ref: Runtime secret reference resolving to a JSON
-            object containing the backend's transport fields.
 
-    Returns:
-        A configured ``GraphBackend`` instance, or ``None`` if the requested
-        backend is not available (e.g., ladybug package not installed).
-    """
+def _create_ladybug_backend(db_path: str | None):
+    from .contrib.ladybug_backend import LADYBUG_AVAILABLE, LadybugBackend
+
+    if not LADYBUG_AVAILABLE:
+        logger.warning(
+            "LadybugDB requested but 'ladybug' package is not installed."
+        )
+        return None
+    # Use centralized XDG-aware path resolver
+    if db_path:
+        resolved_path = db_path
+    else:
+        from agent_utilities.core.paths import kg_db_path
+
+        resolved = kg_db_path()
+        # Ensure parent directory exists for XDG paths
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        resolved_path = str(resolved)
+    backend = LadybugBackend(resolved_path)
+    return backend
+
+
+def _create_falkordb_backend(host, port, db_name, kwargs):
+    from .contrib.falkordb_backend import DEFAULT_GRAPH_KEY, FalkorDBBackend
+
+    if host is None or port is None or db_name is None:
+        raise ValueError("FalkorDB requires a complete connection profile")
+    resolved_host = host
+    resolved_port = port
+    resolved_name = db_name
+    backend = FalkorDBBackend(
+        host=resolved_host,
+        port=resolved_port,
+        db_name=resolved_name,
+        mirror_target=_resolve_mirror_target(
+            kwargs,
+            backend_type="falkordb",
+            named_selector=resolved_name,
+            default_name=DEFAULT_GRAPH_KEY,
+        ),
+    )
+    return backend
+
+
+def _create_neo4j_backend(uri, user, password, db_name, kwargs):
+    from .contrib.neo4j_backend import Neo4jBackend
+
+    if uri is None or user is None or password is None:
+        raise ValueError("Neo4j requires a complete connection profile")
+    resolved_uri = uri
+    resolved_user = user
+    resolved_password = password
+    neo4j_database = kwargs.get("database") or db_name or None
+    backend = Neo4jBackend(
+        uri=resolved_uri,
+        user=resolved_user,
+        password=resolved_password,
+        database=neo4j_database,
+        # Neo4j's isolation unit is a database; ``None`` above is the
+        # driver's home database, i.e. the instance default.
+        mirror_target=_resolve_mirror_target(
+            kwargs,
+            backend_type="neo4j",
+            named_selector=neo4j_database,
+        ),
+        tls_profile=kwargs.get("tls_profile"),
+        tls_profile_ref=kwargs.get("tls_profile_ref"),
+        tls_profile_config=kwargs.get("tls_profile_config"),
+        profile_resolver=kwargs.get("profile_resolver"),
+        connection_timeout=kwargs.get("connection_timeout"),
+        max_connection_pool_size=kwargs.get("max_connection_pool_size"),
+    )
+    return backend
+
+
+def _create_postgresql_backend(backend_type: str, uri, db_name, kwargs):
+    # GRAPH_PG_AGE=1 (or backend_type age/pggraph_age) selects the Apache AGE
+    # backend — real openCypher-on-Postgres — over the regex-transpiler
+    # PostgreSQLBackend. Both share the same DSN/pool config.
+    _use_age = backend_type in ("age", "pggraph_age") or setting(
+        "GRAPH_PG_AGE", ""
+    ).lower() in ("1", "true", "yes")
+    from .postgresql_backend import PostgreSQLBackend
+
+    _PGBackend: type[PostgreSQLBackend]
+    if _use_age:
+        from .age_backend import AGEBackend
+
+        _PGBackend = AGEBackend  # AGEBackend subclasses PostgreSQLBackend
+    else:
+        _PGBackend = PostgreSQLBackend
+
+    if uri is None or db_name is None:
+        raise ValueError("PostgreSQL/AGE requires a complete connection profile")
+    resolved_uri = uri
+    resolved_name = db_name
+    pool_min = _PG_POOL_MIN
+    pool_max = _PG_POOL_MAX
+    pggraph_schema = setting("GRAPH_PGGRAPH_SCHEMA", "public")
+    from .postgresql_backend import DEFAULT_GRAPH_NAME
+
+    backend = _PGBackend(
+        dsn=resolved_uri,
+        graph_name=resolved_name,
+        pool_min=pool_min,
+        pool_max=pool_max,
+        pggraph_schema=pggraph_schema,
+        # AGE's isolation unit is the AGE graph named here.
+        mirror_target=_resolve_mirror_target(
+            kwargs,
+            backend_type=backend_type,
+            named_selector=resolved_name,
+            default_name=DEFAULT_GRAPH_NAME,
+        ),
+        tls_profile=kwargs.get("tls_profile"),
+        tls_profile_ref=kwargs.get("tls_profile_ref"),
+        tls_profile_config=kwargs.get("tls_profile_config"),
+        profile_resolver=kwargs.get("profile_resolver"),
+    )
+    return backend
+
+
+def _create_jena_fuseki_backend(kwargs):
+    from agent_utilities.core.config import config as _cfg
+
+    from .sparql.jena_fuseki_backend import JenaFusekiBackend
+
+    resolved_url = kwargs.get("jena_fuseki_url") or _cfg.kg_fuseki_endpoint
+    resolved_dataset = (
+        kwargs.get("dataset") or setting("GRAPH_FUSEKI_DATASET") or "agent_kg"
+    )
+    resolved_jena_fuseki_user = kwargs.get("username") or setting(
+        "GRAPH_FUSEKI_USER"
+    )
+    backend = JenaFusekiBackend(
+        jena_fuseki_url=resolved_url,
+        dataset=resolved_dataset,
+        username=resolved_jena_fuseki_user,
+        password_ref=(kwargs.get("password_ref") or _cfg.graph_fuseki_password_ref),
+    )
+    return backend
+
+
+def _create_fanout_backend():
+    # Concurrent N-way projection (CONCEPT:AU-KG.backend.mirror-health-repair):
+    # EpistemicGraphBackend is fixed as the read/write-ack authority. External
+    # connections are write projections with durable replay and reconciliation.
+    from .fanout_backend import FanOutBackend
+
+    # Never mirror the configured authority connection onto itself — the
+    # module-level ``_build_mirror_set`` already accepts a ``skip_names``
+    # seam for exactly this (CONCEPT:AU-KG.backend.mirror-health-repair).
+    # NOTE: the old authority-selector configuration key is retired
+    # (rejected by AgentConfig — see ``_RETIRED_CONFIGURATION_KEYS``) and
+    # AgentConfig no longer exposes an authority-selecting field: the
+    # fanout authority is fixed as EpistemicGraphBackend, so there is no
+    # selector left to resolve here.
+    authority_name = "epistemic_graph"
+    mirrors = _build_mirror_set(skip_names=(authority_name,))
+
+    if not mirrors:
+        from .epistemic_graph_backend import EpistemicGraphBackend
+
+        backend = EpistemicGraphBackend()
+    else:
+        from agent_utilities.core.paths import kg_db_path
+
+        outbox_path = str(kg_db_path().parent / "graph_mirror_outbox.db")
+        backend = FanOutBackend(mirrors, outbox_path=outbox_path)
+    return backend
+
+
+def _create_stardog_backend(uri, user, password, db_name, kwargs):
+    # First-class SPARQL DATA backend (push/pull/query of instance data), usable
+    # standalone, as a fan-out mirror, or an ad-hoc connection. The OWL
+    # *reasoning* backend (TBox + inference) is separate:
+    # ``create_owl_backend('stardog')``.
+    from .sparql.stardog_backend import (
+        DEFAULT_DATABASE,
+        STARDOG_LEVELS,
+        StardogSparqlBackend,
+    )
+
+    stardog_database = (
+        db_name or kwargs.get("database") or setting("STARDOG_DATABASE")
+    )
+    backend = StardogSparqlBackend(
+        endpoint=kwargs.get("endpoint") or uri or setting("STARDOG_ENDPOINT"),
+        database=stardog_database,
+        username=user or kwargs.get("username") or setting("STARDOG_USER"),
+        password=password or kwargs.get("password") or setting("STARDOG_PASSWORD"),
+        # Stardog is the two-level store: a dedicated target defaults to a
+        # named graph inside the configured database, and can name the
+        # database instead with ``{"mode": "dedicated", "level": "database"}``.
+        mirror_target=_resolve_mirror_target(
+            kwargs,
+            backend_type="stardog",
+            named_selector=stardog_database,
+            default_name=DEFAULT_DATABASE,
+            supported_levels=STARDOG_LEVELS,
+        ),
+    )
+    return backend
+
+
+def _finalize_backend(backend, *, backend_type: str, operational_authority: bool):
     global _ACTIVE_BACKEND
 
+    if backend:
+        try:
+            backend.create_schema()
+            # Run schema migrations to add any missing columns/properties
+            if (
+                backend_type == "ladybug"
+                and setting("AGENT_UTILITIES_TESTING") != "true"
+            ):
+                from ..migrations import migrate_graph
+
+                migrate_graph(backend)
+        except Exception as e:  # noqa: BLE001 — best-effort schema auto-migration on backend construction (guarded to non-testing environments above); the backend is already usable at this point, migrate_graph only adds schema conveniences on top
+            logger.debug(f"Failed to auto-initialize or migrate graph schema: {e}")
+
+        # CONCEPT:AU-KG.backend.company-brain-write-guard — wrap with the Company Brain write-path guard
+        # (provenance + source-authority arbitration) only when enforcement is
+        # on, so the default path stays byte-identical.
+        try:
+            from ..core.company_brain_runtime import brain_enforcement_enabled
+
+            if operational_authority and brain_enforcement_enabled():
+                from ..core.company_brain_runtime import get_company_brain
+                from .brain_guarded_backend import BrainGuardedBackend
+
+                backend = BrainGuardedBackend(  # type: ignore[assignment]
+                    backend, get_company_brain()
+                )
+                logger.info("Company Brain write-path guard installed")
+        except Exception as e:  # pragma: no cover - guard is best-effort
+            logger.warning("Brain guard not installed: %s", e)
+
+    if backend and operational_authority and _ACTIVE_BACKEND is None:
+        _ACTIVE_BACKEND = backend
+
+    return backend
+
+
+def _resolve_backend_request(
+    backend_type: str | None,
+    db_path: str | None,
+    host: str | None,
+    port: int | None,
+    uri: str | None,
+    user: str | None,
+    password: str | None,
+    db_name: str | None,
+    connection_profile_ref: str | None,
+    kwargs: dict,
+):
+    """Validate the operational/explicit backend request and resolve any
+    connection_profile_ref onto the individual transport fields."""
     operational_authority = backend_type is None
     explicit_transport = any(
         value is not None
@@ -585,6 +831,73 @@ def create_backend(
     if "database" in profile and "database" not in kwargs:
         kwargs["database"] = profile.pop("database")
     kwargs = {**profile, **kwargs}
+    return (
+        requested_type,
+        operational_authority,
+        db_path,
+        host,
+        port,
+        uri,
+        user,
+        password,
+        db_name,
+        kwargs,
+    )
+
+
+def create_backend(
+    backend_type: str | None = None,
+    db_path: str | None = None,
+    host: str | None = None,
+    port: int | None = None,
+    uri: str | None = None,
+    user: str | None = None,
+    password: str | None = None,
+    db_name: str | None = None,
+    connection_profile_ref: str | None = None,
+    **kwargs,
+):
+    """Factory function to create the appropriate graph backend.
+
+    With no explicit backend type this is the current operational construction:
+    the epistemic-graph engine is always the authority, and configured external
+    projections are attached automatically. Explicit backend types are reserved
+    for connection-registry source adapters, projection construction, and focused
+    backend tests; they do not alter GraphOS authority.
+
+    Args:
+        backend_type: Explicit external source/projection adapter type. Omit for
+            the operational epistemic-graph authority with automatic mirrors.
+        connection_profile_ref: Runtime secret reference resolving to a JSON
+            object containing the backend's transport fields.
+
+    Returns:
+        A configured ``GraphBackend`` instance, or ``None`` if the requested
+        backend is not available (e.g., ladybug package not installed).
+    """
+    (
+        requested_type,
+        operational_authority,
+        db_path,
+        host,
+        port,
+        uri,
+        user,
+        password,
+        db_name,
+        kwargs,
+    ) = _resolve_backend_request(
+        backend_type,
+        db_path,
+        host,
+        port,
+        uri,
+        user,
+        password,
+        db_name,
+        connection_profile_ref,
+        kwargs,
+    )
 
     # Omission is the sole operational construction path. It always enters the
     # fixed-authority branch; that branch returns the bare engine when no external
@@ -599,209 +912,30 @@ def create_backend(
     # Rust-native EpistemicGraphBackend (the config default ``GRAPH_PERSISTENCE_TYPE=file``
     # resolves here). For "file", an optional JSON path enables persistence.
     if backend_type in ("memory", "file", "epistemic_graph"):
-        from .epistemic_graph_backend import EpistemicGraphBackend
-
-        backend = EpistemicGraphBackend()
-        if backend_type == "file":
-            resolved_path = db_path or kwargs.get("json_path")
-            if resolved_path and os.path.exists(resolved_path):
-                try:
-                    backend.load_from_json(resolved_path)
-                except Exception as e:  # pragma: no cover - best-effort load  # noqa: BLE001 — best-effort preload of a pre-existing on-disk JSON snapshot into a freshly constructed EpistemicGraphBackend; on failure the backend is simply returned empty rather than half-loaded
-                    logger.debug(
-                        f"Failed to load epistemic graph from {resolved_path}: {e}"
-                    )
+        backend = _create_default_tier_backend(backend_type, db_path, kwargs)
 
     elif backend_type == "ladybug":
-        from .contrib.ladybug_backend import LADYBUG_AVAILABLE, LadybugBackend
-
-        if not LADYBUG_AVAILABLE:
-            logger.warning(
-                "LadybugDB requested but 'ladybug' package is not installed."
-            )
+        backend = _create_ladybug_backend(db_path)
+        if backend is None:
             return None
-        # Use centralized XDG-aware path resolver
-        if db_path:
-            resolved_path = db_path
-        else:
-            from agent_utilities.core.paths import kg_db_path
-
-            resolved = kg_db_path()
-            # Ensure parent directory exists for XDG paths
-            resolved.parent.mkdir(parents=True, exist_ok=True)
-            resolved_path = str(resolved)
-        backend = LadybugBackend(resolved_path)
 
     elif backend_type == "falkordb":
-        from .contrib.falkordb_backend import DEFAULT_GRAPH_KEY, FalkorDBBackend
-
-        if host is None or port is None or db_name is None:
-            raise ValueError("FalkorDB requires a complete connection profile")
-        resolved_host = host
-        resolved_port = port
-        resolved_name = db_name
-        backend = FalkorDBBackend(
-            host=resolved_host,
-            port=resolved_port,
-            db_name=resolved_name,
-            mirror_target=_resolve_mirror_target(
-                kwargs,
-                backend_type="falkordb",
-                named_selector=resolved_name,
-                default_name=DEFAULT_GRAPH_KEY,
-            ),
-        )
+        backend = _create_falkordb_backend(host, port, db_name, kwargs)
 
     elif backend_type == "neo4j":
-        from .contrib.neo4j_backend import Neo4jBackend
-
-        if uri is None or user is None or password is None:
-            raise ValueError("Neo4j requires a complete connection profile")
-        resolved_uri = uri
-        resolved_user = user
-        resolved_password = password
-        neo4j_database = kwargs.get("database") or db_name or None
-        backend = Neo4jBackend(
-            uri=resolved_uri,
-            user=resolved_user,
-            password=resolved_password,
-            database=neo4j_database,
-            # Neo4j's isolation unit is a database; ``None`` above is the
-            # driver's home database, i.e. the instance default.
-            mirror_target=_resolve_mirror_target(
-                kwargs,
-                backend_type="neo4j",
-                named_selector=neo4j_database,
-            ),
-            tls_profile=kwargs.get("tls_profile"),
-            tls_profile_ref=kwargs.get("tls_profile_ref"),
-            tls_profile_config=kwargs.get("tls_profile_config"),
-            profile_resolver=kwargs.get("profile_resolver"),
-            connection_timeout=kwargs.get("connection_timeout"),
-            max_connection_pool_size=kwargs.get("max_connection_pool_size"),
-        )
+        backend = _create_neo4j_backend(uri, user, password, db_name, kwargs)
 
     elif backend_type in ("postgresql", "age", "pggraph_age"):
-        # GRAPH_PG_AGE=1 (or backend_type age/pggraph_age) selects the Apache AGE
-        # backend — real openCypher-on-Postgres — over the regex-transpiler
-        # PostgreSQLBackend. Both share the same DSN/pool config.
-        _use_age = backend_type in ("age", "pggraph_age") or setting(
-            "GRAPH_PG_AGE", ""
-        ).lower() in ("1", "true", "yes")
-        from .postgresql_backend import PostgreSQLBackend
-
-        _PGBackend: type[PostgreSQLBackend]
-        if _use_age:
-            from .age_backend import AGEBackend
-
-            _PGBackend = AGEBackend  # AGEBackend subclasses PostgreSQLBackend
-        else:
-            _PGBackend = PostgreSQLBackend
-
-        if uri is None or db_name is None:
-            raise ValueError("PostgreSQL/AGE requires a complete connection profile")
-        resolved_uri = uri
-        resolved_name = db_name
-        pool_min = _PG_POOL_MIN
-        pool_max = _PG_POOL_MAX
-        pggraph_schema = setting("GRAPH_PGGRAPH_SCHEMA", "public")
-        from .postgresql_backend import DEFAULT_GRAPH_NAME
-
-        backend = _PGBackend(
-            dsn=resolved_uri,
-            graph_name=resolved_name,
-            pool_min=pool_min,
-            pool_max=pool_max,
-            pggraph_schema=pggraph_schema,
-            # AGE's isolation unit is the AGE graph named here.
-            mirror_target=_resolve_mirror_target(
-                kwargs,
-                backend_type=backend_type,
-                named_selector=resolved_name,
-                default_name=DEFAULT_GRAPH_NAME,
-            ),
-            tls_profile=kwargs.get("tls_profile"),
-            tls_profile_ref=kwargs.get("tls_profile_ref"),
-            tls_profile_config=kwargs.get("tls_profile_config"),
-            profile_resolver=kwargs.get("profile_resolver"),
-        )
+        backend = _create_postgresql_backend(backend_type, uri, db_name, kwargs)
 
     elif backend_type == "jena_fuseki":
-        from agent_utilities.core.config import config as _cfg
-
-        from .sparql.jena_fuseki_backend import JenaFusekiBackend
-
-        resolved_url = kwargs.get("jena_fuseki_url") or _cfg.kg_fuseki_endpoint
-        resolved_dataset = (
-            kwargs.get("dataset") or setting("GRAPH_FUSEKI_DATASET") or "agent_kg"
-        )
-        resolved_jena_fuseki_user = kwargs.get("username") or setting(
-            "GRAPH_FUSEKI_USER"
-        )
-        backend = JenaFusekiBackend(
-            jena_fuseki_url=resolved_url,
-            dataset=resolved_dataset,
-            username=resolved_jena_fuseki_user,
-            password_ref=(kwargs.get("password_ref") or _cfg.graph_fuseki_password_ref),
-        )
+        backend = _create_jena_fuseki_backend(kwargs)
 
     elif backend_type == "fanout":
-        # Concurrent N-way projection (CONCEPT:AU-KG.backend.mirror-health-repair):
-        # EpistemicGraphBackend is fixed as the read/write-ack authority. External
-        # connections are write projections with durable replay and reconciliation.
-        from .fanout_backend import FanOutBackend
-
-        # Never mirror the configured authority connection onto itself — the
-        # module-level ``_build_mirror_set`` already accepts a ``skip_names``
-        # seam for exactly this (CONCEPT:AU-KG.backend.mirror-health-repair).
-        # NOTE: the old authority-selector configuration key is retired
-        # (rejected by AgentConfig — see ``_RETIRED_CONFIGURATION_KEYS``) and
-        # AgentConfig no longer exposes an authority-selecting field: the
-        # fanout authority is fixed as EpistemicGraphBackend, so there is no
-        # selector left to resolve here.
-        authority_name = "epistemic_graph"
-        mirrors = _build_mirror_set(skip_names=(authority_name,))
-
-        if not mirrors:
-            from .epistemic_graph_backend import EpistemicGraphBackend
-
-            backend = EpistemicGraphBackend()
-        else:
-            from agent_utilities.core.paths import kg_db_path
-
-            outbox_path = str(kg_db_path().parent / "graph_mirror_outbox.db")
-            backend = FanOutBackend(mirrors, outbox_path=outbox_path)
+        backend = _create_fanout_backend()
 
     elif backend_type == "stardog":
-        # First-class SPARQL DATA backend (push/pull/query of instance data), usable
-        # standalone, as a fan-out mirror, or an ad-hoc connection. The OWL
-        # *reasoning* backend (TBox + inference) is separate:
-        # ``create_owl_backend('stardog')``.
-        from .sparql.stardog_backend import (
-            DEFAULT_DATABASE,
-            STARDOG_LEVELS,
-            StardogSparqlBackend,
-        )
-
-        stardog_database = (
-            db_name or kwargs.get("database") or setting("STARDOG_DATABASE")
-        )
-        backend = StardogSparqlBackend(
-            endpoint=kwargs.get("endpoint") or uri or setting("STARDOG_ENDPOINT"),
-            database=stardog_database,
-            username=user or kwargs.get("username") or setting("STARDOG_USER"),
-            password=password or kwargs.get("password") or setting("STARDOG_PASSWORD"),
-            # Stardog is the two-level store: a dedicated target defaults to a
-            # named graph inside the configured database, and can name the
-            # database instead with ``{"mode": "dedicated", "level": "database"}``.
-            mirror_target=_resolve_mirror_target(
-                kwargs,
-                backend_type="stardog",
-                named_selector=stardog_database,
-                default_name=DEFAULT_DATABASE,
-                supported_levels=STARDOG_LEVELS,
-            ),
-        )
+        backend = _create_stardog_backend(uri, user, password, db_name, kwargs)
 
     else:
         logger.error(
@@ -810,39 +944,6 @@ def create_backend(
             f"jena_fuseki, stardog, ladybug, falkordb, neo4j"
         )
         return None
-
-    if backend:
-        try:
-            backend.create_schema()
-            # Run schema migrations to add any missing columns/properties
-            if (
-                backend_type == "ladybug"
-                and setting("AGENT_UTILITIES_TESTING") != "true"
-            ):
-                from ..migrations import migrate_graph
-
-                migrate_graph(backend)
-        except Exception as e:  # noqa: BLE001 — best-effort schema auto-migration on backend construction (guarded to non-testing environments above); the backend is already usable at this point, migrate_graph only adds schema conveniences on top
-            logger.debug(f"Failed to auto-initialize or migrate graph schema: {e}")
-
-        # CONCEPT:AU-KG.backend.company-brain-write-guard — wrap with the Company Brain write-path guard
-        # (provenance + source-authority arbitration) only when enforcement is
-        # on, so the default path stays byte-identical.
-        try:
-            from ..core.company_brain_runtime import brain_enforcement_enabled
-
-            if operational_authority and brain_enforcement_enabled():
-                from ..core.company_brain_runtime import get_company_brain
-                from .brain_guarded_backend import BrainGuardedBackend
-
-                backend = BrainGuardedBackend(  # type: ignore[assignment]
-                    backend, get_company_brain()
-                )
-                logger.info("Company Brain write-path guard installed")
-        except Exception as e:  # pragma: no cover - guard is best-effort
-            logger.warning("Brain guard not installed: %s", e)
-
-    if backend and operational_authority and _ACTIVE_BACKEND is None:
-        _ACTIVE_BACKEND = backend
-
-    return backend
+    return _finalize_backend(
+        backend, backend_type=backend_type, operational_authority=operational_authority
+    )
