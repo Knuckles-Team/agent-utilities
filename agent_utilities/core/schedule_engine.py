@@ -71,6 +71,7 @@ _MAINTENANCE_REF_ALLOWLIST = frozenset(
     {
         "anomaly_consumer",
         "compaction",
+        "enrich_concepts",
         "enrichment",
         "evolution",
         "failure_ingest",
