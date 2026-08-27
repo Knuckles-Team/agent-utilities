@@ -709,25 +709,37 @@ def _classification(value: DataClassification | str) -> DataClassification:
         ) from None
 
 
-def ingest_registered_graph(
-    authority_engine: Any,
-    registry: Any,
+@dataclass(frozen=True)
+class _ValidatedRequest:
+    """Bounds and aliases validated from an ``ExternalGraphIngestionRequest``."""
+
+    connection: str
+    source_alias: str
+    tenant: str
+    max_records: int
+    page_size: int
+    max_pages: int
+    max_row_bytes: int
+    max_total_bytes: int
+    max_nesting_depth: int
+    max_collection_items: int
+    sync_mode: str
+    classification: DataClassification
+    retention: str
+
+
+def _validate_aliases(
     request: ExternalGraphIngestionRequest,
-    *,
-    profile: dict[str, Any] | None = None,
-    profile_resolver: Callable[[str], str | None] | None = None,
-    privacy_guard: PersistencePrivacyGuard | None = None,
-) -> dict[str, Any]:
-    """Read a bounded external graph slice and ingest it through envelopes.
-
-    ``profile`` is an offline-test seam. Production entrypoints pass only
-    ``profile_ref`` so remote endpoint/query configuration never appears in MCP
-    arguments, manifests, checkpoints, or trace metadata.
-    """
-
+) -> tuple[str, str, str]:
     connection = _alias(request.connection, label="connection")
     source_alias = _alias(request.source_alias, label="source_alias")
     tenant = _alias(request.tenant, label="tenant", allow_empty=True)
+    return connection, source_alias, tenant
+
+
+def _validate_page_limits(
+    request: ExternalGraphIngestionRequest,
+) -> tuple[int, int, int]:
     if any(
         isinstance(value, bool)
         for value in (request.max_records, request.page_size, request.max_pages)
@@ -745,6 +757,12 @@ def ingest_registered_graph(
         raise ExternalGraphIngestionError("page_size must be between 1 and 1000")
     if not 1 <= max_pages <= 1_000:
         raise ExternalGraphIngestionError("max_pages must be between 1 and 1000")
+    return max_records, page_size, max_pages
+
+
+def _validate_structural_bounds(
+    request: ExternalGraphIngestionRequest,
+) -> tuple[int, int, int, int]:
     structural_bounds = (
         request.max_row_bytes,
         request.max_total_bytes,
@@ -778,6 +796,10 @@ def ingest_registered_graph(
         raise ExternalGraphIngestionError(
             "max_collection_items must be between 1 and 100000"
         )
+    return max_row_bytes, max_total_bytes, max_nesting_depth, max_collection_items
+
+
+def _validate_sync_mode(request: ExternalGraphIngestionRequest) -> str:
     if not isinstance(request.reconcile_deletions, bool) or not isinstance(
         request.allow_empty_snapshot, bool
     ):
@@ -787,12 +809,50 @@ def ingest_registered_graph(
     sync_mode = str(request.sync_mode or "")
     if sync_mode not in {"auto", "cdc", "snapshot"}:
         raise ExternalGraphIngestionError("sync_mode must be auto, cdc, or snapshot")
-    classification = _classification(request.classification)
+    return sync_mode
+
+
+def _validate_retention(request: ExternalGraphIngestionRequest) -> str:
     retention = str(request.retention or "").strip()
     if not _RETENTION_RE.fullmatch(retention):
         raise ExternalGraphIngestionError(
             "retention must be an ISO duration or a neutral policy alias"
         )
+    return retention
+
+
+def _validate_request(request: ExternalGraphIngestionRequest) -> _ValidatedRequest:
+    """Validate and normalize every non-secret request field, fail closed."""
+
+    connection, source_alias, tenant = _validate_aliases(request)
+    max_records, page_size, max_pages = _validate_page_limits(request)
+    (
+        max_row_bytes,
+        max_total_bytes,
+        max_nesting_depth,
+        max_collection_items,
+    ) = _validate_structural_bounds(request)
+    sync_mode = _validate_sync_mode(request)
+    classification = _classification(request.classification)
+    retention = _validate_retention(request)
+    return _ValidatedRequest(
+        connection=connection,
+        source_alias=source_alias,
+        tenant=tenant,
+        max_records=max_records,
+        page_size=page_size,
+        max_pages=max_pages,
+        max_row_bytes=max_row_bytes,
+        max_total_bytes=max_total_bytes,
+        max_nesting_depth=max_nesting_depth,
+        max_collection_items=max_collection_items,
+        sync_mode=sync_mode,
+        classification=classification,
+        retention=retention,
+    )
+
+
+def _certify_external_graph_connector() -> None:
     try:
         from agent_utilities.knowledge_graph.ontology.connector_manifest_gate import (
             precheck_source,
@@ -807,68 +867,109 @@ def ingest_registered_graph(
         raise ExternalGraphIngestionError(
             "External graph connector requires a certified capability bundle"
         )
+
+
+def _resolve_profile_ref(
+    request: ExternalGraphIngestionRequest, connection: str
+) -> str:
     from .external_graph_schema import canonical_profile_ref
 
-    profile_ref = request.profile_ref or canonical_profile_ref(connection)
-    resolved_profile = _resolve_profile(
-        profile_ref,
-        profile=profile,
-        resolver=profile_resolver,
-    )
+    return request.profile_ref or canonical_profile_ref(connection)
+
+
+def _validate_profile_approval(
+    resolved_profile: dict[str, Any], source_alias: str
+) -> None:
+    if resolved_profile.get("profile_format") != "external-graph-profile/v1":
+        raise ExternalGraphIngestionError(
+            "External graph profile was not generated by schema discovery"
+        )
+    if resolved_profile.get("approval_status") != "approved":
+        raise ExternalGraphIngestionError(
+            "External graph mapping profile is not approved"
+        )
+    if resolved_profile.get("source_alias") != source_alias:
+        raise ExternalGraphIngestionError(
+            "External graph profile source alias does not match the request"
+        )
+
+
+def _validate_profile_mapping_digest(resolved_profile: dict[str, Any]) -> None:
+    from .external_graph_schema import mapping_policy_digest
+
+    if mapping_policy_digest(resolved_profile) != str(
+        resolved_profile.get("mapping_digest") or ""
+    ):
+        raise ExternalGraphIngestionError(
+            "External graph mapping profile changed after approval"
+        )
+
+
+def _validate_runtime_policy_digest(
+    resolved_profile: dict[str, Any], request: ExternalGraphIngestionRequest
+) -> None:
+    approved_policy_digest = str(resolved_profile.get("runtime_policy_digest") or "")
+    current_policy_digest = str(request.runtime_policy_digest or "")
+    if (
+        not re.fullmatch(r"[0-9a-f]{64}", current_policy_digest)
+        or current_policy_digest != approved_policy_digest
+    ):
+        raise ExternalGraphIngestionError(
+            "External graph mapping policy drift requires a new proposal"
+        )
+
+
+def _validate_sync_policy_digest(
+    resolved_profile: dict[str, Any],
+    request: ExternalGraphIngestionRequest,
+    bounds: _ValidatedRequest,
+) -> None:
+    approved_sync = resolved_profile.get("sync")
+    if not isinstance(approved_sync, Mapping) or dict(approved_sync) != {
+        "allow_empty_snapshot": bool(request.allow_empty_snapshot),
+        "max_pages": bounds.max_pages,
+        "max_row_bytes": bounds.max_row_bytes,
+        "max_total_bytes": bounds.max_total_bytes,
+        "max_nesting_depth": bounds.max_nesting_depth,
+        "max_collection_items": bounds.max_collection_items,
+        "page_size": bounds.page_size,
+        "reconcile_deletions": bool(request.reconcile_deletions),
+        "sync_mode": bounds.sync_mode,
+    }:
+        raise ExternalGraphIngestionError(
+            "External graph sync policy drift requires a new proposal"
+        )
+
+
+def _validate_profile_freshness(
+    resolved_profile: dict[str, Any],
+    *,
+    profile_arg: dict[str, Any] | None,
+    source_alias: str,
+    request: ExternalGraphIngestionRequest,
+    bounds: _ValidatedRequest,
+) -> None:
     # A direct ``profile=`` is an isolated test seam. Runtime profiles must be
     # generated by discovery and explicitly approved before any source read.
-    if profile is None:
-        if resolved_profile.get("profile_format") != "external-graph-profile/v1":
-            raise ExternalGraphIngestionError(
-                "External graph profile was not generated by schema discovery"
-            )
-        if resolved_profile.get("approval_status") != "approved":
-            raise ExternalGraphIngestionError(
-                "External graph mapping profile is not approved"
-            )
-        if resolved_profile.get("source_alias") != source_alias:
-            raise ExternalGraphIngestionError(
-                "External graph profile source alias does not match the request"
-            )
-        from .external_graph_schema import mapping_policy_digest
+    if profile_arg is not None:
+        return
+    _validate_profile_approval(resolved_profile, source_alias)
+    _validate_profile_mapping_digest(resolved_profile)
+    _validate_runtime_policy_digest(resolved_profile, request)
+    _validate_sync_policy_digest(resolved_profile, request, bounds)
 
-        if mapping_policy_digest(resolved_profile) != str(
-            resolved_profile.get("mapping_digest") or ""
-        ):
-            raise ExternalGraphIngestionError(
-                "External graph mapping profile changed after approval"
-            )
-        approved_policy_digest = str(
-            resolved_profile.get("runtime_policy_digest") or ""
-        )
-        current_policy_digest = str(request.runtime_policy_digest or "")
-        if (
-            not re.fullmatch(r"[0-9a-f]{64}", current_policy_digest)
-            or current_policy_digest != approved_policy_digest
-        ):
-            raise ExternalGraphIngestionError(
-                "External graph mapping policy drift requires a new proposal"
-            )
-        approved_sync = resolved_profile.get("sync")
-        if not isinstance(approved_sync, Mapping) or dict(approved_sync) != {
-            "allow_empty_snapshot": bool(request.allow_empty_snapshot),
-            "max_pages": max_pages,
-            "max_row_bytes": max_row_bytes,
-            "max_total_bytes": max_total_bytes,
-            "max_nesting_depth": max_nesting_depth,
-            "max_collection_items": max_collection_items,
-            "page_size": page_size,
-            "reconcile_deletions": bool(request.reconcile_deletions),
-            "sync_mode": sync_mode,
-        }:
-            raise ExternalGraphIngestionError(
-                "External graph sync policy drift requires a new proposal"
-            )
-    identity_key = _resolve_identity_key(
-        resolved_profile,
-        connection=connection,
-        resolver=profile_resolver,
-    )
+
+@dataclass(frozen=True)
+class _Mappings:
+    node_mapping: dict[str, Any]
+    node_allowlist: tuple[str, ...]
+    node_query: str
+    edge_query: str
+    edge_mapping: Any
+    edge_allowlist: tuple[str, ...]
+
+
+def _resolve_mappings(resolved_profile: dict[str, Any]) -> _Mappings:
     node_mapping = _mapping(resolved_profile, "node_mapping")
     node_allowlist = _allowlist(node_mapping, label="node_mapping")
     node_query = str(resolved_profile.get("node_query") or "")
@@ -883,7 +984,19 @@ def ingest_registered_graph(
             )
         _validate_read_query(edge_query, label="edge_query")
         edge_allowlist = _allowlist(edge_mapping, label="edge_mapping")
+    return _Mappings(
+        node_mapping=node_mapping,
+        node_allowlist=node_allowlist,
+        node_query=node_query,
+        edge_query=edge_query,
+        edge_mapping=edge_mapping,
+        edge_allowlist=edge_allowlist,
+    )
 
+
+def _validate_access_classification(
+    resolved_profile: dict[str, Any], classification: DataClassification
+) -> ExternalAccess:
     access = _access(resolved_profile)
     if classification == DataClassification.PUBLIC and not access.is_public:
         raise ExternalGraphIngestionError(
@@ -893,14 +1006,17 @@ def ingest_registered_graph(
         raise ExternalGraphIngestionError(
             "A public source ACL requires PUBLIC classification"
         )
+    return access
 
+
+def _resolve_external_engine(registry: Any, connection: str) -> Any:
     try:
         role = registry.role(connection)
         if role == "mirror":
             raise ExternalGraphIngestionError(
                 "Mirror connections cannot be used as ingestion sources"
             )
-        external_engine = registry.get_engine(connection)
+        return registry.get_engine(connection)
     except ExternalGraphIngestionError:
         raise
     except Exception as exc:
@@ -908,113 +1024,247 @@ def ingest_registered_graph(
             f"Registered graph connection is unavailable ({type(exc).__name__})"
         ) from None
 
+
+def _verify_schema_digest(
+    resolved_profile: dict[str, Any],
+    registry: Any,
+    connection: str,
+    external_engine: Any,
+) -> None:
     expected_schema_digest = str(resolved_profile.get("schema_digest") or "")
-    if expected_schema_digest:
-        try:
-            from .external_graph_schema import discover_external_schema
+    if not expected_schema_digest:
+        return
+    try:
+        from .external_graph_schema import discover_external_schema
 
-            backend = (
-                registry.backend_kind(connection)
-                if callable(getattr(registry, "backend_kind", None))
-                else resolved_profile.get("backend_kind")
-            )
-            discovered, _ = discover_external_schema(
-                external_engine,
-                backend=backend,
-                max_types=int(resolved_profile.get("discovery_max_types") or 200),
-            )
-        except Exception as exc:
-            raise ExternalGraphIngestionError(
-                f"External graph schema verification failed ({type(exc).__name__})"
-            ) from None
-        if discovered.partial:
-            raise ExternalGraphIngestionError(
-                "External graph schema verification was incomplete; ingestion "
-                "requires a new complete proposal"
-            )
-        if discovered.schema_digest != expected_schema_digest:
-            raise ExternalGraphIngestionError(
-                "External graph schema drift detected; ingestion requires a new proposal"
-            )
+        backend = (
+            registry.backend_kind(connection)
+            if callable(getattr(registry, "backend_kind", None))
+            else resolved_profile.get("backend_kind")
+        )
+        discovered, _ = discover_external_schema(
+            external_engine,
+            backend=backend,
+            max_types=int(resolved_profile.get("discovery_max_types") or 200),
+        )
+    except Exception as exc:
+        raise ExternalGraphIngestionError(
+            f"External graph schema verification failed ({type(exc).__name__})"
+        ) from None
+    if discovered.partial:
+        raise ExternalGraphIngestionError(
+            "External graph schema verification was incomplete; ingestion "
+            "requires a new complete proposal"
+        )
+    if discovered.schema_digest != expected_schema_digest:
+        raise ExternalGraphIngestionError(
+            "External graph schema drift detected; ingestion requires a new proposal"
+        )
 
-    privacy = privacy_guard or PersistencePrivacyGuard()
-    payload_budget = _PayloadBudget(
-        max_row_bytes=max_row_bytes,
-        max_total_bytes=max_total_bytes,
-        max_nesting_depth=max_nesting_depth,
-        max_collection_items=max_collection_items,
-    )
+
+def _setup_reader(
+    external_engine: Any, sync_mode: str
+) -> tuple[Callable[..., Any] | None, bool]:
     reader = _change_reader(external_engine)
     use_cdc = sync_mode != "snapshot" and reader is not None
     if sync_mode == "cdc" and reader is None:
         raise ExternalGraphIngestionError(
             "External graph source does not advertise native CDC"
         )
-    delete_keys: list[str] = []
-    current_cursor: str | None = None
-    next_cursor: str | None = None
-    if use_cdc:
-        assert reader is not None  # guaranteed by use_cdc's `reader is not None` term
-        try:
-            current_cursor = read_change_cursor(
-                authority_engine,
-                "external-graph",
-                source_instance=source_alias,
-            )
-        except Exception as exc:
-            raise ExternalGraphIngestionError(
-                f"External graph CDC cursor read failed ({type(exc).__name__})"
-            ) from None
-        events, next_cursor = _read_change_pages(
-            reader,
-            cursor=current_cursor,
-            page_size=page_size,
-            max_pages=max_pages,
-            max_records=max_records,
-            privacy=privacy,
-            budget=payload_budget,
+    return reader, use_cdc
+
+
+def _read_cdc_rows(
+    authority_engine: Any,
+    reader: Callable[..., Any] | None,
+    *,
+    source_alias: str,
+    page_size: int,
+    max_pages: int,
+    max_records: int,
+    privacy: PersistencePrivacyGuard,
+    budget: _PayloadBudget,
+) -> tuple[
+    list[dict[str, Any]], list[str], list[dict[str, Any]], str | None, str | None
+]:
+    assert reader is not None  # guaranteed by use_cdc's `reader is not None` term
+    try:
+        current_cursor = read_change_cursor(
+            authority_engine,
+            "external-graph",
+            source_instance=source_alias,
         )
-        node_rows = [
-            dict(event["record"]) for event in events if event["operation"] == "upsert"
-        ]
-        delete_keys = [
-            str(event["id"]) for event in events if event["operation"] == "delete"
-        ]
-        edge_rows: list[dict[str, Any]] = []
-    else:
-        variables = dict(request.variables or {})
-        node_rows, snapshot_token = _read_external_pages(
+    except Exception as exc:
+        raise ExternalGraphIngestionError(
+            f"External graph CDC cursor read failed ({type(exc).__name__})"
+        ) from None
+    events, next_cursor = _read_change_pages(
+        reader,
+        cursor=current_cursor,
+        page_size=page_size,
+        max_pages=max_pages,
+        max_records=max_records,
+        privacy=privacy,
+        budget=budget,
+    )
+    node_rows = [
+        dict(event["record"]) for event in events if event["operation"] == "upsert"
+    ]
+    delete_keys = [
+        str(event["id"]) for event in events if event["operation"] == "delete"
+    ]
+    edge_rows: list[dict[str, Any]] = []
+    return node_rows, delete_keys, edge_rows, current_cursor, next_cursor
+
+
+def _read_snapshot_rows(
+    external_engine: Any,
+    *,
+    node_query: str,
+    edge_query: str,
+    variables: dict[str, Any],
+    page_size: int,
+    max_pages: int,
+    max_records: int,
+    budget: _PayloadBudget,
+    privacy: PersistencePrivacyGuard,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    node_rows, snapshot_token = _read_external_pages(
+        external_engine,
+        node_query,
+        variables,
+        page_size=page_size,
+        max_pages=max_pages,
+        max_records=max_records,
+        budget=budget,
+        privacy=privacy,
+        label="node row",
+    )
+    edge_result = (
+        _read_external_pages(
             external_engine,
-            node_query,
+            edge_query,
             variables,
             page_size=page_size,
             max_pages=max_pages,
             max_records=max_records,
-            budget=payload_budget,
+            budget=budget,
             privacy=privacy,
-            label="node row",
+            label="edge row",
+            required_snapshot_token=snapshot_token,
         )
-        edge_result = (
-            _read_external_pages(
-                external_engine,
-                edge_query,
-                variables,
-                page_size=page_size,
-                max_pages=max_pages,
-                max_records=max_records,
-                budget=payload_budget,
-                privacy=privacy,
-                label="edge row",
-                required_snapshot_token=snapshot_token,
-            )
-            if edge_query
-            else ([], snapshot_token)
-        )
-        edge_rows, _edge_snapshot_token = edge_result
-    type_map = resolved_profile.get("type_map")
-    if not isinstance(type_map, dict):
-        type_map = {}
+        if edge_query
+        else ([], snapshot_token)
+    )
+    edge_rows, _edge_snapshot_token = edge_result
+    return node_rows, edge_rows
 
+
+def _sanitize_node_fields(
+    *,
+    external_type: str,
+    properties: dict[str, Any],
+    version: Any,
+    node_allowlist: tuple[str, ...],
+    privacy: PersistencePrivacyGuard,
+    privacy_counts: Counter[str],
+) -> tuple[dict[str, Any], str, str, int]:
+    """Sanitize node properties/type/version; mutates ``privacy_counts`` in place.
+
+    Returns ``(clean_properties, clean_external_type, clean_version, redactions)``.
+    """
+    selected = {field: properties.get(field) for field in node_allowlist}
+    clean_properties, report = privacy.sanitize(selected)
+    privacy_counts.update({label: 1 for label in report.detected_types})
+    redactions = report.redactions
+    clean_external_type, type_report = privacy.sanitize_text(external_type)
+    privacy_counts.update({label: 1 for label in type_report.detected_types})
+    redactions += type_report.redactions
+    clean_version, version_report = privacy.sanitize_text(str(version or ""))
+    privacy_counts.update({label: 1 for label in version_report.detected_types})
+    redactions += version_report.redactions
+    return clean_properties, clean_external_type, clean_version, redactions
+
+
+def _prepare_node_row(
+    row: dict[str, Any],
+    *,
+    id_path: str,
+    type_path: str,
+    props_path: str,
+    version_path: str,
+    type_map: dict[str, Any],
+    use_cdc: bool,
+    source_alias: str,
+    identity_key: str,
+    node_allowlist: tuple[str, ...],
+    privacy: PersistencePrivacyGuard,
+    internal_ids: dict[str, str],
+    privacy_counts: Counter[str],
+) -> tuple[bool, dict[str, Any] | None, int]:
+    """Prepare one node row; returns (identity_present, item_or_None, redactions)."""
+
+    external_id = _dig(row, id_path)
+    if external_id in (None, ""):
+        if use_cdc:
+            raise ExternalGraphIngestionError(
+                "External graph CDC upsert has no mapped identity"
+            )
+        return False, None, 0
+    external_key = str(external_id)
+    if external_key in internal_ids:
+        raise ExternalGraphIngestionError(
+            "External graph snapshot contains a duplicate identity"
+        )
+    mapped_type, external_type = _safe_type(
+        _dig(row, type_path), type_map, fallback="ExternalEntity"
+    )
+    if _PERSON_ENTITY.search(mapped_type) or _PERSON_ENTITY.search(external_type):
+        privacy_counts["personal_entity"] += 1
+        return True, None, 1
+    internal_id = (
+        f"external:{source_alias}:"
+        f"{_private_digest(identity_key, source_alias, external_key)[:32]}"
+    )
+    # Publish the mapping only after the entity passes the privacy gate. This
+    # also drops every edge whose endpoint was quarantined above.
+    internal_ids[external_key] = internal_id
+    properties = _dig(row, props_path, {})
+    if not isinstance(properties, dict):
+        properties = {}
+    version = _dig(row, version_path, "")
+    clean_properties, clean_external_type, clean_version, redactions = (
+        _sanitize_node_fields(
+            external_type=external_type,
+            properties=properties,
+            version=version,
+            node_allowlist=node_allowlist,
+            privacy=privacy,
+            privacy_counts=privacy_counts,
+        )
+    )
+    item = {
+        "external_key": external_key,
+        "internal_id": internal_id,
+        "type": mapped_type,
+        "external_type": clean_external_type,
+        "properties": clean_properties,
+        "version": clean_version or _digest(clean_properties),
+    }
+    return True, item, redactions
+
+
+def _prepare_node_rows(
+    node_rows: list[dict[str, Any]],
+    *,
+    node_mapping: dict[str, Any],
+    type_map: dict[str, Any],
+    use_cdc: bool,
+    source_alias: str,
+    identity_key: str,
+    node_allowlist: tuple[str, ...],
+    privacy: PersistencePrivacyGuard,
+) -> tuple[dict[str, str], list[dict[str, Any]], Counter[str], int, bool]:
     id_path = str(node_mapping.get("id_path") or "id")
     type_path = str(node_mapping.get("type_path") or "type")
     props_path = str(node_mapping.get("properties_path") or "properties")
@@ -1023,99 +1273,146 @@ def ingest_registered_graph(
     prepared: list[dict[str, Any]] = []
     privacy_counts: Counter[str] = Counter()
     privacy_redactions = 0
-    snapshot_identity_complete = True
+    identity_complete = True
 
     for row in node_rows:
-        external_id = _dig(row, id_path)
-        if external_id in (None, ""):
-            if use_cdc:
-                raise ExternalGraphIngestionError(
-                    "External graph CDC upsert has no mapped identity"
-                )
-            snapshot_identity_complete = False
+        present, item, redactions = _prepare_node_row(
+            row,
+            id_path=id_path,
+            type_path=type_path,
+            props_path=props_path,
+            version_path=version_path,
+            type_map=type_map,
+            use_cdc=use_cdc,
+            source_alias=source_alias,
+            identity_key=identity_key,
+            node_allowlist=node_allowlist,
+            privacy=privacy,
+            internal_ids=internal_ids,
+            privacy_counts=privacy_counts,
+        )
+        if not present:
+            identity_complete = False
             continue
-        external_key = str(external_id)
-        if external_key in internal_ids:
-            raise ExternalGraphIngestionError(
-                "External graph snapshot contains a duplicate identity"
-            )
-        mapped_type, external_type = _safe_type(
-            _dig(row, type_path), type_map, fallback="ExternalEntity"
-        )
-        if _PERSON_ENTITY.search(mapped_type) or _PERSON_ENTITY.search(external_type):
-            privacy_counts["personal_entity"] += 1
-            privacy_redactions += 1
-            continue
-        internal_id = (
-            f"external:{source_alias}:"
-            f"{_private_digest(identity_key, source_alias, external_key)[:32]}"
-        )
-        # Publish the mapping only after the entity passes the privacy gate. This
-        # also drops every edge whose endpoint was quarantined above.
-        internal_ids[external_key] = internal_id
-        properties = _dig(row, props_path, {})
-        if not isinstance(properties, dict):
-            properties = {}
-        selected = {field: properties.get(field) for field in node_allowlist}
-        clean_properties, report = privacy.sanitize(selected)
-        privacy_counts.update({label: 1 for label in report.detected_types})
-        privacy_redactions += report.redactions
-        clean_external_type, type_report = privacy.sanitize_text(external_type)
-        privacy_counts.update({label: 1 for label in type_report.detected_types})
-        privacy_redactions += type_report.redactions
-        version = _dig(row, version_path, "")
-        clean_version, version_report = privacy.sanitize_text(str(version or ""))
-        privacy_counts.update({label: 1 for label in version_report.detected_types})
-        privacy_redactions += version_report.redactions
-        prepared.append(
-            {
-                "external_key": external_key,
-                "internal_id": internal_id,
-                "type": mapped_type,
-                "external_type": clean_external_type,
-                "properties": clean_properties,
-                "version": clean_version or _digest(clean_properties),
-            }
-        )
+        privacy_redactions += redactions
+        if item is not None:
+            prepared.append(item)
 
+    return internal_ids, prepared, privacy_counts, privacy_redactions, identity_complete
+
+
+def _prepare_edge_row(
+    row: dict[str, Any],
+    *,
+    source_path: str,
+    target_path: str,
+    edge_type_path: str,
+    edge_props_path: str,
+    edge_type_map: dict[str, Any],
+    internal_ids: dict[str, str],
+    edge_allowlist: tuple[str, ...],
+    privacy: PersistencePrivacyGuard,
+    privacy_counts: Counter[str],
+) -> tuple[str, str | None, dict[str, Any] | None, int]:
+    """Prepare one edge row; returns (state, source_key, edge_or_None, redactions).
+
+    ``state`` is one of ``"missing"`` (no mapped identity on either endpoint),
+    ``"dropped"`` (an endpoint was quarantined/absent from ``internal_ids``), or
+    ``"ok"``.
+    """
+
+    source_identity = _dig(row, source_path)
+    target_identity = _dig(row, target_path)
+    if source_identity in (None, "") or target_identity in (None, ""):
+        return "missing", None, None, 0
+    source_key = str(source_identity)
+    target_key = str(target_identity)
+    if source_key not in internal_ids or target_key not in internal_ids:
+        return "dropped", None, None, 0
+    properties = _dig(row, edge_props_path, {})
+    if not isinstance(properties, dict):
+        properties = {}
+    selected = {field: properties.get(field) for field in edge_allowlist}
+    clean_properties, report = privacy.sanitize(selected)
+    privacy_counts.update({label: 1 for label in report.detected_types})
+    redactions = report.redactions
+    edge_type, _ = _safe_type(
+        _dig(row, edge_type_path), edge_type_map, fallback="EXTERNAL_LINK"
+    )
+    edge = {
+        "source": internal_ids[source_key],
+        "target": internal_ids[target_key],
+        "type": edge_type,
+        **clean_properties,
+    }
+    return "ok", source_key, edge, redactions
+
+
+def _edge_field_paths(
+    edge_mapping: dict[str, Any], resolved_profile: dict[str, Any]
+) -> tuple[str, str, str, str, dict[str, Any]]:
+    source_path = str(edge_mapping.get("source_path") or "source")
+    target_path = str(edge_mapping.get("target_path") or "target")
+    edge_type_path = str(edge_mapping.get("type_path") or "type")
+    edge_props_path = str(edge_mapping.get("properties_path") or "properties")
+    edge_type_map = resolved_profile.get("edge_type_map")
+    if not isinstance(edge_type_map, dict):
+        edge_type_map = {}
+    return source_path, target_path, edge_type_path, edge_props_path, edge_type_map
+
+
+def _prepare_edges(
+    edge_query: str,
+    edge_mapping: Any,
+    edge_rows: list[dict[str, Any]],
+    *,
+    internal_ids: dict[str, str],
+    edge_allowlist: tuple[str, ...],
+    privacy: PersistencePrivacyGuard,
+    resolved_profile: dict[str, Any],
+) -> tuple[dict[str, list[dict[str, Any]]], Counter[str], int, bool]:
     outgoing: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    if edge_query and isinstance(edge_mapping, dict):
-        source_path = str(edge_mapping.get("source_path") or "source")
-        target_path = str(edge_mapping.get("target_path") or "target")
-        edge_type_path = str(edge_mapping.get("type_path") or "type")
-        edge_props_path = str(edge_mapping.get("properties_path") or "properties")
-        edge_type_map = resolved_profile.get("edge_type_map")
-        if not isinstance(edge_type_map, dict):
-            edge_type_map = {}
-        for row in edge_rows:
-            source_identity = _dig(row, source_path)
-            target_identity = _dig(row, target_path)
-            if source_identity in (None, "") or target_identity in (None, ""):
-                snapshot_identity_complete = False
-                continue
-            source_key = str(source_identity)
-            target_key = str(target_identity)
-            if source_key not in internal_ids or target_key not in internal_ids:
-                continue
-            properties = _dig(row, edge_props_path, {})
-            if not isinstance(properties, dict):
-                properties = {}
-            selected = {field: properties.get(field) for field in edge_allowlist}
-            clean_properties, report = privacy.sanitize(selected)
-            privacy_counts.update({label: 1 for label in report.detected_types})
-            privacy_redactions += report.redactions
-            edge_type, _ = _safe_type(
-                _dig(row, edge_type_path), edge_type_map, fallback="EXTERNAL_LINK"
-            )
-            outgoing[source_key].append(
-                {
-                    "source": internal_ids[source_key],
-                    "target": internal_ids[target_key],
-                    "type": edge_type,
-                    **clean_properties,
-                }
-            )
+    privacy_counts: Counter[str] = Counter()
+    privacy_redactions = 0
+    identity_complete = True
+    if not (edge_query and isinstance(edge_mapping, dict)):
+        return outgoing, privacy_counts, privacy_redactions, identity_complete
 
+    source_path, target_path, edge_type_path, edge_props_path, edge_type_map = (
+        _edge_field_paths(edge_mapping, resolved_profile)
+    )
+
+    for row in edge_rows:
+        state, source_key, edge, redactions = _prepare_edge_row(
+            row,
+            source_path=source_path,
+            target_path=target_path,
+            edge_type_path=edge_type_path,
+            edge_props_path=edge_props_path,
+            edge_type_map=edge_type_map,
+            internal_ids=internal_ids,
+            edge_allowlist=edge_allowlist,
+            privacy=privacy,
+            privacy_counts=privacy_counts,
+        )
+        if state == "missing":
+            identity_complete = False
+            continue
+        if state == "dropped":
+            continue
+        privacy_redactions += redactions
+        outgoing[source_key].append(edge)  # type: ignore[arg-type]
+
+    return outgoing, privacy_counts, privacy_redactions, identity_complete
+
+
+def _compute_delete_ids(
+    delete_keys: list[str],
+    *,
+    identity_key: str,
+    source_alias: str,
+    prepared: list[dict[str, Any]],
+) -> list[str]:
     delete_ids = sorted(
         {
             (
@@ -1129,6 +1426,16 @@ def ingest_registered_graph(
         raise ExternalGraphIngestionError(
             "External graph CDC batch contains conflicting changes"
         )
+    return delete_ids
+
+
+def _guard_empty_snapshot(
+    *,
+    use_cdc: bool,
+    snapshot_identity_complete: bool,
+    request: ExternalGraphIngestionRequest,
+    prepared: list[dict[str, Any]],
+) -> None:
     if (
         not use_cdc
         and snapshot_identity_complete
@@ -1140,7 +1447,18 @@ def ingest_registered_graph(
             "External graph empty snapshot is not approved for reconciliation"
         )
 
-    profile_digest = _digest(
+
+def _compute_profile_digest(
+    *,
+    node_query: str,
+    node_mapping: dict[str, Any],
+    edge_query: str,
+    edge_mapping: Any,
+    resolved_profile: dict[str, Any],
+    request: ExternalGraphIngestionRequest,
+    bounds: _ValidatedRequest,
+) -> str:
+    return _digest(
         node_query,
         node_mapping,
         edge_query,
@@ -1149,192 +1467,388 @@ def ingest_registered_graph(
         resolved_profile.get("runtime_policy_digest") or "",
         {
             "allow_empty_snapshot": bool(request.allow_empty_snapshot),
-            "max_pages": max_pages,
-            "max_row_bytes": max_row_bytes,
-            "max_total_bytes": max_total_bytes,
-            "max_nesting_depth": max_nesting_depth,
-            "max_collection_items": max_collection_items,
-            "page_size": page_size,
+            "max_pages": bounds.max_pages,
+            "max_row_bytes": bounds.max_row_bytes,
+            "max_total_bytes": bounds.max_total_bytes,
+            "max_nesting_depth": bounds.max_nesting_depth,
+            "max_collection_items": bounds.max_collection_items,
+            "page_size": bounds.page_size,
             "reconcile_deletions": bool(request.reconcile_deletions),
-            "sync_mode": sync_mode,
+            "sync_mode": bounds.sync_mode,
         },
     )
-    if request.dry_run:
-        return {
-            "status": "dry_run",
-            "source_alias": source_alias,
-            "connection": connection,
-            "planned_nodes": len(prepared),
-            "planned_edges": sum(len(items) for items in outgoing.values()),
-            "planned_deletes": len(delete_ids),
-            "sync_strategy": "cdc" if use_cdc else "snapshot",
-            "snapshot_authoritative": bool(use_cdc or snapshot_identity_complete),
+
+
+def _build_dry_run_result(
+    *,
+    source_alias: str,
+    connection: str,
+    prepared: list[dict[str, Any]],
+    outgoing: dict[str, list[dict[str, Any]]],
+    delete_ids: list[str],
+    use_cdc: bool,
+    snapshot_identity_complete: bool,
+    profile_digest: str,
+    privacy_redactions: int,
+    privacy_counts: Counter[str],
+) -> dict[str, Any]:
+    return {
+        "status": "dry_run",
+        "source_alias": source_alias,
+        "connection": connection,
+        "planned_nodes": len(prepared),
+        "planned_edges": sum(len(items) for items in outgoing.values()),
+        "planned_deletes": len(delete_ids),
+        "sync_strategy": "cdc" if use_cdc else "snapshot",
+        "snapshot_authoritative": bool(use_cdc or snapshot_identity_complete),
+        "profile_digest": profile_digest,
+        "privacy": {
+            "redactions": privacy_redactions,
+            "detected_types": sorted(privacy_counts),
+        },
+    }
+
+
+def _build_node_envelope(
+    item: dict[str, Any],
+    *,
+    outgoing: dict[str, list[dict[str, Any]]],
+    source_alias: str,
+    identity_key: str,
+    profile_digest: str,
+    tenant: str,
+    resolved_profile: dict[str, Any],
+    access: ExternalAccess,
+    classification: DataClassification,
+    retention: str,
+    request: ExternalGraphIngestionRequest,
+    connection: str,
+) -> tuple[ChangeEnvelope, int]:
+    payload = {
+        "id": item["internal_id"],
+        "externalToolId": item["internal_id"],
+        "type": item["type"],
+        "external_type": item["external_type"],
+        "external_source_alias": source_alias,
+        **item["properties"],
+    }
+    links = sorted(
+        outgoing.get(item["external_key"], []),
+        key=lambda value: json.dumps(
+            value, sort_keys=True, separators=(",", ":"), default=str
+        ),
+    )
+    edge_count = 0
+    if links:
+        payload["_links"] = links
+        edge_count = len(links)
+    material_version = _private_digest(
+        identity_key,
+        "material-version",
+        source_alias,
+        item["internal_id"],
+        item["version"],
+        payload,
+        profile_digest,
+    )
+    envelope = ChangeEnvelope(
+        connector="external-graph",
+        tenant=tenant,
+        source_instance=source_alias,
+        source_object_id=item["internal_id"],
+        source_version=material_version,
+        schema_version=str(resolved_profile.get("adapter_version") or "1"),
+        ontology_mapping_version=str(resolved_profile.get("proposal_version") or ""),
+        typed_payload=payload,
+        source_acl=access,
+        classification=classification,
+        retention=retention,
+        legal_hold=bool(request.legal_hold),
+        provenance={
+            "connection_alias": connection,
             "profile_digest": profile_digest,
-            "privacy": {
-                "redactions": privacy_redactions,
-                "detected_types": sorted(privacy_counts),
-            },
-        }
+            "privacy_gate": True,
+        },
+        checkpoint=None,
+    )
+    return envelope, edge_count
 
-    statuses: Counter[str] = Counter()
-    edges = 0
+
+def _build_node_envelopes(
+    prepared: list[dict[str, Any]],
+    *,
+    outgoing: dict[str, list[dict[str, Any]]],
+    source_alias: str,
+    identity_key: str,
+    profile_digest: str,
+    tenant: str,
+    resolved_profile: dict[str, Any],
+    access: ExternalAccess,
+    classification: DataClassification,
+    retention: str,
+    request: ExternalGraphIngestionRequest,
+    connection: str,
+) -> tuple[list[ChangeEnvelope], int]:
     envelopes: list[ChangeEnvelope] = []
+    edges = 0
     for item in prepared:
-        payload = {
-            "id": item["internal_id"],
-            "externalToolId": item["internal_id"],
-            "type": item["type"],
-            "external_type": item["external_type"],
-            "external_source_alias": source_alias,
-            **item["properties"],
-        }
-        links = sorted(
-            outgoing.get(item["external_key"], []),
-            key=lambda value: json.dumps(
-                value, sort_keys=True, separators=(",", ":"), default=str
-            ),
+        envelope, edge_count = _build_node_envelope(
+            item,
+            outgoing=outgoing,
+            source_alias=source_alias,
+            identity_key=identity_key,
+            profile_digest=profile_digest,
+            tenant=tenant,
+            resolved_profile=resolved_profile,
+            access=access,
+            classification=classification,
+            retention=retention,
+            request=request,
+            connection=connection,
         )
-        if links:
-            payload["_links"] = links
-            edges += len(links)
-        material_version = _private_digest(
-            identity_key,
-            "material-version",
-            source_alias,
-            item["internal_id"],
-            item["version"],
-            payload,
-            profile_digest,
-        )
-        envelopes.append(
-            ChangeEnvelope(
-                connector="external-graph",
-                tenant=tenant,
-                source_instance=source_alias,
-                source_object_id=item["internal_id"],
-                source_version=material_version,
-                schema_version=str(resolved_profile.get("adapter_version") or "1"),
-                ontology_mapping_version=str(
-                    resolved_profile.get("proposal_version") or ""
-                ),
-                typed_payload=payload,
-                source_acl=access,
-                classification=classification,
-                retention=retention,
-                legal_hold=bool(request.legal_hold),
-                provenance={
-                    "connection_alias": connection,
-                    "profile_digest": profile_digest,
-                    "privacy_gate": True,
-                },
-                checkpoint=None,
-            )
-        )
-    for internal_id in delete_ids:
-        envelopes.append(
-            ChangeEnvelope(
-                connector="external-graph",
-                operation="delete",
-                tenant=tenant,
-                source_instance=source_alias,
-                source_object_id=internal_id,
-                source_version=_private_digest(
-                    identity_key,
-                    "delete-version",
-                    source_alias,
-                    internal_id,
-                    next_cursor or "",
-                    profile_digest,
-                ),
-                schema_version=str(resolved_profile.get("adapter_version") or "1"),
-                ontology_mapping_version=str(
-                    resolved_profile.get("proposal_version") or ""
-                ),
-                classification=classification,
-                retention=retention,
-                legal_hold=bool(request.legal_hold),
-                provenance={
-                    "connection_alias": connection,
-                    "profile_digest": profile_digest,
-                    "privacy_gate": True,
-                },
-            )
-        )
+        envelopes.append(envelope)
+        edges += edge_count
+    return envelopes, edges
 
+
+def _build_delete_envelope(
+    internal_id: str,
+    *,
+    tenant: str,
+    source_alias: str,
+    identity_key: str,
+    next_cursor: str | None,
+    resolved_profile: dict[str, Any],
+    classification: DataClassification,
+    retention: str,
+    request: ExternalGraphIngestionRequest,
+    connection: str,
+    profile_digest: str,
+) -> ChangeEnvelope:
+    return ChangeEnvelope(
+        connector="external-graph",
+        operation="delete",
+        tenant=tenant,
+        source_instance=source_alias,
+        source_object_id=internal_id,
+        source_version=_private_digest(
+            identity_key,
+            "delete-version",
+            source_alias,
+            internal_id,
+            next_cursor or "",
+            profile_digest,
+        ),
+        schema_version=str(resolved_profile.get("adapter_version") or "1"),
+        ontology_mapping_version=str(resolved_profile.get("proposal_version") or ""),
+        classification=classification,
+        retention=retention,
+        legal_hold=bool(request.legal_hold),
+        provenance={
+            "connection_alias": connection,
+            "profile_digest": profile_digest,
+            "privacy_gate": True,
+        },
+    )
+
+
+def _build_delete_envelopes(
+    delete_ids: list[str],
+    *,
+    tenant: str,
+    source_alias: str,
+    identity_key: str,
+    next_cursor: str | None,
+    resolved_profile: dict[str, Any],
+    classification: DataClassification,
+    retention: str,
+    request: ExternalGraphIngestionRequest,
+    connection: str,
+    profile_digest: str,
+) -> list[ChangeEnvelope]:
+    return [
+        _build_delete_envelope(
+            internal_id,
+            tenant=tenant,
+            source_alias=source_alias,
+            identity_key=identity_key,
+            next_cursor=next_cursor,
+            resolved_profile=resolved_profile,
+            classification=classification,
+            retention=retention,
+            request=request,
+            connection=connection,
+            profile_digest=profile_digest,
+        )
+        for internal_id in delete_ids
+    ]
+
+
+def _ingest_envelopes(
+    authority_engine: Any, envelopes: list[ChangeEnvelope]
+) -> Counter[str]:
+    statuses: Counter[str] = Counter()
     for envelope in envelopes:
         result = ingest_envelope(authority_engine, envelope)
         statuses[str(result.get("status") or "unknown")] += 1
+    return statuses
 
-    incomplete = sum(
+
+def _compute_incomplete(statuses: Counter[str]) -> int:
+    return sum(
         count
         for status, count in statuses.items()
         if status not in {"success", "skipped"}
     )
-    checkpoint: str | None
-    marker: ChangeEnvelope | None = None
+
+
+def _cdc_marker(
+    *,
+    next_cursor: str | None,
+    current_cursor: str | None,
+    incomplete: int,
+    tenant: str,
+    source_alias: str,
+    resolved_profile: dict[str, Any],
+    connection: str,
+    profile_digest: str,
+) -> ChangeEnvelope | None:
+    checkpoint = next_cursor
+    if not checkpoint or checkpoint == current_cursor or incomplete:
+        return None
+    return ChangeEnvelope.snapshot_complete(
+        connector="external-graph",
+        tenant=tenant,
+        source_instance=source_alias,
+        checkpoint=checkpoint,
+        live_ids=[],
+        fetch_ok=False,
+        schema_version=str(resolved_profile.get("adapter_version") or "1"),
+        ontology_mapping_version=str(resolved_profile.get("proposal_version") or ""),
+        provenance={
+            "connection_alias": connection,
+            "profile_digest": profile_digest,
+            "privacy_gate": True,
+            "sync_strategy": "cdc",
+        },
+    )
+
+
+def _snapshot_marker(
+    *,
+    identity_key: str,
+    source_alias: str,
+    profile_digest: str,
+    prepared: list[dict[str, Any]],
+    outgoing: dict[str, list[dict[str, Any]]],
+    incomplete: int,
+    request: ExternalGraphIngestionRequest,
+    snapshot_identity_complete: bool,
+    tenant: str,
+    resolved_profile: dict[str, Any],
+    connection: str,
+) -> ChangeEnvelope | None:
+    checkpoint = _private_digest(
+        identity_key,
+        "snapshot-checkpoint",
+        source_alias,
+        profile_digest,
+        sorted((item["internal_id"], item["version"]) for item in prepared),
+        outgoing,
+    )
+    if incomplete:
+        return None
+    return ChangeEnvelope.snapshot_complete(
+        connector="external-graph",
+        tenant=tenant,
+        source_instance=source_alias,
+        checkpoint=checkpoint,
+        live_ids=(
+            [item["internal_id"] for item in prepared]
+            if request.reconcile_deletions and snapshot_identity_complete
+            else []
+        ),
+        fetch_ok=bool(request.reconcile_deletions and snapshot_identity_complete),
+        schema_version=str(resolved_profile.get("adapter_version") or "1"),
+        ontology_mapping_version=str(resolved_profile.get("proposal_version") or ""),
+        provenance={
+            "authoritative_empty_approved": bool(request.allow_empty_snapshot),
+            "connection_alias": connection,
+            "profile_digest": profile_digest,
+            "privacy_gate": True,
+            "sync_strategy": "snapshot",
+        },
+    )
+
+
+def _build_marker(
+    *,
+    use_cdc: bool,
+    next_cursor: str | None,
+    current_cursor: str | None,
+    incomplete: int,
+    tenant: str,
+    source_alias: str,
+    resolved_profile: dict[str, Any],
+    connection: str,
+    profile_digest: str,
+    request: ExternalGraphIngestionRequest,
+    snapshot_identity_complete: bool,
+    identity_key: str,
+    prepared: list[dict[str, Any]],
+    outgoing: dict[str, list[dict[str, Any]]],
+) -> ChangeEnvelope | None:
     if use_cdc:
-        checkpoint = next_cursor
-        if checkpoint and checkpoint != current_cursor and not incomplete:
-            marker = ChangeEnvelope.snapshot_complete(
-                connector="external-graph",
-                tenant=tenant,
-                source_instance=source_alias,
-                checkpoint=checkpoint,
-                live_ids=[],
-                fetch_ok=False,
-                schema_version=str(resolved_profile.get("adapter_version") or "1"),
-                ontology_mapping_version=str(
-                    resolved_profile.get("proposal_version") or ""
-                ),
-                provenance={
-                    "connection_alias": connection,
-                    "profile_digest": profile_digest,
-                    "privacy_gate": True,
-                    "sync_strategy": "cdc",
-                },
-            )
-    else:
-        checkpoint = _private_digest(
-            identity_key,
-            "snapshot-checkpoint",
-            source_alias,
-            profile_digest,
-            sorted((item["internal_id"], item["version"]) for item in prepared),
-            outgoing,
+        return _cdc_marker(
+            next_cursor=next_cursor,
+            current_cursor=current_cursor,
+            incomplete=incomplete,
+            tenant=tenant,
+            source_alias=source_alias,
+            resolved_profile=resolved_profile,
+            connection=connection,
+            profile_digest=profile_digest,
         )
-        if not incomplete:
-            marker = ChangeEnvelope.snapshot_complete(
-                connector="external-graph",
-                tenant=tenant,
-                source_instance=source_alias,
-                checkpoint=checkpoint,
-                live_ids=(
-                    [item["internal_id"] for item in prepared]
-                    if request.reconcile_deletions and snapshot_identity_complete
-                    else []
-                ),
-                fetch_ok=bool(
-                    request.reconcile_deletions and snapshot_identity_complete
-                ),
-                schema_version=str(resolved_profile.get("adapter_version") or "1"),
-                ontology_mapping_version=str(
-                    resolved_profile.get("proposal_version") or ""
-                ),
-                provenance={
-                    "authoritative_empty_approved": bool(request.allow_empty_snapshot),
-                    "connection_alias": connection,
-                    "profile_digest": profile_digest,
-                    "privacy_gate": True,
-                    "sync_strategy": "snapshot",
-                },
-            )
-    if marker is not None:
-        marker_result = ingest_envelope(authority_engine, marker)
-        marker_status = str(marker_result.get("status") or "unknown")
-        statuses[marker_status] += 1
-        if marker_status not in {"success", "skipped"}:
-            incomplete += 1
-    source_incomplete = bool(not use_cdc and not snapshot_identity_complete)
+    return _snapshot_marker(
+        identity_key=identity_key,
+        source_alias=source_alias,
+        profile_digest=profile_digest,
+        prepared=prepared,
+        outgoing=outgoing,
+        incomplete=incomplete,
+        request=request,
+        snapshot_identity_complete=snapshot_identity_complete,
+        tenant=tenant,
+        resolved_profile=resolved_profile,
+        connection=connection,
+    )
+
+
+def _ingest_marker(
+    authority_engine: Any, marker: ChangeEnvelope, statuses: Counter[str]
+) -> int:
+    marker_result = ingest_envelope(authority_engine, marker)
+    marker_status = str(marker_result.get("status") or "unknown")
+    statuses[marker_status] += 1
+    return 1 if marker_status not in {"success", "skipped"} else 0
+
+
+def _build_result(
+    *,
+    incomplete: int,
+    source_incomplete: bool,
+    source_alias: str,
+    connection: str,
+    prepared: list[dict[str, Any]],
+    edges: int,
+    delete_ids: list[str],
+    use_cdc: bool,
+    snapshot_identity_complete: bool,
+    statuses: Counter[str],
+    profile_digest: str,
+    privacy_redactions: int,
+    privacy_counts: Counter[str],
+) -> dict[str, Any]:
     return {
         "status": "partial" if incomplete or source_incomplete else "success",
         "source_alias": source_alias,
@@ -1351,3 +1865,224 @@ def ingest_registered_graph(
             "detected_types": sorted(privacy_counts),
         },
     }
+
+
+def ingest_registered_graph(
+    authority_engine: Any,
+    registry: Any,
+    request: ExternalGraphIngestionRequest,
+    *,
+    profile: dict[str, Any] | None = None,
+    profile_resolver: Callable[[str], str | None] | None = None,
+    privacy_guard: PersistencePrivacyGuard | None = None,
+) -> dict[str, Any]:
+    """Read a bounded external graph slice and ingest it through envelopes.
+
+    ``profile`` is an offline-test seam. Production entrypoints pass only
+    ``profile_ref`` so remote endpoint/query configuration never appears in MCP
+    arguments, manifests, checkpoints, or trace metadata.
+    """
+
+    bounds = _validate_request(request)
+    _certify_external_graph_connector()
+
+    profile_ref = _resolve_profile_ref(request, bounds.connection)
+    resolved_profile = _resolve_profile(
+        profile_ref,
+        profile=profile,
+        resolver=profile_resolver,
+    )
+    _validate_profile_freshness(
+        resolved_profile,
+        profile_arg=profile,
+        source_alias=bounds.source_alias,
+        request=request,
+        bounds=bounds,
+    )
+    identity_key = _resolve_identity_key(
+        resolved_profile,
+        connection=bounds.connection,
+        resolver=profile_resolver,
+    )
+    mappings = _resolve_mappings(resolved_profile)
+    access = _validate_access_classification(resolved_profile, bounds.classification)
+    external_engine = _resolve_external_engine(registry, bounds.connection)
+    _verify_schema_digest(
+        resolved_profile, registry, bounds.connection, external_engine
+    )
+
+    privacy = privacy_guard or PersistencePrivacyGuard()
+    payload_budget = _PayloadBudget(
+        max_row_bytes=bounds.max_row_bytes,
+        max_total_bytes=bounds.max_total_bytes,
+        max_nesting_depth=bounds.max_nesting_depth,
+        max_collection_items=bounds.max_collection_items,
+    )
+    reader, use_cdc = _setup_reader(external_engine, bounds.sync_mode)
+
+    if use_cdc:
+        node_rows, delete_keys, edge_rows, current_cursor, next_cursor = _read_cdc_rows(
+            authority_engine,
+            reader,
+            source_alias=bounds.source_alias,
+            page_size=bounds.page_size,
+            max_pages=bounds.max_pages,
+            max_records=bounds.max_records,
+            privacy=privacy,
+            budget=payload_budget,
+        )
+    else:
+        node_rows, edge_rows = _read_snapshot_rows(
+            external_engine,
+            node_query=mappings.node_query,
+            edge_query=mappings.edge_query,
+            variables=dict(request.variables or {}),
+            page_size=bounds.page_size,
+            max_pages=bounds.max_pages,
+            max_records=bounds.max_records,
+            budget=payload_budget,
+            privacy=privacy,
+        )
+        delete_keys = []
+        current_cursor = None
+        next_cursor = None
+
+    type_map = resolved_profile.get("type_map")
+    if not isinstance(type_map, dict):
+        type_map = {}
+
+    (
+        internal_ids,
+        prepared,
+        node_privacy_counts,
+        node_redactions,
+        node_identity_complete,
+    ) = _prepare_node_rows(
+        node_rows,
+        node_mapping=mappings.node_mapping,
+        type_map=type_map,
+        use_cdc=use_cdc,
+        source_alias=bounds.source_alias,
+        identity_key=identity_key,
+        node_allowlist=mappings.node_allowlist,
+        privacy=privacy,
+    )
+    outgoing, edge_privacy_counts, edge_redactions, edge_identity_complete = (
+        _prepare_edges(
+            mappings.edge_query,
+            mappings.edge_mapping,
+            edge_rows,
+            internal_ids=internal_ids,
+            edge_allowlist=mappings.edge_allowlist,
+            privacy=privacy,
+            resolved_profile=resolved_profile,
+        )
+    )
+    privacy_counts = node_privacy_counts
+    privacy_counts.update(edge_privacy_counts)
+    privacy_redactions = node_redactions + edge_redactions
+    snapshot_identity_complete = node_identity_complete and edge_identity_complete
+
+    delete_ids = _compute_delete_ids(
+        delete_keys,
+        identity_key=identity_key,
+        source_alias=bounds.source_alias,
+        prepared=prepared,
+    )
+    _guard_empty_snapshot(
+        use_cdc=use_cdc,
+        snapshot_identity_complete=snapshot_identity_complete,
+        request=request,
+        prepared=prepared,
+    )
+    profile_digest = _compute_profile_digest(
+        node_query=mappings.node_query,
+        node_mapping=mappings.node_mapping,
+        edge_query=mappings.edge_query,
+        edge_mapping=mappings.edge_mapping,
+        resolved_profile=resolved_profile,
+        request=request,
+        bounds=bounds,
+    )
+    if request.dry_run:
+        return _build_dry_run_result(
+            source_alias=bounds.source_alias,
+            connection=bounds.connection,
+            prepared=prepared,
+            outgoing=outgoing,
+            delete_ids=delete_ids,
+            use_cdc=use_cdc,
+            snapshot_identity_complete=snapshot_identity_complete,
+            profile_digest=profile_digest,
+            privacy_redactions=privacy_redactions,
+            privacy_counts=privacy_counts,
+        )
+
+    envelopes, edges = _build_node_envelopes(
+        prepared,
+        outgoing=outgoing,
+        source_alias=bounds.source_alias,
+        identity_key=identity_key,
+        profile_digest=profile_digest,
+        tenant=bounds.tenant,
+        resolved_profile=resolved_profile,
+        access=access,
+        classification=bounds.classification,
+        retention=bounds.retention,
+        request=request,
+        connection=bounds.connection,
+    )
+    envelopes.extend(
+        _build_delete_envelopes(
+            delete_ids,
+            tenant=bounds.tenant,
+            source_alias=bounds.source_alias,
+            identity_key=identity_key,
+            next_cursor=next_cursor,
+            resolved_profile=resolved_profile,
+            classification=bounds.classification,
+            retention=bounds.retention,
+            request=request,
+            connection=bounds.connection,
+            profile_digest=profile_digest,
+        )
+    )
+
+    statuses = _ingest_envelopes(authority_engine, envelopes)
+    incomplete = _compute_incomplete(statuses)
+
+    marker = _build_marker(
+        use_cdc=use_cdc,
+        next_cursor=next_cursor,
+        current_cursor=current_cursor,
+        incomplete=incomplete,
+        tenant=bounds.tenant,
+        source_alias=bounds.source_alias,
+        resolved_profile=resolved_profile,
+        connection=bounds.connection,
+        profile_digest=profile_digest,
+        request=request,
+        snapshot_identity_complete=snapshot_identity_complete,
+        identity_key=identity_key,
+        prepared=prepared,
+        outgoing=outgoing,
+    )
+    if marker is not None:
+        incomplete += _ingest_marker(authority_engine, marker, statuses)
+
+    source_incomplete = bool(not use_cdc and not snapshot_identity_complete)
+    return _build_result(
+        incomplete=incomplete,
+        source_incomplete=source_incomplete,
+        source_alias=bounds.source_alias,
+        connection=bounds.connection,
+        prepared=prepared,
+        edges=edges,
+        delete_ids=delete_ids,
+        use_cdc=use_cdc,
+        snapshot_identity_complete=snapshot_identity_complete,
+        statuses=statuses,
+        profile_digest=profile_digest,
+        privacy_redactions=privacy_redactions,
+        privacy_counts=privacy_counts,
+    )
