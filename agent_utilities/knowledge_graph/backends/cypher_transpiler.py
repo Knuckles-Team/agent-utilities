@@ -136,6 +136,549 @@ def _sanitize_param(v: Any) -> Any:
     return v
 
 
+def _try_create_node(
+    cypher_stripped: str, clean_params: dict[str, Any]
+) -> TranspiledQuery | None:
+    """Pattern 1: CREATE (n:Label {props})"""
+    m = _CREATE_NODE.search(cypher_stripped)
+    if not (m and cypher_stripped.upper().startswith("CREATE")):
+        return None
+    alias, label, props_str = m.group(1), m.group(2), m.group(3)
+    # Parse "key: $param" pairs
+    prop_pairs = re.findall(r"`?(\w+)`?\s*:\s*\$(\w+)", props_str)
+    cols = [p[0] for p in prop_pairs]
+    param_keys = [p[1] for p in prop_pairs]
+    placeholders = ["%s" for _ in cols]
+    values = [_sanitize_param(clean_params.get(k)) for k in param_keys]
+    sql = f'INSERT INTO "{label}" ({", ".join(cols)}) VALUES ({", ".join(placeholders)}) ON CONFLICT (id) DO NOTHING'
+    return TranspiledQuery(
+        sql=sql, params=values, query_type=QueryType.INSERT, target_table=label
+    )
+
+
+def _merge_node_cols_and_values(
+    alias: str, id_param: str, m_set: Any, clean_params: dict[str, Any]
+) -> tuple[list[str], list[Any]]:
+    set_pairs = (
+        re.findall(rf"{alias}\.`?(\w+)`?\s*=\s*\$(\w+)", m_set.group(1))
+        if m_set
+        else []
+    )
+    cols = ["id"] + [p[0] for p in set_pairs if p[0] != "id"]
+    merge_values = [_sanitize_param(clean_params.get(id_param))] + [
+        _sanitize_param(clean_params.get(p[1])) for p in set_pairs if p[0] != "id"
+    ]
+    return cols, merge_values
+
+
+def _merge_node_upsert_sql(label: str, cols: list[str]) -> str:
+    col_list = ", ".join(f'"{c}"' for c in cols)
+    placeholder_sql = ", ".join("%s" for _ in cols)
+    update_cols = [c for c in cols if c != "id"]
+    if update_cols:
+        updates = ", ".join(f'"{c}" = EXCLUDED."{c}"' for c in update_cols)
+        return (
+            f'INSERT INTO "{label}" ({col_list}) VALUES ({placeholder_sql}) '
+            f"ON CONFLICT (id) DO UPDATE SET {updates}"
+        )
+    return (
+        f'INSERT INTO "{label}" ({col_list}) VALUES ({placeholder_sql}) '
+        f"ON CONFLICT (id) DO NOTHING"
+    )
+
+
+def _try_merge_node(
+    cypher_stripped: str, clean_params: dict[str, Any]
+) -> TranspiledQuery | None:
+    """Pattern 1b: MERGE (n:Label {id: $id}) [SET n.k = $props_k ...] → upsert"""
+    m_merge_node = _MERGE_NODE.search(cypher_stripped)
+    if not (m_merge_node and cypher_stripped.upper().startswith("MERGE")):
+        return None
+    alias, label, id_param = (
+        m_merge_node.group(1),
+        m_merge_node.group(2),
+        m_merge_node.group(3),
+    )
+    m_set = _SET_CLAUSE.search(cypher_stripped)
+    cols, merge_values = _merge_node_cols_and_values(
+        alias, id_param, m_set, clean_params
+    )
+    sql = _merge_node_upsert_sql(label, cols)
+    return TranspiledQuery(
+        sql=sql,
+        params=merge_values,
+        query_type=QueryType.INSERT,
+        target_table=label,
+    )
+
+
+def _try_match_by_id_set(
+    cypher_stripped: str, clean_params: dict[str, Any]
+) -> TranspiledQuery | None:
+    """Pattern 2: MATCH (n:Label) WHERE n.id = $id SET ... RETURN"""
+    m_id = _MATCH_BY_ID.search(cypher_stripped)
+    m_set = _SET_CLAUSE.search(cypher_stripped)
+    if not (m_id and m_set):
+        return None
+    alias, label, id_param = m_id.group(1), m_id.group(2), m_id.group(3)
+    set_str = m_set.group(1).strip()
+    # Parse "n.key = $param" pairs
+    set_pairs = re.findall(rf"{alias}\.`?(\w+)`?\s*=\s*\$(\w+)", set_str)
+    if not set_pairs:
+        return None
+    set_clauses = [f'"{p[0]}" = %s' for p in set_pairs]
+    values = [clean_params.get(p[1]) for p in set_pairs]
+    values.append(clean_params.get(id_param))
+    sql = f'UPDATE "{label}" SET {", ".join(set_clauses)} WHERE id = %s'
+
+    # Check for RETURN
+    m_ret = _RETURN_CLAUSE.search(cypher_stripped)
+    if m_ret:
+        ret_str = m_ret.group(1).strip()
+        if f"{alias}.id" in ret_str:
+            sql += " RETURNING id"
+    return TranspiledQuery(
+        sql=sql,
+        params=values,
+        query_type=QueryType.UPDATE,
+        target_table=label,
+        node_alias=alias,
+    )
+
+
+def _try_label_lookup(
+    cypher_stripped: str, clean_params: dict[str, Any], known_tables: set[str]
+) -> TranspiledQuery | None:
+    """Pattern 3: MATCH (n) WHERE n.id = $id RETURN label(n) as lbl"""
+    m_any = _MATCH_ANY_BY_ID.search(cypher_stripped)
+    m_label = _LABEL_FUNC.search(cypher_stripped)
+    if not (m_any and m_label):
+        return None
+    alias, id_param = m_any.group(1), m_any.group(2)
+    lbl_alias = m_label.group(2)
+    id_val = clean_params.get(id_param)
+    # Search all known tables for this ID
+    if not known_tables:
+        return None
+    union_parts = []
+    for tbl in sorted(known_tables):
+        union_parts.append(
+            f"SELECT '{tbl}' AS {lbl_alias} FROM \"{tbl}\" WHERE id = %s"
+        )
+    sql = " UNION ALL ".join(union_parts) + " LIMIT 1"
+    values = [id_val] * len(known_tables)
+    return TranspiledQuery(
+        sql=sql,
+        params=values,
+        query_type=QueryType.LABEL_LOOKUP,
+        return_columns=[lbl_alias],
+    )
+
+
+def _relationship_select_columns(
+    cypher_stripped: str, r_alias: str
+) -> tuple[list[str], list[str], bool]:
+    m_ret = _RETURN_CLAUSE.search(cypher_stripped)
+    select_cols: list[str] = []
+    return_cols: list[str] = []
+    is_count = False
+    if m_ret:
+        ret_raw = m_ret.group(1).strip()
+        items = [item.strip() for item in ret_raw.split(",")]
+        for item in items:
+            # ``RETURN count(r) AS c`` / ``count(*)`` — an aggregate over the matched
+            # edges, not a property projection. Emit ``count(*) AS <alias>`` (mirrors
+            # _build_traversal's count handling); without this branch the item matched
+            # nothing and the projection silently fell back to ``SELECT properties``,
+            # so ``rows[0]["c"]`` was a JSONB blob instead of the integer count.
+            m_count = re.search(
+                r"count\s*\(\s*(?:\*|\w+)\s*\)\s*(?:AS\s+(\w+))?",
+                item,
+                re.IGNORECASE,
+            )
+            if m_count:
+                cnt_alias = m_count.group(1) or "count"
+                select_cols.append(f"count(*) AS {cnt_alias}")
+                return_cols.append(cnt_alias)
+                is_count = True
+                continue
+            m_prop = re.search(
+                rf"{r_alias}\.(\w+)\s+(?:AS\s+)?(\w+)", item, re.IGNORECASE
+            )
+            if m_prop:
+                prop_name = m_prop.group(1)
+                prop_alias = m_prop.group(2)
+                select_cols.append(f"(properties->>'{prop_name}') AS {prop_alias}")
+                return_cols.append(prop_alias)
+            else:
+                m_prop_simple = re.search(rf"{r_alias}\.(\w+)", item, re.IGNORECASE)
+                if m_prop_simple:
+                    prop_name = m_prop_simple.group(1)
+                    select_cols.append(
+                        f"(properties->>'{prop_name}') AS {prop_name}"
+                    )
+                    return_cols.append(prop_name)
+                elif item == r_alias:
+                    select_cols.append("properties")
+                    return_cols.append(r_alias)
+
+    if not select_cols:
+        select_cols = ["properties"]
+        return_cols = [r_alias]
+    return select_cols, return_cols, is_count
+
+
+def _try_general_traversal(
+    cypher_stripped: str,
+    clean_params: dict[str, Any],
+    known_tables: set[str],
+    s_alias: str,
+    s_label: str | None,
+    r_type: str | None,
+    t_alias: str,
+    t_label: str | None,
+    sid: Any,
+    tid: Any,
+) -> TranspiledQuery | None:
+    # Case B: general single-hop TRAVERSAL — endpoint ids unknown but both
+    # labels present. Join the per-label node tables through ``kg_edges``.
+    # (Case A below handles the "edge between two known ids" lookup.)
+    # CONCEPT:AU-KG.query.vendor-agnostic-traversal — vendor-agnostic traversal on the durable store.
+    labels_ok = bool(s_label and t_label) and (
+        not known_tables or (s_label in known_tables and t_label in known_tables)
+    )
+    if sid is None and tid is None and labels_ok:
+        return _build_traversal(
+            cypher_stripped,
+            s_alias,
+            s_label,
+            r_type,
+            t_alias,
+            t_label,
+            clean_params,
+        )
+    return None
+
+
+def _edge_select_query(
+    cypher_stripped: str, r_alias: str, r_type: str | None, sid: Any, tid: Any
+) -> TranspiledQuery:
+    select_cols, return_cols, is_count = _relationship_select_columns(
+        cypher_stripped, r_alias
+    )
+
+    select_clause = ", ".join(select_cols)
+
+    sql = f"SELECT {select_clause} FROM {EDGE_TABLE} WHERE source_id = %s AND target_id = %s"
+    params_list = [sid, tid]
+    if r_type:
+        sql += " AND rel_type = %s"
+        params_list.append(r_type)
+
+    return TranspiledQuery(
+        sql=sql,
+        params=params_list,
+        query_type=QueryType.COUNT if is_count else QueryType.SELECT,
+        return_columns=return_cols,
+    )
+
+
+def _try_relationship_select(
+    cypher_stripped: str, clean_params: dict[str, Any], known_tables: set[str]
+) -> TranspiledQuery | None:
+    """Pattern 3.5: MATCH (s)-[r]->(t) (relationship select)"""
+    m_rel = _MATCH_REL.search(cypher_stripped)
+    if not (m_rel and not cypher_stripped.upper().startswith("MERGE")):
+        return None
+    s_alias = m_rel.group(1)
+    m_rel.group(2)
+    r_alias = m_rel.group(3) or "r"
+    r_type = m_rel.group(4)
+    t_alias = m_rel.group(5)
+    m_rel.group(6)
+
+    s_label = m_rel.group(2)
+    t_label = m_rel.group(6)
+    sid_param = _find_id_param(cypher_stripped, s_alias, clean_params)
+    tid_param = _find_id_param(cypher_stripped, t_alias, clean_params)
+    sid = clean_params.get(sid_param, clean_params.get("sid"))
+    tid = clean_params.get(tid_param, clean_params.get("tid"))
+
+    tq = _try_general_traversal(
+        cypher_stripped,
+        clean_params,
+        known_tables,
+        s_alias,
+        s_label,
+        r_type,
+        t_alias,
+        t_label,
+        sid,
+        tid,
+    )
+    if tq is not None:
+        return tq
+
+    return _edge_select_query(cypher_stripped, r_alias, r_type, sid, tid)
+
+
+def _try_count_pattern(
+    cypher_stripped: str,
+    clean_params: dict[str, Any],
+    alias: str,
+    label: str | None,
+    node_tables: set[str],
+) -> TranspiledQuery | None:
+    m_cnt = _COUNT_PATTERN.search(cypher_stripped)
+    if not m_cnt:
+        return None
+    cnt_alias = m_cnt.group(2)
+    where_sql, where_vals = _build_where(cypher_stripped, alias, clean_params)
+    tbl = f'"{label}"' if label else _union_all_tables(node_tables)
+    if label:
+        sql = f"SELECT COUNT(*) AS {cnt_alias} FROM {tbl}"
+        if where_sql:
+            sql += f" WHERE {where_sql}"
+        return TranspiledQuery(
+            sql=sql,
+            params=where_vals,
+            query_type=QueryType.COUNT,
+            return_columns=[cnt_alias],
+        )
+    return None
+
+
+def _try_delete_pattern(
+    cypher_stripped: str,
+    clean_params: dict[str, Any],
+    alias: str,
+    label: str | None,
+) -> TranspiledQuery | None:
+    m_del = _DETACH_DELETE.search(cypher_stripped) or _DELETE.search(cypher_stripped)
+    if not m_del:
+        return None
+    where_sql, where_vals = _build_where(cypher_stripped, alias, clean_params)
+    if label:
+        sqls = []
+        # Delete edges first
+        sqls.append(
+            f'DELETE FROM {EDGE_TABLE} WHERE source_id IN (SELECT id FROM "{label}" WHERE {where_sql}) '
+            f'OR target_id IN (SELECT id FROM "{label}" WHERE {where_sql})'
+        )
+        sqls.append(f'DELETE FROM "{label}" WHERE {where_sql}')
+        # We return the last statement; caller should handle cascade
+        return TranspiledQuery(
+            sql=sqls[-1],
+            params=where_vals,
+            query_type=QueryType.DELETE,
+            target_table=label,
+        )
+    return None
+
+
+def _parse_merge_edge_props(props_str: str | None) -> dict[str, Any]:
+    edge_props: dict[str, Any] = {}
+    if not props_str:
+        return edge_props
+    for pair in re.split(r",\s*", props_str):
+        parts = pair.split(":")
+        if len(parts) == 2:
+            k_prop = parts[0].strip()
+            v_raw = parts[1].strip()
+            if (v_raw.startswith("'") and v_raw.endswith("'")) or (
+                v_raw.startswith('"') and v_raw.endswith('"')
+            ):
+                edge_props[k_prop] = v_raw[1:-1]
+            else:
+                try:
+                    if "." in v_raw:
+                        edge_props[k_prop] = float(v_raw)
+                    else:
+                        edge_props[k_prop] = int(v_raw)
+                except ValueError:
+                    edge_props[k_prop] = v_raw
+    return edge_props
+
+
+def _try_merge_relationship(
+    cypher_stripped: str, clean_params: dict[str, Any]
+) -> TranspiledQuery | None:
+    m_merge = _MERGE_REL.search(cypher_stripped)
+    if not m_merge:
+        return None
+    s_alias = m_merge.group(1)
+    _r_alias = m_merge.group(2)  # noqa: F841
+    rel_type = m_merge.group(3)
+    props_str = m_merge.group(4)
+    t_alias = m_merge.group(5)
+    # Extract source/target IDs from earlier MATCH
+    sid_param = _find_id_param(cypher_stripped, s_alias, clean_params)
+    tid_param = _find_id_param(cypher_stripped, t_alias, clean_params)
+    sid = clean_params.get(sid_param, clean_params.get("sid"))
+    tid = clean_params.get(tid_param, clean_params.get("tid"))
+    sql = (
+        "INSERT INTO kg_edges (source_id, target_id, rel_type, properties) "
+        "VALUES (%s, %s, %s, %s::jsonb) "
+        "ON CONFLICT (source_id, target_id, rel_type) "
+        "DO UPDATE SET properties = EXCLUDED.properties"
+    )
+    # Collect edge properties (both inline literals and params)
+    edge_props = _parse_merge_edge_props(props_str)
+
+    for k, v in clean_params.items():
+        if k not in ("sid", "tid", "id", "source", "target"):
+            edge_props[k] = v
+
+    import json
+
+    return TranspiledQuery(
+        sql=sql,
+        params=[sid, tid, rel_type, json.dumps(edge_props, default=str)],
+        query_type=QueryType.UPSERT_EDGE,
+    )
+
+
+def _determine_select_columns(cypher_stripped: str, alias: str) -> tuple[str, bool]:
+    # Determine return columns
+    m_ret = _RETURN_CLAUSE.search(cypher_stripped)
+    sel_cols = "*"
+    # ``projecting`` = the RETURN names specific properties (``RETURN n.x AS y, ...``)
+    # rather than the whole node (``RETURN n``). A projection must yield FLAT,
+    # alias-keyed rows; only a bare ``RETURN n`` is wrapped under the node alias by
+    # the backend (execute's ``{node_alias: {...}}``). Node properties are stored as
+    # top-level columns (the MERGE/INSERT auto-DDLs a column per property), so each
+    # item maps to ``"<prop>" AS "<alias>"`` — carrying the RETURN alias (previously
+    # dropped, which collapsed every projection into ``{'n': {...}}``).
+    projecting = False
+    if m_ret:
+        ret_raw = m_ret.group(1).strip()
+        # Remove ORDER BY / LIMIT from return
+        ret_raw = re.sub(r"ORDER\s+BY.*$", "", ret_raw, flags=re.IGNORECASE).strip()
+        ret_raw = re.sub(r"LIMIT\s+.*$", "", ret_raw, flags=re.IGNORECASE).strip()
+        if ret_raw == alias:
+            sel_cols = "*"
+        elif f"{alias}." in ret_raw:
+            cols_sql = []
+            for item in [it.strip() for it in ret_raw.split(",")]:
+                m_item = re.search(
+                    rf"{alias}\.`?(\w+)`?(?:\s+AS\s+(\w+))?", item, re.IGNORECASE
+                )
+                if not m_item:
+                    continue
+                col = m_item.group(1)
+                out_alias = m_item.group(2) or col
+                cols_sql.append(f'"{col}" AS "{out_alias}"')
+            if cols_sql:
+                sel_cols = ", ".join(cols_sql)
+                projecting = True
+    return sel_cols, projecting
+
+
+def _apply_order_and_limit(
+    cypher_stripped: str,
+    sql: str,
+    alias: str,
+    label: str | None,
+    clean_params: dict[str, Any],
+    where_vals: list[Any],
+) -> tuple[str, list[Any]]:
+    # ORDER BY
+    m_order = _ORDER_BY_CLAUSE.search(cypher_stripped)
+    if m_order and label:
+        order_raw = m_order.group(1).strip()
+        order_raw = re.sub(rf"{alias}\.", "", order_raw)
+        sql += f" ORDER BY {order_raw}"
+
+    # LIMIT
+    m_limit = _LIMIT_CLAUSE.search(cypher_stripped)
+    if m_limit:
+        limit_val = m_limit.group(1)
+        if limit_val.startswith("$"):
+            where_vals.append(clean_params.get(limit_val[1:], 100))
+            sql += " LIMIT %s"
+        else:
+            sql += f" LIMIT {limit_val}"
+    return sql, where_vals
+
+
+def _build_select_with_filters(
+    cypher_stripped: str,
+    clean_params: dict[str, Any],
+    alias: str,
+    label: str | None,
+    node_tables: set[str],
+) -> TranspiledQuery:
+    # Standard SELECT with filters
+    where_sql, where_vals = _build_where(cypher_stripped, alias, clean_params)
+
+    sel_cols, projecting = _determine_select_columns(cypher_stripped, alias)
+
+    if label:
+        sql = f'SELECT {sel_cols} FROM "{label}"'
+    else:
+        # No label — search all tables
+        sql = _union_all_tables(node_tables, sel_cols)
+
+    if where_sql:
+        if label:
+            sql += f" WHERE {where_sql}"
+        else:
+            # For UNION ALL, wrap each with WHERE. Each branch repeats the
+            # WHERE clause (and thus its ``%s`` placeholders), so the bound
+            # params must be repeated once per table — otherwise psycopg
+            # raises "the query has N placeholders but 1 parameters were
+            # passed" (the id-by-label fan-out bug). (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
+            sql = _union_all_tables(node_tables, sel_cols, where_sql)
+            # Params repeat once per UNION branch — branches span node_tables
+            # (the property-shaped subset), so multiply by len(node_tables), NOT
+            # len(known_tables); otherwise the placeholder/param counts diverge
+            # ("N placeholders but M parameters"). (CONCEPT:AU-KG.ingest.enterprise-source-extractor)
+            where_vals = where_vals * len(node_tables)
+
+    sql, where_vals = _apply_order_and_limit(
+        cypher_stripped, sql, alias, label, clean_params, where_vals
+    )
+
+    return TranspiledQuery(
+        sql=sql,
+        params=where_vals,
+        query_type=QueryType.SELECT,
+        target_table=label,
+        # Only wrap a bare ``RETURN n`` under the node alias; a property projection
+        # returns flat alias-keyed rows (node_alias=None).
+        node_alias=None if projecting else alias,
+    )
+
+
+def _try_match_with_label(
+    cypher_stripped: str,
+    clean_params: dict[str, Any],
+    known_tables: set[str],
+    node_tables: set[str],
+) -> TranspiledQuery:
+    """Pattern 4: MATCH (n:Label) WHERE ... RETURN n (with filters), plus the
+    COUNT/DELETE/MERGE-relationship sub-patterns nested under a bare MATCH."""
+    m_label_match = _LABEL_PATTERN.search(cypher_stripped)
+    label = m_label_match.group(2) if m_label_match else None
+    alias = m_label_match.group(1) if m_label_match else "n"
+
+    result = _try_count_pattern(cypher_stripped, clean_params, alias, label, node_tables)
+    if result is not None:
+        return result
+
+    result = _try_delete_pattern(cypher_stripped, clean_params, alias, label)
+    if result is not None:
+        return result
+
+    result = _try_merge_relationship(cypher_stripped, clean_params)
+    if result is not None:
+        return result
+
+    return _build_select_with_filters(
+        cypher_stripped, clean_params, alias, label, node_tables
+    )
+
+
 def transpile(
     cypher: str,
     params: dict[str, Any] | None = None,
@@ -158,404 +701,55 @@ def transpile(
             with ``column "properties" does not exist``. This current-contract
             inventory is required; guessing from all tables is unsafe.
     """
-    params = params or {}
-    known_tables = {_require_sql_identifier(table) for table in (known_tables or set())}
-    node_tables = {_require_sql_identifier(table) for table in node_tables}
+    known_tables, node_tables = _normalize_table_sets(known_tables, node_tables)
     cypher_stripped = cypher.strip().rstrip(";")
+    clean_params = _strip_internal_params(params)
 
-    # Remove internal params
-    clean_params = {k: v for k, v in params.items() if not k.startswith("_")}
+    result = _try_simple_patterns(cypher_stripped, clean_params, known_tables)
+    if result is not None:
+        return result
 
-    # --- Pattern 1: CREATE (n:Label {props}) ---
-    m = _CREATE_NODE.search(cypher_stripped)
-    if m and cypher_stripped.upper().startswith("CREATE"):
-        alias, label, props_str = m.group(1), m.group(2), m.group(3)
-        # Parse "key: $param" pairs
-        prop_pairs = re.findall(r"`?(\w+)`?\s*:\s*\$(\w+)", props_str)
-        cols = [p[0] for p in prop_pairs]
-        param_keys = [p[1] for p in prop_pairs]
-        placeholders = ["%s" for _ in cols]
-        values = [_sanitize_param(clean_params.get(k)) for k in param_keys]
-        sql = f'INSERT INTO "{label}" ({", ".join(cols)}) VALUES ({", ".join(placeholders)}) ON CONFLICT (id) DO NOTHING'
-        return TranspiledQuery(
-            sql=sql, params=values, query_type=QueryType.INSERT, target_table=label
-        )
-
-    # --- Pattern 1b: MERGE (n:Label {id: $id}) [SET n.k = $props_k ...] → upsert ---
-    m_merge_node = _MERGE_NODE.search(cypher_stripped)
-    if m_merge_node and cypher_stripped.upper().startswith("MERGE"):
-        alias, label, id_param = (
-            m_merge_node.group(1),
-            m_merge_node.group(2),
-            m_merge_node.group(3),
-        )
-        m_set = _SET_CLAUSE.search(cypher_stripped)
-        set_pairs = (
-            re.findall(rf"{alias}\.`?(\w+)`?\s*=\s*\$(\w+)", m_set.group(1))
-            if m_set
-            else []
-        )
-        cols = ["id"] + [p[0] for p in set_pairs if p[0] != "id"]
-        merge_values = [_sanitize_param(clean_params.get(id_param))] + [
-            _sanitize_param(clean_params.get(p[1])) for p in set_pairs if p[0] != "id"
-        ]
-        col_list = ", ".join(f'"{c}"' for c in cols)
-        placeholder_sql = ", ".join("%s" for _ in cols)
-        update_cols = [c for c in cols if c != "id"]
-        if update_cols:
-            updates = ", ".join(f'"{c}" = EXCLUDED."{c}"' for c in update_cols)
-            sql = (
-                f'INSERT INTO "{label}" ({col_list}) VALUES ({placeholder_sql}) '
-                f"ON CONFLICT (id) DO UPDATE SET {updates}"
-            )
-        else:
-            sql = (
-                f'INSERT INTO "{label}" ({col_list}) VALUES ({placeholder_sql}) '
-                f"ON CONFLICT (id) DO NOTHING"
-            )
-        return TranspiledQuery(
-            sql=sql,
-            params=merge_values,
-            query_type=QueryType.INSERT,
-            target_table=label,
-        )
-
-    # --- Pattern 2: MATCH (n:Label) WHERE n.id = $id SET ... RETURN ---
-    m_id = _MATCH_BY_ID.search(cypher_stripped)
-    m_set = _SET_CLAUSE.search(cypher_stripped)
-    if m_id and m_set:
-        alias, label, id_param = m_id.group(1), m_id.group(2), m_id.group(3)
-        set_str = m_set.group(1).strip()
-        # Parse "n.key = $param" pairs
-        set_pairs = re.findall(rf"{alias}\.`?(\w+)`?\s*=\s*\$(\w+)", set_str)
-        if set_pairs:
-            set_clauses = [f'"{p[0]}" = %s' for p in set_pairs]
-            values = [clean_params.get(p[1]) for p in set_pairs]
-            values.append(clean_params.get(id_param))
-            sql = f'UPDATE "{label}" SET {", ".join(set_clauses)} WHERE id = %s'
-
-            # Check for RETURN
-            m_ret = _RETURN_CLAUSE.search(cypher_stripped)
-            if m_ret:
-                ret_str = m_ret.group(1).strip()
-                if f"{alias}.id" in ret_str:
-                    sql += " RETURNING id"
-            return TranspiledQuery(
-                sql=sql,
-                params=values,
-                query_type=QueryType.UPDATE,
-                target_table=label,
-                node_alias=alias,
-            )
-
-    # --- Pattern 3: MATCH (n) WHERE n.id = $id RETURN label(n) as lbl ---
-    m_any = _MATCH_ANY_BY_ID.search(cypher_stripped)
-    m_label = _LABEL_FUNC.search(cypher_stripped)
-    if m_any and m_label:
-        alias, id_param = m_any.group(1), m_any.group(2)
-        lbl_alias = m_label.group(2)
-        id_val = clean_params.get(id_param)
-        # Search all known tables for this ID
-        if known_tables:
-            union_parts = []
-            for tbl in sorted(known_tables):
-                union_parts.append(
-                    f"SELECT '{tbl}' AS {lbl_alias} FROM \"{tbl}\" WHERE id = %s"
-                )
-            sql = " UNION ALL ".join(union_parts) + " LIMIT 1"
-            values = [id_val] * len(known_tables)
-            return TranspiledQuery(
-                sql=sql,
-                params=values,
-                query_type=QueryType.LABEL_LOOKUP,
-                return_columns=[lbl_alias],
-            )
-
-    # --- Pattern 3.5: MATCH (s)-[r]->(t) (relationship select) ---
-    m_rel = _MATCH_REL.search(cypher_stripped)
-    if m_rel and not cypher_stripped.upper().startswith("MERGE"):
-        s_alias = m_rel.group(1)
-        m_rel.group(2)
-        r_alias = m_rel.group(3) or "r"
-        r_type = m_rel.group(4)
-        t_alias = m_rel.group(5)
-        m_rel.group(6)
-
-        s_label = m_rel.group(2)
-        t_label = m_rel.group(6)
-        sid_param = _find_id_param(cypher_stripped, s_alias, clean_params)
-        tid_param = _find_id_param(cypher_stripped, t_alias, clean_params)
-        sid = clean_params.get(sid_param, clean_params.get("sid"))
-        tid = clean_params.get(tid_param, clean_params.get("tid"))
-
-        # Case B: general single-hop TRAVERSAL — endpoint ids unknown but both
-        # labels present. Join the per-label node tables through ``kg_edges``.
-        # (Case A below handles the "edge between two known ids" lookup.)
-        # CONCEPT:AU-KG.query.vendor-agnostic-traversal — vendor-agnostic traversal on the durable store.
-        labels_ok = bool(s_label and t_label) and (
-            not known_tables or (s_label in known_tables and t_label in known_tables)
-        )
-        if sid is None and tid is None and labels_ok:
-            tq = _build_traversal(
-                cypher_stripped,
-                s_alias,
-                s_label,
-                r_type,
-                t_alias,
-                t_label,
-                clean_params,
-            )
-            if tq is not None:
-                return tq
-
-        m_ret = _RETURN_CLAUSE.search(cypher_stripped)
-        select_cols = []
-        return_cols = []
-        is_count = False
-        if m_ret:
-            ret_raw = m_ret.group(1).strip()
-            items = [item.strip() for item in ret_raw.split(",")]
-            for item in items:
-                # ``RETURN count(r) AS c`` / ``count(*)`` — an aggregate over the matched
-                # edges, not a property projection. Emit ``count(*) AS <alias>`` (mirrors
-                # _build_traversal's count handling); without this branch the item matched
-                # nothing and the projection silently fell back to ``SELECT properties``,
-                # so ``rows[0]["c"]`` was a JSONB blob instead of the integer count.
-                m_count = re.search(
-                    r"count\s*\(\s*(?:\*|\w+)\s*\)\s*(?:AS\s+(\w+))?",
-                    item,
-                    re.IGNORECASE,
-                )
-                if m_count:
-                    cnt_alias = m_count.group(1) or "count"
-                    select_cols.append(f"count(*) AS {cnt_alias}")
-                    return_cols.append(cnt_alias)
-                    is_count = True
-                    continue
-                m_prop = re.search(
-                    rf"{r_alias}\.(\w+)\s+(?:AS\s+)?(\w+)", item, re.IGNORECASE
-                )
-                if m_prop:
-                    prop_name = m_prop.group(1)
-                    prop_alias = m_prop.group(2)
-                    select_cols.append(f"(properties->>'{prop_name}') AS {prop_alias}")
-                    return_cols.append(prop_alias)
-                else:
-                    m_prop_simple = re.search(rf"{r_alias}\.(\w+)", item, re.IGNORECASE)
-                    if m_prop_simple:
-                        prop_name = m_prop_simple.group(1)
-                        select_cols.append(
-                            f"(properties->>'{prop_name}') AS {prop_name}"
-                        )
-                        return_cols.append(prop_name)
-                    elif item == r_alias:
-                        select_cols.append("properties")
-                        return_cols.append(r_alias)
-
-        if not select_cols:
-            select_cols = ["properties"]
-            return_cols = [r_alias]
-
-        select_clause = ", ".join(select_cols)
-
-        sql = f"SELECT {select_clause} FROM {EDGE_TABLE} WHERE source_id = %s AND target_id = %s"
-        params_list = [sid, tid]
-        if r_type:
-            sql += " AND rel_type = %s"
-            params_list.append(r_type)
-
-        return TranspiledQuery(
-            sql=sql,
-            params=params_list,
-            query_type=QueryType.COUNT if is_count else QueryType.SELECT,
-            return_columns=return_cols,
-        )
-
-    # --- Pattern 4: MATCH (n:Label) WHERE ... RETURN n (with filters) ---
     if cypher_stripped.upper().startswith("MATCH"):
-        m_label_match = _LABEL_PATTERN.search(cypher_stripped)
-        label = m_label_match.group(2) if m_label_match else None
-        alias = m_label_match.group(1) if m_label_match else "n"
-
-        # Check for count
-        m_cnt = _COUNT_PATTERN.search(cypher_stripped)
-        if m_cnt:
-            cnt_alias = m_cnt.group(2)
-            where_sql, where_vals = _build_where(cypher_stripped, alias, clean_params)
-            tbl = f'"{label}"' if label else _union_all_tables(node_tables)
-            if label:
-                sql = f"SELECT COUNT(*) AS {cnt_alias} FROM {tbl}"
-                if where_sql:
-                    sql += f" WHERE {where_sql}"
-                return TranspiledQuery(
-                    sql=sql,
-                    params=where_vals,
-                    query_type=QueryType.COUNT,
-                    return_columns=[cnt_alias],
-                )
-
-        # Check for DETACH DELETE
-        m_del = _DETACH_DELETE.search(cypher_stripped) or _DELETE.search(
-            cypher_stripped
-        )
-        if m_del:
-            where_sql, where_vals = _build_where(cypher_stripped, alias, clean_params)
-            if label:
-                sqls = []
-                # Delete edges first
-                sqls.append(
-                    f'DELETE FROM {EDGE_TABLE} WHERE source_id IN (SELECT id FROM "{label}" WHERE {where_sql}) '
-                    f'OR target_id IN (SELECT id FROM "{label}" WHERE {where_sql})'
-                )
-                sqls.append(f'DELETE FROM "{label}" WHERE {where_sql}')
-                # We return the last statement; caller should handle cascade
-                return TranspiledQuery(
-                    sql=sqls[-1],
-                    params=where_vals,
-                    query_type=QueryType.DELETE,
-                    target_table=label,
-                )
-
-        # Check for MERGE relationship
-        m_merge = _MERGE_REL.search(cypher_stripped)
-        if m_merge:
-            s_alias = m_merge.group(1)
-            _r_alias = m_merge.group(2)  # noqa: F841
-            rel_type = m_merge.group(3)
-            props_str = m_merge.group(4)
-            t_alias = m_merge.group(5)
-            # Extract source/target IDs from earlier MATCH
-            sid_param = _find_id_param(cypher_stripped, s_alias, clean_params)
-            tid_param = _find_id_param(cypher_stripped, t_alias, clean_params)
-            sid = clean_params.get(sid_param, clean_params.get("sid"))
-            tid = clean_params.get(tid_param, clean_params.get("tid"))
-            sql = (
-                "INSERT INTO kg_edges (source_id, target_id, rel_type, properties) "
-                "VALUES (%s, %s, %s, %s::jsonb) "
-                "ON CONFLICT (source_id, target_id, rel_type) "
-                "DO UPDATE SET properties = EXCLUDED.properties"
-            )
-            # Collect edge properties (both inline literals and params)
-            edge_props = {}
-            if props_str:
-                for pair in re.split(r",\s*", props_str):
-                    parts = pair.split(":")
-                    if len(parts) == 2:
-                        k_prop = parts[0].strip()
-                        v_raw = parts[1].strip()
-                        if (v_raw.startswith("'") and v_raw.endswith("'")) or (
-                            v_raw.startswith('"') and v_raw.endswith('"')
-                        ):
-                            edge_props[k_prop] = v_raw[1:-1]
-                        else:
-                            try:
-                                if "." in v_raw:
-                                    edge_props[k_prop] = float(v_raw)
-                                else:
-                                    edge_props[k_prop] = int(v_raw)
-                            except ValueError:
-                                edge_props[k_prop] = v_raw
-
-            for k, v in clean_params.items():
-                if k not in ("sid", "tid", "id", "source", "target"):
-                    edge_props[k] = v
-
-            import json
-
-            return TranspiledQuery(
-                sql=sql,
-                params=[sid, tid, rel_type, json.dumps(edge_props, default=str)],
-                query_type=QueryType.UPSERT_EDGE,
-            )
-
-        # Standard SELECT with filters
-        where_sql, where_vals = _build_where(cypher_stripped, alias, clean_params)
-
-        # Determine return columns
-        m_ret = _RETURN_CLAUSE.search(cypher_stripped)
-        sel_cols = "*"
-        # ``projecting`` = the RETURN names specific properties (``RETURN n.x AS y, ...``)
-        # rather than the whole node (``RETURN n``). A projection must yield FLAT,
-        # alias-keyed rows; only a bare ``RETURN n`` is wrapped under the node alias by
-        # the backend (execute's ``{node_alias: {...}}``). Node properties are stored as
-        # top-level columns (the MERGE/INSERT auto-DDLs a column per property), so each
-        # item maps to ``"<prop>" AS "<alias>"`` — carrying the RETURN alias (previously
-        # dropped, which collapsed every projection into ``{'n': {...}}``).
-        projecting = False
-        if m_ret:
-            ret_raw = m_ret.group(1).strip()
-            # Remove ORDER BY / LIMIT from return
-            ret_raw = re.sub(r"ORDER\s+BY.*$", "", ret_raw, flags=re.IGNORECASE).strip()
-            ret_raw = re.sub(r"LIMIT\s+.*$", "", ret_raw, flags=re.IGNORECASE).strip()
-            if ret_raw == alias:
-                sel_cols = "*"
-            elif f"{alias}." in ret_raw:
-                cols_sql = []
-                for item in [it.strip() for it in ret_raw.split(",")]:
-                    m_item = re.search(
-                        rf"{alias}\.`?(\w+)`?(?:\s+AS\s+(\w+))?", item, re.IGNORECASE
-                    )
-                    if not m_item:
-                        continue
-                    col = m_item.group(1)
-                    out_alias = m_item.group(2) or col
-                    cols_sql.append(f'"{col}" AS "{out_alias}"')
-                if cols_sql:
-                    sel_cols = ", ".join(cols_sql)
-                    projecting = True
-
-        if label:
-            sql = f'SELECT {sel_cols} FROM "{label}"'
-        else:
-            # No label — search all tables
-            sql = _union_all_tables(node_tables, sel_cols)
-
-        if where_sql:
-            if label:
-                sql += f" WHERE {where_sql}"
-            else:
-                # For UNION ALL, wrap each with WHERE. Each branch repeats the
-                # WHERE clause (and thus its ``%s`` placeholders), so the bound
-                # params must be repeated once per table — otherwise psycopg
-                # raises "the query has N placeholders but 1 parameters were
-                # passed" (the id-by-label fan-out bug). (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
-                sql = _union_all_tables(node_tables, sel_cols, where_sql)
-                # Params repeat once per UNION branch — branches span node_tables
-                # (the property-shaped subset), so multiply by len(node_tables), NOT
-                # len(known_tables); otherwise the placeholder/param counts diverge
-                # ("N placeholders but M parameters"). (CONCEPT:AU-KG.ingest.enterprise-source-extractor)
-                where_vals = where_vals * len(node_tables)
-
-        # ORDER BY
-        m_order = _ORDER_BY_CLAUSE.search(cypher_stripped)
-        if m_order and label:
-            order_raw = m_order.group(1).strip()
-            order_raw = re.sub(rf"{alias}\.", "", order_raw)
-            sql += f" ORDER BY {order_raw}"
-
-        # LIMIT
-        m_limit = _LIMIT_CLAUSE.search(cypher_stripped)
-        if m_limit:
-            limit_val = m_limit.group(1)
-            if limit_val.startswith("$"):
-                where_vals.append(clean_params.get(limit_val[1:], 100))
-                sql += " LIMIT %s"
-            else:
-                sql += f" LIMIT {limit_val}"
-
-        return TranspiledQuery(
-            sql=sql,
-            params=where_vals,
-            query_type=QueryType.SELECT,
-            target_table=label,
-            # Only wrap a bare ``RETURN n`` under the node alias; a property projection
-            # returns flat alias-keyed rows (node_alias=None).
-            node_alias=None if projecting else alias,
+        return _try_match_with_label(
+            cypher_stripped, clean_params, known_tables, node_tables
         )
 
     # Fallback: unknown pattern
     logger.warning("Cypher transpiler: unrecognized pattern: %.200s", cypher_stripped)
     return TranspiledQuery(sql="SELECT 1 WHERE false", query_type=QueryType.UNKNOWN)
+
+
+def _normalize_table_sets(
+    known_tables: set[str] | None, node_tables: set[str]
+) -> tuple[set[str], set[str]]:
+    known = {_require_sql_identifier(table) for table in (known_tables or set())}
+    nodes = {_require_sql_identifier(table) for table in node_tables}
+    return known, nodes
+
+
+def _strip_internal_params(params: dict[str, Any] | None) -> dict[str, Any]:
+    # Remove internal params
+    return {k: v for k, v in (params or {}).items() if not k.startswith("_")}
+
+
+def _try_simple_patterns(
+    cypher_stripped: str, clean_params: dict[str, Any], known_tables: set[str]
+) -> TranspiledQuery | None:
+    """Try every pattern (1 through 3.5) that can be evaluated with only the
+    stripped cypher text, the cleaned params, and known_tables — in the
+    exact original precedence order. Returns None if none match, so the
+    caller falls through to the Pattern-4 (bare MATCH) handling."""
+    for pattern_fn in (
+        _try_create_node,
+        _try_merge_node,
+        _try_match_by_id_set,
+        lambda cs, cp: _try_label_lookup(cs, cp, known_tables),
+        lambda cs, cp: _try_relationship_select(cs, cp, known_tables),
+    ):
+        result = pattern_fn(cypher_stripped, clean_params)
+        if result is not None:
+            return result
+    return None
 
 
 def _build_traversal(
