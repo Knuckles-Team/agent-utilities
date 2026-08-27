@@ -721,6 +721,192 @@ def _run_graph_query_fanout(
     )
 
 
+_GRAPH_SEARCH_RESULTS_MODES = frozenset(
+    {
+        "hyde",
+        "deep",
+        "hybrid",
+        "concept",
+        "analogy",
+        "adore",
+        "chrono_ids",
+        "dci",
+        "memory",
+        "latent",
+        "sira",
+        "rerank",
+    }
+)
+
+
+def _graph_search_rerank(engine: Any, session: Any, *, query: str, top_k: int) -> Any:
+    # Semantic-retrieval hybrid re-scoring of a candidate set.
+    from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (  # noqa: E501
+        HybridSearchScorer,
+    )
+
+    base = engine.search_hybrid(query=query, top_k=top_k, session=session) or []
+    docs = [
+        {
+            "id": (r.get("node", r) or {}).get("id", ""),
+            "text": (r.get("node", r) or {}).get("description", ""),
+            "embedding": (r.get("node", r) or {}).get("embedding"),
+        }
+        for r in base
+    ]
+    qemb: list[float] = []
+    embed_model = getattr(getattr(engine, "hybrid_retriever", None), "embed_model", None)
+    if embed_model is not None:
+        try:
+            qemb = embed_model.get_text_embedding(query)
+        except Exception:  # noqa: BLE001
+            qemb = []
+    return HybridSearchScorer().score_documents(query, qemb, docs)
+
+
+def _graph_search_produce_results_extended(
+    engine: Any, session: Any, *, mode: str, query: str, top_k: int
+) -> Any:
+    if mode == "adore":
+        return engine.search_adore(query=query, top_k=top_k)
+    if mode == "chrono_ids":
+        return engine.temporal_semantic_ids(query=query, top_k=top_k)
+    if mode == "dci":
+        # search_dci is fail-closed (CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval):
+        # it always resolves a session and raises rather than returning an
+        # unfiltered traversal, so this served path must pass the already-ambient
+        # verified session (same pattern the hybrid/hyde/deep/concept/analogy
+        # branches use) rather than relying on an implicit fallback.
+        return engine.search_dci(query=query, top_k=top_k, session=session)
+    if mode == "memory":
+        return engine.search_memories(query=query, top_k=top_k)
+    if mode == "latent":
+        # KG-2.3 — route through the latent topology hierarchy.
+        from agent_utilities.knowledge_graph.retrieval.latent_topology_rag import (  # noqa: E501
+            LatentTopologicalRAG,
+        )
+
+        return LatentTopologicalRAG(engine).retrieve(query, top_k=top_k)
+    if mode == "sira":
+        # Single-shot SIRA: hybrid-retrieve, then sparsity-align the set.
+        from agent_utilities.knowledge_graph.retrieval.single_shot_sira import (
+            SingleShotSIRA,
+        )
+
+        base = engine.search_hybrid(query=query, top_k=top_k, session=session) or []
+        return SingleShotSIRA(engine).align_context(base)
+    # Only "rerank" remains among `_GRAPH_SEARCH_RESULTS_MODES` at this point —
+    # the caller has already dispatched hyde/deep/hybrid/concept/analogy above,
+    # and every other results-producing mode just above.
+    return _graph_search_rerank(engine, session, query=query, top_k=top_k)
+
+
+def _graph_search_produce_results(
+    engine: Any,
+    session: Any,
+    *,
+    mode: str,
+    query: str,
+    top_k: int,
+    self_correct: bool,
+    as_of: str,
+) -> Any:
+    """Modes in `_GRAPH_SEARCH_RESULTS_MODES` that feed the shared formatter
+    in `_search_with_engine` below. Precondition: `mode` is a member."""
+    if mode in ("hyde", "deep"):
+        return engine.search_hybrid(
+            query=query,
+            top_k=top_k,
+            mode=mode,
+            self_correct=self_correct,
+            session=session,
+        )
+    if mode == "hybrid":
+        return engine.search_hybrid(
+            query=query,
+            top_k=top_k,
+            self_correct=self_correct,
+            as_of=as_of or None,
+            session=session,
+        )
+    if mode in ("concept", "analogy"):
+        return engine.search_hybrid(query=query, top_k=top_k, session=session)
+    return _graph_search_produce_results_extended(
+        engine, session, mode=mode, query=query, top_k=top_k
+    )
+
+
+def _graph_search_discover(engine: Any, query: str) -> str:
+    try:
+        from agent_utilities.capabilities.manager import CapabilityManager
+
+        manager = CapabilityManager(engine)
+        results = manager.discover_capabilities(query)
+        if not results:
+            return f"No capabilities found for '{query}'"
+        return "\n".join([f"- {r.name}: {r.description}" for r in results])
+    except ImportError:
+        return "Error: capabilities module not available"
+
+
+def _graph_search_hard_negatives(engine: Any, query: str) -> str:
+    # KG-2.3 — mine hard negatives via the engine's hybrid retriever.
+    from agent_utilities.knowledge_graph.retrieval.hard_negative_miner import (  # noqa: E501
+        HardNegativeMiner,
+    )
+
+    retriever = getattr(engine, "hybrid_retriever", None)
+    if retriever is None:
+        return "Error: hybrid retriever unavailable for hard-negative mining."
+    negs = HardNegativeMiner(retriever).mine(query)
+    if not negs:
+        return f"No hard negatives mined for: '{query}'"
+    return "\n".join(f"- {n.doc_id}: {getattr(n, 'reason', '')}" for n in negs)
+
+
+def _graph_search_compiled(
+    engine: Any, query: str, *, top_k: int, as_of: str, token_budget: int
+) -> str:
+    # CONCEPT:AU-KG.retrieval.context-compiler — policy-aware ContextCompiler bundle: reuses the
+    # SAME engine ANN/hybrid retriever the other modes call, but additionally
+    # MMR-diversifies, scores evidence-quality/freshness from the epistemic
+    # columns (EPI-P3-1), fits a token budget, and runs every candidate through
+    # the live permissioning gate before returning citations + a proof graph —
+    # replacing the plain relevance-sorted concat the shared formatter performs
+    # for every other mode.
+    from agent_utilities.knowledge_graph.core.session import GraphSession
+    from agent_utilities.knowledge_graph.retrieval.context_compiler import (  # noqa: E501
+        ContextCompiler,
+    )
+
+    session = GraphSession.from_ambient()
+    compiler = ContextCompiler(engine)
+    kwargs: dict[str, Any] = {"top_k": top_k, "as_of": as_of or None}
+    if token_budget:
+        kwargs["token_budget"] = token_budget
+    bundle = compiler.compile(query, session=session, **kwargs)
+    return bundle.as_text()
+
+
+def _graph_search_format_results(results: Any) -> str:
+    # The direct retrieval modes use a flat, score-sorted text block with no
+    # diversity/evidence/freshness/policy/budget shaping — prefer
+    # mode='compiled' for a citation- and proof-graph-bearing bundle.
+    formatted_results = []
+    for res in results:
+        score = res.get("score", 0)
+        score = float(score) if score is not None else 0.0
+        node = res.get("node", res)
+        label = node.get("type", node.get("label", "Unknown"))
+        name = node.get("name", "Unnamed")
+        desc = node.get("description", "")
+        nid = node.get("id", "N/A")
+        formatted_results.append(
+            f"[{label}] {name} (ID: {nid}) - Score: {score:.2f}\n{desc}"
+        )
+    return "\n---\n".join(formatted_results)
+
+
 def register_query_tools(mcp):
     """Register the query_tools group on the given FastMCP server."""
 
@@ -1556,167 +1742,34 @@ def register_query_tools(mcp):
                 )
 
                 _session = current_session()
-                if mode in ("hyde", "deep"):
-                    results = engine.search_hybrid(
-                        query=query,
-                        top_k=top_k,
+                if mode in _GRAPH_SEARCH_RESULTS_MODES:
+                    results = _graph_search_produce_results(
+                        engine,
+                        _session,
                         mode=mode,
-                        self_correct=self_correct,
-                        session=_session,
-                    )
-                elif mode == "hybrid":
-                    results = engine.search_hybrid(
                         query=query,
                         top_k=top_k,
                         self_correct=self_correct,
-                        as_of=as_of or None,
-                        session=_session,
+                        as_of=as_of,
                     )
-                elif mode == "concept":
-                    results = engine.search_hybrid(
-                        query=query, top_k=top_k, session=_session
-                    )
-                elif mode == "analogy":
-                    results = engine.search_hybrid(
-                        query=query, top_k=top_k, session=_session
-                    )
-                elif mode == "adore":
-                    results = engine.search_adore(query=query, top_k=top_k)
-                elif mode == "chrono_ids":
-                    results = engine.temporal_semantic_ids(query=query, top_k=top_k)
-                elif mode == "dci":
-                    # search_dci is fail-closed (CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval):
-                    # it always resolves a session and raises rather than
-                    # returning an unfiltered traversal, so this served path
-                    # must pass the already-ambient verified session (same
-                    # pattern the hybrid/hyde/deep/concept/analogy branches
-                    # above use) rather than relying on an implicit fallback.
-                    results = engine.search_dci(
-                        query=query, top_k=top_k, session=_session
-                    )
-                elif mode == "memory":
-                    results = engine.search_memories(query=query, top_k=top_k)
                 elif mode == "discover":
-                    try:
-                        from agent_utilities.capabilities.manager import (
-                            CapabilityManager,
-                        )
-
-                        manager = CapabilityManager(engine)
-                        results = manager.discover_capabilities(query)
-                        if not results:
-                            return f"No capabilities found for '{query}'"
-                        return "\n".join(
-                            [f"- {r.name}: {r.description}" for r in results]
-                        )
-                    except ImportError:
-                        return "Error: capabilities module not available"
-                elif mode == "latent":
-                    # KG-2.3 — route through the latent topology hierarchy.
-                    from agent_utilities.knowledge_graph.retrieval.latent_topology_rag import (  # noqa: E501
-                        LatentTopologicalRAG,
-                    )
-
-                    results = LatentTopologicalRAG(engine).retrieve(query, top_k=top_k)
-                elif mode == "sira":
-                    # Single-shot SIRA: hybrid-retrieve, then sparsity-align the set.
-                    from agent_utilities.knowledge_graph.retrieval.single_shot_sira import (
-                        SingleShotSIRA,
-                    )
-
-                    base = (
-                        engine.search_hybrid(query=query, top_k=top_k, session=_session)
-                        or []
-                    )
-                    results = SingleShotSIRA(engine).align_context(base)
+                    return _graph_search_discover(engine, query)
                 elif mode == "hard_negatives":
-                    # KG-2.3 — mine hard negatives via the engine's hybrid retriever.
-                    from agent_utilities.knowledge_graph.retrieval.hard_negative_miner import (  # noqa: E501
-                        HardNegativeMiner,
-                    )
-
-                    retriever = getattr(engine, "hybrid_retriever", None)
-                    if retriever is None:
-                        return "Error: hybrid retriever unavailable for hard-negative mining."
-                    negs = HardNegativeMiner(retriever).mine(query)
-                    if not negs:
-                        return f"No hard negatives mined for: '{query}'"
-                    return "\n".join(
-                        f"- {n.doc_id}: {getattr(n, 'reason', '')}" for n in negs
-                    )
-                elif mode == "rerank":
-                    # Semantic-retrieval hybrid re-scoring of a candidate set.
-                    from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (  # noqa: E501
-                        HybridSearchScorer,
-                    )
-
-                    base = (
-                        engine.search_hybrid(query=query, top_k=top_k, session=_session)
-                        or []
-                    )
-                    docs = [
-                        {
-                            "id": (r.get("node", r) or {}).get("id", ""),
-                            "text": (r.get("node", r) or {}).get("description", ""),
-                            "embedding": (r.get("node", r) or {}).get("embedding"),
-                        }
-                        for r in base
-                    ]
-                    qemb: list[float] = []
-                    embed_model = getattr(
-                        getattr(engine, "hybrid_retriever", None), "embed_model", None
-                    )
-                    if embed_model is not None:
-                        try:
-                            qemb = embed_model.get_text_embedding(query)
-                        except Exception:  # noqa: BLE001
-                            qemb = []
-                    results = HybridSearchScorer().score_documents(query, qemb, docs)
+                    return _graph_search_hard_negatives(engine, query)
                 elif mode == "compiled":
-                    # CONCEPT:AU-KG.retrieval.context-compiler — policy-aware ContextCompiler bundle: reuses the
-                    # SAME engine ANN/hybrid retriever the other modes call, but
-                    # additionally MMR-diversifies, scores evidence-quality/freshness
-                    # from the epistemic columns (EPI-P3-1), fits a token budget, and
-                    # runs every candidate through the live permissioning gate before
-                    # returning citations + a proof graph — replacing the plain
-                    # relevance-sorted concat the branch below performs for every
-                    # other mode.
-                    from agent_utilities.knowledge_graph.core.session import (
-                        GraphSession,
+                    return _graph_search_compiled(
+                        engine,
+                        query,
+                        top_k=top_k,
+                        as_of=as_of,
+                        token_budget=token_budget,
                     )
-                    from agent_utilities.knowledge_graph.retrieval.context_compiler import (  # noqa: E501
-                        ContextCompiler,
-                    )
-
-                    session = GraphSession.from_ambient()
-                    compiler = ContextCompiler(engine)
-                    kwargs: dict[str, Any] = {"top_k": top_k, "as_of": as_of or None}
-                    if token_budget:
-                        kwargs["token_budget"] = token_budget
-                    bundle = compiler.compile(query, session=session, **kwargs)
-                    return bundle.as_text()
                 else:
                     return f"Error: Unknown search mode '{mode}'"
 
                 if not results:
                     return f"No results found for query: '{query}'"
-
-                # The direct retrieval modes use a flat, score-sorted text block with no
-                # diversity/evidence/freshness/policy/budget shaping — prefer
-                # mode='compiled' for a citation- and proof-graph-bearing bundle.
-                formatted_results = []
-                for res in results:
-                    score = res.get("score", 0)
-                    score = float(score) if score is not None else 0.0
-                    node = res.get("node", res)
-                    label = node.get("type", node.get("label", "Unknown"))
-                    name = node.get("name", "Unnamed")
-                    desc = node.get("description", "")
-                    nid = node.get("id", "N/A")
-                    formatted_results.append(
-                        f"[{label}] {name} (ID: {nid}) - Score: {score:.2f}\n{desc}"
-                    )
-                return "\n---\n".join(formatted_results)
+                return _graph_search_format_results(results)
 
             # CONCEPT:AU-KG.backend.multi-connection-registry — resolve the connection(s). CONCEPT:AU-KG.ingest.unified-query-routing — an
             # implicit-default search fans across the active content-graph set so content
