@@ -26,11 +26,11 @@
     "kind": {"const": "ConnectorBundleCatalog"},
     "catalogVersion": {"const": 1},
     "membershipDigest": {"$ref": "#/$defs/digest"},
-    "entryCount": {"const": 69},
+    "entryCount": {"const": 71},
     "entries": {
       "type": "array",
-      "minItems": 69,
-      "maxItems": 69,
+      "minItems": 71,
+      "maxItems": 71,
       "uniqueItems": true,
       "items": {
         "type": "object",

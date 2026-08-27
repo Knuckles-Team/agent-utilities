@@ -6,6 +6,22 @@ resources:
   label: Broker
   id_prefix: broker
   relations: []
+- name: CdcConnector
+  label: CDC Connector
+  id_prefix: cdcconnector
+  relations:
+  - name: cdcTracksTopic
+    label: cdc tracks topic
+    target: Topic
+    lpg_rel_type: ''
+  - name: tracksTable
+    label: tracks table
+    target: DatabaseTable
+    lpg_rel_type: ''
+  - name: usesReplicationSlot
+    label: uses replication slot
+    target: ReplicationSlot
+    lpg_rel_type: ''
 - name: Consumer
   label: Consumer
   id_prefix: consumer
@@ -50,6 +66,10 @@ resources:
     label: partition of
     target: Topic
     lpg_rel_type: ''
+- name: ReplicationSlot
+  label: Replication Slot
+  id_prefix: replicationslot
+  relations: []
 - name: Topic
   label: Topic
   id_prefix: topic
@@ -82,6 +102,8 @@ schema_mappings:
     fields:
       brokerHost: xsd:string
       brokerPort: xsd:integer
+      connectorClass: xsd:string
+      connectorState: xsd:string
       consumerLag: xsd:integer
       currentOffset: xsd:integer
       groupState: xsd:string
@@ -92,11 +114,36 @@ schema_mappings:
       permission: xsd:string
       principal: xsd:string
       replicationFactor: xsd:integer
+      slotActive: xsd:boolean
+      slotName: xsd:string
+      tasksMax: xsd:integer
+  CdcConnector:
+    ontology_class: null
+    fields:
+      brokerHost: xsd:string
+      brokerPort: xsd:integer
+      connectorClass: xsd:string
+      connectorState: xsd:string
+      consumerLag: xsd:integer
+      currentOffset: xsd:integer
+      groupState: xsd:string
+      isInternal: xsd:boolean
+      operation: xsd:string
+      partitionId: xsd:integer
+      partitionsCount: xsd:integer
+      permission: xsd:string
+      principal: xsd:string
+      replicationFactor: xsd:integer
+      slotActive: xsd:boolean
+      slotName: xsd:string
+      tasksMax: xsd:integer
   Consumer:
     ontology_class: null
     fields:
       brokerHost: xsd:string
       brokerPort: xsd:integer
+      connectorClass: xsd:string
+      connectorState: xsd:string
       consumerLag: xsd:integer
       currentOffset: xsd:integer
       groupState: xsd:string
@@ -107,11 +154,16 @@ schema_mappings:
       permission: xsd:string
       principal: xsd:string
       replicationFactor: xsd:integer
+      slotActive: xsd:boolean
+      slotName: xsd:string
+      tasksMax: xsd:integer
   ConsumerGroup:
     ontology_class: Organization
     fields:
       brokerHost: xsd:string
       brokerPort: xsd:integer
+      connectorClass: xsd:string
+      connectorState: xsd:string
       consumerLag: xsd:integer
       currentOffset: xsd:integer
       groupState: xsd:string
@@ -122,11 +174,16 @@ schema_mappings:
       permission: xsd:string
       principal: xsd:string
       replicationFactor: xsd:integer
+      slotActive: xsd:boolean
+      slotName: xsd:string
+      tasksMax: xsd:integer
   KafkaAcl:
     ontology_class: null
     fields:
       brokerHost: xsd:string
       brokerPort: xsd:integer
+      connectorClass: xsd:string
+      connectorState: xsd:string
       consumerLag: xsd:integer
       currentOffset: xsd:integer
       groupState: xsd:string
@@ -137,11 +194,16 @@ schema_mappings:
       permission: xsd:string
       principal: xsd:string
       replicationFactor: xsd:integer
+      slotActive: xsd:boolean
+      slotName: xsd:string
+      tasksMax: xsd:integer
   KafkaCluster:
     ontology_class: null
     fields:
       brokerHost: xsd:string
       brokerPort: xsd:integer
+      connectorClass: xsd:string
+      connectorState: xsd:string
       consumerLag: xsd:integer
       currentOffset: xsd:integer
       groupState: xsd:string
@@ -152,11 +214,16 @@ schema_mappings:
       permission: xsd:string
       principal: xsd:string
       replicationFactor: xsd:integer
+      slotActive: xsd:boolean
+      slotName: xsd:string
+      tasksMax: xsd:integer
   Partition:
     ontology_class: null
     fields:
       brokerHost: xsd:string
       brokerPort: xsd:integer
+      connectorClass: xsd:string
+      connectorState: xsd:string
       consumerLag: xsd:integer
       currentOffset: xsd:integer
       groupState: xsd:string
@@ -167,11 +234,36 @@ schema_mappings:
       permission: xsd:string
       principal: xsd:string
       replicationFactor: xsd:integer
+      slotActive: xsd:boolean
+      slotName: xsd:string
+      tasksMax: xsd:integer
+  ReplicationSlot:
+    ontology_class: null
+    fields:
+      brokerHost: xsd:string
+      brokerPort: xsd:integer
+      connectorClass: xsd:string
+      connectorState: xsd:string
+      consumerLag: xsd:integer
+      currentOffset: xsd:integer
+      groupState: xsd:string
+      isInternal: xsd:boolean
+      operation: xsd:string
+      partitionId: xsd:integer
+      partitionsCount: xsd:integer
+      permission: xsd:string
+      principal: xsd:string
+      replicationFactor: xsd:integer
+      slotActive: xsd:boolean
+      slotName: xsd:string
+      tasksMax: xsd:integer
   Topic:
     ontology_class: null
     fields:
       brokerHost: xsd:string
       brokerPort: xsd:integer
+      connectorClass: xsd:string
+      connectorState: xsd:string
       consumerLag: xsd:integer
       currentOffset: xsd:integer
       groupState: xsd:string
@@ -182,6 +274,9 @@ schema_mappings:
       permission: xsd:string
       principal: xsd:string
       replicationFactor: xsd:integer
+      slotActive: xsd:boolean
+      slotName: xsd:string
+      tasksMax: xsd:integer
 sync:
 - preset: kafka-topics
   server: kafka-mcp
@@ -207,20 +302,20 @@ sync:
     doc_type: kafka_topic
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-26T13:42:55Z'
+  generated_at: '2026-08-27T02:44:50Z'
   source_artifacts:
   - kafka_mcp/connectors/mcp_source_presets.json
   - kafka_mcp/connectors/tool_schema_fingerprints.json
   - kafka_mcp/ontology/kafka.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: d0225113a57c4907df4744e8c7a80bd6081fc2d664a63053c5379b8725c06911
-    triple_count: 86
+    hash: 6ba61d67846ab97b9aaf247346a5fbc411359df0f62b68cfd41ddf4a771204a9
+    triple_count: 119
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: 52554af959888a5fe81a110376596dabbb31eb24
+  source_commit: 116e229d6f95a68eb3ae89a5ca15d563add11931
 policy:
   pii_fields: {}
   tenant_boundary: null
@@ -231,6 +326,8 @@ review_todos:
 - "relation 'inCluster' has no declared rdfs:domain resolving to a known resource in this connector's\
   \ ontology \u2014 not attached to any resource; verify its true domain manually."
 - "schema_mappings.Broker.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.CdcConnector.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
   \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
 - "schema_mappings.Consumer.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
   \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
@@ -243,5 +340,7 @@ review_todos:
   \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
 - "schema_mappings.Partition.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
   \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ReplicationSlot.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
+  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
 - "schema_mappings.Topic.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
   \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

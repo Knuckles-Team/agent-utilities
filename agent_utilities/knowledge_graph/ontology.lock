@@ -176,10 +176,10 @@ agents/documentdb-mcp/connector_manifest.yml:
   triple_count: 41
 agents/egeria-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 834aa54bebaba5622401416d33f64422a198daee0390088d8b0ad2815d3d01d9
-  certification_hash: 8252e03d4d9a3aebb6001e1c048002c0446699658572ce5520b91239c913c15a
+  certification_file_sha256: 87419d6602f10a37b426b7dc953f4b77b42f9d7f54401872f01c6963f11f2306
+  certification_hash: f03bfad6dac707f03f5ad87915415009fa0601049e2070e545386becee965e5a
   hash: 5d931c77b58f7ab65cc66234306e84bcb79b46a72c0d1a933577c462ca00fe61
-  manifest_hash: 70a2813774ce7f1d9063b715293969b18b283b337c7dcc55616020108d5a2bd3
+  manifest_hash: 074208d68ba857162850586c21d50677e410691745e220e8575ed1a4b1a27b66
   signature: null
   signature_algorithm: none
   signer: UNSIGNED-PREVIEW
@@ -330,15 +330,15 @@ agents/jena-mcp/connector_manifest.yml:
   triple_count: 79
 agents/kafka-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 03b52fa47821f9f25c2f934f477a40edcbe803a3c075c9bd67f2986b76e365eb
-  certification_hash: ea4d29f31fc5a02def6ae5acfbc31954bc77af6825e1b1fa2663b94517b5907a
-  hash: d0225113a57c4907df4744e8c7a80bd6081fc2d664a63053c5379b8725c06911
-  manifest_hash: c980f00a213e419fb6ce729623e28aff18fbf11f518b67f368c0c899f982a020
+  certification_file_sha256: 634df8c6c659cbc8530db73e05a0a1c814667acfde9326d3b345813a61d58402
+  certification_hash: b0fa7133e213a326b196d87aef73cf7fc0e90a8cd4f1fc7dc26ea8a787c42e81
+  hash: 6ba61d67846ab97b9aaf247346a5fbc411359df0f62b68cfd41ddf4a771204a9
+  manifest_hash: 55b099957096ce45faa7aab4b936c2bad44d41e67ec4bbcaa733c1c434e29cb9
   signature: null
   signature_algorithm: none
   signer: UNSIGNED-PREVIEW
   signing_public_key: ''
-  triple_count: 86
+  triple_count: 119
 agents/keycloak-agent/connector_manifest.yml:
   algorithm: urdna2015-sha256
   certification_file_sha256: a65cbe1270f4e38d153ad9a07c3a068619473a9b44a3c72df6deb0ad8ed81675
@@ -524,6 +524,17 @@ agents/openbao-mcp/connector_manifest.yml:
   signer: UNSIGNED-PREVIEW
   signing_public_key: ''
   triple_count: 49
+agents/opensearch-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  certification_file_sha256: 4a226f80adc563c45538a06450bf8a314d3822109001b9b4dde1586b7b921d53
+  certification_hash: 62de4be2264bb311cb91882e878945ca2d5344837448256709f3e720eabf640a
+  hash: 823aebab59f98c85591dba715f28b2f9bfbfedd71f85111f611ac0451f1f9642
+  manifest_hash: d5a96ca7b513e38137024f0627b9a3768c9ac95a4cdde89044b22b4678dd2dde
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
+  triple_count: 25
 agents/owncast-agent/connector_manifest.yml:
   algorithm: urdna2015-sha256
   certification_file_sha256: 1ff2a63eab751ce68875ab6200fcdf39fedc1c339a74eba725c2b9f8f8882dd4
@@ -667,12 +678,23 @@ agents/servicenow-api/connector_manifest.yml:
   signer: UNSIGNED-PREVIEW
   signing_public_key: ''
   triple_count: 34
+agents/spark-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  certification_file_sha256: 43af31ea9c23684d62ac1149e8ca5c0a40c977659434d8b0523296ee846d0be1
+  certification_hash: cc8777693a3f2362dcc2ac52146ab85b8d524ed3531ff8ace25afc37ba4da4d8
+  hash: 4eab4ced58ca35687794b0b127b2b4b15f2d6e4e23954dc12c92eebe4f66c097
+  manifest_hash: ffce5a946c631be2e5b8563e1026c3d7bb4ef2d9e9e7b477b0443aeb438c4bc9
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
+  triple_count: 41
 agents/sql-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 995697d81a5aec727bb5ef45253db3064210cf037e0ec0a038dd0906cc5320c4
-  certification_hash: f260ef2e7801197c2aeaa9423e2ed0ad55ed224bb86ba26d73ebeecdb69f128c
+  certification_file_sha256: cfa57e3c40febca830eb4df7d03361873ee86a3c7da96d530495ed10e32d38de
+  certification_hash: 4ef1b022de182aaef33ae2b46bae4f3aea24b19f9d065c9bf053dadf753fee9d
   hash: 1a27842b0a88bb5583eb7016d40e5d2e90a5ef0ac7083c92aff8e6ee24cfcaa0
-  manifest_hash: 238ded5f59cab9922d8f00c04764d49efb56c8bc841ceb4365ff8d249ec5efe5
+  manifest_hash: ffa314287cea6464f4909c5e02ce5db0deca7040eb9aa775e3b4489446ff726f
   signature: null
   signature_algorithm: none
   signer: UNSIGNED-PREVIEW
