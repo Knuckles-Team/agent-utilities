@@ -18,6 +18,14 @@ scratch/
 build/
 develop-eggs/
 dist/
+# ★ Match the FAMILY, not just `dist/`. scripts/release/check_wheel_build_reproducibility.py
+# writes dist-primary/ and dist-reproduction/ -- 8.8 MB of wheels each. Both were
+# untracked only because that tool also drops a nested .gitignore containing `*`.
+# Delete or fail to regenerate that nested file and 17.6 MB of build output becomes
+# stageable. epistemic-graph learned this the hard way and has carried `dist-*/`
+# since; this repo had not. (CX program, BUG-CX-017 family.)
+dist-*/
+numdist-*/
 downloads/
 eggs/
 .eggs/
