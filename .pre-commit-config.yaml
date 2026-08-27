@@ -312,6 +312,12 @@ repos:
   # workspace-level `plans/` directory, reached a public GitHub repo before
   # anyone noticed. A denylist would only ever catch the junk we already
   # thought of.
+  - id: complexity-staged
+    name: Complexity (cccc) - no NEW function over cyclomatic 10 / cognitive 15, none regressed
+    entry: python3 scripts/check_complexity_staged.py
+    language: system
+    pass_filenames: false
+    always_run: true
   - id: check-root-hygiene
     name: Repository root hygiene (allowlisted entries only)
     entry: python3 scripts/check_root_hygiene.py

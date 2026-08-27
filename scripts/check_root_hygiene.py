@@ -85,6 +85,7 @@ ALLOWED_DOTFILES: frozenset[str] = frozenset(
         # proof, not by review.
         ".repo-layout.toml",
         ".bumpversion.cfg",  # release version bump config (bump2version)
+        ".cccc.toml",  # cccc complexity-metric config (hand-set caps, not a baseline)
         ".codespellignore",  # codespell false-positive word list
         ".dockerignore",  # Docker build-context exclusions
         ".env.example",  # non-secret catalog of explicit process-env keys
