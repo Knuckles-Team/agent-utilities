@@ -750,6 +750,174 @@ async def certify_connector(
     return record
 
 
+def _verify_cert_identity(record: Mapping[str, Any]) -> list[str]:
+    if (
+        record.get("api_version") != "graphos.io/v1"
+        or record.get("kind") != "ConnectorLiveCertification"
+        or record.get("schema_version") != "1"
+        or not _SAFE_CONNECTOR.fullmatch(str(record.get("connector") or ""))
+    ):
+        return ["certification record identity is invalid"]
+    return []
+
+
+def _verify_cert_timestamp(record: Mapping[str, Any]) -> list[str]:
+    try:
+        parsed_time = datetime.strptime(
+            str(record.get("certified_at") or ""), "%Y-%m-%dT%H:%M:%SZ"
+        ).replace(tzinfo=UTC)
+        if parsed_time.year < 2020:
+            raise ValueError
+    except ValueError:
+        return ["certification timestamp is invalid"]
+    return []
+
+
+def _verify_cert_bundle(bundle: Any) -> list[str]:
+    if not isinstance(bundle, dict) or set(bundle) != {
+        "manifest_sha256",
+        "fixtures_sha256",
+        "shapes_sha256",
+        "schema_version",
+    }:
+        return ["certification bundle binding is invalid"]
+    if any(
+        not _HEX_DIGEST.fullmatch(str(bundle.get(name) or ""))
+        for name in ("manifest_sha256", "fixtures_sha256", "shapes_sha256")
+    ):
+        return ["certification bundle digest is invalid"]
+    if not re.fullmatch(
+        r"[A-Za-z0-9._-]{1,64}", str(bundle.get("schema_version") or "")
+    ):
+        return ["certification bundle schema version is invalid"]
+    return []
+
+
+def _verify_cert_scope(scope: Any) -> list[str]:
+    if not isinstance(scope, dict) or set(scope) != {
+        "sync_presets",
+        "fixtures_declared",
+        "fixtures_exercised",
+        "tenant_bound",
+        "retention_bound",
+    }:
+        return ["certification scope is invalid"]
+    if (
+        any(
+            not isinstance(scope.get(name), int)
+            or isinstance(scope.get(name), bool)
+            or not 0 <= scope[name] <= 256
+            for name in ("sync_presets", "fixtures_declared", "fixtures_exercised")
+        )
+        or scope.get("tenant_bound") is not True
+        or scope.get("retention_bound") is not True
+    ):
+        return ["certification scope values are invalid"]
+    return []
+
+
+def _verify_cert_checks(checks: Any) -> list[str]:
+    if not isinstance(checks, dict) or set(checks) != set(REQUIRED_CHECKS):
+        return ["certification check catalog is invalid"]
+    if any(value not in {"passed", "failed", "not-run"} for value in checks.values()):
+        return ["certification check status is invalid"]
+    return []
+
+
+def _verify_cert_evidence(evidence: Any) -> list[str]:
+    if not isinstance(evidence, dict) or set(evidence) != set(REQUIRED_CHECKS):
+        return ["certification evidence catalog is invalid"]
+    if any(
+        not _HEX_DIGEST.fullmatch(str(value or "")) for value in evidence.values()
+    ):
+        return ["certification evidence digest is invalid"]
+    return []
+
+
+def _verify_cert_counts(counts: Any) -> list[str]:
+    allowed_counts = {
+        "initial",
+        "after_ingest",
+        "after_replay",
+        "after_update",
+        "after_delete",
+        "after_delete_replay",
+        "after_cleanup",
+    }
+    if not isinstance(counts, dict) or not set(counts).issubset(allowed_counts):
+        return ["certification count catalog is invalid"]
+    if any(
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or not 0 <= value <= 1_000_000
+        for value in counts.values()
+    ):
+        return ["certification count value is invalid"]
+    return []
+
+
+def _verify_cert_markers(record: Mapping[str, Any]) -> list[str]:
+    violations: list[str] = []
+    if record.get("semantic_validator") not in {
+        "not-run",
+        "declared-shacl-contract",
+        "pyshacl",
+    }:
+        violations.append("certification semantic validator is invalid")
+    failure_class = record.get("failure_class")
+    if failure_class is not None and not re.fullmatch(
+        r"[A-Za-z_][A-Za-z0-9_]{0,127}", str(failure_class)
+    ):
+        violations.append("certification failure class is invalid")
+    if record.get("runtime_configuration") not in {"none", "externalized"}:
+        violations.append("certification runtime configuration marker is invalid")
+    return violations
+
+
+def _verify_cert_signature(
+    record: Mapping[str, Any], trusted_public_keys: Sequence[str]
+) -> list[str]:
+    digest = ontology_integrity.canonical_signed_document_hash(dict(record))
+    if not ontology_integrity.verify_release_signature(
+        digest,
+        record.get("signature"),
+        signer_id=record.get("signer"),
+        algorithm=record.get("signature_algorithm"),
+        public_key=record.get("signing_public_key"),
+        trusted_public_keys=tuple(trusted_public_keys),
+    ):
+        return ["certification release signature is invalid"]
+    return []
+
+
+def _verify_cert_require_live(record: Mapping[str, Any], checks: Any) -> list[str]:
+    if (
+        record.get("mode") != "external-live"
+        or record.get("status") != "certified"
+        or record.get("live_certified") is not True
+        or not isinstance(checks, dict)
+        or any(checks.get(name) != "passed" for name in REQUIRED_CHECKS)
+        or record.get("runtime_configuration") != "externalized"
+        or record.get("failure_class") is not None
+    ):
+        return ["connector has no passing external live certification"]
+    return []
+
+
+def _verify_cert_status_without_live(record: Mapping[str, Any]) -> list[str]:
+    if record.get("status") not in {"certified", "offline-validated", "failed"}:
+        return ["certification status is invalid"]
+    return []
+
+
+def _verify_cert_live_status(
+    record: Mapping[str, Any], checks: Any, require_live: bool
+) -> list[str]:
+    if require_live:
+        return _verify_cert_require_live(record, checks)
+    return _verify_cert_status_without_live(record)
+
+
 def verify_certification_record(
     record: Mapping[str, Any],
     *,
@@ -758,7 +926,6 @@ def verify_certification_record(
 ) -> list[str]:
     """Verify signature, exact aggregate schema, and pass/fail semantics."""
 
-    violations: list[str] = []
     required = {
         "api_version",
         "kind",
@@ -783,129 +950,19 @@ def verify_certification_record(
     }
     if set(record) != required:
         return ["certification record fields are not exact"]
-    if (
-        record.get("api_version") != "graphos.io/v1"
-        or record.get("kind") != "ConnectorLiveCertification"
-        or record.get("schema_version") != "1"
-        or not _SAFE_CONNECTOR.fullmatch(str(record.get("connector") or ""))
-    ):
-        violations.append("certification record identity is invalid")
-    try:
-        parsed_time = datetime.strptime(
-            str(record.get("certified_at") or ""), "%Y-%m-%dT%H:%M:%SZ"
-        ).replace(tzinfo=UTC)
-        if parsed_time.year < 2020:
-            raise ValueError
-    except ValueError:
-        violations.append("certification timestamp is invalid")
-    bundle = record.get("bundle")
-    if not isinstance(bundle, dict) or set(bundle) != {
-        "manifest_sha256",
-        "fixtures_sha256",
-        "shapes_sha256",
-        "schema_version",
-    }:
-        violations.append("certification bundle binding is invalid")
-    elif any(
-        not _HEX_DIGEST.fullmatch(str(bundle.get(name) or ""))
-        for name in ("manifest_sha256", "fixtures_sha256", "shapes_sha256")
-    ):
-        violations.append("certification bundle digest is invalid")
-    elif not re.fullmatch(
-        r"[A-Za-z0-9._-]{1,64}", str(bundle.get("schema_version") or "")
-    ):
-        violations.append("certification bundle schema version is invalid")
-    scope = record.get("scope")
-    if not isinstance(scope, dict) or set(scope) != {
-        "sync_presets",
-        "fixtures_declared",
-        "fixtures_exercised",
-        "tenant_bound",
-        "retention_bound",
-    }:
-        violations.append("certification scope is invalid")
-    elif (
-        any(
-            not isinstance(scope.get(name), int)
-            or isinstance(scope.get(name), bool)
-            or not 0 <= scope[name] <= 256
-            for name in ("sync_presets", "fixtures_declared", "fixtures_exercised")
-        )
-        or scope.get("tenant_bound") is not True
-        or scope.get("retention_bound") is not True
-    ):
-        violations.append("certification scope values are invalid")
-    checks = record.get("checks")
-    if not isinstance(checks, dict) or set(checks) != set(REQUIRED_CHECKS):
-        violations.append("certification check catalog is invalid")
-    elif any(value not in {"passed", "failed", "not-run"} for value in checks.values()):
-        violations.append("certification check status is invalid")
-    evidence = record.get("evidence")
-    if not isinstance(evidence, dict) or set(evidence) != set(REQUIRED_CHECKS):
-        violations.append("certification evidence catalog is invalid")
-    elif any(
-        not _HEX_DIGEST.fullmatch(str(value or "")) for value in evidence.values()
-    ):
-        violations.append("certification evidence digest is invalid")
-    counts = record.get("counts")
-    allowed_counts = {
-        "initial",
-        "after_ingest",
-        "after_replay",
-        "after_update",
-        "after_delete",
-        "after_delete_replay",
-        "after_cleanup",
-    }
-    if not isinstance(counts, dict) or not set(counts).issubset(allowed_counts):
-        violations.append("certification count catalog is invalid")
-    elif any(
-        not isinstance(value, int)
-        or isinstance(value, bool)
-        or not 0 <= value <= 1_000_000
-        for value in counts.values()
-    ):
-        violations.append("certification count value is invalid")
-    if record.get("semantic_validator") not in {
-        "not-run",
-        "declared-shacl-contract",
-        "pyshacl",
-    }:
-        violations.append("certification semantic validator is invalid")
-    failure_class = record.get("failure_class")
-    if failure_class is not None and not re.fullmatch(
-        r"[A-Za-z_][A-Za-z0-9_]{0,127}", str(failure_class)
-    ):
-        violations.append("certification failure class is invalid")
-    if record.get("runtime_configuration") not in {"none", "externalized"}:
-        violations.append("certification runtime configuration marker is invalid")
 
-    digest = ontology_integrity.canonical_signed_document_hash(dict(record))
-    if not ontology_integrity.verify_release_signature(
-        digest,
-        record.get("signature"),
-        signer_id=record.get("signer"),
-        algorithm=record.get("signature_algorithm"),
-        public_key=record.get("signing_public_key"),
-        trusted_public_keys=tuple(trusted_public_keys),
-    ):
-        violations.append("certification release signature is invalid")
-    if require_live and (
-        record.get("mode") != "external-live"
-        or record.get("status") != "certified"
-        or record.get("live_certified") is not True
-        or not isinstance(checks, dict)
-        or any(checks.get(name) != "passed" for name in REQUIRED_CHECKS)
-        or record.get("runtime_configuration") != "externalized"
-        or record.get("failure_class") is not None
-    ):
-        violations.append("connector has no passing external live certification")
-    if not require_live and record.get("status") not in {
-        "certified",
-        "offline-validated",
-        "failed",
-    }:
-        violations.append("certification status is invalid")
+    checks = record.get("checks")
+    violations: list[str] = []
+    violations.extend(_verify_cert_identity(record))
+    violations.extend(_verify_cert_timestamp(record))
+    violations.extend(_verify_cert_bundle(record.get("bundle")))
+    violations.extend(_verify_cert_scope(record.get("scope")))
+    violations.extend(_verify_cert_checks(checks))
+    violations.extend(_verify_cert_evidence(record.get("evidence")))
+    violations.extend(_verify_cert_counts(record.get("counts")))
+    violations.extend(_verify_cert_markers(record))
+    violations.extend(_verify_cert_signature(record, trusted_public_keys))
+    violations.extend(_verify_cert_live_status(record, checks, require_live))
     return violations
 
 
