@@ -897,22 +897,42 @@ def _select_field(names: list[str], preferences: tuple[str, ...]) -> str:
     return next((candidate for candidate in preferences if candidate in names), "")
 
 
-def _generated_operation(
-    *,
-    root_field: Mapping[str, Any],
-    types: Mapping[str, Mapping[str, Any]],
-    max_depth: int,
-    allow_empty_snapshot: bool,
-) -> dict[str, Any] | None:
-    """Synthesize one structurally safe, bounded query or reject the root."""
-
+def _generated_operation_root(
+    root_field: Mapping[str, Any], types: Mapping[str, Mapping[str, Any]]
+) -> tuple[str, str, bool] | None:
     root_name = str(root_field.get("name") or "")
     if not re.fullmatch(r"[_A-Za-z][_0-9A-Za-z]{0,127}", root_name):
         return None
     leaf_kind, leaf_name, returns_list = _type_ref(root_field.get("type"))
     if leaf_kind != "OBJECT" or leaf_name not in types:
         return None
+    return root_name, leaf_name, returns_list
 
+
+def _generated_operation_bound_name(arguments: dict[str, Any]) -> str:
+    return next(
+        (
+            name
+            for name in ("first", "limit")
+            if name in arguments
+            and _type_ref(arguments[name].get("type"))[:2] == ("SCALAR", "Int")
+        ),
+        "",
+    )
+
+
+def _generated_operation_unsupported_required(
+    arguments: dict[str, Any], bound_name: str
+) -> bool:
+    return any(
+        _required_argument(argument) and name != bound_name
+        for name, argument in arguments.items()
+    )
+
+
+def _generated_operation_arguments(
+    root_field: Mapping[str, Any],
+) -> tuple[dict[str, Any], str, Any] | None:
     arguments = {
         str(argument.get("name") or ""): argument
         for argument in root_field.get("args") or []
@@ -922,86 +942,109 @@ def _generated_operation(
         not re.fullmatch(r"[_A-Za-z][_0-9A-Za-z]{0,127}", name) for name in arguments
     ):
         return None
-    bound_name = next(
-        (
-            name
-            for name in ("first", "limit")
-            if name in arguments
-            and _type_ref(arguments[name].get("type"))[:2] == ("SCALAR", "Int")
-        ),
-        "",
-    )
+    bound_name = _generated_operation_bound_name(arguments)
+    if _generated_operation_unsupported_required(arguments, bound_name):
+        return None
     after_argument = arguments.get("after")
-    unsupported_required = [
-        name
-        for name, argument in arguments.items()
-        if _required_argument(argument) and name != bound_name
-    ]
-    if unsupported_required:
-        return None
+    return arguments, bound_name, after_argument
 
-    object_type = types[leaf_name]
-    connection_fields = _field_index(object_type)
-    records_path = ""
-    page_info: tuple[str, str, str] | None = None
-    entity_type = leaf_name
-    entity_fields = _leaf_fields(object_type)
-    query_depth = 2
-    record_selection_prefix = ""
-    record_selection_suffix = ""
 
-    if not returns_list:
-        for candidate in ("nodes", "items"):
-            nested = connection_fields.get(candidate)
-            if nested is None:
-                continue
-            if _field_has_required_arguments(nested):
-                continue
-            nested_kind, nested_name, nested_list = _type_ref(nested.get("type"))
-            if nested_kind == "OBJECT" and nested_list and nested_name in types:
-                records_path = candidate
-                entity_type = nested_name
-                entity_fields = _leaf_fields(types[nested_name])
-                query_depth = 3
-                record_selection_prefix = f"{candidate} {{ "
-                record_selection_suffix = " }"
-                break
+def _generated_operation_records_path(
+    connection_fields: Mapping[str, Any], types: Mapping[str, Mapping[str, Any]]
+) -> tuple[str, str, dict[str, Any], int, str, str] | None:
+    """The first usable ``nodes``/``items`` connection field, or None (the
+    caller keeps its own scalar-root defaults in that case)."""
+    for candidate in ("nodes", "items"):
+        nested = connection_fields.get(candidate)
+        if nested is None:
+            continue
+        if _field_has_required_arguments(nested):
+            continue
+        nested_kind, nested_name, nested_list = _type_ref(nested.get("type"))
+        if nested_kind == "OBJECT" and nested_list and nested_name in types:
+            return (
+                candidate,
+                nested_name,
+                _leaf_fields(types[nested_name]),
+                3,
+                f"{candidate} {{ ",
+                " }",
+            )
+    return None
 
-    identity_field = _select_field(entity_fields, _IDENTITY_FIELDS)
+
+def _generated_operation_shape_invalid(
+    *,
+    identity_field: str,
+    query_depth: int,
+    max_depth: int,
+    returns_list: bool,
+    bound_name: str,
+    records_path: str,
+) -> bool:
     if not identity_field or query_depth > max_depth:
-        return None
+        return True
     if returns_list and not bound_name:
-        return None
-    if records_path and not bound_name:
-        return None
+        return True
+    return bool(records_path and not bound_name)
 
-    if records_path:
-        page_info_field = connection_fields.get("pageInfo")
-        page_kind, page_name, _page_list = _type_ref(
-            page_info_field.get("type") if page_info_field else None
-        )
-        page_fields = (
-            _field_index(types[page_name])
-            if page_kind == "OBJECT" and page_name in types
-            else {}
-        )
-        if (
-            bound_name == "first"
-            and after_argument is not None
-            and page_info_field is not None
-            and not _field_has_required_arguments(page_info_field)
-            and not _field_has_required_arguments(page_fields.get("endCursor") or {})
-            and not _field_has_required_arguments(page_fields.get("hasNextPage") or {})
-            and "endCursor" in page_fields
-            and "hasNextPage" in page_fields
-        ):
-            page_info = ("after", "endCursor", "hasNextPage")
-        elif returns_list:
-            return None
 
-    selected_fields = sorted(set(entity_fields))
-    title_field = _select_field(selected_fields, _TITLE_FIELDS) or identity_field
-    version_field = _select_field(selected_fields, _VERSION_FIELDS)
+def _generated_operation_page_info_usable(
+    page_info_field: Any,
+    page_fields: Mapping[str, Any],
+    *,
+    bound_name: str,
+    after_argument: Any,
+) -> bool:
+    return (
+        bound_name == "first"
+        and after_argument is not None
+        and page_info_field is not None
+        and not _field_has_required_arguments(page_info_field)
+        and not _field_has_required_arguments(page_fields.get("endCursor") or {})
+        and not _field_has_required_arguments(page_fields.get("hasNextPage") or {})
+        and "endCursor" in page_fields
+        and "hasNextPage" in page_fields
+    )
+
+
+def _generated_operation_page_info(
+    connection_fields: Mapping[str, Any],
+    types: Mapping[str, Mapping[str, Any]],
+    *,
+    bound_name: str,
+    after_argument: Any,
+    returns_list: bool,
+) -> tuple[tuple[str, str, str] | None, bool]:
+    """Returns ``(page_info, reject)`` — ``reject`` True means the caller must
+    reject the root (a list-returning connection with no usable page info)."""
+    page_info_field = connection_fields.get("pageInfo")
+    page_kind, page_name, _page_list = _type_ref(
+        page_info_field.get("type") if page_info_field else None
+    )
+    page_fields = (
+        _field_index(types[page_name])
+        if page_kind == "OBJECT" and page_name in types
+        else {}
+    )
+    if _generated_operation_page_info_usable(
+        page_info_field,
+        page_fields,
+        bound_name=bound_name,
+        after_argument=after_argument,
+    ):
+        return ("after", "endCursor", "hasNextPage"), False
+    if returns_list:
+        return None, True
+    return None, False
+
+
+def _generated_operation_variables(
+    *,
+    bound_name: str,
+    page_info: tuple[str, str, str] | None,
+    arguments: Mapping[str, Any],
+) -> tuple[list[str], list[str]]:
     variable_definitions: list[str] = []
     arguments_rendered: list[str] = []
     if bound_name:
@@ -1015,6 +1058,19 @@ def _generated_operation(
             f"${after_name}: {_render_type_ref(arguments[after_name].get('type'))}"
         )
         arguments_rendered.append(f"{after_name}: ${after_name}")
+    return variable_definitions, arguments_rendered
+
+
+def _generated_operation_query_text(
+    *,
+    root_name: str,
+    variable_definitions: list[str],
+    arguments_rendered: list[str],
+    record_selection_prefix: str,
+    selected_fields: list[str],
+    record_selection_suffix: str,
+    page_info: tuple[str, str, str] | None,
+) -> str:
     variables_text = (
         f"({', '.join(variable_definitions)})" if variable_definitions else ""
     )
@@ -1022,11 +1078,22 @@ def _generated_operation(
     page_selection = (
         " pageInfo { endCursor hasNextPage }" if page_info is not None else ""
     )
-    query = (
+    return (
         f"query GeneratedRead{variables_text} {{ {root_name}{arguments_text} {{ "
         f"{record_selection_prefix}{' '.join(selected_fields)}"
         f"{record_selection_suffix}{page_selection} }} }}"
     )
+
+
+def _generated_operation_mapping(
+    *,
+    records_path: str,
+    identity_field: str,
+    title_field: str,
+    entity_type: str,
+    selected_fields: list[str],
+    version_field: str,
+) -> dict[str, Any]:
     mapping: dict[str, Any] = {
         "records_path": records_path,
         "id_path": identity_field,
@@ -1036,6 +1103,20 @@ def _generated_operation(
     }
     if version_field:
         mapping["version_path"] = version_field
+    return mapping
+
+
+def _generated_operation_build(
+    *,
+    query: str,
+    root_name: str,
+    mapping: dict[str, Any],
+    returns_list: bool,
+    records_path: str,
+    page_info: tuple[str, str, str] | None,
+    bound_name: str,
+    allow_empty_snapshot: bool,
+) -> dict[str, Any]:
     snapshot_authoritative = (not returns_list and page_info is not None) or (
         not returns_list and not records_path
     )
@@ -1059,6 +1140,104 @@ def _generated_operation(
             "maximum": 100,
         }
     return operation
+
+
+def _generated_operation(
+    *,
+    root_field: Mapping[str, Any],
+    types: Mapping[str, Mapping[str, Any]],
+    max_depth: int,
+    allow_empty_snapshot: bool,
+) -> dict[str, Any] | None:
+    """Synthesize one structurally safe, bounded query or reject the root."""
+
+    root = _generated_operation_root(root_field, types)
+    if root is None:
+        return None
+    root_name, leaf_name, returns_list = root
+
+    parsed_arguments = _generated_operation_arguments(root_field)
+    if parsed_arguments is None:
+        return None
+    arguments, bound_name, after_argument = parsed_arguments
+
+    object_type = types[leaf_name]
+    connection_fields = _field_index(object_type)
+    records_path = ""
+    page_info: tuple[str, str, str] | None = None
+    entity_type = leaf_name
+    entity_fields = _leaf_fields(object_type)
+    query_depth = 2
+    record_selection_prefix = ""
+    record_selection_suffix = ""
+
+    if not returns_list:
+        resolved = _generated_operation_records_path(connection_fields, types)
+        if resolved is not None:
+            (
+                records_path,
+                entity_type,
+                entity_fields,
+                query_depth,
+                record_selection_prefix,
+                record_selection_suffix,
+            ) = resolved
+
+    identity_field = _select_field(entity_fields, _IDENTITY_FIELDS)
+    if _generated_operation_shape_invalid(
+        identity_field=identity_field,
+        query_depth=query_depth,
+        max_depth=max_depth,
+        returns_list=returns_list,
+        bound_name=bound_name,
+        records_path=records_path,
+    ):
+        return None
+
+    if records_path:
+        page_info, reject = _generated_operation_page_info(
+            connection_fields,
+            types,
+            bound_name=bound_name,
+            after_argument=after_argument,
+            returns_list=returns_list,
+        )
+        if reject:
+            return None
+
+    selected_fields = sorted(set(entity_fields))
+    title_field = _select_field(selected_fields, _TITLE_FIELDS) or identity_field
+    version_field = _select_field(selected_fields, _VERSION_FIELDS)
+    variable_definitions, arguments_rendered = _generated_operation_variables(
+        bound_name=bound_name, page_info=page_info, arguments=arguments
+    )
+    query = _generated_operation_query_text(
+        root_name=root_name,
+        variable_definitions=variable_definitions,
+        arguments_rendered=arguments_rendered,
+        record_selection_prefix=record_selection_prefix,
+        selected_fields=selected_fields,
+        record_selection_suffix=record_selection_suffix,
+        page_info=page_info,
+    )
+    mapping = _generated_operation_mapping(
+        records_path=records_path,
+        identity_field=identity_field,
+        title_field=title_field,
+        entity_type=entity_type,
+        selected_fields=selected_fields,
+        version_field=version_field,
+    )
+    return _generated_operation_build(
+        query=query,
+        root_name=root_name,
+        mapping=mapping,
+        returns_list=returns_list,
+        records_path=records_path,
+        page_info=page_info,
+        bound_name=bound_name,
+        allow_empty_snapshot=allow_empty_snapshot,
+    )
 
 
 def _generate_mapping_policy(
