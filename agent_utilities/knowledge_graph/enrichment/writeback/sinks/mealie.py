@@ -32,6 +32,43 @@ class MealieSink:
             logger.debug("mealie write client unavailable", exc_info=True)
             return None
 
+    def _apply_mealplan(
+        self, client: Any, c: dict[str, Any], dry_run: bool, result: WritebackResult
+    ) -> None:
+        data = {
+            "date": c.get("date"),
+            "entryType": c.get("entry_type", "dinner"),
+        }
+        if c.get("recipe_id"):
+            data["recipeId"] = c["recipe_id"]
+        if c.get("title"):
+            data["title"] = c["title"]
+        if dry_run:
+            result.proposals.append({"op": "post_mealplan", **data})
+        else:
+            client.post_households_mealplans(data=data)  # type: ignore[union-attr]  # client None-checked above
+            result.created += 1
+
+    def _apply_shoppinglist(
+        self, client: Any, c: dict[str, Any], dry_run: bool, result: WritebackResult
+    ) -> None:
+        data = {"name": c.get("name", "KG shopping list")}
+        if dry_run:
+            result.proposals.append({"op": "post_shopping_list", **data})
+        else:
+            client.post_households_shopping_lists(data=data)  # type: ignore[union-attr]  # client None-checked above
+            result.created += 1
+
+    def _apply_shoppingitem(
+        self, client: Any, c: dict[str, Any], dry_run: bool, result: WritebackResult
+    ) -> None:
+        data = {"note": c.get("name"), "shoppingListId": c.get("list_id")}
+        if dry_run:
+            result.proposals.append({"op": "post_shopping_item", **data})
+        else:
+            client.post_households_shopping_items(data=data)  # type: ignore[union-attr]  # client None-checked above
+            result.created += 1
+
     def run(
         self, ctx: WritebackContext, ops: dict[str, Any], *, dry_run: bool
     ) -> WritebackResult:
@@ -41,39 +78,19 @@ class MealieSink:
             result.skipped += 1
             return result
 
+        handlers = {
+            "mealplan": self._apply_mealplan,
+            "shoppinglist": self._apply_shoppinglist,
+            "shoppingitem": self._apply_shoppingitem,
+        }
         for c in ops.get("creations") or []:
             ctype = (c.get("type") or "").lower()
+            handler = handlers.get(ctype)
             try:
-                if ctype == "mealplan":
-                    data = {
-                        "date": c.get("date"),
-                        "entryType": c.get("entry_type", "dinner"),
-                    }
-                    if c.get("recipe_id"):
-                        data["recipeId"] = c["recipe_id"]
-                    if c.get("title"):
-                        data["title"] = c["title"]
-                    if dry_run:
-                        result.proposals.append({"op": "post_mealplan", **data})
-                    else:
-                        client.post_households_mealplans(data=data)  # type: ignore[union-attr]  # client None-checked above
-                        result.created += 1
-                elif ctype == "shoppinglist":
-                    data = {"name": c.get("name", "KG shopping list")}
-                    if dry_run:
-                        result.proposals.append({"op": "post_shopping_list", **data})
-                    else:
-                        client.post_households_shopping_lists(data=data)  # type: ignore[union-attr]  # client None-checked above
-                        result.created += 1
-                elif ctype == "shoppingitem":
-                    data = {"note": c.get("name"), "shoppingListId": c.get("list_id")}
-                    if dry_run:
-                        result.proposals.append({"op": "post_shopping_item", **data})
-                    else:
-                        client.post_households_shopping_items(data=data)  # type: ignore[union-attr]  # client None-checked above
-                        result.created += 1
-                else:
+                if handler is None:
                     result.skipped += 1
+                else:
+                    handler(client, c, dry_run, result)
             except Exception:  # noqa: BLE001
                 logger.debug("mealie write failed for %s", ctype, exc_info=True)
                 result.errors += 1
