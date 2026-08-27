@@ -593,6 +593,275 @@ def _default_run_id(
     return "run-" + hashlib.sha256(payload).hexdigest()[:24]
 
 
+def _validate_run_bounds(
+    corpus: DocumentationCorpus, repetitions: int, bounds: BenchmarkBounds
+) -> None:
+    if len(corpus.questions) > bounds.max_questions:
+        raise BenchmarkBoundExceeded(
+            f"corpus has {len(corpus.questions)} questions, over the "
+            f"{bounds.max_questions}-question bound"
+        )
+    if not 2 <= repetitions <= bounds.max_repetitions:
+        raise BenchmarkBoundExceeded(
+            f"repetitions must be between 2 and {bounds.max_repetitions}"
+        )
+
+
+def _normalize_adapters(
+    adapters: Mapping[DocumentationPath, DocumentationAdapter],
+    revisions: Mapping[DocumentationPath, PathRevision],
+) -> dict[DocumentationPath, DocumentationAdapter]:
+    expected_paths = set(DocumentationPath)
+    normalized_adapters = {
+        DocumentationPath(path): adapter for path, adapter in adapters.items()
+    }
+    adapter_paths = set(normalized_adapters)
+    revision_paths = {DocumentationPath(path) for path in revisions}
+    if adapter_paths != expected_paths or revision_paths != expected_paths:
+        raise DocumentationBenchmarkError(
+            "the benchmark requires exactly html_baseline and agent_generated paths"
+        )
+    return normalized_adapters
+
+
+def _check_revisions(
+    corpus: DocumentationCorpus,
+    revisions: Mapping[DocumentationPath, PathRevision],
+) -> dict[DocumentationPath, PathRevision]:
+    all_source_ids = {
+        source_id
+        for question in corpus.questions
+        for source_id in (
+            *question.expected_source_ids,
+            *question.stale_source_ids,
+        )
+    }
+    checked_revisions: dict[DocumentationPath, PathRevision] = {}
+    for raw_path, revision in revisions.items():
+        path = DocumentationPath(raw_path)
+        if revision.path != path:
+            raise DocumentationBenchmarkError(
+                f"revision path mismatch for {path.value}"
+            )
+        missing_sources = sorted(all_source_ids - set(revision.source_revisions))
+        if missing_sources:
+            raise DocumentationBenchmarkError(
+                f"{path.value} revision is missing source revision(s): {missing_sources}"
+            )
+        checked_revisions[path] = revision
+    return checked_revisions
+
+
+def _record_one_answer(
+    *,
+    adapter: DocumentationAdapter,
+    path: DocumentationPath,
+    question: DocumentationQuestion,
+    bounds: BenchmarkBounds,
+    clock: _RunClock,
+) -> tuple[PathAnswer, float, RequestRecorder]:
+    recorder = RequestRecorder(limit=bounds.max_requests_per_answer)
+    started = clock.read()
+    try:
+        answer = adapter.answer(question, recorder)
+    except BenchmarkBoundExceeded:
+        raise
+    except Exception as exc:  # noqa: BLE001 - add bounded context, then fail
+        raise DocumentationBenchmarkError(
+            f"{path.value}/{question.question_id} adapter failed: {type(exc).__name__}"
+        ) from exc
+    if not isinstance(answer, PathAnswer):
+        raise DocumentationBenchmarkError(
+            f"{path.value}/{question.question_id} adapter returned "
+            "an invalid answer type"
+        )
+    elapsed = clock.read() - started
+    if not math.isfinite(elapsed) or elapsed < 0:
+        raise DocumentationBenchmarkError("benchmark clock moved backwards")
+    if len(answer.text) > bounds.max_answer_chars:
+        raise BenchmarkBoundExceeded(
+            f"{path.value}/{question.question_id} answer exceeds "
+            f"{bounds.max_answer_chars} characters"
+        )
+    return answer, elapsed, recorder
+
+
+def _validate_selected_sources(
+    *,
+    path: DocumentationPath,
+    question: DocumentationQuestion,
+    answer: PathAnswer,
+    recorder: RequestRecorder,
+) -> tuple[str, ...]:
+    selected = tuple(answer.selected_source_ids)
+    if len(set(selected)) != len(selected):
+        raise DocumentationBenchmarkError(
+            f"{path.value}/{question.question_id} selected duplicate sources"
+        )
+    if any(not _is_safe_opaque_id(source_id) for source_id in selected):
+        raise DocumentationBenchmarkError(
+            f"{path.value}/{question.question_id} selected unsafe source id"
+        )
+    if not set(selected).issubset(set(recorder.source_ids)):
+        raise DocumentationBenchmarkError(
+            f"{path.value}/{question.question_id} cited a source it did not read"
+        )
+    return selected
+
+
+def _build_observation(
+    *,
+    path: DocumentationPath,
+    cache_mode: CacheMode,
+    repetition: int,
+    question: DocumentationQuestion,
+    answer: PathAnswer,
+    elapsed: float,
+    selected: tuple[str, ...],
+    recorder: RequestRecorder,
+) -> PathObservation:
+    correct = _contains_facts(answer.text, question.required_facts)
+    stale = bool(set(selected) & set(question.stale_source_ids)) or _contains_facts(
+        answer.text, question.stale_facts
+    )
+    source_selection_correct = set(selected) == set(question.expected_source_ids)
+    return PathObservation(
+        path=path,
+        cache_mode=cache_mode,
+        repetition=repetition,
+        question_id=question.question_id,
+        correct=correct,
+        source_selection_correct=source_selection_correct,
+        stale_answer=stale,
+        requested_source_ids=recorder.source_ids,
+        selected_source_ids=selected,
+        request_count=recorder.count,
+        elapsed_ms=round(elapsed * 1_000, 6),
+        token_usage=answer.token_usage,
+        answer_digest=_answer_digest(answer.text),
+        answer_chars=len(answer.text),
+    )
+
+
+def _process_question(
+    *,
+    adapter: DocumentationAdapter,
+    path: DocumentationPath,
+    question: DocumentationQuestion,
+    cache_mode: CacheMode,
+    repetition: int,
+    bounds: BenchmarkBounds,
+    clock: _RunClock,
+) -> PathObservation:
+    answer, elapsed, recorder = _record_one_answer(
+        adapter=adapter, path=path, question=question, bounds=bounds, clock=clock
+    )
+    selected = _validate_selected_sources(
+        path=path, question=question, answer=answer, recorder=recorder
+    )
+    return _build_observation(
+        path=path,
+        cache_mode=cache_mode,
+        repetition=repetition,
+        question=question,
+        answer=answer,
+        elapsed=elapsed,
+        selected=selected,
+        recorder=recorder,
+    )
+
+
+def _collect_observations(
+    *,
+    corpus: DocumentationCorpus,
+    normalized_adapters: dict[DocumentationPath, DocumentationAdapter],
+    repetitions: int,
+    reset_cache: Callable[[DocumentationPath], None],
+    bounds: BenchmarkBounds,
+    clock: _RunClock,
+) -> list[PathObservation]:
+    observations: list[PathObservation] = []
+    for path in (
+        DocumentationPath.HTML_BASELINE,
+        DocumentationPath.AGENT_GENERATED,
+    ):
+        adapter = normalized_adapters[path]
+        try:
+            reset_cache(path)
+        except Exception as exc:  # noqa: BLE001 - add bounded context, then fail
+            raise DocumentationBenchmarkError(
+                f"{path.value} cache reset failed: {type(exc).__name__}"
+            ) from exc
+        for repetition in range(repetitions):
+            cache_mode = CacheMode.CLEAN if repetition == 0 else CacheMode.REPEAT
+            for question in corpus.questions:
+                observations.append(
+                    _process_question(
+                        adapter=adapter,
+                        path=path,
+                        question=question,
+                        cache_mode=cache_mode,
+                        repetition=repetition,
+                        bounds=bounds,
+                        clock=clock,
+                    )
+                )
+    return observations
+
+
+def _missing_metric_uncertainty(
+    *, path: DocumentationPath, all_metrics: MetricSet
+) -> list[str]:
+    uncertainty: list[str] = []
+    for metric_name in ("input_tokens", "output_tokens", "reasoning_tokens"):
+        metric = getattr(all_metrics, metric_name)
+        if metric.missing_count:
+            uncertainty.append(
+                f"{path.value}: {metric_name} unavailable for "
+                f"{metric.missing_count} observation(s)"
+            )
+    return uncertainty
+
+
+def _build_one_summary(
+    *, path: DocumentationPath, observations: list[PathObservation], repetitions: int
+) -> tuple[PathSummary, list[str]]:
+    path_observations = [item for item in observations if item.path == path]
+    clean = [item for item in path_observations if item.cache_mode == CacheMode.CLEAN]
+    repeat = [item for item in path_observations if item.cache_mode == CacheMode.REPEAT]
+    identity = _repeat_identity(path, path_observations, repetitions=repetitions)
+    all_metrics = _metrics(path_observations)
+    summary = PathSummary(
+        path=path,
+        all_metrics=all_metrics,
+        clean_metrics=_metrics(clean),
+        repeat_metrics=_metrics(repeat),
+        repeat_identity=identity,
+    )
+    uncertainty: list[str] = []
+    if identity.identity_rate < 1.0:
+        uncertainty.append(f"{path.value}: repeated semantic output is not identical")
+    uncertainty.extend(_missing_metric_uncertainty(path=path, all_metrics=all_metrics))
+    return summary, uncertainty
+
+
+def _build_summaries(
+    *, observations: list[PathObservation], repetitions: int
+) -> tuple[list[PathSummary], list[str]]:
+    summaries: list[PathSummary] = []
+    uncertainty: list[str] = []
+    for path in (
+        DocumentationPath.HTML_BASELINE,
+        DocumentationPath.AGENT_GENERATED,
+    ):
+        summary, path_uncertainty = _build_one_summary(
+            path=path, observations=observations, repetitions=repetitions
+        )
+        summaries.append(summary)
+        uncertainty.extend(path_uncertainty)
+    return summaries, uncertainty
+
+
 class DocumentationBenchmarkRunner:
     """Execute the fixed corpus through HTML and generated-path adapters."""
 
@@ -618,176 +887,26 @@ class DocumentationBenchmarkRunner:
         """Run every corpus question on both paths, bounded and without persistence."""
 
         corpus = corpus or DEFAULT_DOCUMENTATION_CORPUS
-        if len(corpus.questions) > self.bounds.max_questions:
-            raise BenchmarkBoundExceeded(
-                f"corpus has {len(corpus.questions)} questions, over the "
-                f"{self.bounds.max_questions}-question bound"
-            )
-        if not 2 <= repetitions <= self.bounds.max_repetitions:
-            raise BenchmarkBoundExceeded(
-                f"repetitions must be between 2 and {self.bounds.max_repetitions}"
-            )
-        expected_paths = set(DocumentationPath)
-        normalized_adapters = {
-            DocumentationPath(path): adapter for path, adapter in adapters.items()
-        }
-        adapter_paths = set(normalized_adapters)
-        revision_paths = {DocumentationPath(path) for path in revisions}
-        if adapter_paths != expected_paths or revision_paths != expected_paths:
-            raise DocumentationBenchmarkError(
-                "the benchmark requires exactly html_baseline and agent_generated paths"
-            )
+        _validate_run_bounds(corpus, repetitions, self.bounds)
+        normalized_adapters = _normalize_adapters(adapters, revisions)
         if reset_cache is None:
             raise DocumentationBenchmarkError(
                 "reset_cache callback is required to label a clean-cache pass honestly"
             )
+        checked_revisions = _check_revisions(corpus, revisions)
 
-        all_source_ids = {
-            source_id
-            for question in corpus.questions
-            for source_id in (
-                *question.expected_source_ids,
-                *question.stale_source_ids,
-            )
-        }
-        checked_revisions: dict[DocumentationPath, PathRevision] = {}
-        for raw_path, revision in revisions.items():
-            path = DocumentationPath(raw_path)
-            if revision.path != path:
-                raise DocumentationBenchmarkError(
-                    f"revision path mismatch for {path.value}"
-                )
-            missing_sources = sorted(all_source_ids - set(revision.source_revisions))
-            if missing_sources:
-                raise DocumentationBenchmarkError(
-                    f"{path.value} revision is missing source revision(s): {missing_sources}"
-                )
-            checked_revisions[path] = revision
+        observations = _collect_observations(
+            corpus=corpus,
+            normalized_adapters=normalized_adapters,
+            repetitions=repetitions,
+            reset_cache=reset_cache,
+            bounds=self.bounds,
+            clock=self._clock,
+        )
 
-        observations: list[PathObservation] = []
-        for path in (
-            DocumentationPath.HTML_BASELINE,
-            DocumentationPath.AGENT_GENERATED,
-        ):
-            adapter = normalized_adapters[path]
-            try:
-                reset_cache(path)
-            except Exception as exc:  # noqa: BLE001 - add bounded context, then fail
-                raise DocumentationBenchmarkError(
-                    f"{path.value} cache reset failed: {type(exc).__name__}"
-                ) from exc
-            for repetition in range(repetitions):
-                cache_mode = CacheMode.CLEAN if repetition == 0 else CacheMode.REPEAT
-                for question in corpus.questions:
-                    recorder = RequestRecorder(
-                        limit=self.bounds.max_requests_per_answer
-                    )
-                    started = self._clock.read()
-                    try:
-                        answer = adapter.answer(question, recorder)
-                    except BenchmarkBoundExceeded:
-                        raise
-                    except Exception as exc:  # noqa: BLE001 - add bounded context, then fail
-                        raise DocumentationBenchmarkError(
-                            f"{path.value}/{question.question_id} adapter failed: "
-                            f"{type(exc).__name__}"
-                        ) from exc
-                    if not isinstance(answer, PathAnswer):
-                        raise DocumentationBenchmarkError(
-                            f"{path.value}/{question.question_id} adapter returned "
-                            "an invalid answer type"
-                        )
-                    elapsed = self._clock.read() - started
-                    if not math.isfinite(elapsed) or elapsed < 0:
-                        raise DocumentationBenchmarkError(
-                            "benchmark clock moved backwards"
-                        )
-                    if len(answer.text) > self.bounds.max_answer_chars:
-                        raise BenchmarkBoundExceeded(
-                            f"{path.value}/{question.question_id} answer exceeds "
-                            f"{self.bounds.max_answer_chars} characters"
-                        )
-                    selected = tuple(answer.selected_source_ids)
-                    if len(set(selected)) != len(selected):
-                        raise DocumentationBenchmarkError(
-                            f"{path.value}/{question.question_id} selected duplicate sources"
-                        )
-                    if any(not _is_safe_opaque_id(source_id) for source_id in selected):
-                        raise DocumentationBenchmarkError(
-                            f"{path.value}/{question.question_id} selected unsafe source id"
-                        )
-                    if not set(selected).issubset(set(recorder.source_ids)):
-                        raise DocumentationBenchmarkError(
-                            f"{path.value}/{question.question_id} cited a source it did not read"
-                        )
-                    correct = _contains_facts(answer.text, question.required_facts)
-                    stale = bool(
-                        set(selected) & set(question.stale_source_ids)
-                    ) or _contains_facts(answer.text, question.stale_facts)
-                    source_selection_correct = set(selected) == set(
-                        question.expected_source_ids
-                    )
-                    observations.append(
-                        PathObservation(
-                            path=path,
-                            cache_mode=cache_mode,
-                            repetition=repetition,
-                            question_id=question.question_id,
-                            correct=correct,
-                            source_selection_correct=source_selection_correct,
-                            stale_answer=stale,
-                            requested_source_ids=recorder.source_ids,
-                            selected_source_ids=selected,
-                            request_count=recorder.count,
-                            elapsed_ms=round(elapsed * 1_000, 6),
-                            token_usage=answer.token_usage,
-                            answer_digest=_answer_digest(answer.text),
-                            answer_chars=len(answer.text),
-                        )
-                    )
-
-        summaries: list[PathSummary] = []
-        uncertainty: list[str] = []
-        for path in (
-            DocumentationPath.HTML_BASELINE,
-            DocumentationPath.AGENT_GENERATED,
-        ):
-            path_observations = [item for item in observations if item.path == path]
-            clean = [
-                item for item in path_observations if item.cache_mode == CacheMode.CLEAN
-            ]
-            repeat = [
-                item
-                for item in path_observations
-                if item.cache_mode == CacheMode.REPEAT
-            ]
-            identity = _repeat_identity(
-                path, path_observations, repetitions=repetitions
-            )
-            summaries.append(
-                PathSummary(
-                    path=path,
-                    all_metrics=_metrics(path_observations),
-                    clean_metrics=_metrics(clean),
-                    repeat_metrics=_metrics(repeat),
-                    repeat_identity=identity,
-                )
-            )
-            if identity.identity_rate < 1.0:
-                uncertainty.append(
-                    f"{path.value}: repeated semantic output is not identical"
-                )
-            for metric_name in (
-                "input_tokens",
-                "output_tokens",
-                "reasoning_tokens",
-            ):
-                metric = getattr(summaries[-1].all_metrics, metric_name)
-                if metric.missing_count:
-                    uncertainty.append(
-                        f"{path.value}: {metric_name} unavailable for "
-                        f"{metric.missing_count} observation(s)"
-                    )
+        summaries, uncertainty = _build_summaries(
+            observations=observations, repetitions=repetitions
+        )
 
         return DocumentationBenchmarkEvidence(
             run_id=run_id or _default_run_id(corpus, checked_revisions, repetitions),
@@ -810,20 +929,9 @@ def _summary_by_path(
     raise DocumentationBenchmarkError(f"evidence has no summary for {path.value}")
 
 
-def compare_documentation_paths(
-    evidence: DocumentationBenchmarkEvidence,
-    *,
-    thresholds: RegressionThresholds | None = None,
-    reviewed: bool = False,
-) -> PathComparison:
-    """Compare generated docs to HTML without importing external score claims."""
-
-    thresholds = thresholds or RegressionThresholds()
-    baseline = _summary_by_path(evidence, DocumentationPath.HTML_BASELINE)
-    candidate = _summary_by_path(evidence, DocumentationPath.AGENT_GENERATED)
-    base_metrics = baseline.all_metrics
-    candidate_metrics = candidate.all_metrics
-
+def _path_deltas(
+    base_metrics: MetricSet, candidate_metrics: MetricSet
+) -> dict[str, float | None]:
     def delta(name: str) -> float | None:
         left = getattr(base_metrics, name).mean
         right = getattr(candidate_metrics, name).mean
@@ -854,7 +962,14 @@ def compare_documentation_paths(
         deltas["token_count"] = round(candidate_tokens - base_tokens, 6)
     else:
         deltas["token_count"] = None
+    return deltas
 
+
+def _unavailable_or_regression_violations(
+    deltas: dict[str, float | None], thresholds: RegressionThresholds
+) -> list[str]:
+    """Metrics that are a violation either when unmeasured or when they regress
+    past a threshold (correctness/source-selection drop, stale-answer rise)."""
     violations: list[str] = []
     if deltas["correctness"] is None:
         violations.append("correctness metric unavailable")
@@ -868,6 +983,16 @@ def compare_documentation_paths(
         violations.append("stale-answer metric unavailable")
     elif deltas["stale_answer"] > thresholds.max_stale_answer_increase:
         violations.append("stale-answer regression")
+    return violations
+
+
+def _optional_increase_violations(
+    deltas: dict[str, float | None], thresholds: RegressionThresholds
+) -> list[str]:
+    """Metrics that are only a violation when measured AND over threshold; a
+    missing measurement here is not itself a violation (unlike the metrics
+    above)."""
+    violations: list[str] = []
     if (
         deltas["request_count"] is not None
         and deltas["request_count"] > thresholds.max_request_count_increase
@@ -883,6 +1008,33 @@ def compare_documentation_paths(
         and deltas["token_count"] > thresholds.max_token_count_increase
     ):
         violations.append("token-count regression")
+    return violations
+
+
+def _regression_violations(
+    deltas: dict[str, float | None], thresholds: RegressionThresholds
+) -> list[str]:
+    return _unavailable_or_regression_violations(
+        deltas, thresholds
+    ) + _optional_increase_violations(deltas, thresholds)
+
+
+def compare_documentation_paths(
+    evidence: DocumentationBenchmarkEvidence,
+    *,
+    thresholds: RegressionThresholds | None = None,
+    reviewed: bool = False,
+) -> PathComparison:
+    """Compare generated docs to HTML without importing external score claims."""
+
+    thresholds = thresholds or RegressionThresholds()
+    baseline = _summary_by_path(evidence, DocumentationPath.HTML_BASELINE)
+    candidate = _summary_by_path(evidence, DocumentationPath.AGENT_GENERATED)
+    base_metrics = baseline.all_metrics
+    candidate_metrics = candidate.all_metrics
+
+    deltas = _path_deltas(base_metrics, candidate_metrics)
+    violations = _regression_violations(deltas, thresholds)
 
     latency_improved = deltas["elapsed_ms"] is not None and deltas["elapsed_ms"] < 0
     tokens_improved = deltas["token_count"] is not None and deltas["token_count"] < 0
