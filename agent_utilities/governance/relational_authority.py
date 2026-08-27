@@ -327,6 +327,19 @@ def _validate_placement_contract(data: Mapping[str, Any], errors: list[str]) -> 
     if raw_contract.get("version") != 1:
         errors.append("unsupported or missing authority-placement version")
 
+    stores_ok = _validate_placement_stores(raw_contract, errors)
+    if not stores_ok:
+        return
+
+    _validate_placement_records(raw_contract, errors)
+    _validate_placement_events(raw_contract, errors)
+
+
+def _validate_placement_stores(
+    raw_contract: Mapping[str, Any], errors: list[str]
+) -> bool:
+    """Validate authority_placement.stores. Returns False if the caller must
+    return immediately (stores is not a list)."""
     raw_stores = raw_contract.get("stores")
     if not isinstance(raw_stores, list):
         errors.append("authority_placement.stores must be a list")
@@ -393,7 +406,12 @@ def _validate_placement_contract(data: Mapping[str, Any], errors: list[str]) -> 
     errors.extend(
         f"missing placement store: {store_id}" for store_id in sorted(missing_stores)
     )
+    return True
 
+
+def _validate_placement_records(
+    raw_contract: Mapping[str, Any], errors: list[str]
+) -> None:
     raw_records = raw_contract.get("records")
     if not isinstance(raw_records, list):
         errors.append("authority_placement.records must be a list")
@@ -453,6 +471,10 @@ def _validate_placement_contract(data: Mapping[str, Any], errors: list[str]) -> 
         for field in sorted(unknown_fields)
     )
 
+
+def _validate_placement_events(
+    raw_contract: Mapping[str, Any], errors: list[str]
+) -> None:
     raw_events = raw_contract.get("events")
     if not isinstance(raw_events, list):
         errors.append("authority_placement.events must be a list")
@@ -524,6 +546,7 @@ def _validate_placement_contract(data: Mapping[str, Any], errors: list[str]) -> 
     errors.extend(
         f"missing placement event: {event_id}" for event_id in sorted(missing_events)
     )
+
 
 
 def _validate_table_entry(
