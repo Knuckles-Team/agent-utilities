@@ -26,6 +26,7 @@ import sqlite3
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -318,18 +319,8 @@ def _goal_engine() -> Any:
         return None
 
 
-def _persist_goal(goal_id: str) -> None:
-    """Persist the goal entry onto its KG Loop node (CONCEPT:AU-KG.research.these-properties-carry).
-
-    The goal is a develop Loop whose WorkItem is authoritative. This writes
-    lifecycle-neutral definition and observability fields only.
-    """
-    entry = active_goals.get(goal_id)
-    if not entry:
-        return
-    engine = _goal_engine()
-    if engine is None:
-        return
+def _goal_props_from_entry(goal_id: str, entry: dict[str, Any]) -> dict[str, Any]:
+    """Build the sanitized KG property dict for one goal entry."""
     import json as _json
 
     from agent_utilities.messaging.bus_privacy import bus_reference
@@ -371,23 +362,24 @@ def _persist_goal(goal_id: str) -> None:
         props["escalate_to"] = bus_reference(
             "goal_escalation", str(_esc), tenant=_ambient_session_tenant()
         )
-    try:
-        engine.add_node(goal_id, "Concept", properties=props)
-    except Exception as e:  # noqa: BLE001 — best-effort persist
-        logger.error(f"Error persisting goal {goal_id} to KG: {e}")
-        return
-    # Deliberate classification refinement (CONCEPT:AU-KG.research.these-properties-carry):
-    # the write-time chokepoint (IntelligenceGraphEngine._upsert_node /
-    # tenant_sharing.stamp_classification) already stamps every node —
-    # including this one — CONFIDENTIAL + owner as a safe default, which
-    # already makes this goal readable by its own creator. But "Concept" is an
-    # overloaded label used for more than goals, so the bare label alone can't
-    # tell the generic chokepoint that THIS Concept is specifically a user's
-    # goal record. This call site knows that and refines the classification to
-    # INTERNAL accordingly (matches CompanyBrain.classify_node's own documented
-    # usage) — it does not change whether the actor can read it (already
-    # true), only the label used for entailment-propagation strictness
-    # ordering (secured_reads.inherit_inferred_acl) and audit posture.
+    return props
+
+
+def _refine_goal_classification(goal_id: str) -> None:
+    """Deliberate classification refinement (CONCEPT:AU-KG.research.these-properties-carry):
+
+    the write-time chokepoint (IntelligenceGraphEngine._upsert_node /
+    tenant_sharing.stamp_classification) already stamps every node —
+    including this one — CONFIDENTIAL + owner as a safe default, which
+    already makes this goal readable by its own creator. But "Concept" is an
+    overloaded label used for more than goals, so the bare label alone can't
+    tell the generic chokepoint that THIS Concept is specifically a user's
+    goal record. This call site knows that and refines the classification to
+    INTERNAL accordingly (matches CompanyBrain.classify_node's own documented
+    usage) — it does not change whether the actor can read it (already
+    true), only the label used for entailment-propagation strictness
+    ordering (secured_reads.inherit_inferred_acl) and audit posture.
+    """
     try:
         from agent_utilities.knowledge_graph.core.company_brain_runtime import (
             get_company_brain,
@@ -403,6 +395,27 @@ def _persist_goal(goal_id: str) -> None:
         )
     except Exception as e:  # noqa: BLE001 — best-effort; the chokepoint default already covers correctness, this only refines the label
         logger.debug(f"Goal {goal_id} ACL classification refinement failed: {e}")
+
+
+def _persist_goal(goal_id: str) -> None:
+    """Persist the goal entry onto its KG Loop node (CONCEPT:AU-KG.research.these-properties-carry).
+
+    The goal is a develop Loop whose WorkItem is authoritative. This writes
+    lifecycle-neutral definition and observability fields only.
+    """
+    entry = active_goals.get(goal_id)
+    if not entry:
+        return
+    engine = _goal_engine()
+    if engine is None:
+        return
+    props = _goal_props_from_entry(goal_id, entry)
+    try:
+        engine.add_node(goal_id, "Concept", properties=props)
+    except Exception as e:  # noqa: BLE001 — best-effort persist
+        logger.error(f"Error persisting goal {goal_id} to KG: {e}")
+        return
+    _refine_goal_classification(goal_id)
 
 
 def _goal_row_to_entry(row: dict[str, Any]) -> dict[str, Any]:
@@ -496,6 +509,33 @@ _rehydrated = False
 _rehydrate_lock = threading.Lock()
 
 
+def _rehydrate_one_goal_entry(engine: Any, entry: dict[str, Any]) -> bool:
+    """Rehydrate one candidate goal entry if it is stranded; returns True if so."""
+    gid = entry.get("goal_id")
+    status = str(entry.get("status") or "")
+    if not gid or gid in background_goal_runs:
+        return False  # live in this process
+    if status not in _NON_TERMINAL_GOAL_STATUSES:
+        return False  # already terminal — nothing to rehydrate
+    from agent_utilities.orchestration.work_item import work_item_view_of_loop
+
+    work_item = work_item_view_of_loop(engine, str(gid)) or {}
+    lease_expires_at = float(work_item.get("lease_expires_at") or 0.0)
+    if lease_expires_at > time.time():
+        return False
+    summary = f"Execution lease expired while '{status}'; resume or cancel explicitly."
+    entry["summary"] = summary
+    active_goals[gid] = entry
+    _persist_goal(gid)  # refresh definition/observability projection
+    logger.warning(
+        "Rehydrated goal %s with expired lease (session=%s, status=%s)",
+        gid,
+        entry.get("session_id"),
+        status,
+    )
+    return True
+
+
 def rehydrate_goals() -> int:
     """Surface goals stranded by a process restart (CONCEPT:AU-ORCH.session.durable-goal-registry-goals).
 
@@ -516,34 +556,8 @@ def rehydrate_goals() -> int:
             return 0
         try:
             for entry in _list_goal_entries(engine, raise_on_error=True):
-                gid = entry.get("goal_id")
-                status = str(entry.get("status") or "")
-                if not gid or gid in background_goal_runs:
-                    continue  # live in this process
-                if status not in _NON_TERMINAL_GOAL_STATUSES:
-                    continue  # already terminal — nothing to rehydrate
-                from agent_utilities.orchestration.work_item import (
-                    work_item_view_of_loop,
-                )
-
-                work_item = work_item_view_of_loop(engine, str(gid)) or {}
-                lease_expires_at = float(work_item.get("lease_expires_at") or 0.0)
-                if lease_expires_at > time.time():
-                    continue
-                summary = (
-                    f"Execution lease expired while '{status}'; resume or cancel "
-                    "explicitly."
-                )
-                entry["summary"] = summary
-                active_goals[gid] = entry
-                _persist_goal(gid)  # refresh definition/observability projection
-                stranded += 1
-                logger.warning(
-                    "Rehydrated goal %s with expired lease (session=%s, status=%s)",
-                    gid,
-                    entry.get("session_id"),
-                    status,
-                )
+                if _rehydrate_one_goal_entry(engine, entry):
+                    stranded += 1
         except Exception as e:  # noqa: BLE001
             logger.error("Goal rehydration failed (%s)", type(e).__name__)
             raise
@@ -768,16 +782,8 @@ async def submit_session_reply(request: Request) -> JSONResponse:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-async def cancel_session_run(request: Request) -> JSONResponse:
-    """Cancel any active background or goal execution on this session."""
-    from agent_utilities.knowledge_graph.core.session import resolve_session
-
-    resolve_session(required_scope="kg:write")
-    session_id = request.path_params.get("session_id")
-    if not session_id:
-        return JSONResponse(
-            {"error": "session_id path parameter is required"}, status_code=400
-        )
+def _session_visible_for_cancel(session_id: str) -> bool | None:
+    """Whether the session exists (tenant-scoped); None on a lookup failure."""
     try:
         conn = _connect_db()
         cursor = conn.cursor()
@@ -790,28 +796,36 @@ async def cancel_session_run(request: Request) -> JSONResponse:
         conn.close()
     except Exception as e:  # noqa: BLE001
         logger.error("Error authorizing session cancellation: %s", e)
-        return JSONResponse({"error": "Session lookup failed"}, status_code=500)
-    if not visible:
-        return JSONResponse({"error": "Session not found"}, status_code=404)
+        return None
+    return visible is not None
+
+
+def _cancel_one_background_goal(goal_id: str, run: dict[str, Any]) -> None:
+    task = run["task"]
+    if not task.done():
+        task.cancel()
+    background_goal_runs.pop(goal_id, None)
+    if goal_id in active_goals:
+        active_goals[goal_id]["status"] = "cancelled"
+        engine = _goal_engine()
+        if engine is not None:
+            from agent_utilities.knowledge_graph.research.loops import mark_loop_status
+
+            mark_loop_status(engine, goal_id, "cancelled", source="user")
+        _persist_goal(goal_id)
+
+
+def _cancel_background_goal_runs(session_id: str) -> bool:
+    """Cancel every background goal run bound to ``session_id``; returns whether any were."""
     cancelled = False
     for goal_id, run in list(background_goal_runs.items()):
         if run["session_id"] == session_id:
-            task = run["task"]
-            if not task.done():
-                task.cancel()
-            background_goal_runs.pop(goal_id, None)
-            if goal_id in active_goals:
-                active_goals[goal_id]["status"] = "cancelled"
-                engine = _goal_engine()
-                if engine is not None:
-                    from agent_utilities.knowledge_graph.research.loops import (
-                        mark_loop_status,
-                    )
-
-                    mark_loop_status(engine, goal_id, "cancelled", source="user")
-                _persist_goal(goal_id)
+            _cancel_one_background_goal(goal_id, run)
             cancelled = True
+    return cancelled
 
+
+def _mark_session_cancelled(session_id: str) -> None:
     try:
         conn = _connect_db()
         cursor = conn.cursor()
@@ -826,6 +840,24 @@ async def cancel_session_run(request: Request) -> JSONResponse:
     except Exception as e:
         logger.error(f"Error updating session to cancelled: {e}")
 
+
+async def cancel_session_run(request: Request) -> JSONResponse:
+    """Cancel any active background or goal execution on this session."""
+    from agent_utilities.knowledge_graph.core.session import resolve_session
+
+    resolve_session(required_scope="kg:write")
+    session_id = request.path_params.get("session_id")
+    if not session_id:
+        return JSONResponse(
+            {"error": "session_id path parameter is required"}, status_code=400
+        )
+    visible = _session_visible_for_cancel(session_id)
+    if visible is None:
+        return JSONResponse({"error": "Session lookup failed"}, status_code=500)
+    if not visible:
+        return JSONResponse({"error": "Session not found"}, status_code=404)
+    cancelled = _cancel_background_goal_runs(session_id)
+    _mark_session_cancelled(session_id)
     return JSONResponse({"status": "success", "cancelled": cancelled})
 
 
@@ -900,6 +932,166 @@ def _set_session_status(
         logger.error(f"Error setting session status: {e}")
 
 
+def _make_goal_iteration_recorder(
+    goal_id: str, session_id: str, objective: str, validation_cmd: str
+) -> Callable[[int, dict[str, Any]], None]:
+    """Build the ``on_iteration`` callback for one goal's LoopController run."""
+
+    def _record(iteration_num: int, outcome: dict[str, Any]) -> None:
+        cmd_success = outcome.get("status") == "completed"
+        output = str(outcome.get("output", ""))
+        iteration = GoalIteration(
+            iteration=iteration_num,
+            action=(
+                f"Executing step {iteration_num} for objective: '{objective}'."
+                + (f" Validation `{validation_cmd}`." if validation_cmd else "")
+            ),
+            result=f"Iteration step complete. Command success: {cmd_success}",
+            validation_output=output,
+            is_complete=cmd_success,
+            duration_ms=0,
+            tool_calls=2 if validation_cmd else 1,
+            timestamp=time.time(),
+        )
+        entry = active_goals.get(goal_id)
+        if entry is not None:
+            entry["iterations"].append(iteration)
+            entry["total_iterations"] = iteration_num
+            entry["total_tool_calls"] += iteration.tool_calls
+            _persist_goal(goal_id)
+        _append_session_turn(session_id, iteration_num, iteration, output)
+
+    return _record
+
+
+async def _run_goal_controller(
+    engine: Any,
+    goal_id: str,
+    session_id: str,
+    objective: str,
+    validation_cmd: str,
+    max_iterations: int,
+) -> dict[str, Any]:
+    """Register the goal as a develop Loop and run it via LoopController.
+
+    ``engine`` must already be resolved (non-None) — the caller resolves it
+    before entering the try/except that settles a WorkItem failure, so a
+    failure here still has the correct engine reference to settle against.
+    """
+    from agent_utilities.knowledge_graph.research.loop_controller import (
+        LoopController,
+    )
+    from agent_utilities.knowledge_graph.research.loops import submit_loop
+
+    # Register the goal as a first-class develop Loop so it is visible to and
+    # advanced by the one controller (CONCEPT:AU-KG.research.these-properties-carry).
+    submit_loop(
+        engine,
+        objective,
+        kind="develop",
+        validation_cmd=validation_cmd,
+        loop_id=goal_id,
+        max_iterations=max_iterations,
+    )
+    _persist_goal(goal_id)
+    loop = {
+        "id": goal_id,
+        "kind": "develop",
+        "objective": objective,
+        "validation_cmd": validation_cmd,
+        "max_iterations": max_iterations,
+        "status": "running",
+    }
+    record = _make_goal_iteration_recorder(
+        goal_id, session_id, objective, validation_cmd
+    )
+
+    # The goal's validation runs in the agent workspace; the controller owns the
+    # native WorkItem resume/checkpoint and honors desired state each iteration.
+    controller = LoopController(engine, codebase_root=str(DEFAULT_AGENT_DIR.resolve()))
+    return await controller.run_loop(
+        loop,
+        max_iterations=max_iterations,
+        on_iteration=record,
+        desired_state=lambda: _desired_session_action(session_id),
+        sleep_s=2.0,
+    )
+
+
+def _settle_goal_loop_failure(engine: Any, goal_id: str) -> None:
+    """Best-effort: mark the goal's WorkItem failed if it isn't already terminal."""
+    if engine is None:
+        return
+    try:
+        from agent_utilities.knowledge_graph.research.loops import (
+            claim_loop,
+            mark_loop_status,
+        )
+        from agent_utilities.orchestration import work_item as _wi
+
+        item = _wi.get_work_item(engine, _wi.loop_work_item_id(goal_id))
+        if (item or {}).get("status") not in _wi.TERMINAL_WORK_ITEM_STATUSES:
+            if _wi.current_work_item_claim(
+                engine, _wi.loop_work_item_id(goal_id)
+            ) or claim_loop(engine, goal_id):
+                mark_loop_status(
+                    engine,
+                    goal_id,
+                    "failed",
+                    output="goal loop execution failed",
+                    source="goal_runner",
+                )
+    except Exception as settle_error:  # noqa: BLE001
+        logger.error(
+            "Goal %s WorkItem failure settlement failed: %s",
+            goal_id,
+            settle_error,
+        )
+
+
+def _finalize_skipped_goal_run(engine: Any, goal_id: str, session_id: str) -> None:
+    """Another fenced owner won the WorkItem; report actual state, don't finalize."""
+    actual = _goal_work_item_status(engine, goal_id) if engine else None
+    entry = active_goals.get(goal_id)
+    if entry is not None:
+        entry["status"] = actual or "running"
+        entry["summary"] = "Goal execution is owned by another worker."
+        _persist_goal(goal_id)
+    _set_session_status(session_id, actual or "running", guard_desired=True)
+    background_goal_runs.pop(goal_id, None)
+
+
+_GOAL_RESULT_STATUSES = {
+    "completed": "succeeded",
+    "succeeded": "succeeded",
+    "failed": "failed",
+    "cancelled": "cancelled",
+    "paused": "ready",
+    "running": "running",
+}
+
+
+def _finalize_goal_run(
+    engine: Any, goal_id: str, session_id: str, result: dict[str, Any]
+) -> None:
+    rstatus = str(result.get("status", "failed"))
+    final = (
+        (_goal_work_item_status(engine, goal_id) if engine else None)
+        or _GOAL_RESULT_STATUSES.get(rstatus)
+        or "failed"
+    )
+    entry = active_goals.get(goal_id)
+    if entry is not None:
+        entry["status"] = final
+        entry["summary"] = (
+            f"Goal finished with status: {final}. "
+            f"Iterations run: {result.get('iterations', 0)}."
+        )
+        _persist_goal(goal_id)
+    _set_session_status(session_id, final)
+    background_goal_runs.pop(goal_id, None)
+
+
 async def run_goal_loop(
     session_id: str,
     goal_id: str,
@@ -953,167 +1145,31 @@ async def run_goal_loop(
 
     try:
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-        from agent_utilities.knowledge_graph.research.loop_controller import (
-            LoopController,
-        )
-        from agent_utilities.knowledge_graph.research.loops import submit_loop
 
         engine = (
             engine
             if engine is not None
             else (_goal_engine() or IntelligenceGraphEngine.get_or_create())
         )
-        # Register the goal as a first-class develop Loop so it is visible to and
-        # advanced by the one controller (CONCEPT:AU-KG.research.these-properties-carry).
-        submit_loop(
-            engine,
-            objective,
-            kind="develop",
-            validation_cmd=validation_cmd,
-            loop_id=goal_id,
-            max_iterations=max_iterations,
-        )
-        _persist_goal(goal_id)
-        loop = {
-            "id": goal_id,
-            "kind": "develop",
-            "objective": objective,
-            "validation_cmd": validation_cmd,
-            "max_iterations": max_iterations,
-            "status": "running",
-        }
-
-        def _record(iteration_num: int, outcome: dict[str, Any]) -> None:
-            cmd_success = outcome.get("status") == "completed"
-            output = str(outcome.get("output", ""))
-            iteration = GoalIteration(
-                iteration=iteration_num,
-                action=(
-                    f"Executing step {iteration_num} for objective: '{objective}'."
-                    + (f" Validation `{validation_cmd}`." if validation_cmd else "")
-                ),
-                result=f"Iteration step complete. Command success: {cmd_success}",
-                validation_output=output,
-                is_complete=cmd_success,
-                duration_ms=0,
-                tool_calls=2 if validation_cmd else 1,
-                timestamp=time.time(),
-            )
-            entry = active_goals.get(goal_id)
-            if entry is not None:
-                entry["iterations"].append(iteration)
-                entry["total_iterations"] = iteration_num
-                entry["total_tool_calls"] += iteration.tool_calls
-                _persist_goal(goal_id)
-            _append_session_turn(session_id, iteration_num, iteration, output)
-
-        # The goal's validation runs in the agent workspace; the controller owns the
-        # native WorkItem resume/checkpoint and honors desired state each iteration.
-        controller = LoopController(
-            engine, codebase_root=str(DEFAULT_AGENT_DIR.resolve())
-        )
-        result = await controller.run_loop(
-            loop,
-            max_iterations=max_iterations,
-            on_iteration=_record,
-            desired_state=lambda: _desired_session_action(session_id),
-            sleep_s=2.0,
+        result = await _run_goal_controller(
+            engine, goal_id, session_id, objective, validation_cmd, max_iterations
         )
     except Exception as e:  # noqa: BLE001 — never let a goal crash the worker
         logger.error(f"Goal {goal_id} run_loop failed: {e}", exc_info=True)
         result = {"status": "failed", "iterations": 0}
+        _settle_goal_loop_failure(engine, goal_id)
 
-        if engine is not None:
-            try:
-                from agent_utilities.knowledge_graph.research.loops import (
-                    claim_loop,
-                    mark_loop_status,
-                )
-                from agent_utilities.orchestration import work_item as _wi
-
-                item = _wi.get_work_item(engine, _wi.loop_work_item_id(goal_id))
-                if (item or {}).get("status") not in _wi.TERMINAL_WORK_ITEM_STATUSES:
-                    if _wi.current_work_item_claim(
-                        engine, _wi.loop_work_item_id(goal_id)
-                    ) or claim_loop(engine, goal_id):
-                        mark_loop_status(
-                            engine,
-                            goal_id,
-                            "failed",
-                            output="goal loop execution failed",
-                            source="goal_runner",
-                        )
-            except Exception as settle_error:  # noqa: BLE001
-                logger.error(
-                    "Goal %s WorkItem failure settlement failed: %s",
-                    goal_id,
-                    settle_error,
-                )
-
-    rstatus = str(result.get("status", "failed"))
     if result.get("skipped"):
         # Another fenced owner won the WorkItem. Never project a terminal result
         # from this non-owner; report the actual state and leave the session live.
-        actual = _goal_work_item_status(engine, goal_id) if engine else None
-        entry = active_goals.get(goal_id)
-        if entry is not None:
-            entry["status"] = actual or "running"
-            entry["summary"] = "Goal execution is owned by another worker."
-            _persist_goal(goal_id)
-        _set_session_status(session_id, actual or "running", guard_desired=True)
-        background_goal_runs.pop(goal_id, None)
+        _finalize_skipped_goal_run(engine, goal_id, session_id)
         return
-    result_statuses = {
-        "completed": "succeeded",
-        "succeeded": "succeeded",
-        "failed": "failed",
-        "cancelled": "cancelled",
-        "paused": "ready",
-        "running": "running",
-    }
-    final = (
-        (_goal_work_item_status(engine, goal_id) if engine else None)
-        or result_statuses.get(rstatus)
-        or "failed"
-    )
-    entry = active_goals.get(goal_id)
-    if entry is not None:
-        entry["status"] = final
-        entry["summary"] = (
-            f"Goal finished with status: {final}. "
-            f"Iterations run: {result.get('iterations', 0)}."
-        )
-        _persist_goal(goal_id)
-    _set_session_status(session_id, final)
-    background_goal_runs.pop(goal_id, None)
+    _finalize_goal_run(engine, goal_id, session_id, result)
 
 
-async def create_goal(request: Request) -> JSONResponse:
-    """Launch a new backgrounded autonomous goal execution loop."""
-    from agent_utilities.knowledge_graph.core.session import resolve_session
-
-    resolve_session(required_scope="kg:write")
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-
-    objective = body.get("objective", "")
-    if not objective:
-        return JSONResponse({"error": "objective is required"}, status_code=400)
-
-    from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
-
-    privacy = PersistencePrivacyGuard()
-    objective, _objective_privacy = privacy.sanitize_text(str(objective))
-
-    session_id = str(uuid.uuid4())
-    goal_id = str(uuid.uuid4())
-
-    spec = GoalSpec.parse_goal_input(objective)
-    spec.id = goal_id
-    spec.session_id = session_id
-
+def _apply_goal_spec_overrides(
+    spec: GoalSpec, body: dict[str, Any], privacy: Any
+) -> None:
     max_iter = body.get("max_iterations")
     if max_iter:
         spec.max_iterations = int(max_iter)
@@ -1127,26 +1183,11 @@ async def create_goal(request: Request) -> JSONResponse:
             list(clean_constraints) if isinstance(clean_constraints, list) else []
         )
 
-    # CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch — the gateway never runs a goal loop
-    # in-process. The full spec is persisted into session metadata (the
-    # queue carries only references), a session-keyed envelope is published,
-    # and any host's agent-dispatch-worker claims it, runs the SAME
-    # ``run_goal_loop`` body, and writes turns/status back into this store.
-    import json as _json
 
-    # Stamp the originating identity into session metadata so the audit trail
-    # and the tenant-scoped fleet plane can attribute this goal to a tenant/actor
-    # (CONCEPT:AU-OS.identity.authenticated-identity-enforcement + OS-5.11). Best-effort: no actor in scope → empty.
-    meta: dict = _identity_metadata()
-    meta["goal_spec"] = {
-        "objective": spec.objective,
-        "end_state": spec.end_state,
-        "validation_cmd": spec.validation_cmd,
-        "max_iterations": spec.max_iterations,
-        "constraints": list(spec.constraints or []),
-    }
-    session_metadata = _json.dumps(meta)
-
+def _insert_goal_session_rows(
+    session_id: str, goal_id: str, spec: GoalSpec, session_metadata: str
+) -> bool:
+    """Insert the queued goal's session + first turn row; returns success."""
     try:
         conn = _connect_db()
         cursor = conn.cursor()
@@ -1195,6 +1236,86 @@ async def create_goal(request: Request) -> JSONResponse:
         conn.close()
     except Exception as e:
         logger.error("Error initializing goal session: %s", e)
+        return False
+    return True
+
+
+def _enqueue_goal_dispatch(goal_id: str, session_id: str) -> dict[str, Any] | None:
+    """Enqueue the goal's dispatch envelope; on failure, mark the goal failed.
+
+    Returns the job handle on success, or None on a logged/recorded failure.
+    """
+    from agent_utilities.orchestration.agent_dispatch import (
+        KIND_GOAL_LOOP,
+        AgentTurnEnvelope,
+        enqueue_agent_turn,
+    )
+
+    try:
+        return enqueue_agent_turn(
+            AgentTurnEnvelope(
+                session_id=session_id,
+                kind=KIND_GOAL_LOOP,
+                payload_ref=goal_id,
+            )
+        )
+    except Exception as e:  # noqa: BLE001 — surface enqueue failure loudly
+        logger.error("Goal %s enqueue failed: %s", goal_id, e)
+        active_goals[goal_id]["status"] = "failed"
+        active_goals[goal_id]["error"] = f"dispatch enqueue failed: {e}"
+        _persist_goal(goal_id)
+        return None
+
+
+async def create_goal(request: Request) -> JSONResponse:
+    """Launch a new backgrounded autonomous goal execution loop."""
+    from agent_utilities.knowledge_graph.core.session import resolve_session
+
+    resolve_session(required_scope="kg:write")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    objective = body.get("objective", "")
+    if not objective:
+        return JSONResponse({"error": "objective is required"}, status_code=400)
+
+    from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
+
+    privacy = PersistencePrivacyGuard()
+    objective, _objective_privacy = privacy.sanitize_text(str(objective))
+
+    session_id = str(uuid.uuid4())
+    goal_id = str(uuid.uuid4())
+
+    spec = GoalSpec.parse_goal_input(objective)
+    spec.id = goal_id
+    spec.session_id = session_id
+
+    _apply_goal_spec_overrides(spec, body, privacy)
+
+    # CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch — the gateway never runs a goal loop
+    # in-process. The full spec is persisted into session metadata (the
+    # queue carries only references), a session-keyed envelope is published,
+    # and any host's agent-dispatch-worker claims it, runs the SAME
+    # ``run_goal_loop`` body, and writes turns/status back into this store.
+    import json as _json
+
+    # Stamp the originating identity into session metadata so the audit trail
+    # and the tenant-scoped fleet plane can attribute this goal to a tenant/actor
+    # (CONCEPT:AU-OS.identity.authenticated-identity-enforcement + OS-5.11). Best-effort: no actor in scope → empty.
+    meta: dict = _identity_metadata()
+    meta["goal_spec"] = {
+        "objective": spec.objective,
+        "end_state": spec.end_state,
+        "validation_cmd": spec.validation_cmd,
+        "max_iterations": spec.max_iterations,
+        "constraints": list(spec.constraints or []),
+    }
+    session_metadata = _json.dumps(meta)
+
+    if not _insert_goal_session_rows(session_id, goal_id, spec, session_metadata):
         return JSONResponse(
             {"error": "Database initialization failed"}, status_code=500
         )
@@ -1217,25 +1338,8 @@ async def create_goal(request: Request) -> JSONResponse:
     }
     _persist_goal(goal_id)
 
-    from agent_utilities.orchestration.agent_dispatch import (
-        KIND_GOAL_LOOP,
-        AgentTurnEnvelope,
-        enqueue_agent_turn,
-    )
-
-    try:
-        handle = enqueue_agent_turn(
-            AgentTurnEnvelope(
-                session_id=session_id,
-                kind=KIND_GOAL_LOOP,
-                payload_ref=goal_id,
-            )
-        )
-    except Exception as e:  # noqa: BLE001 — surface enqueue failure loudly
-        logger.error("Goal %s enqueue failed: %s", goal_id, e)
-        active_goals[goal_id]["status"] = "failed"
-        active_goals[goal_id]["error"] = f"dispatch enqueue failed: {e}"
-        _persist_goal(goal_id)
+    handle = _enqueue_goal_dispatch(goal_id, session_id)
+    if handle is None:
         return JSONResponse({"error": "dispatch enqueue failed"}, status_code=503)
 
     return JSONResponse(
