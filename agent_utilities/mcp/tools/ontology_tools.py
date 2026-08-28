@@ -1233,6 +1233,116 @@ _CLASSIFICATION_CLAIMS_ACTIONS: dict[str, Callable[[_ClassificationClaimsCtx], s
 }
 
 
+def _repo_provenance_snapshot(
+    repo_id: str, commit_sha: str, ref: str
+) -> tuple[Any, str, str | None]:
+    from agent_utilities.knowledge_graph.ontology.repository_provenance import (
+        RepositorySnapshot,
+    )
+
+    if not commit_sha:
+        return (
+            None,
+            "",
+            json.dumps(
+                {
+                    "status": "error",
+                    "error": "commit_sha is required for action='snapshot'",
+                }
+            ),
+        )
+    obj = RepositorySnapshot(repo_id=repo_id, commit_sha=commit_sha, ref=ref)
+    return obj, obj.snapshot_id, None
+
+
+def _repo_provenance_branch(
+    repo_id: str, name: str, commit_sha: str
+) -> tuple[Any, str, str | None]:
+    from agent_utilities.knowledge_graph.ontology.repository_provenance import Branch
+
+    if not name or not commit_sha:
+        return (
+            None,
+            "",
+            json.dumps(
+                {
+                    "status": "error",
+                    "error": "name and commit_sha are required for action='branch'",
+                }
+            ),
+        )
+    obj = Branch(repo_id=repo_id, name=name, head_commit_sha=commit_sha)
+    return obj, obj.branch_node_id, None
+
+
+def _repo_provenance_tag(
+    repo_id: str, name: str, commit_sha: str, annotation: str
+) -> tuple[Any, str, str | None]:
+    from agent_utilities.knowledge_graph.ontology.repository_provenance import Tag
+
+    if not name or not commit_sha:
+        return (
+            None,
+            "",
+            json.dumps(
+                {
+                    "status": "error",
+                    "error": "name and commit_sha are required for action='tag'",
+                }
+            ),
+        )
+    obj = Tag(repo_id=repo_id, name=name, commit_sha=commit_sha, annotation=annotation)
+    return obj, obj.tag_node_id, None
+
+
+def _repo_provenance_change_event(
+    repo_id: str, commit_sha: str, kind: str, occurred_at: str, subject_id: str
+) -> tuple[Any, str, str | None]:
+    from datetime import UTC, datetime
+
+    from agent_utilities.knowledge_graph.ontology.repository_provenance import (
+        ChangeEvent,
+    )
+
+    if not commit_sha or not kind:
+        return (
+            None,
+            "",
+            json.dumps(
+                {
+                    "status": "error",
+                    "error": "commit_sha and kind are required for action='change_event'",
+                }
+            ),
+        )
+    obj = ChangeEvent(
+        repo_id=repo_id,
+        commit_sha=commit_sha,
+        kind=kind,
+        occurred_at=occurred_at or datetime.now(UTC).isoformat(),
+        subject_id=subject_id,
+    )
+    return obj, obj.event_id, None
+
+
+def _repo_provenance_ingest(engine: Any, obj: Any, node_id: str, repo_id: str) -> str:
+    from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
+        ingest_graph_slice,
+    )
+
+    entities, relationships = obj.to_graph_slice()
+    result = ingest_graph_slice(
+        engine,
+        "repository_provenance",
+        entities,
+        relationships,
+        source_instance=repo_id,
+    )
+    return json.dumps(
+        {"status": "success", "id": node_id, "result": result}, default=str
+    )
+
+
 def register_ontology_tools(mcp):
     """Register the ontology_tools group on the given FastMCP server."""
 
@@ -2375,18 +2485,6 @@ def register_ontology_tools(mcp):
         ),
     ) -> str:
         """Record repository provenance (RepositorySnapshot/Branch/Tag/ChangeEvent) into the KG."""
-        from datetime import UTC, datetime
-
-        from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
-            ingest_graph_slice,
-        )
-        from agent_utilities.knowledge_graph.ontology.repository_provenance import (
-            Branch,
-            ChangeEvent,
-            RepositorySnapshot,
-            Tag,
-        )
-
         try:
             engine = kg_server._get_engine()
         except Exception:  # noqa: BLE001
@@ -2398,74 +2496,24 @@ def register_ontology_tools(mcp):
 
         try:
             if action == "snapshot":
-                if not commit_sha:
-                    return json.dumps(
-                        {
-                            "status": "error",
-                            "error": "commit_sha is required for action='snapshot'",
-                        }
-                    )
-                obj: Any = RepositorySnapshot(
-                    repo_id=repo_id, commit_sha=commit_sha, ref=ref
-                )
-                node_id = obj.snapshot_id
+                obj, node_id, err = _repo_provenance_snapshot(repo_id, commit_sha, ref)
             elif action == "branch":
-                if not name or not commit_sha:
-                    return json.dumps(
-                        {
-                            "status": "error",
-                            "error": "name and commit_sha are required for action='branch'",
-                        }
-                    )
-                obj = Branch(repo_id=repo_id, name=name, head_commit_sha=commit_sha)
-                node_id = obj.branch_node_id
+                obj, node_id, err = _repo_provenance_branch(repo_id, name, commit_sha)
             elif action == "tag":
-                if not name or not commit_sha:
-                    return json.dumps(
-                        {
-                            "status": "error",
-                            "error": "name and commit_sha are required for action='tag'",
-                        }
-                    )
-                obj = Tag(
-                    repo_id=repo_id,
-                    name=name,
-                    commit_sha=commit_sha,
-                    annotation=annotation,
+                obj, node_id, err = _repo_provenance_tag(
+                    repo_id, name, commit_sha, annotation
                 )
-                node_id = obj.tag_node_id
             elif action == "change_event":
-                if not commit_sha or not kind:
-                    return json.dumps(
-                        {
-                            "status": "error",
-                            "error": "commit_sha and kind are required for action='change_event'",
-                        }
-                    )
-                obj = ChangeEvent(
-                    repo_id=repo_id,
-                    commit_sha=commit_sha,
-                    kind=kind,
-                    occurred_at=occurred_at or datetime.now(UTC).isoformat(),
-                    subject_id=subject_id,
+                obj, node_id, err = _repo_provenance_change_event(
+                    repo_id, commit_sha, kind, occurred_at, subject_id
                 )
-                node_id = obj.event_id
             else:
                 return json.dumps(
                     {"status": "error", "error": f"unknown action {action!r}"}
                 )
-
-            entities, relationships = obj.to_graph_slice()
-            result = ingest_graph_slice(
-                engine,
-                "repository_provenance",
-                entities,
-                relationships,
-                source_instance=repo_id,
-            )
-            return json.dumps(
-                {"status": "success", "id": node_id, "result": result}, default=str
-            )
+            if err is not None:
+                return err
+            return _repo_provenance_ingest(engine, obj, node_id, repo_id)
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
 
