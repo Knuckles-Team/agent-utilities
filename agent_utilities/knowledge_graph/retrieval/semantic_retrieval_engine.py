@@ -72,6 +72,26 @@ class HybridSearchScorer:
     def __init__(self, config: HybridSearchConfig | None = None):
         self.config = config or HybridSearchConfig()
 
+    def _symbol_coverage(
+        self,
+        symbols: list[str],
+        query_terms: set[str],
+    ) -> tuple[float, list[str]]:
+        """Compute symbol-term coverage and matched symbols for a keyword query."""
+        matched_symbols: list[str] = []
+        all_sym_terms: set[str] = set()
+        for sym in symbols:
+            sym_terms = _split_compound_name(sym)
+            if sym_terms & query_terms:
+                matched_symbols.append(sym)
+            all_sym_terms.update(sym_terms)
+        coverage = 0.0
+        if query_terms:
+            coverage = sum(1 for t in query_terms if t in all_sym_terms) / len(
+                query_terms
+            )
+        return coverage, matched_symbols
+
     def _keyword_score(
         self,
         query: str,
@@ -89,16 +109,9 @@ class HybridSearchScorer:
         matched_symbols: list[str] = []
         symbol_coverage = 0.0
         if symbols:
-            all_sym_terms: set[str] = set()
-            for sym in symbols:
-                sym_terms = _split_compound_name(sym)
-                if sym_terms & query_terms:
-                    matched_symbols.append(sym)
-                all_sym_terms.update(sym_terms)
-            if query_terms:
-                symbol_coverage = sum(
-                    1 for t in query_terms if t in all_sym_terms
-                ) / len(query_terms)
+            symbol_coverage, matched_symbols = self._symbol_coverage(
+                symbols, query_terms
+            )
 
         phrase_boost = (
             self.config.phrase_boost
@@ -398,6 +411,28 @@ class KGNativeRetrievalRetriever:
         logger.info("Built similarity index: %d edges", valid_count)
         return valid_count
 
+    def _expand_frontier(
+        self,
+        frontier: set[str],
+        discovered: set[str],
+    ) -> set[str]:
+        """Discover one hop of neighbors from the frontier via similarity edges.
+
+        Mutates `discovered` in place with any newly-found neighbor IDs.
+        """
+        next_frontier: set[str] = set()
+        for node_id in frontier:
+            for edge in self._similarity_index.get(node_id, []):
+                neighbor = (
+                    edge.target_node_id
+                    if edge.source_node_id == node_id
+                    else edge.source_node_id
+                )
+                if neighbor not in discovered:
+                    discovered.add(neighbor)
+                    next_frontier.add(neighbor)
+        return next_frontier
+
     def _walk_similarity_shortcuts(
         self,
         seed_node_ids: list[str],
@@ -423,19 +458,7 @@ class KGNativeRetrievalRetriever:
         frontier = set(seed_node_ids)
 
         for _hop in range(max_hops):
-            next_frontier: set[str] = set()
-            for node_id in frontier:
-                edges = self._similarity_index.get(node_id, [])
-                for edge in edges:
-                    neighbor = (
-                        edge.target_node_id
-                        if edge.source_node_id == node_id
-                        else edge.source_node_id
-                    )
-                    if neighbor not in discovered:
-                        discovered.add(neighbor)
-                        next_frontier.add(neighbor)
-
+            next_frontier = self._expand_frontier(frontier, discovered)
             if not next_frontier:
                 break
             frontier = next_frontier
@@ -444,6 +467,135 @@ class KGNativeRetrievalRetriever:
         return discovered
 
     # ── Unified Retrieval ────────────────────────────────────────────
+
+    def _phase_cluster_scope(
+        self,
+        query_embedding: list[float] | None,
+    ) -> set[str] | None:
+        """Phase 1: narrow candidates to the best-matching spectral cluster."""
+        if not (
+            self.config.enable_cluster_scoping
+            and query_embedding
+            and self._cluster_centroids is not None
+        ):
+            return None
+
+        scoped_ids = self._scope_to_cluster(query_embedding)
+        if not scoped_ids:
+            return None
+
+        candidate_ids = set(scoped_ids)
+        logger.debug("Cluster scoped to %d candidates", len(candidate_ids))
+        return candidate_ids
+
+    def _select_shortcut_seeds(
+        self,
+        nodes: list[RegistryNode],
+        query_embedding: list[float] | None,
+        candidate_ids: set[str] | None,
+    ) -> list[str]:
+        """Pick seed node IDs to start the similarity-shortcut walk from."""
+        if candidate_ids:
+            return list(candidate_ids)[:5]  # Top seeds from cluster
+        if not query_embedding:
+            return []
+
+        # Quick pre-filter: find top-5 by embedding
+        scored = []
+        for n in nodes:
+            if n.embedding:
+                sim = _cosine_similarity(query_embedding, n.embedding)
+                scored.append((n.id, sim))
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return [s[0] for s in scored[:5]]
+
+    def _phase_similarity_shortcuts(
+        self,
+        nodes: list[RegistryNode],
+        query_embedding: list[float] | None,
+        candidate_ids: set[str] | None,
+    ) -> set[str] | None:
+        """Phase 2: expand candidates via the similarity-shortcut edge walk."""
+        if not (self.config.enable_similarity_shortcuts and self._similarity_index):
+            return candidate_ids
+
+        seed_ids = self._select_shortcut_seeds(nodes, query_embedding, candidate_ids)
+        if not seed_ids:
+            return candidate_ids
+
+        expanded = self._walk_similarity_shortcuts(seed_ids)
+        if candidate_ids:
+            return candidate_ids.union(expanded)
+        return expanded
+
+    def _resolve_candidates(
+        self,
+        nodes: list[RegistryNode],
+        node_map: dict[str, RegistryNode],
+        candidate_ids: set[str] | None,
+    ) -> list[RegistryNode]:
+        """Determine the final candidate node list from scoping/shortcut results."""
+        if candidate_ids:
+            return [node_map[nid] for nid in candidate_ids if nid in node_map]
+        self._stats["full_scan"] += 1
+        return nodes
+
+    def _phase_hybrid_score(
+        self,
+        query: str,
+        query_embedding: list[float] | None,
+        candidates: list[RegistryNode],
+        candidate_ids: set[str] | None,
+    ) -> list[tuple[RegistryNode, float]]:
+        """Phase 3: weighted semantic+keyword scoring, with shortcut boost."""
+        # Build document dicts for HybridSearchScorer API
+        doc_dicts = [
+            {
+                "id": c.id,
+                "text": f"{c.name} {c.description or ''}",
+                "embedding": c.embedding,
+            }
+            for c in candidates
+        ]
+
+        scored_results = self._hybrid_scorer.score_documents(
+            query=query,
+            query_embedding=query_embedding or [],
+            documents=doc_dicts,
+        )
+
+        # Map back to nodes
+        results: list[tuple[RegistryNode, float]] = []
+        id_to_node = {c.id: c for c in candidates}
+        for doc_result in scored_results:
+            node_id = doc_result.get("id", "")
+            node = id_to_node.get(node_id)
+            if node:
+                score = doc_result.get("combined_score", 0.0)
+                # Apply shortcut boost if node was found via shortcuts
+                if (
+                    self.config.enable_similarity_shortcuts
+                    and candidate_ids
+                    and node.id in candidate_ids
+                ):
+                    score *= self.config.shortcut_boost
+                results.append((node, score))
+        return results
+
+    def _phase_semantic_only(
+        self,
+        candidates: list[RegistryNode],
+        query_embedding: list[float] | None,
+    ) -> list[tuple[RegistryNode, float]]:
+        """Fallback scoring when hybrid scoring is disabled: pure semantic similarity."""
+        results: list[tuple[RegistryNode, float]] = []
+        for c in candidates:
+            if c.embedding and query_embedding:
+                sim = _cosine_similarity(query_embedding, c.embedding)
+                results.append((c, sim))
+            else:
+                results.append((c, 0.0))
+        return results
 
     def retrieve_unified(
         self,
@@ -473,93 +625,25 @@ class KGNativeRetrievalRetriever:
 
         # Build node lookup
         node_map: dict[str, RegistryNode] = {n.id: n for n in nodes}
-        candidate_ids: set[str] | None = None
 
         # Phase 1: Cluster scoping
-        if (
-            self.config.enable_cluster_scoping
-            and query_embedding
-            and self._cluster_centroids is not None
-        ):
-            scoped_ids = self._scope_to_cluster(query_embedding)
-            if scoped_ids:
-                candidate_ids = set(scoped_ids)
-                logger.debug("Cluster scoped to %d candidates", len(candidate_ids))
+        candidate_ids = self._phase_cluster_scope(query_embedding)
 
         # Phase 2: Similarity shortcut walk
-        if self.config.enable_similarity_shortcuts and self._similarity_index:
-            # Start from top-scoring candidates (or all if no scoping)
-            if candidate_ids:
-                seed_ids = list(candidate_ids)[:5]  # Top seeds from cluster
-            elif query_embedding:
-                # Quick pre-filter: find top-5 by embedding
-                scored = []
-                for n in nodes:
-                    if n.embedding:
-                        sim = _cosine_similarity(query_embedding, n.embedding)
-                        scored.append((n.id, sim))
-                scored.sort(key=lambda x: x[1], reverse=True)
-                seed_ids = [s[0] for s in scored[:5]]
-            else:
-                seed_ids = []
-
-            if seed_ids:
-                expanded = self._walk_similarity_shortcuts(seed_ids)
-                if candidate_ids:
-                    candidate_ids = candidate_ids.union(expanded)
-                else:
-                    candidate_ids = expanded
+        candidate_ids = self._phase_similarity_shortcuts(
+            nodes, query_embedding, candidate_ids
+        )
 
         # Determine final candidate set
-        if candidate_ids:
-            candidates = [node_map[nid] for nid in candidate_ids if nid in node_map]
-        else:
-            candidates = nodes
-            self._stats["full_scan"] += 1
+        candidates = self._resolve_candidates(nodes, node_map, candidate_ids)
 
         # Phase 3: Hybrid scoring
         if self.config.enable_hybrid_scoring:
-            # Build document dicts for HybridSearchScorer API
-            doc_dicts = [
-                {
-                    "id": c.id,
-                    "text": f"{c.name} {c.description or ''}",
-                    "embedding": c.embedding,
-                }
-                for c in candidates
-            ]
-
-            scored_results = self._hybrid_scorer.score_documents(
-                query=query,
-                query_embedding=query_embedding or [],
-                documents=doc_dicts,
+            results = self._phase_hybrid_score(
+                query, query_embedding, candidates, candidate_ids
             )
-
-            # Map back to nodes
-            results: list[tuple[RegistryNode, float]] = []
-            id_to_node = {c.id: c for c in candidates}
-            for doc_result in scored_results:
-                node_id = doc_result.get("id", "")
-                node = id_to_node.get(node_id)
-                if node:
-                    score = doc_result.get("combined_score", 0.0)
-                    # Apply shortcut boost if node was found via shortcuts
-                    if (
-                        self.config.enable_similarity_shortcuts
-                        and candidate_ids
-                        and node.id in candidate_ids
-                    ):
-                        score *= self.config.shortcut_boost
-                    results.append((node, score))
         else:
-            # Fallback: pure semantic scoring
-            results = []
-            for c in candidates:
-                if c.embedding and query_embedding:
-                    sim = _cosine_similarity(query_embedding, c.embedding)
-                    results.append((c, sim))
-                else:
-                    results.append((c, 0.0))
+            results = self._phase_semantic_only(candidates, query_embedding)
 
         # Sort and limit
         results.sort(key=lambda x: x[1], reverse=True)
@@ -686,6 +770,57 @@ class GraphDistillationMigrator:
         self._edge_index: dict[str, list[SimilarityEdgeNode]] = {}
         self._distilled_node_ids: set[str] = set()
 
+    def _distill_node(
+        self,
+        node: RegistryNode,
+        embeddable: list[RegistryNode],
+        index: int,
+        incremental: bool,
+    ) -> int:
+        """Distill a single node against its predecessors.
+
+        Creates and stores new similarity edges, marks the node as
+        distilled, and returns the number of edges created.
+        """
+        # Compare against all prior nodes
+        predecessors = embeddable[:index]
+        if not incremental:
+            predecessors = [n for n in embeddable if n.id != node.id]
+
+        new_edges = self._linker.link_new_node(
+            new_node=node,
+            existing_nodes=predecessors,
+        )
+
+        # Store edges
+        for edge in new_edges:
+            self._all_edges.append(edge)
+            self._index_edge(edge)
+
+        self._distilled_node_ids.add(node.id)
+        return len(new_edges)
+
+    def _prune_and_measure(
+        self,
+        stats: DistillationStats,
+        embeddable: list[RegistryNode],
+    ) -> None:
+        """Prune stale edges and compute coverage metrics onto `stats`."""
+        # Prune stale edges
+        if self._all_edges:
+            kept, pruned = self._linker.prune_stale_edges(self._all_edges)
+            stats.edges_pruned = len(pruned)
+            self._all_edges = kept
+            self._rebuild_index()
+
+        # Compute coverage
+        if embeddable:
+            stats.coverage_ratio = len(self._distilled_node_ids) / len(embeddable)
+        if self._distilled_node_ids:
+            stats.avg_edges_per_node = len(self._all_edges) / len(
+                self._distilled_node_ids
+            )
+
     def distill_batch(
         self,
         nodes: list[RegistryNode],
@@ -715,40 +850,10 @@ class GraphDistillationMigrator:
         for i, node in enumerate(embeddable):
             if incremental and node.id in self._distilled_node_ids:
                 continue
-
-            # Compare against all prior nodes
-            predecessors = embeddable[:i]
-            if not incremental:
-                predecessors = [n for n in embeddable if n.id != node.id]
-
-            new_edges = self._linker.link_new_node(
-                new_node=node,
-                existing_nodes=predecessors,
-            )
-
-            # Store edges
-            for edge in new_edges:
-                self._all_edges.append(edge)
-                self._index_edge(edge)
-
-            stats.edges_created += len(new_edges)
+            stats.edges_created += self._distill_node(node, embeddable, i, incremental)
             stats.nodes_processed += 1
-            self._distilled_node_ids.add(node.id)
 
-        # Prune stale edges
-        if self._all_edges:
-            kept, pruned = self._linker.prune_stale_edges(self._all_edges)
-            stats.edges_pruned = len(pruned)
-            self._all_edges = kept
-            self._rebuild_index()
-
-        # Compute coverage
-        if embeddable:
-            stats.coverage_ratio = len(self._distilled_node_ids) / len(embeddable)
-        if self._distilled_node_ids:
-            stats.avg_edges_per_node = len(self._all_edges) / len(
-                self._distilled_node_ids
-            )
+        self._prune_and_measure(stats, embeddable)
 
         stats.duration_seconds = time.time() - start_time
 
@@ -795,6 +900,67 @@ class GraphDistillationMigrator:
             top_k=top_k,
         )
 
+    def _coverage_counts(
+        self,
+        nodes: list[RegistryNode] | None,
+    ) -> tuple[int, int]:
+        """Compute (total_nodes, nodes_with_shortcuts) for the coverage report."""
+        if nodes:
+            embeddable = [n for n in nodes if n.embedding]
+            nodes_with_edges: set[str] = set()
+            for edge in self._all_edges:
+                nodes_with_edges.add(edge.source_node_id)
+                nodes_with_edges.add(edge.target_node_id)
+            total_nodes = len(embeddable)
+            with_shortcuts = len(
+                nodes_with_edges.intersection(n.id for n in embeddable)
+            )
+            return total_nodes, with_shortcuts
+
+        total_nodes = len(self._distilled_node_ids)
+        with_shortcuts = len(
+            {e.source_node_id for e in self._all_edges}
+            | {e.target_node_id for e in self._all_edges}
+        )
+        return total_nodes, with_shortcuts
+
+    def _edge_weight_stats(self) -> tuple[float, int]:
+        """Compute (avg_edge_weight, stale_edge_count) across all edges."""
+        if not self._all_edges:
+            return 0.0, 0
+        weights = [self._linker.decay_weight(e) for e in self._all_edges]
+        avg_weight = float(xp.mean(weights))
+        stale_count = sum(1 for w in weights if w < self._linker.config.prune_threshold)
+        return avg_weight, stale_count
+
+    def _coverage_recommendation(
+        self,
+        coverage_ratio: float,
+        stale_edge_count: int,
+        total_edges: int,
+    ) -> str:
+        """Choose the coverage-health recommendation message."""
+        if coverage_ratio < 0.3:
+            return (
+                "LOW COVERAGE: Run distill_batch() on more nodes to improve "
+                "shortcut coverage. Current shortcut retrieval may fall back "
+                "to full-scan frequently."
+            )
+        if stale_edge_count > total_edges * 0.3:
+            return (
+                "STALE EDGES: >30% of edges are below prune threshold. "
+                "Run distill_batch() to prune stale edges and refresh weights."
+            )
+        if coverage_ratio >= 0.7:
+            return (
+                "HEALTHY: Good shortcut coverage. Most retrievals will use "
+                "O(degree) shortcuts instead of O(N) full-scan."
+            )
+        return (
+            "MODERATE: Shortcut coverage is adequate but could be improved. "
+            "Consider running distill_batch() on recent uncovered nodes."
+        )
+
     def coverage_report(
         self,
         nodes: list[RegistryNode] | None = None,
@@ -809,58 +975,19 @@ class GraphDistillationMigrator:
         """
         report = CoverageReport()
 
-        if nodes:
-            embeddable = [n for n in nodes if n.embedding]
-            report.total_nodes = len(embeddable)
-            nodes_with_edges = set()
-            for edge in self._all_edges:
-                nodes_with_edges.add(edge.source_node_id)
-                nodes_with_edges.add(edge.target_node_id)
-            report.nodes_with_shortcuts = len(
-                nodes_with_edges.intersection(n.id for n in embeddable)
-            )
-        else:
-            report.total_nodes = len(self._distilled_node_ids)
-            report.nodes_with_shortcuts = len(
-                {e.source_node_id for e in self._all_edges}
-                | {e.target_node_id for e in self._all_edges}
-            )
-
+        report.total_nodes, report.nodes_with_shortcuts = self._coverage_counts(nodes)
         report.total_edges = len(self._all_edges)
 
         if report.total_nodes > 0:
             report.coverage_ratio = report.nodes_with_shortcuts / report.total_nodes
 
         # Compute average weight and stale count
-        if self._all_edges:
-            weights = [self._linker.decay_weight(e) for e in self._all_edges]
-            report.avg_edge_weight = float(xp.mean(weights))
-            report.stale_edge_count = sum(
-                1 for w in weights if w < self._linker.config.prune_threshold
-            )
+        report.avg_edge_weight, report.stale_edge_count = self._edge_weight_stats()
 
         # Generate recommendation
-        if report.coverage_ratio < 0.3:
-            report.recommendation = (
-                "LOW COVERAGE: Run distill_batch() on more nodes to improve "
-                "shortcut coverage. Current shortcut retrieval may fall back "
-                "to full-scan frequently."
-            )
-        elif report.stale_edge_count > report.total_edges * 0.3:
-            report.recommendation = (
-                "STALE EDGES: >30% of edges are below prune threshold. "
-                "Run distill_batch() to prune stale edges and refresh weights."
-            )
-        elif report.coverage_ratio >= 0.7:
-            report.recommendation = (
-                "HEALTHY: Good shortcut coverage. Most retrievals will use "
-                "O(degree) shortcuts instead of O(N) full-scan."
-            )
-        else:
-            report.recommendation = (
-                "MODERATE: Shortcut coverage is adequate but could be improved. "
-                "Consider running distill_batch() on recent uncovered nodes."
-            )
+        report.recommendation = self._coverage_recommendation(
+            report.coverage_ratio, report.stale_edge_count, report.total_edges
+        )
 
         return report
 
