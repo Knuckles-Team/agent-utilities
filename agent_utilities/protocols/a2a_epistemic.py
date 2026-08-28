@@ -2207,56 +2207,92 @@ class EpistemicGraphAgentWorker(AgentWorker):
                         "native A2A worker received an invalid operation"
                     )
 
+    async def _dispatch_task_operation(
+        self, iterator: AsyncGenerator[TaskOperation, None]
+    ) -> tuple[_DeliveryControl, asyncio.Task[None], asyncio.Task[bool]]:
+        """Await the next delivery and start its handler + abort-watch tasks."""
+
+        task_operation = await anext(iterator)
+        control = _DELIVERY_CONTROL.get()
+        if control is None:
+            raise RuntimeError("native A2A delivery control is unavailable")
+        active_handler = asyncio.create_task(
+            self._handle_task_operation(task_operation),
+            name="a2a-task-handler",
+        )
+        abort_wait = asyncio.create_task(
+            control.abort_event.wait(), name="a2a-delivery-abort-wait"
+        )
+        return control, active_handler, abort_wait
+
+    async def _handle_loop_abort(
+        self,
+        iterator: AsyncGenerator[TaskOperation, None],
+        control: _DeliveryControl,
+        active_handler: asyncio.Task[None],
+    ) -> AsyncGenerator[TaskOperation, None] | None:
+        """Cancel the active handler for an aborted delivery. Returns a fresh
+        delivery iterator if the abort requires resetting it, else ``None``."""
+
+        active_handler.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await active_handler
+        if control.abort_reason in {"task_canceled", "task_terminal"}:
+            return None
+        try:
+            await iterator.athrow(_A2ADeliveryRetry("A2A delivery lease was lost"))
+        except _A2ADeliveryRetry:
+            pass
+        return self.broker.receive_task_operations()
+
+    async def _handle_loop_completion(
+        self,
+        iterator: AsyncGenerator[TaskOperation, None],
+        active_handler: asyncio.Task[None],
+    ) -> AsyncGenerator[TaskOperation, None] | None:
+        """Return a fresh delivery iterator if the handler raised, else ``None``."""
+
+        if active_handler.exception() is None:
+            return None
+        try:
+            await iterator.athrow(_A2ADeliveryRetry("A2A task handler did not commit"))
+        except _A2ADeliveryRetry:
+            pass
+        return self.broker.receive_task_operations()
+
     async def _loop(self) -> None:
         iterator = self.broker.receive_task_operations()
         active_handler: asyncio.Task[None] | None = None
         abort_wait: asyncio.Task[bool] | None = None
         try:
             while True:
-                task_operation = await anext(iterator)
-                control = _DELIVERY_CONTROL.get()
-                if control is None:
-                    raise RuntimeError("native A2A delivery control is unavailable")
-                active_handler = asyncio.create_task(
-                    self._handle_task_operation(task_operation),
-                    name="a2a-task-handler",
-                )
-                abort_wait = asyncio.create_task(
-                    control.abort_event.wait(), name="a2a-delivery-abort-wait"
-                )
+                (
+                    control,
+                    active_handler,
+                    abort_wait,
+                ) = await self._dispatch_task_operation(iterator)
                 done, _pending = await asyncio.wait(
                     {active_handler, abort_wait}, return_when=asyncio.FIRST_COMPLETED
                 )
                 if abort_wait in done and control.abort_reason:
-                    active_handler.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await active_handler
+                    new_iterator = await self._handle_loop_abort(
+                        iterator, control, active_handler
+                    )
                     active_handler = None
                     abort_wait = None
-                    if control.abort_reason in {"task_canceled", "task_terminal"}:
-                        continue
-                    try:
-                        await iterator.athrow(
-                            _A2ADeliveryRetry("A2A delivery lease was lost")
-                        )
-                    except _A2ADeliveryRetry:
-                        pass
-                    iterator = self.broker.receive_task_operations()
+                    if new_iterator is not None:
+                        iterator = new_iterator
                     continue
                 abort_wait.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await abort_wait
                 abort_wait = None
-                exception = active_handler.exception()
+                new_iterator = await self._handle_loop_completion(
+                    iterator, active_handler
+                )
                 active_handler = None
-                if exception is not None:
-                    try:
-                        await iterator.athrow(
-                            _A2ADeliveryRetry("A2A task handler did not commit")
-                        )
-                    except _A2ADeliveryRetry:
-                        pass
-                    iterator = self.broker.receive_task_operations()
+                if new_iterator is not None:
+                    iterator = new_iterator
         finally:
             for task in (abort_wait, active_handler):
                 if task is not None and not task.done():
