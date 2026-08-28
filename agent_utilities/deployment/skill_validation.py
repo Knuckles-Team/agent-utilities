@@ -19,7 +19,7 @@ import signal
 import stat
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
@@ -233,53 +233,60 @@ def _json_without_duplicates(payload: str) -> Any:
     return json.loads(payload, object_pairs_hook=exact_pairs)
 
 
+def _read_deployment_bytes(path: Path) -> bytes:
+    """Read the deployment config via an ``O_NOFOLLOW`` fd, verifying the
+    file is unchanged (dev/inode/size/mtime/ctime) across the read and
+    matches what a fresh ``lstat`` of the path sees -- a TOCTOU guard."""
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_nlink != 1
+            or not 1 <= metadata.st_size <= 64 * 1024
+        ):
+            raise DeploymentError("configuration_not_regular")
+        before = (
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_size,
+            metadata.st_mtime_ns,
+            metadata.st_ctime_ns,
+        )
+        raw = bytearray()
+        while len(raw) <= 64 * 1024:
+            chunk = os.read(descriptor, min(64 * 1024 + 1 - len(raw), 65_536))
+            if not chunk:
+                break
+            raw.extend(chunk)
+        after_metadata = os.fstat(descriptor)
+        after = (
+            after_metadata.st_dev,
+            after_metadata.st_ino,
+            after_metadata.st_size,
+            after_metadata.st_mtime_ns,
+            after_metadata.st_ctime_ns,
+        )
+        if before != after or len(raw) != metadata.st_size:
+            raise DeploymentError("configuration_changed_during_read")
+        path_metadata = path.stat(follow_symlinks=False)
+        if (
+            path_metadata.st_dev,
+            path_metadata.st_ino,
+            path_metadata.st_size,
+            path_metadata.st_mtime_ns,
+            path_metadata.st_ctime_ns,
+        ) != before:
+            raise DeploymentError("configuration_changed_during_read")
+    finally:
+        os.close(descriptor)
+    return bytes(raw)
+
+
 def load_deployment(path: Path) -> SkillValidationDeployment:
     try:
-        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-        descriptor = os.open(path, flags)
-        try:
-            metadata = os.fstat(descriptor)
-            if (
-                not stat.S_ISREG(metadata.st_mode)
-                or metadata.st_nlink != 1
-                or not 1 <= metadata.st_size <= 64 * 1024
-            ):
-                raise DeploymentError("configuration_not_regular")
-            before = (
-                metadata.st_dev,
-                metadata.st_ino,
-                metadata.st_size,
-                metadata.st_mtime_ns,
-                metadata.st_ctime_ns,
-            )
-            raw = bytearray()
-            while len(raw) <= 64 * 1024:
-                chunk = os.read(descriptor, min(64 * 1024 + 1 - len(raw), 65_536))
-                if not chunk:
-                    break
-                raw.extend(chunk)
-            after_metadata = os.fstat(descriptor)
-            after = (
-                after_metadata.st_dev,
-                after_metadata.st_ino,
-                after_metadata.st_size,
-                after_metadata.st_mtime_ns,
-                after_metadata.st_ctime_ns,
-            )
-            if before != after or len(raw) != metadata.st_size:
-                raise DeploymentError("configuration_changed_during_read")
-            path_metadata = path.stat(follow_symlinks=False)
-            if (
-                path_metadata.st_dev,
-                path_metadata.st_ino,
-                path_metadata.st_size,
-                path_metadata.st_mtime_ns,
-                path_metadata.st_ctime_ns,
-            ) != before:
-                raise DeploymentError("configuration_changed_during_read")
-        finally:
-            os.close(descriptor)
-        payload = bytes(raw).decode("utf-8")
+        payload = _read_deployment_bytes(path).decode("utf-8")
         return SkillValidationDeployment.model_validate(
             _json_without_duplicates(payload)
         )
@@ -305,15 +312,22 @@ def _regular_executable(path: Path, *, name: str) -> Path:
         metadata = canonical.lstat()
     except OSError as exc:
         raise DeploymentError("release_executable_invalid") from exc
-    if (
-        stat.S_ISLNK(original.st_mode)
-        or not stat.S_ISREG(original.st_mode)
-        or canonical.name != name
-        or canonical.is_symlink()
-        or not stat.S_ISREG(metadata.st_mode)
-        or (original.st_dev, original.st_ino) != (metadata.st_dev, metadata.st_ino)
-        or not os.access(canonical, os.X_OK)
-    ):
+    # Every check below is an independent invalidity signal (symlink swap,
+    # wrong name, not a regular file, dev/inode changed underneath us, not
+    # executable) -- a flat "is this the exact expected release binary"
+    # guard, not branching control flow.
+    invalid = any(
+        (
+            stat.S_ISLNK(original.st_mode),
+            not stat.S_ISREG(original.st_mode),
+            canonical.name != name,
+            canonical.is_symlink(),
+            not stat.S_ISREG(metadata.st_mode),
+            (original.st_dev, original.st_ino) != (metadata.st_dev, metadata.st_ino),
+            not os.access(canonical, os.X_OK),
+        )
+    )
+    if invalid:
         raise DeploymentError("release_executable_invalid")
     return canonical
 
@@ -404,6 +418,40 @@ def _bounded_proc_bytes(path: Path, *, limit: int) -> bytes:
     return payload
 
 
+# Checked in this priority order against the candidate executable/argv[:3]
+# basenames -- first match wins (dict insertion order is preserved).
+_CANDIDATE_KIND_BY_NAME = {
+    "epistemic-graph-server": "engine",
+    "graph-os": "graph-os",
+    "langfuse-mcp": "langfuse-mcp-child",
+    "loopback_oidc.py": "loopback-oidc-fixture",
+}
+
+# Checked against the module name following a bare `-m` argv token.
+_MODULE_KIND_BY_NAME = {
+    "agent_utilities.mcp.kg_server": "graph-os",
+    "langfuse_agent.mcp_server": "langfuse-mcp-child",
+    "scripts.certification.loopback_oidc": "loopback-oidc-fixture",
+}
+
+
+def _kind_from_candidates(candidates: set[str]) -> str | None:
+    for candidate_name, kind in _CANDIDATE_KIND_BY_NAME.items():
+        if candidate_name in candidates:
+            return kind
+    return None
+
+
+def _kind_from_module_argv(argv: list[str]) -> str | None:
+    for index, argument in enumerate(argv[:-1]):
+        if argument != "-m":
+            continue
+        kind = _MODULE_KIND_BY_NAME.get(argv[index + 1])
+        if kind is not None:
+            return kind
+    return None
+
+
 def _process_kind(entry: Path) -> str | None:
     try:
         executable = Path(os.readlink(entry / "exe")).name
@@ -416,25 +464,10 @@ def _process_kind(entry: Path) -> str | None:
         raise DeploymentError("process_observation_invalid") from exc
     candidates = {executable}
     candidates.update(Path(item).name for item in argv[:3])
-    if "epistemic-graph-server" in candidates:
-        return "engine"
-    if "graph-os" in candidates:
-        return "graph-os"
-    if "langfuse-mcp" in candidates:
-        return "langfuse-mcp-child"
-    if "loopback_oidc.py" in candidates:
-        return "loopback-oidc-fixture"
-    for index, argument in enumerate(argv[:-1]):
-        if argument != "-m":
-            continue
-        module = argv[index + 1]
-        if module == "agent_utilities.mcp.kg_server":
-            return "graph-os"
-        if module == "langfuse_agent.mcp_server":
-            return "langfuse-mcp-child"
-        if module == "scripts.certification.loopback_oidc":
-            return "loopback-oidc-fixture"
-    return None
+    kind = _kind_from_candidates(candidates)
+    if kind is not None:
+        return kind
+    return _kind_from_module_argv(argv)
 
 
 def _process_snapshot(marker: str) -> list[tuple[Path, str, bool]]:
@@ -628,35 +661,41 @@ def _lifecycle_subject(
     validation_case_count: int,
     error_code: str | None,
 ) -> dict[str, Any]:
-    passed = (
-        global_counts == (0, 1, 0)
-        and graph_os_counts == (0, 1, 0)
-        and engine_counts == (0, 1, 0)
-        and identity_authority_counts == (0, 1, 0)
-        and terminal_process_counts == (0, 0)
-        and identity_tls_verified
-        and renewable_credentials_proven
-        and identity_token_mint_count >= 2
-        and model_transport_proof
-        == {
-            "modelCount": 2,
-            "literalPrivateModelCount": (
-                deployment.runtime.model_registry.literal_private_model_count
-            ),
-            "privateDnsModelCount": (
-                deployment.runtime.model_registry.private_dns_model_count
-            ),
-            "privateDnsUniqueResolutionProven": True,
-            "privateBoundaryProven": True,
-            "dnsRebindingGuarded": True,
-        }
-        and engine_executable_digest == deployment.release.engine_digest
-        and installed_release_attested
-        and reaped
-        and validator_exit_code == 0
-        and validation_evidence_digest is not None
-        and validation_case_count == _CASE_COUNT
-        and error_code is None
+    expected_model_transport_proof = {
+        "modelCount": 2,
+        "literalPrivateModelCount": (
+            deployment.runtime.model_registry.literal_private_model_count
+        ),
+        "privateDnsModelCount": (
+            deployment.runtime.model_registry.private_dns_model_count
+        ),
+        "privateDnsUniqueResolutionProven": True,
+        "privateBoundaryProven": True,
+        "dnsRebindingGuarded": True,
+    }
+    # Every prerequisite below is an independent, side-effect-free predicate --
+    # a flat "did every exact-lifecycle invariant hold" check, not branching
+    # control flow, so `all()` over the list expresses it directly instead of
+    # a long `and` chain.
+    passed = all(
+        (
+            global_counts == (0, 1, 0),
+            graph_os_counts == (0, 1, 0),
+            engine_counts == (0, 1, 0),
+            identity_authority_counts == (0, 1, 0),
+            terminal_process_counts == (0, 0),
+            identity_tls_verified,
+            renewable_credentials_proven,
+            identity_token_mint_count >= 2,
+            model_transport_proof == expected_model_transport_proof,
+            engine_executable_digest == deployment.release.engine_digest,
+            installed_release_attested,
+            reaped,
+            validator_exit_code == 0,
+            validation_evidence_digest is not None,
+            validation_case_count == _CASE_COUNT,
+            error_code is None,
+        )
     )
 
     def counts(value: tuple[int, int, int]) -> dict[str, int]:
@@ -721,23 +760,73 @@ def _lifecycle_subject(
     }
 
 
-def run_deployment(
+@dataclass
+class _LifecyclePrep:
+    """Bundled read-only artifacts resolved before the try/except/finally
+    lifecycle body (keeps every extracted lifecycle-step function's
+    parameter count under the cap)."""
+
+    deployment: SkillValidationDeployment
+    deployment_path: Path
+    report_path: Path
+    validation_evidence_path: Path
+    start_argv: list[str]
+    validator: Path
+    readiness_executable: Path
+    runtime_materials: dict[str, Any]
+
+
+@dataclass
+class _LifecycleState:
+    """Mutable state threaded through the ``run_deployment`` lifecycle body --
+    exactly the local variables the original inline function used, now living
+    on one object so extracted step functions can mutate them and have the
+    mutation visible to every later step (including the ``finally`` reap and
+    the final evidence assembly)."""
+
+    marker: str
+    authority: EphemeralLoopbackOidcAuthority
+    environment: dict[str, str]
+    before_global: int
+    before_graph_os: int
+    before_engine: int
+    terminal_process_counts: tuple[int, int]
+    running_global: int = 0
+    running_graph_os: int = 0
+    running_engine: int = 0
+    identity_authority_before: int = 0
+    identity_authority_running: int = 0
+    identity_authority_after: int = 0
+    after_global: int = 0
+    after_graph_os: int = 0
+    after_engine: int = 0
+    reaped: bool = False
+    identity_tls_verified: bool = False
+    renewable_credentials_proven: bool = False
+    identity_token_mint_count: int = 0
+    model_transport_proof: dict[str, Any] = field(default_factory=dict)
+    engine_executable_digest: str | None = None
+    validator_exit_code: int | None = None
+    validation_digest: str | None = None
+    validation_case_count: int = 0
+    error_code: str | None = None
+    process: subprocess.Popen[bytes] | None = None
+
+
+def _prepare_lifecycle_run(
     deployment: SkillValidationDeployment,
     *,
     deployment_path: Path,
     report_path: Path,
     validation_evidence_path: Path,
-    lifecycle_evidence_path: Path,
-) -> int:
-    """Execute one exact zero/one/zero lifecycle and publish signed evidence."""
-
-    _validate_evidence_destinations(
-        (report_path, validation_evidence_path, lifecycle_evidence_path)
-    )
+) -> tuple[_LifecyclePrep, bool]:
+    """Resolve and attest every artifact a candidate service needs before it
+    can be started. Returns ``(prep, installed_release_attested)``; raises
+    (uncaught by the lifecycle try/except -- these checks gate whether a
+    service may start at all) on any binding/digest mismatch."""
     from agent_utilities.deployment.skill_validation_assets import (
         attest_installed_release_binding,
         load_runtime_materials,
-        prove_model_registry_runtime,
         verify_release_bindings,
     )
 
@@ -757,7 +846,6 @@ def run_deployment(
         start_executable=start_executable,
         promotion_evidence=promotion_evidence,
     )
-    installed_release_attested = True
     validator = _regular_executable(
         start_executable.with_name("agent-utilities-validate-skills"),
         name="agent-utilities-validate-skills",
@@ -771,28 +859,30 @@ def run_deployment(
     _external_command(deployment.validation.signer_command_reference)
     _external_command(deployment.validation.verifier_command_reference)
 
+    prep = _LifecyclePrep(
+        deployment=deployment,
+        deployment_path=deployment_path,
+        report_path=report_path,
+        validation_evidence_path=validation_evidence_path,
+        start_argv=start_argv,
+        validator=validator,
+        readiness_executable=readiness_executable,
+        runtime_materials=runtime_materials,
+    )
+    return prep, True
+
+
+def _init_lifecycle_state(prep: _LifecyclePrep) -> _LifecycleState:
+    deployment = prep.deployment
     marker = secrets.token_hex(32)
     before = _process_counts(marker)
     before_global = before.global_graph_os
     before_graph_os = before.candidate_graph_os
     before_engine = before.candidate_engine
-    running_global = 0
-    running_graph_os = 0
-    running_engine = 0
-    identity_authority_before = 0
-    identity_authority_running = 0
-    identity_authority_after = 0
-    after_global = before_global
-    after_graph_os = before_graph_os
-    after_engine = before_engine
     terminal_process_counts = (
         before.langfuse_mcp_children,
         before.loopback_oidc_fixtures,
     )
-    reaped = False
-    identity_tls_verified = False
-    renewable_credentials_proven = False
-    identity_token_mint_count = 0
     model_transport_proof: dict[str, Any] = {
         "modelCount": 2,
         "literalPrivateModelCount": (
@@ -803,12 +893,6 @@ def run_deployment(
         "privateBoundaryProven": False,
         "dnsRebindingGuarded": False,
     }
-    engine_executable_digest: str | None = None
-    validator_exit_code: int | None = None
-    validation_digest: str | None = None
-    validation_case_count = 0
-    error_code: str | None = None
-    process: subprocess.Popen[bytes] | None = None
     authority = EphemeralLoopbackOidcAuthority(
         token_ttl_seconds=deployment.identity_authority.token_ttl_seconds
     )
@@ -818,205 +902,320 @@ def run_deployment(
     environment[_PROFILE_ENV] = (
         "profile:" + deployment.runtime.profile_digest.removeprefix("sha256:")
     )
+    return _LifecycleState(
+        marker=marker,
+        authority=authority,
+        environment=environment,
+        before_global=before_global,
+        before_graph_os=before_graph_os,
+        before_engine=before_engine,
+        terminal_process_counts=terminal_process_counts,
+        after_global=before_global,
+        after_graph_os=before_graph_os,
+        after_engine=before_engine,
+        model_transport_proof=model_transport_proof,
+    )
+
+
+def _lifecycle_preflight_gate(state: _LifecycleState) -> None:
+    if (state.before_global, state.before_graph_os, state.before_engine) != (
+        0,
+        0,
+        0,
+    ) or state.terminal_process_counts != (0, 0):
+        raise DeploymentError("process_gate_preexisting")
+
+
+def _lifecycle_prove_model_registry(
+    state: _LifecycleState, prep: _LifecyclePrep
+) -> list[str]:
+    from agent_utilities.deployment.skill_validation_assets import (
+        prove_model_registry_runtime,
+    )
+
+    model_private_hosts = prep.runtime_materials.get("modelPrivateHosts")
+    models = prep.runtime_materials.get("models")
+    if (
+        not isinstance(model_private_hosts, list)
+        or any(not isinstance(host, str) for host in model_private_hosts)
+        or not isinstance(models, list)
+    ):
+        raise DeploymentError("runtime_model_registry_invalid")
+    state.model_transport_proof = prove_model_registry_runtime(
+        models, model_private_hosts
+    )
+    return model_private_hosts
+
+
+def _lifecycle_start_authority(state: _LifecycleState) -> None:
+    state.authority.start()
+    state.identity_authority_running = 1 if state.authority.running else 0
+    state.identity_tls_verified = state.authority.tls_verified
+    if state.identity_authority_running != 1 or not state.identity_tls_verified:
+        raise DeploymentError("identity_authority_not_ready")
+
+
+def _lifecycle_start_candidate(
+    prep: _LifecyclePrep, environment: dict[str, str]
+) -> subprocess.Popen[bytes]:
+    return subprocess.Popen(
+        prep.start_argv,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+        start_new_session=True,
+        env=environment,
+    )
+
+
+def _lifecycle_verify_running(state: _LifecycleState) -> None:
+    running = _process_counts(state.marker)
+    state.running_global = running.global_graph_os
+    state.running_graph_os = running.candidate_graph_os
+    state.running_engine = running.candidate_engine
+    assert state.process is not None
+    if (state.running_global, state.running_graph_os, state.running_engine) != (
+        1,
+        1,
+        1,
+    ) or state.process.poll() is not None:
+        raise DeploymentError("candidate_process_count_invalid")
+
+
+def _lifecycle_verify_engine_digest(
+    state: _LifecycleState, deployment: SkillValidationDeployment
+) -> None:
+    state.engine_executable_digest = _marked_engine_digest(state.marker)
+    if state.engine_executable_digest != deployment.release.engine_digest:
+        raise DeploymentError("candidate_engine_digest_mismatch")
+
+
+def _lifecycle_run_validator(
+    prep: _LifecyclePrep, environment: dict[str, str]
+) -> subprocess.CompletedProcess[bytes]:
+    deployment = prep.deployment
+    return subprocess.run(
+        [
+            str(prep.validator),
+            "--mode",
+            "all",
+            "--case-timeout",
+            str(deployment.validation.case_timeout_seconds),
+            "--report",
+            str(prep.report_path),
+            "--evidence",
+            str(prep.validation_evidence_path),
+            "--release-id",
+            deployment.release.id,
+            "--release-specification-digest",
+            deployment.release.specification_digest,
+            "--promotion-evidence-digest",
+            deployment.release.promotion_evidence_digest,
+            "--graph-os-digest",
+            deployment.release.graph_os_digest,
+            "--engine-digest",
+            deployment.release.engine_digest,
+            "--runtime-config-digest",
+            deployment.runtime.configuration_digest,
+            "--runtime-profile-digest",
+            deployment.runtime.profile_digest,
+            "--model-registry-digest",
+            deployment.runtime.model_registry.digest,
+            "--signer-command-ref",
+            deployment.validation.signer_command_reference,
+            "--verifier-command-ref",
+            deployment.validation.verifier_command_reference,
+        ],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+        timeout=min(
+            4 * 60 * 60,
+            deployment.validation.case_timeout_seconds * 20 + 20 * 60 + 300,
+        ),
+        close_fds=True,
+        env=environment,
+    )
+
+
+def _lifecycle_verify_validation_evidence(
+    state: _LifecycleState, prep: _LifecyclePrep
+) -> None:
+    validation_payload = prep.validation_evidence_path.read_bytes()
+    if not 1 <= len(validation_payload) <= 8 * 1024 * 1024:
+        raise DeploymentError("validation_evidence_size_invalid")
+    state.validation_digest = _digest_bytes(validation_payload)
     try:
-        if (before_global, before_graph_os, before_engine) != (
-            0,
-            0,
-            0,
-        ) or terminal_process_counts != (0, 0):
-            raise DeploymentError("process_gate_preexisting")
-        model_private_hosts = runtime_materials.get("modelPrivateHosts")
-        models = runtime_materials.get("models")
-        if (
-            not isinstance(model_private_hosts, list)
-            or any(not isinstance(host, str) for host in model_private_hosts)
-            or not isinstance(models, list)
-        ):
-            raise DeploymentError("runtime_model_registry_invalid")
-        model_transport_proof = prove_model_registry_runtime(
-            models, model_private_hosts
+        validation_document = _json_without_duplicates(
+            validation_payload.decode("utf-8")
         )
-        authority.start()
-        identity_authority_running = 1 if authority.running else 0
-        identity_tls_verified = authority.tls_verified
-        if identity_authority_running != 1 or not identity_tls_verified:
-            raise DeploymentError("identity_authority_not_ready")
-        environment = authority.child_environment(
-            environment,
+        validation_cases = validation_document.get("cases")
+        validation_result = validation_document.get("result")
+    except Exception as exc:
+        raise DeploymentError("validation_evidence_invalid") from exc
+    if (
+        not isinstance(validation_cases, list)
+        or len(validation_cases) != _CASE_COUNT
+        or not isinstance(validation_result, dict)
+        or validation_result.get("status") != "pass"
+    ):
+        raise DeploymentError("validation_evidence_invalid")
+    state.validation_case_count = _CASE_COUNT
+
+
+def _lifecycle_prove_renewable(state: _LifecycleState) -> None:
+    state.renewable_credentials_proven = state.authority.prove_renewable()
+    state.identity_token_mint_count = state.authority.token_mint_count
+    if not state.renewable_credentials_proven or state.identity_token_mint_count < 2:
+        raise DeploymentError("identity_authority_not_renewable")
+
+
+def _lifecycle_stop_processes(
+    state: _LifecycleState, deployment: SkillValidationDeployment
+) -> None:
+    if state.process is not None:
+        try:
+            _stop_and_reap(state.process, deployment.shutdown.grace_seconds)
+        except Exception:
+            state.error_code = "candidate_reap_failed"
+    try:
+        _terminate_marked_engines(state.marker, deployment.shutdown.grace_seconds)
+    except Exception:
+        state.error_code = "candidate_engine_reap_failed"
+    state.identity_tls_verified = (
+        state.identity_tls_verified or state.authority.tls_verified
+    )
+    state.identity_token_mint_count = max(
+        state.identity_token_mint_count, state.authority.token_mint_count
+    )
+    try:
+        state.authority.stop()
+    except Exception:
+        state.error_code = "identity_authority_reap_failed"
+    state.identity_authority_after = 1 if state.authority.running else 0
+
+
+def _lifecycle_finalize_reap_status(state: _LifecycleState) -> None:
+    state.reaped = (
+        (state.after_global, state.after_graph_os, state.after_engine) == (0, 0, 0)
+        and state.identity_authority_after == 0
+        and state.terminal_process_counts == (0, 0)
+        and (state.process is None or state.process.poll() is not None)
+    )
+    if not state.reaped:
+        state.error_code = (
+            "identity_authority_reap_failed"
+            if state.identity_authority_after != 0
+            else (
+                "terminal_process_count_invalid"
+                if state.terminal_process_counts != (0, 0)
+                else "candidate_process_leaked"
+            )
+        )
+
+
+def _lifecycle_reap(
+    state: _LifecycleState, deployment: SkillValidationDeployment
+) -> None:
+    _lifecycle_stop_processes(state, deployment)
+    after = _wait_for_terminal_process_gate(
+        state.marker, deployment.shutdown.grace_seconds
+    )
+    state.after_global = after.global_graph_os
+    state.after_graph_os = after.candidate_graph_os
+    state.after_engine = after.candidate_engine
+    state.terminal_process_counts = (
+        after.langfuse_mcp_children,
+        after.loopback_oidc_fixtures,
+    )
+    _lifecycle_finalize_reap_status(state)
+
+
+def run_deployment(
+    deployment: SkillValidationDeployment,
+    *,
+    deployment_path: Path,
+    report_path: Path,
+    validation_evidence_path: Path,
+    lifecycle_evidence_path: Path,
+) -> int:
+    """Execute one exact zero/one/zero lifecycle and publish signed evidence."""
+
+    _validate_evidence_destinations(
+        (report_path, validation_evidence_path, lifecycle_evidence_path)
+    )
+    prep, installed_release_attested = _prepare_lifecycle_run(
+        deployment,
+        deployment_path=deployment_path,
+        report_path=report_path,
+        validation_evidence_path=validation_evidence_path,
+    )
+    state = _init_lifecycle_state(prep)
+
+    try:
+        _lifecycle_preflight_gate(state)
+        model_private_hosts = _lifecycle_prove_model_registry(state, prep)
+        _lifecycle_start_authority(state)
+        state.environment = state.authority.child_environment(
+            state.environment,
             model_private_hosts=model_private_hosts,
         )
-        process = subprocess.Popen(
-            start_argv,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            close_fds=True,
-            start_new_session=True,
-            env=environment,
-        )
+        state.process = _lifecycle_start_candidate(prep, state.environment)
         _wait_until_ready(
-            process,
-            readiness_executable=readiness_executable,
-            deployment_path=deployment_path,
-            environment=environment,
-            timeout_seconds=deployment.readiness.timeout_seconds,
-            poll_interval_milliseconds=deployment.readiness.poll_interval_milliseconds,
+            state.process,
+            readiness_executable=prep.readiness_executable,
+            deployment_path=prep.deployment_path,
+            environment=state.environment,
+            timeout_seconds=prep.deployment.readiness.timeout_seconds,
+            poll_interval_milliseconds=prep.deployment.readiness.poll_interval_milliseconds,
         )
-        running = _process_counts(marker)
-        running_global = running.global_graph_os
-        running_graph_os = running.candidate_graph_os
-        running_engine = running.candidate_engine
-        if (running_global, running_graph_os, running_engine) != (
-            1,
-            1,
-            1,
-        ) or process.poll() is not None:
-            raise DeploymentError("candidate_process_count_invalid")
-        engine_executable_digest = _marked_engine_digest(marker)
-        if engine_executable_digest != deployment.release.engine_digest:
-            raise DeploymentError("candidate_engine_digest_mismatch")
-        completed = subprocess.run(
-            [
-                str(validator),
-                "--mode",
-                "all",
-                "--case-timeout",
-                str(deployment.validation.case_timeout_seconds),
-                "--report",
-                str(report_path),
-                "--evidence",
-                str(validation_evidence_path),
-                "--release-id",
-                deployment.release.id,
-                "--release-specification-digest",
-                deployment.release.specification_digest,
-                "--promotion-evidence-digest",
-                deployment.release.promotion_evidence_digest,
-                "--graph-os-digest",
-                deployment.release.graph_os_digest,
-                "--engine-digest",
-                deployment.release.engine_digest,
-                "--runtime-config-digest",
-                deployment.runtime.configuration_digest,
-                "--runtime-profile-digest",
-                deployment.runtime.profile_digest,
-                "--model-registry-digest",
-                deployment.runtime.model_registry.digest,
-                "--signer-command-ref",
-                deployment.validation.signer_command_reference,
-                "--verifier-command-ref",
-                deployment.validation.verifier_command_reference,
-            ],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-            timeout=min(
-                4 * 60 * 60,
-                deployment.validation.case_timeout_seconds * 20 + 20 * 60 + 300,
-            ),
-            close_fds=True,
-            env=environment,
-        )
-        validator_exit_code = completed.returncode
+        _lifecycle_verify_running(state)
+        _lifecycle_verify_engine_digest(state, prep.deployment)
+        completed = _lifecycle_run_validator(prep, state.environment)
+        state.validator_exit_code = completed.returncode
         if completed.returncode != 0:
             raise DeploymentError("skill_validator_failed")
-        validation_payload = validation_evidence_path.read_bytes()
-        if not 1 <= len(validation_payload) <= 8 * 1024 * 1024:
-            raise DeploymentError("validation_evidence_size_invalid")
-        validation_digest = _digest_bytes(validation_payload)
-        try:
-            validation_document = _json_without_duplicates(
-                validation_payload.decode("utf-8")
-            )
-            validation_cases = validation_document.get("cases")
-            validation_result = validation_document.get("result")
-        except Exception as exc:
-            raise DeploymentError("validation_evidence_invalid") from exc
-        if (
-            not isinstance(validation_cases, list)
-            or len(validation_cases) != _CASE_COUNT
-            or not isinstance(validation_result, dict)
-            or validation_result.get("status") != "pass"
-        ):
-            raise DeploymentError("validation_evidence_invalid")
-        validation_case_count = _CASE_COUNT
-        renewable_credentials_proven = authority.prove_renewable()
-        identity_token_mint_count = authority.token_mint_count
-        if not renewable_credentials_proven or identity_token_mint_count < 2:
-            raise DeploymentError("identity_authority_not_renewable")
+        _lifecycle_verify_validation_evidence(state, prep)
+        _lifecycle_prove_renewable(state)
     except DeploymentError as exc:
-        error_code = str(exc)
+        state.error_code = str(exc)
     except Exception:
-        error_code = "deployment_boundary_failed"
+        state.error_code = "deployment_boundary_failed"
     finally:
-        if process is not None:
-            try:
-                _stop_and_reap(process, deployment.shutdown.grace_seconds)
-            except Exception:
-                error_code = "candidate_reap_failed"
-        try:
-            _terminate_marked_engines(marker, deployment.shutdown.grace_seconds)
-        except Exception:
-            error_code = "candidate_engine_reap_failed"
-        identity_tls_verified = identity_tls_verified or authority.tls_verified
-        identity_token_mint_count = max(
-            identity_token_mint_count, authority.token_mint_count
-        )
-        try:
-            authority.stop()
-        except Exception:
-            error_code = "identity_authority_reap_failed"
-        identity_authority_after = 1 if authority.running else 0
-        after = _wait_for_terminal_process_gate(
-            marker, deployment.shutdown.grace_seconds
-        )
-        after_global = after.global_graph_os
-        after_graph_os = after.candidate_graph_os
-        after_engine = after.candidate_engine
-        terminal_process_counts = (
-            after.langfuse_mcp_children,
-            after.loopback_oidc_fixtures,
-        )
-        reaped = (
-            (after_global, after_graph_os, after_engine) == (0, 0, 0)
-            and identity_authority_after == 0
-            and terminal_process_counts == (0, 0)
-            and (process is None or process.poll() is not None)
-        )
-        if not reaped:
-            error_code = (
-                "identity_authority_reap_failed"
-                if identity_authority_after != 0
-                else (
-                    "terminal_process_count_invalid"
-                    if terminal_process_counts != (0, 0)
-                    else "candidate_process_leaked"
-                )
-            )
+        _lifecycle_reap(state, prep.deployment)
 
     unsigned = _lifecycle_subject(
         deployment,
-        global_counts=(before_global, running_global, after_global),
-        graph_os_counts=(before_graph_os, running_graph_os, after_graph_os),
-        engine_counts=(before_engine, running_engine, after_engine),
-        identity_authority_counts=(
-            identity_authority_before,
-            identity_authority_running,
-            identity_authority_after,
+        global_counts=(state.before_global, state.running_global, state.after_global),
+        graph_os_counts=(
+            state.before_graph_os,
+            state.running_graph_os,
+            state.after_graph_os,
         ),
-        terminal_process_counts=terminal_process_counts,
-        identity_tls_verified=identity_tls_verified,
-        renewable_credentials_proven=renewable_credentials_proven,
-        identity_token_mint_count=identity_token_mint_count,
-        model_transport_proof=model_transport_proof,
-        engine_executable_digest=engine_executable_digest,
+        engine_counts=(
+            state.before_engine,
+            state.running_engine,
+            state.after_engine,
+        ),
+        identity_authority_counts=(
+            state.identity_authority_before,
+            state.identity_authority_running,
+            state.identity_authority_after,
+        ),
+        terminal_process_counts=state.terminal_process_counts,
+        identity_tls_verified=state.identity_tls_verified,
+        renewable_credentials_proven=state.renewable_credentials_proven,
+        identity_token_mint_count=state.identity_token_mint_count,
+        model_transport_proof=state.model_transport_proof,
+        engine_executable_digest=state.engine_executable_digest,
         installed_release_attested=installed_release_attested,
-        reaped=reaped,
-        validator_exit_code=validator_exit_code,
-        validation_evidence_digest=validation_digest,
-        validation_case_count=validation_case_count,
-        error_code=error_code,
+        reaped=state.reaped,
+        validator_exit_code=state.validator_exit_code,
+        validation_evidence_digest=state.validation_digest,
+        validation_case_count=state.validation_case_count,
+        error_code=state.error_code,
     )
     signed = sign_and_verify_evidence(
         unsigned,

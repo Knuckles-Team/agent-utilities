@@ -12,6 +12,7 @@ import json
 import logging
 import time
 from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
@@ -692,6 +693,112 @@ HARNESS_INVERSE_EDGES: dict[str, str] = {
 }
 
 
+def _pairs_to_inferences(
+    pairs: Iterable[Any] | None, *, predicate: str, inference_type: str
+) -> list[dict[str, Any]]:
+    """Turn ``(subject, object)`` pairs from an engine reasoner result into
+    inference dicts, skipping any malformed (non-2-tuple) pair."""
+    out: list[dict[str, Any]] = []
+    for pair in pairs or []:
+        if not pair or len(pair) != 2:
+            continue
+        subject, obj = pair
+        out.append(
+            {
+                "subject": str(subject),
+                "predicate": predicate,
+                "object": str(obj),
+                "inference_type": inference_type,
+            }
+        )
+    return out
+
+
+# R2RML mappings based on ontology.ttl classes & properties, used by
+# ``OWLBridge.stream_api_to_graph``.
+#
+# CA-23-W05 (DEC-CA-06, 2026-08-26): this dict is meant to be replaced by
+# ``ontology.r2rml_generator.derive_stream_mapping``, generated from the
+# SAME ``connector_manifest.yml`` files ``ontology.manifest_compiler``
+# already compiles (69 exist; ``servicenow-api``/``gitlab-api`` cover the
+# 3 entries below). NOT done: the generator does not yet reach parity —
+# MEASURED, ``derive_stream_mapping`` returns ``edges: {}`` for all 3
+# entries, because the live manifests declare zero ``relations`` on the
+# ``Incident``/``Project``/``Pipeline`` resources (the source ontologies'
+# ``assignedTo``/``authoredBy``/``belongsToProject`` relations exist but
+# were never attached to a resolved ``rdfs:domain`` — see each manifest's
+# own ``review_todos``). Deleting this dict today would silently drop the
+# ``assigned_to``/``cmdb_ci``/``owner``/``project_id`` edges below — kept
+# per ``DEC-CA-06``'s rollback clause until that upstream gap closes and
+# the comparison in ``tests/unit/knowledge_graph/ontology/
+# test_r2rml_generator.py`` (``test_derive_stream_mapping_does_not_reach_
+# edge_parity_with_dict_*``) passes with real edge equality, not just
+# class/id_field equality.
+_R2RML_MAPPINGS: dict[str, dict[str, Any]] = {
+    "servicenow:incident": {
+        "class": "Incident",
+        "id_field": "sys_id",
+        "properties": ["short_description", "severity", "state", "description"],
+        "edges": {
+            "assigned_to": ("Person", "was_attributed_to"),
+            "cmdb_ci": ("PlatformService", "monitors"),
+        },
+    },
+    "gitlab:project": {
+        "class": "Repository",
+        "id_field": "id",
+        "properties": ["name", "path_with_namespace", "description"],
+        "edges": {"owner": ("Person", "creator")},
+    },
+    "gitlab:pipeline": {
+        "class": "Pipeline",
+        "id_field": "id",
+        "properties": ["status", "ref", "sha"],
+        "edges": {"project_id": ("Repository", "part_of")},
+    },
+}
+
+
+def _resolve_r2rml_mapping(source_type: str) -> dict[str, Any]:
+    mapping = _R2RML_MAPPINGS.get(source_type)
+    if not mapping:
+        raise ValueError(
+            f"No registered R2RML mapping for stream source type: {source_type}"
+        )
+    return mapping
+
+
+async def _collect_stream_items(api_stream: Any) -> list[Any]:
+    """Consume ``api_stream`` (a list, a dict, or an async iterator -- with
+    a sync-iterator fallback) into a plain list of items."""
+    if isinstance(api_stream, list):
+        return api_stream
+    if isinstance(api_stream, dict):
+        return [api_stream]
+    # Assume async iterator
+    items: list[Any] = []
+    try:
+        async for item in api_stream:
+            items.append(item)
+    except Exception:
+        # Fallback to standard iter
+        for item in api_stream:
+            items.append(item)
+    return items
+
+
+@dataclass
+class _StreamMappingSpec:
+    """Bundled per-call R2RML mapping fields (keeps
+    ``OWLBridge._hydrate_stream_item``'s parameter count under the cap)."""
+
+    source_type: str
+    id_field: str
+    class_name: str
+    props_keys: Any
+    edges_mapping: Any
+
+
 class OWLBridge:
     """Orchestrates LPG ↔ OWL data flow.
 
@@ -872,33 +979,20 @@ class OWLBridge:
         ontology = self._pack_axioms_turtle() or None
         result = self.graph.owl_reason(ontology=ontology)
 
-        inferences: list[dict[str, Any]] = []
         # Inferred class memberships (incl. exists-restriction / role-chain reached).
-        for pair in result.get("instances", []) or []:
-            if not pair or len(pair) != 2:
-                continue
-            inst, cls = pair
-            inferences.append(
-                {
-                    "subject": str(inst),
-                    "predicate": "rdf:type",
-                    "object": str(cls),
-                    "inference_type": "owl_engine_instance",
-                }
-            )
+        inferences = _pairs_to_inferences(
+            result.get("instances", []),
+            predicate="rdf:type",
+            inference_type="owl_engine_instance",
+        )
         # Inferred subclass hierarchy (the classification result).
-        for pair in result.get("subclasses", []) or []:
-            if not pair or len(pair) != 2:
-                continue
-            sub, sup = pair
-            inferences.append(
-                {
-                    "subject": str(sub),
-                    "predicate": "rdfs:subClassOf",
-                    "object": str(sup),
-                    "inference_type": "owl_engine_subclass",
-                }
+        inferences.extend(
+            _pairs_to_inferences(
+                result.get("subclasses", []),
+                predicate="rdfs:subClassOf",
+                inference_type="owl_engine_subclass",
             )
+        )
 
         # The engine's OwlReason is a CLASSIFIER: it returns class memberships and
         # subclass entailments and materialises no object-property closure at all
@@ -979,43 +1073,57 @@ class OWLBridge:
                 continue
             folded = str(rel).casefold()
 
-            # Symmetric closure
             if folded in symmetric_props:
-                if not self.graph.has_edge(v, u) or not any(
-                    e.get("relationship") == rel
-                    for e in self.graph.get_edge_data(v, u, default={}).values()
-                ):
-                    inferences.append(
-                        {
-                            "subject": v,
-                            "predicate": rel,
-                            "object": u,
-                            "inference_type": "symmetric_closure",
-                        }
-                    )
+                symmetric = self._symmetric_closure_inference(u, v, rel)
+                if symmetric is not None:
+                    inferences.append(symmetric)
 
-            # Transitive closure (1-hop)
             if folded in transitive_props:
-                for w in self.graph.successors(v):
-                    edge_data_dict = self.graph.get_edge_data(v, w, default={})
-                    for w_data in edge_data_dict.values():
-                        if w_data.get("relationship") == rel:
-                            if not self.graph.has_edge(u, w) or not any(
-                                e.get("relationship") == rel
-                                for e in self.graph.get_edge_data(
-                                    u, w, default={}
-                                ).values()
-                            ):
-                                inferences.append(
-                                    {
-                                        "subject": u,
-                                        "predicate": rel,
-                                        "object": w,
-                                        "inference_type": "transitive_closure",
-                                    }
-                                )
+                inferences.extend(self._transitive_closure_inferences(u, v, rel))
 
         return inferences
+
+    def _symmetric_closure_inference(
+        self, u: Any, v: Any, rel: str
+    ) -> dict[str, Any] | None:
+        """One symmetric-closure fact for edge ``u -rel-> v``, or ``None`` when
+        the reverse edge with the same relationship already exists."""
+        if not self.graph.has_edge(v, u) or not any(
+            e.get("relationship") == rel
+            for e in self.graph.get_edge_data(v, u, default={}).values()
+        ):
+            return {
+                "subject": v,
+                "predicate": rel,
+                "object": u,
+                "inference_type": "symmetric_closure",
+            }
+        return None
+
+    def _transitive_closure_inferences(
+        self, u: Any, v: Any, rel: str
+    ) -> list[dict[str, Any]]:
+        """1-hop transitive-closure facts for edge ``u -rel-> v``: for every
+        ``v -rel-> w``, emit ``u -rel-> w`` unless it already exists."""
+        out: list[dict[str, Any]] = []
+        for w in self.graph.successors(v):
+            edge_data_dict = self.graph.get_edge_data(v, w, default={})
+            for w_data in edge_data_dict.values():
+                if w_data.get("relationship") != rel:
+                    continue
+                if not self.graph.has_edge(u, w) or not any(
+                    e.get("relationship") == rel
+                    for e in self.graph.get_edge_data(u, w, default={}).values()
+                ):
+                    out.append(
+                        {
+                            "subject": u,
+                            "predicate": rel,
+                            "object": w,
+                            "inference_type": "transitive_closure",
+                        }
+                    )
+        return out
 
     def _python_reasoning(self) -> list[dict[str, Any]]:
         """Python last-resort — RDFS+ reasoning on the in-memory graph.
@@ -1146,86 +1254,110 @@ class OWLBridge:
     def _downfeed_inferences(self, inferences: list[dict[str, Any]]) -> int:
         """Write inferred facts back to the LPG as new edges and re-embed affected nodes."""
         downfed = 0
-        affected_nodes = set()
+        affected_nodes: set[str] = set()
 
         for inference in inferences:
-            subject = inference.get("subject", "")
-            predicate = inference.get("predicate", "")
-            obj = inference.get("object", "")
-
-            if not subject or not predicate or not obj:
+            written = self._downfeed_one(inference)
+            if written is None:
                 continue
-
-            # Check if both subject and object exist in the NX graph
-            if subject not in self.graph or obj not in self.graph:
-                # Try to find by matching against sanitized IDs
-                subject_match = self._find_node_by_owl_id(subject)
-                obj_match = self._find_node_by_owl_id(obj)
-                if not subject_match or not obj_match:
-                    continue
-                subject = subject_match
-                obj = obj_match
-
-            # NEVER overwrite an existing relation with an inferred one.
-            # CONCEPT:AU-KG.ontology.ontology-driven-reasoning — the native graph
-            # stores at most ONE edge per ordered node pair (measured: an
-            # ``upsert_edge`` over an existing pair REPLACES its relationship
-            # type outright), and ``GraphComputeEngine.add_edge`` implements the
-            # write as remove-then-add. The previous guard only skipped when the
-            # SAME relationship already existed, so downfeeding a derived
-            # relation onto an already-connected pair silently destroyed the
-            # ASSERTED edge — e.g. an asserted ``a -PART_OF-> b`` became
-            # ``a -DEPENDS_ON-> b`` the moment the ontology's
-            # ``PART_OF rdfs:subPropertyOf DEPENDS_ON`` axiom was honoured.
-            # Inference may only ever CONNECT previously unconnected pairs here;
-            # that is also where its value is (transitive closure derives new
-            # pairs). A derived relation between an already-connected pair is
-            # dropped rather than allowed to overwrite evidence.
-            if self.graph.get_edge_data(subject, obj):
-                continue
-
-            # Add inferred edge
-            self.graph.add_edge(
-                subject,
-                obj,
-                relationship=predicate,
-                inferred=True,
-                inferred_from="owl_reasoner",
-                inference_type=inference.get("inference_type", "unknown"),
-                timestamp=datetime.now(UTC).isoformat(),
-            )
+            subject, obj = written
             downfed += 1
             affected_nodes.add(subject)
             affected_nodes.add(obj)
-
-            # Entailment-aware scoping (CONCEPT:AU-KG.ontology.rdf-materialization): a derived fact inherits
-            # the most-restrictive classification of its parents so reasoning
-            # can't leak a RESTRICTED node through an inferred edge.
-            try:
-                from .secured_reads import inherit_inferred_acl
-
-                inherit_inferred_acl(subject, obj)
-            except Exception:  # pragma: no cover - best-effort
-                pass
 
         # Also sync to backend if available
         if downfed > 0 and self.backend:
             self._sync_inferred_to_backend(inferences, downfed)
 
-        # Trigger Context-Aware Re-embedding (CONCEPT:AU-KG.ingest.engineering-rules)
-        if affected_nodes:
-            from .engine import IntelligenceGraphEngine
-
-            engine = IntelligenceGraphEngine.get_active()
-            if engine and hasattr(engine, "re_embed_node"):
-                re_embedded = 0
-                for node_id in affected_nodes:
-                    if engine.re_embed_node(node_id):
-                        re_embedded += 1
-                logger.info(f"Re-embedded {re_embedded} nodes with new OWL context.")
+        self._reembed_affected_nodes(affected_nodes)
 
         logger.info("Downfed %d inferred facts to LPG", downfed)
         return downfed
+
+    def _resolve_downfeed_endpoints(
+        self, subject: str, obj: str
+    ) -> tuple[str, str] | None:
+        """Resolve ``subject``/``obj`` to NX graph node ids, matching by
+        sanitized OWL id when they aren't already node ids. ``None`` when
+        either side can't be resolved."""
+        if subject in self.graph and obj in self.graph:
+            return subject, obj
+        subject_match = self._find_node_by_owl_id(subject)
+        obj_match = self._find_node_by_owl_id(obj)
+        if not subject_match or not obj_match:
+            return None
+        return subject_match, obj_match
+
+    def _downfeed_one(self, inference: dict[str, Any]) -> tuple[str, str] | None:
+        """Write one inferred fact as a new LPG edge. Returns the
+        ``(subject, object)`` node ids written, or ``None`` when the
+        inference was skipped (unresolvable endpoints, or an existing
+        relation would be overwritten -- see the note below)."""
+        subject = inference.get("subject", "")
+        predicate = inference.get("predicate", "")
+        obj = inference.get("object", "")
+        if not subject or not predicate or not obj:
+            return None
+
+        endpoints = self._resolve_downfeed_endpoints(subject, obj)
+        if endpoints is None:
+            return None
+        subject, obj = endpoints
+
+        # NEVER overwrite an existing relation with an inferred one.
+        # CONCEPT:AU-KG.ontology.ontology-driven-reasoning — the native graph
+        # stores at most ONE edge per ordered node pair (measured: an
+        # ``upsert_edge`` over an existing pair REPLACES its relationship
+        # type outright), and ``GraphComputeEngine.add_edge`` implements the
+        # write as remove-then-add. The previous guard only skipped when the
+        # SAME relationship already existed, so downfeeding a derived
+        # relation onto an already-connected pair silently destroyed the
+        # ASSERTED edge — e.g. an asserted ``a -PART_OF-> b`` became
+        # ``a -DEPENDS_ON-> b`` the moment the ontology's
+        # ``PART_OF rdfs:subPropertyOf DEPENDS_ON`` axiom was honoured.
+        # Inference may only ever CONNECT previously unconnected pairs here;
+        # that is also where its value is (transitive closure derives new
+        # pairs). A derived relation between an already-connected pair is
+        # dropped rather than allowed to overwrite evidence.
+        if self.graph.get_edge_data(subject, obj):
+            return None
+
+        self.graph.add_edge(
+            subject,
+            obj,
+            relationship=predicate,
+            inferred=True,
+            inferred_from="owl_reasoner",
+            inference_type=inference.get("inference_type", "unknown"),
+            timestamp=datetime.now(UTC).isoformat(),
+        )
+
+        # Entailment-aware scoping (CONCEPT:AU-KG.ontology.rdf-materialization): a derived fact inherits
+        # the most-restrictive classification of its parents so reasoning
+        # can't leak a RESTRICTED node through an inferred edge.
+        try:
+            from .secured_reads import inherit_inferred_acl
+
+            inherit_inferred_acl(subject, obj)
+        except Exception:  # pragma: no cover - best-effort
+            pass
+
+        return subject, obj
+
+    def _reembed_affected_nodes(self, affected_nodes: set[str]) -> None:
+        """Trigger Context-Aware Re-embedding (CONCEPT:AU-KG.ingest.engineering-rules)."""
+        if not affected_nodes:
+            return
+        from .engine import IntelligenceGraphEngine
+
+        engine = IntelligenceGraphEngine.get_active()
+        if not (engine and hasattr(engine, "re_embed_node")):
+            return
+        re_embedded = 0
+        for node_id in affected_nodes:
+            if engine.re_embed_node(node_id):
+                re_embedded += 1
+        logger.info(f"Re-embedded {re_embedded} nodes with new OWL context.")
 
     def _find_node_by_owl_id(self, owl_id: str) -> str | None:
         """Try to match an OWL individual name back to an NX graph node ID."""
@@ -1253,39 +1385,44 @@ class OWLBridge:
         from .engine import IntelligenceGraphEngine
 
         engine = IntelligenceGraphEngine.get_active()
-        written = 0
-        for inference in inferences[:count]:
-            subject = inference.get("subject", "")
-            predicate = inference.get("predicate", "")
-            obj = inference.get("object", "")
-            if not subject or not predicate or not obj:
-                continue
-            src = self._find_node_by_owl_id(subject) or subject
-            tgt = self._find_node_by_owl_id(obj) or obj
-            props = {
-                "inferred": True,
-                "inferred_from": "owl_reasoner",
-                "inference_type": inference.get("inference_type", "unknown"),
-            }
-            try:
-                if (
-                    engine is not None
-                    and getattr(engine, "backend", None) is self.backend
-                ):
-                    engine.link_nodes(src, tgt, predicate, props)
-                elif self.backend is not None:
-                    rel = _safe_rel_type(predicate)
-                    self.backend.execute(
-                        f"MATCH (s {{id: $sid}}), (t {{id: $tid}}) "
-                        f"MERGE (s)-[r:{rel}]->(t) "
-                        f"SET r.inferred = true, r.inferred_from = 'owl_reasoner'",
-                        {"sid": src, "tid": tgt},
-                    )
-                written += 1
-            except Exception as e:  # noqa: BLE001 — best-effort per inferred edge
-                logger.debug("Inferred-edge backfeed failed (%s->%s): %s", src, tgt, e)
+        written = sum(
+            1
+            for inference in inferences[:count]
+            if self._backfeed_one_inference(engine, inference)
+        )
         if written:
             logger.info("Backfed %d inferred edges to the durable backend", written)
+
+    def _backfeed_one_inference(self, engine: Any, inference: dict[str, Any]) -> bool:
+        """Persist one inferred edge to the durable backend. Returns whether
+        it was written (best-effort; any failure is swallowed and logged)."""
+        subject = inference.get("subject", "")
+        predicate = inference.get("predicate", "")
+        obj = inference.get("object", "")
+        if not subject or not predicate or not obj:
+            return False
+        src = self._find_node_by_owl_id(subject) or subject
+        tgt = self._find_node_by_owl_id(obj) or obj
+        props = {
+            "inferred": True,
+            "inferred_from": "owl_reasoner",
+            "inference_type": inference.get("inference_type", "unknown"),
+        }
+        try:
+            if engine is not None and getattr(engine, "backend", None) is self.backend:
+                engine.link_nodes(src, tgt, predicate, props)
+            elif self.backend is not None:
+                rel = _safe_rel_type(predicate)
+                self.backend.execute(
+                    f"MATCH (s {{id: $sid}}), (t {{id: $tid}}) "
+                    f"MERGE (s)-[r:{rel}]->(t) "
+                    f"SET r.inferred = true, r.inferred_from = 'owl_reasoner'",
+                    {"sid": src, "tid": tgt},
+                )
+            return True
+        except Exception as e:  # noqa: BLE001 — best-effort per inferred edge
+            logger.debug("Inferred-edge backfeed failed (%s->%s): %s", src, tgt, e)
+            return False
 
     def query_sparql(self, sparql: str) -> list[dict[str, Any]]:
         """Execute a SPARQL query against the OWL backend or rdflib materialization.
@@ -1399,37 +1536,52 @@ class OWLBridge:
         # URIRefs that trip RDF ICV/SHACL evaluation on reasoning/activation
         # (CONCEPT:AU-KG.ontology.rdf-materialization-iri-safe).
         for node_id, data in self.graph.nodes(data=True):
-            node_uri = AU[quote(str(node_id), safe="")]
-            node_type = str(data.get("node_type", "Thing"))
-            # Type assertion
-            type_class = AU[
-                quote(node_type.replace(" ", "_").title().replace("_", ""), safe="")
-            ]
-            g.add((node_uri, rdflib.RDF.type, type_class))
-            # Add string properties as datatype properties
-            for key, value in data.items():
-                if key in ("embedding", "ewc_fisher_diag"):
-                    continue  # Skip large float arrays
-                if key == "node_type":
-                    continue  # Already materialized above as rdf:type — the engine's
-                    # own LPG->RDF projection folds node_type into rdf:type and does
-                    # NOT re-emit it as a literal property triple, so this fallback
-                    # must match that projection (CONCEPT:AU-KG.compute.native-sparql-owl-shacl).
-                prop = AU[quote(str(key), safe="")]
-                if isinstance(value, str) and value:
-                    g.add((node_uri, prop, rdflib.Literal(value)))
-                elif isinstance(value, int | float):
-                    g.add((node_uri, prop, rdflib.Literal(value)))
+            self._materialize_node_triples(g, AU, node_id, data)
 
         # Promote edges as property assertions
         for src, tgt, data in self.graph.edges(data=True):
-            src_uri = AU[quote(str(src), safe="")]
-            tgt_uri = AU[quote(str(tgt), safe="")]
-            edge_type = str(data.get("relationship", "relatedTo"))
-            prop = AU[quote(edge_type, safe="")]
-            g.add((src_uri, prop, tgt_uri))
+            self._materialize_edge_triple(g, AU, src, tgt, data)
 
         return g
+
+    def _materialize_node_triples(
+        self, g: Any, au_ns: Any, node_id: Any, data: dict[str, Any]
+    ) -> None:
+        """Emit one node's ``rdf:type`` assertion plus its scalar properties
+        as datatype-property triples (skipping large float arrays and the
+        already-materialized ``node_type`` key)."""
+        import rdflib
+
+        node_uri = au_ns[quote(str(node_id), safe="")]
+        node_type = str(data.get("node_type", "Thing"))
+        # Type assertion
+        type_class = au_ns[
+            quote(node_type.replace(" ", "_").title().replace("_", ""), safe="")
+        ]
+        g.add((node_uri, rdflib.RDF.type, type_class))
+        # Add string properties as datatype properties
+        for key, value in data.items():
+            if key in ("embedding", "ewc_fisher_diag"):
+                continue  # Skip large float arrays
+            if key == "node_type":
+                continue  # Already materialized above as rdf:type — the engine's
+                # own LPG->RDF projection folds node_type into rdf:type and does
+                # NOT re-emit it as a literal property triple, so this fallback
+                # must match that projection (CONCEPT:AU-KG.compute.native-sparql-owl-shacl).
+            prop = au_ns[quote(str(key), safe="")]
+            if isinstance(value, str) and value:
+                g.add((node_uri, prop, rdflib.Literal(value)))
+            elif isinstance(value, int | float):
+                g.add((node_uri, prop, rdflib.Literal(value)))
+
+    def _materialize_edge_triple(
+        self, g: Any, au_ns: Any, src: Any, tgt: Any, data: dict[str, Any]
+    ) -> None:
+        src_uri = au_ns[quote(str(src), safe="")]
+        tgt_uri = au_ns[quote(str(tgt), safe="")]
+        edge_type = str(data.get("relationship", "relatedTo"))
+        prop = au_ns[quote(edge_type, safe="")]
+        g.add((src_uri, prop, tgt_uri))
 
     def _sparql_via_rdflib(self, sparql: str) -> list[dict[str, Any]]:
         """Execute SPARQL via rdflib against a materialized RDF graph.
@@ -1515,181 +1667,36 @@ class OWLBridge:
 
         Supports automatic TTL expiration tracking.
         """
-        # R2RML mappings based on ontology.ttl classes & properties.
-        #
-        # CA-23-W05 (DEC-CA-06, 2026-08-26): this dict is meant to be replaced by
-        # ``ontology.r2rml_generator.derive_stream_mapping``, generated from the
-        # SAME ``connector_manifest.yml`` files ``ontology.manifest_compiler``
-        # already compiles (69 exist; ``servicenow-api``/``gitlab-api`` cover the
-        # 3 entries below). NOT done: the generator does not yet reach parity —
-        # MEASURED, ``derive_stream_mapping`` returns ``edges: {}`` for all 3
-        # entries, because the live manifests declare zero ``relations`` on the
-        # ``Incident``/``Project``/``Pipeline`` resources (the source ontologies'
-        # ``assignedTo``/``authoredBy``/``belongsToProject`` relations exist but
-        # were never attached to a resolved ``rdfs:domain`` — see each manifest's
-        # own ``review_todos``). Deleting this dict today would silently drop the
-        # ``assigned_to``/``cmdb_ci``/``owner``/``project_id`` edges below — kept
-        # per ``DEC-CA-06``'s rollback clause until that upstream gap closes and
-        # the comparison in ``tests/unit/knowledge_graph/ontology/
-        # test_r2rml_generator.py`` (``test_derive_stream_mapping_does_not_reach_
-        # edge_parity_with_dict_*``) passes with real edge equality, not just
-        # class/id_field equality.
-        r2rml_mappings = {
-            "servicenow:incident": {
-                "class": "Incident",
-                "id_field": "sys_id",
-                "properties": ["short_description", "severity", "state", "description"],
-                "edges": {
-                    "assigned_to": ("Person", "was_attributed_to"),
-                    "cmdb_ci": ("PlatformService", "monitors"),
-                },
-            },
-            "gitlab:project": {
-                "class": "Repository",
-                "id_field": "id",
-                "properties": ["name", "path_with_namespace", "description"],
-                "edges": {"owner": ("Person", "creator")},
-            },
-            "gitlab:pipeline": {
-                "class": "Pipeline",
-                "id_field": "id",
-                "properties": ["status", "ref", "sha"],
-                "edges": {"project_id": ("Repository", "part_of")},
-            },
-        }
+        mapping = _resolve_r2rml_mapping(source_type)
+        spec = _StreamMappingSpec(
+            source_type=source_type,
+            id_field=str(mapping.get("id_field", "")),
+            class_name=str(mapping.get("class", "")),
+            props_keys=mapping.get("properties", []),
+            edges_mapping=mapping.get("edges", {}),
+        )
 
-        mapping = r2rml_mappings.get(source_type)
-        if not mapping:
-            raise ValueError(
-                f"No registered R2RML mapping for stream source type: {source_type}"
-            )
+        # Consume api stream items (handles lists, dicts, or async iterators)
+        items = await _collect_stream_items(api_stream)
 
         nodes_hydrated = 0
         edges_hydrated = 0
-        hydrated_payloads = []
-
-        # Consume api stream items (handles lists, dicts, or async iterators)
-        items = []
-        if isinstance(api_stream, list):
-            items = api_stream
-        elif isinstance(api_stream, dict):
-            items = [api_stream]
-        else:
-            # Assume async iterator
-            try:
-                async for item in api_stream:
-                    items.append(item)
-            except Exception:
-                # Fallback to standard iter
-                for item in api_stream:
-                    items.append(item)
-
-        id_field = str(mapping.get("id_field", ""))
-        class_name = str(mapping.get("class", ""))
-        props_keys = mapping.get("properties", [])
-        edges_mapping = mapping.get("edges", {})
-
+        hydrated_payloads: list[dict[str, Any]] = []
         for item in items:
-            raw_id = item.get(id_field)
-            if not raw_id:
+            hydrated = self._hydrate_stream_item(item, spec)
+            if hydrated is None:
                 continue
-
-            node_id = f"{source_type}:{raw_id}"
-
-            # Construct mapped properties
-            props = {
-                "node_type": class_name,
-                "id": node_id,
-                "timestamp": datetime.now(UTC).isoformat(),
-                "is_permanent": False,
-            }
-            if isinstance(props_keys, list):
-                for p in props_keys:
-                    if p in item:
-                        props[p] = item[p]
-
-            # Construct mapped edges
-            edges = []
-            if isinstance(edges_mapping, dict):
-                for field, target_mapping in edges_mapping.items():
-                    ref_val = item.get(field)
-                    if ref_val:
-                        tgt_class, rel_type = target_mapping
-                        tgt_id = f"{tgt_class.lower()}:{ref_val}"
-                        edges.append(
-                            {
-                                "source": node_id,
-                                "target": tgt_id,
-                                "relationship": rel_type,
-                                "inferred": False,
-                            }
-                        )
-
-            hydrated_payloads.append({"node": props, "edges": edges})
+            hydrated_payloads.append(hydrated)
             nodes_hydrated += 1
-            edges_hydrated += len(edges)
+            edges_hydrated += len(hydrated["edges"])
 
         # Persistence: External Valkey/Redis or local Namespaced Storage
-        is_external = namespace.startswith("rediss://")
-        expiration_time = time.time() + ttl_seconds
-
-        if is_external:
-            try:
-                import redis
-
-                from agent_utilities.core.transport_security import (
-                    resolve_configured_tls_profile,
-                )
-
-                trust = resolve_configured_tls_profile("redis")
-                client = None
-                try:
-                    client = redis.from_url(namespace, **trust.redis_kwargs())
-                    # Store serialized graph nodes & edges
-                    key_prefix = "company_brain:hydrated"
-                    client.setex(
-                        f"{key_prefix}:data",
-                        ttl_seconds,
-                        json.dumps(hydrated_payloads),
-                    )
-                finally:
-                    if client is not None:
-                        client.close()
-                    trust.cleanup()
-                logger.info(
-                    "Successfully hydrated %d nodes to external cache fabric.",
-                    nodes_hydrated,
-                )
-            except Exception as e:
-                logger.warning(
-                    "Redis hydration failed (%s); external connection data was not persisted.",
-                    type(e).__name__,
-                )
-        else:
-            self._save_local_namespace(namespace, hydrated_payloads, expiration_time)
+        expiration_time = self._persist_hydrated_payloads(
+            namespace, hydrated_payloads, ttl_seconds, nodes_hydrated
+        )
 
         # Inject hydrated nodes and edges into active LPG context
-        for hydrated in hydrated_payloads:
-            n = hydrated.get("node")
-            if isinstance(n, dict):
-                n_id = n.get("id")
-                if isinstance(n_id, str):
-                    self.graph.add_node(n_id, **n)
-            e_list = hydrated.get("edges")
-            if isinstance(e_list, list):
-                for e_item in e_list:
-                    if isinstance(e_item, dict):
-                        e_src = e_item.get("source")
-                        e_tgt = e_item.get("target")
-                        e_type = e_item.get("relationship")
-                        e_inferred = e_item.get("inferred", False)
-                        if isinstance(e_src, str) and isinstance(e_tgt, str):
-                            self.graph.add_edge(
-                                e_src,
-                                e_tgt,
-                                relationship=e_type,
-                                inferred=e_inferred,
-                            )
+        self._inject_hydrated_into_graph(hydrated_payloads)
 
         return {
             "namespace": namespace,
@@ -1697,6 +1704,145 @@ class OWLBridge:
             "edges_hydrated": edges_hydrated,
             "expiration": expiration_time,
         }
+
+    def _hydrate_stream_item(
+        self, item: Any, spec: _StreamMappingSpec
+    ) -> dict[str, Any] | None:
+        """Map one raw stream item to a ``{"node": ..., "edges": [...]}``
+        payload per ``spec``, or ``None`` when the item has no id."""
+        raw_id = item.get(spec.id_field)
+        if not raw_id:
+            return None
+
+        node_id = f"{spec.source_type}:{raw_id}"
+
+        # Construct mapped properties
+        props: dict[str, Any] = {
+            "node_type": spec.class_name,
+            "id": node_id,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "is_permanent": False,
+        }
+        if isinstance(spec.props_keys, list):
+            for p in spec.props_keys:
+                if p in item:
+                    props[p] = item[p]
+
+        edges = self._hydrate_stream_edges(item, node_id, spec.edges_mapping)
+        return {"node": props, "edges": edges}
+
+    def _hydrate_stream_edges(
+        self, item: Any, node_id: str, edges_mapping: Any
+    ) -> list[dict[str, Any]]:
+        """Construct mapped edges for one hydrated node."""
+        edges: list[dict[str, Any]] = []
+        if not isinstance(edges_mapping, dict):
+            return edges
+        for field, target_mapping in edges_mapping.items():
+            ref_val = item.get(field)
+            if not ref_val:
+                continue
+            tgt_class, rel_type = target_mapping
+            tgt_id = f"{tgt_class.lower()}:{ref_val}"
+            edges.append(
+                {
+                    "source": node_id,
+                    "target": tgt_id,
+                    "relationship": rel_type,
+                    "inferred": False,
+                }
+            )
+        return edges
+
+    def _persist_hydrated_payloads(
+        self,
+        namespace: str,
+        hydrated_payloads: list[dict[str, Any]],
+        ttl_seconds: int,
+        nodes_hydrated: int,
+    ) -> float:
+        """Persist to external Valkey/Redis (``rediss://``) or local
+        namespaced storage. Returns the computed expiration epoch time."""
+        is_external = namespace.startswith("rediss://")
+        expiration_time = time.time() + ttl_seconds
+        if is_external:
+            self._persist_to_redis(
+                namespace, hydrated_payloads, ttl_seconds, nodes_hydrated
+            )
+        else:
+            self._save_local_namespace(namespace, hydrated_payloads, expiration_time)
+        return expiration_time
+
+    def _persist_to_redis(
+        self,
+        namespace: str,
+        hydrated_payloads: list[dict[str, Any]],
+        ttl_seconds: int,
+        nodes_hydrated: int,
+    ) -> None:
+        try:
+            import redis
+
+            from agent_utilities.core.transport_security import (
+                resolve_configured_tls_profile,
+            )
+
+            trust = resolve_configured_tls_profile("redis")
+            client = None
+            try:
+                client = redis.from_url(namespace, **trust.redis_kwargs())
+                # Store serialized graph nodes & edges
+                key_prefix = "company_brain:hydrated"
+                client.setex(
+                    f"{key_prefix}:data",
+                    ttl_seconds,
+                    json.dumps(hydrated_payloads),
+                )
+            finally:
+                if client is not None:
+                    client.close()
+                trust.cleanup()
+            logger.info(
+                "Successfully hydrated %d nodes to external cache fabric.",
+                nodes_hydrated,
+            )
+        except Exception as e:
+            logger.warning(
+                "Redis hydration failed (%s); external connection data was not persisted.",
+                type(e).__name__,
+            )
+
+    def _inject_hydrated_into_graph(
+        self, hydrated_payloads: list[dict[str, Any]]
+    ) -> None:
+        for hydrated in hydrated_payloads:
+            self._inject_hydrated_node(hydrated.get("node"))
+            self._inject_hydrated_edges(hydrated.get("edges"))
+
+    def _inject_hydrated_node(self, n: Any) -> None:
+        if not isinstance(n, dict):
+            return
+        n_id = n.get("id")
+        if isinstance(n_id, str):
+            self.graph.add_node(n_id, **n)
+
+    def _inject_hydrated_edges(self, e_list: Any) -> None:
+        if not isinstance(e_list, list):
+            return
+        for e_item in e_list:
+            if not isinstance(e_item, dict):
+                continue
+            e_src = e_item.get("source")
+            e_tgt = e_item.get("target")
+            e_type = e_item.get("relationship")
+            e_inferred = e_item.get("inferred", False)
+            if isinstance(e_src, str) and isinstance(e_tgt, str):
+                self.graph.add_edge(
+                    e_src,
+                    e_tgt,
+                    relationship=e_type,
+                    inferred=e_inferred,
+                )
 
     def _save_local_namespace(
         self, namespace: str, data: list[dict[str, Any]], expiration: float

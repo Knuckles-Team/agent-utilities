@@ -69,7 +69,7 @@ import subprocess
 import sys
 import time
 import tomllib
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -626,6 +626,30 @@ class ProcessActivityProbe:
     def __init__(self, extra_roots: Sequence[Path] = ()) -> None:
         self._extra_roots = tuple(Path(p) for p in extra_roots)
 
+    def _process_activity_reason(
+        self,
+        entry: Path,
+        cmdline: list[str],
+        venv_bin: str,
+        workspace: Workspace,
+        roots: tuple[Path, ...],
+    ) -> str | None:
+        """Which (if any) of the three independent signals (see class
+        docstring) marks this process as busy on ``workspace``'s venv."""
+        if cmdline[0].startswith(venv_bin):
+            return "executing from the shared venv"
+        if _proc_environ_virtualenv(entry) == str(
+            workspace.venv
+        ) and _looks_like_interpreter_or_test_command(cmdline):
+            return "VIRTUAL_ENV points at the shared venv (interpreter/test command)"
+        tool = _build_or_test_command(cmdline)
+        if tool is None:
+            return None
+        cwd = _read_proc_link(entry / "cwd")
+        if cwd is not None and any(_is_within(cwd, root) for root in roots):
+            return f"{tool} running in {cwd}"
+        return None
+
     def busy(self, workspace: Workspace) -> Sequence[ActivityRecord]:
         proc = Path("/proc")
         if not proc.is_dir():
@@ -644,21 +668,9 @@ class ProcessActivityProbe:
             cmdline = _read_proc_list(entry / "cmdline")
             if not cmdline:
                 continue
-            reason: str | None = None
-            if cmdline[0].startswith(venv_bin):
-                reason = "executing from the shared venv"
-            elif _proc_environ_virtualenv(entry) == str(
-                workspace.venv
-            ) and _looks_like_interpreter_or_test_command(cmdline):
-                reason = (
-                    "VIRTUAL_ENV points at the shared venv (interpreter/test command)"
-                )
-            else:
-                tool = _build_or_test_command(cmdline)
-                if tool is not None:
-                    cwd = _read_proc_link(entry / "cwd")
-                    if cwd is not None and any(_is_within(cwd, root) for root in roots):
-                        reason = f"{tool} running in {cwd}"
+            reason = self._process_activity_reason(
+                entry, cmdline, venv_bin, workspace, roots
+            )
             if reason is None:
                 continue
             found.append(
@@ -1593,6 +1605,55 @@ class PruneOutcome:
         }
 
 
+def _prune_activity_gate(
+    workspace: Workspace, ignore_activity: bool
+) -> PruneOutcome | None:
+    if ignore_activity:
+        return None
+    activity = detect_activity(workspace)
+    if not activity:
+        return None
+    names = "; ".join(f"{r.probe}:{r.identifier}" for r in activity[:5])
+    return PruneOutcome(
+        plan=PrunePlan(candidates=()),
+        applied=False,
+        detail=f"deferred: environment busy ({names})",
+    )
+
+
+def _prune_budget_gate(plan: PrunePlan, allow_uninstalls: int) -> PruneOutcome | None:
+    if len(plan.candidates) <= allow_uninstalls:
+        return None
+    names = ", ".join(c.name for c in plan.candidates[:8])
+    return PruneOutcome(
+        plan=plan,
+        applied=False,
+        refused=True,
+        detail=(
+            f"plan would remove {len(plan.candidates)} package(s) "
+            f"({names}) but only {allow_uninstalls} are sanctioned for "
+            "this operation; re-run with a larger --allow-uninstalls "
+            "budget if this is intended"
+        ),
+    )
+
+
+def _prune_apply(workspace: Workspace, plan: PrunePlan) -> PruneOutcome:
+    python = workspace.venv / "bin" / "python"
+    for candidate in plan.candidates:
+        result = run_uv(
+            workspace, ["pip", "uninstall", "--python", str(python), candidate.name]
+        )
+        if not result.ok:
+            raise VenvSyncError(
+                f"uv pip uninstall {candidate.name} failed "
+                f"(rc={result.returncode}): {result.output[-2000:]}"
+            )
+    return PruneOutcome(
+        plan=plan, applied=True, detail=f"removed {len(plan.candidates)} package(s)"
+    )
+
+
 def prune(
     workspace: Workspace,
     *,
@@ -1618,32 +1679,19 @@ def prune(
             "prune() refuses without an explicit allow_uninstalls > 0 budget "
             "(0 is the same as sync()'s default: any uninstall refuses)"
         )
-    if not ignore_activity:
-        activity = detect_activity(workspace)
-        if activity:
-            names = "; ".join(f"{r.probe}:{r.identifier}" for r in activity[:5])
-            return PruneOutcome(
-                plan=PrunePlan(candidates=()),
-                applied=False,
-                detail=f"deferred: environment busy ({names})",
-            )
+
+    activity_outcome = _prune_activity_gate(workspace, ignore_activity)
+    if activity_outcome is not None:
+        return activity_outcome
 
     plan = plan_prune(workspace)
     if plan.is_empty:
         return PruneOutcome(plan=plan, applied=False, detail="nothing to prune")
-    if len(plan.candidates) > allow_uninstalls:
-        names = ", ".join(c.name for c in plan.candidates[:8])
-        return PruneOutcome(
-            plan=plan,
-            applied=False,
-            refused=True,
-            detail=(
-                f"plan would remove {len(plan.candidates)} package(s) "
-                f"({names}) but only {allow_uninstalls} are sanctioned for "
-                "this operation; re-run with a larger --allow-uninstalls "
-                "budget if this is intended"
-            ),
-        )
+
+    budget_outcome = _prune_budget_gate(plan, allow_uninstalls)
+    if budget_outcome is not None:
+        return budget_outcome
+
     if not apply:
         return PruneOutcome(
             plan=plan,
@@ -1651,19 +1699,7 @@ def prune(
             detail=f"plan approved but not applied (--dry-run): {len(plan.candidates)} removal(s)",
         )
 
-    python = workspace.venv / "bin" / "python"
-    for candidate in plan.candidates:
-        result = run_uv(
-            workspace, ["pip", "uninstall", "--python", str(python), candidate.name]
-        )
-        if not result.ok:
-            raise VenvSyncError(
-                f"uv pip uninstall {candidate.name} failed "
-                f"(rc={result.returncode}): {result.output[-2000:]}"
-            )
-    return PruneOutcome(
-        plan=plan, applied=True, detail=f"removed {len(plan.candidates)} package(s)"
-    )
+    return _prune_apply(workspace, plan)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1755,19 +1791,22 @@ class ImportProbe:
     def __init__(self, modules: Sequence[str] = DEFAULT_IMPORT_PROBE_MODULES) -> None:
         self.modules = tuple(modules)
 
-    def check(self, workspace: Workspace) -> ProbeResult:
+    @staticmethod
+    def _resolve_probe_python(workspace: Workspace) -> Path | None:
         python = workspace.venv / "bin" / "python"
         if not python.exists():
             python = workspace.venv / "Scripts" / "python.exe"
         if not python.exists():
-            return ProbeResult(
-                name=self.name, ok=None, detail=f"no interpreter under {workspace.venv}"
-            )
-        script = "\n".join(
+            return None
+        return python
+
+    @staticmethod
+    def _build_import_probe_script(modules: tuple[str, ...]) -> str:
+        return "\n".join(
             [
                 "import importlib, importlib.util, json, sys",
                 "bad, absent = {}, []",
-                f"for name in {list(self.modules)!r}:",
+                f"for name in {list(modules)!r}:",
                 "    top = name.split('.')[0]",
                 "    try:",
                 "        found = importlib.util.find_spec(top) is not None",
@@ -1783,6 +1822,11 @@ class ImportProbe:
                 "json.dump({'bad': bad, 'absent': absent}, sys.stdout)",
             ]
         )
+
+    def _run_import_probe_subprocess(
+        self, python: Path, workspace: Workspace, script: str
+    ) -> tuple[Any, ProbeResult | None]:
+        """Returns ``(completed, error)``; exactly one is falsy."""
         try:
             completed = subprocess.run(  # noqa: S603 — argv is constructed, never shell
                 [str(python), "-c", script],
@@ -1793,22 +1837,38 @@ class ImportProbe:
                 check=False,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
-            return ProbeResult(
+            return None, ProbeResult(
                 name=self.name, ok=False, detail=f"import probe could not run: {exc}"
             )
+        return completed, None
+
+    def _parse_import_probe_output(
+        self, completed: Any
+    ) -> tuple[dict[str, str], list[str], ProbeResult | None]:
+        """Returns ``(failures, absent, error)``; ``error`` is ``None`` on
+        success."""
         try:
             payload = json.loads(completed.stdout or "{}")
             failures = dict(payload.get("bad", {}))
             absent = list(payload.get("absent", []))
         except (ValueError, TypeError) as exc:
-            return ProbeResult(
-                name=self.name,
-                ok=False,
-                detail=(
-                    f"import probe produced unparseable output ({exc}): "
-                    f"{(completed.stdout or completed.stderr)[-400:]}"
+            return (
+                {},
+                [],
+                ProbeResult(
+                    name=self.name,
+                    ok=False,
+                    detail=(
+                        f"import probe produced unparseable output ({exc}): "
+                        f"{(completed.stdout or completed.stderr)[-400:]}"
+                    ),
                 ),
             )
+        return failures, absent, None
+
+    def _import_probe_verdict(
+        self, failures: dict[str, str], absent: list[str]
+    ) -> ProbeResult:
         if failures:
             return ProbeResult(
                 name=self.name,
@@ -1830,6 +1890,24 @@ class ImportProbe:
                 + (f"; not installed here: {absent}" if absent else "")
             ),
         )
+
+    def check(self, workspace: Workspace) -> ProbeResult:
+        python = self._resolve_probe_python(workspace)
+        if python is None:
+            return ProbeResult(
+                name=self.name, ok=None, detail=f"no interpreter under {workspace.venv}"
+            )
+        script = self._build_import_probe_script(self.modules)
+
+        completed, error = self._run_import_probe_subprocess(python, workspace, script)
+        if error is not None:
+            return error
+
+        failures, absent, error = self._parse_import_probe_output(completed)
+        if error is not None:
+            return error
+
+        return self._import_probe_verdict(failures, absent)
 
 
 class SdkFloorProbe:
@@ -1979,6 +2057,65 @@ class MemberInstallState:
         return bool(self.differences)
 
 
+def _member_install_differences(
+    record: _InstalledRecord,
+    source_version: str | None,
+    dynamic_version: bool,
+    source_eps: tuple[str, ...],
+) -> list[str]:
+    differences: list[str] = []
+    if not record.editable:
+        differences.append("installed non-editable: source edits will NOT be live")
+    if (
+        not dynamic_version
+        and source_version is not None
+        and record.version != source_version
+    ):
+        differences.append(
+            f"version {record.version} installed but {source_version} declared"
+        )
+    if set(source_eps) != set(record.entry_points):
+        added = sorted(set(source_eps) - set(record.entry_points))
+        removed = sorted(set(record.entry_points) - set(source_eps))
+        differences.append(
+            "console scripts differ"
+            + (f"; missing {added}" if added else "")
+            + (f"; stale {removed}" if removed else "")
+        )
+    return differences
+
+
+def _member_install_state(
+    member: Member, installed: dict[str, _InstalledRecord]
+) -> MemberInstallState:
+    source_version, source_eps, dynamic_version = _source_metadata(member.path)
+    record = installed.get(member.canonical)
+    if record is None:
+        return MemberInstallState(
+            member=member,
+            installed=False,
+            editable=False,
+            source_version=source_version,
+            installed_version=None,
+            source_entry_points=source_eps,
+            installed_entry_points=(),
+            differences=("not installed into the shared venv",),
+        )
+    differences = _member_install_differences(
+        record, source_version, dynamic_version, source_eps
+    )
+    return MemberInstallState(
+        member=member,
+        installed=True,
+        editable=record.editable,
+        source_version=source_version,
+        installed_version=record.version,
+        source_entry_points=source_eps,
+        installed_entry_points=record.entry_points,
+        differences=tuple(differences),
+    )
+
+
 def member_install_states(workspace: Workspace) -> tuple[MemberInstallState, ...]:
     """Compare every member's *source* metadata against its installed record.
 
@@ -1994,56 +2131,9 @@ def member_install_states(workspace: Workspace) -> tuple[MemberInstallState, ...
 
     site = workspace.site_packages()
     installed = _installed_distributions(site) if site else {}
-    states: list[MemberInstallState] = []
-    for member in workspace.members():
-        source_version, source_eps, dynamic_version = _source_metadata(member.path)
-        record = installed.get(member.canonical)
-        differences: list[str] = []
-        if record is None:
-            states.append(
-                MemberInstallState(
-                    member=member,
-                    installed=False,
-                    editable=False,
-                    source_version=source_version,
-                    installed_version=None,
-                    source_entry_points=source_eps,
-                    installed_entry_points=(),
-                    differences=("not installed into the shared venv",),
-                )
-            )
-            continue
-        if not record.editable:
-            differences.append("installed non-editable: source edits will NOT be live")
-        if (
-            not dynamic_version
-            and source_version is not None
-            and record.version != source_version
-        ):
-            differences.append(
-                f"version {record.version} installed but {source_version} declared"
-            )
-        if set(source_eps) != set(record.entry_points):
-            added = sorted(set(source_eps) - set(record.entry_points))
-            removed = sorted(set(record.entry_points) - set(source_eps))
-            differences.append(
-                "console scripts differ"
-                + (f"; missing {added}" if added else "")
-                + (f"; stale {removed}" if removed else "")
-            )
-        states.append(
-            MemberInstallState(
-                member=member,
-                installed=True,
-                editable=record.editable,
-                source_version=source_version,
-                installed_version=record.version,
-                source_entry_points=source_eps,
-                installed_entry_points=record.entry_points,
-                differences=tuple(differences),
-            )
-        )
-    return tuple(states)
+    return tuple(
+        _member_install_state(member, installed) for member in workspace.members()
+    )
 
 
 @dataclass(frozen=True)
@@ -2187,6 +2277,97 @@ class DriftReport:
         }
 
 
+def _drift_lock_finding(check: Any) -> DriftFinding:
+    return DriftFinding(
+        code="lock_current",
+        severity="ok" if check.ok else "fail",
+        detail=(
+            "uv.lock is current with the workspace manifests"
+            if check.ok
+            else "uv.lock is STALE — a manifest moved without a relock"
+        ),
+        data={"detail": "" if check.ok else check.output[-1200:]},
+    )
+
+
+def _drift_env_findings(workspace: Workspace) -> list[DriftFinding]:
+    """The env_current / env_extraneous findings from a sync plan -- only
+    computed when the lock itself is current (see ``detect_drift``)."""
+    findings: list[DriftFinding] = []
+    try:
+        plan = plan_sync(workspace)
+    except VenvSyncError as exc:
+        findings.append(
+            DriftFinding(
+                code="plan_unavailable",
+                severity="fail",
+                detail=f"could not compute a sync plan: {exc}",
+            )
+        )
+        return findings
+    findings.append(
+        DriftFinding(
+            code="env_current",
+            severity="ok" if not plan.installs else "fail",
+            detail=(
+                "installed packages match uv.lock"
+                if not plan.installs
+                else (
+                    f"{len(plan.installs)} package(s) are BEHIND the lock — "
+                    "the environment is not running what the lock resolves"
+                )
+            ),
+            data={"installs": [f"{d.name}=={d.version}" for d in plan.installs[:40]]},
+        )
+    )
+    if plan.removals:
+        findings.append(
+            DriftFinding(
+                code="env_extraneous",
+                severity="warn",
+                detail=(
+                    f"{len(plan.removals)} installed package(s) are not in "
+                    "the lock; --inexact leaves them alone deliberately"
+                ),
+                data={"packages": [d.name for d in plan.removals[:40]]},
+            )
+        )
+    return findings
+
+
+def _drift_member_metadata_finding(workspace: Workspace) -> DriftFinding:
+    states = member_install_states(workspace)
+    stale = [s for s in states if s.stale]
+    return DriftFinding(
+        code="member_metadata",
+        severity="ok" if not stale else "warn",
+        detail=(
+            f"all {len(states)} workspace member(s) installed editable and current"
+            if not stale
+            else (
+                f"{len(stale)} member(s) have metadata that differs from their "
+                "source (version / console scripts / editability)"
+            )
+        ),
+        data={"stale": {s.member.name: list(s.differences) for s in stale[:20]}},
+    )
+
+
+def _drift_pending_intent_finding(workspace: Workspace) -> DriftFinding | None:
+    pending = _pending_intent_count(workspace)
+    if not pending:
+        return None
+    return DriftFinding(
+        code="pending_flips",
+        severity="warn",
+        detail=(
+            f"{pending} merge flip(s) are queued and not yet applied "
+            "(deferred because the environment was busy)"
+        ),
+        data={"count": pending},
+    )
+
+
 def detect_drift(workspace: Workspace, *, include_floor: bool = True) -> DriftReport:
     """Answer "is the shared venv still what the lock says it should be?".
 
@@ -2208,81 +2389,12 @@ def detect_drift(workspace: Workspace, *, include_floor: bool = True) -> DriftRe
         return DriftReport(findings=tuple(findings))
 
     check = lock_check(workspace)
-    findings.append(
-        DriftFinding(
-            code="lock_current",
-            severity="ok" if check.ok else "fail",
-            detail=(
-                "uv.lock is current with the workspace manifests"
-                if check.ok
-                else "uv.lock is STALE — a manifest moved without a relock"
-            ),
-            data={"detail": "" if check.ok else check.output[-1200:]},
-        )
-    )
+    findings.append(_drift_lock_finding(check))
 
     if check.ok:
-        try:
-            plan = plan_sync(workspace)
-        except VenvSyncError as exc:
-            findings.append(
-                DriftFinding(
-                    code="plan_unavailable",
-                    severity="fail",
-                    detail=f"could not compute a sync plan: {exc}",
-                )
-            )
-            plan = None
-        if plan is not None:
-            findings.append(
-                DriftFinding(
-                    code="env_current",
-                    severity="ok" if not plan.installs else "fail",
-                    detail=(
-                        "installed packages match uv.lock"
-                        if not plan.installs
-                        else (
-                            f"{len(plan.installs)} package(s) are BEHIND the lock — "
-                            "the environment is not running what the lock resolves"
-                        )
-                    ),
-                    data={
-                        "installs": [
-                            f"{d.name}=={d.version}" for d in plan.installs[:40]
-                        ]
-                    },
-                )
-            )
-            if plan.removals:
-                findings.append(
-                    DriftFinding(
-                        code="env_extraneous",
-                        severity="warn",
-                        detail=(
-                            f"{len(plan.removals)} installed package(s) are not in "
-                            "the lock; --inexact leaves them alone deliberately"
-                        ),
-                        data={"packages": [d.name for d in plan.removals[:40]]},
-                    )
-                )
+        findings.extend(_drift_env_findings(workspace))
 
-    states = member_install_states(workspace)
-    stale = [s for s in states if s.stale]
-    findings.append(
-        DriftFinding(
-            code="member_metadata",
-            severity="ok" if not stale else "warn",
-            detail=(
-                f"all {len(states)} workspace member(s) installed editable and current"
-                if not stale
-                else (
-                    f"{len(stale)} member(s) have metadata that differs from their "
-                    "source (version / console scripts / editability)"
-                )
-            ),
-            data={"stale": {s.member.name: list(s.differences) for s in stale[:20]}},
-        )
-    )
+    findings.append(_drift_member_metadata_finding(workspace))
 
     if include_floor:
         floor = SdkFloorProbe().check(workspace)
@@ -2294,19 +2406,9 @@ def detect_drift(workspace: Workspace, *, include_floor: bool = True) -> DriftRe
             )
         )
 
-    pending = _pending_intent_count(workspace)
-    if pending:
-        findings.append(
-            DriftFinding(
-                code="pending_flips",
-                severity="warn",
-                detail=(
-                    f"{pending} merge flip(s) are queued and not yet applied "
-                    "(deferred because the environment was busy)"
-                ),
-                data={"count": pending},
-            )
-        )
+    pending_finding = _drift_pending_intent_finding(workspace)
+    if pending_finding is not None:
+        findings.append(pending_finding)
 
     return DriftReport(findings=tuple(findings))
 
@@ -2835,153 +2937,186 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
 
+def _cmd_status(args: argparse.Namespace, workspace: Workspace, as_json: bool) -> int:
+    report = detect_drift(workspace)
+    emit(report.as_dict(), as_json=as_json)
+    return {"ok": 0, "warn": 0, "fail": 3}[report.status]
+
+
+def _cmd_plan(args: argparse.Namespace, workspace: Workspace, as_json: bool) -> int:
+    plan = plan_sync(workspace)
+    ctx = SyncContext(workspace=workspace, activity=detect_activity(workspace))
+    verdict = evaluate_plan(plan, ctx)
+    emit(
+        {
+            "installs": [f"{d.name}=={d.version}" for d in plan.installs],
+            "uninstalls": [f"{d.name}=={d.version}" for d in plan.uninstalls],
+            "verdict": verdict.as_dict(),
+        },
+        as_json=as_json,
+    )
+    return 0 if verdict.allowed else 3
+
+
+def _cmd_sync(args: argparse.Namespace, workspace: Workspace, as_json: bool) -> int:
+    sync_outcome = sync(
+        workspace,
+        reason=args.reason,
+        apply=not args.dry_run,
+        ignore_activity=args.ignore_activity,
+        allow_uninstalls=args.allow_uninstalls,
+    )
+    emit(sync_outcome.as_dict(), as_json=as_json)
+    return 0 if sync_outcome.verdict.allowed else 3
+
+
+def _cmd_prune(args: argparse.Namespace, workspace: Workspace, as_json: bool) -> int:
+    prune_outcome = prune(
+        workspace,
+        allow_uninstalls=args.allow_uninstalls,
+        apply=not args.dry_run,
+        ignore_activity=args.ignore_activity,
+    )
+    emit(prune_outcome.as_dict(), as_json=as_json)
+    return 0 if not prune_outcome.refused else 3
+
+
+def _cmd_upgrade(args: argparse.Namespace, workspace: Workspace, as_json: bool) -> int:
+    upgrade_outcome = upgrade(
+        workspace,
+        packages=getattr(args, "packages", []),
+        all_packages=getattr(args, "all_packages", False) or args.command == "relock",
+        reason=getattr(args, "reason", args.command),
+        ignore_activity=args.ignore_activity,
+    )
+    emit(upgrade_outcome.as_dict(), as_json=as_json)
+    return 0 if upgrade_outcome.ok else 3
+
+
+def _cmd_rollback(args: argparse.Namespace, workspace: Workspace, as_json: bool) -> int:
+    rollback_outcome = rollback(
+        workspace, args.backup_id, ignore_activity=args.ignore_activity
+    )
+    emit(rollback_outcome.as_dict(), as_json=as_json)
+    return 0 if rollback_outcome.verdict.allowed else 3
+
+
+def _cmd_backups(args: argparse.Namespace, workspace: Workspace, as_json: bool) -> int:
+    emit(
+        {"backups": [b.as_dict() for b in LockBackupStore(workspace).list()]},
+        as_json=as_json,
+    )
+    return 0
+
+
+def _cmd_verify(args: argparse.Namespace, workspace: Workspace, as_json: bool) -> int:
+    probes = verify(workspace)
+    emit({"probes": [p.as_dict() for p in probes]}, as_json=as_json)
+    return 0 if all(p.ok is not False for p in probes) else 3
+
+
+def _cmd_members(args: argparse.Namespace, workspace: Workspace, as_json: bool) -> int:
+    states = member_install_states(workspace)
+    emit(
+        {
+            "members": [
+                {
+                    "name": s.member.name,
+                    "installed": s.installed,
+                    "editable": s.editable,
+                    "source_version": s.source_version,
+                    "installed_version": s.installed_version,
+                    "differences": list(s.differences),
+                }
+                for s in states
+            ],
+            "stale": sum(1 for s in states if s.stale),
+        },
+        as_json=as_json,
+    )
+    return 0 if not any(s.stale for s in states) else 3
+
+
+def _cmd_session_hint(
+    args: argparse.Namespace, workspace: Workspace, as_json: bool
+) -> int:
+    # D-VS-6: deliberately never propagates a raised error and always
+    # exits 0 — a SessionStart hook command that can fail a session is a
+    # worse outcome than staying silent about drift for one session.
+    hint = session_start_hint(workspace)
+    if hint is not None:
+        if as_json:
+            emit({"hint": hint}, as_json=True)
+        else:
+            print(hint)
+    return 0
+
+
+def _cmd_activity(args: argparse.Namespace, workspace: Workspace, as_json: bool) -> int:
+    records = detect_activity(workspace)
+    emit(
+        {
+            "busy": bool(records),
+            "records": [
+                {"probe": r.probe, "id": r.identifier, "detail": r.detail}
+                for r in records
+            ],
+        },
+        as_json=as_json,
+    )
+    return 0
+
+
+def _cmd_lease(args: argparse.Namespace, workspace: Workspace, as_json: bool) -> int:
+    if args.action == "acquire":
+        path = acquire_lease(workspace, args.owner, ttl=args.ttl, reason=args.reason)
+        emit({"lease": str(path), "owner": args.owner}, as_json=as_json)
+        return 0
+    if args.action == "release":
+        emit({"released": release_lease(workspace, args.owner)}, as_json=as_json)
+        return 0
+    lease_records = LeaseActivityProbe().busy(workspace)
+    emit(
+        {
+            "leases": [
+                {"owner": r.identifier, "detail": r.detail} for r in lease_records
+            ]
+        },
+        as_json=as_json,
+    )
+    return 0
+
+
+def _cmd_autosync(args: argparse.Namespace, workspace: Workspace, as_json: bool) -> int:
+    from agent_utilities.deployment import venv_autosync
+
+    return venv_autosync.dispatch(args, workspace, as_json=as_json)
+
+
+_COMMAND_HANDLERS: dict[str, Callable[[argparse.Namespace, Workspace, bool], int]] = {
+    "status": _cmd_status,
+    "plan": _cmd_plan,
+    "sync": _cmd_sync,
+    "prune": _cmd_prune,
+    "upgrade": _cmd_upgrade,
+    "relock": _cmd_upgrade,
+    "rollback": _cmd_rollback,
+    "backups": _cmd_backups,
+    "verify": _cmd_verify,
+    "members": _cmd_members,
+    "session-hint": _cmd_session_hint,
+    "activity": _cmd_activity,
+    "lease": _cmd_lease,
+    "autosync": _cmd_autosync,
+}
+
+
 def _dispatch(args: argparse.Namespace, workspace: Workspace) -> int:
     as_json = args.json
-    if args.command == "status":
-        report = detect_drift(workspace)
-        emit(report.as_dict(), as_json=as_json)
-        return {"ok": 0, "warn": 0, "fail": 3}[report.status]
-
-    if args.command == "plan":
-        plan = plan_sync(workspace)
-        ctx = SyncContext(workspace=workspace, activity=detect_activity(workspace))
-        verdict = evaluate_plan(plan, ctx)
-        emit(
-            {
-                "installs": [f"{d.name}=={d.version}" for d in plan.installs],
-                "uninstalls": [f"{d.name}=={d.version}" for d in plan.uninstalls],
-                "verdict": verdict.as_dict(),
-            },
-            as_json=as_json,
-        )
-        return 0 if verdict.allowed else 3
-
-    if args.command == "sync":
-        sync_outcome = sync(
-            workspace,
-            reason=args.reason,
-            apply=not args.dry_run,
-            ignore_activity=args.ignore_activity,
-            allow_uninstalls=args.allow_uninstalls,
-        )
-        emit(sync_outcome.as_dict(), as_json=as_json)
-        return 0 if sync_outcome.verdict.allowed else 3
-
-    if args.command == "prune":
-        prune_outcome = prune(
-            workspace,
-            allow_uninstalls=args.allow_uninstalls,
-            apply=not args.dry_run,
-            ignore_activity=args.ignore_activity,
-        )
-        emit(prune_outcome.as_dict(), as_json=as_json)
-        return 0 if not prune_outcome.refused else 3
-
-    if args.command in ("upgrade", "relock"):
-        upgrade_outcome = upgrade(
-            workspace,
-            packages=getattr(args, "packages", []),
-            all_packages=getattr(args, "all_packages", False)
-            or args.command == "relock",
-            reason=getattr(args, "reason", args.command),
-            ignore_activity=args.ignore_activity,
-        )
-        emit(upgrade_outcome.as_dict(), as_json=as_json)
-        return 0 if upgrade_outcome.ok else 3
-
-    if args.command == "rollback":
-        rollback_outcome = rollback(
-            workspace, args.backup_id, ignore_activity=args.ignore_activity
-        )
-        emit(rollback_outcome.as_dict(), as_json=as_json)
-        return 0 if rollback_outcome.verdict.allowed else 3
-
-    if args.command == "backups":
-        emit(
-            {"backups": [b.as_dict() for b in LockBackupStore(workspace).list()]},
-            as_json=as_json,
-        )
-        return 0
-
-    if args.command == "verify":
-        probes = verify(workspace)
-        emit({"probes": [p.as_dict() for p in probes]}, as_json=as_json)
-        return 0 if all(p.ok is not False for p in probes) else 3
-
-    if args.command == "members":
-        states = member_install_states(workspace)
-        emit(
-            {
-                "members": [
-                    {
-                        "name": s.member.name,
-                        "installed": s.installed,
-                        "editable": s.editable,
-                        "source_version": s.source_version,
-                        "installed_version": s.installed_version,
-                        "differences": list(s.differences),
-                    }
-                    for s in states
-                ],
-                "stale": sum(1 for s in states if s.stale),
-            },
-            as_json=as_json,
-        )
-        return 0 if not any(s.stale for s in states) else 3
-
-    if args.command == "session-hint":
-        # D-VS-6: deliberately never propagates a raised error and always
-        # exits 0 — a SessionStart hook command that can fail a session is a
-        # worse outcome than staying silent about drift for one session.
-        hint = session_start_hint(workspace)
-        if hint is not None:
-            if as_json:
-                emit({"hint": hint}, as_json=True)
-            else:
-                print(hint)
-        return 0
-
-    if args.command == "activity":
-        records = detect_activity(workspace)
-        emit(
-            {
-                "busy": bool(records),
-                "records": [
-                    {"probe": r.probe, "id": r.identifier, "detail": r.detail}
-                    for r in records
-                ],
-            },
-            as_json=as_json,
-        )
-        return 0
-
-    if args.command == "lease":
-        if args.action == "acquire":
-            path = acquire_lease(
-                workspace, args.owner, ttl=args.ttl, reason=args.reason
-            )
-            emit({"lease": str(path), "owner": args.owner}, as_json=as_json)
-            return 0
-        if args.action == "release":
-            emit({"released": release_lease(workspace, args.owner)}, as_json=as_json)
-            return 0
-        lease_records = LeaseActivityProbe().busy(workspace)
-        emit(
-            {
-                "leases": [
-                    {"owner": r.identifier, "detail": r.detail} for r in lease_records
-                ]
-            },
-            as_json=as_json,
-        )
-        return 0
-
-    if args.command == "autosync":
-        from agent_utilities.deployment import venv_autosync
-
-        return venv_autosync.dispatch(args, workspace, as_json=as_json)
-
-    raise VenvSyncError(f"unhandled command {args.command!r}")
+    handler = _COMMAND_HANDLERS.get(args.command)
+    if handler is None:
+        raise VenvSyncError(f"unhandled command {args.command!r}")
+    return handler(args, workspace, as_json)
 
 
 if __name__ == "__main__":  # pragma: no cover - console entry

@@ -99,6 +99,68 @@ _K8S_CONTROLLER_ALIASES = {
 }
 
 
+def _merged_identity_params(request: ActionRequest) -> dict[str, Any]:
+    params = dict(request.params or {})
+    nested = params.get("kubernetes") or params.get("k8s_resource")
+    if isinstance(nested, dict):
+        # Explicit request fields may carry action-specific values, but
+        # registry identity fields remain required and are never inferred.
+        merged = dict(nested)
+        merged.update(params)
+        params = merged
+    return params
+
+
+def _field_picker(params: dict[str, Any]) -> Callable[..., str]:
+    def value(*names: str) -> str:
+        for name in names:
+            candidate = params.get(name)
+            if candidate is not None and str(candidate).strip():
+                return str(candidate).strip()
+        return ""
+
+    return value
+
+
+def _validate_identity_required(required: dict[str, str]) -> str:
+    missing = [field for field, candidate in required.items() if not candidate]
+    if missing:
+        return "kubernetes resource identity is incomplete: " + ", ".join(missing)
+    return ""
+
+
+def _validate_identity_kind_and_mode(
+    kind: str, mode: str | None, mode_raw: str
+) -> tuple[str | None, str]:
+    canonical_kind = _K8S_WORKLOAD_KINDS.get(kind.lower())
+    if canonical_kind is None:
+        return None, f"unsupported Kubernetes workload kind {kind!r}"
+    if mode is None or mode not in _K8S_CONTROLLER_MODES:
+        return None, f"unsupported Kubernetes controller mode {mode_raw!r}"
+    return canonical_kind, ""
+
+
+def _validate_identity_safe_values(required: dict[str, str]) -> str:
+    for field, candidate in required.items():
+        if field == "controller_mode":
+            continue
+        if not _SAFE_K8S_VALUE.fullmatch(str(candidate)):
+            return f"unsafe Kubernetes identity field {field!r}"
+    return ""
+
+
+def _parse_quorum_required(params: dict[str, Any]) -> tuple[bool | None, str]:
+    quorum_raw = params.get("quorum_required", params.get("quorum", False))
+    if isinstance(quorum_raw, bool):
+        return quorum_raw, ""
+    lowered = str(quorum_raw).strip().lower()
+    if lowered in {"1", "true", "yes"}:
+        return True, ""
+    if lowered in {"0", "false", "no", ""}:
+        return False, ""
+    return None, "quorum_required must be a boolean"
+
+
 @dataclass(frozen=True)
 class KubernetesResourceIdentity:
     """Immutable registry identity bound to one Kubernetes mutation.
@@ -124,21 +186,8 @@ class KubernetesResourceIdentity:
     def from_request(
         cls, request: ActionRequest
     ) -> tuple[KubernetesResourceIdentity | None, str]:
-        params = dict(request.params or {})
-        nested = params.get("kubernetes") or params.get("k8s_resource")
-        if isinstance(nested, dict):
-            # Explicit request fields may carry action-specific values, but
-            # registry identity fields remain required and are never inferred.
-            merged = dict(nested)
-            merged.update(params)
-            params = merged
-
-        def value(*names: str) -> str:
-            for name in names:
-                candidate = params.get(name)
-                if candidate is not None and str(candidate).strip():
-                    return str(candidate).strip()
-            return ""
+        params = _merged_identity_params(request)
+        value = _field_picker(params)
 
         cluster = value("cluster", "kube_cluster")
         context = value("context", "kube_context")
@@ -160,33 +209,29 @@ class KubernetesResourceIdentity:
             "resource_version": resource_version,
             "controller_mode": mode or mode_raw,
         }
-        missing = [field for field, candidate in required.items() if not candidate]
-        if missing:
-            return None, "kubernetes resource identity is incomplete: " + ", ".join(
-                missing
-            )
-        canonical_kind = _K8S_WORKLOAD_KINDS.get(kind.lower())
-        if canonical_kind is None:
-            return None, f"unsupported Kubernetes workload kind {kind!r}"
-        if mode is None or mode not in _K8S_CONTROLLER_MODES:
-            return None, f"unsupported Kubernetes controller mode {mode_raw!r}"
+        error = _validate_identity_required(required)
+        if error:
+            return None, error
+
+        canonical_kind, error = _validate_identity_kind_and_mode(kind, mode, mode_raw)
+        if error:
+            return None, error
+        # narrowed by _validate_identity_kind_and_mode's own checks
+        assert canonical_kind is not None
+        assert mode is not None
+
         if name != request.target:
             return None, "kubernetes resource name does not match action target"
-        for field, candidate in required.items():
-            if field == "controller_mode":
-                continue
-            if not _SAFE_K8S_VALUE.fullmatch(str(candidate)):
-                return None, f"unsafe Kubernetes identity field {field!r}"
 
-        quorum_raw = params.get("quorum_required", params.get("quorum", False))
-        if isinstance(quorum_raw, bool):
-            quorum_required = quorum_raw
-        elif str(quorum_raw).strip().lower() in {"1", "true", "yes"}:
-            quorum_required = True
-        elif str(quorum_raw).strip().lower() in {"0", "false", "no", ""}:
-            quorum_required = False
-        else:
-            return None, "quorum_required must be a boolean"
+        error = _validate_identity_safe_values(required)
+        if error:
+            return None, error
+
+        quorum_required, error = _parse_quorum_required(params)
+        if error:
+            return None, error
+        assert quorum_required is not None  # narrowed by _parse_quorum_required
+
         return (
             cls(
                 cluster=cluster,
@@ -365,6 +410,43 @@ class DockerActuator:
         ok, _ = self._run("service", "inspect", name, "--format", "{{.ID}}")
         return ok
 
+    def _apply_restart_service(self, target: str, swarm: bool) -> tuple[bool, str]:
+        return (
+            self._run("service", "update", "--force", target)
+            if swarm
+            else self._run("restart", target)
+        )
+
+    def _apply_scale_service(
+        self, request: ActionRequest, target: str, swarm: bool
+    ) -> tuple[bool, str]:
+        if not swarm:
+            return False, "scale_service needs a swarm service"
+        replicas = int(request.params.get("replicas", 1))
+        return self._run("service", "scale", f"{target}={replicas}")
+
+    def _apply_deploy_service(
+        self, request: ActionRequest, target: str, swarm: bool
+    ) -> tuple[bool, str]:
+        if not swarm:
+            return False, "deploy_service needs a swarm service"
+        image = str(request.params.get("image") or "")
+        if image:
+            return self._run("service", "update", "--image", image, target)
+        return self._run("service", "update", "--force", target)
+
+    def _apply_rollback_service(self, target: str, swarm: bool) -> tuple[bool, str]:
+        if swarm:
+            return self._run("service", "update", "--rollback", target)
+        return self._run("restart", target)
+
+    def _apply_stop_service(self, target: str, swarm: bool) -> tuple[bool, str]:
+        return (
+            self._run("service", "scale", f"{target}=0")
+            if swarm
+            else self._run("stop", target)
+        )
+
     def apply(self, request: ActionRequest) -> dict[str, Any]:
         if not self.available:
             return {"ok": False, "dry_run": False, "detail": "docker CLI not available"}
@@ -378,39 +460,23 @@ class DockerActuator:
 
         kind = request.kind
         swarm = self._is_swarm_service(target)
-        if kind == "restart_service":
-            ok, out = (
-                self._run("service", "update", "--force", target)
-                if swarm
-                else self._run("restart", target)
-            )
-        elif kind == "scale_service":
-            replicas = int(request.params.get("replicas", 1))
-            if swarm:
-                ok, out = self._run("service", "scale", f"{target}={replicas}")
-            else:
-                ok, out = False, "scale_service needs a swarm service"
-        elif kind in ("deploy_service", "redeploy_stack"):
-            image = str(request.params.get("image") or "")
-            if swarm and image:
-                ok, out = self._run("service", "update", "--image", image, target)
-            elif swarm:
-                ok, out = self._run("service", "update", "--force", target)
-            else:
-                ok, out = False, "deploy_service needs a swarm service"
-        elif kind == "rollback_service":
-            if swarm:
-                ok, out = self._run("service", "update", "--rollback", target)
-            else:
-                ok, out = self._run("restart", target)
-        elif kind == "stop_service":
-            ok, out = (
-                self._run("service", "scale", f"{target}=0")
-                if swarm
-                else self._run("stop", target)
-            )
-        else:
+        handlers: dict[str, Callable[[], tuple[bool, str]]] = {
+            "restart_service": lambda: self._apply_restart_service(target, swarm),
+            "scale_service": lambda: self._apply_scale_service(request, target, swarm),
+            "deploy_service": lambda: self._apply_deploy_service(
+                request, target, swarm
+            ),
+            "redeploy_stack": lambda: self._apply_deploy_service(
+                request, target, swarm
+            ),
+            "rollback_service": lambda: self._apply_rollback_service(target, swarm),
+            "stop_service": lambda: self._apply_stop_service(target, swarm),
+        }
+        handler = handlers.get(kind)
+        if handler is None:
             ok, out = False, f"unsupported action kind {kind!r}"
+        else:
+            ok, out = handler()
         return {"ok": ok, "dry_run": False, "detail": out}
 
 
@@ -548,19 +614,28 @@ class KubernetesActuator:
         self, identity: KubernetesResourceIdentity
     ) -> tuple[dict[str, Any] | None, str]:
         """Read bounded metadata for the selected identity immediately pre-write."""
-
         if self.resource_reader is not None:
-            try:
-                raw = self.resource_reader(identity)
-            except TimeoutError:
-                self._last_error = "timeout"
-                return None, "resource identity read timed out"
-            except Exception as exc:  # noqa: BLE001 — preflight must fail closed
-                return None, f"resource identity read failed: {exc}"
-            if not isinstance(raw, dict):
-                return None, "resource identity reader returned an invalid record"
-            return raw, ""
+            return self._read_resource_via_injected_reader(identity)
+        return self._read_resource_via_kubectl(identity)
 
+    def _read_resource_via_injected_reader(
+        self, identity: KubernetesResourceIdentity
+    ) -> tuple[dict[str, Any] | None, str]:
+        assert self.resource_reader is not None
+        try:
+            raw = self.resource_reader(identity)
+        except TimeoutError:
+            self._last_error = "timeout"
+            return None, "resource identity read timed out"
+        except Exception as exc:  # noqa: BLE001 — preflight must fail closed
+            return None, f"resource identity read failed: {exc}"
+        if not isinstance(raw, dict):
+            return None, "resource identity reader returned an invalid record"
+        return raw, ""
+
+    def _read_resource_via_kubectl(
+        self, identity: KubernetesResourceIdentity
+    ) -> tuple[dict[str, Any] | None, str]:
         ok, out = self._run(
             "get",
             f"{identity.workload_kind.lower()}/{identity.name}",
@@ -578,8 +653,15 @@ class KubernetesActuator:
         if not isinstance(raw, dict):
             return None, "kubectl returned an invalid resource identity record"
 
-        # A context string is not itself proof of the cluster it resolves to.
-        # Ask kubectl for that binding before accepting the object metadata.
+        error = self._verify_context_cluster(identity)
+        if error:
+            return None, error
+        return raw, ""
+
+    def _verify_context_cluster(self, identity: KubernetesResourceIdentity) -> str:
+        """A context string is not itself proof of the cluster it resolves
+        to. Ask kubectl for that binding before accepting the object
+        metadata."""
         ok, actual_cluster = self._run(
             "config",
             "view",
@@ -591,10 +673,10 @@ class KubernetesActuator:
             namespace=None,
         )
         if not ok:
-            return None, actual_cluster or "unable to verify Kubernetes context cluster"
+            return actual_cluster or "unable to verify Kubernetes context cluster"
         if actual_cluster.strip() != identity.cluster:
-            return None, "Kubernetes context resolves to an unexpected cluster"
-        return raw, ""
+            return "Kubernetes context resolves to an unexpected cluster"
+        return ""
 
     @staticmethod
     def _metadata(raw: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -606,17 +688,26 @@ class KubernetesActuator:
             spec = {}
         return metadata, spec
 
-    def _verify_resource(
+    def _verify_kind_unchanged(
         self,
         identity: KubernetesResourceIdentity,
         raw: dict[str, Any],
-    ) -> tuple[bool, str, int | None]:
-        metadata, spec = self._metadata(raw)
+        metadata: dict[str, Any],
+    ) -> str:
         actual_kind = str(raw.get("kind") or metadata.get("kind") or "")
-        if actual_kind:
-            canonical_kind = _K8S_WORKLOAD_KINDS.get(actual_kind.lower())
-            if canonical_kind != identity.workload_kind:
-                return False, "Kubernetes workload kind changed", None
+        if not actual_kind:
+            return ""
+        canonical_kind = _K8S_WORKLOAD_KINDS.get(actual_kind.lower())
+        if canonical_kind != identity.workload_kind:
+            return "Kubernetes workload kind changed"
+        return ""
+
+    def _verify_identity_fields(
+        self,
+        identity: KubernetesResourceIdentity,
+        raw: dict[str, Any],
+        metadata: dict[str, Any],
+    ) -> str:
         checks = (
             ("name", metadata.get("name"), identity.name),
             ("namespace", metadata.get("namespace"), identity.namespace),
@@ -629,8 +720,12 @@ class KubernetesActuator:
         )
         for field, actual, expected in checks:
             if str(actual or "") != expected:
-                return False, f"Kubernetes {field} precondition mismatch", None
+                return f"Kubernetes {field} precondition mismatch"
+        return ""
 
+    def _verify_explicit_bindings(
+        self, identity: KubernetesResourceIdentity, raw: dict[str, Any]
+    ) -> str:
         # An injected registry reader may provide these explicit bindings; a
         # kubectl JSON response cannot, so the default reader already checked
         # the context→cluster relation above.
@@ -640,8 +735,13 @@ class KubernetesActuator:
         ):
             actual = raw.get(field)
             if actual is not None and str(actual) != expected:
-                return False, f"Kubernetes {field} binding mismatch", None
+                return f"Kubernetes {field} binding mismatch"
+        return ""
 
+    @staticmethod
+    def _verified_replica_count(
+        spec: dict[str, Any], raw: dict[str, Any]
+    ) -> tuple[bool, str, int | None]:
         replicas_raw = spec.get("replicas", raw.get("replicas"))
         if replicas_raw is None:
             return True, "", None
@@ -652,6 +752,94 @@ class KubernetesActuator:
         if replicas < 0:
             return False, "Kubernetes replica count is negative", None
         return True, "", replicas
+
+    def _verify_resource(
+        self,
+        identity: KubernetesResourceIdentity,
+        raw: dict[str, Any],
+    ) -> tuple[bool, str, int | None]:
+        metadata, spec = self._metadata(raw)
+        error = self._verify_kind_unchanged(identity, raw, metadata)
+        if error:
+            return False, error, None
+        error = self._verify_identity_fields(identity, raw, metadata)
+        if error:
+            return False, error, None
+        error = self._verify_explicit_bindings(identity, raw)
+        if error:
+            return False, error, None
+        return self._verified_replica_count(spec, raw)
+
+    def _call_scale_down_guard(
+        self,
+        guard: Any,
+        identity: KubernetesResourceIdentity,
+        current_replicas: int,
+        desired_replicas: int,
+        request: ActionRequest,
+    ) -> tuple[dict[str, Any] | None, str]:
+        """Invoke the scale-down guard (an ``assess`` method or a plain
+        callable). Returns ``(evidence, error)``; exactly one is falsy."""
+        try:
+            assessor = getattr(guard, "assess", None)
+            if callable(assessor):
+                evidence = assessor(
+                    identity, current_replicas, desired_replicas, request
+                )
+            elif callable(guard):
+                evidence = guard(identity, current_replicas, desired_replicas, request)
+            else:
+                return None, "scale-down guard is not callable"
+        except Exception as exc:  # noqa: BLE001 — guard errors fail closed
+            return None, f"scale-down guard failed: {exc}"
+        if not isinstance(evidence, dict):
+            return None, "scale-down guard returned invalid evidence"
+        return evidence, ""
+
+    @staticmethod
+    def _validate_drain_confirmation(
+        identity: KubernetesResourceIdentity, evidence: dict[str, Any]
+    ) -> str:
+        if evidence.get("drained") is not True:
+            return "scale-down drain evidence is not confirmed"
+        if evidence.get("stabilized") is not True:
+            return "scale-down stabilization evidence is not confirmed"
+        evidence_rv = evidence.get("resource_version", evidence.get("resourceVersion"))
+        if str(evidence_rv or "") != identity.resource_version:
+            return "scale-down evidence is stale for resourceVersion"
+        return ""
+
+    @staticmethod
+    def _validate_drain_replica_counts(
+        evidence: dict[str, Any], current_replicas: int, desired_replicas: int
+    ) -> str:
+        try:
+            observed_replicas = evidence.get("observed_replicas")
+            remaining_replicas = evidence.get("remaining_replicas")
+            if observed_replicas is None or remaining_replicas is None:
+                raise TypeError("scale-down evidence replica counts are missing")
+            if int(observed_replicas) != current_replicas:
+                return "scale-down evidence observed replica count changed"
+            if int(remaining_replicas) != desired_replicas:
+                return "scale-down evidence targets a different replica count"
+        except (TypeError, ValueError):
+            return "scale-down evidence lacks bounded replica counts"
+        return ""
+
+    @staticmethod
+    def _validate_drain_quorum(
+        identity: KubernetesResourceIdentity, evidence: dict[str, Any]
+    ) -> str:
+        # Every StatefulSet reduction requires explicit quorum safety.  This
+        # also covers raft/engine members without relying on name heuristics.
+        if (
+            identity.workload_kind == "StatefulSet"
+            and evidence.get("quorum_safe") is not True
+        ):
+            return "StatefulSet scale-down lacks quorum safety evidence"
+        if identity.quorum_required and evidence.get("quorum_safe") is not True:
+            return "quorum scale-down is not safe"
+        return ""
 
     def _drain_stabilization(
         self,
@@ -667,111 +855,163 @@ class KubernetesActuator:
         guard = self.scale_down_guard
         if guard is None:
             return False, "scale-down requires NE-167 drain/stabilization evidence"
-        try:
-            assessor = getattr(guard, "assess", None)
-            if callable(assessor):
-                evidence = assessor(
-                    identity, current_replicas, desired_replicas, request
-                )
-            elif callable(guard):
-                evidence = guard(identity, current_replicas, desired_replicas, request)
-            else:
-                return False, "scale-down guard is not callable"
-        except Exception as exc:  # noqa: BLE001 — guard errors fail closed
-            return False, f"scale-down guard failed: {exc}"
-        if not isinstance(evidence, dict):
-            return False, "scale-down guard returned invalid evidence"
-        if evidence.get("drained") is not True:
-            return False, "scale-down drain evidence is not confirmed"
-        if evidence.get("stabilized") is not True:
-            return False, "scale-down stabilization evidence is not confirmed"
-        evidence_rv = evidence.get("resource_version", evidence.get("resourceVersion"))
-        if str(evidence_rv or "") != identity.resource_version:
-            return False, "scale-down evidence is stale for resourceVersion"
-        try:
-            observed_replicas = evidence.get("observed_replicas")
-            remaining_replicas = evidence.get("remaining_replicas")
-            if observed_replicas is None or remaining_replicas is None:
-                raise TypeError("scale-down evidence replica counts are missing")
-            if int(observed_replicas) != current_replicas:
-                return False, "scale-down evidence observed replica count changed"
-            if int(remaining_replicas) != desired_replicas:
-                return False, "scale-down evidence targets a different replica count"
-        except (TypeError, ValueError):
-            return False, "scale-down evidence lacks bounded replica counts"
-        # Every StatefulSet reduction requires explicit quorum safety.  This
-        # also covers raft/engine members without relying on name heuristics.
-        if (
-            identity.workload_kind == "StatefulSet"
-            and evidence.get("quorum_safe") is not True
-        ):
-            return False, "StatefulSet scale-down lacks quorum safety evidence"
-        if identity.quorum_required and evidence.get("quorum_safe") is not True:
-            return False, "quorum scale-down is not safe"
+
+        evidence, error = self._call_scale_down_guard(
+            guard, identity, current_replicas, desired_replicas, request
+        )
+        if error or evidence is None:
+            return False, error
+
+        error = self._validate_drain_confirmation(identity, evidence)
+        if error:
+            return False, error
+
+        error = self._validate_drain_replica_counts(
+            evidence, current_replicas, desired_replicas
+        )
+        if error:
+            return False, error
+
+        error = self._validate_drain_quorum(identity, evidence)
+        if error:
+            return False, error
+
         return True, ""
 
-    def apply(self, request: ActionRequest) -> dict[str, Any]:
-        if not self.available:
-            return self._failure("kubectl CLI not available")
-        target = request.target
-        if not _SAFE_TARGET.match(target or ""):
-            return self._failure(f"unsafe target name {target!r}")
-
-        identity, identity_error = self._identity(request)
-        if identity is None:
-            return self._failure(identity_error)
-
-        kind = request.kind
-        if kind not in {
+    _MUTATING_KINDS = frozenset(
+        {
             "restart_service",
             "scale_service",
             "deploy_service",
             "redeploy_stack",
             "rollback_service",
             "stop_service",
-        }:
-            return self._failure(f"unsupported action kind {kind!r}")
+        }
+    )
+
+    def _apply_target_and_kind_gate(
+        self, request: ActionRequest
+    ) -> tuple[dict[str, Any] | None, KubernetesResourceIdentity | None]:
+        """Preflight: CLI available, safe target, resolvable identity,
+        supported kind, and controller-mode ownership for replica-changing
+        kinds. Returns ``(failure, identity)``; ``identity`` is ``None`` iff
+        ``failure`` is not ``None``."""
+        if not self.available:
+            return self._failure("kubectl CLI not available"), None
+        target = request.target
+        if not _SAFE_TARGET.match(target or ""):
+            return self._failure(f"unsafe target name {target!r}"), None
+
+        identity, identity_error = self._identity(request)
+        if identity is None:
+            return self._failure(identity_error), None
+
+        kind = request.kind
+        if kind not in self._MUTATING_KINDS:
+            return self._failure(f"unsupported action kind {kind!r}"), None
         if (
             kind in {"scale_service", "stop_service"}
             and identity.controller_mode != "native"
         ):
-            return self._failure(
-                f"replica ownership delegated to {identity.controller_mode}"
+            return (
+                self._failure(
+                    f"replica ownership delegated to {identity.controller_mode}"
+                ),
+                None,
             )
+        return None, identity
 
+    def _apply_read_and_verify(
+        self, identity: KubernetesResourceIdentity
+    ) -> tuple[dict[str, Any] | None, int | None]:
+        """Returns ``(failure, current_replicas)``."""
         raw, read_error = self._read_resource(identity)
         if raw is None:
-            return self._failure(read_error)
+            return self._failure(read_error), None
         matches, mismatch, current_replicas = self._verify_resource(identity, raw)
         if not matches:
-            return self._failure(mismatch)
+            return self._failure(mismatch), None
+        return None, current_replicas
 
-        replicas: int | None = None
-        if kind == "scale_service":
-            try:
-                replicas_param = request.params.get("replicas")
-                if replicas_param is None:
-                    raise TypeError("replicas param is missing")
-                replicas = int(replicas_param)
-            except (TypeError, ValueError):
-                return self._failure("scale_service requires an integer replica count")
-            if replicas < 0 or replicas > 1_000_000:
-                return self._failure("replica count is outside the bounded range")
-            allowed, guard_error = self._drain_stabilization(
-                identity, current_replicas, replicas, request
+    def _apply_scale_replicas_gate(
+        self,
+        request: ActionRequest,
+        identity: KubernetesResourceIdentity,
+        current_replicas: int | None,
+    ) -> tuple[dict[str, Any] | None, int | None]:
+        """For ``scale_service``: parse+bound the requested replica count
+        and run the drain-stabilization guard. Returns
+        ``(failure, replicas)``."""
+        try:
+            replicas_param = request.params.get("replicas")
+            if replicas_param is None:
+                raise TypeError("replicas param is missing")
+            replicas = int(replicas_param)
+        except (TypeError, ValueError):
+            return (
+                self._failure("scale_service requires an integer replica count"),
+                None,
             )
-            if not allowed:
-                return self._failure(guard_error)
-        elif kind == "stop_service":
-            allowed, guard_error = self._drain_stabilization(
-                identity, current_replicas, 0, request
-            )
-            if not allowed:
-                return self._failure(guard_error)
+        if replicas < 0 or replicas > 1_000_000:
+            return self._failure("replica count is outside the bounded range"), None
+        allowed, guard_error = self._drain_stabilization(
+            identity, current_replicas, replicas, request
+        )
+        if not allowed:
+            return self._failure(guard_error), None
+        return None, replicas
 
+    def _apply_stop_gate(
+        self,
+        request: ActionRequest,
+        identity: KubernetesResourceIdentity,
+        current_replicas: int | None,
+    ) -> dict[str, Any] | None:
+        allowed, guard_error = self._drain_stabilization(
+            identity, current_replicas, 0, request
+        )
+        if not allowed:
+            return self._failure(guard_error)
+        return None
+
+    def _apply_deploy_mutation(
+        self,
+        request: ActionRequest,
+        identity: KubernetesResourceIdentity,
+        workload: str,
+        run_kwargs: dict[str, Any],
+    ) -> tuple[dict[str, Any] | None, bool, str]:
+        """``deploy_service``/``redeploy_stack``: validate container/image
+        then mutate. Returns ``(failure, ok, out)``; ``ok``/``out`` are
+        unused when ``failure`` is not ``None``."""
+        image = str(request.params.get("image") or "")
+        container = str(request.params.get("container") or identity.name)
+        if not _SAFE_TARGET.fullmatch(container):
+            return (
+                self._failure(f"unsafe Kubernetes container name {container!r}"),
+                False,
+                "",
+            )
+        if len(image) > 500 or any(char.isspace() or ord(char) < 32 for char in image):
+            return self._failure("unsafe Kubernetes image reference"), False, ""
+        if image:
+            ok, out = self._run(
+                "set", "image", workload, f"{container}={image}", **run_kwargs
+            )
+        else:
+            ok, out = self._run("rollout", "restart", workload, **run_kwargs)
+        return None, ok, out
+
+    def _apply_mutation(
+        self,
+        request: ActionRequest,
+        identity: KubernetesResourceIdentity,
+        replicas: int | None,
+    ) -> tuple[dict[str, Any] | None, bool, str]:
+        kind = request.kind
         workload = f"{identity.workload_kind.lower()}/{identity.name}"
         run_kwargs = {"context": identity.context, "namespace": identity.namespace}
-        mutation_started = True
+
         if kind == "restart_service":
             ok, out = self._run("rollout", "restart", workload, **run_kwargs)
         elif kind == "scale_service":
@@ -783,20 +1023,7 @@ class KubernetesActuator:
                 **run_kwargs,
             )
         elif kind in ("deploy_service", "redeploy_stack"):
-            image = str(request.params.get("image") or "")
-            container = str(request.params.get("container") or identity.name)
-            if not _SAFE_TARGET.fullmatch(container):
-                return self._failure(f"unsafe Kubernetes container name {container!r}")
-            if len(image) > 500 or any(
-                char.isspace() or ord(char) < 32 for char in image
-            ):
-                return self._failure("unsafe Kubernetes image reference")
-            if image:
-                ok, out = self._run(
-                    "set", "image", workload, f"{container}={image}", **run_kwargs
-                )
-            else:
-                ok, out = self._run("rollout", "restart", workload, **run_kwargs)
+            return self._apply_deploy_mutation(request, identity, workload, run_kwargs)
         elif kind == "rollback_service":
             ok, out = self._run("rollout", "undo", workload, **run_kwargs)
         elif kind == "stop_service":
@@ -807,6 +1034,35 @@ class KubernetesActuator:
                 f"--resource-version={identity.resource_version}",
                 **run_kwargs,
             )
+        return None, ok, out
+
+    def apply(self, request: ActionRequest) -> dict[str, Any]:
+        failure, identity = self._apply_target_and_kind_gate(request)
+        if identity is None:
+            assert failure is not None
+            return failure
+
+        failure, current_replicas = self._apply_read_and_verify(identity)
+        if failure is not None:
+            return failure
+
+        replicas: int | None = None
+        kind = request.kind
+        if kind == "scale_service":
+            failure, replicas = self._apply_scale_replicas_gate(
+                request, identity, current_replicas
+            )
+            if failure is not None:
+                return failure
+        elif kind == "stop_service":
+            failure = self._apply_stop_gate(request, identity, current_replicas)
+            if failure is not None:
+                return failure
+
+        mutation_started = True
+        failure, ok, out = self._apply_mutation(request, identity, replicas)
+        if failure is not None:
+            return failure
         return self._result(ok, out, mutation_started=mutation_started)
 
 
@@ -970,6 +1226,384 @@ def _bounded_detail(result: dict[str, Any]) -> str:
     return str(result.get("detail", ""))[:500]
 
 
+@dataclass
+class _ExecutionIds:
+    """Bundled per-call idempotency identifiers, threaded through every
+    ``execute_action`` step (keeps each extracted function's parameter
+    count under the cap)."""
+
+    key: str
+    record_id: str
+    request_digest: str
+
+
+def _prepare_outbox(
+    store: ActionOutboxStore,
+    request: ActionRequest,
+    ids: _ExecutionIds,
+    timestamp: float,
+    approval_id: str | None,
+) -> dict[str, Any]:
+    """Call ``store.prepare(...)``, normalizing failures/invalid results to
+    a dict with ``accepted: False`` (fail-closed)."""
+    try:
+        prepared = store.prepare(
+            {
+                "operation": "prepare",
+                "idempotency_key": ids.key,
+                "execution_id": ids.record_id,
+                "kind": request.kind,
+                "target": request.target,
+                "params": dict(request.params),
+                "source": request.source,
+                "reason": request.reason[:500],
+                "approval_id": str(approval_id or ""),
+                "request_digest": ids.request_digest,
+                "created_unix": timestamp,
+            }
+        )
+    except Exception as exc:  # noqa: BLE001 — injected durability failures fail closed
+        logger.warning("fleet action outbox prepare failed: %s", exc)
+        return {
+            "accepted": False,
+            "durability_available": True,
+            "outcome_unknown": True,
+            "reason": "native action outbox prepare failed",
+        }
+    if not isinstance(prepared, dict):
+        return {
+            "accepted": False,
+            "durability_available": True,
+            "outcome_unknown": True,
+            "reason": "native action outbox returned an invalid prepare result",
+        }
+    return prepared
+
+
+def _outbox_rejection_result(
+    prepared: dict[str, Any], act: FleetActuator, ids: _ExecutionIds
+) -> dict[str, Any]:
+    known_rejection = bool(
+        prepared.get("conflict")
+        or prepared.get("rejected")
+        or prepared.get("outcome_unknown") is False
+    )
+    return {
+        "ok": False,
+        "dry_run": False,
+        "state": _OUTBOX_FAILED
+        if known_rejection or not prepared.get("outcome_unknown")
+        else _OUTBOX_RECOVERY_PENDING,
+        "real_execution": False,
+        "actuator": getattr(act, "name", "?"),
+        "execution_id": ids.record_id,
+        "idempotency_key": ids.key,
+        "request_digest": ids.request_digest,
+        "outbox_status": str(prepared.get("status") or "unavailable"),
+        # A durable rejection/conflict is still an authoritative
+        # outbox response, so do not fall back to a non-transactional
+        # approval stamp. A missing authority is distinct below.
+        "outbox_prepared": bool(prepared.get("durability_available")),
+        "detail": str(prepared.get("reason") or "durable action intent unavailable")[
+            :500
+        ],
+        "durability_unavailable": not bool(prepared.get("durability_available")),
+        "outcome_unknown": bool(prepared.get("outcome_unknown")),
+    }
+
+
+def _replay_terminal_result(
+    store: ActionOutboxStore,
+    prior_state: str,
+    act: FleetActuator,
+    ids: _ExecutionIds,
+    approval_id: str | None,
+    prepared: dict[str, Any],
+) -> dict[str, Any]:
+    """A duplicate approval or process restart must not call the actuator
+    again. A completion retry can repair an approval close without redoing
+    the side effect."""
+    replay_approval_id = str(approval_id or prepared.get("approval_id") or "")
+    try:
+        replay_completion = store.complete(
+            {
+                "operation": "complete",
+                "idempotency_key": ids.key,
+                "execution_id": ids.record_id,
+                "state": prior_state,
+                "ok": prior_state != _OUTBOX_FAILED,
+                "dry_run": prior_state == _OUTBOX_SIMULATED,
+                "approval_id": replay_approval_id,
+                "approval_status": prior_state,
+                "request_digest": ids.request_digest,
+                "replay": True,
+            }
+        )
+    except Exception as exc:  # noqa: BLE001 — replay completion remains pending
+        logger.warning("fleet action outbox replay completion failed: %s", exc)
+        replay_completion = {"accepted": False}
+    if not isinstance(replay_completion, dict):
+        replay_completion = {"accepted": False}
+    approval_committed = bool(replay_completion.get("approval_committed"))
+    completion_accepted = _outbox_completion_matches(replay_completion, prior_state)
+    if replay_approval_id and (not completion_accepted or not approval_committed):
+        return {
+            "ok": False,
+            "dry_run": prior_state == _OUTBOX_SIMULATED,
+            "state": _OUTBOX_RECOVERY_PENDING,
+            "real_execution": False,
+            "actuator": getattr(act, "name", "?"),
+            "execution_id": ids.record_id,
+            "idempotency_key": ids.key,
+            "replayed": True,
+            "approval_committed": False,
+            "outbox_status": prior_state,
+            "outbox_prepared": True,
+            "outcome_unknown": True,
+            "detail": "approval completion requires durable retry",
+        }
+    return {
+        "ok": prior_state != _OUTBOX_FAILED,
+        "dry_run": prior_state == _OUTBOX_SIMULATED,
+        "state": prior_state,
+        "real_execution": prior_state
+        in {_OUTBOX_EXECUTED, _OUTBOX_OBSERVED, _OUTBOX_VERIFIED},
+        "actuator": getattr(act, "name", "?"),
+        "execution_id": ids.record_id,
+        "idempotency_key": ids.key,
+        "request_digest": ids.request_digest,
+        "replayed": True,
+        "approval_committed": approval_committed,
+        "outbox_status": prior_state,
+        "outbox_prepared": True,
+    }
+
+
+def _replay_non_terminal_result(
+    act: FleetActuator, ids: _ExecutionIds, prior_state: str
+) -> dict[str, Any]:
+    # A durable prepared/executing record has an unknown external
+    # outcome. Do not call the actuator again; observer reconciliation
+    # must settle it or an operator must issue a new explicit key.
+    return {
+        "ok": False,
+        "dry_run": False,
+        "state": _OUTBOX_RECOVERY_PENDING,
+        "real_execution": False,
+        "actuator": getattr(act, "name", "?"),
+        "execution_id": ids.record_id,
+        "idempotency_key": ids.key,
+        "request_digest": ids.request_digest,
+        "replayed": True,
+        "outbox_status": prior_state or _OUTBOX_PREPARED,
+        "outbox_prepared": True,
+        "outcome_unknown": True,
+        "detail": "durable action outcome requires observation/recovery",
+    }
+
+
+def _handle_outbox_replay(
+    store: ActionOutboxStore,
+    prepared: dict[str, Any],
+    act: FleetActuator,
+    ids: _ExecutionIds,
+    approval_id: str | None,
+) -> dict[str, Any]:
+    prior_state = str(prepared.get("status") or "")
+    if prior_state in _OUTBOX_TERMINAL:
+        return _replay_terminal_result(
+            store, prior_state, act, ids, approval_id, prepared
+        )
+    return _replay_non_terminal_result(act, ids, prior_state)
+
+
+def _fence_action(
+    act: FleetActuator,
+    store: ActionOutboxStore,
+    request: ActionRequest,
+    ids: _ExecutionIds,
+    timestamp: float,
+    approval_id: str | None,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Durably fence a non-dry-run action before ``apply`` is ever called.
+
+    Returns ``(early_result, prepared)``. When ``early_result`` is not
+    ``None`` the caller must return it immediately without calling the
+    actuator. Otherwise ``prepared`` is either ``None`` (dry-run actuator --
+    skip the outbox entirely) or the accepted prepare record to complete
+    later.
+    """
+    # Dry-run has no external side effect and can be exercised even when the
+    # native outbox capability is not installed. Every real actuator must pass
+    # the durable preflight below; there is no graph-node fallback.
+    if _dry_run_actuator(act):
+        return None, None
+    prepared = _prepare_outbox(store, request, ids, timestamp, approval_id)
+    if not _outbox_accepted(prepared):
+        return _outbox_rejection_result(prepared, act, ids), None
+    if prepared.get("replayed"):
+        return _handle_outbox_replay(store, prepared, act, ids, approval_id), None
+    return None, prepared
+
+
+def _run_actuator(
+    act: FleetActuator, request: ActionRequest
+) -> tuple[dict[str, Any], bool]:
+    """Call ``act.apply(request)``, normalizing to a dict and never letting
+    a misbehaving actuator raise out. Returns ``(result, apply_raised)``."""
+    apply_raised = False
+    try:
+        result = act.apply(request) or {}
+    except Exception as e:  # noqa: BLE001 — a misbehaving actuator never raises out
+        apply_raised = True
+        result = {"ok": False, "dry_run": False, "detail": f"actuator error: {e}"}
+    if not isinstance(result, dict):
+        result = {
+            "ok": False,
+            "dry_run": False,
+            "detail": "actuator returned an invalid result",
+        }
+    return result, apply_raised
+
+
+def _compute_execution_state(outcome_unknown: bool, dry_run: bool, ok: bool) -> str:
+    if outcome_unknown:
+        # An actuator timeout after issuing a mutating command cannot be
+        # treated as an ordinary rejection: the external world may already
+        # have changed. Preserve the outbox's no-replay guarantee and let
+        # positive observation settle it instead.
+        return _OUTBOX_RECOVERY_PENDING
+    if dry_run:
+        return _OUTBOX_SIMULATED
+    if ok:
+        return _OUTBOX_EXECUTED
+    return _OUTBOX_FAILED
+
+
+@dataclass
+class _ExecutionOutcome:
+    """Mutable state carrying the actuator result through
+    ``execute_action``'s completion/record/response phases."""
+
+    result: dict[str, Any]
+    apply_raised: bool
+    dry_run: bool
+    ok: bool
+    outcome_unknown: bool
+    execution_state: str
+    executed_unix: float
+    approval_status: str
+    approval_committed: bool = True
+    completion: dict[str, Any] | None = None
+
+
+def _build_execution_outcome(
+    result: dict[str, Any], apply_raised: bool
+) -> _ExecutionOutcome:
+    dry_run = bool(result.get("dry_run"))
+    ok = bool(result.get("ok"))
+    outcome_unknown = apply_raised or bool(result.get("outcome_unknown"))
+    execution_state = _compute_execution_state(outcome_unknown, dry_run, ok)
+    return _ExecutionOutcome(
+        result=result,
+        apply_raised=apply_raised,
+        dry_run=dry_run,
+        ok=ok,
+        outcome_unknown=outcome_unknown,
+        execution_state=execution_state,
+        executed_unix=time.time(),
+        approval_status=execution_state,
+    )
+
+
+def _complete_outbox(
+    store: ActionOutboxStore,
+    ids: _ExecutionIds,
+    approval_id: str | None,
+    outcome: _ExecutionOutcome,
+) -> None:
+    """Complete the durable outbox record, mutating ``outcome`` in place
+    when the durable completion couldn't be confirmed (fail closed to
+    RECOVERY_PENDING)."""
+    try:
+        completion = store.complete(
+            {
+                "operation": "complete",
+                "idempotency_key": ids.key,
+                "execution_id": ids.record_id,
+                "state": outcome.execution_state,
+                "ok": outcome.ok and not outcome.outcome_unknown,
+                "dry_run": outcome.dry_run,
+                "detail": _bounded_detail(outcome.result),
+                "executed_unix": outcome.executed_unix,
+                "approval_id": str(approval_id or ""),
+                "approval_status": outcome.approval_status,
+                "request_digest": ids.request_digest,
+                "outcome_unknown": outcome.outcome_unknown,
+            }
+        )
+    except Exception as exc:  # noqa: BLE001 — completion loss is an ambiguous outcome
+        logger.warning("fleet action outbox completion failed: %s", exc)
+        completion = {"accepted": False}
+    if not isinstance(completion, dict):
+        completion = {"accepted": False}
+    outcome.completion = completion
+    if not _outbox_completion_matches(completion, outcome.execution_state):
+        # The actuator may already have changed the world, but the
+        # durable outcome/approval close is unknown. Never claim success
+        # or issue a second side effect; return a recovery marker.
+        outcome.execution_state = _OUTBOX_RECOVERY_PENDING
+        outcome.ok = False
+        outcome.approval_committed = False
+        return
+    outcome.approval_committed = bool(
+        completion.get("approval_committed", not bool(approval_id))
+    )
+    if approval_id and not outcome.approval_committed:
+        outcome.execution_state = _OUTBOX_RECOVERY_PENDING
+        outcome.ok = False
+
+
+def _record_action_execution_node(
+    engine: Any,
+    request: ActionRequest,
+    act: FleetActuator,
+    ids: _ExecutionIds,
+    approval_id: str | None,
+    outcome: _ExecutionOutcome,
+) -> None:
+    """Keep the historical ActionExecution projection for query
+    compatibility. The durable outbox completion above is the authority;
+    this projection is never used as the pre-side-effect fence."""
+    if engine is None:
+        return
+    try:
+        engine.add_node(
+            ids.record_id,
+            "ActionExecution",
+            properties={
+                "kind": request.kind,
+                "target": request.target,
+                "params_json": json.dumps(request.params, default=str)[:2000],
+                "source": request.source,
+                "actuator": getattr(act, "name", act.__class__.__name__),
+                "ok": outcome.ok,
+                "dry_run": outcome.dry_run,
+                "state": outcome.execution_state,
+                "real_execution": outcome.ok and not outcome.dry_run,
+                "detail": str(outcome.result.get("detail", ""))[:500],
+                "idempotency_key": ids.key,
+                "outbox_status": outcome.execution_state,
+                "approval_id": str(approval_id or ""),
+                "request_digest": ids.request_digest,
+                "executed_at": _now_iso(),
+                "executed_unix": outcome.executed_unix,
+            },
+        )
+    except Exception as e:  # noqa: BLE001 — result["ok"] is already finalized (from act.apply or the actuator-error dict above) before this write; a failure here only drops the ActionExecution audit node, the caller's returned dict is unaffected
+        logger.debug("execute_action: record write failed: %s", e)
+
+
 def execute_action(
     engine: Any,
     request: ActionRequest,
@@ -992,280 +1626,45 @@ def execute_action(
     """
     act = actuator or get_fleet_actuator()
     key = _action_idempotency_key(request, idempotency_key)
-    request_digest = _action_request_digest(request)
-    record_id = _execution_id(key)
+    ids = _ExecutionIds(
+        key=key,
+        record_id=_execution_id(key),
+        request_digest=_action_request_digest(request),
+    )
     timestamp = time.time()
 
-    # Dry-run has no external side effect and can be exercised even when the
-    # native outbox capability is not installed. Every real actuator must pass
-    # the durable preflight below; there is no graph-node fallback.
     store = outbox_store or EngineActionOutboxStore(engine)
-    prepared: dict[str, Any] | None = None
-    if not _dry_run_actuator(act):
-        try:
-            prepared = store.prepare(
-                {
-                    "operation": "prepare",
-                    "idempotency_key": key,
-                    "execution_id": record_id,
-                    "kind": request.kind,
-                    "target": request.target,
-                    "params": dict(request.params),
-                    "source": request.source,
-                    "reason": request.reason[:500],
-                    "approval_id": str(approval_id or ""),
-                    "request_digest": request_digest,
-                    "created_unix": timestamp,
-                }
-            )
-        except Exception as exc:  # noqa: BLE001 — injected durability failures fail closed
-            logger.warning("fleet action outbox prepare failed: %s", exc)
-            prepared = {
-                "accepted": False,
-                "durability_available": True,
-                "outcome_unknown": True,
-                "reason": "native action outbox prepare failed",
-            }
-        if not isinstance(prepared, dict):
-            prepared = {
-                "accepted": False,
-                "durability_available": True,
-                "outcome_unknown": True,
-                "reason": "native action outbox returned an invalid prepare result",
-            }
-        if not _outbox_accepted(prepared):
-            known_rejection = bool(
-                prepared.get("conflict")
-                or prepared.get("rejected")
-                or prepared.get("outcome_unknown") is False
-            )
-            return {
-                "ok": False,
-                "dry_run": False,
-                "state": _OUTBOX_FAILED
-                if known_rejection or not prepared.get("outcome_unknown")
-                else _OUTBOX_RECOVERY_PENDING,
-                "real_execution": False,
-                "actuator": getattr(act, "name", "?"),
-                "execution_id": record_id,
-                "idempotency_key": key,
-                "request_digest": request_digest,
-                "outbox_status": str(prepared.get("status") or "unavailable"),
-                # A durable rejection/conflict is still an authoritative
-                # outbox response, so do not fall back to a non-transactional
-                # approval stamp. A missing authority is distinct below.
-                "outbox_prepared": bool(prepared.get("durability_available")),
-                "detail": str(
-                    prepared.get("reason") or "durable action intent unavailable"
-                )[:500],
-                "durability_unavailable": not bool(
-                    prepared.get("durability_available")
-                ),
-                "outcome_unknown": bool(prepared.get("outcome_unknown")),
-            }
-        if prepared.get("replayed"):
-            prior_state = str(prepared.get("status") or "")
-            if prior_state in _OUTBOX_TERMINAL:
-                # A duplicate approval or process restart must not call the
-                # actuator again. A completion retry can repair an approval
-                # close without redoing the side effect.
-                replay_approval_id = str(
-                    approval_id or prepared.get("approval_id") or ""
-                )
-                try:
-                    replay_completion = store.complete(
-                        {
-                            "operation": "complete",
-                            "idempotency_key": key,
-                            "execution_id": record_id,
-                            "state": prior_state,
-                            "ok": prior_state != _OUTBOX_FAILED,
-                            "dry_run": prior_state == _OUTBOX_SIMULATED,
-                            "approval_id": replay_approval_id,
-                            "approval_status": prior_state,
-                            "request_digest": request_digest,
-                            "replay": True,
-                        }
-                    )
-                except Exception as exc:  # noqa: BLE001 — replay completion remains pending
-                    logger.warning(
-                        "fleet action outbox replay completion failed: %s", exc
-                    )
-                    replay_completion = {"accepted": False}
-                if not isinstance(replay_completion, dict):
-                    replay_completion = {"accepted": False}
-                approval_committed = bool(replay_completion.get("approval_committed"))
-                completion_accepted = _outbox_completion_matches(
-                    replay_completion, prior_state
-                )
-                if replay_approval_id and (
-                    not completion_accepted or not approval_committed
-                ):
-                    return {
-                        "ok": False,
-                        "dry_run": prior_state == _OUTBOX_SIMULATED,
-                        "state": _OUTBOX_RECOVERY_PENDING,
-                        "real_execution": False,
-                        "actuator": getattr(act, "name", "?"),
-                        "execution_id": record_id,
-                        "idempotency_key": key,
-                        "replayed": True,
-                        "approval_committed": False,
-                        "outbox_status": prior_state,
-                        "outbox_prepared": True,
-                        "outcome_unknown": True,
-                        "detail": "approval completion requires durable retry",
-                    }
-                return {
-                    "ok": prior_state != _OUTBOX_FAILED,
-                    "dry_run": prior_state == _OUTBOX_SIMULATED,
-                    "state": prior_state,
-                    "real_execution": prior_state
-                    in {_OUTBOX_EXECUTED, _OUTBOX_OBSERVED, _OUTBOX_VERIFIED},
-                    "actuator": getattr(act, "name", "?"),
-                    "execution_id": record_id,
-                    "idempotency_key": key,
-                    "request_digest": request_digest,
-                    "replayed": True,
-                    "approval_committed": approval_committed,
-                    "outbox_status": prior_state,
-                    "outbox_prepared": True,
-                }
-            # A durable prepared/executing record has an unknown external
-            # outcome. Do not call the actuator again; observer reconciliation
-            # must settle it or an operator must issue a new explicit key.
-            return {
-                "ok": False,
-                "dry_run": False,
-                "state": _OUTBOX_RECOVERY_PENDING,
-                "real_execution": False,
-                "actuator": getattr(act, "name", "?"),
-                "execution_id": record_id,
-                "idempotency_key": key,
-                "request_digest": request_digest,
-                "replayed": True,
-                "outbox_status": prior_state or _OUTBOX_PREPARED,
-                "outbox_prepared": True,
-                "outcome_unknown": True,
-                "detail": "durable action outcome requires observation/recovery",
-            }
-
-    apply_raised = False
-    try:
-        result = act.apply(request) or {}
-    except Exception as e:  # noqa: BLE001 — a misbehaving actuator never raises out
-        apply_raised = True
-        result = {"ok": False, "dry_run": False, "detail": f"actuator error: {e}"}
-    if not isinstance(result, dict):
-        result = {
-            "ok": False,
-            "dry_run": False,
-            "detail": "actuator returned an invalid result",
-        }
-    dry_run = bool(result.get("dry_run"))
-    ok = bool(result.get("ok"))
-    # An actuator timeout after issuing a mutating command cannot be treated
-    # as an ordinary rejection: the external world may already have changed.
-    # Preserve the outbox's no-replay guarantee and let positive observation
-    # settle it instead.
-    outcome_unknown = apply_raised or bool(result.get("outcome_unknown"))
-    execution_state = (
-        _OUTBOX_RECOVERY_PENDING
-        if outcome_unknown
-        else _OUTBOX_SIMULATED
-        if dry_run
-        else _OUTBOX_EXECUTED
-        if ok
-        else _OUTBOX_FAILED
+    early_result, prepared = _fence_action(
+        act, store, request, ids, timestamp, approval_id
     )
-    executed_unix = time.time()
-    approval_status = execution_state
-    approval_committed = True
-    completion: dict[str, Any] | None = None
-    if prepared is not None:
-        try:
-            completion = store.complete(
-                {
-                    "operation": "complete",
-                    "idempotency_key": key,
-                    "execution_id": record_id,
-                    "state": execution_state,
-                    "ok": ok and not outcome_unknown,
-                    "dry_run": dry_run,
-                    "detail": _bounded_detail(result),
-                    "executed_unix": executed_unix,
-                    "approval_id": str(approval_id or ""),
-                    "approval_status": approval_status,
-                    "request_digest": request_digest,
-                    "outcome_unknown": outcome_unknown,
-                }
-            )
-        except Exception as exc:  # noqa: BLE001 — completion loss is an ambiguous outcome
-            logger.warning("fleet action outbox completion failed: %s", exc)
-            completion = {"accepted": False}
-        if not isinstance(completion, dict):
-            completion = {"accepted": False}
-        if not _outbox_completion_matches(completion, execution_state):
-            # The actuator may already have changed the world, but the
-            # durable outcome/approval close is unknown. Never claim success
-            # or issue a second side effect; return a recovery marker.
-            execution_state = _OUTBOX_RECOVERY_PENDING
-            ok = False
-            approval_committed = False
-        else:
-            approval_committed = bool(
-                completion.get("approval_committed", not bool(approval_id))
-            )
-            if approval_id and not approval_committed:
-                execution_state = _OUTBOX_RECOVERY_PENDING
-                ok = False
+    if early_result is not None:
+        return early_result
 
-    # Keep the historical ActionExecution projection for query compatibility.
-    # The durable outbox completion above is the authority; this projection is
-    # never used as the pre-side-effect fence.
-    if engine is not None:
-        try:
-            engine.add_node(
-                record_id,
-                "ActionExecution",
-                properties={
-                    "kind": request.kind,
-                    "target": request.target,
-                    "params_json": json.dumps(request.params, default=str)[:2000],
-                    "source": request.source,
-                    "actuator": getattr(act, "name", act.__class__.__name__),
-                    "ok": ok,
-                    "dry_run": dry_run,
-                    "state": execution_state,
-                    "real_execution": ok and not dry_run,
-                    "detail": str(result.get("detail", ""))[:500],
-                    "idempotency_key": key,
-                    "outbox_status": execution_state,
-                    "approval_id": str(approval_id or ""),
-                    "request_digest": request_digest,
-                    "executed_at": _now_iso(),
-                    "executed_unix": executed_unix,
-                },
-            )
-        except Exception as e:  # noqa: BLE001 — result["ok"] is already finalized (from act.apply or the actuator-error dict above) before this write; a failure here only drops the ActionExecution audit node, the caller's returned dict is unaffected
-            logger.debug("execute_action: record write failed: %s", e)
+    result, apply_raised = _run_actuator(act, request)
+    outcome = _build_execution_outcome(result, apply_raised)
+
+    if prepared is not None:
+        _complete_outbox(store, ids, approval_id, outcome)
+
+    _record_action_execution_node(engine, request, act, ids, approval_id, outcome)
+
     return {
-        **result,
-        "ok": ok,
-        "dry_run": dry_run,
-        "execution_id": record_id,
+        **outcome.result,
+        "ok": outcome.ok,
+        "dry_run": outcome.dry_run,
+        "execution_id": ids.record_id,
         "actuator": getattr(act, "name", "?"),
-        "state": execution_state,
-        "real_execution": ok and not dry_run,
-        "executed_unix": executed_unix,
-        "idempotency_key": key,
-        "request_digest": request_digest,
-        "approval_committed": approval_committed,
+        "state": outcome.execution_state,
+        "real_execution": outcome.ok and not outcome.dry_run,
+        "executed_unix": outcome.executed_unix,
+        "idempotency_key": ids.key,
+        "request_digest": ids.request_digest,
+        "approval_committed": outcome.approval_committed,
         "outbox_prepared": prepared is not None,
-        "outcome_unknown": execution_state == _OUTBOX_RECOVERY_PENDING,
+        "outcome_unknown": outcome.execution_state == _OUTBOX_RECOVERY_PENDING,
         "outbox_status": (
-            completion.get("status", execution_state)
-            if completion is not None
-            else execution_state
+            outcome.completion.get("status", outcome.execution_state)
+            if outcome.completion is not None
+            else outcome.execution_state
         ),
     }
