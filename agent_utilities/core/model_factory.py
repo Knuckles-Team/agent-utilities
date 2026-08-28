@@ -906,12 +906,26 @@ def _build_huggingface_model(
     target_api_key = api_key or config.hugging_face_api_key
     if HuggingFaceProvider is None:
         raise RuntimeError("Hugging Face's DNS-pinned client runtime is unavailable")
+    # BUG-CX-024: the installed pydantic-ai's HuggingFaceProvider.__init__
+    # explicitly raises ValueError whenever http_client is not None
+    # ("`http_client` is ignored for HuggingFace provider, please use
+    # `hf_client` instead.") -- unlike every other provider branch in this
+    # module, this SDK refuses the shared http_client outright rather than
+    # silently accepting it. Passing it unconditionally (as every sibling
+    # branch does) made this branch 100% broken: every call raised instead
+    # of returning a model. Do not forward it here.
+    #
+    # This does mean the DNS-pinned/airgap TLS context applied to every
+    # other provider's http_client (CONCEPT:AU-OS.deployment.airgap-mode)
+    # does not apply to HuggingFace requests -- the SDK gives no equivalent
+    # hook via `base_url`/`api_key` alone. Tracked as a known gap, not
+    # silently masked: an airgapped deployment that needs the huggingface
+    # provider needs a follow-up (e.g. constructing a pinned `hf_client`).
     return HuggingFaceModel(
         model_name=_model_id,
         provider=HuggingFaceProvider(
             api_key=target_api_key,
             base_url=base_url,
-            http_client=http_client,
         ),
     )
 
