@@ -165,6 +165,27 @@ def _load_secret_object(
     return value
 
 
+def _validate_header_entry(
+    raw_name: Any, raw_value: Any, normalized_names: set[str]
+) -> tuple[str, str]:
+    if not isinstance(raw_name, str) or not isinstance(raw_value, str):
+        raise ExternalGraphSchemaError("GraphQL auth profile headers are invalid")
+    name = str(raw_name)
+    rendered = str(raw_value)
+    normalized_name = name.lower()
+    if (
+        not _HEADER_RE.fullmatch(name)
+        or len(rendered.encode("utf-8")) > 16_384
+        or "\r" in rendered
+        or "\n" in rendered
+        or normalized_name in _BLOCKED_REQUEST_HEADERS
+        or normalized_name in normalized_names
+    ):
+        raise ExternalGraphSchemaError("GraphQL auth profile headers are invalid")
+    normalized_names.add(normalized_name)
+    return name, rendered
+
+
 def _validate_headers(value: Any) -> dict[str, str]:
     if value in (None, {}):
         return {}
@@ -173,23 +194,25 @@ def _validate_headers(value: Any) -> dict[str, str]:
     headers: dict[str, str] = {}
     normalized_names: set[str] = set()
     for raw_name, raw_value in value.items():
-        if not isinstance(raw_name, str) or not isinstance(raw_value, str):
-            raise ExternalGraphSchemaError("GraphQL auth profile headers are invalid")
-        name = str(raw_name)
-        rendered = str(raw_value)
-        normalized_name = name.lower()
-        if (
-            not _HEADER_RE.fullmatch(name)
-            or len(rendered.encode("utf-8")) > 16_384
-            or "\r" in rendered
-            or "\n" in rendered
-            or normalized_name in _BLOCKED_REQUEST_HEADERS
-            or normalized_name in normalized_names
-        ):
-            raise ExternalGraphSchemaError("GraphQL auth profile headers are invalid")
-        normalized_names.add(normalized_name)
+        name, rendered = _validate_header_entry(raw_name, raw_value, normalized_names)
         headers[name] = rendered
     return headers
+
+
+def _mapping_fields_lower(current: Mapping[str, Any]) -> set[str]:
+    return {str(key).strip().lower() for key in current}
+
+
+def _expanded_mapping_pending(current: Any, depth: int) -> list[tuple[Any, int]]:
+    if isinstance(current, Mapping):
+        if _mapping_fields_lower(current).intersection(_MAPPING_POLICY_PRIVATE_FIELDS):
+            raise ExternalGraphSchemaError(
+                "GraphQL mapping policy contains transport or credential material"
+            )
+        return [(item, depth + 1) for item in current.values()]
+    if isinstance(current, list | tuple):
+        return [(item, depth + 1) for item in current]
+    return []
 
 
 def _reject_private_mapping_fields(value: Mapping[str, Any]) -> None:
@@ -202,15 +225,7 @@ def _reject_private_mapping_fields(value: Mapping[str, Any]) -> None:
         visited += 1
         if visited > 100_000 or depth > 64:
             raise ExternalGraphSchemaError("GraphQL mapping policy is too complex")
-        if isinstance(current, Mapping):
-            fields = {str(key).strip().lower() for key in current}
-            if fields.intersection(_MAPPING_POLICY_PRIVATE_FIELDS):
-                raise ExternalGraphSchemaError(
-                    "GraphQL mapping policy contains transport or credential material"
-                )
-            pending.extend((item, depth + 1) for item in current.values())
-        elif isinstance(current, list | tuple):
-            pending.extend((item, depth + 1) for item in current)
+        pending.extend(_expanded_mapping_pending(current, depth))
 
 
 def _validate_optional_bound(
@@ -225,10 +240,7 @@ def _validate_optional_bound(
         raise ExternalGraphSchemaError("GraphQL source policy bound is invalid")
 
 
-def _policy_digest(profile: Mapping[str, Any]) -> str:
-    """Digest every approval-critical GraphQL policy field."""
-
-    operations = profile.get("operations") or {}
+def _default_operation_alias(profile: Mapping[str, Any], operations: Any) -> str:
     default_operation = str(profile.get("default_operation") or "")
     if (
         not default_operation
@@ -236,18 +248,29 @@ def _policy_digest(profile: Mapping[str, Any]) -> str:
         and len(operations) == 1
     ):
         default_operation = sorted(str(alias) for alias in operations)[0]
+    return default_operation
+
+
+def _policy_payload(profile: Mapping[str, Any]) -> dict[str, Any]:
+    operations = profile.get("operations") or {}
     policy = {
         "policy_format": _POLICY_FORMAT,
-        "default_operation": default_operation,
+        "default_operation": _default_operation_alias(profile, operations),
         "discovery": profile.get("discovery") or {},
         "governance": profile.get("governance") or {},
         "limits": profile.get("limits") or {},
         "operations": operations,
     }
     policy["identity_hmac_key_ref"] = str(profile.get("identity_hmac_key_ref") or "")
+    return policy
+
+
+def _policy_digest(profile: Mapping[str, Any]) -> str:
+    """Digest every approval-critical GraphQL policy field."""
+
     return hashlib.sha256(
         json.dumps(
-            policy,
+            _policy_payload(profile),
             sort_keys=True,
             separators=(",", ":"),
             allow_nan=False,
@@ -403,49 +426,34 @@ class GraphQLSourceAdapter:
             raise ExternalGraphSchemaError("GraphQL connection profile has no endpoint")
         return {"endpoint": endpoint}
 
-    def mapping_policy(self) -> dict[str, Any]:
-        if not self.refs.mapping_policy_ref:
-            return {
-                "profile_format": _POLICY_FORMAT,
-                "discovery": {
-                    "enabled": True,
-                    "allow_introspection": self.allow_introspection,
-                    "max_depth": self.discovery_max_depth,
-                },
-                "governance": {
-                    "classification": "internal",
-                    "retention": "P30D",
-                    "access": {"markings": ["external-source-quarantine"]},
-                },
-                "limits": {
-                    "max_documents": self.ingest_max_records,
-                    "max_entities": self.ingest_max_records,
-                    "max_hierarchy_depth": self.discovery_max_depth,
-                    "max_pages": 25,
-                    "max_total_response_bytes": 25_000_000,
-                    "page_size": min(self.ingest_max_records, 100),
-                },
-                "operations": {},
-            }
-        value = _load_secret_object(
-            self._resolve_ref, self.refs.mapping_policy_ref, "GraphQL mapping policy"
-        )
-        if value.get("profile_format") != _POLICY_FORMAT:
-            raise ExternalGraphSchemaError(
-                "GraphQL mapping policy format is unsupported"
-            )
-        _reject_private_mapping_fields(value)
-        allowed = {
-            "default_operation",
-            "discovery",
-            "governance",
-            "limits",
-            "operations",
-            "profile_format",
+    def _default_mapping_policy(self) -> dict[str, Any]:
+        return {
+            "profile_format": _POLICY_FORMAT,
+            "discovery": {
+                "enabled": True,
+                "allow_introspection": self.allow_introspection,
+                "max_depth": self.discovery_max_depth,
+            },
+            "governance": {
+                "classification": "internal",
+                "retention": "P30D",
+                "access": {"markings": ["external-source-quarantine"]},
+            },
+            "limits": {
+                "max_documents": self.ingest_max_records,
+                "max_entities": self.ingest_max_records,
+                "max_hierarchy_depth": self.discovery_max_depth,
+                "max_pages": 25,
+                "max_total_response_bytes": 25_000_000,
+                "page_size": min(self.ingest_max_records, 100),
+            },
+            "operations": {},
         }
-        if set(value).difference(allowed):
-            raise ExternalGraphSchemaError("GraphQL mapping policy has unknown fields")
-        operations = value.get("operations") or {}
+
+    @staticmethod
+    def _validated_mapping_policy_operations(
+        value: Mapping[str, Any], operations: Any
+    ) -> None:
         if not isinstance(operations, Mapping) or len(operations) > _MAX_OPERATIONS:
             raise ExternalGraphSchemaError(
                 "GraphQL mapping policy operations are invalid"
@@ -464,7 +472,9 @@ class GraphQLSourceAdapter:
             raise ExternalGraphSchemaError(
                 "GraphQL policies with multiple operations require a default alias"
             )
-        discovery = value.get("discovery") or {}
+
+    @staticmethod
+    def _validated_mapping_policy_discovery(discovery: Any) -> None:
         if not isinstance(discovery, Mapping) or set(discovery).difference(
             {
                 "accept_bounded_probe",
@@ -483,7 +493,9 @@ class GraphQLSourceAdapter:
         if len(str(discovery.get("probe_query") or "").encode("utf-8")) > 200_000:
             raise ExternalGraphSchemaError("GraphQL discovery policy is invalid")
         _validate_optional_bound(discovery, "max_depth", minimum=1, maximum=12)
-        limits = value.get("limits") or {}
+
+    @staticmethod
+    def _validated_mapping_policy_limits(limits: Any) -> None:
         if not isinstance(limits, Mapping) or set(limits).difference(
             {
                 "max_documents",
@@ -504,6 +516,32 @@ class GraphQLSourceAdapter:
             ("page_size", 1, 1_000),
         ):
             _validate_optional_bound(limits, key, minimum=minimum, maximum=maximum)
+
+    def mapping_policy(self) -> dict[str, Any]:
+        if not self.refs.mapping_policy_ref:
+            return self._default_mapping_policy()
+        value = _load_secret_object(
+            self._resolve_ref, self.refs.mapping_policy_ref, "GraphQL mapping policy"
+        )
+        if value.get("profile_format") != _POLICY_FORMAT:
+            raise ExternalGraphSchemaError(
+                "GraphQL mapping policy format is unsupported"
+            )
+        _reject_private_mapping_fields(value)
+        allowed = {
+            "default_operation",
+            "discovery",
+            "governance",
+            "limits",
+            "operations",
+            "profile_format",
+        }
+        if set(value).difference(allowed):
+            raise ExternalGraphSchemaError("GraphQL mapping policy has unknown fields")
+        operations = value.get("operations") or {}
+        self._validated_mapping_policy_operations(value, operations)
+        self._validated_mapping_policy_discovery(value.get("discovery") or {})
+        self._validated_mapping_policy_limits(value.get("limits") or {})
         return dict(value)
 
     def _auth_headers(self) -> dict[str, str]:
@@ -616,16 +654,8 @@ class GraphQLSourceAdapter:
             max_types=max_types, max_depth=max_depth
         )
 
-    def variables(
-        self,
-        variables_ref: str | None = None,
-        *,
-        purpose: str = "",
-    ) -> dict[str, Any]:
-        ref = _runtime_ref(variables_ref, "variables_ref") or self.refs.variables_ref
-        if not ref:
-            return {}
-        value = _load_secret_object(self._resolve_ref, ref, "GraphQL variables profile")
+    @staticmethod
+    def _select_variables_scope(value: Mapping[str, Any], purpose: str) -> Any:
         selected: Any = value
         if "operations" in value or "discovery" in value:
             if set(value).difference({"discovery", "operations"}):
@@ -641,11 +671,12 @@ class GraphQLSourceAdapter:
                         "GraphQL operation variables are invalid"
                     )
                 selected = operations.get(purpose) or {}
-        if not isinstance(selected, Mapping):
-            raise ExternalGraphSchemaError("GraphQL variables profile is invalid")
-        result = dict(selected)
+        return selected
+
+    @staticmethod
+    def _rendered_variables_size(result: dict[str, Any]) -> int:
         try:
-            rendered_size = len(
+            return len(
                 json.dumps(
                     result,
                     sort_keys=True,
@@ -657,6 +688,22 @@ class GraphQLSourceAdapter:
             raise ExternalGraphSchemaError(
                 "GraphQL variables profile is invalid"
             ) from None
+
+    def variables(
+        self,
+        variables_ref: str | None = None,
+        *,
+        purpose: str = "",
+    ) -> dict[str, Any]:
+        ref = _runtime_ref(variables_ref, "variables_ref") or self.refs.variables_ref
+        if not ref:
+            return {}
+        value = _load_secret_object(self._resolve_ref, ref, "GraphQL variables profile")
+        selected = self._select_variables_scope(value, purpose)
+        if not isinstance(selected, Mapping):
+            raise ExternalGraphSchemaError("GraphQL variables profile is invalid")
+        result = dict(selected)
+        rendered_size = self._rendered_variables_size(result)
         if rendered_size > 1_000_000:
             raise ExternalGraphSchemaError("GraphQL variables exceed their bound")
         return result
@@ -1246,18 +1293,18 @@ def _generated_operation(
     )
 
 
-def _generate_mapping_policy(
-    source: GraphQLSourceAdapter,
-    base_policy: Mapping[str, Any],
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Generate deterministic operations from introspection, never sample values."""
-
+def _validate_introspection_approval(
+    source: GraphQLSourceAdapter, base_policy: Mapping[str, Any]
+) -> None:
     if not source.allow_introspection and not bool(
         (base_policy.get("discovery") or {}).get("allow_introspection", False)
     ):
         raise ExternalGraphSchemaError(
             "GraphQL operation generation requires explicit introspection approval"
         )
+
+
+def _introspected_schema(source: GraphQLSourceAdapter) -> Mapping[str, Any]:
     response = source.execute(_GRAPHQL_READ_BOOTSTRAP, {})
     schema = (
         (response.get("data") or {}).get("__schema")
@@ -1266,15 +1313,11 @@ def _generate_mapping_policy(
     )
     if not isinstance(schema, Mapping):
         raise ExternalGraphSchemaError("GraphQL operation generation found no schema")
-    query_name = str((schema.get("queryType") or {}).get("name") or "")
-    mutation_name = str((schema.get("mutationType") or {}).get("name") or "")
-    subscription_name = str((schema.get("subscriptionType") or {}).get("name") or "")
-    if not re.fullmatch(r"[_A-Za-z][_0-9A-Za-z]{0,127}", query_name) or query_name in {
-        mutation_name,
-        subscription_name,
-    }:
-        raise ExternalGraphSchemaError("GraphQL read root is missing or ambiguous")
-    types = {
+    return schema
+
+
+def _schema_object_types(schema: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    return {
         name: item
         for item in schema.get("types") or []
         if isinstance(item, Mapping)
@@ -1284,9 +1327,30 @@ def _generate_mapping_policy(
             name := str(item.get("name") or ""),
         )
     }
+
+
+def _schema_query_type(
+    schema: Mapping[str, Any], types: Mapping[str, Mapping[str, Any]]
+) -> Mapping[str, Any]:
+    query_name = str((schema.get("queryType") or {}).get("name") or "")
+    mutation_name = str((schema.get("mutationType") or {}).get("name") or "")
+    subscription_name = str((schema.get("subscriptionType") or {}).get("name") or "")
+    if not re.fullmatch(r"[_A-Za-z][_0-9A-Za-z]{0,127}", query_name) or query_name in {
+        mutation_name,
+        subscription_name,
+    }:
+        raise ExternalGraphSchemaError("GraphQL read root is missing or ambiguous")
     query_type = types.get(query_name)
     if query_type is None:
         raise ExternalGraphSchemaError("GraphQL read root is missing or ambiguous")
+    return query_type
+
+
+def _generated_operation_candidates(
+    source: GraphQLSourceAdapter,
+    query_type: Mapping[str, Any],
+    types: Mapping[str, Mapping[str, Any]],
+) -> list[tuple[str, dict[str, Any]]]:
     candidates: list[tuple[str, dict[str, Any]]] = []
     for root_name, root_field in sorted(_field_index(query_type).items()):
         operation = _generated_operation(
@@ -1305,6 +1369,20 @@ def _generate_mapping_policy(
         raise ExternalGraphSchemaError(
             "GraphQL schema has too many ambiguous bounded read operations"
         )
+    return candidates
+
+
+def _generate_mapping_policy(
+    source: GraphQLSourceAdapter,
+    base_policy: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Generate deterministic operations from introspection, never sample values."""
+
+    _validate_introspection_approval(source, base_policy)
+    schema = _introspected_schema(source)
+    types = _schema_object_types(schema)
+    query_type = _schema_query_type(schema, types)
+    candidates = _generated_operation_candidates(source, query_type, types)
     operations = {
         f"generated_read_{index:03d}": operation
         for index, (_root_name, operation) in enumerate(candidates, start=1)
@@ -1450,6 +1528,58 @@ def _validate_connector_policy(
     return aliases, mapping_count
 
 
+def _validate_source_declaration(
+    source: GraphQLSourceAdapter, connection: str, source_alias: str
+) -> None:
+    if source.connection != connection or source.source_alias != source_alias:
+        raise ExternalGraphSchemaError(
+            "GraphQL source declaration does not match request"
+        )
+
+
+def _validated_discovered_schema(schema: Any, accept_bounded_probe: bool) -> None:
+    if schema.partial and not (schema.mode == "bounded-probe" and accept_bounded_probe):
+        raise ExternalGraphSchemaError(
+            "GraphQL schema discovery was partial and was not explicitly accepted"
+        )
+
+
+def _proposal_versioning(
+    previous: Mapping[str, Any], schema_digest: str, mapping_digest: str
+) -> tuple[int, str]:
+    previous_version = int(previous.get("proposal_version") or 0)
+    unchanged = (
+        previous.get("profile_format") == _PROFILE_FORMAT
+        and previous.get("schema_digest") == schema_digest
+        and previous.get("mapping_digest") == mapping_digest
+    )
+    proposal_version = max(1, previous_version if unchanged else previous_version + 1)
+    status = (
+        "approved"
+        if unchanged and previous.get("approval_status") == "approved"
+        else "proposed"
+    )
+    return proposal_version, status
+
+
+def _public_operation_mappings(
+    operation_aliases: list[str], policy: Mapping[str, Any], identity_key: str
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "operation_token": "operation-" + _token(identity_key, "operation", alias),
+            "mapping_count": (
+                len(
+                    (policy.get("operations") or {}).get(alias, {}).get("mappings")
+                    or {}
+                )
+                or 1
+            ),
+        }
+        for alias in operation_aliases
+    ]
+
+
 def propose_graphql_mapping_profile(
     source: GraphQLSourceAdapter,
     *,
@@ -1463,18 +1593,12 @@ def propose_graphql_mapping_profile(
 
     connection = _alias(connection, "connection")
     source_alias = _alias(source_alias, "source_alias")
-    if source.connection != connection or source.source_alias != source_alias:
-        raise ExternalGraphSchemaError(
-            "GraphQL source declaration does not match request"
-        )
+    _validate_source_declaration(source, connection, source_alias)
     runtime = source.runtime_snapshot()
     schema, capabilities, accept_bounded_probe = runtime._discover_snapshot(
         max_types=max_types, max_depth=max_depth
     )
-    if schema.partial and not (schema.mode == "bounded-probe" and accept_bounded_probe):
-        raise ExternalGraphSchemaError(
-            "GraphQL schema discovery was partial and was not explicitly accepted"
-        )
+    _validated_discovered_schema(schema, accept_bounded_probe)
     policy, generation = _effective_mapping_policy(runtime, runtime.mapping_policy())
     identity_key = _identity_key(secret_store, connection, persist=False)
     operation_aliases, mapping_count = _validate_connector_policy(
@@ -1488,36 +1612,17 @@ def propose_graphql_mapping_profile(
         {**policy, "identity_hmac_key_ref": identity_key_ref}
     )
     previous = _load_profile(secret_store, connection) or {}
-    previous_version = int(previous.get("proposal_version") or 0)
-    unchanged = (
-        previous.get("profile_format") == _PROFILE_FORMAT
-        and previous.get("schema_digest") == schema.schema_digest
-        and previous.get("mapping_digest") == mapping_digest
+    proposal_version, status = _proposal_versioning(
+        previous, schema.schema_digest, mapping_digest
     )
-    proposal_version = max(1, previous_version if unchanged else previous_version + 1)
     proposal_id = "map-" + _token(
         identity_key,
         "proposal",
         f"{schema.schema_digest}:{mapping_digest}:{proposal_version}",
     )
-    status = (
-        "approved"
-        if unchanged and previous.get("approval_status") == "approved"
-        else "proposed"
+    public_mappings = _public_operation_mappings(
+        operation_aliases, policy, identity_key
     )
-    public_mappings = [
-        {
-            "operation_token": "operation-" + _token(identity_key, "operation", alias),
-            "mapping_count": (
-                len(
-                    (policy.get("operations") or {}).get(alias, {}).get("mappings")
-                    or {}
-                )
-                or 1
-            ),
-        }
-        for alias in operation_aliases
-    ]
     profile = {
         "profile_format": _PROFILE_FORMAT,
         "proposal_id": proposal_id,
@@ -1568,73 +1673,73 @@ def propose_graphql_mapping_profile(
     }
 
 
-def graphql_source_readiness(
+def _discovered_current_state(
     source: GraphQLSourceAdapter,
-    *,
     connection: str,
     secret_store: SecretStore,
-    max_types: int = 200,
-    max_depth: int = 6,
-) -> dict[str, Any]:
-    """Return only lifecycle metadata, never source schema or error text."""
-
+    approved_profile: Mapping[str, Any],
+    *,
+    max_types: int,
+    max_depth: int,
+) -> tuple[Any, Any, bool, str, dict[str, Any]]:
     from .external_graph_schema import mapping_profile_status
 
-    connection = _alias(connection, "connection")
-    status = mapping_profile_status(connection, secret_store=secret_store)
-    approved_profile = _load_profile(secret_store, connection) or {}
-    try:
-        runtime = source.runtime_snapshot()
-        schema, capabilities, accept_bounded_probe = runtime._discover_snapshot(
-            max_types=max_types, max_depth=max_depth
-        )
-        current_policy, _generation = _effective_mapping_policy(
-            runtime, runtime.mapping_policy()
-        )
-        _required_identity_key(secret_store, connection, approved_profile)
-        current_mapping_digest = _policy_digest(
-            {
-                **current_policy,
-                "identity_hmac_key_ref": approved_profile.get("identity_hmac_key_ref"),
-            }
-        )
-        status = mapping_profile_status(
-            connection,
-            secret_store=secret_store,
-            runtime_policy_digest=current_mapping_digest,
-        )
-    except Exception as exc:
-        return {
-            "status": "not_ready",
-            "connection": connection,
-            "backend": "graphql",
-            "capabilities": GraphQLDiscoveryAdapter.capabilities.public_dict(),
-            "discovery": "failed",
-            "approval": status.get("status", "not_found"),
-            "schema_drift": "unknown",
-            "mapping_drift": "unknown",
-            "ready": False,
-            "error_type": type(exc).__name__,
+    runtime = source.runtime_snapshot()
+    schema, capabilities, accept_bounded_probe = runtime._discover_snapshot(
+        max_types=max_types, max_depth=max_depth
+    )
+    current_policy, _generation = _effective_mapping_policy(
+        runtime, runtime.mapping_policy()
+    )
+    _required_identity_key(secret_store, connection, approved_profile)
+    current_mapping_digest = _policy_digest(
+        {
+            **current_policy,
+            "identity_hmac_key_ref": approved_profile.get("identity_hmac_key_ref"),
         }
-    complete = not schema.partial or (
-        schema.mode == "bounded-probe" and accept_bounded_probe
     )
-    approved_digest = str(status.get("schema_digest") or "")
-    approved_mapping_digest = str(status.get("mapping_digest") or "")
-    drift = (
-        "none"
-        if approved_digest and approved_digest == schema.schema_digest
-        else "detected"
-        if approved_digest
-        else "unapproved"
+    status = mapping_profile_status(
+        connection,
+        secret_store=secret_store,
+        runtime_policy_digest=current_mapping_digest,
     )
-    mapping_drift = (
-        "none"
-        if approved_mapping_digest and approved_mapping_digest == current_mapping_digest
-        else "detected"
-        if approved_mapping_digest
-        else "unapproved"
-    )
+    return schema, capabilities, accept_bounded_probe, current_mapping_digest, status
+
+
+def _not_ready_readiness(
+    connection: str, status: Mapping[str, Any], exc: Exception
+) -> dict[str, Any]:
+    return {
+        "status": "not_ready",
+        "connection": connection,
+        "backend": "graphql",
+        "capabilities": GraphQLDiscoveryAdapter.capabilities.public_dict(),
+        "discovery": "failed",
+        "approval": status.get("status", "not_found"),
+        "schema_drift": "unknown",
+        "mapping_drift": "unknown",
+        "ready": False,
+        "error_type": type(exc).__name__,
+    }
+
+
+def _schema_drift_status(approved_digest: str, current_digest: str) -> str:
+    if approved_digest and approved_digest == current_digest:
+        return "none"
+    if approved_digest:
+        return "detected"
+    return "unapproved"
+
+
+def _readiness_response(
+    connection: str,
+    schema: Any,
+    capabilities: Any,
+    complete: bool,
+    status: Mapping[str, Any],
+    drift: str,
+    mapping_drift: str,
+) -> dict[str, Any]:
     ready = (
         complete
         and status.get("status") == "approved"
@@ -1653,6 +1758,48 @@ def graphql_source_readiness(
         "mapping_drift": mapping_drift,
         "ready": ready,
     }
+
+
+def graphql_source_readiness(
+    source: GraphQLSourceAdapter,
+    *,
+    connection: str,
+    secret_store: SecretStore,
+    max_types: int = 200,
+    max_depth: int = 6,
+) -> dict[str, Any]:
+    """Return only lifecycle metadata, never source schema or error text."""
+
+    from .external_graph_schema import mapping_profile_status
+
+    connection = _alias(connection, "connection")
+    status = mapping_profile_status(connection, secret_store=secret_store)
+    approved_profile = _load_profile(secret_store, connection) or {}
+    try:
+        schema, capabilities, accept_bounded_probe, current_mapping_digest, status = (
+            _discovered_current_state(
+                source,
+                connection,
+                secret_store,
+                approved_profile,
+                max_types=max_types,
+                max_depth=max_depth,
+            )
+        )
+    except Exception as exc:
+        return _not_ready_readiness(connection, status, exc)
+    complete = not schema.partial or (
+        schema.mode == "bounded-probe" and accept_bounded_probe
+    )
+    drift = _schema_drift_status(
+        str(status.get("schema_digest") or ""), schema.schema_digest
+    )
+    mapping_drift = _schema_drift_status(
+        str(status.get("mapping_digest") or ""), current_mapping_digest
+    )
+    return _readiness_response(
+        connection, schema, capabilities, complete, status, drift, mapping_drift
+    )
 
 
 def graphql_mapping_profile_status(
@@ -1691,30 +1838,20 @@ def graphql_mapping_profile_status(
     )
 
 
-def ingest_registered_graphql(
-    authority_engine: Any,
-    source: GraphQLSourceAdapter,
-    *,
-    connection: str,
-    secret_store: SecretStore,
-    operation: str = "",
-    variables_ref: str = "",
-    max_records: int = 1_000,
-    max_types: int = 200,
-    max_depth: int = 6,
-    contextual: bool = True,
-    dry_run: bool = False,
+def _validated_approved_profile(
+    secret_store: SecretStore, connection: str
 ) -> dict[str, Any]:
-    """Rediscover, fail on drift, then use native connector ingestion."""
-
-    connection = _alias(connection, "connection")
-    runtime = source.runtime_snapshot()
     profile = _load_profile(secret_store, connection)
     if not profile or profile.get("profile_format") != _PROFILE_FORMAT:
         raise ExternalGraphSchemaError("GraphQL mapping proposal does not exist")
     if profile.get("approval_status") != "approved":
         raise ExternalGraphSchemaError("GraphQL mapping profile is not approved")
-    identity_key = _required_identity_key(secret_store, connection, profile)
+    return profile
+
+
+def _validated_profile_integrity(
+    profile: Mapping[str, Any], runtime: GraphQLSourceAdapter
+) -> None:
     if _policy_digest(profile) != str(profile.get("mapping_digest") or ""):
         raise ExternalGraphSchemaError("GraphQL mapping profile integrity check failed")
     current_policy, _generation = _effective_mapping_policy(
@@ -1729,6 +1866,15 @@ def ingest_registered_graphql(
         raise ExternalGraphSchemaError(
             "GraphQL mapping policy changed and requires a new approval"
         )
+
+
+def _validated_current_schema(
+    runtime: GraphQLSourceAdapter,
+    profile: Mapping[str, Any],
+    *,
+    max_types: int,
+    max_depth: int,
+) -> Any:
     schema, _capabilities, accept_bounded_probe = runtime._discover_snapshot(
         max_types=max_types, max_depth=max_depth
     )
@@ -1739,17 +1885,28 @@ def ingest_registered_graphql(
         raise ExternalGraphSchemaError(
             "GraphQL schema drift requires a new proposal and approval"
         )
+    return schema
 
+
+def _selected_ingest_operation(operation: str, profile: Mapping[str, Any]) -> str:
     selected_operation = str(operation or profile.get("default_operation") or "")
     if not _OPERATION_RE.fullmatch(selected_operation) or selected_operation not in (
         profile.get("operations") or {}
     ):
         raise ExternalGraphSchemaError("GraphQL ingest operation is not approved")
-    variables = runtime.variables(variables_ref, purpose=selected_operation)
-    runtime_profile = runtime.runtime_profile(
-        policy=profile,
-        identity_key=identity_key,
-    )
+    return selected_operation
+
+
+def _rendered_connector_config(
+    runtime: GraphQLSourceAdapter,
+    source: GraphQLSourceAdapter,
+    runtime_profile: Mapping[str, Any],
+    *,
+    selected_operation: str,
+    variables: Mapping[str, Any],
+    max_records: int,
+    dry_run: bool,
+) -> dict[str, Any]:
     runtime_ref = "secret://runtime/approved-graphql-document-profile"
     rendered_profile = json.dumps(
         runtime_profile,
@@ -1757,16 +1914,8 @@ def ingest_registered_graphql(
         separators=(",", ":"),
         allow_nan=False,
     )
-
-    from agent_utilities.knowledge_graph.ingestion.engine import (
-        ContentType,
-        IngestionEngine,
-        IngestionManifest,
-    )
-
-    ingestion = IngestionEngine(kg_engine=authority_engine)
     bounded_records = max(1, min(int(max_records), 10_000))
-    config = {
+    return {
         "source_alias": source.source_alias,
         "profile_ref": runtime_ref,
         "profile_resolver": (
@@ -1781,6 +1930,22 @@ def ingest_registered_graphql(
         "dry_run": bool(dry_run),
         "transport": runtime._transport,
     }
+
+
+def _execute_graphql_ingestion(
+    authority_engine: Any,
+    connection: str,
+    config: dict[str, Any],
+    *,
+    contextual: bool,
+) -> Any:
+    from agent_utilities.knowledge_graph.ingestion.engine import (
+        ContentType,
+        IngestionEngine,
+        IngestionManifest,
+    )
+
+    ingestion = IngestionEngine(kg_engine=authority_engine)
     result = asyncio.run(
         ingestion.ingest(
             IngestionManifest(
@@ -1797,6 +1962,10 @@ def ingest_registered_graphql(
     )
     if result.status not in {"success", "skipped"}:
         raise ExternalGraphSchemaError("GraphQL connector ingestion failed")
+    return result
+
+
+def _sanitized_ingest_details(result: Any) -> dict[str, Any]:
     details = dict(result.details or {})
     safe_details = {
         key: details[key]
@@ -1815,19 +1984,76 @@ def ingest_registered_graphql(
     }
     guard = PersistencePrivacyGuard()
     sanitized_details, _report = guard.sanitize(safe_details)
-    public_details: dict[str, Any] = (
-        dict(sanitized_details) if isinstance(sanitized_details, dict) else {}
-    )
+    return dict(sanitized_details) if isinstance(sanitized_details, dict) else {}
+
+
+def _ingest_response(
+    result: Any,
+    *,
+    dry_run: bool,
+    connection: str,
+    source_alias: str,
+    schema_digest: str,
+) -> dict[str, Any]:
+    public_details = _sanitized_ingest_details(result)
     response: dict[str, Any] = {
         "status": "dry_run" if dry_run else result.status,
         "connection": connection,
-        "source_alias": source.source_alias,
-        "schema_digest": schema.schema_digest,
+        "source_alias": source_alias,
+        "schema_digest": schema_digest,
         "nodes_created": int(result.nodes_created or 0),
         "edges_created": int(result.edges_created or 0),
     }
     response.update(public_details)
     return response
+
+
+def ingest_registered_graphql(
+    authority_engine: Any,
+    source: GraphQLSourceAdapter,
+    *,
+    connection: str,
+    secret_store: SecretStore,
+    operation: str = "",
+    variables_ref: str = "",
+    max_records: int = 1_000,
+    max_types: int = 200,
+    max_depth: int = 6,
+    contextual: bool = True,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Rediscover, fail on drift, then use native connector ingestion."""
+
+    connection = _alias(connection, "connection")
+    runtime = source.runtime_snapshot()
+    profile = _validated_approved_profile(secret_store, connection)
+    identity_key = _required_identity_key(secret_store, connection, profile)
+    _validated_profile_integrity(profile, runtime)
+    schema = _validated_current_schema(
+        runtime, profile, max_types=max_types, max_depth=max_depth
+    )
+    selected_operation = _selected_ingest_operation(operation, profile)
+    variables = runtime.variables(variables_ref, purpose=selected_operation)
+    runtime_profile = runtime.runtime_profile(policy=profile, identity_key=identity_key)
+    config = _rendered_connector_config(
+        runtime,
+        source,
+        runtime_profile,
+        selected_operation=selected_operation,
+        variables=variables,
+        max_records=max_records,
+        dry_run=dry_run,
+    )
+    result = _execute_graphql_ingestion(
+        authority_engine, connection, config, contextual=contextual
+    )
+    return _ingest_response(
+        result,
+        dry_run=dry_run,
+        connection=connection,
+        source_alias=source.source_alias,
+        schema_digest=schema.schema_digest,
+    )
 
 
 __all__ = [
