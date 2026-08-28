@@ -61,6 +61,11 @@ class DynamicWorkflowExecutionPayload(TypedDict, total=False):
     checkpoint_ids: list[str]
 
 
+def _prefer(value: Any, fallback: Any) -> Any:
+    """``value`` if truthy, else ``fallback`` -- named coalescing for binding fields."""
+    return value or fallback
+
+
 def _bounded_text(value: Any, limit: int) -> str:
     text = str(value or "")
     if len(text) <= limit:
@@ -112,34 +117,50 @@ def _search_hit_score(hit: dict[str, Any], rank: int) -> float:
     return 1.0 / (rank + 1)
 
 
-def _approval_request(payload: Any) -> dict[str, Any] | None:
-    """Extract the bounded approval handle from a delegated result."""
-
+def _coerce_approval_payload(payload: Any) -> dict[str, Any] | None:
     if isinstance(payload, str):
         try:
             payload = json.loads(payload)
         except (TypeError, ValueError):
             return None
-    if not isinstance(payload, dict):
-        return None
+    return payload if isinstance(payload, dict) else None
 
+
+def _approval_is_required(
+    payload: dict[str, Any], status: str, approval_id: Any
+) -> bool:
+    if bool(payload.get("approval_required")) or bool(approval_id):
+        return True
+    return status in {"blocked_on_approval", "suspended", "pending_approval"}
+
+
+def _approval_from_payload_fields(payload: dict[str, Any]) -> dict[str, Any] | None:
     status = str(payload.get("status") or "").casefold()
     approval_id = payload.get("approval_id")
-    required = bool(payload.get("approval_required")) or bool(approval_id)
-    if status in {"blocked_on_approval", "suspended", "pending_approval"}:
-        required = True
-    if required:
-        return {
-            "required": True,
-            "approval_id": str(approval_id or "") or None,
-            "status": status or "pending",
-            "reason": _bounded_text(
-                payload.get("reason") or payload.get("error") or "", 500
-            )
-            or None,
-        }
+    if not _approval_is_required(payload, status, approval_id):
+        return None
+    return {
+        "required": True,
+        "approval_id": str(approval_id or "") or None,
+        "status": status or "pending",
+        "reason": _bounded_text(
+            payload.get("reason") or payload.get("error") or "", 500
+        )
+        or None,
+    }
 
-    for value in payload.values():
+
+def _approval_request(payload: Any) -> dict[str, Any] | None:
+    """Extract the bounded approval handle from a delegated result."""
+    coerced = _coerce_approval_payload(payload)
+    if coerced is None:
+        return None
+
+    direct = _approval_from_payload_fields(coerced)
+    if direct is not None:
+        return direct
+
+    for value in coerced.values():
         if isinstance(value, dict | list):
             nested = _approval_request_from_collection(value)
             if nested is not None:
@@ -600,6 +621,79 @@ class Orchestrator:
                 )
         return result
 
+    def _search_hybrid_candidates(self, task: str) -> list[Any]:
+        try:
+            return list(self.engine.search_hybrid(task, top_k=24) or [])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("GraphOS capability resolution degraded: %s", exc)
+            return []
+
+    @staticmethod
+    def _candidate_from_hit(hit: Any, rank: int) -> dict[str, Any] | None:
+        if not isinstance(hit, dict):
+            return None
+        kind = _search_hit_kind(hit)
+        if not kind:
+            return None
+        props = _search_hit_properties(hit)
+        if bool(props.get("disabled")):
+            return None
+        name = str(props.get("name") or "").strip()
+        if not name:
+            return None
+        return {
+            "kind": kind,
+            "name": name,
+            "id": str(props.get("id") or ""),
+            "score": _search_hit_score(hit, rank),
+            "source": "kg_hybrid",
+            # Owning MCP server for a "tool" (or a fleet-served "skill") kind
+            # — "" for a purely local skill/agent. Carried so a resolved
+            # capability can be bound without the caller re-deriving it
+            # (CONCEPT:AU-KG.retrieval.unified-capability-contract).
+            "server": str(props.get("mcp_server") or ""),
+        }
+
+    @staticmethod
+    def _filter_permitted_candidates(
+        candidates: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not candidates:
+            return candidates
+        from agent_utilities.knowledge_graph.core.secured_reads import permit
+
+        candidate_ids = [
+            str(candidate["id"]) for candidate in candidates if candidate["id"]
+        ]
+        try:
+            permitted_ids = set(permit(candidate_ids))
+        except PermissionError as exc:
+            logger.warning("GraphOS capability permission filter denied: %s", exc)
+            permitted_ids = set()
+        return [
+            candidate
+            for candidate in candidates
+            if candidate["id"] and candidate["id"] in permitted_ids
+        ]
+
+    @staticmethod
+    def _best_candidate_resolution(
+        candidates: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        if not candidates:
+            return None
+        candidates.sort(key=lambda candidate: candidate["score"], reverse=True)
+        chosen = dict(candidates[0])
+        chosen["alternatives"] = [
+            {
+                "kind": candidate["kind"],
+                "name": candidate["name"],
+                "score": candidate["score"],
+            }
+            for candidate in candidates[1:4]
+        ]
+        return chosen
+
     def resolve_capability(self, task: str, agent_name: str = "") -> dict[str, Any]:
         """Resolve a task to an ingested skill/workflow, or the default expert.
 
@@ -619,69 +713,17 @@ class Orchestrator:
                 "alternatives": [],
             }
 
-        try:
-            hits = list(self.engine.search_hybrid(task, top_k=24) or [])
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("GraphOS capability resolution degraded: %s", exc)
-            hits = []
+        hits = self._search_hybrid_candidates(task)
+        candidates = [
+            candidate
+            for rank, hit in enumerate(hits)
+            if (candidate := self._candidate_from_hit(hit, rank)) is not None
+        ]
+        candidates = self._filter_permitted_candidates(candidates)
 
-        candidates: list[dict[str, Any]] = []
-        for rank, hit in enumerate(hits):
-            if not isinstance(hit, dict):
-                continue
-            kind = _search_hit_kind(hit)
-            if not kind:
-                continue
-            props = _search_hit_properties(hit)
-            if bool(props.get("disabled")):
-                continue
-            name = str(props.get("name") or "").strip()
-            if not name:
-                continue
-            candidates.append(
-                {
-                    "kind": kind,
-                    "name": name,
-                    "id": str(props.get("id") or ""),
-                    "score": _search_hit_score(hit, rank),
-                    "source": "kg_hybrid",
-                    # Owning MCP server for a "tool" (or a fleet-served
-                    # "skill") kind — "" for a purely local skill/agent.
-                    # Carried so a resolved capability can be bound without
-                    # the caller re-deriving it (CONCEPT:AU-KG.retrieval.unified-capability-contract).
-                    "server": str(props.get("mcp_server") or ""),
-                }
-            )
-
-        if candidates:
-            from agent_utilities.knowledge_graph.core.secured_reads import permit
-
-            candidate_ids = [
-                str(candidate["id"]) for candidate in candidates if candidate["id"]
-            ]
-            try:
-                permitted_ids = set(permit(candidate_ids))
-            except PermissionError as exc:
-                logger.warning("GraphOS capability permission filter denied: %s", exc)
-                permitted_ids = set()
-            candidates = [
-                candidate
-                for candidate in candidates
-                if candidate["id"] and candidate["id"] in permitted_ids
-            ]
-
-        candidates.sort(key=lambda candidate: candidate["score"], reverse=True)
-        if candidates:
-            chosen = dict(candidates[0])
-            chosen["alternatives"] = [
-                {
-                    "kind": candidate["kind"],
-                    "name": candidate["name"],
-                    "score": candidate["score"],
-                }
-                for candidate in candidates[1:4]
-            ]
-            return chosen
+        resolution = self._best_candidate_resolution(candidates)
+        if resolution is not None:
+            return resolution
 
         return {
             "kind": "agent",
@@ -694,30 +736,21 @@ class Orchestrator:
 
     def _run_provenance(self, run_id: str) -> dict[str, Any]:
         trace = self.get_run_trace(run_id)
-        calls = trace.get("tool_calls") if isinstance(trace, dict) else []
+        trace = trace if isinstance(trace, dict) else {}
+        calls = trace.get("tool_calls")
         if not isinstance(calls, list):
             calls = []
         return {
             "run_id": run_id,
-            "trace_ref": trace.get("trace_id") if isinstance(trace, dict) else None,
-            "status": trace.get("status") if isinstance(trace, dict) else None,
-            "execution_mode": trace.get("execution_mode")
-            if isinstance(trace, dict)
-            else None,
-            "duration_ms": trace.get("duration_ms")
-            if isinstance(trace, dict)
-            else None,
-            "skill_ref": trace.get("skill_ref") if isinstance(trace, dict) else None,
-            "server_ref": trace.get("server_ref") if isinstance(trace, dict) else None,
-            "model_ref": trace.get("model_ref") if isinstance(trace, dict) else None,
-            "model_class": trace.get("model_class")
-            if isinstance(trace, dict)
-            else None,
-            "tool_call_count": int(
-                trace.get("tool_call_count", len(calls))
-                if isinstance(trace, dict)
-                else len(calls)
-            ),
+            "trace_ref": trace.get("trace_id"),
+            "status": trace.get("status"),
+            "execution_mode": trace.get("execution_mode"),
+            "duration_ms": trace.get("duration_ms"),
+            "skill_ref": trace.get("skill_ref"),
+            "server_ref": trace.get("server_ref"),
+            "model_ref": trace.get("model_ref"),
+            "model_class": trace.get("model_class"),
+            "tool_call_count": int(trace.get("tool_call_count", len(calls))),
             "tool_calls": [
                 {
                     "sequence": call.get("sequence"),
@@ -759,6 +792,133 @@ class Orchestrator:
             "runs": compact_runs,
         }
 
+    def _validate_capability_request(
+        self,
+        *,
+        execution_mode: ExecutionMode,
+        allowed_tools: list[str] | None,
+        required_tools: list[str] | None,
+        agent_name: str,
+        skill_name: str,
+        tool_server: str,
+    ) -> tuple[ExecutionMode, list[str] | None, list[str] | None]:
+        execution_mode = validate_execution_mode(execution_mode)
+        allowed_tools, required_tools = validate_tool_contract(
+            allowed_tools, required_tools
+        )
+        if agent_name.strip() and skill_name.strip():
+            raise ValueError("agent_name and skill_name are mutually exclusive")
+        if tool_server.strip() and not skill_name.strip():
+            raise ValueError("tool_server requires skill_name")
+        validate_pydantic_graph_contract(
+            execution_mode,
+            skill_name=skill_name,
+            tool_server=tool_server,
+            allowed_tools=allowed_tools,
+        )
+        return execution_mode, allowed_tools, required_tools
+
+    async def _resolve_capability_target(
+        self, task: str, agent_name: str, skill_name: str
+    ) -> dict[str, Any]:
+        target = await asyncio.to_thread(
+            self.resolve_capability, task, agent_name=skill_name or agent_name
+        )
+        if skill_name:
+            target = {
+                **target,
+                "kind": "skill",
+                "name": skill_name,
+                "source": "caller_skill",
+            }
+        return target
+
+    async def _execute_workflow_capability(
+        self,
+        target: dict[str, Any],
+        task: str,
+        max_steps: int,
+        grounding: GroundingPolicy,
+    ) -> dict[str, Any]:
+        from agent_utilities.knowledge_graph.core.workflow_gate import (
+            gate_workflow_execution,
+        )
+
+        gate = await asyncio.to_thread(
+            gate_workflow_execution, self.engine, target["name"]
+        )
+        if gate.get("allowed") is not True:
+            return {
+                "output": "Workflow execution was refused by the ontology/ACL gate.",
+                "run_id": None,
+                "mermaid": None,
+                "resolution": target,
+                "provenance": {
+                    "workflow_id": gate.get("workflow_id"),
+                    "violations": gate.get("violations", [])[:10],
+                },
+                "approval_request": None,
+            }
+        result = await self.execute_workflow(
+            workflow_id=target["name"],
+            task=task,
+            max_steps=max_steps,
+            grounding=grounding,
+        )
+        run_id = str(result.get("run_id") or result.get("session_id") or "")
+        provenance = await asyncio.to_thread(self._workflow_provenance, run_id)
+        return {
+            "output": _bounded_text(
+                json.dumps(result, default=str), _GATEWAY_OUTPUT_LIMIT
+            ),
+            "run_id": run_id or None,
+            "mermaid": _bounded_text(
+                result.get("mermaid") or "", _GATEWAY_MERMAID_LIMIT
+            )
+            or None,
+            "resolution": target,
+            "provenance": provenance,
+            "approval_request": _approval_request(result),
+        }
+
+    @staticmethod
+    def _parse_agent_raw_payload(raw: Any) -> dict[str, Any]:
+        try:
+            payload = json.loads(raw)
+        except (TypeError, ValueError):
+            payload = {"output": str(raw)}
+        if not isinstance(payload, dict):
+            payload = {"output": str(payload)}
+        return payload
+
+    @staticmethod
+    def _apply_ungrounded_refusal(
+        payload: dict[str, Any],
+        provenance: dict[str, Any],
+        allowed_tools: list[str] | None,
+        required_tools: list[str] | None,
+    ) -> dict[str, Any]:
+        # Defense in depth for the public gateway envelope. ``run_agent`` rejects
+        # ungrounded tool-required executions before recording the trace, but a
+        # malformed/legacy runner response must not be re-labelled as success here.
+        if not (
+            (allowed_tools or required_tools)
+            and int(provenance.get("tool_call_count") or 0) == 0
+        ):
+            return provenance
+        refusal = (
+            "Tool-required execution produced no recorded ToolCall provenance; "
+            "refusing an ungrounded result."
+        )
+        payload["output"] = refusal
+        summary = payload.get("run_summary")
+        payload["run_summary"] = {
+            **(summary if isinstance(summary, dict) else {}),
+            "outcome": "degraded",
+            "failure": {"category": "ungrounded_tool_execution", "raw": refusal},
+        }
+        return {**provenance, "status": "degraded"}
+
     async def execute_capability(
         self,
         *,
@@ -786,73 +946,23 @@ class Orchestrator:
         for the ``agent``/``skill`` resolution path, and to :meth:`execute_workflow` for
         a resolved ``workflow`` — every step in the run opens the same scope.
         """
-        execution_mode = validate_execution_mode(execution_mode)
-        allowed_tools, required_tools = validate_tool_contract(
-            allowed_tools, required_tools
-        )
-        if agent_name.strip() and skill_name.strip():
-            raise ValueError("agent_name and skill_name are mutually exclusive")
-        if tool_server.strip() and not skill_name.strip():
-            raise ValueError("tool_server requires skill_name")
-        validate_pydantic_graph_contract(
-            execution_mode,
-            skill_name=skill_name,
-            tool_server=tool_server,
-            allowed_tools=allowed_tools,
+        execution_mode, allowed_tools, required_tools = (
+            self._validate_capability_request(
+                execution_mode=execution_mode,
+                allowed_tools=allowed_tools,
+                required_tools=required_tools,
+                agent_name=agent_name,
+                skill_name=skill_name,
+                tool_server=tool_server,
+            )
         )
         self._scan_task(task)
-        target = await asyncio.to_thread(
-            self.resolve_capability, task, agent_name=skill_name or agent_name
-        )
-        if skill_name:
-            target = {
-                **target,
-                "kind": "skill",
-                "name": skill_name,
-                "source": "caller_skill",
-            }
+        target = await self._resolve_capability_target(task, agent_name, skill_name)
 
         if target["kind"] == "workflow":
-            from agent_utilities.knowledge_graph.core.workflow_gate import (
-                gate_workflow_execution,
+            return await self._execute_workflow_capability(
+                target, task, max_steps, grounding
             )
-
-            gate = await asyncio.to_thread(
-                gate_workflow_execution, self.engine, target["name"]
-            )
-            if gate.get("allowed") is not True:
-                return {
-                    "output": "Workflow execution was refused by the ontology/ACL gate.",
-                    "run_id": None,
-                    "mermaid": None,
-                    "resolution": target,
-                    "provenance": {
-                        "workflow_id": gate.get("workflow_id"),
-                        "violations": gate.get("violations", [])[:10],
-                    },
-                    "approval_request": None,
-                }
-            result = await self.execute_workflow(
-                workflow_id=target["name"],
-                task=task,
-                max_steps=max_steps,
-                grounding=grounding,
-            )
-            run_id = str(result.get("run_id") or result.get("session_id") or "")
-            provenance = await asyncio.to_thread(self._workflow_provenance, run_id)
-            return {
-                "output": _bounded_text(
-                    json.dumps(result, default=str), _GATEWAY_OUTPUT_LIMIT
-                ),
-                "run_id": run_id or None,
-                "mermaid": _bounded_text(
-                    result.get("mermaid") or "", _GATEWAY_MERMAID_LIMIT
-                )
-                or None,
-                "resolution": target,
-                "provenance": provenance,
-                "approval_request": _approval_request(result),
-            }
 
         # A ``target`` resolved (not caller-supplied — an explicit skill_name
         # was already folded into ``target["kind"] == "skill"`` above) to a
@@ -861,9 +971,9 @@ class Orchestrator:
         # run the default expert scoped to just that one fleet tool, rather
         # than the wrong-shaped ``agent_name=<tool name>``.
         call_agent_name = target["name"]
-        call_tool_server = tool_server or None
+        call_tool_server = _prefer(tool_server, None)
         call_allowed_tools = allowed_tools
-        call_skill_name = skill_name or None
+        call_skill_name = _prefer(skill_name, None)
         if target["kind"] == "tool":
             from agent_utilities.core.capability_contract import Capability
 
@@ -874,8 +984,10 @@ class Orchestrator:
                 server=str(target.get("server") or "") or None,
             ).to_binding()
             call_agent_name = _DEFAULT_DELEGATE
-            call_tool_server = binding.get("tool_server") or call_tool_server
-            call_allowed_tools = binding.get("allowed_tools") or call_allowed_tools
+            call_tool_server = _prefer(binding.get("tool_server"), call_tool_server)
+            call_allowed_tools = _prefer(
+                binding.get("allowed_tools"), call_allowed_tools
+            )
             # ``run_agent`` enforces both "tool_server requires skill_name" AND
             # "skill_name must match the dispatched agent_name", so the delegate
             # has to be named on BOTH keywords. Leaving skill_name empty here
@@ -905,34 +1017,23 @@ class Orchestrator:
             include_run_summary=True,
             grounding=grounding,
         )
-        try:
-            payload = json.loads(raw)
-        except (TypeError, ValueError):
-            payload = {"output": str(raw)}
-        if not isinstance(payload, dict):
-            payload = {"output": str(payload)}
+        payload = self._parse_agent_raw_payload(raw)
         run_id = str(payload.get("run_id") or "")
         provenance = (
             await asyncio.to_thread(self._run_provenance, run_id) if run_id else {}
         )
-        # Defense in depth for the public gateway envelope. ``run_agent`` rejects
-        # ungrounded tool-required executions before recording the trace, but a
-        # malformed/legacy runner response must not be re-labelled as success here.
-        if (allowed_tools or required_tools) and int(
-            provenance.get("tool_call_count") or 0
-        ) == 0:
-            refusal = (
-                "Tool-required execution produced no recorded ToolCall provenance; "
-                "refusing an ungrounded result."
-            )
-            payload["output"] = refusal
-            summary = payload.get("run_summary")
-            payload["run_summary"] = {
-                **(summary if isinstance(summary, dict) else {}),
-                "outcome": "degraded",
-                "failure": {"category": "ungrounded_tool_execution", "raw": refusal},
-            }
-            provenance = {**provenance, "status": "degraded"}
+        provenance = self._apply_ungrounded_refusal(
+            payload, provenance, allowed_tools, required_tools
+        )
+        return self._capability_result(target, payload, run_id, provenance)
+
+    @staticmethod
+    def _capability_result(
+        target: dict[str, Any],
+        payload: dict[str, Any],
+        run_id: str,
+        provenance: dict[str, Any],
+    ) -> dict[str, Any]:
         return {
             "output": _bounded_text(payload.get("output"), _GATEWAY_OUTPUT_LIMIT),
             "run_id": run_id or None,

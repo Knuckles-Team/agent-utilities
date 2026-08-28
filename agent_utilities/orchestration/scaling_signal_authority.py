@@ -646,6 +646,52 @@ class ReplayGuard:
         self._digests: OrderedDict[tuple[str, int, str], None] = OrderedDict()
         self._lock = threading.Lock()
 
+    def _sample_admissible(
+        self,
+        sample: SignalSample,
+        pending_highest: dict[tuple[str, int], int],
+        pending_ids: set[tuple[str, int, str]],
+        pending_digests: set[tuple[str, int, str]],
+    ) -> bool:
+        source_key = (sample.source_id, sample.source_epoch)
+        sample_key = (*source_key, sample.sample_id)
+        digest_key = (*source_key, sample.sample_digest)
+        current = pending_highest.get(
+            source_key, self._highest_sequence.get(source_key, 0)
+        )
+        if sample.sequence <= current:
+            return False
+        if (
+            sample_key in self._sample_ids
+            or sample_key in pending_ids
+            or digest_key in self._digests
+            or digest_key in pending_digests
+        ):
+            return False
+        pending_highest[source_key] = sample.sequence
+        pending_ids.add(sample_key)
+        pending_digests.add(digest_key)
+        return True
+
+    def _commit_pending_samples(
+        self,
+        pending_highest: dict[tuple[str, int], int],
+        pending_ids: set[tuple[str, int, str]],
+        pending_digests: set[tuple[str, int, str]],
+    ) -> None:
+        for source_key, sequence in pending_highest.items():
+            self._highest_sequence[source_key] = sequence
+        for sample_key in pending_ids:
+            self._sample_ids[sample_key] = None
+            self._sample_ids.move_to_end(sample_key)
+        for digest_key in pending_digests:
+            self._digests[digest_key] = None
+            self._digests.move_to_end(digest_key)
+        while len(self._sample_ids) > self._max_entries:
+            self._sample_ids.popitem(last=False)
+        while len(self._digests) > self._max_entries:
+            self._digests.popitem(last=False)
+
     def accept(self, samples: Sequence[SignalSample]) -> bool:
         """Atomically accept a fresh batch or reject it in its entirety."""
 
@@ -656,36 +702,11 @@ class ReplayGuard:
             pending_ids: set[tuple[str, int, str]] = set()
             pending_digests: set[tuple[str, int, str]] = set()
             for sample in samples:
-                source_key = (sample.source_id, sample.source_epoch)
-                sample_key = (*source_key, sample.sample_id)
-                digest_key = (*source_key, sample.sample_digest)
-                current = pending_highest.get(
-                    source_key, self._highest_sequence.get(source_key, 0)
-                )
-                if sample.sequence <= current:
-                    return False
-                if (
-                    sample_key in self._sample_ids
-                    or sample_key in pending_ids
-                    or digest_key in self._digests
-                    or digest_key in pending_digests
+                if not self._sample_admissible(
+                    sample, pending_highest, pending_ids, pending_digests
                 ):
                     return False
-                pending_highest[source_key] = sample.sequence
-                pending_ids.add(sample_key)
-                pending_digests.add(digest_key)
-            for source_key, sequence in pending_highest.items():
-                self._highest_sequence[source_key] = sequence
-            for sample_key in pending_ids:
-                self._sample_ids[sample_key] = None
-                self._sample_ids.move_to_end(sample_key)
-            for digest_key in pending_digests:
-                self._digests[digest_key] = None
-                self._digests.move_to_end(digest_key)
-            while len(self._sample_ids) > self._max_entries:
-                self._sample_ids.popitem(last=False)
-            while len(self._digests) > self._max_entries:
-                self._digests.popitem(last=False)
+            self._commit_pending_samples(pending_highest, pending_ids, pending_digests)
             return True
 
 
@@ -715,15 +736,9 @@ class AuthenticatedSignalProvider:
         self._replay_guard = replay_guard or ReplayGuard()
         self._clock = clock or (lambda: datetime.now(UTC))
 
-    def read_batch(self, request: SignalReadRequest) -> SignalPage:
-        """Read one bounded page; malformed or unauthorized pages fail closed."""
-
-        self._validate_request_scope(request)
-        try:
-            backend_page = self._backend.read(request)
-        except Exception:
-            # A backend outage is no data, never zero and never a scale-down.
-            raise
+    def _validate_backend_page(
+        self, backend_page: Any, request: SignalReadRequest
+    ) -> str:
         if not isinstance(backend_page, SignalBackendPage):
             raise ValueError("signal backend returned an invalid page")
         snapshot_digest = _digest(backend_page.snapshot_digest, "snapshot_digest")
@@ -736,7 +751,11 @@ class AuthenticatedSignalProvider:
             raise ValueError("backend page cursor/has_more contract is invalid")
         if backend_page.next_cursor is not None:
             _validate_cursor_value(backend_page.next_cursor)
+        return snapshot_digest
 
+    def _validated_batch_samples(
+        self, backend_page: SignalBackendPage, request: SignalReadRequest
+    ) -> list[SignalSample]:
         samples: list[SignalSample] = []
         for sample in backend_page.samples:
             if len(samples) >= request.page_size:
@@ -745,6 +764,19 @@ class AuthenticatedSignalProvider:
             samples.append(sample)
         if len(samples) > request.max_items:
             raise ValueError("signal backend exceeded batch cardinality")
+        return samples
+
+    def read_batch(self, request: SignalReadRequest) -> SignalPage:
+        """Read one bounded page; malformed or unauthorized pages fail closed."""
+
+        self._validate_request_scope(request)
+        try:
+            backend_page = self._backend.read(request)
+        except Exception:
+            # A backend outage is no data, never zero and never a scale-down.
+            raise
+        snapshot_digest = self._validate_backend_page(backend_page, request)
+        samples = self._validated_batch_samples(backend_page, request)
         if not self._replay_guard.accept(samples):
             raise ValueError("replayed or out-of-order signal sample")
         return SignalPage(
@@ -756,7 +788,7 @@ class AuthenticatedSignalProvider:
             has_more=backend_page.has_more,
         )
 
-    def _validate_request_scope(self, request: SignalReadRequest) -> None:
+    def _check_binding_scope(self, request: SignalReadRequest) -> None:
         if request.source_id != self._binding.source_id:
             raise ValueError("signal request source is not authenticated")
         if request.service_scope != self._binding.service_scope:
@@ -765,6 +797,8 @@ class AuthenticatedSignalProvider:
             raise ValueError("signal request crosses tenant scope")
         if request.unit_id != self._binding.unit_id:
             raise ValueError("signal request crosses scale-unit scope")
+
+    def _check_request_policy_limits(self, request: SignalReadRequest) -> None:
         if len(request.query.encode("utf-8")) > self._policy.max_query_length:
             raise ValueError("signal query exceeds policy length")
         if request.timeout_s > self._policy.max_timeout_s:
@@ -780,9 +814,11 @@ class AuthenticatedSignalProvider:
         ):
             raise ValueError("signal query window exceeds policy duration")
 
-    def _validate_sample(
-        self, sample: SignalSample, request: SignalReadRequest
-    ) -> None:
+    def _validate_request_scope(self, request: SignalReadRequest) -> None:
+        self._check_binding_scope(request)
+        self._check_request_policy_limits(request)
+
+    def _check_sample_identity_binding(self, sample: SignalSample) -> None:
         if not isinstance(sample, SignalSample):
             raise ValueError("signal backend returned an invalid sample")
         if sample.source_id != self._binding.source_id:
@@ -793,6 +829,11 @@ class AuthenticatedSignalProvider:
             raise ValueError("signal sample source epoch is stale")
         if sample.auth_evidence_ref != self._binding.auth_evidence_ref:
             raise ValueError("signal sample attestation does not match source")
+
+    @staticmethod
+    def _check_sample_scope_and_vocabulary(
+        sample: SignalSample, request: SignalReadRequest
+    ) -> None:
         if (
             sample.service_scope != request.service_scope
             or sample.tenant_scope != request.tenant_scope
@@ -805,8 +846,10 @@ class AuthenticatedSignalProvider:
             raise ValueError("signal sample aggregation differs from request")
         if sample.query_digest != request.query_digest:
             raise ValueError("signal sample is bound to a different query")
-        if not self._authenticator.verify(sample, self._binding):
-            raise ValueError("signal sample authentication failed")
+
+    def _check_sample_freshness_and_window(
+        self, sample: SignalSample, request: SignalReadRequest
+    ) -> None:
         now = _aware_datetime(self._clock(), "clock")
         age = (now - sample.sample_time).total_seconds()
         if age < -self._policy.max_future_skew_s:
@@ -822,13 +865,17 @@ class AuthenticatedSignalProvider:
         ):
             raise ValueError("signal sample is outside the requested window")
 
+    def _validate_sample(
+        self, sample: SignalSample, request: SignalReadRequest
+    ) -> None:
+        self._check_sample_identity_binding(sample)
+        self._check_sample_scope_and_vocabulary(sample, request)
+        if not self._authenticator.verify(sample, self._binding):
+            raise ValueError("signal sample authentication failed")
+        self._check_sample_freshness_and_window(sample, request)
 
-def summarize_signal_page(
-    request: SignalReadRequest,
-    page: SignalPage,
-) -> tuple[SignalSummary, SignalDecisionEvidence] | None:
-    """Aggregate one bounded page; empty pages remain missing data, never zero."""
 
+def _validate_signal_page_binding(request: SignalReadRequest, page: SignalPage) -> None:
     if page.request_id != request.request_id or page.source_id != request.source_id:
         raise ValueError("signal page is not bound to the request")
     if (
@@ -838,50 +885,53 @@ def summarize_signal_page(
         raise ValueError("signal page snapshot differs from request")
     if page.has_more:
         raise ValueError("cannot summarize an incomplete signal page")
-    if not page.samples:
-        return None
+
+
+def _validate_signal_page_samples(request: SignalReadRequest, page: SignalPage) -> None:
     signals = {sample.signal for sample in page.samples}
     if len(signals) != 1 or next(iter(signals)) not in request.signals:
         raise ValueError("signal page contains mixed or unrequested signals")
     for sample in page.samples:
         if sample.aggregation != request.aggregation:
             raise ValueError("signal page aggregation differs from request")
-    values = [sample.value for sample in page.samples]
-    ordered = sorted(page.samples, key=lambda sample: sample.sample_time)
-    if request.aggregation == SignalAggregation.LAST.value:
-        value = ordered[-1].value
-    elif request.aggregation == SignalAggregation.MEAN.value:
-        value = sum(values) / len(values)
-    elif request.aggregation == SignalAggregation.MAX.value:
-        value = max(values)
-    elif request.aggregation in {
+
+
+def _aggregate_signal_value(
+    aggregation: str, values: list[float], ordered: list[SignalSample]
+) -> float:
+    if aggregation == SignalAggregation.LAST.value:
+        return ordered[-1].value
+    if aggregation == SignalAggregation.MEAN.value:
+        return sum(values) / len(values)
+    if aggregation == SignalAggregation.MAX.value:
+        return max(values)
+    if aggregation in {
         SignalAggregation.P50.value,
         SignalAggregation.P95.value,
         SignalAggregation.P99.value,
     }:
         ordered_values = sorted(values)
-        percentile = float(request.aggregation[1:]) / 100
+        percentile = float(aggregation[1:]) / 100
         index = min(
             len(ordered_values) - 1, math.ceil(percentile * len(ordered_values)) - 1
         )
-        value = ordered_values[index]
-    elif request.aggregation == SignalAggregation.SUM.value:
-        value = sum(values)
-    elif request.aggregation == SignalAggregation.COUNT.value:
-        value = float(len(values))
-    else:  # RATE: samples are already normalized rates from the source.
-        value = sum(values) / len(values)
+        return ordered_values[index]
+    if aggregation == SignalAggregation.SUM.value:
+        return sum(values)
+    if aggregation == SignalAggregation.COUNT.value:
+        return float(len(values))
+    # RATE: samples are already normalized rates from the source.
+    return sum(values) / len(values)
 
-    digest_material = "|".join(
-        [
-            request.query_digest,
-            page.snapshot_digest,
-            *sorted(sample.sample_digest for sample in page.samples),
-        ]
-    )
-    summary_digest = hashlib.sha256(digest_material.encode("utf-8")).hexdigest()
+
+def _build_signal_summary(
+    request: SignalReadRequest,
+    page: SignalPage,
+    value: float,
+    summary_digest: str,
+) -> SignalSummary:
     first = page.samples[0]
-    summary = SignalSummary(
+    return SignalSummary(
         summary_id=f"summary:{first.unit_id}:{first.signal}:{summary_digest[:16]}",
         summary_digest=summary_digest,
         source_id=first.source_id,
@@ -900,6 +950,31 @@ def summarize_signal_page(
         window_start=request.window_start,
         window_end=request.window_end,
     )
+
+
+def summarize_signal_page(
+    request: SignalReadRequest,
+    page: SignalPage,
+) -> tuple[SignalSummary, SignalDecisionEvidence] | None:
+    """Aggregate one bounded page; empty pages remain missing data, never zero."""
+
+    _validate_signal_page_binding(request, page)
+    if not page.samples:
+        return None
+    _validate_signal_page_samples(request, page)
+    values = [sample.value for sample in page.samples]
+    ordered = sorted(page.samples, key=lambda sample: sample.sample_time)
+    value = _aggregate_signal_value(request.aggregation, values, ordered)
+
+    digest_material = "|".join(
+        [
+            request.query_digest,
+            page.snapshot_digest,
+            *sorted(sample.sample_digest for sample in page.samples),
+        ]
+    )
+    summary_digest = hashlib.sha256(digest_material.encode("utf-8")).hexdigest()
+    summary = _build_signal_summary(request, page, value, summary_digest)
     evidence = SignalDecisionEvidence(
         request_id=request.request_id,
         query=request.query,

@@ -255,6 +255,35 @@ def advertised_self_hosts() -> set[str]:
     return hosts
 
 
+def _is_advertised_self_host(hostname: str) -> bool:
+    named_self = advertised_self_hosts() - _LOOPBACK_HOSTS
+    return hostname in named_self
+
+
+def _is_explicit_caller_self(
+    hostname: str,
+    port: int | None,
+    current_host: str | None,
+    current_port: int | None,
+) -> bool | None:
+    """None when caller identity is inapplicable; True/False is a definitive verdict."""
+    if not current_host or hostname != current_host.lower():
+        return None
+    if current_port and port and int(port) != int(current_port):
+        return False
+    return True
+
+
+def _is_bare_loopback_self(
+    hostname: str, port: int | None, current_port: int | None
+) -> bool:
+    # Legacy check, kept port-sensitive so a co-located service on `localhost`
+    # under a *different* port is NOT mistaken for self.
+    if hostname in _LOOPBACK_HOSTS and current_port and port:
+        return int(port) == int(current_port)
+    return False
+
+
 def is_loopback_url(
     url: str, current_host: str | None = None, current_port: int | None = None
 ) -> bool:
@@ -294,22 +323,18 @@ def is_loopback_url(
             return False
 
         # (1) Own advertised hostname — unambiguously this process, any port.
-        named_self = advertised_self_hosts() - _LOOPBACK_HOSTS
-        if hostname in named_self:
+        if _is_advertised_self_host(hostname):
             return True
 
         # (2) Explicit caller-supplied identity — port-matched when both are known.
-        if current_host and hostname == current_host.lower():
-            if current_port and parsed.port and int(parsed.port) != int(current_port):
-                return False
-            return True
+        explicit = _is_explicit_caller_self(
+            hostname, parsed.port, current_host, current_port
+        )
+        if explicit is not None:
+            return explicit
 
-        # (3) Bare loopback with a matching known port (legacy; avoids over-matching a
-        #     different co-located localhost service).
-        if hostname in _LOOPBACK_HOSTS and current_port and parsed.port:
-            return int(parsed.port) == int(current_port)
-
-        return False
+        # (3) Bare loopback with a matching known port.
+        return _is_bare_loopback_self(hostname, parsed.port, current_port)
     except Exception:
         return False
 
@@ -404,6 +429,122 @@ def safe_load_model(file: str) -> Any:
         return json.load(f)
 
 
+_PACKAGE_NAME_SKIP = (
+    "agent_utilities",
+    "universal_skills",
+    "agent-utilities",
+    "universal-skills",
+    "tmp",
+    "__main__",
+    "env",
+    "venv",
+    ".venv",
+    "python",
+    "python3",
+    "python3.10",
+    "python3.11",
+    "python3.12",
+    "python3.13",
+    "site-packages",
+    "dist-packages",
+    "lib",
+    "bin",
+    "fastapi",
+    "starlette",
+    "uvicorn",
+    "pydantic",
+    "pydantic_ai",
+    "inspect",
+    "importlib",
+    "contextlib",
+    "logging",
+    "asyncio",
+    "pytest",
+    "pluggy",
+    "_pytest",
+)
+
+
+def _frame_is_skipped(path: Path, skip_packages: tuple[str, ...]) -> bool:
+    return any(part in skip_packages for part in path.parts)
+
+
+def _package_root_check(
+    curr: Path, skip_packages: tuple[str, ...]
+) -> tuple[str | None, str | None]:
+    """(definitive, candidate) package name for ONE directory in the walk-up.
+
+    ``definitive`` is set when ``curr`` holds a ``pyproject.toml``/``setup.py``
+    (the true package root); ``candidate`` is set when it merely holds an
+    ``__init__.py`` (a weaker, package-ish signal). Both checks are
+    independent -- an unusable (skip-listed) definitive match does not
+    suppress the candidate check in the same directory.
+    """
+    definitive: str | None = None
+    candidate: str | None = None
+    if (curr / "pyproject.toml").is_file() or (curr / "setup.py").is_file():
+        pkg_name = curr.name.replace("-", "_")
+        if pkg_name not in skip_packages:
+            definitive = pkg_name
+    if (curr / "__init__.py").is_file():
+        pkg_name = curr.name.replace("-", "_")
+        if pkg_name not in skip_packages:
+            candidate = pkg_name
+    return definitive, candidate
+
+
+def _package_name_for_frame(
+    path: Path, skip_packages: tuple[str, ...]
+) -> tuple[str | None, str | None]:
+    """Resolve a package name for one call-stack frame's file path.
+
+    Returns ``(definitive, candidate)``: ``definitive`` is set the moment a
+    ``pyproject.toml``/``setup.py`` marks the true package root and should
+    short-circuit the caller immediately. ``candidate`` is the first
+    ``__init__.py``-only package name seen while walking up (or, failing
+    that, the frame's immediate parent directory name) — kept only as a
+    fallback if no frame ever yields a definitive match.
+    """
+    candidate: str | None = None
+    curr = path.parent
+    for _ in range(4):
+        definitive, dir_candidate = _package_root_check(curr, skip_packages)
+        if definitive:
+            return definitive, candidate
+        if candidate is None and dir_candidate:
+            candidate = dir_candidate
+
+        if curr == curr.parent:
+            break
+        curr = curr.parent
+
+    if candidate is None:
+        pkg_name = path.parent.name.replace("-", "_")
+        if pkg_name not in skip_packages:
+            candidate = pkg_name
+    return None, candidate
+
+
+def _first_external_frame_package(skip_packages: tuple[str, ...]) -> str | None:
+    first_external_frame_package = None
+    for frame_info in inspect.stack():
+        frame_file = frame_info.filename
+        if not frame_file or not os.path.exists(frame_file):
+            continue
+
+        path = Path(frame_file).resolve()
+        if _frame_is_skipped(path, skip_packages):
+            continue
+
+        definitive, candidate = _package_name_for_frame(path, skip_packages)
+        if definitive:
+            return definitive
+        if not first_external_frame_package and candidate:
+            first_external_frame_package = candidate
+
+    return first_external_frame_package
+
+
 def retrieve_package_name() -> str:
     """Returns the top-level package name of the module that imported this utility.
 
@@ -416,86 +557,15 @@ def retrieve_package_name() -> str:
 
     """
     first_external_frame_package = None
-
-    skip_packages = (
-        "agent_utilities",
-        "universal_skills",
-        "agent-utilities",
-        "universal-skills",
-        "tmp",
-        "__main__",
-        "env",
-        "venv",
-        ".venv",
-        "python",
-        "python3",
-        "python3.10",
-        "python3.11",
-        "python3.12",
-        "python3.13",
-        "site-packages",
-        "dist-packages",
-        "lib",
-        "bin",
-        "fastapi",
-        "starlette",
-        "uvicorn",
-        "pydantic",
-        "pydantic_ai",
-        "inspect",
-        "importlib",
-        "contextlib",
-        "logging",
-        "asyncio",
-        "pytest",
-        "pluggy",
-        "_pytest",
-    )
     with suppress(Exception):
-        stack = inspect.stack()
-        for i, frame_info in enumerate(stack):
-            frame_file = frame_info.filename
-            if not frame_file or not os.path.exists(frame_file):
-                continue
-
-            path = Path(frame_file).resolve()
-
-            is_skipped = False
-            for part in path.parts:
-                if part in skip_packages:
-                    is_skipped = True
-                    break
-            if is_skipped:
-                continue
-
-            curr = path.parent
-            for _ in range(4):
-                if (curr / "pyproject.toml").is_file() or (curr / "setup.py").is_file():
-                    pkg_name = curr.name.replace("-", "_")
-                    if pkg_name not in skip_packages:
-                        return pkg_name
-
-                if (curr / "__init__.py").is_file():
-                    pkg_name = curr.name.replace("-", "_")
-                    if pkg_name not in skip_packages:
-                        if not first_external_frame_package:
-                            first_external_frame_package = pkg_name
-
-                if curr == curr.parent:
-                    break
-                curr = curr.parent
-
-            if not first_external_frame_package:
-                pkg_name = path.parent.name.replace("-", "_")
-                if pkg_name not in skip_packages:
-                    first_external_frame_package = pkg_name
+        first_external_frame_package = _first_external_frame_package(_PACKAGE_NAME_SKIP)
 
     if first_external_frame_package:
         return first_external_frame_package
 
     if __package__:
         top = __package__.partition(".")[0]
-        if top and top not in skip_packages and top != "__main__":
+        if top and top not in _PACKAGE_NAME_SKIP and top != "__main__":
             return top
 
     return "agent_utilities"
@@ -559,6 +629,56 @@ class ModuleInfo:
     min_inclusive: bool = False
     max_inclusive: bool = False
 
+    def _installed_version_or_error(self) -> tuple[str | None, str | None]:
+        """Resolve the installed version string, or an explanatory error message."""
+        import importlib
+        from importlib.metadata import PackageNotFoundError
+        from importlib.metadata import version as get_version
+
+        try:
+            installed_version: str | None = get_version(self.name)
+        except PackageNotFoundError:
+            try:
+                module = importlib.import_module(self.name)
+                installed_version = getattr(module, "__version__", None)
+            except ImportError:
+                return (
+                    None,
+                    f"'{self.name}' is found but version could not be retrieved.",
+                )
+        if installed_version is None:
+            return (
+                None,
+                f"'{self.name}' is installed, but the version is not available.",
+            )
+        return installed_version, None
+
+    def _min_version_error(
+        self, installed_version: str, installed_ver: Any
+    ) -> str | None:
+        if not self.min_version:
+            return None
+        min_ver = version.parse(self.min_version)
+        msg = f"'{self.name}' is installed, but the installed version {installed_version} is too low (required '{self}')."
+        if not self.min_inclusive and installed_ver == min_ver:
+            return msg
+        if self.min_inclusive and installed_ver < min_ver:
+            return msg
+        return None
+
+    def _max_version_error(
+        self, installed_version: str, installed_ver: Any
+    ) -> str | None:
+        if not self.max_version:
+            return None
+        max_ver = version.parse(self.max_version)
+        msg = f"'{self.name}' is installed, but the installed version {installed_version} is too high (required '{self}')."
+        if not self.max_inclusive and installed_ver == max_ver:
+            return msg
+        if self.max_inclusive and installed_ver > max_ver:
+            return msg
+        return None
+
     def is_in_sys_modules(self) -> str | None:
         """Check if the module is installed and satisfies version constraints.
 
@@ -568,44 +688,20 @@ class ModuleInfo:
 
         """
         import importlib.util
-        from importlib.metadata import PackageNotFoundError
-        from importlib.metadata import version as get_version
 
         if not importlib.util.find_spec(self.name):
             return f"'{self.name}' is not installed."
 
-        if self.min_version or self.max_version:
-            try:
-                installed_version: str | None = get_version(self.name)
-            except PackageNotFoundError:
-                try:
-                    module = importlib.import_module(self.name)
-                    installed_version = getattr(module, "__version__", None)
-                except ImportError:
-                    return f"'{self.name}' is found but version could not be retrieved."
+        if not (self.min_version or self.max_version):
+            return None
 
-            if installed_version is None:
-                return f"'{self.name}' is installed, but the version is not available."
-
-            installed_ver = version.parse(installed_version)
-
-            if self.min_version:
-                min_ver = version.parse(self.min_version)
-                msg = f"'{self.name}' is installed, but the installed version {installed_version} is too low (required '{self}')."
-                if not self.min_inclusive and installed_ver == min_ver:
-                    return msg
-                if self.min_inclusive and installed_ver < min_ver:
-                    return msg
-
-            if self.max_version:
-                max_ver = version.parse(self.max_version)
-                msg = f"'{self.name}' is installed, but the installed version {installed_version} is too high (required '{self}')."
-                if not self.max_inclusive and installed_ver == max_ver:
-                    return msg
-                if self.max_inclusive and installed_ver > max_ver:
-                    return msg
-
-        return None
+        installed_version, error = self._installed_version_or_error()
+        if error or installed_version is None:
+            return error
+        installed_ver = version.parse(installed_version)
+        return self._min_version_error(
+            installed_version, installed_ver
+        ) or self._max_version_error(installed_version, installed_ver)
 
     def __repr__(self) -> str:
         s = self.name

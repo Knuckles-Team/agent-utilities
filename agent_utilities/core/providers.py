@@ -20,6 +20,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from importlib.metadata import Distribution, EntryPoint, entry_points
 from pathlib import Path, PurePosixPath
+from typing import Any
 from urllib.parse import unquote, urlparse
 
 from agent_utilities.core.provider_materialization import (
@@ -302,19 +303,21 @@ def _editable_source_root(
     return root, owned_paths
 
 
-def _owned_source_root(
-    entry_point: EntryPoint, distribution: Distribution
-) -> tuple[Path, frozenset[str]]:
+def _validate_provider_target(entry_point: EntryPoint) -> tuple[str, PurePosixPath]:
     target = entry_point.value.strip()
     if _MODULE_NAME.fullmatch(target) is None:
         raise ProviderRegistrationError(
             "provider target must be one data package module"
         )
-    prefix = PurePosixPath(*target.split("."))
-    distribution_files = distribution.files
-    if distribution_files is None:
-        return _editable_source_root(target, distribution)
+    return target, PurePosixPath(*target.split("."))
 
+
+def _collect_owned_files(
+    distribution: Distribution,
+    distribution_files: Any,
+    prefix: PurePosixPath,
+) -> tuple[set[Path], set[str]]:
+    """Roots + relative paths for every distribution file under ``prefix``."""
     roots: set[Path] = set()
     owned_paths: set[str] = set()
     for package_path in distribution_files:
@@ -331,8 +334,10 @@ def _owned_source_root(
             root = root.parent
         roots.add(root)
         owned_paths.add(PurePosixPath(*relative.parts[len(prefix.parts) :]).as_posix())
-    if not owned_paths:
-        return _editable_source_root(target, distribution)
+    return roots, owned_paths
+
+
+def _finalize_owned_root(roots: set[Path]) -> Path:
     if len(roots) != 1:
         raise ProviderRegistrationError(
             "provider target is not owned by its distribution"
@@ -347,6 +352,21 @@ def _owned_source_root(
         raise ProviderRegistrationError(
             "provider source root is not a regular directory"
         )
+    return root
+
+
+def _owned_source_root(
+    entry_point: EntryPoint, distribution: Distribution
+) -> tuple[Path, frozenset[str]]:
+    target, prefix = _validate_provider_target(entry_point)
+    distribution_files = distribution.files
+    if distribution_files is None:
+        return _editable_source_root(target, distribution)
+
+    roots, owned_paths = _collect_owned_files(distribution, distribution_files, prefix)
+    if not owned_paths:
+        return _editable_source_root(target, distribution)
+    root = _finalize_owned_root(roots)
     return root, frozenset(owned_paths)
 
 
@@ -539,8 +559,7 @@ def _skill_dirs(root: Path) -> list[Path]:
     )
 
 
-def _skill_identity(skill_root: Path) -> str:
-    path = skill_root / "SKILL.md"
+def _read_skill_instruction_text(path: Path) -> str:
     try:
         info = path.lstat()
         if (
@@ -555,19 +574,28 @@ def _skill_identity(skill_root: Path) -> str:
         raise ProviderAssetError("skill instruction file cannot be read") from exc
     if len(text.encode("utf-8")) > MAX_PROVIDER_FILE_BYTES:
         raise ProviderAssetError("skill instruction file exceeds its bound")
-    if text.startswith("---"):
-        end = text.find("---", 3)
-        frontmatter = text[3:end] if end >= 0 else text[:4096]
-        match = _FRONTMATTER_NAME.search(frontmatter)
-        if match:
-            identity = match.group(1).strip()
-            if (
-                identity
-                and len(identity) <= 256
-                and all(ord(ch) >= 32 for ch in identity)
-            ):
-                return identity
-    return skill_root.name
+    return text
+
+
+def _frontmatter_identity(text: str) -> str | None:
+    if not text.startswith("---"):
+        return None
+    end = text.find("---", 3)
+    frontmatter = text[3:end] if end >= 0 else text[:4096]
+    match = _FRONTMATTER_NAME.search(frontmatter)
+    if not match:
+        return None
+    identity = match.group(1).strip()
+    if identity and len(identity) <= 256 and all(ord(ch) >= 32 for ch in identity):
+        return identity
+    return None
+
+
+def _skill_identity(skill_root: Path) -> str:
+    path = skill_root / "SKILL.md"
+    text = _read_skill_instruction_text(path)
+    identity = _frontmatter_identity(text)
+    return identity if identity is not None else skill_root.name
 
 
 def _own_skill_assets() -> tuple[str, str, Path, AssetManifest]:
@@ -605,6 +633,76 @@ def _add_skill(
     selected[portable_identity] = (provider, root)
 
 
+def _register_provider_skills(
+    selected: dict[str, tuple[str, Path]],
+    provider_roots: list[tuple[str, Path]],
+) -> None:
+    for provider, root in sorted(provider_roots, key=lambda item: item[0].casefold()):
+        for skill_root in _skill_dirs(root):
+            try:
+                _add_skill(
+                    selected,
+                    identity=_skill_identity(skill_root),
+                    provider=provider,
+                    root=skill_root,
+                )
+            except DuplicateSkillIdentity as exc:
+                # A single colliding skill must never abort the WHOLE sweep —
+                # every OTHER skill, from every OTHER provider, would then
+                # silently fail to materialize too (this is exactly how one
+                # bad skill took graph-os from "10/10 ready" to "SERVING
+                # DEGRADED: 8/10 ready"). Fleet-wide skill-name uniqueness is
+                # a real invariant, so the collision stays LOUD (logged at
+                # error level, naming both providers) — it just no longer
+                # takes every unrelated skill down with it. The first
+                # provider in sorted order keeps the identity; this one is
+                # skipped.
+                logger.error("Skipping duplicate skill during sweep: %s", str(exc))
+
+
+def _register_xdg_local_skill(
+    selected: dict[str, tuple[str, Path]], child: Path
+) -> None:
+    try:
+        info = child.lstat()
+    except OSError:
+        return
+    if _is_linklike(child) or not stat.S_ISDIR(info.st_mode):
+        return
+    # A marker entry reserves this root forever as provider-owned. Corrupt,
+    # inactive, retired, and current provider roots are never reinterpreted as
+    # flat operator skills.
+    if marker_path_exists(child):
+        return
+    if not (child / "SKILL.md").is_file():
+        return
+    build_asset_manifest(child, leg="skills")
+    try:
+        _add_skill(
+            selected,
+            identity=_skill_identity(child),
+            provider="xdg-local",
+            root=child,
+        )
+    except DuplicateSkillIdentity as exc:
+        # Same resilience as the provider loop above: one bad local skill
+        # must not prevent every other current/local skill from resolving.
+        logger.error("Skipping duplicate skill during sweep: %s", str(exc))
+
+
+def _sweep_xdg_local_skills(
+    selected: dict[str, tuple[str, Path]], xdg_root: Path
+) -> None:
+    try:
+        children: Iterable[Path] = sorted(
+            xdg_root.iterdir(), key=lambda item: item.name.casefold()
+        )
+    except OSError:
+        children = ()
+    for child in children:
+        _register_xdg_local_skill(selected, child)
+
+
 def resolve_skill_provider_dirs() -> list[tuple[str, Path]]:
     """Return exactly one verified source per globally unique current skill."""
 
@@ -634,60 +732,8 @@ def resolve_skill_provider_dirs() -> list[tuple[str, Path]]:
         )
         for assets in provider_assets
     )
-    for provider, root in sorted(provider_roots, key=lambda item: item[0].casefold()):
-        for skill_root in _skill_dirs(root):
-            try:
-                _add_skill(
-                    selected,
-                    identity=_skill_identity(skill_root),
-                    provider=provider,
-                    root=skill_root,
-                )
-            except DuplicateSkillIdentity as exc:
-                # A single colliding skill must never abort the WHOLE sweep —
-                # every OTHER skill, from every OTHER provider, would then
-                # silently fail to materialize too (this is exactly how one
-                # bad skill took graph-os from "10/10 ready" to "SERVING
-                # DEGRADED: 8/10 ready"). Fleet-wide skill-name uniqueness is
-                # a real invariant, so the collision stays LOUD (logged at
-                # error level, naming both providers) — it just no longer
-                # takes every unrelated skill down with it. The first
-                # provider in sorted order keeps the identity; this one is
-                # skipped.
-                logger.error("Skipping duplicate skill during sweep: %s", str(exc))
-
-    try:
-        children: Iterable[Path] = sorted(
-            xdg_root.iterdir(), key=lambda item: item.name.casefold()
-        )
-    except OSError:
-        children = ()
-    for child in children:
-        try:
-            info = child.lstat()
-        except OSError:
-            continue
-        if _is_linklike(child) or not stat.S_ISDIR(info.st_mode):
-            continue
-        # A marker entry reserves this root forever as provider-owned. Corrupt,
-        # inactive, retired, and current provider roots are never reinterpreted as
-        # flat operator skills.
-        if marker_path_exists(child):
-            continue
-        if not (child / "SKILL.md").is_file():
-            continue
-        build_asset_manifest(child, leg="skills")
-        try:
-            _add_skill(
-                selected,
-                identity=_skill_identity(child),
-                provider="xdg-local",
-                root=child,
-            )
-        except DuplicateSkillIdentity as exc:
-            # Same resilience as the provider loop above: one bad local skill
-            # must not prevent every other current/local skill from resolving.
-            logger.error("Skipping duplicate skill during sweep: %s", str(exc))
+    _register_provider_skills(selected, provider_roots)
+    _sweep_xdg_local_skills(selected, xdg_root)
     return [selected[identity] for identity in sorted(selected)]
 
 

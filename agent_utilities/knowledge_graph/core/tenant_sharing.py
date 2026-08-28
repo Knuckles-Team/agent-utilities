@@ -644,56 +644,112 @@ def read_union(
     graphs = accessible_graphs(actor, config)
 
     def _one(graph: str) -> list[dict[str, Any]]:
-        exec_cypher, exec_params = cypher, dict(params or {})
-        pushed_down = False
-        try:
-            candidate_cypher, extra_params = apply_commons_catalog_restriction(
-                cypher, actor, graph, config=config
-            )
-        except Exception as exc:  # noqa: BLE001 — pushdown is best-effort; the row-level fallback below is the safety net and must never fail open
-            logger.debug(
-                "read_union: commons catalog pushdown unavailable for graph %s: %s",
-                graph,
-                exc,
-            )
-        else:
-            if candidate_cypher != cypher:
-                exec_cypher = candidate_cypher
-                exec_params.update(extra_params)
-                pushed_down = True
-        rows = executor(graph, exec_cypher, exec_params) or []
-        # Always run the row-level classifier — it still fail-closed-drops
-        # any row that DOES carry a classifiable node_type and isn't
-        # shareable/the reader's own tenant, pushdown or not (defense in
-        # depth against an executor that doesn't actually honor the pushed
-        # -down query text). `trust_pushdown` only changes what happens to a
-        # row the classifier cannot read a node_type from at all — e.g. a
-        # projecting query's row — trusting that the query itself already
-        # excluded non-shareable rows when the query text was demonstrably
-        # narrowed for this call.
-        return filter_commons_catalog(
-            rows, actor, graph, config, trust_pushdown=pushed_down
+        return _read_union_one_graph(graph, cypher, params, executor, actor, config)
+
+    rows_by_graph = _collect_read_union_rows(graphs, _one)
+    return _merge_union_rows(graphs, rows_by_graph, id_keys)
+
+
+def _read_union_one_graph(
+    graph: str,
+    cypher: str,
+    params: dict[str, Any] | None,
+    executor: Any,
+    actor: ActorContext,
+    config: Any,
+) -> list[dict[str, Any]]:
+    exec_cypher, exec_params, pushed_down = _apply_commons_pushdown(
+        cypher, dict(params or {}), actor, graph, config
+    )
+    rows = executor(graph, exec_cypher, exec_params) or []
+    # Always run the row-level classifier — it still fail-closed-drops
+    # any row that DOES carry a classifiable node_type and isn't
+    # shareable/the reader's own tenant, pushdown or not (defense in
+    # depth against an executor that doesn't actually honor the pushed
+    # -down query text). `trust_pushdown` only changes what happens to a
+    # row the classifier cannot read a node_type from at all — e.g. a
+    # projecting query's row — trusting that the query itself already
+    # excluded non-shareable rows when the query text was demonstrably
+    # narrowed for this call.
+    return filter_commons_catalog(
+        rows, actor, graph, config, trust_pushdown=pushed_down
+    )
+
+
+def _apply_commons_pushdown(
+    cypher: str,
+    params: dict[str, Any],
+    actor: ActorContext,
+    graph: str,
+    config: Any,
+) -> tuple[str, dict[str, Any], bool]:
+    exec_cypher, exec_params = cypher, params
+    pushed_down = False
+    try:
+        candidate_cypher, extra_params = apply_commons_catalog_restriction(
+            cypher, actor, graph, config=config
+        )
+    except Exception as exc:  # noqa: BLE001 — pushdown is best-effort; the row-level fallback below is the safety net and must never fail open
+        logger.debug(
+            "read_union: commons catalog pushdown unavailable for graph %s: %s",
+            graph,
+            exc,
+        )
+    else:
+        if candidate_cypher != cypher:
+            exec_cypher = candidate_cypher
+            exec_params.update(extra_params)
+            pushed_down = True
+    return exec_cypher, exec_params, pushed_down
+
+
+# NOTE (fix/empty-projection investigation): the per-graph catch-all in
+# _collect_read_union_rows/_collect_one_graph below is a deliberate "one
+# graph down ≠ whole read down" degrade, NOT an authorization decision — but
+# it previously logged at DEBUG, so a genuine failure (a hard Cypher parse
+# error, or — before the `trust_pushdown` fix above — an identity-less
+# non-aggregate projection's PermissionError) was indistinguishable, in the
+# server log, from the documented "commons graph not configured" case, and
+# the caller (`read_union`'s return value) has no way to tell them apart
+# either: both silently contribute zero rows to the union. Raised to WARNING
+# with the exception type/message so an operator can grep for it; the
+# degrade-gracefully BEHAVIOR is intentionally unchanged here — narrowing it
+# further (e.g. re-raising a non-PermissionError) risks turning a
+# legitimately-partial multi-graph union into a hard failure and was out of
+# scope for this fix.
+def _collect_one_graph(
+    rows_by_graph: dict[str, list[dict[str, Any]]], graph: str, one_fn: Any
+) -> None:
+    try:
+        rows_by_graph[graph] = one_fn(graph)
+    except Exception as exc:  # noqa: BLE001 — one graph down ≠ whole read down
+        logger.warning(
+            "read_union: graph %s unavailable (failure_type=%s): %s",
+            graph,
+            type(exc).__name__,
+            exc,
         )
 
-    # NOTE (fix/empty-projection investigation): this per-graph catch-all is
-    # a deliberate "one graph down ≠ whole read down" degrade, NOT an
-    # authorization decision — but it previously logged at DEBUG, so a
-    # genuine failure (a hard Cypher parse error, or — before the
-    # `trust_pushdown` fix above — an identity-less non-aggregate
-    # projection's PermissionError) was indistinguishable, in the server
-    # log, from the documented "commons graph not configured" case, and the
-    # caller (`read_union`'s return value) has no way to tell them apart
-    # either: both silently contribute zero rows to the union. Raised to
-    # WARNING with the exception type/message so an operator can grep for
-    # it; the degrade-gracefully BEHAVIOR is intentionally unchanged here —
-    # narrowing it further (e.g. re-raising a non-PermissionError) risks
-    # turning a legitimately-partial multi-graph union into a hard failure
-    # and was out of scope for this fix.
+
+def _collect_read_union_rows(
+    graphs: list[str], one_fn: Any
+) -> dict[str, list[dict[str, Any]]]:
     rows_by_graph: dict[str, list[dict[str, Any]]] = {}
     if len(graphs) <= 1:
         for graph in graphs:
+            _collect_one_graph(rows_by_graph, graph, one_fn)
+        return rows_by_graph
+
+    max_workers = min(len(graphs), _READ_UNION_MAX_WORKERS)
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        pending = {
+            pool.submit(contextvars.copy_context().run, one_fn, graph): graph
+            for graph in graphs
+        }
+        for future in pending:
+            graph = pending[future]
             try:
-                rows_by_graph[graph] = _one(graph)
+                rows_by_graph[graph] = future.result()
             except Exception as exc:  # noqa: BLE001 — one graph down ≠ whole read down
                 logger.warning(
                     "read_union: graph %s unavailable (failure_type=%s): %s",
@@ -701,25 +757,14 @@ def read_union(
                     type(exc).__name__,
                     exc,
                 )
-    else:
-        max_workers = min(len(graphs), _READ_UNION_MAX_WORKERS)
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            pending = {
-                pool.submit(contextvars.copy_context().run, _one, graph): graph
-                for graph in graphs
-            }
-            for future in pending:
-                graph = pending[future]
-                try:
-                    rows_by_graph[graph] = future.result()
-                except Exception as exc:  # noqa: BLE001 — one graph down ≠ whole read down
-                    logger.warning(
-                        "read_union: graph %s unavailable (failure_type=%s): %s",
-                        graph,
-                        type(exc).__name__,
-                        exc,
-                    )
+    return rows_by_graph
 
+
+def _merge_union_rows(
+    graphs: list[str],
+    rows_by_graph: dict[str, list[dict[str, Any]]],
+    id_keys: tuple[str, ...],
+) -> list[dict[str, Any]]:
     seen: set[str] = set()
     merged: list[dict[str, Any]] = []
     for graph in graphs:
@@ -901,6 +946,24 @@ def promote_to_commons(
     if not exists:
         logger.warning("promote_to_commons: governed node was not found")
         return False
+    props = _fetch_org_node_props(src, node_id)
+    if props is None:
+        return False
+
+    dst = commons_store if commons_store is not None else _commons_store(config)
+    if dst is None:
+        logger.warning("promote_to_commons: commons graph unavailable for %s", node_id)
+        return False
+    _write_commons_copy(dst, node_id, props)
+    # Reflect the promotion on the org-local copy too, so it reads as shared.
+    try:
+        _set_scope(node_id, SCOPE_COMMONS, src)
+    except Exception as exc:  # noqa: BLE001 — the commons copy is the source of truth
+        logger.debug("promote_to_commons: org-local scope update skipped: %s", exc)
+    return True
+
+
+def _fetch_org_node_props(src: Any, node_id: str) -> dict[str, Any] | None:
     rows = (
         src.execute(
             "MATCH (n {id: $id}) RETURN properties(n) AS props, labels(n) AS labels",
@@ -910,15 +973,14 @@ def promote_to_commons(
     )
     if not rows:
         logger.warning("promote_to_commons: node %s not found in org graph", node_id)
-        return False
+        return None
     props = dict(rows[0].get("props") or {})
     props[SCOPE_KEY] = SCOPE_COMMONS
     props.setdefault("id", node_id)
+    return props
 
-    dst = commons_store if commons_store is not None else _commons_store(config)
-    if dst is None:
-        logger.warning("promote_to_commons: commons graph unavailable for %s", node_id)
-        return False
+
+def _write_commons_copy(dst: Any, node_id: str, props: dict[str, Any]) -> None:
     # GOC-61 phase-1 write gate (check_system_graph_write, below): the CONTENT
     # condition applies unconditionally, even here — promotion is authorized
     # (owner/admin already checked above), but authorization to SHARE a node
@@ -946,12 +1008,6 @@ def promote_to_commons(
             dst.execute(query, merge_props)
     finally:
         _SHARE_VERB_ACTIVE.reset(token)
-    # Reflect the promotion on the org-local copy too, so it reads as shared.
-    try:
-        _set_scope(node_id, SCOPE_COMMONS, src)
-    except Exception as exc:  # noqa: BLE001 — the commons copy is the source of truth
-        logger.debug("promote_to_commons: org-local scope update skipped: %s", exc)
-    return True
 
 
 def _commons_store(config: Any = None) -> Any:
@@ -1156,13 +1212,7 @@ def check_system_graph_write(
 
     # Condition 1 (content) — checked first, never bypassed, COMMONS ONLY.
     if is_commons_graph:
-        type_name = str(node_type or "").strip()
-        if type_name in COMMONS_PRIVATE_NODE_TYPES:
-            raise PermissionError(
-                f"{graph_name!r} is the shared commons graph; node type "
-                f"{type_name!r} is a confirmed private-class type and may "
-                "not be written there"
-            )
+        _check_commons_content_gate(graph_name, node_type)
         # Commons is EXEMPT from condition 2 (authority) — see the docstring
         # warning above: this is safe ONLY because the read side restricts
         # cross-tenant visibility to the catalog allowlist. Do not add an
@@ -1172,20 +1222,41 @@ def check_system_graph_write(
     # Condition 2 (authority) — every OTHER system graph (__control__,
     # __secrets__, ...); bypassed only by an already-authorized share verb,
     # or a genuinely unauthenticated/system write path.
+    _check_system_graph_authority_gate(graph_name, actor)
+
+
+def _check_commons_content_gate(graph_name: str | None, node_type: str | None) -> None:
+    type_name = str(node_type or "").strip()
+    if type_name in COMMONS_PRIVATE_NODE_TYPES:
+        raise PermissionError(
+            f"{graph_name!r} is the shared commons graph; node type "
+            f"{type_name!r} is a confirmed private-class type and may "
+            "not be written there"
+        )
+
+
+def _resolve_system_write_actor(actor: ActorContext | None) -> ActorContext | None:
+    if actor is not None:
+        return actor
+    try:
+        # current_actor() raises (PermissionError subclass) rather than
+        # returning a default when NO actor is bound at all — that is the
+        # genuine system/background case, exempted here exactly like
+        # stamp_ownership's own best-effort exemption; it must not be
+        # confused with "bound but unauthenticated", handled by the caller.
+        return current_actor()
+    except PermissionError:  # noqa: BLE001 — genuine system/background case (no actor bound at all); deliberate exemption, see the comment above
+        return None
+
+
+def _check_system_graph_authority_gate(
+    graph_name: str | None, actor: ActorContext | None
+) -> None:
     if _SHARE_VERB_ACTIVE.get():
         return
-    if actor is not None:
-        resolved = actor
-    else:
-        try:
-            # current_actor() raises (PermissionError subclass) rather than
-            # returning a default when NO actor is bound at all — that is the
-            # genuine system/background case, exempted here exactly like
-            # stamp_ownership's own best-effort exemption; it must not be
-            # confused with "bound but unauthenticated", handled below.
-            resolved = current_actor()
-        except PermissionError:  # noqa: BLE001 — genuine system/background case (no actor bound at all); deliberate exemption, see the comment above
-            return
+    resolved = _resolve_system_write_actor(actor)
+    if resolved is None:
+        return
     if not resolved.authenticated or not str(resolved.actor_id or "").strip():
         return
     if not _PRIVILEGED_ROLES.intersection(resolved.roles):
@@ -1274,27 +1345,33 @@ def filter_commons_catalog(
         return rows
     resolved = _require_actor(actor)
     reader_tenant = str(resolved.tenant_id or "")
-    out: list[dict[str, Any]] = []
-    for row in rows:
-        props = _row_props(row)
-        node_type = str(props.get("node_type") or "").strip()
-        if node_type and _is_catalog_shareable(node_type, props.get("resource_type")):
-            out.append(row)
-            continue
-        row_tenant = str(props.get(TENANT_KEY) or "")
-        if reader_tenant and row_tenant and row_tenant == reader_tenant:
-            out.append(row)
-            continue
-        if not node_type and trust_pushdown:
-            # Genuinely unclassifiable (no node_type at all, so this is not
-            # "classified and not shareable") AND the query itself was
-            # already narrowed for this graph -- keep rather than drop.
-            out.append(row)
-            continue
-        # else: dropped (fail closed) -- either classified and not
-        # catalog-shareable/not the reader's own tenant's data, or
-        # unclassifiable with no proof the query already scoped it out.
-    return out
+    return [
+        row
+        for row in rows
+        if _commons_row_kept(row, reader_tenant, trust_pushdown=trust_pushdown)
+    ]
+
+
+def _commons_row_kept(
+    row: dict[str, Any], reader_tenant: str, *, trust_pushdown: bool
+) -> bool:
+    """Whether one commons row survives the catalog restriction (fail closed)."""
+    props = _row_props(row)
+    node_type = str(props.get("node_type") or "").strip()
+    if node_type and _is_catalog_shareable(node_type, props.get("resource_type")):
+        return True
+    row_tenant = str(props.get(TENANT_KEY) or "")
+    if reader_tenant and row_tenant and row_tenant == reader_tenant:
+        return True
+    if not node_type and trust_pushdown:
+        # Genuinely unclassifiable (no node_type at all, so this is not
+        # "classified and not shareable") AND the query itself was
+        # already narrowed for this graph -- keep rather than drop.
+        return True
+    # else: dropped (fail closed) -- either classified and not
+    # catalog-shareable/not the reader's own tenant's data, or
+    # unclassifiable with no proof the query already scoped it out.
+    return False
 
 
 def commons_catalog_predicate(

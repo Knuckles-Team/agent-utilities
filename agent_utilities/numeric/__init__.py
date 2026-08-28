@@ -59,6 +59,38 @@ if getattr(_KERNEL, "__kernel__", None) != "eg-numeric":
     )
 
 
+def _to_builtin_scalar(value: Any, _state: list[int]) -> Any:
+    _state[0] += 1
+    if _state[0] > _MAX_NUMERIC_ELEMENTS:
+        raise ValueError(
+            f"numeric input exceeds the {_MAX_NUMERIC_ELEMENTS}-element limit"
+        )
+    return value
+
+
+def _to_builtin_sequence(
+    value: list[Any] | tuple[Any, ...], _depth: int, _state: list[int]
+) -> Any:
+    _state[1] += 1
+    if _state[1] > _MAX_NUMERIC_NODES:
+        raise ValueError(f"numeric input exceeds the {_MAX_NUMERIC_NODES}-node limit")
+    converted = [_to_builtin(item, _depth=_depth + 1, _state=_state) for item in value]
+    return converted if isinstance(value, list) else tuple(converted)
+
+
+def _to_builtin_from_pylist(value: Any, _depth: int, _state: list[int]) -> Any:
+    to_pylist = getattr(value, "to_pylist", None)
+    if callable(to_pylist):
+        converted = to_pylist()
+        if converted is not value:
+            return _to_builtin(converted, _depth=_depth, _state=_state)
+    raise TypeError(
+        "numeric kernel inputs must be scalars, builtin list/tuple trees, or "
+        "Arrow values exposing to_pylist(); "
+        f"got {type(value).__name__}"
+    )
+
+
 def _to_builtin(value: Any, *, _depth: int = 0, _state: list[int] | None = None) -> Any:
     """Convert boundary values without importing or implementing an array type.
 
@@ -71,34 +103,12 @@ def _to_builtin(value: Any, *, _depth: int = 0, _state: list[int] | None = None)
     if _state is None:
         _state = [0, 0]
     if value is None or isinstance(value, (bool, int, float, complex, str, bytes)):
-        _state[0] += 1
-        if _state[0] > _MAX_NUMERIC_ELEMENTS:
-            raise ValueError(
-                f"numeric input exceeds the {_MAX_NUMERIC_ELEMENTS}-element limit"
-            )
-        return value
+        return _to_builtin_scalar(value, _state)
     if _depth >= _MAX_NUMERIC_RANK:
         raise ValueError(f"numeric input exceeds the rank-{_MAX_NUMERIC_RANK} limit")
     if isinstance(value, (list, tuple)):
-        _state[1] += 1
-        if _state[1] > _MAX_NUMERIC_NODES:
-            raise ValueError(
-                f"numeric input exceeds the {_MAX_NUMERIC_NODES}-node limit"
-            )
-        converted = [
-            _to_builtin(item, _depth=_depth + 1, _state=_state) for item in value
-        ]
-        return converted if isinstance(value, list) else tuple(converted)
-    to_pylist = getattr(value, "to_pylist", None)
-    if callable(to_pylist):
-        converted = to_pylist()
-        if converted is not value:
-            return _to_builtin(converted, _depth=_depth, _state=_state)
-    raise TypeError(
-        "numeric kernel inputs must be scalars, builtin list/tuple trees, or "
-        "Arrow values exposing to_pylist(); "
-        f"got {type(value).__name__}"
-    )
+        return _to_builtin_sequence(value, _depth, _state)
+    return _to_builtin_from_pylist(value, _depth, _state)
 
 
 def _from_builtin(value: Any) -> Any:
@@ -142,6 +152,42 @@ def _artifact_payload(value: Any) -> bytes:
     return encoded
 
 
+def _validate_artifact_destination(destination: Path) -> None:
+    if not destination.exists():
+        return
+    existing = destination.lstat()
+    if stat.S_ISLNK(existing.st_mode):
+        raise ValueError("numeric artifact path must not be a symlink")
+    if not stat.S_ISREG(existing.st_mode):
+        raise ValueError("numeric artifact path must be a regular file")
+
+
+def _open_artifact_parent_dir(destination: Path) -> int:
+    try:
+        return os.open(
+            destination.parent,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+    except OSError as exc:
+        raise ValueError("numeric artifact parent must be a real directory") from exc
+
+
+def _allocate_private_temp_file(parent_fd: int, name: str) -> tuple[str, int]:
+    for attempt in range(16):
+        candidate = f".{name}.{os.getpid()}.{attempt}"
+        try:
+            descriptor = os.open(
+                candidate,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                0o600,
+                dir_fd=parent_fd,
+            )
+        except FileExistsError:
+            continue
+        return candidate, descriptor
+    raise ValueError("could not allocate a private numeric artifact temporary")
+
+
 def save_numeric_artifact(path: str | Path, value: Any) -> None:
     """Write a bounded, versioned JSON artifact for numeric builtin values.
 
@@ -151,38 +197,15 @@ def save_numeric_artifact(path: str | Path, value: Any) -> None:
 
     destination = Path(path)
     destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if destination.exists():
-        existing = destination.lstat()
-        if stat.S_ISLNK(existing.st_mode):
-            raise ValueError("numeric artifact path must not be a symlink")
-        if not stat.S_ISREG(existing.st_mode):
-            raise ValueError("numeric artifact path must be a regular file")
+    _validate_artifact_destination(destination)
     payload = _artifact_payload(value)
-    try:
-        parent_fd = os.open(
-            destination.parent,
-            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
-        )
-    except OSError as exc:
-        raise ValueError("numeric artifact parent must be a real directory") from exc
+    parent_fd = _open_artifact_parent_dir(destination)
     temporary_name: str | None = None
     descriptor: int | None = None
     try:
-        for attempt in range(16):
-            candidate = f".{destination.name}.{os.getpid()}.{attempt}"
-            try:
-                descriptor = os.open(
-                    candidate,
-                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
-                    0o600,
-                    dir_fd=parent_fd,
-                )
-            except FileExistsError:
-                continue
-            temporary_name = candidate
-            break
-        if descriptor is None or temporary_name is None:
-            raise ValueError("could not allocate a private numeric artifact temporary")
+        temporary_name, descriptor = _allocate_private_temp_file(
+            parent_fd, destination.name
+        )
         with os.fdopen(descriptor, "wb") as handle:
             descriptor = None
             handle.write(payload)
@@ -207,10 +230,7 @@ def save_numeric_artifact(path: str | Path, value: Any) -> None:
         os.close(parent_fd)
 
 
-def load_numeric_artifact(path: str | Path) -> Any:
-    """Read and validate a bounded JSON numeric artifact."""
-
-    source = Path(path)
+def _read_artifact_payload(source: Path) -> Any:
     try:
         descriptor = os.open(
             source,
@@ -229,11 +249,14 @@ def load_numeric_artifact(path: str | Path) -> Any:
         raw = os.read(descriptor, metadata.st_size)
         if len(raw) != metadata.st_size:
             raise ValueError("numeric artifact changed while being read")
-        payload = json.loads(raw.decode("utf-8"))
+        return json.loads(raw.decode("utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError("numeric artifact is invalid") from exc
     finally:
         os.close(descriptor)
+
+
+def _validate_artifact_schema_shape(payload: Any) -> None:
     if (
         not isinstance(payload, dict)
         or payload.get("schema") != _ARTIFACT_SCHEMA
@@ -241,11 +264,9 @@ def load_numeric_artifact(path: str | Path) -> Any:
         or set(payload) != {"schema", "values", "digest"}
     ):
         raise ValueError("numeric artifact schema is invalid")
-    try:
-        values = _to_builtin(payload.get("values"))
-    except (TypeError, ValueError) as exc:
-        raise ValueError("numeric artifact values are not builtin data") from exc
-    expected = payload.get("digest")
+
+
+def _validate_artifact_digest(values: Any, expected: Any) -> None:
     if not isinstance(expected, str) or len(expected) != 64:
         raise ValueError("numeric artifact digest is invalid")
     if any(character not in "0123456789abcdef" for character in expected):
@@ -258,6 +279,19 @@ def load_numeric_artifact(path: str | Path) -> Any:
         raise ValueError("numeric artifact digest is invalid") from exc
     if not hmac.compare_digest(actual, expected):
         raise ValueError("numeric artifact digest is invalid")
+
+
+def load_numeric_artifact(path: str | Path) -> Any:
+    """Read and validate a bounded JSON numeric artifact."""
+
+    source = Path(path)
+    payload = _read_artifact_payload(source)
+    _validate_artifact_schema_shape(payload)
+    try:
+        values = _to_builtin(payload.get("values"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("numeric artifact values are not builtin data") from exc
+    _validate_artifact_digest(values, payload.get("digest"))
     return values
 
 
@@ -394,26 +428,23 @@ _LINALG_OPERATIONS = frozenset(
 )
 
 
-def _shape_from_size(
-    size: int | tuple[int, ...] | list[int] | None,
-) -> tuple[tuple[int, ...], int]:
-    """Normalize a NumPy-shaped request without creating an array object."""
-
-    shape: tuple[int, ...]
-    if size is None:
-        return (), 1
+def _normalize_shape(
+    size: int | tuple[int, ...] | list[int],
+) -> tuple[int, ...]:
     if isinstance(size, int) and not isinstance(size, bool):
-        shape = (size,)
-    elif (
+        return (size,)
+    if (
         isinstance(size, (tuple, list))
         and len(size) <= _MAX_NUMERIC_RANK
         and all(isinstance(item, int) and not isinstance(item, bool) for item in size)
     ):
-        shape = tuple(size)
-    else:
-        raise TypeError(
-            f"random size must be an integer or a tuple of at most {_MAX_NUMERIC_RANK} integers"
-        )
+        return tuple(size)
+    raise TypeError(
+        f"random size must be an integer or a tuple of at most {_MAX_NUMERIC_RANK} integers"
+    )
+
+
+def _count_from_shape(shape: tuple[int, ...]) -> int:
     if any(item < 0 or item > _MAX_NUMERIC_ELEMENTS for item in shape):
         raise ValueError("random size entries must be non-negative")
     count = 1
@@ -428,6 +459,18 @@ def _shape_from_size(
                 f"random size exceeds the {_MAX_NUMERIC_ELEMENTS}-element limit"
             )
         count *= item
+    return count
+
+
+def _shape_from_size(
+    size: int | tuple[int, ...] | list[int] | None,
+) -> tuple[tuple[int, ...], int]:
+    """Normalize a NumPy-shaped request without creating an array object."""
+
+    if size is None:
+        return (), 1
+    shape = _normalize_shape(size)
+    count = _count_from_shape(shape)
     return shape, count
 
 
@@ -539,6 +582,43 @@ class _DeterministicRandom:
     ) -> Any:
         return self.integers(low, high, size)
 
+    @staticmethod
+    def _resolve_choice_probabilities(
+        p: list[float] | tuple[float, ...] | None, population_size: int
+    ) -> list[float] | None:
+        if p is None:
+            return None
+        probabilities = [float(item) for item in p]
+        if len(probabilities) != population_size or any(
+            not math.isfinite(item) or item < 0 for item in probabilities
+        ):
+            raise ValueError(
+                "choice probabilities must match the population and be non-negative"
+            )
+        total = sum(probabilities)
+        if not math.isfinite(total) or total <= 0:
+            raise ValueError("choice probabilities must have a positive sum")
+        return probabilities
+
+    @staticmethod
+    def _validate_choice_indices(
+        indices: Any, count: int, population_size: int, replace: bool
+    ) -> None:
+        if not isinstance(indices, list):
+            raise NumericKernelError("native choice operation did not return a list")
+        if len(indices) != count or any(
+            not isinstance(index, int)
+            or isinstance(index, bool)
+            or index < 0
+            or index >= population_size
+            for index in indices
+        ):
+            raise NumericKernelError("native choice operation returned invalid indices")
+        if not replace and len(set(indices)) != len(indices):
+            raise NumericKernelError(
+                "native choice operation returned duplicate indices"
+            )
+
     def choice(
         self,
         values: int | list[Any] | tuple[Any, ...],
@@ -554,19 +634,7 @@ class _DeterministicRandom:
             raise ValueError(
                 "cannot take a larger sample than population without replacement"
             )
-        if p is not None:
-            probabilities = [float(item) for item in p]
-            if len(probabilities) != len(population) or any(
-                not math.isfinite(item) or item < 0 for item in probabilities
-            ):
-                raise ValueError(
-                    "choice probabilities must match the population and be non-negative"
-                )
-            total = sum(probabilities)
-            if not math.isfinite(total) or total <= 0:
-                raise ValueError("choice probabilities must have a positive sum")
-        else:
-            probabilities = None
+        probabilities = self._resolve_choice_probabilities(p, len(population))
         indices = _call_native(
             self._kernel,
             "choice_indices",
@@ -576,20 +644,7 @@ class _DeterministicRandom:
             probabilities,
             self._next_seed(),
         )
-        if not isinstance(indices, list):
-            raise NumericKernelError("native choice operation did not return a list")
-        if len(indices) != count or any(
-            not isinstance(index, int)
-            or isinstance(index, bool)
-            or index < 0
-            or index >= len(population)
-            for index in indices
-        ):
-            raise NumericKernelError("native choice operation returned invalid indices")
-        if not replace and len(set(indices)) != len(indices):
-            raise NumericKernelError(
-                "native choice operation returned duplicate indices"
-            )
+        self._validate_choice_indices(indices, count, len(population), replace)
         selected = [population[int(index)] for index in indices]
         return _reshape(selected, shape)
 

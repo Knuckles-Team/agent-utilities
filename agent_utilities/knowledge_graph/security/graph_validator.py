@@ -290,128 +290,156 @@ class GraphValidator:
 
     # --- Tier 1: Auto-fix (silent) -------------------------------------------
 
+    @staticmethod
+    def _autofix_node_type_alias(
+        graph, node_id, data, report: ValidationReport
+    ) -> None:
+        # 1a. Normalize LLM node-type aliases
+        node_type = data.get("node_type", "")
+        if not isinstance(node_type, str):
+            return
+        type_lower = node_type.lower().strip()
+        canonical = NODE_TYPE_ALIASES.get(type_lower)
+        if not canonical or type_lower == canonical:
+            return
+        graph.nodes[node_id]["node_type"] = canonical
+        report.tier1_fixes.append(
+            ValidationIssue(
+                tier=1,
+                category="type_alias",
+                node_id=node_id,
+                edge_key=None,
+                message=f"Normalized type '{node_type}' → '{canonical}'",
+                auto_fixed=True,
+            )
+        )
+
+    @staticmethod
+    def _autofix_score_clamp(graph, node_id, data, report: ValidationReport) -> None:
+        # 1b. Clamp importance_score to [0.0, 1.0]
+        score = data.get("importance_score")
+        if score is None or not isinstance(score, int | float):
+            return
+        clamped = max(0.0, min(1.0, float(score)))
+        if clamped == float(score):
+            return
+        graph.nodes[node_id]["importance_score"] = clamped
+        report.tier1_fixes.append(
+            ValidationIssue(
+                tier=1,
+                category="score_clamp",
+                node_id=node_id,
+                edge_key=None,
+                message=f"Clamped importance_score {score} → {clamped}",
+                auto_fixed=True,
+            )
+        )
+
+    @staticmethod
+    def _autofix_missing_name(graph, node_id, data, report: ValidationReport) -> None:
+        # 1c. Set missing name from ID
+        if data.get("name"):
+            return
+        graph.nodes[node_id]["name"] = node_id
+        report.tier1_fixes.append(
+            ValidationIssue(
+                tier=1,
+                category="missing_name",
+                node_id=node_id,
+                edge_key=None,
+                message=f"Set missing name to node ID '{node_id}'",
+                auto_fixed=True,
+            )
+        )
+
+    @staticmethod
+    def _autofix_field_clamps(graph, node_id, data, report: ValidationReport) -> None:
+        # 1d. Clamp weight/reward/confidence fields
+        for field_name in ("reward", "confidence", "certainty", "confidence_score"):
+            val = data.get(field_name)
+            if val is None or not isinstance(val, int | float):
+                continue
+            clamped = max(0.0, min(1.0, float(val)))
+            if clamped == float(val):
+                continue
+            graph.nodes[node_id][field_name] = clamped
+            report.tier1_fixes.append(
+                ValidationIssue(
+                    tier=1,
+                    category="field_clamp",
+                    node_id=node_id,
+                    edge_key=None,
+                    message=f"Clamped {field_name} {val} → {clamped}",
+                    auto_fixed=True,
+                )
+            )
+
+    @staticmethod
+    def _autofix_edge_alias(graph, u, v, key, data, report: ValidationReport) -> None:
+        # 1e. Normalize edge relationship aliases
+        edge_type = data.get("relationship", "")
+        if not isinstance(edge_type, str):
+            return
+        type_lower = edge_type.lower().strip()
+        canonical = EDGE_TYPE_ALIASES.get(type_lower)
+        if not canonical or type_lower == canonical:
+            return
+        graph.edges[u, v, key]["relationship"] = canonical
+        report.tier1_fixes.append(
+            ValidationIssue(
+                tier=1,
+                category="edge_alias",
+                node_id=None,
+                edge_key=f"{u} → {v}",
+                message=f"Normalized edge type '{edge_type}' → '{canonical}'",
+                auto_fixed=True,
+            )
+        )
+
+    @staticmethod
+    def _autofix_edge_weight_clamp(
+        graph, u, v, key, data, report: ValidationReport
+    ) -> None:
+        # 1f. Clamp edge weight
+        weight = data.get("weight")
+        if weight is None or not isinstance(weight, int | float):
+            return
+        clamped = max(0.0, min(10.0, float(weight)))
+        if clamped == float(weight):
+            return
+        graph.edges[u, v, key]["weight"] = clamped
+        report.tier1_fixes.append(
+            ValidationIssue(
+                tier=1,
+                category="edge_weight_clamp",
+                node_id=None,
+                edge_key=f"{u} → {v}",
+                message=f"Clamped edge weight {weight} → {clamped}",
+                auto_fixed=True,
+            )
+        )
+
     def _tier1_autofix(self, report: ValidationReport) -> None:
         """Silently correct recoverable issues in the graph."""
         graph = self.engine.graph
 
         for node_id, data in list(graph.nodes(data=True)):
-            # 1a. Normalize LLM node-type aliases
-            node_type = data.get("node_type", "")
-            if isinstance(node_type, str):
-                type_lower = node_type.lower().strip()
-                canonical = NODE_TYPE_ALIASES.get(type_lower)
-                if canonical and type_lower != canonical:
-                    graph.nodes[node_id]["node_type"] = canonical
-                    report.tier1_fixes.append(
-                        ValidationIssue(
-                            tier=1,
-                            category="type_alias",
-                            node_id=node_id,
-                            edge_key=None,
-                            message=f"Normalized type '{node_type}' → '{canonical}'",
-                            auto_fixed=True,
-                        )
-                    )
+            self._autofix_node_type_alias(graph, node_id, data, report)
+            self._autofix_score_clamp(graph, node_id, data, report)
+            self._autofix_missing_name(graph, node_id, data, report)
+            self._autofix_field_clamps(graph, node_id, data, report)
 
-            # 1b. Clamp importance_score to [0.0, 1.0]
-            score = data.get("importance_score")
-            if score is not None:
-                if isinstance(score, int | float):
-                    clamped = max(0.0, min(1.0, float(score)))
-                    if clamped != float(score):
-                        graph.nodes[node_id]["importance_score"] = clamped
-                        report.tier1_fixes.append(
-                            ValidationIssue(
-                                tier=1,
-                                category="score_clamp",
-                                node_id=node_id,
-                                edge_key=None,
-                                message=(
-                                    f"Clamped importance_score {score} → {clamped}"
-                                ),
-                                auto_fixed=True,
-                            )
-                        )
-
-            # 1c. Set missing name from ID
-            if not data.get("name"):
-                graph.nodes[node_id]["name"] = node_id
-                report.tier1_fixes.append(
-                    ValidationIssue(
-                        tier=1,
-                        category="missing_name",
-                        node_id=node_id,
-                        edge_key=None,
-                        message=f"Set missing name to node ID '{node_id}'",
-                        auto_fixed=True,
-                    )
-                )
-
-            # 1d. Clamp weight/reward/confidence fields
-            for field_name in ("reward", "confidence", "certainty", "confidence_score"):
-                val = data.get(field_name)
-                if val is not None and isinstance(val, int | float):
-                    clamped = max(0.0, min(1.0, float(val)))
-                    if clamped != float(val):
-                        graph.nodes[node_id][field_name] = clamped
-                        report.tier1_fixes.append(
-                            ValidationIssue(
-                                tier=1,
-                                category="field_clamp",
-                                node_id=node_id,
-                                edge_key=None,
-                                message=f"Clamped {field_name} {val} → {clamped}",
-                                auto_fixed=True,
-                            )
-                        )
-
-        # 1e. Normalize edge relationship aliases
         for u, v, key, data in list(graph.edges(data=True, keys=True)):
-            edge_type = data.get("relationship", "")
-            if isinstance(edge_type, str):
-                type_lower = edge_type.lower().strip()
-                canonical = EDGE_TYPE_ALIASES.get(type_lower)
-                if canonical and type_lower != canonical:
-                    graph.edges[u, v, key]["relationship"] = canonical
-                    report.tier1_fixes.append(
-                        ValidationIssue(
-                            tier=1,
-                            category="edge_alias",
-                            node_id=None,
-                            edge_key=f"{u} → {v}",
-                            message=(
-                                f"Normalized edge type '{edge_type}' → '{canonical}'"
-                            ),
-                            auto_fixed=True,
-                        )
-                    )
-
-            # 1f. Clamp edge weight
-            weight = data.get("weight")
-            if weight is not None and isinstance(weight, int | float):
-                clamped = max(0.0, min(10.0, float(weight)))
-                if clamped != float(weight):
-                    graph.edges[u, v, key]["weight"] = clamped
-                    report.tier1_fixes.append(
-                        ValidationIssue(
-                            tier=1,
-                            category="edge_weight_clamp",
-                            node_id=None,
-                            edge_key=f"{u} → {v}",
-                            message=f"Clamped edge weight {weight} → {clamped}",
-                            auto_fixed=True,
-                        )
-                    )
+            self._autofix_edge_alias(graph, u, v, key, data, report)
+            self._autofix_edge_weight_clamp(graph, u, v, key, data, report)
 
     # --- Tier 2: Referential Integrity ----------------------------------------
 
-    def _tier2_integrity(self, report: ValidationReport) -> None:
-        """Detect referential integrity violations."""
-        graph = self.engine.graph
-        node_ids = set(graph.nodes())
-
+    @staticmethod
+    def _check_dangling_edges(graph, report: ValidationReport) -> None:
         # 2a. Dangling edges — edges referencing non-existent nodes
-        for u, v, data in graph.edges(data=True):
+        node_ids = set(graph.nodes())
+        for u, v, _data in graph.edges(data=True):
             if u not in node_ids:
                 report.tier2_violations.append(
                     ValidationIssue(
@@ -433,6 +461,8 @@ class GraphValidator:
                     )
                 )
 
+    @staticmethod
+    def _check_duplicate_node_ids(graph, report: ValidationReport) -> None:
         # 2b. Duplicate node ID detection (shouldn't happen with GraphComputeEngine,
         # but can happen if data has conflicting entries)
         seen_ids: dict[str, int] = {}
@@ -450,6 +480,8 @@ class GraphValidator:
                     )
                 )
 
+    @staticmethod
+    def _check_missing_node_type(graph, report: ValidationReport) -> None:
         # 2c. Nodes with node_type=None or missing node_type
         for node_id, data in graph.nodes(data=True):
             if not data.get("node_type"):
@@ -463,6 +495,8 @@ class GraphValidator:
                     )
                 )
 
+    @staticmethod
+    def _check_untyped_edges(graph, report: ValidationReport) -> None:
         # 2d. Edges with missing relationship
         for u, v, data in graph.edges(data=True):
             if not data.get("relationship"):
@@ -476,12 +510,30 @@ class GraphValidator:
                     )
                 )
 
+    def _tier2_integrity(self, report: ValidationReport) -> None:
+        """Detect referential integrity violations."""
+        graph = self.engine.graph
+        self._check_dangling_edges(graph, report)
+        self._check_duplicate_node_ids(graph, report)
+        self._check_missing_node_type(graph, report)
+        self._check_untyped_edges(graph, report)
+
     # --- Tier 3: Quality Checks -----------------------------------------------
 
-    def _tier3_quality(self, report: ValidationReport) -> None:
-        """Flag quality concerns in the graph."""
-        graph = self.engine.graph
+    _GENERIC_DESCRIPTION_PATTERNS = (
+        r"^todo$",
+        r"^tbd$",
+        r"^placeholder$",
+        r"^n/?a$",
+        r"^none$",
+        r"^undefined$",
+        r"^description$",
+        r"^a [a-z]+ that",  # "a function that..." patterns
+        r"^this (is|does|handles)",
+    )
 
+    @staticmethod
+    def _check_orphan_nodes(graph, report: ValidationReport) -> None:
         # 3a. Orphan nodes (no edges at all)
         for node_id in graph.nodes():
             if graph.degree(node_id) == 0:
@@ -495,8 +547,10 @@ class GraphValidator:
                     )
                 )
 
+    @staticmethod
+    def _check_self_reference_edges(graph, report: ValidationReport) -> None:
         # 3b. Self-referencing edges
-        for u, v, data in graph.edges(data=True):
+        for u, v, _data in graph.edges(data=True):
             if u == v:
                 report.tier3_warnings.append(
                     ValidationIssue(
@@ -508,20 +562,12 @@ class GraphValidator:
                     )
                 )
 
+    @classmethod
+    def _check_generic_descriptions(cls, graph, report: ValidationReport) -> None:
         # 3c. Generic / placeholder descriptions
-        _GENERIC_PATTERNS = [
-            r"^todo$",
-            r"^tbd$",
-            r"^placeholder$",
-            r"^n/?a$",
-            r"^none$",
-            r"^undefined$",
-            r"^description$",
-            r"^a [a-z]+ that",  # "a function that..." patterns
-            r"^this (is|does|handles)",
-        ]
-        generic_re = re.compile("|".join(_GENERIC_PATTERNS), re.IGNORECASE)
-
+        generic_re = re.compile(
+            "|".join(cls._GENERIC_DESCRIPTION_PATTERNS), re.IGNORECASE
+        )
         for node_id, data in graph.nodes(data=True):
             desc = data.get("description", "")
             if desc and generic_re.match(desc.strip()):
@@ -538,6 +584,8 @@ class GraphValidator:
                     )
                 )
 
+    @staticmethod
+    def _check_underscored_hubs(graph, report: ValidationReport) -> None:
         # 3d. Nodes with very low importance that have many connections
         # (potential mis-scored hub nodes)
         for node_id, data in graph.nodes(data=True):
@@ -557,12 +605,18 @@ class GraphValidator:
                     )
                 )
 
+    def _tier3_quality(self, report: ValidationReport) -> None:
+        """Flag quality concerns in the graph."""
+        graph = self.engine.graph
+        self._check_orphan_nodes(graph, report)
+        self._check_self_reference_edges(graph, report)
+        self._check_generic_descriptions(graph, report)
+        self._check_underscored_hubs(graph, report)
+
     # --- Tier 4: Fatal Checks -------------------------------------------------
 
-    def _tier4_fatal(self, report: ValidationReport) -> None:
-        """Check for catastrophic failures (only these raise exceptions)."""
-        graph = self.engine.graph
-
+    @staticmethod
+    def _check_empty_graph(graph, report: ValidationReport) -> None:
         # 4a. Zero nodes
         if graph.number_of_nodes() == 0:
             report.tier4_fatal.append(
@@ -575,38 +629,51 @@ class GraphValidator:
                 )
             )
 
-        # 4b. Graph connectivity check (warn if completely disconnected)
-        if graph.number_of_nodes() > 1:
-            # Use GraphComputeEngine's connected_components (Rust-native)
+    def _connected_components(self, graph):
+        # Use GraphComputeEngine's connected_components (Rust-native)
+        try:
+            return self.engine.graph_compute.connected_components()
+        except Exception:
+            # Fallback: try the graph object directly
             try:
-                components = self.engine.graph_compute.connected_components()
+                return graph.connected_components()
             except Exception:
-                # Fallback: try the graph object directly
-                try:
-                    components = graph.connected_components()
-                except Exception:
-                    components = []
+                return []
 
-            if components:
-                components_sorted = sorted(components, key=len, reverse=True)
-                if len(components_sorted) > 1:
-                    # Not fatal, but if the largest component is < 50% of nodes
-                    # it suggests a broken graph
-                    largest_pct = len(components_sorted[0]) / graph.number_of_nodes()
-                    if largest_pct < 0.5:
-                        report.tier4_fatal.append(
-                            ValidationIssue(
-                                tier=4,
-                                category="fragmented_graph",
-                                node_id=None,
-                                edge_key=None,
-                                message=(
-                                    f"Graph is fragmented into {len(components_sorted)} "
-                                    f"components; largest is only {largest_pct:.0%} "
-                                    f"of total nodes"
-                                ),
-                            )
-                        )
+    def _check_graph_fragmentation(self, graph, report: ValidationReport) -> None:
+        # 4b. Graph connectivity check (warn if completely disconnected)
+        if graph.number_of_nodes() <= 1:
+            return
+        components = self._connected_components(graph)
+        if not components:
+            return
+        components_sorted = sorted(components, key=len, reverse=True)
+        if len(components_sorted) <= 1:
+            return
+        # Not fatal, but if the largest component is < 50% of nodes it
+        # suggests a broken graph.
+        largest_pct = len(components_sorted[0]) / graph.number_of_nodes()
+        if largest_pct >= 0.5:
+            return
+        report.tier4_fatal.append(
+            ValidationIssue(
+                tier=4,
+                category="fragmented_graph",
+                node_id=None,
+                edge_key=None,
+                message=(
+                    f"Graph is fragmented into {len(components_sorted)} "
+                    f"components; largest is only {largest_pct:.0%} "
+                    f"of total nodes"
+                ),
+            )
+        )
+
+    def _tier4_fatal(self, report: ValidationReport) -> None:
+        """Check for catastrophic failures (only these raise exceptions)."""
+        graph = self.engine.graph
+        self._check_empty_graph(graph, report)
+        self._check_graph_fragmentation(graph, report)
 
 
 class GraphValidationFatalError(Exception):
