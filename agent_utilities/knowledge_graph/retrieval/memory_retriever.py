@@ -72,6 +72,24 @@ class MemoryRetriever:
 
     # ── Core Lifecycle ────────────────────────────────────────────────
 
+    def _current_from_graph_fallback(self) -> MemoryRetrieverNode | None:
+        """The graph-compute fallback half of :meth:`get_current`."""
+        if SELF_MODEL_ANCHOR not in self.engine.graph:
+            return None
+        for succ in self.engine.graph.successors(SELF_MODEL_ANCHOR):
+            edge_data = self.engine.graph.get_edge_data(SELF_MODEL_ANCHOR, succ)
+            if not edge_data:
+                continue
+            for _, edata in edge_data.items():
+                # 'relationship' is the canonical edge property (upsert_edge
+                # writes edge_props = {"relationship": edge_type, ...});
+                # 'type' is retired and add_edge's public API rejects it as
+                # an alias.
+                if edata.get("relationship") == RegistryEdgeType.CURRENT_SELF_MODEL:
+                    ndata = dict(self.engine.graph.nodes[succ])
+                    return self.ogm._deserialize(ndata, MemoryRetrieverNode)
+        return None
+
     def get_current(self) -> MemoryRetrieverNode | None:
         """Load the latest self-model version via the CURRENT pointer.
 
@@ -88,24 +106,7 @@ class MemoryRetriever:
                 data = results[0].get("sm", results[0])
                 return self.ogm._deserialize(data, MemoryRetrieverNode)
 
-        # graph compute fallback
-        if SELF_MODEL_ANCHOR in self.engine.graph:
-            for succ in self.engine.graph.successors(SELF_MODEL_ANCHOR):
-                edge_data = self.engine.graph.get_edge_data(SELF_MODEL_ANCHOR, succ)
-                if edge_data:
-                    for _, edata in edge_data.items():
-                        # 'relationship' is the canonical edge property
-                        # (upsert_edge writes edge_props = {"relationship":
-                        # edge_type, ...}); 'type' is retired and
-                        # add_edge's public API rejects it as an alias.
-                        if (
-                            edata.get("relationship")
-                            == RegistryEdgeType.CURRENT_SELF_MODEL
-                        ):
-                            ndata = dict(self.engine.graph.nodes[succ])
-                            return self.ogm._deserialize(ndata, MemoryRetrieverNode)
-
-        return None
+        return self._current_from_graph_fallback()
 
     def get_or_create(self) -> MemoryRetrieverNode:
         """Load the current self-model, creating one if none exists.
@@ -145,6 +146,25 @@ class MemoryRetriever:
 
         logger.info("Created initial self-model: %s", node.id)
         return node
+
+    def _remove_current_pointer_edges(self) -> None:
+        """Remove the existing ``CURRENT_SELF_MODEL`` edge(s) from the anchor."""
+        if self.engine.backend:
+            self.engine.backend.execute(
+                "MATCH (a {id: $aid})-[r:CURRENT_SELF_MODEL]->() DELETE r",
+                {"aid": SELF_MODEL_ANCHOR},
+            )
+        edges_to_remove: list[tuple[str, str, object]] = []
+        if SELF_MODEL_ANCHOR in self.engine.graph:
+            for succ in self.engine.graph.successors(SELF_MODEL_ANCHOR):
+                edge_data = self.engine.graph.get_edge_data(SELF_MODEL_ANCHOR, succ)
+                if not edge_data:
+                    continue
+                for key, edata in edge_data.items():
+                    if edata.get("relationship") == RegistryEdgeType.CURRENT_SELF_MODEL:
+                        edges_to_remove.append((SELF_MODEL_ANCHOR, succ, key))
+        for src, tgt, key in edges_to_remove:
+            self.engine.graph.remove_edge(src, tgt, key)
 
     def create_snapshot(self, session_id: str = "") -> MemoryRetrieverNode:
         """Create a new version of the self-model, linking to previous.
@@ -188,26 +208,7 @@ class MemoryRetriever:
         )
 
         # Move CURRENT pointer
-        # Remove old CURRENT edge
-        if self.engine.backend:
-            self.engine.backend.execute(
-                "MATCH (a {id: $aid})-[r:CURRENT_SELF_MODEL]->() DELETE r",
-                {"aid": SELF_MODEL_ANCHOR},
-            )
-        # Remove from graph compute
-        edges_to_remove = []
-        if SELF_MODEL_ANCHOR in self.engine.graph:
-            for succ in self.engine.graph.successors(SELF_MODEL_ANCHOR):
-                edge_data = self.engine.graph.get_edge_data(SELF_MODEL_ANCHOR, succ)
-                if edge_data:
-                    for key, edata in edge_data.items():
-                        if (
-                            edata.get("relationship")
-                            == RegistryEdgeType.CURRENT_SELF_MODEL
-                        ):
-                            edges_to_remove.append((SELF_MODEL_ANCHOR, succ, key))
-        for src, tgt, key in edges_to_remove:
-            self.engine.graph.remove_edge(src, tgt, key)
+        self._remove_current_pointer_edges()
 
         # Add new CURRENT pointer
         self.ogm.upsert_edge(
@@ -226,6 +227,120 @@ class MemoryRetriever:
 
     # ── Session Aggregation ───────────────────────────────────────────
 
+    @staticmethod
+    def _apply_session_counters(
+        new_model: MemoryRetrieverNode, session: GraphState
+    ) -> None:
+        new_model.total_sessions += 1
+        tasks_completed = (
+            sum(1 for t in session.task_list.tasks if t.status == "completed")
+            if hasattr(session.task_list, "tasks")
+            else 0
+        )
+        new_model.total_tasks_completed += tasks_completed
+
+    @staticmethod
+    def _apply_domain_success_rate(
+        new_model: MemoryRetrieverNode, session: GraphState
+    ) -> None:
+        """Domain success rate as an exponential moving average."""
+        if not session.routed_domain:
+            return
+        domain = session.routed_domain
+        old_rate = new_model.domain_success_rates.get(domain, 0.5)
+        # Simple: 1.0 if no error, 0.0 if error
+        session_success = 0.0 if session.error else 1.0
+        alpha = 0.3  # EMA smoothing factor
+        new_model.domain_success_rates[domain] = (
+            alpha * session_success + (1 - alpha) * old_rate
+        )
+
+    @staticmethod
+    def _apply_tool_usage(new_model: MemoryRetrieverNode, session: GraphState) -> None:
+        """Track tool usage from node history."""
+        for node_name in session.node_history:
+            old_prof = new_model.tool_proficiency.get(node_name, 0.0)
+            # Simple increment — more sophisticated tracking would use
+            # actual success/failure per node
+            new_model.tool_proficiency[node_name] = min(1.0, old_prof + 0.05)
+
+    @staticmethod
+    def _apply_failure_pattern(
+        new_model: MemoryRetrieverNode, session: GraphState
+    ) -> None:
+        if not session.error or len(new_model.known_failure_patterns) >= 50:
+            return
+        pattern = session.error[:200]  # Truncate
+        if pattern not in new_model.known_failure_patterns:
+            new_model.known_failure_patterns.append(pattern)
+
+    @staticmethod
+    def _decay_pheromone_trails(new_model: MemoryRetrieverNode) -> None:
+        """ACO: evaporate all pheromone trails by 10%, pruning near-zero ones."""
+        evaporation_rate = 0.10
+        for specialist_id in list(new_model.pheromone_trails.keys()):
+            trails = new_model.pheromone_trails[specialist_id]
+            for pattern in list(trails.keys()):
+                trails[pattern] *= 1.0 - evaporation_rate
+                # Remove trails that have decayed below threshold
+                if trails[pattern] < 0.01:
+                    del trails[pattern]
+            if not trails:
+                del new_model.pheromone_trails[specialist_id]
+
+    @staticmethod
+    def _strengthen_pheromone_trails(
+        new_model: MemoryRetrieverNode, session: GraphState
+    ) -> None:
+        """Strengthen trails for successful specialist→domain combinations."""
+        if not (session.routed_domain and not session.error):
+            return
+        domain = session.routed_domain
+        for node_name in session.node_history:
+            if node_name not in new_model.pheromone_trails:
+                new_model.pheromone_trails[node_name] = {}
+            old_strength = new_model.pheromone_trails[node_name].get(domain, 0.0)
+            # Strengthen by 0.15, capped at 1.0
+            new_model.pheromone_trails[node_name][domain] = min(
+                1.0, old_strength + 0.15
+            )
+
+    @staticmethod
+    def _collect_models_used(session: GraphState) -> list[str]:
+        """Unique routed-tier ids from this session's routing confidence log."""
+        models_used: list[str] = []
+        for entry in session.routing_confidence_log:
+            model_id = entry.get("routed_tier", "")
+            if model_id and model_id not in models_used:
+                models_used.append(model_id)
+        return models_used
+
+    def _apply_model_synergy(
+        self, new_model: MemoryRetrieverNode, session: GraphState
+    ) -> bool:
+        """CONCEPT:AU-AHE.evaluation.interpretability-tests — Model Synergy Tracker.
+
+        Records the combination of models used in this session, keyed as
+        sorted pipe-delimited model tiers. Returns ``True`` when a synergy
+        record was updated (a ≥2-model combination was used).
+        """
+        models_used = self._collect_models_used(session)
+        if len(models_used) < 2:
+            return False
+        synergy_key = "|".join(sorted(models_used))
+        old_synergy = new_model.model_synergies.get(synergy_key, 0.5)
+        session_success = 0.0 if session.error else 1.0
+        alpha = 0.3
+        new_model.model_synergies[synergy_key] = (
+            alpha * session_success + (1 - alpha) * old_synergy
+        )
+        logger.info(
+            "[CONCEPT:AU-AHE.evaluation.interpretability-tests] Model synergy updated: %s → %.2f",
+            synergy_key,
+            new_model.model_synergies[synergy_key],
+        )
+        return True
+
     def update_after_session(self, session: GraphState) -> None:
         """Aggregate session outcomes into the self-model.
 
@@ -241,94 +356,23 @@ class MemoryRetriever:
         """
         new_model = self.create_snapshot(session_id=session.session_id)
 
-        # Update session counters
-        new_model.total_sessions += 1
-        tasks_completed = (
-            sum(1 for t in session.task_list.tasks if t.status == "completed")
-            if hasattr(session.task_list, "tasks")
-            else 0
-        )
-        new_model.total_tasks_completed += tasks_completed
-
-        # Update domain success rate (exponential moving average)
-        if session.routed_domain:
-            domain = session.routed_domain
-            old_rate = new_model.domain_success_rates.get(domain, 0.5)
-            # Simple: 1.0 if no error, 0.0 if error
-            session_success = 0.0 if session.error else 1.0
-            alpha = 0.3  # EMA smoothing factor
-            new_model.domain_success_rates[domain] = (
-                alpha * session_success + (1 - alpha) * old_rate
-            )
-
-        # Track tool usage from node history
-        for node_name in session.node_history:
-            old_prof = new_model.tool_proficiency.get(node_name, 0.0)
-            # Simple increment — more sophisticated tracking would use
-            # actual success/failure per node
-            new_model.tool_proficiency[node_name] = min(1.0, old_prof + 0.05)
-
-        # Track failure patterns
-        if session.error and len(new_model.known_failure_patterns) < 50:
-            pattern = session.error[:200]  # Truncate
-            if pattern not in new_model.known_failure_patterns:
-                new_model.known_failure_patterns.append(pattern)
+        self._apply_session_counters(new_model, session)
+        self._apply_domain_success_rate(new_model, session)
+        self._apply_tool_usage(new_model, session)
+        self._apply_failure_pattern(new_model, session)
 
         # Persist updated model
         self.ogm.upsert(new_model)
 
         # --- ACO: Pheromone trail decay & strengthening ---
-        # Evaporate all trails by 10% (ant colony optimization)
-        evaporation_rate = 0.10
-        for specialist_id in list(new_model.pheromone_trails.keys()):
-            trails = new_model.pheromone_trails[specialist_id]
-            for pattern in list(trails.keys()):
-                trails[pattern] *= 1.0 - evaporation_rate
-                # Remove trails that have decayed below threshold
-                if trails[pattern] < 0.01:
-                    del trails[pattern]
-            if not trails:
-                del new_model.pheromone_trails[specialist_id]
-
-        # Strengthen trails for successful specialist→domain combinations
-        if session.routed_domain and not session.error:
-            for node_name in session.node_history:
-                if node_name not in new_model.pheromone_trails:
-                    new_model.pheromone_trails[node_name] = {}
-                domain = session.routed_domain
-                old_strength = new_model.pheromone_trails[node_name].get(domain, 0.0)
-                # Strengthen by 0.15, capped at 1.0
-                new_model.pheromone_trails[node_name][domain] = min(
-                    1.0, old_strength + 0.15
-                )
+        self._decay_pheromone_trails(new_model)
+        self._strengthen_pheromone_trails(new_model, session)
 
         # Persist with pheromone updates
         self.ogm.upsert(new_model)
 
-        # CONCEPT:AU-AHE.evaluation.interpretability-tests — Model Synergy Tracker
-        # Record the combination of models used in this session from the
-        # routing confidence log.  Each entry in routing_confidence_log
-        # records a specialist's routed tier; we collect the unique set
-        # and key it as sorted pipe-delimited model tiers.
-        models_used: list[str] = []
-        for entry in session.routing_confidence_log:
-            model_id = entry.get("routed_tier", "")
-            if model_id and model_id not in models_used:
-                models_used.append(model_id)
-        if len(models_used) >= 2:
-            synergy_key = "|".join(sorted(models_used))
-            old_synergy = new_model.model_synergies.get(synergy_key, 0.5)
-            session_success = 0.0 if session.error else 1.0
-            alpha = 0.3
-            new_model.model_synergies[synergy_key] = (
-                alpha * session_success + (1 - alpha) * old_synergy
-            )
+        if self._apply_model_synergy(new_model, session):
             self.ogm.upsert(new_model)
-            logger.info(
-                "[CONCEPT:AU-AHE.evaluation.interpretability-tests] Model synergy updated: %s → %.2f",
-                synergy_key,
-                new_model.model_synergies[synergy_key],
-            )
 
         # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Invalidate hot cache so routing reflects new self-knowledge
         from ...core.config import invalidate_registry_cache
@@ -393,6 +437,30 @@ class MemoryRetriever:
         compatible.sort(key=lambda x: x[1], reverse=True)
         return compatible[:top_k]
 
+    def _predecessor_via_supersedes(self, node_id: str) -> MemoryRetrieverNode | None:
+        """The node ``node_id`` SUPERSEDES, or ``None`` at the chain head."""
+        if self.engine.backend:
+            results = self.engine.backend.execute(
+                "MATCH (n {id: $nid})-[:SUPERSEDES]->(prev:MemoryRetriever) RETURN prev",
+                {"nid": node_id},
+            )
+            if not results:
+                return None
+            data = results[0].get("prev", results[0])
+            return self.ogm._deserialize(data, MemoryRetrieverNode)
+
+        prev: MemoryRetrieverNode | None = None
+        for succ in self.engine.graph.successors(node_id):
+            edge_data = self.engine.graph.get_edge_data(node_id, succ)
+            if not edge_data:
+                continue
+            for _, edata in edge_data.items():
+                if edata.get("relationship") == RegistryEdgeType.SUPERSEDES:
+                    ndata = dict(self.engine.graph.nodes[succ])
+                    prev = self.ogm._deserialize(ndata, MemoryRetrieverNode)
+                    break
+        return prev
+
     def temporal_trend(self, domain: str, lookback: int = 5) -> list[float]:
         """Traverse the SUPERSEDES chain to get historical performance.
 
@@ -411,26 +479,7 @@ class MemoryRetriever:
         node = current
         for _ in range(lookback):
             trend.append(node.domain_success_rates.get(domain, 0.0))
-            # Find predecessor via SUPERSEDES
-            prev = None
-            if self.engine.backend:
-                results = self.engine.backend.execute(
-                    "MATCH (n {id: $nid})-[:SUPERSEDES]->(prev:MemoryRetriever) RETURN prev",
-                    {"nid": node.id},
-                )
-                if results:
-                    data = results[0].get("prev", results[0])
-                    prev = self.ogm._deserialize(data, MemoryRetrieverNode)
-            else:
-                for succ in self.engine.graph.successors(node.id):
-                    edge_data = self.engine.graph.get_edge_data(node.id, succ)
-                    if edge_data:
-                        for _, edata in edge_data.items():
-                            if edata.get("relationship") == RegistryEdgeType.SUPERSEDES:
-                                ndata = dict(self.engine.graph.nodes[succ])
-                                prev = self.ogm._deserialize(ndata, MemoryRetrieverNode)
-                                break
-
+            prev = self._predecessor_via_supersedes(node.id)
             if prev is None:
                 break
             node = prev

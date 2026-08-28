@@ -22,7 +22,7 @@ import itertools
 import json
 import math
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from typing import Any, TypeVar, cast
 
@@ -61,6 +61,68 @@ _NEURAL_PREDICTION_TOP_K = 20
 _NEURAL_PREDICTION_MIN_SCORE = 0.1
 
 
+def _event_co_occurrence_pairs(
+    events: Sequence[ProcessEvent],
+) -> tuple[dict[str, set[str]], dict[frozenset[str], set[str]]]:
+    """Per-object event participation + per-pair shared-event id sets."""
+    participation: dict[str, set[str]] = defaultdict(set)
+    pair_shared_events: dict[frozenset[str], set[str]] = defaultdict(set)
+    for event in events:
+        object_ids = sorted({item.object_id for item in event.objects})
+        for object_id in object_ids:
+            participation[object_id].add(event.event_id)
+        if len(object_ids) > _MAX_EVENT_FANOUT_FOR_CO_OCCURRENCE:
+            continue
+        for a, b in itertools.combinations(object_ids, 2):
+            pair_shared_events[frozenset((a, b))].add(event.event_id)
+    return participation, pair_shared_events
+
+
+def _score_co_occurrence_pairs(
+    pair_shared_events: dict[frozenset[str], set[str]],
+    participation: dict[str, set[str]],
+    known_pairs: set[frozenset[str]],
+    min_score: float,
+) -> list[tuple[float, str, str, tuple[str, ...]]]:
+    """Jaccard-score every unknown pair, sorted score-desc then pair for stable ties."""
+    scored: list[tuple[float, str, str, tuple[str, ...]]] = []
+    for pair, shared in pair_shared_events.items():
+        if pair in known_pairs:
+            continue
+        a, b = sorted(pair)
+        union = participation[a] | participation[b]
+        score = len(shared) / len(union) if union else 0.0
+        if score < min_score:
+            continue
+        scored.append((score, a, b, tuple(sorted(shared))))
+    scored.sort(key=lambda item: (-item[0], item[1], item[2]))
+    return scored
+
+
+def _co_occurrence_predictions(
+    scored: list[tuple[float, str, str, tuple[str, ...]]],
+    top_k: int,
+    source_ref: str,
+    candidate_set_ref: str,
+) -> tuple[NeuralRelationPrediction, ...]:
+    predictions: list[NeuralRelationPrediction] = []
+    for score, a, b, shared_events in scored[:top_k]:
+        predictions.append(
+            NeuralRelationPrediction(
+                prediction_id=f"co-occurs:{source_ref}:{a}:{b}",
+                subject=SemanticEntityRef(kind="object", source_id=a),
+                predicate="co_occurrence_candidate",
+                object=SemanticEntityRef(kind="object", source_id=b),
+                score=round(score, 6),
+                uncertainty=round(1.0 - score, 6),
+                model_ref="structural-event-co-participation-jaccard-uncalibrated-v1",
+                candidate_set_ref=candidate_set_ref,
+                evidence_refs=tuple(shared_events),
+            )
+        )
+    return tuple(predictions)
+
+
 def predict_object_co_occurrence_relations(
     events: Sequence[ProcessEvent],
     object_relationships: Sequence[QualifiedObjectRelationship],
@@ -96,51 +158,15 @@ def predict_object_co_occurrence_relations(
     fabricated). ``decision_status`` stays the type's own invariant, "proposed":
     nothing here is a fact.
     """
-    participation: dict[str, set[str]] = defaultdict(set)
-    pair_shared_events: dict[frozenset[str], set[str]] = defaultdict(set)
-    for event in events:
-        object_ids = sorted({item.object_id for item in event.objects})
-        for object_id in object_ids:
-            participation[object_id].add(event.event_id)
-        if len(object_ids) > _MAX_EVENT_FANOUT_FOR_CO_OCCURRENCE:
-            continue
-        for a, b in itertools.combinations(object_ids, 2):
-            pair_shared_events[frozenset((a, b))].add(event.event_id)
-
+    participation, pair_shared_events = _event_co_occurrence_pairs(events)
     known_pairs = {
         frozenset((r.source_object_id, r.target_object_id))
         for r in object_relationships
     }
-
-    scored: list[tuple[float, str, str, tuple[str, ...]]] = []
-    for pair, shared in pair_shared_events.items():
-        if pair in known_pairs:
-            continue
-        a, b = sorted(pair)
-        union = participation[a] | participation[b]
-        score = len(shared) / len(union) if union else 0.0
-        if score < min_score:
-            continue
-        scored.append((score, a, b, tuple(sorted(shared))))
-    # Deterministic ranking: score desc, then the pair itself for stable ties.
-    scored.sort(key=lambda item: (-item[0], item[1], item[2]))
-
-    predictions: list[NeuralRelationPrediction] = []
-    for score, a, b, shared_events in scored[:top_k]:
-        predictions.append(
-            NeuralRelationPrediction(
-                prediction_id=f"co-occurs:{source_ref}:{a}:{b}",
-                subject=SemanticEntityRef(kind="object", source_id=a),
-                predicate="co_occurrence_candidate",
-                object=SemanticEntityRef(kind="object", source_id=b),
-                score=round(score, 6),
-                uncertainty=round(1.0 - score, 6),
-                model_ref="structural-event-co-participation-jaccard-uncalibrated-v1",
-                candidate_set_ref=candidate_set_ref,
-                evidence_refs=tuple(shared_events),
-            )
-        )
-    return tuple(predictions)
+    scored = _score_co_occurrence_pairs(
+        pair_shared_events, participation, known_pairs, min_score
+    )
+    return _co_occurrence_predictions(scored, top_k, source_ref, candidate_set_ref)
 
 
 def _text(value: object, field: str) -> str:
@@ -270,26 +296,31 @@ def _declarations(
     return tuple(sorted(declarations, key=lambda item: item.name))
 
 
+def _is_time_value(value: object, field: str) -> bool:
+    try:
+        _timestamp(value, field)
+        return True
+    except ValueError:
+        return False
+
+
+def _is_float_value(value: object) -> bool:
+    return (
+        isinstance(value, int | float)
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    )
+
+
 def _check_value(value: object, declared_type: OcelAttributeType, field: str) -> None:
-    valid = False
-    if declared_type == "string":
-        valid = isinstance(value, str)
-    elif declared_type == "time":
-        try:
-            _timestamp(value, field)
-            valid = True
-        except ValueError:
-            valid = False
-    elif declared_type == "integer":
-        valid = isinstance(value, int) and not isinstance(value, bool)
-    elif declared_type == "float":
-        valid = (
-            isinstance(value, int | float)
-            and not isinstance(value, bool)
-            and math.isfinite(value)
-        )
-    elif declared_type == "boolean":
-        valid = isinstance(value, bool)
+    validators: dict[str, Callable[[], bool]] = {
+        "string": lambda: isinstance(value, str),
+        "time": lambda: _is_time_value(value, field),
+        "integer": lambda: isinstance(value, int) and not isinstance(value, bool),
+        "float": lambda: _is_float_value(value),
+        "boolean": lambda: isinstance(value, bool),
+    }
+    valid = validators.get(declared_type, lambda: False)()
     if not valid:
         raise ValueError(
             f"OCEL field {field!r} does not match declared type {declared_type!r}"
@@ -373,6 +404,171 @@ def _declaration_map(
     return {item.name: item.value_type for item in declaration.attributes}
 
 
+def _import_objects(
+    document: Mapping[str, Any], object_type_map: Mapping[str, OcelObjectType]
+) -> tuple[list[BusinessObject], dict[str, str], list[Mapping[str, Any]]]:
+    """Parse the ``objects`` array -> ``(objects, object_type_by_id, object_records)``."""
+    objects: list[BusinessObject] = []
+    raw_objects = _array(document["objects"], "objects")
+    object_type_by_id: dict[str, str] = {}
+    object_records: list[Mapping[str, Any]] = []
+    for raw_object in raw_objects:
+        record = _mapping(raw_object, "objects[]")
+        object_id = _text(record.get("id"), "objects[].id")
+        object_type = _text(record.get("type"), "objects[].type")
+        declaration = object_type_map.get(object_type)
+        if declaration is None:
+            raise ValueError("OCEL object references an undeclared object type")
+        if object_id in object_type_by_id:
+            raise ValueError("OCEL object identifiers must be unique")
+        object_type_by_id[object_id] = object_type
+        object_records.append(record)
+        objects.append(
+            BusinessObject(
+                object_id=object_id,
+                object_type=object_type,
+                attributes=cast(
+                    tuple[TemporalAttributeValue, ...],
+                    _attributes(
+                        _optional_array(
+                            record,
+                            "attributes",
+                            "objects[].attributes",
+                        ),
+                        field="objects[].attributes",
+                        declarations=_declaration_map(declaration),
+                        temporal=True,
+                    ),
+                ),
+            )
+        )
+    return objects, object_type_by_id, object_records
+
+
+def _import_object_relationships(
+    object_records: list[Mapping[str, Any]],
+    object_type_by_id: dict[str, str],
+    effective_source: str,
+) -> list[QualifiedObjectRelationship]:
+    object_relationships: list[QualifiedObjectRelationship] = []
+    for record in object_records:
+        source_id = _text(record.get("id"), "objects[].id")
+        normalized: list[tuple[str, str]] = []
+        for raw_relationship in _optional_array(
+            record,
+            "relationships",
+            "objects[].relationships",
+        ):
+            relationship = _mapping(raw_relationship, "objects[].relationships[]")
+            target_id = _text(
+                relationship.get("objectId"),
+                "objects[].relationships[].objectId",
+            )
+            if target_id not in object_type_by_id:
+                raise ValueError("OCEL object relation references an undeclared object")
+            normalized.append(
+                (
+                    target_id,
+                    _text(
+                        relationship.get("qualifier"),
+                        "objects[].relationships[].qualifier",
+                    ),
+                )
+            )
+        for occurrence, (target_id, qualifier) in enumerate(sorted(normalized)):
+            relationship_digest = hashlib.sha256(
+                _canonical_json(
+                    [effective_source, source_id, target_id, qualifier, occurrence]
+                )
+            ).hexdigest()[:32]
+            object_relationships.append(
+                QualifiedObjectRelationship(
+                    relationship_id=f"ocel-o2o:{relationship_digest}",
+                    source_object_id=source_id,
+                    target_object_id=target_id,
+                    qualifier=qualifier,
+                )
+            )
+    return object_relationships
+
+
+def _import_event_participations(
+    record: Mapping[str, Any], object_type_by_id: dict[str, str]
+) -> tuple[EventObjectParticipation, ...]:
+    participations: list[EventObjectParticipation] = []
+    for raw_relationship in _optional_array(
+        record,
+        "relationships",
+        "events[].relationships",
+    ):
+        relationship = _mapping(raw_relationship, "events[].relationships[]")
+        object_id = _text(
+            relationship.get("objectId"),
+            "events[].relationships[].objectId",
+        )
+        participation_type = object_type_by_id.get(object_id)
+        if participation_type is None:
+            raise ValueError("OCEL event relation references an undeclared object")
+        participations.append(
+            EventObjectParticipation(
+                object_id=object_id,
+                object_type=participation_type,
+                qualifier=_text(
+                    relationship.get("qualifier"),
+                    "events[].relationships[].qualifier",
+                ),
+            )
+        )
+    return tuple(
+        sorted(
+            participations,
+            key=lambda item: (item.object_type, item.object_id, item.qualifier),
+        )
+    )
+
+
+def _import_events(
+    document: Mapping[str, Any],
+    event_type_map: Mapping[str, OcelEventType],
+    object_type_by_id: dict[str, str],
+    effective_source: str,
+) -> tuple[list[ProcessEvent], list[str]]:
+    events: list[ProcessEvent] = []
+    event_ids: list[str] = []
+    for raw_event in _array(document["events"], "events"):
+        record = _mapping(raw_event, "events[]")
+        event_id = _text(record.get("id"), "events[].id")
+        event_type = _text(record.get("type"), "events[].type")
+        event_declaration = event_type_map.get(event_type)
+        if event_declaration is None:
+            raise ValueError("OCEL event references an undeclared event type")
+        event_ids.append(event_id)
+        events.append(
+            ProcessEvent(
+                event_id=event_id,
+                activity=event_type,
+                occurred_at=_timestamp(record.get("time"), "events[].time"),
+                objects=_import_event_participations(record, object_type_by_id),
+                attributes=cast(
+                    tuple[EventAttributeValue, ...],
+                    _attributes(
+                        _optional_array(
+                            record,
+                            "attributes",
+                            "events[].attributes",
+                        ),
+                        field="events[].attributes",
+                        declarations=_declaration_map(event_declaration),
+                        temporal=False,
+                    ),
+                ),
+                source_ref=effective_source,
+                sequence_tiebreaker=event_id,
+            )
+        )
+    return events, event_ids
+
+
 def import_ocel_json(
     payload: str | Mapping[str, Any],
     *,
@@ -419,147 +615,15 @@ def import_ocel_json(
     event_type_map = {item.name: item for item in event_types}
     object_type_map = {item.name: item for item in object_types}
 
-    objects: list[BusinessObject] = []
-    raw_objects = _array(document["objects"], "objects")
-    object_type_by_id: dict[str, str] = {}
-    object_records: list[Mapping[str, Any]] = []
-    for raw_object in raw_objects:
-        record = _mapping(raw_object, "objects[]")
-        object_id = _text(record.get("id"), "objects[].id")
-        object_type = _text(record.get("type"), "objects[].type")
-        declaration = object_type_map.get(object_type)
-        if declaration is None:
-            raise ValueError("OCEL object references an undeclared object type")
-        if object_id in object_type_by_id:
-            raise ValueError("OCEL object identifiers must be unique")
-        object_type_by_id[object_id] = object_type
-        object_records.append(record)
-        objects.append(
-            BusinessObject(
-                object_id=object_id,
-                object_type=object_type,
-                attributes=cast(
-                    tuple[TemporalAttributeValue, ...],
-                    _attributes(
-                        _optional_array(
-                            record,
-                            "attributes",
-                            "objects[].attributes",
-                        ),
-                        field="objects[].attributes",
-                        declarations=_declaration_map(declaration),
-                        temporal=True,
-                    ),
-                ),
-            )
-        )
-
-    object_relationships: list[QualifiedObjectRelationship] = []
-    for record in object_records:
-        source_id = _text(record.get("id"), "objects[].id")
-        normalized: list[tuple[str, str]] = []
-        for raw_relationship in _optional_array(
-            record,
-            "relationships",
-            "objects[].relationships",
-        ):
-            relationship = _mapping(raw_relationship, "objects[].relationships[]")
-            target_id = _text(
-                relationship.get("objectId"),
-                "objects[].relationships[].objectId",
-            )
-            if target_id not in object_type_by_id:
-                raise ValueError("OCEL object relation references an undeclared object")
-            normalized.append(
-                (
-                    target_id,
-                    _text(
-                        relationship.get("qualifier"),
-                        "objects[].relationships[].qualifier",
-                    ),
-                )
-            )
-        for occurrence, (target_id, qualifier) in enumerate(sorted(normalized)):
-            relationship_digest = hashlib.sha256(
-                _canonical_json(
-                    [effective_source, source_id, target_id, qualifier, occurrence]
-                )
-            ).hexdigest()[:32]
-            object_relationships.append(
-                QualifiedObjectRelationship(
-                    relationship_id=f"ocel-o2o:{relationship_digest}",
-                    source_object_id=source_id,
-                    target_object_id=target_id,
-                    qualifier=qualifier,
-                )
-            )
-
-    events: list[ProcessEvent] = []
-    event_ids: list[str] = []
-    for raw_event in _array(document["events"], "events"):
-        record = _mapping(raw_event, "events[]")
-        event_id = _text(record.get("id"), "events[].id")
-        event_type = _text(record.get("type"), "events[].type")
-        event_declaration = event_type_map.get(event_type)
-        if event_declaration is None:
-            raise ValueError("OCEL event references an undeclared event type")
-        event_ids.append(event_id)
-        participations: list[EventObjectParticipation] = []
-        for raw_relationship in _optional_array(
-            record,
-            "relationships",
-            "events[].relationships",
-        ):
-            relationship = _mapping(raw_relationship, "events[].relationships[]")
-            object_id = _text(
-                relationship.get("objectId"),
-                "events[].relationships[].objectId",
-            )
-            participation_type = object_type_by_id.get(object_id)
-            if participation_type is None:
-                raise ValueError("OCEL event relation references an undeclared object")
-            participations.append(
-                EventObjectParticipation(
-                    object_id=object_id,
-                    object_type=participation_type,
-                    qualifier=_text(
-                        relationship.get("qualifier"),
-                        "events[].relationships[].qualifier",
-                    ),
-                )
-            )
-        events.append(
-            ProcessEvent(
-                event_id=event_id,
-                activity=event_type,
-                occurred_at=_timestamp(record.get("time"), "events[].time"),
-                objects=tuple(
-                    sorted(
-                        participations,
-                        key=lambda item: (
-                            item.object_type,
-                            item.object_id,
-                            item.qualifier,
-                        ),
-                    )
-                ),
-                attributes=cast(
-                    tuple[EventAttributeValue, ...],
-                    _attributes(
-                        _optional_array(
-                            record,
-                            "attributes",
-                            "events[].attributes",
-                        ),
-                        field="events[].attributes",
-                        declarations=_declaration_map(event_declaration),
-                        temporal=False,
-                    ),
-                ),
-                source_ref=effective_source,
-                sequence_tiebreaker=event_id,
-            )
-        )
+    objects, object_type_by_id, object_records = _import_objects(
+        document, object_type_map
+    )
+    object_relationships = _import_object_relationships(
+        object_records, object_type_by_id, effective_source
+    )
+    events, event_ids = _import_events(
+        document, event_type_map, object_type_by_id, effective_source
+    )
     _unique(event_ids, "event identifiers")
 
     # Structural NeuralRelationPrediction candidates (D-OB-11) — native-by-default,
@@ -596,6 +660,98 @@ def import_ocel_json(
     return slice_, checked_provenance
 
 
+def _export_type_declarations(
+    declarations: Sequence[_Declaration],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "name": declaration.name,
+            "attributes": [
+                {"name": attribute.name, "type": attribute.value_type}
+                for attribute in sorted(declaration.attributes, key=lambda a: a.name)
+            ],
+        }
+        for declaration in sorted(declarations, key=lambda d: d.name)
+    ]
+
+
+def _export_events(events: Sequence[ProcessEvent]) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": event.event_id,
+            "type": event.activity,
+            "time": event.occurred_at.isoformat().replace("+00:00", "Z"),
+            "attributes": [
+                {"name": attribute.name, "value": attribute.value}
+                for attribute in sorted(
+                    event.attributes,
+                    key=lambda item: (
+                        item.name,
+                        json.dumps(item.value, sort_keys=True, default=str),
+                    ),
+                )
+            ],
+            "relationships": [
+                {
+                    "objectId": participation.object_id,
+                    "qualifier": participation.qualifier,
+                }
+                for participation in sorted(
+                    event.objects,
+                    key=lambda item: (
+                        item.object_type,
+                        item.object_id,
+                        item.qualifier,
+                    ),
+                )
+            ],
+        }
+        for event in sorted(events, key=lambda item: item.event_id)
+    ]
+
+
+def _export_objects(
+    objects: Sequence[BusinessObject],
+    relationships_by_source: dict[str, list[QualifiedObjectRelationship]],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": business_object.object_id,
+            "type": business_object.object_type,
+            "attributes": [
+                {
+                    "name": attribute.name,
+                    "time": attribute.valid_from.isoformat().replace("+00:00", "Z"),
+                    "value": attribute.value,
+                }
+                for attribute in sorted(
+                    business_object.attributes,
+                    key=lambda item: (
+                        item.name,
+                        item.valid_from,
+                        json.dumps(item.value, sort_keys=True, default=str),
+                    ),
+                )
+            ],
+            "relationships": [
+                {
+                    "objectId": relationship.target_object_id,
+                    "qualifier": relationship.qualifier,
+                }
+                for relationship in sorted(
+                    relationships_by_source.get(business_object.object_id, ()),
+                    key=lambda item: (
+                        item.target_object_id,
+                        item.qualifier,
+                        item.relationship_id,
+                    ),
+                )
+            ],
+        }
+        for business_object in sorted(objects, key=lambda item: item.object_id)
+    ]
+
+
 def export_ocel_json(slice_: ObjectCentricGraphSlice) -> dict[str, Any]:
     """Export canonical source truth as official deterministic OCEL 2.0 JSON."""
     relationships_by_source: dict[str, list[QualifiedObjectRelationship]] = {}
@@ -605,98 +761,8 @@ def export_ocel_json(slice_: ObjectCentricGraphSlice) -> dict[str, Any]:
         )
 
     return {
-        "eventTypes": [
-            {
-                "name": declaration.name,
-                "attributes": [
-                    {"name": attribute.name, "type": attribute.value_type}
-                    for attribute in sorted(
-                        declaration.attributes, key=lambda item: item.name
-                    )
-                ],
-            }
-            for declaration in sorted(slice_.event_types, key=lambda item: item.name)
-        ],
-        "objectTypes": [
-            {
-                "name": declaration.name,
-                "attributes": [
-                    {"name": attribute.name, "type": attribute.value_type}
-                    for attribute in sorted(
-                        declaration.attributes, key=lambda item: item.name
-                    )
-                ],
-            }
-            for declaration in sorted(slice_.object_types, key=lambda item: item.name)
-        ],
-        "events": [
-            {
-                "id": event.event_id,
-                "type": event.activity,
-                "time": event.occurred_at.isoformat().replace("+00:00", "Z"),
-                "attributes": [
-                    {"name": attribute.name, "value": attribute.value}
-                    for attribute in sorted(
-                        event.attributes,
-                        key=lambda item: (
-                            item.name,
-                            json.dumps(item.value, sort_keys=True, default=str),
-                        ),
-                    )
-                ],
-                "relationships": [
-                    {
-                        "objectId": participation.object_id,
-                        "qualifier": participation.qualifier,
-                    }
-                    for participation in sorted(
-                        event.objects,
-                        key=lambda item: (
-                            item.object_type,
-                            item.object_id,
-                            item.qualifier,
-                        ),
-                    )
-                ],
-            }
-            for event in sorted(slice_.events, key=lambda item: item.event_id)
-        ],
-        "objects": [
-            {
-                "id": business_object.object_id,
-                "type": business_object.object_type,
-                "attributes": [
-                    {
-                        "name": attribute.name,
-                        "time": attribute.valid_from.isoformat().replace("+00:00", "Z"),
-                        "value": attribute.value,
-                    }
-                    for attribute in sorted(
-                        business_object.attributes,
-                        key=lambda item: (
-                            item.name,
-                            item.valid_from,
-                            json.dumps(item.value, sort_keys=True, default=str),
-                        ),
-                    )
-                ],
-                "relationships": [
-                    {
-                        "objectId": relationship.target_object_id,
-                        "qualifier": relationship.qualifier,
-                    }
-                    for relationship in sorted(
-                        relationships_by_source.get(business_object.object_id, ()),
-                        key=lambda item: (
-                            item.target_object_id,
-                            item.qualifier,
-                            item.relationship_id,
-                        ),
-                    )
-                ],
-            }
-            for business_object in sorted(
-                slice_.objects, key=lambda item: item.object_id
-            )
-        ],
+        "eventTypes": _export_type_declarations(slice_.event_types),
+        "objectTypes": _export_type_declarations(slice_.object_types),
+        "events": _export_events(slice_.events),
+        "objects": _export_objects(slice_.objects, relationships_by_source),
     }

@@ -14,6 +14,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from .models import (
+    AllocationRef,
     EconomicsContractError,
     LateEventDecision,
     MetricKind,
@@ -109,6 +110,46 @@ def decide_late_event(
     )
 
 
+def _validate_aggregate_scope(
+    materialized: tuple[UsageFact, ...], window: UsageWindow, price_card: PriceCard
+) -> tuple[str, AllocationRef, datetime]:
+    """``(tenant_id, allocation, window_end)`` after whole-aggregate scope checks."""
+    tenant_id = materialized[0].tenant_id
+    allocation = materialized[0].allocation
+    if allocation.tenant_id != tenant_id:
+        raise ValueError("usage allocation crosses tenant scope")
+    if window.window_end is None:
+        raise EconomicsContractError("aggregate window is missing its end boundary")
+    window_end = window.window_end
+    if price_card.effective_from > window.window_start or (
+        price_card.effective_to is not None and price_card.effective_to < window_end
+    ):
+        raise ValueError("price card does not cover the full aggregate window")
+    return tenant_id, allocation, window_end
+
+
+def _check_fact_scope(
+    fact: UsageFact, tenant_id: str, allocation: AllocationRef
+) -> None:
+    if fact.tenant_id != tenant_id or fact.allocation != allocation:
+        raise EconomicsContractError("aggregate cannot mix tenants or allocations")
+
+
+def _check_fact_window_and_price(
+    fact: UsageFact,
+    price_card: PriceCard,
+    rates: dict[MetricKind, int],
+    window: UsageWindow,
+    window_end: datetime,
+) -> None:
+    if fact.service_ref != price_card.service_ref:
+        raise EconomicsContractError("price card service does not match usage fact")
+    if not (window.window_start <= fact.occurred_at < window_end):
+        raise EconomicsContractError("aggregate input contains an out-of-window fact")
+    if fact.metric not in rates:
+        raise EconomicsContractError(f"price card has no rate for {fact.metric}")
+
+
 def aggregate_usage(
     facts: Iterable[UsageFact],
     *,
@@ -125,21 +166,13 @@ def aggregate_usage(
     materialized = tuple(facts)
     if not materialized:
         raise ValueError("an accounting aggregate requires at least one usage fact")
-    tenant_id = materialized[0].tenant_id
-    allocation = materialized[0].allocation
-    if allocation.tenant_id != tenant_id:
-        raise ValueError("usage allocation crosses tenant scope")
-    if window.window_end is None:
-        raise EconomicsContractError("aggregate window is missing its end boundary")
-    window_end = window.window_end
+    tenant_id, allocation, window_end = _validate_aggregate_scope(
+        materialized, window, price_card
+    )
     seen: set[str] = set()
     totals: dict[MetricKind, int] = defaultdict(int)
     costs: dict[MetricKind, int] = defaultdict(int)
     rates = {rate.metric: rate.micros_per_unit for rate in price_card.rates}
-    if price_card.effective_from > window.window_start or (
-        price_card.effective_to is not None and price_card.effective_to < window_end
-    ):
-        raise ValueError("price card does not cover the full aggregate window")
 
     for fact in materialized:
         if fact.fact_id in seen:
@@ -147,16 +180,8 @@ def aggregate_usage(
                 "duplicate fact would double count an aggregate"
             )
         seen.add(fact.fact_id)
-        if fact.tenant_id != tenant_id or fact.allocation != allocation:
-            raise EconomicsContractError("aggregate cannot mix tenants or allocations")
-        if fact.service_ref != price_card.service_ref:
-            raise EconomicsContractError("price card service does not match usage fact")
-        if not (window.window_start <= fact.occurred_at < window_end):
-            raise EconomicsContractError(
-                "aggregate input contains an out-of-window fact"
-            )
-        if fact.metric not in rates:
-            raise EconomicsContractError(f"price card has no rate for {fact.metric}")
+        _check_fact_scope(fact, tenant_id, allocation)
+        _check_fact_window_and_price(fact, price_card, rates, window, window_end)
         totals[fact.metric] += fact.quantity
         costs[fact.metric] += fact.quantity * rates[fact.metric]
 
@@ -175,6 +200,57 @@ def aggregate_usage(
     )
 
 
+def _validate_daily_completeness(
+    day: UsageWindow, hours: tuple[WindowAggregate, ...]
+) -> None:
+    """The 24-hour completeness rule: a missing hour is a gap, not a zero."""
+    expected = {day.window_start + timedelta(hours=index) for index in range(24)}
+    actual = {item.window.window_start for item in hours}
+    if actual != expected or len(hours) != 24:
+        raise EconomicsContractError("daily aggregate requires all 24 hourly windows")
+
+
+def _validate_daily_scope_consistency(
+    hours: tuple[WindowAggregate, ...],
+) -> WindowAggregate:
+    first = hours[0]
+    if any(
+        item.tenant_id != first.tenant_id
+        or item.allocation != first.allocation
+        or item.price_card_id != first.price_card_id
+        or item.price_card_digest != first.price_card_digest
+        for item in hours
+    ):
+        raise EconomicsContractError(
+            "daily aggregate cannot mix allocation or price-card scope"
+        )
+    return first
+
+
+def _validate_daily_fact_ids(hours: tuple[WindowAggregate, ...]) -> list[str]:
+    fact_ids = [fact_id for item in hours for fact_id in item.fact_ids]
+    if len(fact_ids) != len(set(fact_ids)):
+        raise EconomicsContractError("hourly inputs overlap and would double count")
+    return fact_ids
+
+
+def _sum_daily_totals(hours: tuple[WindowAggregate, ...]) -> tuple[MetricTotal, ...]:
+    quantity_by_metric: dict[MetricKind, int] = defaultdict(int)
+    cost_by_metric: dict[MetricKind, int] = defaultdict(int)
+    for item in hours:
+        for total in item.totals:
+            quantity_by_metric[total.metric] += total.quantity
+            cost_by_metric[total.metric] += total.cost_micros
+    return tuple(
+        MetricTotal(
+            metric=metric,
+            quantity=quantity_by_metric[metric],
+            cost_micros=cost_by_metric[metric],
+        )
+        for metric in sorted(quantity_by_metric)
+    )
+
+
 def aggregate_daily_from_hours(
     hourly: Iterable[WindowAggregate],
     *,
@@ -190,38 +266,10 @@ def aggregate_daily_from_hours(
     if day.granularity != "day":
         raise ValueError("daily composition requires a day window")
     hours = tuple(hourly)
-    expected = {day.window_start + timedelta(hours=index) for index in range(24)}
-    actual = {item.window.window_start for item in hours}
-    if actual != expected or len(hours) != 24:
-        raise EconomicsContractError("daily aggregate requires all 24 hourly windows")
-    first = hours[0]
-    if any(
-        item.tenant_id != first.tenant_id
-        or item.allocation != first.allocation
-        or item.price_card_id != first.price_card_id
-        or item.price_card_digest != first.price_card_digest
-        for item in hours
-    ):
-        raise EconomicsContractError(
-            "daily aggregate cannot mix allocation or price-card scope"
-        )
-    fact_ids = [fact_id for item in hours for fact_id in item.fact_ids]
-    if len(fact_ids) != len(set(fact_ids)):
-        raise EconomicsContractError("hourly inputs overlap and would double count")
-    quantity_by_metric: dict[MetricKind, int] = defaultdict(int)
-    cost_by_metric: dict[MetricKind, int] = defaultdict(int)
-    for item in hours:
-        for total in item.totals:
-            quantity_by_metric[total.metric] += total.quantity
-            cost_by_metric[total.metric] += total.cost_micros
-    totals = tuple(
-        MetricTotal(
-            metric=metric,
-            quantity=quantity_by_metric[metric],
-            cost_micros=cost_by_metric[metric],
-        )
-        for metric in sorted(quantity_by_metric)
-    )
+    _validate_daily_completeness(day, hours)
+    first = _validate_daily_scope_consistency(hours)
+    fact_ids = _validate_daily_fact_ids(hours)
+    totals = _sum_daily_totals(hours)
     return WindowAggregate(
         tenant_id=first.tenant_id,
         allocation=first.allocation,
@@ -231,6 +279,63 @@ def aggregate_daily_from_hours(
         price_card_digest=first.price_card_digest,
         totals=totals,
     )
+
+
+def _validate_slo_counts(
+    objective: SloObjective, good_events: int, total_events: int, bad_events: int
+) -> None:
+    if good_events < 0 or total_events < 0 or bad_events < 0:
+        raise ValueError("SLO counts must be non-negative")
+    if good_events > total_events or bad_events > total_events:
+        raise ValueError("SLO good/bad counts cannot exceed total")
+    if (
+        objective.sli in {"availability", "error_rate"}
+        and good_events + bad_events != total_events
+    ):
+        raise ValueError("availability/error-rate rollup must account for every event")
+
+
+def _resolve_slo_measurement(
+    objective: SloObjective,
+    good_events: int,
+    total_events: int,
+    bad_events: int,
+    measured_micros: int | None,
+) -> tuple[int | None, Literal["met", "breached", "insufficient_data"]]:
+    """``(measured_micros, status)`` per the objective's SLI accounting rule."""
+    if total_events == 0:
+        if measured_micros is not None:
+            raise ValueError("missing SLO measurements cannot be represented as zero")
+        return None, "insufficient_data"
+    if objective.sli == "availability":
+        measured_micros = (good_events * 1_000_000) // total_events
+    elif objective.sli == "error_rate":
+        measured_micros = (bad_events * 1_000_000) // total_events
+    elif measured_micros is None:
+        raise ValueError(
+            "latency/queue/freshness/throughput rollup requires a measurement"
+        )
+    if measured_micros < 0 or measured_micros > 1_000_000:
+        raise ValueError("SLO measurement must be in bounded micros")
+    met = (
+        measured_micros >= objective.target_micros
+        if objective.comparison == "gte"
+        else measured_micros <= objective.target_micros
+    )
+    return measured_micros, ("met" if met else "breached")
+
+
+def _validated_slo_digests(source_fact_digests: Iterable[str]) -> tuple[str, ...]:
+    supplied_digests = tuple(source_fact_digests)
+    digests = tuple(sorted(set(supplied_digests)))
+    if len(digests) != len(supplied_digests):
+        raise EconomicsContractError("SLO source digests must be unique")
+    if len(digests) > 100_000:
+        raise ValueError("SLO source digest set exceeds the bounded read model")
+    for digest in digests:
+        if not digest.startswith("sha256:") or len(digest) != 71:
+            raise ValueError("SLO source facts must be opaque sha256 digests")
+    return digests
 
 
 def build_slo_rollup(
@@ -249,49 +354,11 @@ def build_slo_rollup(
         raise ValueError(
             "SLO objective and rollup windows have different granularities"
         )
-    if good_events < 0 or total_events < 0 or bad_events < 0:
-        raise ValueError("SLO counts must be non-negative")
-    if good_events > total_events or bad_events > total_events:
-        raise ValueError("SLO good/bad counts cannot exceed total")
-    if (
-        objective.sli in {"availability", "error_rate"}
-        and good_events + bad_events != total_events
-    ):
-        raise ValueError("availability/error-rate rollup must account for every event")
-    status: Literal["met", "breached", "insufficient_data"]
-    if total_events == 0:
-        if measured_micros is not None:
-            raise ValueError("missing SLO measurements cannot be represented as zero")
-        status = "insufficient_data"
-    else:
-        if objective.sli == "availability":
-            measured_micros = (good_events * 1_000_000) // total_events
-        elif objective.sli == "error_rate":
-            measured_micros = (bad_events * 1_000_000) // total_events
-        elif measured_micros is None:
-            raise ValueError(
-                "latency/queue/freshness/throughput rollup requires a measurement"
-            )
-        if measured_micros < 0 or measured_micros > 1_000_000:
-            raise ValueError("SLO measurement must be in bounded micros")
-        status = (
-            "met"
-            if (
-                measured_micros >= objective.target_micros
-                if objective.comparison == "gte"
-                else measured_micros <= objective.target_micros
-            )
-            else "breached"
-        )
-    supplied_digests = tuple(source_fact_digests)
-    digests = tuple(sorted(set(supplied_digests)))
-    if len(digests) != len(supplied_digests):
-        raise EconomicsContractError("SLO source digests must be unique")
-    if len(digests) > 100_000:
-        raise ValueError("SLO source digest set exceeds the bounded read model")
-    for digest in digests:
-        if not digest.startswith("sha256:") or len(digest) != 71:
-            raise ValueError("SLO source facts must be opaque sha256 digests")
+    _validate_slo_counts(objective, good_events, total_events, bad_events)
+    measured_micros, status = _resolve_slo_measurement(
+        objective, good_events, total_events, bad_events, measured_micros
+    )
+    digests = _validated_slo_digests(source_fact_digests)
     return SloWindowRollup(
         tenant_id=objective.tenant_id,
         objective_id=objective.objective_id,
@@ -303,6 +370,85 @@ def build_slo_rollup(
         source_fact_digests=digests,
         status=status,
     )
+
+
+_SampleKey = tuple[str, str, int | None]
+
+
+def _reconcile_expected_index(
+    expected_items: tuple[SampleRef, ...],
+) -> tuple[dict[_SampleKey, SampleRef], Counter[_SampleKey]]:
+    expected_keys = {
+        (item.source_ref, item.source_digest, item.sample_sequence): item
+        for item in expected_items
+    }
+    expected_key_counts = Counter(
+        (item.source_ref, item.source_digest, item.sample_sequence)
+        for item in expected_items
+    )
+    return expected_keys, expected_key_counts
+
+
+def _reconcile_observed_index(
+    observed_items: tuple[UsageFact, ...],
+) -> tuple[tuple[SampleRef, ...], tuple[_SampleKey, ...], Counter[_SampleKey]]:
+    observed_refs = tuple(
+        SampleRef(
+            source_ref=fact.source_ref,
+            source_digest=fact.source_digest,
+            sample_sequence=fact.sample_sequence,
+        )
+        for fact in observed_items
+    )
+    observed_keys_in_order = tuple(
+        (item.source_ref, item.source_digest, item.sample_sequence)
+        for item in observed_refs
+    )
+    observed_counts = Counter(observed_keys_in_order)
+    return observed_refs, observed_keys_in_order, observed_counts
+
+
+def _reconcile_missing_and_unexpected(
+    expected_keys: dict[_SampleKey, SampleRef],
+    observed_keys_in_order: tuple[_SampleKey, ...],
+    observed_refs: tuple[SampleRef, ...],
+) -> tuple[tuple[SampleRef, ...], tuple[SampleRef, ...]]:
+    observed_keys = set(observed_keys_in_order)
+    missing = tuple(
+        expected_keys[key]
+        for key in sorted(expected_keys.keys())
+        if key not in observed_keys
+    )
+    unexpected = tuple(
+        observed_refs[index]
+        for index, key in enumerate(observed_keys_in_order)
+        if key not in expected_keys and key not in observed_keys_in_order[:index]
+    )
+    return missing, unexpected
+
+
+def _reconcile_duplicates(
+    expected_items: tuple[SampleRef, ...],
+    observed_items: tuple[UsageFact, ...],
+    expected_key_counts: Counter[_SampleKey],
+    observed_counts: Counter[_SampleKey],
+    observed_refs: tuple[SampleRef, ...],
+) -> tuple[tuple[SampleRef, ...], tuple[str, ...]]:
+    duplicate_sample_keys = sorted(
+        {key for key, count in expected_key_counts.items() if count > 1}
+        | {key for key, count in observed_counts.items() if count > 1}
+    )
+    sample_by_key = {
+        (item.source_ref, item.source_digest, item.sample_sequence): item
+        for item in (*expected_items, *observed_refs)
+    }
+    duplicate_samples = tuple(sample_by_key[key] for key in duplicate_sample_keys)
+    duplicate_fact_ids = tuple(
+        fact_id
+        for fact_id, count in Counter(fact.fact_id for fact in observed_items).items()
+        if count > 1
+    )
+    return duplicate_samples, duplicate_fact_ids
 
 
 def reconcile_samples(
@@ -319,52 +465,22 @@ def reconcile_samples(
     observed_items = tuple(observed)
     if len(expected_items) > 10_000 or len(observed_items) > 10_000:
         raise ValueError("sample reconciliation exceeds its bounded input size")
-    expected_keys = {
-        (item.source_ref, item.source_digest, item.sample_sequence): item
-        for item in expected_items
-    }
-    expected_key_counts = Counter(
-        (item.source_ref, item.source_digest, item.sample_sequence)
-        for item in expected_items
+
+    expected_keys, expected_key_counts = _reconcile_expected_index(expected_items)
+    observed_refs, observed_keys_in_order, observed_counts = _reconcile_observed_index(
+        observed_items
     )
-    observed_refs = tuple(
-        SampleRef(
-            source_ref=fact.source_ref,
-            source_digest=fact.source_digest,
-            sample_sequence=fact.sample_sequence,
-        )
-        for fact in observed_items
+    missing, unexpected = _reconcile_missing_and_unexpected(
+        expected_keys, observed_keys_in_order, observed_refs
     )
-    observed_keys_in_order = tuple(
-        (item.source_ref, item.source_digest, item.sample_sequence)
-        for item in observed_refs
+    duplicate_samples, duplicate_fact_ids = _reconcile_duplicates(
+        expected_items,
+        observed_items,
+        expected_key_counts,
+        observed_counts,
+        observed_refs,
     )
-    observed_counts = Counter(observed_keys_in_order)
-    observed_keys = set(observed_counts)
-    missing = tuple(
-        expected_keys[key]
-        for key in sorted(expected_keys.keys())
-        if key not in observed_keys
-    )
-    unexpected = tuple(
-        observed_refs[index]
-        for index, key in enumerate(observed_keys_in_order)
-        if key not in expected_keys and key not in observed_keys_in_order[:index]
-    )
-    duplicate_sample_keys = sorted(
-        {key for key, count in expected_key_counts.items() if count > 1}
-        | {key for key, count in observed_counts.items() if count > 1}
-    )
-    sample_by_key = {
-        (item.source_ref, item.source_digest, item.sample_sequence): item
-        for item in (*expected_items, *observed_refs)
-    }
-    duplicate_samples = tuple(sample_by_key[key] for key in duplicate_sample_keys)
-    duplicate_fact_ids = tuple(
-        fact_id
-        for fact_id, count in Counter(fact.fact_id for fact in observed_items).items()
-        if count > 1
-    )
+
     status: Literal["complete", "gap", "drift"] = (
         "gap"
         if missing
