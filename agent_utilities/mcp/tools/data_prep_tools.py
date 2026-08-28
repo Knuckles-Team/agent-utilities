@@ -924,6 +924,67 @@ def _native_acl(props: Mapping[str, Any], *, owner_id: str) -> ArtifactACL:
     return ArtifactACL.from_value(generated)
 
 
+def _node_properties_via_reader(
+    point_reader: Any, artifact_ref: str
+) -> Mapping[str, Any]:
+    """Read metadata through the typed native point-read seam."""
+
+    try:
+        props = point_reader(artifact_ref)
+    except Exception as exc:  # noqa: BLE001 - absent and denied are one public outcome
+        raise PermissionError("artifact access is denied") from exc
+    if not isinstance(props, Mapping):
+        raise PermissionError("artifact access is denied")
+    return props
+
+
+def _node_properties_via_cypher(
+    execute_read: Any, artifact_ref: str
+) -> Mapping[str, Any]:
+    """Read metadata through the lightweight test/deployment Cypher fallback."""
+
+    try:
+        rows = execute_read(
+            "MATCH (n) WHERE n.id = $artifact_ref RETURN n LIMIT 1",
+            {"artifact_ref": artifact_ref},
+        )
+    except Exception as exc:  # noqa: BLE001 - absent and denied are one public outcome
+        raise PermissionError("artifact access is denied") from exc
+    if not isinstance(rows, list) or not rows:
+        raise PermissionError("artifact access is denied")
+    row = rows[0]
+    props = row.get("n") if isinstance(row, Mapping) else None
+    if not isinstance(props, Mapping):
+        props = row.get("node") if isinstance(row, Mapping) else None
+    if not isinstance(props, Mapping):
+        raise PermissionError("artifact access is denied")
+    return props
+
+
+def _node_properties_via_client(engine: Any, artifact_ref: str) -> Mapping[str, Any]:
+    """Read metadata through the raw client fallback, scoped to this engine view."""
+
+    compute = getattr(engine, "graph_compute", None) or getattr(engine, "graph", None)
+    client = (
+        getattr(compute, "client", None)
+        or getattr(compute, "_client", None)
+        or getattr(engine, "client", None)
+    )
+    nodes = getattr(client, "nodes", None)
+    properties = getattr(nodes, "properties", None)
+    if not callable(properties):
+        raise ArtifactAuthorityUnavailable(
+            "native graph point-read authority is unavailable"
+        )
+    try:
+        props = properties(artifact_ref)
+    except Exception as exc:  # noqa: BLE001 - hide graph existence details
+        raise PermissionError("artifact access is denied") from exc
+    if not isinstance(props, Mapping):
+        raise PermissionError("artifact access is denied")
+    return props
+
+
 class _GraphNativeDataPrepProvider:
     """Concrete provider over the authoritative graph node/blob substrate.
 
@@ -1169,53 +1230,11 @@ class _GraphNativeDataPrepProvider:
         backend = getattr(engine, "backend", None)
         point_reader = getattr(backend, "get_node_properties", None)
         if callable(point_reader):
-            try:
-                props = point_reader(artifact_ref)
-            except Exception as exc:  # noqa: BLE001 - absent and denied are one public outcome
-                raise PermissionError("artifact access is denied") from exc
-            if not isinstance(props, Mapping):
-                raise PermissionError("artifact access is denied")
-            return props
-
+            return _node_properties_via_reader(point_reader, artifact_ref)
         execute_read = getattr(backend, "execute_read", None)
         if callable(execute_read):
-            try:
-                rows = execute_read(
-                    "MATCH (n) WHERE n.id = $artifact_ref RETURN n LIMIT 1",
-                    {"artifact_ref": artifact_ref},
-                )
-            except Exception as exc:  # noqa: BLE001 - absent and denied are one public outcome
-                raise PermissionError("artifact access is denied") from exc
-            if not isinstance(rows, list) or not rows:
-                raise PermissionError("artifact access is denied")
-            row = rows[0]
-            props = row.get("n") if isinstance(row, Mapping) else None
-            if not isinstance(props, Mapping):
-                props = row.get("node") if isinstance(row, Mapping) else None
-            if not isinstance(props, Mapping):
-                raise PermissionError("artifact access is denied")
-            return props
-        compute = getattr(engine, "graph_compute", None) or getattr(
-            engine, "graph", None
-        )
-        client = (
-            getattr(compute, "client", None)
-            or getattr(compute, "_client", None)
-            or getattr(engine, "client", None)
-        )
-        nodes = getattr(client, "nodes", None)
-        properties = getattr(nodes, "properties", None)
-        if not callable(properties):
-            raise ArtifactAuthorityUnavailable(
-                "native graph point-read authority is unavailable"
-            )
-        try:
-            props = properties(artifact_ref)
-        except Exception as exc:  # noqa: BLE001 - hide graph existence details
-            raise PermissionError("artifact access is denied") from exc
-        if not isinstance(props, Mapping):
-            raise PermissionError("artifact access is denied")
-        return props
+            return _node_properties_via_cypher(execute_read, artifact_ref)
+        return _node_properties_via_client(engine, artifact_ref)
 
     def _fetch_blob(self, digest: str, *, engine: Any) -> bytes | None:
         """Fetch bytes through the scoped native content-addressed authority."""
