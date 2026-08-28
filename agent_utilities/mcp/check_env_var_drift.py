@@ -88,7 +88,18 @@ from agent_utilities.mcp.readme_env_vars import INHERITED_ENV, parse_env_example
 # string literals are excluded; ``_ENV_NAME`` validates each literal candidate name.
 _ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
 # ``register_<tag>_tools`` — a condensed registrar; toggle env var is ``<TAG>TOOL``.
-_REGISTRAR = re.compile(r"register_([a-z][a-z0-9_]*?)_tools\b")
+# The leading lookbehind keeps a PRIVATE helper out of the tag set. A name such as
+# ``_register_<tag>_tools`` contains the public spelling as a substring, and ``_``
+# is a word character so ``\b`` alone does not separate them. Without the
+# lookbehind, an extraction that creates such a helper mints a phantom
+# ``<TAG>TOOL`` toggle that no runtime code reads -- the runtime discovers
+# registrars from the CALLER's module namespace, never by text scan. That is how
+# ``METATOOL`` (from multiplexer's private meta-tool helper) came to be
+# documented in .env.example despite nothing ever reading it.
+#
+# NOTE: spell no public ``register_*_tools`` literal in this file -- this scanner
+# reads every .py including itself, so an example in a comment mints a phantom.
+_REGISTRAR = re.compile(r"(?<![0-9A-Za-z_])register_([a-z][a-z0-9_]*?)_tools\b")
 # A ``- "KEY=value"`` or ``KEY: value`` line inside a compose ``environment:`` list/map.
 _COMPOSE_ENV = re.compile(r"""^\s*-?\s*["']?([A-Z][A-Z0-9_]*)["']?\s*[:=]""")
 # A ``${...}`` shell substitution — inner text is inspected for stray whitespace.
@@ -633,8 +644,6 @@ def _derive_toggle_vars(root: Path) -> set[str]:
     """
     tags: set[str] = set()
     for py in _walk_files(root, suffix=".py"):
-        if "tests" in py.parts or "test" in py.parts:
-            continue
         if "tests" in py.parts or "test" in py.parts:
             continue
         try:
