@@ -1530,6 +1530,70 @@ def _object_edits_as_of(ledger: Any, object_id: str, ts: float) -> str:
     )
 
 
+def _graph_share_hierarchy(action: str, tenant_id: str, parent_tenant_id: str) -> str:
+    import dataclasses
+
+    from agent_utilities.knowledge_graph.core import tenant_registry as _tr
+
+    try:
+        if action == "set_parent":
+            return json.dumps(
+                dataclasses.asdict(_tr.set_parent(tenant_id, parent_tenant_id))
+            )
+        if action == "clear_parent":
+            return json.dumps(dataclasses.asdict(_tr.clear_parent(tenant_id)))
+        from agent_utilities.security.brain_context import current_actor
+
+        target = tenant_id or getattr(current_actor(), "tenant_id", "")
+        return json.dumps(
+            {
+                "tenant_id": target,
+                "parent_tenant_id": _tr.parent_of(target) or "",
+                "ancestors": _tr.ancestor_chain(target),
+                "max_depth": _tr.MAX_TENANT_DEPTH,
+            }
+        )
+    except Exception as e:  # noqa: BLE001
+        return public_error_json(e)
+
+
+def _graph_share_org(node_id: str) -> str:
+    from agent_utilities.knowledge_graph.core import tenant_sharing as _ts
+
+    # BUG-6: share_with_org now returns False (no-op) for an id that
+    # doesn't resolve to a real node, instead of silently "succeeding".
+    if not _ts.share_with_org(node_id):
+        return json.dumps({"error": f"node not found: {node_id!r}", "node_id": node_id})
+    return json.dumps({"node_id": node_id, "shared_scope": "org"})
+
+
+def _graph_share_commons(node_id: str) -> str:
+    from agent_utilities.knowledge_graph.core import tenant_sharing as _ts
+
+    ok = _ts.promote_to_commons(node_id)
+    if not ok:
+        return json.dumps({"error": f"node not found: {node_id!r}", "node_id": node_id})
+    return json.dumps({"node_id": node_id, "shared_scope": "commons", "promoted": ok})
+
+
+def _graph_share_mark(node_id: str, marking: str) -> str:
+    from agent_utilities.knowledge_graph.core import tenant_sharing as _ts
+
+    if not marking:
+        return json.dumps({"error": "marking is required for action='mark'"})
+    _ts.share(node_id, marking)
+    return json.dumps({"node_id": node_id, "marking": marking})
+
+
+def _graph_share_private(node_id: str) -> str:
+    from agent_utilities.knowledge_graph.core import tenant_sharing as _ts
+
+    # BUG-6: same existence guard as 'org' — no silent success.
+    if not _ts.make_private(node_id):
+        return json.dumps({"error": f"node not found: {node_id!r}", "node_id": node_id})
+    return json.dumps({"node_id": node_id, "shared_scope": "private"})
+
+
 def register_ontology_tools(mcp):
     """Register the ontology_tools group on the given FastMCP server."""
 
@@ -3096,67 +3160,20 @@ def register_ontology_tools(mcp):
         :func:`~agent_utilities.knowledge_graph.core.tenant_sharing.accessible_graphs`
         reads on every request to build its precedence chain.
         """
-        import dataclasses
-
-        from agent_utilities.knowledge_graph.core import tenant_registry as _tr
-        from agent_utilities.knowledge_graph.core import tenant_sharing as _ts
-
         if action in ("set_parent", "clear_parent", "hierarchy"):
-            try:
-                if action == "set_parent":
-                    return json.dumps(
-                        dataclasses.asdict(_tr.set_parent(tenant_id, parent_tenant_id))
-                    )
-                if action == "clear_parent":
-                    return json.dumps(dataclasses.asdict(_tr.clear_parent(tenant_id)))
-                from agent_utilities.security.brain_context import current_actor
-
-                target = tenant_id or getattr(current_actor(), "tenant_id", "")
-                return json.dumps(
-                    {
-                        "tenant_id": target,
-                        "parent_tenant_id": _tr.parent_of(target) or "",
-                        "ancestors": _tr.ancestor_chain(target),
-                        "max_depth": _tr.MAX_TENANT_DEPTH,
-                    }
-                )
-            except Exception as e:  # noqa: BLE001
-                return public_error_json(e)
+            return _graph_share_hierarchy(action, tenant_id, parent_tenant_id)
 
         if not node_id:
             return json.dumps({"error": "node_id is required"})
         try:
             if action == "org":
-                # BUG-6: share_with_org now returns False (no-op) for an id that
-                # doesn't resolve to a real node, instead of silently "succeeding".
-                if not _ts.share_with_org(node_id):
-                    return json.dumps(
-                        {"error": f"node not found: {node_id!r}", "node_id": node_id}
-                    )
-                return json.dumps({"node_id": node_id, "shared_scope": "org"})
+                return _graph_share_org(node_id)
             if action == "commons":
-                ok = _ts.promote_to_commons(node_id)
-                if not ok:
-                    return json.dumps(
-                        {"error": f"node not found: {node_id!r}", "node_id": node_id}
-                    )
-                return json.dumps(
-                    {"node_id": node_id, "shared_scope": "commons", "promoted": ok}
-                )
+                return _graph_share_commons(node_id)
             if action == "mark":
-                if not marking:
-                    return json.dumps(
-                        {"error": "marking is required for action='mark'"}
-                    )
-                _ts.share(node_id, marking)
-                return json.dumps({"node_id": node_id, "marking": marking})
+                return _graph_share_mark(node_id, marking)
             if action == "private":
-                # BUG-6: same existence guard as 'org' — no silent success.
-                if not _ts.make_private(node_id):
-                    return json.dumps(
-                        {"error": f"node not found: {node_id!r}", "node_id": node_id}
-                    )
-                return json.dumps({"node_id": node_id, "shared_scope": "private"})
+                return _graph_share_private(node_id)
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
