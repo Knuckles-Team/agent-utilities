@@ -1576,13 +1576,6 @@ class IntelligenceGraphEngine(
               ``Memory`` node for future retrieval.
         """
 
-        from agent_utilities.core.config import (
-            DEFAULT_KG_MODEL_ID,
-            DEFAULT_LLM_PROVIDER,
-        )
-        from agent_utilities.core.contextual_model import create_context_agent
-        from agent_utilities.core.model_factory import create_model
-
         # Structured discovery (no LLM).
         l1_results = self.discover_innovations(query, top_k=10)
         enriched = l1_results.get("results", [])
@@ -1590,7 +1583,34 @@ class IntelligenceGraphEngine(
         if not enriched:
             return {"status": "skipped", "reason": "No initial concepts found"}
 
-        # Build compact context for the LLM from native signals.
+        prompt = self._build_deep_analysis_prompt(query, enriched, domain_recs)
+        llm_summary = self._run_deep_analysis_synthesis(
+            prompt, query, enriched, domain_recs
+        )
+
+        # ── KG Writeback: Domain edges + Memory node ─────────────────
+        source_id = (
+            query if "-" in query else (enriched[0].get("id") if enriched else query)
+        )
+        new_concepts = self._write_deep_analysis_domain_edges(source_id, domain_recs)
+        self._store_deep_analysis_memory(llm_summary, query)
+
+        return {
+            "status": "success",
+            "features_extracted": len(domain_recs),
+            "new_analogies": len(new_concepts),
+            "discovered_targets": new_concepts,
+            "llm_summary_length": len(llm_summary),
+            "llm_summary": llm_summary[:2000],
+        }
+
+    def _build_deep_analysis_prompt(
+        self,
+        query: str,
+        enriched: list[dict[str, Any]],
+        domain_recs: list[dict[str, Any]],
+    ) -> str:
+        """Compact LLM context built from native discover_innovations signals."""
         match_lines = []
         for r in enriched[:7]:
             match_lines.append(
@@ -1611,7 +1631,7 @@ class IntelligenceGraphEngine(
                 f"{d['source_count']} signals, priority={d['priority']}"
             )
 
-        prompt = (
+        return (
             f"## Deep Analysis: {query}\n\n"
             f"### Top Matches from Knowledge Graph\n"
             + "\n".join(match_lines)
@@ -1629,8 +1649,22 @@ class IntelligenceGraphEngine(
             "Write in clear, structured markdown. Be specific and actionable."
         )
 
-        # Free-text LLM synthesis.
-        llm_summary = ""
+    def _run_deep_analysis_synthesis(
+        self,
+        prompt: str,
+        query: str,
+        enriched: list[dict[str, Any]],
+        domain_recs: list[dict[str, Any]],
+    ) -> str:
+        """Free-text LLM synthesis; degrades to a native-signals-only summary
+        on any LLM failure (non-fatal — native signals are already computed)."""
+        from agent_utilities.core.config import (
+            DEFAULT_KG_MODEL_ID,
+            DEFAULT_LLM_PROVIDER,
+        )
+        from agent_utilities.core.contextual_model import create_context_agent
+        from agent_utilities.core.model_factory import create_model
+
         try:
             from ...core.event_loop import allow_nested_run_sync
 
@@ -1651,39 +1685,40 @@ class IntelligenceGraphEngine(
             result = agent.run_sync(prompt)
             llm_summary = str(result.output)
             logger.info("Synthesis complete: %d chars generated", len(llm_summary))
+            return llm_summary
         except Exception as e:
             logger.warning("LLM synthesis failed (non-fatal): %s", e)
-            llm_summary = (
+            return (
                 f"[LLM synthesis unavailable — native signals preserved]\n\n"
                 f"Query: {query}\n"
                 f"Matches: {len(enriched)}\n"
                 f"Top domains: {', '.join(d['domain'] for d in domain_recs[:5])}"
             )
 
-        # ── KG Writeback: Domain edges + Memory node ─────────────────
-        source_id = (
-            query if "-" in query else (enriched[0].get("id") if enriched else query)
-        )
-
+    def _write_deep_analysis_domain_edges(
+        self, source_id: str, domain_recs: list[dict[str, Any]]
+    ) -> list[str]:
+        """ANALOGOUS_TO edges from native domain recommendations."""
         new_concepts = []
-        # Write ANALOGOUS_TO edges from native domain recommendations.
         for d in domain_recs:
-            if d.get("priority") in ("high", "medium"):
-                success = self.resolve_and_link(
-                    source_name=source_id,
-                    target_name=d["domain"],
-                    rel_type="ANALOGOUS_TO",
-                    properties={
-                        "source": "deep_analysis",
-                        "feature": d["analogy"],
-                        "signal_count": d.get("source_count", 0),
-                        "priority": d["priority"],
-                    },
-                )
-                if success:
-                    new_concepts.append(d["domain"])
+            if d.get("priority") not in ("high", "medium"):
+                continue
+            success = self.resolve_and_link(
+                source_name=source_id,
+                target_name=d["domain"],
+                rel_type="ANALOGOUS_TO",
+                properties={
+                    "source": "deep_analysis",
+                    "feature": d["analogy"],
+                    "signal_count": d.get("source_count", 0),
+                    "priority": d["priority"],
+                },
+            )
+            if success:
+                new_concepts.append(d["domain"])
+        return new_concepts
 
-        # Store synthesis as a semantic memory for future recall
+    def _store_deep_analysis_memory(self, llm_summary: str, query: str) -> None:
         try:
             self.add_memory(
                 content=llm_summary,
@@ -1692,15 +1727,6 @@ class IntelligenceGraphEngine(
             )
         except Exception as mem_e:  # noqa: BLE001 — add_memory is a secondary recall aid over a synthesis (llm_summary) that's already fully computed and returned in the payload below regardless of whether this memory-store call succeeds
             logger.debug(f"Memory store skipped: {mem_e}")
-
-        return {
-            "status": "success",
-            "features_extracted": len(domain_recs),
-            "new_analogies": len(new_concepts),
-            "discovered_targets": new_concepts,
-            "llm_summary_length": len(llm_summary),
-            "llm_summary": llm_summary[:2000],
-        }
 
     async def run(self, manifest: Any) -> Any:
         """Unified ExecutionEngine contract entrypoint.
