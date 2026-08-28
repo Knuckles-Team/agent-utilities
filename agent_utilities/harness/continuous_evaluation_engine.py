@@ -108,6 +108,27 @@ class TraceDistiller:
 
         self.eval_set = EvalSet()
 
+    @staticmethod
+    def _pass_fail_counts(entries: list[Any]) -> tuple[int, int]:
+        """``(pass_count, fail_count)`` for a batch of classified entries."""
+        passed = sum(1 for e in entries if e.pass_fail)
+        return passed, len(entries) - passed
+
+    @staticmethod
+    def _split_by_outcome(entries: list[Any]) -> tuple[list[Any], list[Any]]:
+        """Split classified entries into ``(failure_entries, success_entries)``."""
+        failure_entries = [e for e in entries if not e.pass_fail]
+        success_entries = [e for e in entries if e.pass_fail]
+        return failure_entries, success_entries
+
+    @staticmethod
+    def _corpus_pass_rate_and_score(entries: list[Any]) -> tuple[float, float]:
+        """``(pass_rate, benchmark_score)`` over a batch of classified entries."""
+        n = max(len(entries), 1)
+        pass_rate = sum(1 for e in entries if e.pass_fail) / n
+        benchmark_score = sum(e.score for e in entries) / n
+        return pass_rate, benchmark_score
+
     async def distill(self, round_id: str) -> EvidenceCorpus:
         """Run the full distillation pipeline for an evolution round.
 
@@ -132,29 +153,29 @@ class TraceDistiller:
 
         # Stage 2: Classify pass/fail
         entries = await self._classify_traces(traces)
+        passed, failed = self._pass_fail_counts(entries)
         logger.info(
             f"TraceDistiller: Classified {len(entries)} entries "
-            f"({sum(1 for e in entries if e.pass_fail)} pass, "
-            f"{sum(1 for e in entries if not e.pass_fail)} fail)"
+            f"({passed} pass, {failed} fail)"
         )
 
         # Stage 3: Cluster failures
-        failure_entries = [e for e in entries if not e.pass_fail]
+        failure_entries, success_entries = self._split_by_outcome(entries)
         clusters = await self._cluster_failures(failure_entries)
 
         # Stage 4: Extract success patterns
-        success_entries = [e for e in entries if e.pass_fail]
         success_patterns = self._extract_success_patterns(success_entries)
 
         # Stage 5: Build corpus
+        pass_rate, benchmark_score = self._corpus_pass_rate_and_score(entries)
         corpus = EvidenceCorpus(
             round_id=round_id,
             entries=entries,
             failure_clusters=clusters,
             success_patterns=success_patterns,
             total_tasks=len(entries),
-            pass_rate=sum(1 for e in entries if e.pass_fail) / max(len(entries), 1),
-            benchmark_score=sum(e.score for e in entries) / max(len(entries), 1),
+            pass_rate=pass_rate,
+            benchmark_score=benchmark_score,
         )
 
         # Stage 6: Generate overview
@@ -392,6 +413,41 @@ class TraceDistiller:
             logger.warning(f"RLM cluster output not valid JSON: {e}")
             return self._cluster_failures_keyword(failures)
 
+    def _group_failures_by_root_cause(
+        self, failures: list[EvidenceEntry]
+    ) -> dict[str, list[EvidenceEntry]]:
+        """Group failures by normalized root-cause string."""
+        clusters_map: dict[str, list[EvidenceEntry]] = {}
+        for entry in failures:
+            key = self._normalize_root_cause(entry.root_cause or "unknown")
+            clusters_map.setdefault(key, []).append(entry)
+        return clusters_map
+
+    @staticmethod
+    def _dominant_component(group: list[EvidenceEntry]) -> ComponentType | None:
+        """The most frequent ``component_attribution`` across one failure group."""
+        comp_counts: dict[ComponentType | None, int] = {}
+        for e in group:
+            comp_counts[e.component_attribution] = (
+                comp_counts.get(e.component_attribution, 0) + 1
+            )
+        return max(comp_counts, key=lambda k: comp_counts[k])
+
+    @classmethod
+    def _build_failure_cluster(
+        cls, label: str, group: list[EvidenceEntry]
+    ) -> FailureCluster:
+        """Build one ``FailureCluster`` from a same-root-cause group."""
+        top_comp = cls._dominant_component(group)
+        return FailureCluster(
+            label=label,
+            root_cause_summary=group[0].root_cause or label,
+            task_ids=[e.task_id for e in group],
+            component_attribution=top_comp,
+            frequency=len(group),
+            severity=1.0 - (sum(e.score for e in group) / len(group)),
+        )
+
     def _cluster_failures_keyword(
         self, failures: list[EvidenceEntry]
     ) -> list[FailureCluster]:
@@ -401,33 +457,13 @@ class TraceDistiller:
         fallback when RLM is unavailable or trace count is below
         the auto-trigger threshold.
         """
-        clusters_map: dict[str, list[EvidenceEntry]] = {}
-        for entry in failures:
-            key = self._normalize_root_cause(entry.root_cause or "unknown")
-            if key not in clusters_map:
-                clusters_map[key] = []
-            clusters_map[key].append(entry)
+        clusters_map = self._group_failures_by_root_cause(failures)
 
-        clusters: list[FailureCluster] = []
-        for label, group in clusters_map.items():
-            if len(group) >= self.config.min_cluster_size:
-                # Determine most common component attribution
-                comp_counts: dict[ComponentType | None, int] = {}
-                for e in group:
-                    comp_counts[e.component_attribution] = (
-                        comp_counts.get(e.component_attribution, 0) + 1
-                    )
-                top_comp = max(comp_counts, key=lambda k: comp_counts[k])
-
-                cluster = FailureCluster(
-                    label=label,
-                    root_cause_summary=group[0].root_cause or label,
-                    task_ids=[e.task_id for e in group],
-                    component_attribution=top_comp,
-                    frequency=len(group),
-                    severity=1.0 - (sum(e.score for e in group) / len(group)),
-                )
-                clusters.append(cluster)
+        clusters: list[FailureCluster] = [
+            self._build_failure_cluster(label, group)
+            for label, group in clusters_map.items()
+            if len(group) >= self.config.min_cluster_size
+        ]
 
         return sorted(clusters, key=lambda c: c.severity, reverse=True)
 
@@ -486,6 +522,32 @@ class TraceDistiller:
             parts.append(f"Input: {inp}")
         return " | ".join(parts)
 
+    #: Ordered (first match wins) component-attribution dispatch table for
+    #: :meth:`_attribute_component` — keeps the heuristic a flat lookup instead of an
+    #: if/elif chain.
+    _COMPONENT_KEYWORD_MAP: tuple[tuple[ComponentType, tuple[str, ...]], ...] = (
+        (ComponentType.TOOL_IMPLEMENTATION, ("tool", "mcp", "function_call")),
+        (ComponentType.SYSTEM_PROMPT, ("prompt", "system_prompt", "instruction")),
+        (ComponentType.MIDDLEWARE, ("guard", "policy", "blocked", "denied")),
+        (
+            ComponentType.ORCHESTRATOR_SKILL,
+            (
+                "plan",
+                "planning",
+                "router",
+                "route",
+                "orchestrator",
+                "orchestration",
+            ),
+        ),
+        (
+            ComponentType.WORKER_SKILL,
+            ("execution", "worker", "executor", "parallel_batch"),
+        ),
+        (ComponentType.SKILL, ("skill", "capability")),
+        (ComponentType.LONG_TERM_MEMORY, ("memory", "recall", "context")),
+    )
+
     def _attribute_component(self, trace: dict[str, Any]) -> ComponentType | None:
         """Attempt to attribute a trace failure to a specific component type.
 
@@ -496,33 +558,9 @@ class TraceDistiller:
         error = str(trace.get("error", "")).lower()
         combined = f"{name} {error}"
 
-        if any(k in combined for k in ("tool", "mcp", "function_call")):
-            return ComponentType.TOOL_IMPLEMENTATION
-        if any(k in combined for k in ("prompt", "system_prompt", "instruction")):
-            return ComponentType.SYSTEM_PROMPT
-        if any(k in combined for k in ("guard", "policy", "blocked", "denied")):
-            return ComponentType.MIDDLEWARE
-        if any(
-            k in combined
-            for k in (
-                "plan",
-                "planning",
-                "router",
-                "route",
-                "orchestrator",
-                "orchestration",
-            )
-        ):
-            return ComponentType.ORCHESTRATOR_SKILL
-        if any(
-            k in combined for k in ("execution", "worker", "executor", "parallel_batch")
-        ):
-            return ComponentType.WORKER_SKILL
-        if any(k in combined for k in ("skill", "capability")):
-            return ComponentType.SKILL
-        if any(k in combined for k in ("memory", "recall", "context")):
-            return ComponentType.LONG_TERM_MEMORY
-
+        for component, keywords in self._COMPONENT_KEYWORD_MAP:
+            if any(k in combined for k in keywords):
+                return component
         return None
 
     def _normalize_root_cause(self, root_cause: str) -> str:
@@ -1165,6 +1203,13 @@ class EvaluationMonitor:
                 )
         return alerts
 
+    @staticmethod
+    def _dimension_score(
+        dimensions: list[Any], name: str, default: float = 0.0
+    ) -> float:
+        """Look up one named evaluation dimension's score, or ``default`` if absent."""
+        return next((d.score for d in dimensions if d.name == name), default)
+
     async def persist_to_kg(self, evaluation: MultiDimensionalEvaluation) -> None:
         """Persist evaluation record to the Knowledge Graph."""
         if self._engine is None:
@@ -1175,29 +1220,15 @@ class EvaluationMonitor:
                 RegistryNodeType,
             )
 
+            dims = evaluation.dimensions
             node = EvaluationRecordNode(
                 id=f"eval:{evaluation.session_id}:{evaluation.timestamp}",
                 type=RegistryNodeType.EVALUATION_RECORD,
                 name=f"Evaluation: {evaluation.session_id}",
-                correctness_score=next(
-                    (d.score for d in evaluation.dimensions if d.name == "correctness"),
-                    0.0,
-                ),
-                completeness_score=next(
-                    (
-                        d.score
-                        for d in evaluation.dimensions
-                        if d.name == "completeness"
-                    ),
-                    0.0,
-                ),
-                relevance_score=next(
-                    (d.score for d in evaluation.dimensions if d.name == "relevance"),
-                    0.0,
-                ),
-                safety_score=next(
-                    (d.score for d in evaluation.dimensions if d.name == "safety"), 1.0
-                ),
+                correctness_score=self._dimension_score(dims, "correctness"),
+                completeness_score=self._dimension_score(dims, "completeness"),
+                relevance_score=self._dimension_score(dims, "relevance"),
+                safety_score=self._dimension_score(dims, "safety", 1.0),
                 composite_score=evaluation.composite_score,
                 evaluator=evaluation.evaluator,
                 rubric_id=evaluation.rubric_id,
@@ -1691,6 +1722,40 @@ class EvalRunner:
     )
 
     @staticmethod
+    def _assertion_judge_llm(
+        assertion: str, query: str, actual: str
+    ) -> tuple[float, str]:
+        """LLM-as-judge path for :meth:`_assertion_judge`. Raises when no model is available."""
+        import json as _json
+
+        prompt = EvalRunner.ASSERTION_JUDGE_PROMPT.format(
+            query=query, assertion=assertion, actual=actual
+        )
+        response_text = EvalRunner._run_llm(prompt)
+        if response_text is None:
+            raise RuntimeError("no model available")
+        clean = response_text.strip()
+        if clean.startswith("```"):
+            clean = clean.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        parsed = _json.loads(clean)
+        passed = bool(parsed.get("pass", False))
+        reasoning = str(parsed.get("reasoning", ""))
+        return (1.0 if passed else 0.0, reasoning)
+
+    @staticmethod
+    def _assertion_judge_lexical_fallback(
+        assertion: str, actual: str
+    ) -> tuple[float, str]:
+        """Offline heuristic: pass if the assertion's salient words appear in ``actual``."""
+        words = [w for w in assertion.lower().split() if len(w) > 3]
+        hit = sum(1 for w in words if w in actual.lower())
+        ratio = hit / len(words) if words else 0.0
+        return (
+            1.0 if ratio >= 0.6 else 0.0,
+            f"assertion judge unavailable, lexical fallback ratio={ratio:.2f}",
+        )
+
+    @staticmethod
     def _assertion_judge(assertion: str, query: str, actual: str) -> tuple[float, str]:
         """Judge a plain-English assertion, returning (1.0|0.0, reasoning).
 
@@ -1699,31 +1764,10 @@ class EvalRunner:
         when no model is available, so the seam works offline.
         """
         try:
-            import json as _json
-
-            prompt = EvalRunner.ASSERTION_JUDGE_PROMPT.format(
-                query=query, assertion=assertion, actual=actual
-            )
-            response_text = EvalRunner._run_llm(prompt)
-            if response_text is None:
-                raise RuntimeError("no model available")
-            clean = response_text.strip()
-            if clean.startswith("```"):
-                clean = clean.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-            parsed = _json.loads(clean)
-            passed = bool(parsed.get("pass", False))
-            reasoning = str(parsed.get("reasoning", ""))
-            return (1.0 if passed else 0.0, reasoning)
+            return EvalRunner._assertion_judge_llm(assertion, query, actual)
         except Exception as exc:  # noqa: BLE001 — explicit deterministic offline heuristic computed and returned right below, same fallback discipline as _llm_judge_eval above
             logger.debug("assertion judge fallback (no model available): %s", exc)
-            # Offline heuristic: pass if the assertion's salient words appear.
-            words = [w for w in assertion.lower().split() if len(w) > 3]
-            hit = sum(1 for w in words if w in actual.lower())
-            ratio = hit / len(words) if words else 0.0
-            return (
-                1.0 if ratio >= 0.6 else 0.0,
-                f"assertion judge unavailable, lexical fallback ratio={ratio:.2f}",
-            )
+            return EvalRunner._assertion_judge_lexical_fallback(assertion, actual)
 
 
 if TYPE_CHECKING:
@@ -2148,6 +2192,32 @@ class InterpretabilityTestSuite:
 
         return self.compute_agent_interpretability_score(results)
 
+    @staticmethod
+    def _category_breakdown(pool: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
+        """Raw per-category total/passed counts."""
+        categories: dict[str, dict[str, int]] = {}
+        for r in pool:
+            cat = r.get("category", "unknown")
+            counts = categories.setdefault(cat, {"total": 0, "passed": 0})
+            counts["total"] += 1
+            if r.get("passed", False):
+                counts["passed"] += 1
+        return categories
+
+    @staticmethod
+    def _shape_per_category(
+        categories: dict[str, dict[str, int]],
+    ) -> dict[str, dict[str, Any]]:
+        """Add the derived ``score`` field to each category's counts."""
+        return {
+            cat: {
+                "total": counts["total"],
+                "passed": counts["passed"],
+                "score": counts["passed"] / counts["total"] if counts["total"] else 0.0,
+            }
+            for cat, counts in categories.items()
+        }
+
     def compute_agent_interpretability_score(
         self,
         results: list[dict[str, Any]] | None = None,
@@ -2178,23 +2248,8 @@ class InterpretabilityTestSuite:
         hacked = sum(1 for r in pool if r.get("reward_hacking_detected", False))
 
         # Per-category breakdown
-        categories: dict[str, dict[str, int]] = {}
-        for r in pool:
-            cat = r.get("category", "unknown")
-            if cat not in categories:
-                categories[cat] = {"total": 0, "passed": 0}
-            categories[cat]["total"] += 1
-            if r.get("passed", False):
-                categories[cat]["passed"] += 1
-
-        per_category = {
-            cat: {
-                "total": counts["total"],
-                "passed": counts["passed"],
-                "score": counts["passed"] / counts["total"] if counts["total"] else 0.0,
-            }
-            for cat, counts in categories.items()
-        }
+        categories = self._category_breakdown(pool)
+        per_category = self._shape_per_category(categories)
 
         return {
             "overall_score": passed / total if total else 0.0,
