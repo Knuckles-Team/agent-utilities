@@ -434,6 +434,31 @@ def _restore_governed_parts(
         file_value["uri"] = reference
 
 
+def _check_message_bounds(raw: dict[str, Any], max_history: int, *, label: str) -> None:
+    if len(raw.get("parts") or []) > max_history:
+        raise ValueError(f"{label} has too many parts")
+    for key in ("reference_task_ids", "extensions"):
+        if len(raw.get(key) or []) > max_history:
+            raise ValueError(f"{label} {key} exceeds the collection bound")
+
+
+def _digest_message_refs(
+    raw: dict[str, Any], clean: dict[str, Any], *, tenant_key: str
+) -> None:
+    if "reference_task_ids" in raw:
+        clean["reference_task_ids"] = [
+            "a2a.taskref."
+            + _digest_component("task", item, namespace=f"a2a:{tenant_key}")
+            for item in raw.get("reference_task_ids") or []
+        ]
+    if "extensions" in raw:
+        clean["extensions"] = [
+            "a2a.extension."
+            + _digest_component("extension", item, namespace=f"a2a:{tenant_key}")
+            for item in raw.get("extensions") or []
+        ]
+
+
 @dataclass
 class EpistemicGraphA2ARuntime:
     """Shared verified authority for the FastA2A broker and storage adapters."""
@@ -616,11 +641,7 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
             dict[str, Any],
             _validated_json(_MESSAGE_ADAPTER, value, label="A2A message"),
         )
-        if len(raw.get("parts") or []) > self.max_history:
-            raise ValueError("A2A message has too many parts")
-        for key in ("reference_task_ids", "extensions"):
-            if len(raw.get(key) or []) > self.max_history:
-                raise ValueError(f"A2A message {key} exceeds the collection bound")
+        _check_message_bounds(raw, self.max_history, label="A2A message")
         projected, restored = _prepare_governed_parts(raw, label="A2A message")
         clean = cast(dict[str, Any], _privacy_json(projected, label="A2A message"))
         _restore_governed_parts(clean, restored, label="A2A message")
@@ -631,22 +652,7 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
             raw.get("message_id"),
             namespace=f"a2a:{self.runtime.tenant_key}",
         )
-        if "reference_task_ids" in raw:
-            clean["reference_task_ids"] = [
-                "a2a.taskref."
-                + _digest_component(
-                    "task", item, namespace=f"a2a:{self.runtime.tenant_key}"
-                )
-                for item in raw.get("reference_task_ids") or []
-            ]
-        if "extensions" in raw:
-            clean["extensions"] = [
-                "a2a.extension."
-                + _digest_component(
-                    "extension", item, namespace=f"a2a:{self.runtime.tenant_key}"
-                )
-                for item in raw.get("extensions") or []
-            ]
+        _digest_message_refs(raw, clean, tenant_key=self.runtime.tenant_key)
         message = _validated_json(
             _MESSAGE_ADAPTER,
             cast(Message, clean),
