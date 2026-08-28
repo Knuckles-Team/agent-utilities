@@ -2234,11 +2234,6 @@ def register_write_ingest_tools(mcp):
 
     kg_server.REGISTERED_TOOLS["skill_classify"] = skill_classify
 
-    @mcp.tool(
-        name="graph_ingest",
-        description="Smart ingestion for codebases, documents, directories, and conversation logs. Also handles corpus management and job status.",
-        tags=["graph-os", "ingest"],
-    )
     def _ingest_resolve_engine(action, graph, connection):
         # extracted from graph_ingest's preamble (CX-AU-03: split for CCN).
         # U-06/GOC-67: resolve `connection`/`graph` for action='ingest'
@@ -2269,6 +2264,11 @@ def register_write_ingest_tools(mcp):
         _ingest_conn_name, ingest_engine = entries[0]
         return ingest_engine, None
 
+    @mcp.tool(
+        name="graph_ingest",
+        description="Smart ingestion for codebases, documents, directories, and conversation logs. Also handles corpus management and job status.",
+        tags=["graph-os", "ingest"],
+    )
     async def graph_ingest(
         target_path: str = Field(
             default="", description="Path or JSON list of paths to ingest."

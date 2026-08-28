@@ -1,9 +1,11 @@
 #!/usr/bin/python
 
 import asyncio
+import contextlib
 import inspect
 import os
 import re
+import signal
 import stat
 import subprocess
 import sys
@@ -1110,6 +1112,85 @@ def isolate_graph_compute_engine(monkeypatch):
                 _ACTIVE_GRAPH_TEST_LIFECYCLE = previous_lifecycle
         if cleanup_error is not None:
             raise cleanup_error
+
+
+# ── Broad-scope fixture setup must not spend a single test's timeout budget ──
+# D-AUERR-1 (WD10-P-AUERR, 2026-08-28). ``pytest-timeout``'s signal method arms
+# ONE ``ITIMER_REAL`` per test ITEM, in ``pytest_runtest_protocol`` -- i.e. for
+# setup + call + teardown together (pytest_timeout.py:178-193, :324-325). A
+# session/package/module-scoped fixture's ONE-TIME setup is therefore charged to
+# whichever test happens to request it first. When that budget is narrow the
+# fixture is aborted mid-setup; pytest then CACHES the ``FixtureDef`` failure,
+# and every remaining test in that xdist worker ERRORS at setup with the same
+# cached error -- one slow bring-up becomes thousands of errors.
+#
+# This is not hypothetical. ``_session_engine`` below is session-scoped AND
+# autouse, so it is on the setup path of every test in the worker. Forced,
+# reproduced on this host 2026-08-28 (load ~60, 12 xdist workers):
+#
+#   pytest tests/integration/knowledge_graph -n 2 --dist loadfile --timeout=3
+#     -> 194 errors in 194 tests, EVERY one "failed on setup with
+#        Failed: Timeout (>3.0s) from pytest-timeout." naming ``_session_engine``
+#   ... the same target at --timeout=300 runs normally.
+#
+# The repo's own ``pytest.ini`` declares ``--timeout=300``; the pre-push
+# ``pytest`` hook narrows it to ``--timeout=60`` on the command line, which wins.
+# That narrowing is legitimate for a TEST (no unit test should take a minute) and
+# wrong for a shared one-time bring-up that hashes a 227 MB engine binary and
+# starts a real database, twelve workers at once, on a loaded box.
+#
+# So: broad-scope fixture setup runs on its OWN itimer budget and the requesting
+# test's remaining budget is restored afterwards -- the test is never billed for
+# work it merely happened to trigger first. This masks nothing: the budget stays
+# BOUNDED (a genuinely hung fixture still trips), engine bring-up is separately
+# bounded by ``_test_engine._SOCKET_WAIT_SECS``, and a real bring-up failure
+# still raises ``EngineUnavailable`` and degrades to hermetic-skip exactly as
+# before.
+_BROAD_FIXTURE_SCOPES = frozenset({"session", "package", "module"})
+
+#: Floor for a broad-scope fixture's own budget: ``pytest.ini``'s declared
+#: ``--timeout``. A caller that asks for MORE than this (a slow-marked run, a
+#: deliberate ``--timeout=900``) keeps its larger value -- the floor only stops a
+#: narrowed PER-TEST budget from silently narrowing shared setup too.
+_BROAD_FIXTURE_SETUP_TIMEOUT_S = 300.0
+
+
+def _itimer_remaining() -> float:
+    """Seconds left on the ambient ``ITIMER_REAL``; ``0.0`` ⇒ none armed.
+
+    ``0.0`` is also what an unsupported platform and pytest-timeout's ``thread``
+    method both look like, and in all three cases the right action is to do
+    nothing -- there is no per-test alarm to protect the fixture from.
+    """
+    try:
+        remaining, _interval = signal.getitimer(signal.ITIMER_REAL)
+    except (AttributeError, OSError, ValueError):  # pragma: no cover - platform
+        return 0.0
+    return float(remaining)
+
+
+@contextlib.contextmanager
+def _own_timeout_budget(seconds: float):
+    """Run the block on its own ``ITIMER_REAL``, restoring the caller's on exit."""
+    remaining = _itimer_remaining()
+    if remaining <= 0.0:
+        yield
+        return
+    signal.setitimer(signal.ITIMER_REAL, max(remaining, seconds))
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, remaining)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_fixture_setup(fixturedef, request):  # noqa: ARG001 — pytest hook signature
+    """Never bill one test for a broad-scope fixture's one-time setup."""
+    if getattr(fixturedef, "scope", "function") not in _BROAD_FIXTURE_SCOPES:
+        yield
+        return
+    with _own_timeout_budget(_BROAD_FIXTURE_SETUP_TIMEOUT_S):
+        yield
 
 
 # Set True once the isolated session engine is deployed (or an external
