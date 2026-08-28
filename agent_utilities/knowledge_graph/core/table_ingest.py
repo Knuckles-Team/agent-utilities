@@ -98,35 +98,46 @@ def _bounded_columns(columns: list[str]) -> list[str]:
     return validated
 
 
-def _sql_literal(value: Any) -> str:
-    """Render a Python value as a SQL literal (single-quote-escaped)."""
+def _sql_numeric_literal(value: int | float) -> str:
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError("non-finite SQL numeric values are not supported")
+    rendered_numeric = str(value)
+    if len(rendered_numeric.encode("ascii")) > _MAX_CELL_BYTES:
+        raise ValueError("SQL cell exceeds the supported limit")
+    return rendered_numeric
+
+
+def _sql_json_encoded(value: dict[Any, Any] | list[Any]) -> str:
     import json as _json
 
+    try:
+        return _json.dumps(
+            value,
+            allow_nan=False,
+            default=str,
+            separators=(",", ":"),
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("SQL cell is not serializable") from exc
+
+
+def _sql_text_literal(rendered: str) -> str:
+    if "\x00" in rendered or len(rendered.encode("utf-8")) > _MAX_CELL_BYTES:
+        raise ValueError("SQL cell exceeds the supported limit")
+    return "'" + rendered.replace("'", "''") + "'"
+
+
+def _sql_literal(value: Any) -> str:
+    """Render a Python value as a SQL literal (single-quote-escaped)."""
     if value is None:
         return "NULL"
     if isinstance(value, bool):
         return "TRUE" if value else "FALSE"
-    if isinstance(value, float) and not math.isfinite(value):
-        raise ValueError("non-finite SQL numeric values are not supported")
     if isinstance(value, int | float):
-        rendered_numeric = str(value)
-        if len(rendered_numeric.encode("ascii")) > _MAX_CELL_BYTES:
-            raise ValueError("SQL cell exceeds the supported limit")
-        return rendered_numeric
+        return _sql_numeric_literal(value)
     if isinstance(value, dict | list):
-        try:
-            value = _json.dumps(
-                value,
-                allow_nan=False,
-                default=str,
-                separators=(",", ":"),
-            )
-        except (TypeError, ValueError) as exc:
-            raise ValueError("SQL cell is not serializable") from exc
-    rendered = str(value)
-    if "\x00" in rendered or len(rendered.encode("utf-8")) > _MAX_CELL_BYTES:
-        raise ValueError("SQL cell exceeds the supported limit")
-    return "'" + rendered.replace("'", "''") + "'"
+        value = _sql_json_encoded(value)
+    return _sql_text_literal(str(value))
 
 
 def ensure_table(
@@ -150,6 +161,52 @@ def ensure_table(
     }
 
 
+def _row_values_clause(row: dict[str, Any], cols: list[str]) -> str:
+    if not isinstance(row, dict):
+        raise ValueError("SQL rows must be mappings")
+    return "(" + ", ".join(_sql_literal(row.get(c)) for c in cols) + ")"
+
+
+def _accumulate_batch(
+    prefix: str, prefix_bytes: int, batch: list[dict[str, Any]], cols: list[str]
+) -> list[tuple[str, int]]:
+    """Render one batch of rows into size-bounded ``INSERT`` statement pieces."""
+    statements: list[tuple[str, int]] = []
+    pending: list[str] = []
+    pending_bytes = 0
+    for row in batch:
+        rendered = _row_values_clause(row, cols)
+        rendered_bytes = len(rendered.encode("utf-8"))
+        if prefix_bytes + rendered_bytes > _MAX_STATEMENT_BYTES:
+            raise ValueError("SQL row exceeds the statement size limit")
+        projected = (
+            prefix_bytes + pending_bytes + rendered_bytes + (2 if pending else 0)
+        )
+        if projected > _MAX_STATEMENT_BYTES:
+            statements.append((prefix + ", ".join(pending), len(pending)))
+            pending = []
+            pending_bytes = 0
+        pending.append(rendered)
+        pending_bytes += rendered_bytes + (2 if len(pending) > 1 else 0)
+    if pending:
+        statements.append((prefix + ", ".join(pending), len(pending)))
+    return statements
+
+
+def _batch_insert_statements(
+    tbl: str, cols: list[str], rows: list[dict[str, Any]], batch_size: int
+) -> list[tuple[str, int]]:
+    """Render ``rows`` into size-bounded ``INSERT`` statements: ``[(stmt, count)]``."""
+    col_clause = ", ".join(cols)
+    prefix = f"INSERT INTO {tbl} ({col_clause}) VALUES "
+    prefix_bytes = len(prefix.encode("utf-8"))
+    statements: list[tuple[str, int]] = []
+    for start in range(0, len(rows), batch_size):
+        batch = rows[start : start + batch_size]
+        statements.extend(_accumulate_batch(prefix, prefix_bytes, batch, cols))
+    return statements
+
+
 def insert_rows(
     engine: Any,
     table: str,
@@ -168,34 +225,10 @@ def insert_rows(
         raise ValueError("SQL batch size is outside the supported limit")
     tbl = _safe_ident(table)
     cols = _bounded_columns(columns)
-    col_clause = ", ".join(cols)
     written = 0
-    for start in range(0, len(rows), batch_size):
-        batch = rows[start : start + batch_size]
-        pending: list[str] = []
-        prefix = f"INSERT INTO {tbl} ({col_clause}) VALUES "
-        prefix_bytes = len(prefix.encode("utf-8"))
-        pending_bytes = 0
-        for row in batch:
-            if not isinstance(row, dict):
-                raise ValueError("SQL rows must be mappings")
-            rendered = "(" + ", ".join(_sql_literal(row.get(c)) for c in cols) + ")"
-            rendered_bytes = len(rendered.encode("utf-8"))
-            if prefix_bytes + rendered_bytes > _MAX_STATEMENT_BYTES:
-                raise ValueError("SQL row exceeds the statement size limit")
-            projected = (
-                prefix_bytes + pending_bytes + rendered_bytes + (2 if pending else 0)
-            )
-            if projected > _MAX_STATEMENT_BYTES:
-                gc.sql_exec(prefix + ", ".join(pending))
-                written += len(pending)
-                pending = []
-                pending_bytes = 0
-            pending.append(rendered)
-            pending_bytes += rendered_bytes + (2 if len(pending) > 1 else 0)
-        if pending:
-            gc.sql_exec(prefix + ", ".join(pending))
-            written += len(pending)
+    for stmt, count in _batch_insert_statements(tbl, cols, rows, batch_size):
+        gc.sql_exec(stmt)
+        written += count
     return written
 
 
@@ -247,6 +280,31 @@ def _flatten_doc(doc: Any) -> dict[str, Any]:
     }
 
 
+def _resolve_connector_loader(
+    source: str, config: dict[str, Any] | None
+) -> tuple[Any, str | None]:
+    """``(loader, None)`` on success, ``(None, error-message)`` on failure."""
+    from agent_utilities.protocols.source_connectors.registry import build_connector
+
+    try:
+        connector = build_connector(source, config or {})
+    except Exception:  # noqa: BLE001 — bad source / config
+        return None, "connector is unavailable"
+    loader = getattr(connector, "load", None)
+    if not callable(loader):
+        return None, "connector does not provide a load surface"
+    return loader, None
+
+
+def _drain_connector_rows(loader: Any, limit: int) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for doc in loader():
+        rows.append(_flatten_doc(doc))
+        if len(rows) >= limit:
+            break
+    return rows
+
+
 def ingest_connector_to_table(
     engine: Any,
     source: str,
@@ -266,7 +324,6 @@ def ingest_connector_to_table(
     ``details`` and the row count is explicit.
     """
     from agent_utilities.knowledge_graph.etl.result import EtlResult
-    from agent_utilities.protocols.source_connectors.registry import build_connector
 
     def _result(payload: dict[str, Any]) -> dict[str, Any]:
         canonical: dict[str, Any] = {
@@ -289,25 +346,12 @@ def ingest_connector_to_table(
     table = _safe_ident(table or f"conn_{re.sub(r'[^A-Za-z0-9_]', '_', source)}")
     if not isinstance(limit, int) or not 1 <= limit <= _MAX_ROWS:
         return _result({"status": "error", "error": "ingest limit is invalid"})
-    try:
-        connector = build_connector(source, config or {})
-    except Exception:  # noqa: BLE001 — bad source / config
-        return _result({"status": "error", "error": "connector is unavailable"})
 
-    loader = getattr(connector, "load", None)
-    if not callable(loader):
-        return _result(
-            {
-                "status": "error",
-                "error": "connector does not provide a load surface",
-            }
-        )
+    loader, error = _resolve_connector_loader(source, config)
+    if error is not None:
+        return _result({"status": "error", "error": error})
 
-    rows: list[dict[str, Any]] = []
-    for doc in loader():
-        rows.append(_flatten_doc(doc))
-        if len(rows) >= limit:
-            break
+    rows = _drain_connector_rows(loader, limit)
 
     if replace:
         drop_table(engine, table)
@@ -323,6 +367,18 @@ def ingest_connector_to_table(
             "counts": {"rows": written},
         }
     )
+
+
+def _infer_columns(rows: list[dict[str, Any]]) -> list[str]:
+    seen: dict[str, None] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("SQL rows must be mappings")
+        for k in row:
+            seen.setdefault(k, None)
+            if len(seen) > _MAX_COLUMNS:
+                raise ValueError("SQL column count exceeds the supported limit")
+    return list(seen)
 
 
 def ingest_rows_to_table(
@@ -347,17 +403,7 @@ def ingest_rows_to_table(
     if not rows:
         return {"status": "ok", "table": tbl, "rows_written": 0, "columns": []}
 
-    if columns is None:
-        seen: dict[str, None] = {}
-        for row in rows:
-            if not isinstance(row, dict):
-                raise ValueError("SQL rows must be mappings")
-            for k in row:
-                seen.setdefault(k, None)
-                if len(seen) > _MAX_COLUMNS:
-                    raise ValueError("SQL column count exceeds the supported limit")
-        columns = list(seen)
-    columns = _bounded_columns(columns)
+    columns = _bounded_columns(columns if columns is not None else _infer_columns(rows))
 
     if replace:
         drop_table(engine, tbl)
