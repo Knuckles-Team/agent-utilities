@@ -145,28 +145,117 @@ def _property_graph_sync_policy(declaration: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _as_declaration_dict(configured: Any) -> dict[str, Any]:
+    if hasattr(configured, "model_dump"):
+        return configured.model_dump(exclude_defaults=True)
+    if isinstance(configured, dict):
+        return dict(configured)
+    return {}
+
+
+def _last_declaration_named(declarations: Any, name: str) -> dict[str, Any] | None:
+    """The LAST entry in ``declarations`` whose ``name`` matches, or ``None``
+    -- matches the original scan's "later entries win" behaviour exactly."""
+    found: dict[str, Any] | None = None
+    for configured in declarations:
+        candidate = _as_declaration_dict(configured)
+        if str(candidate.get("name") or "") == name:
+            found = candidate
+    return found
+
+
 def _configured_external_graph_declaration(name: str) -> dict[str, Any]:
     """Resolve one reference-only declaration without returning it publicly."""
 
     from agent_utilities.core.config import config as runtime_config
 
-    selected: dict[str, Any] = {}
     collections = (
         getattr(runtime_config, "external_graph_connectors", []) or [],
         getattr(runtime_config, "kg_connections", []) or [],
     )
+    selected: dict[str, Any] = {}
     for declarations in collections:
-        for configured in declarations:
-            candidate = (
-                configured.model_dump(exclude_defaults=True)
-                if hasattr(configured, "model_dump")
-                else dict(configured)
-                if isinstance(configured, dict)
-                else {}
-            )
-            if str(candidate.get("name") or "") == name:
-                selected = candidate
+        found = _last_declaration_named(declarations, name)
+        if found is not None:
+            selected = found
     return selected
+
+
+def _load_external_mapping_policy_ref(store: Any, policy_ref: str) -> dict[str, Any]:
+    """Resolve+parse the policy behind ``policy_ref``. An empty ref (no
+    policy attached) resolves to an empty policy."""
+    if not policy_ref:
+        return {}
+    raw = store.resolve_ref(policy_ref)
+    if (
+        not isinstance(raw, str)
+        or not raw
+        or len(raw.encode("utf-8")) > _EXTERNAL_MAPPING_POLICY_MAX_BYTES
+    ):
+        raise ValueError("external mapping policy is missing or exceeds its bound")
+
+    parsed = json.loads(
+        raw,
+        parse_constant=_reject_nonfinite_json,
+        object_pairs_hook=_reject_duplicate_json_keys,
+    )
+    if not isinstance(parsed, dict):
+        raise ValueError("external mapping policy must be an object")
+    return parsed
+
+
+def _validate_external_mapping_policy_fields(policy: dict[str, Any]) -> None:
+    if set(policy).difference(_EXTERNAL_MAPPING_POLICY_FIELDS):
+        raise ValueError("external mapping policy contains unsupported inline material")
+    for field in ("access", "type_overrides", "edge_type_overrides"):
+        if field in policy and not isinstance(policy[field], dict):
+            raise ValueError("external mapping policy has an invalid mapping field")
+
+
+def _validate_external_mapping_policy_access(policy: dict[str, Any]) -> None:
+    access = policy.get("access")
+    if not isinstance(access, dict):
+        return
+    if set(access).difference({"group_ids", "is_public", "markings"}):
+        raise ValueError(
+            "external mapping policy access cannot contain inline identities"
+        )
+    if "is_public" in access and not isinstance(access["is_public"], bool):
+        raise ValueError("external mapping policy access is invalid")
+    for field in ("group_ids", "markings"):
+        value = access.get(field)
+        if value is not None and (
+            not isinstance(value, list)
+            or any(not isinstance(item, str) for item in value)
+        ):
+            raise ValueError("external mapping policy access is invalid")
+
+
+def _validate_external_mapping_policy_type_overrides(policy: dict[str, Any]) -> None:
+    for field in ("type_overrides", "edge_type_overrides"):
+        value = policy.get(field)
+        if isinstance(value, dict) and any(
+            not isinstance(key, str) or not isinstance(item, str)
+            for key, item in value.items()
+        ):
+            raise ValueError("external mapping policy has an invalid type mapping")
+
+
+def _validate_external_mapping_policy_allowlists(policy: dict[str, Any]) -> None:
+    for field in ("property_allowlist", "edge_property_allowlist"):
+        value = policy.get(field)
+        if value is not None and (
+            not isinstance(value, list)
+            or any(not isinstance(item, str) for item in value)
+        ):
+            raise ValueError("external mapping policy has an invalid allowlist")
+
+
+def _validate_external_mapping_policy_identity(policy: dict[str, Any]) -> None:
+    if "identity_property" in policy and not isinstance(
+        policy["identity_property"], str
+    ):
+        raise ValueError("external mapping policy has an invalid identity property")
 
 
 def _resolved_external_mapping_policy(
@@ -175,62 +264,13 @@ def _resolved_external_mapping_policy(
     """Resolve, validate, and hash a property-graph policy behind its ref."""
 
     policy_ref = str(declaration.get("mapping_policy_ref") or "")
-    policy: dict[str, Any] = {}
-    if policy_ref:
-        raw = store.resolve_ref(policy_ref)
-        if (
-            not isinstance(raw, str)
-            or not raw
-            or len(raw.encode("utf-8")) > _EXTERNAL_MAPPING_POLICY_MAX_BYTES
-        ):
-            raise ValueError("external mapping policy is missing or exceeds its bound")
+    policy = _load_external_mapping_policy_ref(store, policy_ref)
 
-        parsed = json.loads(
-            raw,
-            parse_constant=_reject_nonfinite_json,
-            object_pairs_hook=_reject_duplicate_json_keys,
-        )
-        if not isinstance(parsed, dict):
-            raise ValueError("external mapping policy must be an object")
-        policy = parsed
-    if set(policy).difference(_EXTERNAL_MAPPING_POLICY_FIELDS):
-        raise ValueError("external mapping policy contains unsupported inline material")
-    for field in ("access", "type_overrides", "edge_type_overrides"):
-        if field in policy and not isinstance(policy[field], dict):
-            raise ValueError("external mapping policy has an invalid mapping field")
-    access = policy.get("access")
-    if isinstance(access, dict):
-        if set(access).difference({"group_ids", "is_public", "markings"}):
-            raise ValueError(
-                "external mapping policy access cannot contain inline identities"
-            )
-        if "is_public" in access and not isinstance(access["is_public"], bool):
-            raise ValueError("external mapping policy access is invalid")
-        for field in ("group_ids", "markings"):
-            value = access.get(field)
-            if value is not None and (
-                not isinstance(value, list)
-                or any(not isinstance(item, str) for item in value)
-            ):
-                raise ValueError("external mapping policy access is invalid")
-    for field in ("type_overrides", "edge_type_overrides"):
-        value = policy.get(field)
-        if isinstance(value, dict) and any(
-            not isinstance(key, str) or not isinstance(item, str)
-            for key, item in value.items()
-        ):
-            raise ValueError("external mapping policy has an invalid type mapping")
-    for field in ("property_allowlist", "edge_property_allowlist"):
-        value = policy.get(field)
-        if value is not None and (
-            not isinstance(value, list)
-            or any(not isinstance(item, str) for item in value)
-        ):
-            raise ValueError("external mapping policy has an invalid allowlist")
-    if "identity_property" in policy and not isinstance(
-        policy["identity_property"], str
-    ):
-        raise ValueError("external mapping policy has an invalid identity property")
+    _validate_external_mapping_policy_fields(policy)
+    _validate_external_mapping_policy_access(policy)
+    _validate_external_mapping_policy_type_overrides(policy)
+    _validate_external_mapping_policy_allowlists(policy)
+    _validate_external_mapping_policy_identity(policy)
 
     from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
         external_mapping_policy_digest,
@@ -266,6 +306,129 @@ async def execute_focused_analysis(
     return EvidenceBundle.from_payload(raw, operation=action)
 
 
+_SENSITIVE_MCP_OPTION_NAMES = frozenset(
+    {
+        "config",
+        "connection-string",
+        "dsn",
+        "env",
+        "h",
+        "header",
+        "proxy",
+    }
+)
+
+
+def _mcp_option_is_sensitive(option_name: str) -> bool:
+    return _configuration_key_is_sensitive(option_name) or (
+        option_name.lower() in _SENSITIVE_MCP_OPTION_NAMES
+    )
+
+
+def _process_mcp_arg(argument: Any, expects_reference: bool) -> bool:
+    """Validate one MCP command-line argument. Returns the new
+    ``expects_reference`` state to carry into the NEXT argument."""
+    if not isinstance(argument, str):
+        raise ValueError("MCP server arguments must be strings")
+    if expects_reference:
+        if not _runtime_reference(argument):
+            raise ValueError(
+                "sensitive MCP command arguments must be runtime references"
+            )
+        return False
+    if not argument.startswith("-"):
+        return False
+    option, separator, inline_value = argument.partition("=")
+    option_name = option.lstrip("-")
+    option_sensitive = _mcp_option_is_sensitive(option_name)
+    if option_sensitive and separator:
+        if not _runtime_reference(inline_value):
+            raise ValueError(
+                "sensitive MCP command arguments must be runtime references"
+            )
+        return False
+    if option_sensitive:
+        return True
+    return False
+
+
+def _validate_mcp_args(args: Any) -> None:
+    if args is not None and not isinstance(args, list):
+        raise ValueError("MCP server args must be a list")
+    expects_reference = False
+    for argument in args or []:
+        expects_reference = _process_mcp_arg(argument, expects_reference)
+    if expects_reference:
+        raise ValueError("sensitive MCP command argument is missing its value")
+
+
+def _mcp_key_requires_reference(key: str) -> bool:
+    parts = _normalised_key_parts(key)
+    if parts & (
+        _SENSITIVE_MCP_KEY_PARTS | _ENDPOINT_MCP_KEY_PARTS | _PATH_MCP_KEY_PARTS
+    ):
+        return True
+    if "id" in parts and bool(
+        parts & {"actor", "agent", "client", "identity", "tenant", "user"}
+    ):
+        return True
+    if "key" in parts and bool(
+        parts
+        & {
+            "api",
+            "auth",
+            "client",
+            "encryption",
+            "hmac",
+            "private",
+            "signing",
+            "tls",
+        }
+    ):
+        return True
+    return False
+
+
+def _mcp_env_value_is_safe_inline(key: str, value: str) -> bool:
+    return (
+        key.upper() in _SAFE_INLINE_MCP_ENV_KEYS
+        and _SAFE_INLINE_MCP_ENV_VALUE_RE.fullmatch(value) is not None
+    )
+
+
+def _looks_like_sensitive_literal(value: str) -> bool:
+    return bool(
+        _URI_LITERAL_RE.match(value)
+        or value.startswith(("/", "~/", "~\\"))
+        or _WINDOWS_ABSOLUTE_PATH_RE.match(value)
+        or _INLINE_SECRET_RE.match(value)
+        or _EMAIL_LITERAL_RE.match(value)
+    )
+
+
+def _validate_mcp_scalar_value(
+    value: Any, key: str, in_env: bool, requires_reference: bool
+) -> None:
+    if not isinstance(value, str) or not value:
+        if requires_reference and value not in (None, ""):
+            raise ValueError("sensitive MCP values must be runtime references")
+        return
+    if _runtime_reference(value):
+        return
+    if in_env and not _mcp_env_value_is_safe_inline(key, value):
+        raise ValueError(
+            "MCP environment values must be runtime references unless the "
+            "setting is a bounded non-sensitive mode"
+        )
+    if requires_reference:
+        raise ValueError("sensitive MCP values must be runtime references")
+    if _looks_like_sensitive_literal(value):
+        raise ValueError(
+            "endpoint, credential, identity, and path literals are not "
+            "durable MCP configuration"
+        )
+
+
 def _validate_mcp_server_definition(definition: Any) -> dict[str, Any]:
     """Validate one durable MCP server declaration without retaining literals.
 
@@ -278,45 +441,7 @@ def _validate_mcp_server_definition(definition: Any) -> dict[str, Any]:
     if not isinstance(definition, dict):
         raise ValueError("MCP server definition must be an object")
 
-    args = definition.get("args")
-    if args is not None and not isinstance(args, list):
-        raise ValueError("MCP server args must be a list")
-    expects_reference = False
-    for argument in args or []:
-        if not isinstance(argument, str):
-            raise ValueError("MCP server arguments must be strings")
-        if expects_reference:
-            if not _runtime_reference(argument):
-                raise ValueError(
-                    "sensitive MCP command arguments must be runtime references"
-                )
-            expects_reference = False
-            continue
-        if not argument.startswith("-"):
-            continue
-        option, separator, inline_value = argument.partition("=")
-        option_name = option.lstrip("-")
-        option_sensitive = _configuration_key_is_sensitive(option_name) or (
-            option_name.lower()
-            in {
-                "config",
-                "connection-string",
-                "dsn",
-                "env",
-                "h",
-                "header",
-                "proxy",
-            }
-        )
-        if option_sensitive and separator:
-            if not _runtime_reference(inline_value):
-                raise ValueError(
-                    "sensitive MCP command arguments must be runtime references"
-                )
-        elif option_sensitive:
-            expects_reference = True
-    if expects_reference:
-        raise ValueError("sensitive MCP command argument is missing its value")
+    _validate_mcp_args(definition.get("args"))
 
     seen = 0
 
@@ -330,31 +455,8 @@ def _validate_mcp_server_definition(definition: Any) -> dict[str, Any]:
         if depth > _MCP_REGISTRATION_MAX_DEPTH:
             raise ValueError("MCP server definition is too deeply nested")
 
-        parts = _normalised_key_parts(key)
-        requires_reference = bool(
-            parts
-            & (_SENSITIVE_MCP_KEY_PARTS | _ENDPOINT_MCP_KEY_PARTS | _PATH_MCP_KEY_PARTS)
-        )
-        requires_reference = requires_reference or (
-            "id" in parts
-            and bool(parts & {"actor", "agent", "client", "identity", "tenant", "user"})
-        )
-        requires_reference = requires_reference or (
-            "key" in parts
-            and bool(
-                parts
-                & {
-                    "api",
-                    "auth",
-                    "client",
-                    "encryption",
-                    "hmac",
-                    "private",
-                    "signing",
-                    "tls",
-                }
-            )
-        )
+        requires_reference = _mcp_key_requires_reference(key)
+
         if isinstance(value, dict):
             for child_key, child_value in value.items():
                 if not isinstance(child_key, str) or len(child_key) > 128:
@@ -370,36 +472,52 @@ def _validate_mcp_server_definition(definition: Any) -> dict[str, Any]:
             for child in value:
                 _walk(child, key=key, depth=depth + 1, in_env=in_env)
             return
-        if not isinstance(value, str) or not value:
-            if requires_reference and value not in (None, ""):
-                raise ValueError("sensitive MCP values must be runtime references")
-            return
-        if _runtime_reference(value):
-            return
-        if in_env and not (
-            key.upper() in _SAFE_INLINE_MCP_ENV_KEYS
-            and _SAFE_INLINE_MCP_ENV_VALUE_RE.fullmatch(value)
-        ):
-            raise ValueError(
-                "MCP environment values must be runtime references unless the "
-                "setting is a bounded non-sensitive mode"
-            )
-        if requires_reference:
-            raise ValueError("sensitive MCP values must be runtime references")
-        if (
-            _URI_LITERAL_RE.match(value)
-            or value.startswith(("/", "~/", "~\\"))
-            or _WINDOWS_ABSOLUTE_PATH_RE.match(value)
-            or _INLINE_SECRET_RE.match(value)
-            or _EMAIL_LITERAL_RE.match(value)
-        ):
-            raise ValueError(
-                "endpoint, credential, identity, and path literals are not "
-                "durable MCP configuration"
-            )
+        _validate_mcp_scalar_value(value, key, in_env, requires_reference)
 
     _walk(definition)
     return definition
+
+
+def _resolve_requested_mcp_config_path(root: Path, configured: str) -> Path:
+    """Parse the ``MCP_CONFIG`` setting into a candidate path, absolute (and
+    rooted under ``root`` when given relatively). Rejects null bytes,
+    unexpanded env vars, Windows absolute paths, and ``..`` traversal."""
+    if configured and ("\x00" in configured or "$" in configured):
+        raise ValueError("MCP_CONFIG must resolve before registration")
+    if _WINDOWS_ABSOLUTE_PATH_RE.match(configured):
+        raise PermissionError("MCP config must use the active workspace namespace")
+    requested = Path(configured).expanduser() if configured else Path("mcp_config.json")
+    if ".." in requested.parts:
+        raise PermissionError("MCP config traversal is not permitted")
+    candidate = requested if requested.is_absolute() else root / requested
+    return candidate.absolute()
+
+
+def _assert_mcp_config_path_in_workspace(candidate: Path, root: Path) -> Path:
+    try:
+        return candidate.relative_to(root)
+    except ValueError:
+        raise PermissionError(
+            "MCP config must be inside the active workspace"
+        ) from None
+
+
+def _assert_no_symlink_components(root: Path, relative: Path) -> None:
+    current = root
+    for component in relative.parts:
+        current = current / component
+        if current.is_symlink():
+            raise PermissionError("symlinked MCP config paths are not writable")
+
+
+def _assert_resolved_mcp_config_in_workspace(candidate: Path, root: Path) -> None:
+    resolved = candidate.resolve(strict=False)
+    try:
+        resolved.relative_to(root)
+    except ValueError:
+        raise PermissionError(
+            "MCP config must resolve inside the active workspace"
+        ) from None
 
 
 def _workspace_mcp_config_path() -> Path:
@@ -415,36 +533,12 @@ def _workspace_mcp_config_path() -> Path:
 
     root = get_agent_workspace().resolve(strict=True)
     configured = str(setting("MCP_CONFIG", "") or "").strip()
-    if configured and ("\x00" in configured or "$" in configured):
-        raise ValueError("MCP_CONFIG must resolve before registration")
-    if _WINDOWS_ABSOLUTE_PATH_RE.match(configured):
-        raise PermissionError("MCP config must use the active workspace namespace")
-    requested = Path(configured).expanduser() if configured else Path("mcp_config.json")
-    if ".." in requested.parts:
-        raise PermissionError("MCP config traversal is not permitted")
-    candidate = requested if requested.is_absolute() else root / requested
-    candidate = candidate.absolute()
-    try:
-        relative = candidate.relative_to(root)
-    except ValueError:
-        raise PermissionError(
-            "MCP config must be inside the active workspace"
-        ) from None
+    candidate = _resolve_requested_mcp_config_path(root, configured)
+    relative = _assert_mcp_config_path_in_workspace(candidate, root)
     if candidate.suffix.lower() != ".json":
         raise ValueError("MCP config must be a JSON file")
-
-    current = root
-    for component in relative.parts:
-        current = current / component
-        if current.is_symlink():
-            raise PermissionError("symlinked MCP config paths are not writable")
-    resolved = candidate.resolve(strict=False)
-    try:
-        resolved.relative_to(root)
-    except ValueError:
-        raise PermissionError(
-            "MCP config must resolve inside the active workspace"
-        ) from None
+    _assert_no_symlink_components(root, relative)
+    _assert_resolved_mcp_config_in_workspace(candidate, root)
     return candidate
 
 
@@ -4330,6 +4424,28 @@ _CONFIGURE_ACTION_DISPATCH = {
 }
 
 
+def _coerced_str(value: Any, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def _normalize_tool_list_values(value: str | list[Any]) -> list[Any]:
+    """A comma-separated string or an already-split list -> a plain list
+    (unfiltered; see :func:`_clean_tool_names` for the stripped/non-empty
+    filter applied on top)."""
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        return value.split(",")
+    return []
+
+
+def _clean_tool_names(values: list[Any]) -> list[str] | None:
+    cleaned = [
+        name.strip() for name in values if isinstance(name, str) and name.strip()
+    ]
+    return cleaned or None
+
+
 def register_analysis_tools(mcp):
     """Register the analysis_tools group on the given FastMCP server."""
 
@@ -4553,8 +4669,11 @@ def register_analysis_tools(mcp):
     ) -> str:
         """Resolve and execute one governed local-vLLM delegation."""
         response_format = validate_response_format(response_format)
-        skill_name = skill_name if isinstance(skill_name, str) else ""
-        tool_server = tool_server if isinstance(tool_server, str) else ""
+        skill_name = _coerced_str(skill_name)
+        tool_server = _coerced_str(tool_server)
+        # execution_mode keeps its inline ternary (not _coerced_str): its
+        # declared type is Literal["auto", "pydantic_graph"], and only this
+        # exact shape lets mypy narrow both branches back to that Literal.
         execution_mode = execution_mode if isinstance(execution_mode, str) else "auto"
         engine = kg_server._get_engine()
         if engine is None:
@@ -4562,20 +4681,8 @@ def register_analysis_tools(mcp):
         try:
             from agent_utilities.orchestration.manager import Orchestrator
 
-            allowed_tool_values = (
-                allowed_tools
-                if isinstance(allowed_tools, list)
-                else (
-                    allowed_tools.split(",") if isinstance(allowed_tools, str) else []
-                )
-            )
-            required_tool_values = (
-                required_tools
-                if isinstance(required_tools, list)
-                else (
-                    required_tools.split(",") if isinstance(required_tools, str) else []
-                )
-            )
+            allowed_tool_values = _normalize_tool_list_values(allowed_tools)
+            required_tool_values = _normalize_tool_list_values(required_tools)
             payload = await Orchestrator(engine).execute_capability(
                 task=task,
                 agent_name=agent_name,
@@ -4586,22 +4693,8 @@ def register_analysis_tools(mcp):
                 context=context or None,
                 budget_tokens=budget_tokens or None,
                 context_ref=context_ref or None,
-                allowed_tools=(
-                    [
-                        name.strip()
-                        for name in allowed_tool_values
-                        if isinstance(name, str) and name.strip()
-                    ]
-                    or None
-                ),
-                required_tools=(
-                    [
-                        name.strip()
-                        for name in required_tool_values
-                        if isinstance(name, str) and name.strip()
-                    ]
-                    or None
-                ),
+                allowed_tools=_clean_tool_names(allowed_tool_values),
+                required_tools=_clean_tool_names(required_tool_values),
                 cred_ref=cred_ref or None,
                 open_channel=open_channel,
                 reasoning_effort=reasoning_effort or None,
