@@ -209,127 +209,150 @@ def parse_frontmatter(text: str) -> tuple[dict[str, Any] | None, str, str | None
     return data, body, None
 
 
-def _check_frontmatter_schema(
-    record: SkillRecord, text: str
+def _check_frontmatter_parses(
+    text: str,
 ) -> tuple[list[CheckResult], dict[str, Any] | None, str]:
-    checks: list[CheckResult] = []
     data, body, parse_error = parse_frontmatter(text)
     if data is None:
-        checks.append(
-            CheckResult(
-                "frontmatter.parses", "FAIL", parse_error or "unknown parse error"
-            )
+        return (
+            [
+                CheckResult(
+                    "frontmatter.parses", "FAIL", parse_error or "unknown parse error"
+                )
+            ],
+            None,
+            body,
         )
-        return checks, None, body
-    checks.append(
-        CheckResult("frontmatter.parses", "PASS", "frontmatter is valid YAML mapping")
+    return (
+        [
+            CheckResult(
+                "frontmatter.parses", "PASS", "frontmatter is valid YAML mapping"
+            )
+        ],
+        data,
+        body,
     )
 
+
+def _check_frontmatter_name(
+    record: SkillRecord, data: dict[str, Any]
+) -> list[CheckResult]:
     name = data.get("name")
     if not name or not str(name).strip():
-        checks.append(
+        return [
             CheckResult(
                 "frontmatter.name_present", "FAIL", "`name` field is missing or empty"
             )
+        ]
+    checks = [CheckResult("frontmatter.name_present", "PASS", f"name={name!r}")]
+    name_s = str(name)
+    if not _KEBAB_RE.match(name_s):
+        checks.append(
+            CheckResult(
+                "frontmatter.name_kebab_case",
+                "FAIL",
+                f"name {name_s!r} is not lowercase-hyphenated (expected pattern {_KEBAB_RE.pattern!r})",
+            )
         )
     else:
-        checks.append(CheckResult("frontmatter.name_present", "PASS", f"name={name!r}"))
-        name_s = str(name)
-        if not _KEBAB_RE.match(name_s):
-            checks.append(
-                CheckResult(
-                    "frontmatter.name_kebab_case",
-                    "FAIL",
-                    f"name {name_s!r} is not lowercase-hyphenated (expected pattern {_KEBAB_RE.pattern!r})",
-                )
+        checks.append(
+            CheckResult(
+                "frontmatter.name_kebab_case",
+                "PASS",
+                f"name={name_s!r} is kebab-case",
             )
-        else:
-            checks.append(
-                CheckResult(
-                    "frontmatter.name_kebab_case",
-                    "PASS",
-                    f"name={name_s!r} is kebab-case",
-                )
-            )
+        )
 
-        skill_type = data.get("skill_type")
-        if skill_type != "graph" and name_s != record.directory_name:
-            checks.append(
-                CheckResult(
-                    "frontmatter.name_matches_directory",
-                    "FAIL",
-                    f"name {name_s!r} != directory name {record.directory_name!r} "
-                    f"(only skill_type=graph nodes may diverge)",
-                )
+    skill_type = data.get("skill_type")
+    if skill_type != "graph" and name_s != record.directory_name:
+        checks.append(
+            CheckResult(
+                "frontmatter.name_matches_directory",
+                "FAIL",
+                f"name {name_s!r} != directory name {record.directory_name!r} "
+                f"(only skill_type=graph nodes may diverge)",
             )
-        else:
-            checks.append(
-                CheckResult(
-                    "frontmatter.name_matches_directory",
-                    "PASS",
-                    "name matches directory",
-                )
+        )
+    else:
+        checks.append(
+            CheckResult(
+                "frontmatter.name_matches_directory",
+                "PASS",
+                "name matches directory",
             )
+        )
+    return checks
 
+
+def _check_frontmatter_description(data: dict[str, Any]) -> list[CheckResult]:
     description = data.get("description")
     desc_s = str(description).strip() if description is not None else ""
     if not desc_s:
-        checks.append(
+        return [
             CheckResult(
                 "frontmatter.description_present",
                 "FAIL",
                 "`description` field is missing or empty",
             )
-        )
-    else:
+        ]
+    checks = [
+        CheckResult("frontmatter.description_present", "PASS", f"{len(desc_s)} chars")
+    ]
+    if len(desc_s) > _MAX_DESCRIPTION_CHARS:
         checks.append(
             CheckResult(
-                "frontmatter.description_present", "PASS", f"{len(desc_s)} chars"
+                "frontmatter.description_portable_length",
+                "WARN",
+                f"description is {len(desc_s)} chars (> {_MAX_DESCRIPTION_CHARS} — "
+                "exceeds the Codex cross-tool portability limit)",
             )
         )
-        if len(desc_s) > _MAX_DESCRIPTION_CHARS:
-            checks.append(
-                CheckResult(
-                    "frontmatter.description_portable_length",
-                    "WARN",
-                    f"description is {len(desc_s)} chars (> {_MAX_DESCRIPTION_CHARS} — "
-                    "exceeds the Codex cross-tool portability limit)",
-                )
+    if "<" in desc_s or ">" in desc_s:
+        checks.append(
+            CheckResult(
+                "frontmatter.description_portable_chars",
+                "WARN",
+                "description contains `<`/`>` (rejected by the Codex frontmatter adapter)",
             )
-        if "<" in desc_s or ">" in desc_s:
-            checks.append(
-                CheckResult(
-                    "frontmatter.description_portable_chars",
-                    "WARN",
-                    "description contains `<`/`>` (rejected by the Codex frontmatter adapter)",
-                )
-            )
+        )
+    return checks
 
+
+def _check_frontmatter_skill_type(data: dict[str, Any]) -> list[CheckResult]:
     skill_type = data.get("skill_type")
     if skill_type is None:
-        checks.append(
+        return [
             CheckResult(
                 "frontmatter.skill_type_present",
                 "FAIL",
                 "`skill_type` field is missing — it is AUTHORITATIVE and required "
                 f"(one of {sorted(_VALID_SKILL_TYPES)})",
             )
-        )
-    elif skill_type not in _VALID_SKILL_TYPES:
-        checks.append(
+        ]
+    if skill_type not in _VALID_SKILL_TYPES:
+        return [
             CheckResult(
                 "frontmatter.skill_type_valid",
                 "FAIL",
                 f"skill_type {skill_type!r} is not one of {sorted(_VALID_SKILL_TYPES)}",
             )
+        ]
+    return [
+        CheckResult(
+            "frontmatter.skill_type_valid", "PASS", f"skill_type={skill_type!r}"
         )
-    else:
-        checks.append(
-            CheckResult(
-                "frontmatter.skill_type_valid", "PASS", f"skill_type={skill_type!r}"
-            )
-        )
+    ]
 
+
+def _check_frontmatter_schema(
+    record: SkillRecord, text: str
+) -> tuple[list[CheckResult], dict[str, Any] | None, str]:
+    checks, data, body = _check_frontmatter_parses(text)
+    if data is None:
+        return checks, None, body
+    checks.extend(_check_frontmatter_name(record, data))
+    checks.extend(_check_frontmatter_description(data))
+    checks.extend(_check_frontmatter_skill_type(data))
     return checks, data, body
 
 
@@ -360,30 +383,37 @@ def _resolves_elsewhere_in_repo(record: SkillRecord, relative_path: str) -> bool
     return False
 
 
+def _reference_candidate_missing(record: SkillRecord, candidate: str) -> bool:
+    """True when ``candidate`` looks like a genuine, in-scope, unresolved
+    reference — i.e. one this gate should flag as missing."""
+    cleaned = candidate.split("#", 1)[0].strip()
+    if not cleaned or "*" in cleaned or "<" in cleaned or ">" in cleaned:
+        return False
+    if cleaned.startswith("/"):
+        # absolute paths are never portable skill references; the existing
+        # `agent_utilities.skills.validation` private-pattern gate already
+        # flags these — skip here to avoid double-counting.
+        return False
+    candidate_path = (record.skill_dir / cleaned).resolve()
+    try:
+        candidate_path.relative_to(record.skill_dir.resolve())
+    except ValueError:
+        # escapes the skill directory (e.g. `../other-skill/x`) — not this
+        # gate's concern.
+        return False
+    return not candidate_path.exists() and not _resolves_elsewhere_in_repo(
+        record, cleaned.rstrip("/")
+    )
+
+
 def _check_structural_integrity(record: SkillRecord, body: str) -> list[CheckResult]:
     checks: list[CheckResult] = []
     candidates = sorted(set(_extract_reference_candidates(body)))
-    missing: list[str] = []
-    for candidate in candidates:
-        cleaned = candidate.split("#", 1)[0].strip()
-        if not cleaned or "*" in cleaned or "<" in cleaned or ">" in cleaned:
-            continue
-        if cleaned.startswith("/"):
-            # absolute paths are never portable skill references; the
-            # existing `agent_utilities.skills.validation` private-pattern
-            # gate already flags these — skip here to avoid double-counting.
-            continue
-        candidate_path = (record.skill_dir / cleaned).resolve()
-        try:
-            candidate_path.relative_to(record.skill_dir.resolve())
-        except ValueError:
-            # escapes the skill directory (e.g. `../other-skill/x`) — not
-            # this gate's concern.
-            continue
-        if not candidate_path.exists() and not _resolves_elsewhere_in_repo(
-            record, cleaned.rstrip("/")
-        ):
-            missing.append(cleaned)
+    missing = [
+        candidate.split("#", 1)[0].strip()
+        for candidate in candidates
+        if _reference_candidate_missing(record, candidate)
+    ]
     if missing:
         checks.append(
             CheckResult(
@@ -422,76 +452,93 @@ def _package_root_for(record: SkillRecord) -> Path | None:
     return None
 
 
+def _check_graphos_tool_references(
+    record: SkillRecord, body: str
+) -> CheckResult | None:
+    graphos_refs = sorted(graphos_tool_reference_occurrences(body))
+    if not (
+        record.repo_name in {"agent-utilities", "epistemic-graph"} and graphos_refs
+    ):
+        return None
+    known = resolvable_graphos_tool_names()
+    unknown = [t for t in graphos_refs if t not in known]
+    if unknown:
+        return CheckResult(
+            "tools.graphos_references_resolve",
+            "FAIL",
+            f"referenced graph-os tool(s) not in the canonical {len(known)}-tool "
+            f"surface (`agent_utilities.mcp.tool_specs`): {unknown}",
+        )
+    return CheckResult(
+        "tools.graphos_references_resolve",
+        "PASS",
+        f"all {len(graphos_refs)} referenced graph-os tool(s) are registered",
+    )
+
+
+def _tools_section_body(body: str) -> str | None:
+    tools_section = _TOOLS_SECTION_RE.search(body)
+    if not tools_section:
+        return None
+    section_body = body[tools_section.end() :]
+    next_h2 = re.search(r"^##\s+", section_body, re.MULTILINE)
+    if next_h2:
+        section_body = section_body[: next_h2.start()]
+    return section_body
+
+
+def _tool_name_resolves_in_package(tool_name: str, package_root: Path) -> bool:
+    pattern = re.compile(r"\b" + re.escape(tool_name) + r"\b")
+    for py_file in package_root.rglob("*.py"):
+        parts = py_file.relative_to(package_root).parts
+        if any(p in {".venv", "venv", "tests", "test", "__pycache__"} for p in parts):
+            continue
+        try:
+            text = py_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if pattern.search(text):
+            return True
+    return False
+
+
+def _check_package_tool_references(
+    record: SkillRecord, body: str
+) -> CheckResult | None:
+    section_body = _tools_section_body(body)
+    if section_body is None:
+        return None
+    declared = sorted(set(_TOOL_BULLET_RE.findall(section_body)))
+    package_root = _package_root_for(record)
+    if not declared or package_root is None:
+        return None
+    unresolved = [
+        tool_name
+        for tool_name in declared
+        if not _tool_name_resolves_in_package(tool_name, package_root)
+    ]
+    if unresolved:
+        return CheckResult(
+            "tools.package_references_resolve",
+            "FAIL",
+            f"tool(s) declared under '## Tools' have no matching identifier "
+            f"anywhere in the owning package ({package_root.name}): {unresolved}",
+        )
+    return CheckResult(
+        "tools.package_references_resolve",
+        "PASS",
+        f"all {len(declared)} declared tool(s) resolve within {package_root.name}",
+    )
+
+
 def _check_declared_tools(record: SkillRecord, body: str) -> list[CheckResult]:
     checks: list[CheckResult] = []
-    graphos_refs = sorted(graphos_tool_reference_occurrences(body))
-    if record.repo_name in {"agent-utilities", "epistemic-graph"} and graphos_refs:
-        known = resolvable_graphos_tool_names()
-        unknown = [t for t in graphos_refs if t not in known]
-        if unknown:
-            checks.append(
-                CheckResult(
-                    "tools.graphos_references_resolve",
-                    "FAIL",
-                    f"referenced graph-os tool(s) not in the canonical {len(known)}-tool "
-                    f"surface (`agent_utilities.mcp.tool_specs`): {unknown}",
-                )
-            )
-        else:
-            checks.append(
-                CheckResult(
-                    "tools.graphos_references_resolve",
-                    "PASS",
-                    f"all {len(graphos_refs)} referenced graph-os tool(s) are registered",
-                )
-            )
-
-    tools_section = _TOOLS_SECTION_RE.search(body)
-    if tools_section:
-        section_body = body[tools_section.end() :]
-        next_h2 = re.search(r"^##\s+", section_body, re.MULTILINE)
-        if next_h2:
-            section_body = section_body[: next_h2.start()]
-        declared = sorted(set(_TOOL_BULLET_RE.findall(section_body)))
-        package_root = _package_root_for(record)
-        if declared and package_root is not None:
-            unresolved: list[str] = []
-            for tool_name in declared:
-                pattern = re.compile(r"\b" + re.escape(tool_name) + r"\b")
-                found = False
-                for py_file in package_root.rglob("*.py"):
-                    parts = py_file.relative_to(package_root).parts
-                    if any(
-                        p in {".venv", "venv", "tests", "test", "__pycache__"}
-                        for p in parts
-                    ):
-                        continue
-                    try:
-                        text = py_file.read_text(encoding="utf-8", errors="replace")
-                    except OSError:
-                        continue
-                    if pattern.search(text):
-                        found = True
-                        break
-                if not found:
-                    unresolved.append(tool_name)
-            if unresolved:
-                checks.append(
-                    CheckResult(
-                        "tools.package_references_resolve",
-                        "FAIL",
-                        f"tool(s) declared under '## Tools' have no matching identifier "
-                        f"anywhere in the owning package ({package_root.name}): {unresolved}",
-                    )
-                )
-            else:
-                checks.append(
-                    CheckResult(
-                        "tools.package_references_resolve",
-                        "PASS",
-                        f"all {len(declared)} declared tool(s) resolve within {package_root.name}",
-                    )
-                )
+    graphos_check = _check_graphos_tool_references(record, body)
+    if graphos_check is not None:
+        checks.append(graphos_check)
+    package_check = _check_package_tool_references(record, body)
+    if package_check is not None:
+        checks.append(package_check)
     return checks
 
 
@@ -526,6 +573,39 @@ def _exempt_from_uniqueness(report: SkillStaticReport) -> bool:
     return report.record.in_reference_corpus or report.skill_type == "graph"
 
 
+def _append_uniqueness_verdict(
+    report: SkillStaticReport, name: str, by_name: dict[str, list[SkillStaticReport]]
+) -> None:
+    if _exempt_from_uniqueness(report):
+        report.checks.append(
+            CheckResult(
+                "frontmatter.name_unique",
+                "PASS",
+                "skill-graph reference-corpus node — exempt from fleet-wide name uniqueness",
+            )
+        )
+        return
+    siblings = by_name[name]
+    if len(siblings) > 1:
+        others = [s.record.relative_path for s in siblings if s is not report]
+        report.checks.append(
+            CheckResult(
+                "frontmatter.name_unique",
+                "FAIL",
+                f"name {name!r} is used by {len(siblings)} skills fleet-wide; "
+                f"also declared at: {others}",
+            )
+        )
+    else:
+        report.checks.append(
+            CheckResult(
+                "frontmatter.name_unique",
+                "PASS",
+                "name is unique across the scanned fleet",
+            )
+        )
+
+
 def _check_name_uniqueness(reports: list[SkillStaticReport]) -> None:
     """Mutates ``reports`` in place, appending a uniqueness verdict to each."""
     by_name: dict[str, list[SkillStaticReport]] = {}
@@ -535,34 +615,7 @@ def _check_name_uniqueness(reports: list[SkillStaticReport]) -> None:
     for report in reports:
         if not report.name:
             continue
-        if _exempt_from_uniqueness(report):
-            report.checks.append(
-                CheckResult(
-                    "frontmatter.name_unique",
-                    "PASS",
-                    "skill-graph reference-corpus node — exempt from fleet-wide name uniqueness",
-                )
-            )
-            continue
-        siblings = by_name[report.name]
-        if len(siblings) > 1:
-            others = [s.record.relative_path for s in siblings if s is not report]
-            report.checks.append(
-                CheckResult(
-                    "frontmatter.name_unique",
-                    "FAIL",
-                    f"name {report.name!r} is used by {len(siblings)} skills fleet-wide; "
-                    f"also declared at: {others}",
-                )
-            )
-        else:
-            report.checks.append(
-                CheckResult(
-                    "frontmatter.name_unique",
-                    "PASS",
-                    "name is unique across the scanned fleet",
-                )
-            )
+        _append_uniqueness_verdict(report, report.name, by_name)
 
 
 def run_static_checks(records: list[SkillRecord]) -> list[SkillStaticReport]:
