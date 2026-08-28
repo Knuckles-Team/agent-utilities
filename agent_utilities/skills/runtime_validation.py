@@ -35,7 +35,7 @@ from dataclasses import (
 )
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, NoReturn, TypeGuard
 
 import yaml
 from fastmcp.exceptions import ToolError
@@ -62,6 +62,8 @@ _SAFE_ERROR = re.compile(r"^[a-z][a-z0-9_]{0,95}$")
 _MAX_TOOL_PAYLOAD = 64 * 1024
 _MAX_TOOL_ITEMS = 4_096
 _MAX_TOOL_DEPTH = 24
+# Sentinel for "this decoder produced no value", distinct from any JSON value.
+_UNDECODED = object()
 _TRACE_PAGE_LIMIT = 20
 _TRACE_MAX_PAGES = 10
 _TRACE_TOOL_ERROR_RETRIES = 2
@@ -191,6 +193,18 @@ class CaseResult:
 
     @property
     def passed(self) -> bool:
+        return bool(
+            self._required_checks_passed()
+            and not self.error_codes
+            and self._trace_evidence_exact()
+            and self.selected_routes
+            and all(_SAFE_ROUTE.fullmatch(route) for route in self.selected_routes)
+            and self._references_valid()
+        )
+
+    def _required_checks_passed(self) -> bool:
+        """Require every mandatory per-mode check to have recorded a pass."""
+
         required = [
             self.structural,
             self.semantic,
@@ -201,7 +215,22 @@ class CaseResult:
         ]
         if self.mode == "delegated":
             required.append(self.delegation)
-        references_valid = all(
+        return all(value == _PASS for value in required)
+
+    def _trace_evidence_exact(self) -> bool:
+        """Require exactly one run-linked trace and one parent-ingested node."""
+
+        return (
+            self.trace_linkage == "run-evidence"
+            and self.trace_name == f"graph_run:{self.run_ref}"
+            and self.langfuse_match_count == 1
+            and self.parent_kg_readback_count == 1
+        )
+
+    def _references_valid(self) -> bool:
+        """Require every retained opaque reference to match its exact pattern."""
+
+        return all(
             pattern.fullmatch(value) is not None
             for pattern, value in (
                 (_CASE_REFERENCE_PATTERNS["run"], self.run_ref),
@@ -210,17 +239,6 @@ class CaseResult:
                 (_CASE_REFERENCE_PATTERNS["skill"], self.skill_ref),
                 (_CASE_REFERENCE_PATTERNS["skill_body"], self.skill_body_ref),
             )
-        )
-        return bool(
-            all(value == _PASS for value in required)
-            and not self.error_codes
-            and self.trace_linkage == "run-evidence"
-            and self.trace_name == f"graph_run:{self.run_ref}"
-            and self.langfuse_match_count == 1
-            and self.parent_kg_readback_count == 1
-            and self.selected_routes
-            and all(_SAFE_ROUTE.fullmatch(route) for route in self.selected_routes)
-            and references_valid
         )
 
     def add_error(self, code: str) -> None:
@@ -523,7 +541,17 @@ def validate_semantic_output(case: ValidationCase, output: SemanticOutput) -> li
         errors.append("semantic_not_read_only")
     if not output.privacy_safe:
         errors.append("semantic_privacy_not_acknowledged")
-    routes = output.selected_routes
+    errors.extend(_semantic_route_errors(case, output.selected_routes))
+    _clean, privacy = PersistencePrivacyGuard().sanitize(output.model_dump())
+    if privacy.changed:
+        errors.append("semantic_output_privacy_violation")
+    return errors
+
+
+def _semantic_route_errors(case: ValidationCase, routes: list[str]) -> list[str]:
+    """Return the route-contract error codes in their declared report order."""
+
+    errors: list[str] = []
     if len(routes) != len(set(routes)) or any(
         not _SAFE_ROUTE.fullmatch(route) for route in routes
     ):
@@ -534,9 +562,6 @@ def validate_semantic_output(case: ValidationCase, output: SemanticOutput) -> li
         errors.append("semantic_routes_incomplete")
     if selected_routes - expected_routes:
         errors.append("semantic_routes_unexpected")
-    _clean, privacy = PersistencePrivacyGuard().sanitize(output.model_dump())
-    if privacy.changed:
-        errors.append("semantic_output_privacy_violation")
     return errors
 
 
@@ -551,63 +576,102 @@ def _parse_json_text(value: str) -> Any:
     return parsed
 
 
+class _PayloadScan:
+    """One bounded, cycle-safe traversal budget for an MCP payload tree.
+
+    The check order per node is load-bearing and matches the original inline
+    traversal exactly: depth, then item count, then the per-type charge (which
+    for a container is cycle, then width, then expansion), then the remaining
+    byte budget.
+    """
+
+    __slots__ = ("items", "remaining", "seen")
+
+    def __init__(self) -> None:
+        self.remaining = _MAX_TOOL_PAYLOAD
+        self.items = 0
+        self.seen: set[int] = set()
+
+    def visit(self, current: Any, depth: int, stack: list[tuple[Any, int]]) -> None:
+        """Charge one popped node against the budget and queue its children."""
+
+        if depth > _MAX_TOOL_DEPTH:
+            raise ValueError("payload_too_deep")
+        self.items += 1
+        if self.items > _MAX_TOOL_ITEMS:
+            raise ValueError("payload_too_many_items")
+        self._charge(current, depth, stack)
+        if self.remaining < 0:
+            raise ValueError("payload_too_large")
+
+    def _charge(self, current: Any, depth: int, stack: list[tuple[Any, int]]) -> None:
+        if current is None or isinstance(current, bool | int | float):
+            self.remaining -= 16
+        elif isinstance(current, str):
+            self._charge_text(current)
+        elif isinstance(current, bytes):
+            self.remaining -= len(current)
+        elif isinstance(current, dict):
+            self._expand_mapping(current, depth, stack)
+        elif isinstance(current, list | tuple):
+            self._expand_sequence(current, depth, stack)
+        elif _is_fastmcp_structured_dataclass(current):
+            self._expand_structured(current, depth, stack)
+        else:
+            raise TypeError("payload_type_invalid")
+
+    def _charge_text(self, current: str) -> None:
+        if len(current) > self.remaining:
+            raise ValueError("payload_too_large")
+        self.remaining -= len(current.encode("utf-8"))
+
+    def _enter_container(self, current: Any, width: int) -> None:
+        """Reject a cycle, then an over-wide container, before expanding it."""
+
+        identity = id(current)
+        if identity in self.seen:
+            raise ValueError("payload_cycle")
+        self.seen.add(identity)
+        if width > _MAX_TOOL_ITEMS - self.items:
+            raise ValueError("payload_too_many_items")
+
+    def _expand_mapping(
+        self, current: dict[Any, Any], depth: int, stack: list[tuple[Any, int]]
+    ) -> None:
+        self._enter_container(current, len(current))
+        for key, item in current.items():
+            if not isinstance(key, str):
+                raise TypeError("payload_key_invalid")
+            stack.append((item, depth + 1))
+            stack.append((key, depth + 1))
+
+    def _expand_sequence(
+        self,
+        current: list[Any] | tuple[Any, ...],
+        depth: int,
+        stack: list[tuple[Any, int]],
+    ) -> None:
+        self._enter_container(current, len(current))
+        stack.extend((item, depth + 1) for item in current)
+
+    def _expand_structured(
+        self, current: Any, depth: int, stack: list[tuple[Any, int]]
+    ) -> None:
+        members = dataclass_fields(current)
+        self._enter_container(current, len(members))
+        for member in members:
+            stack.append((getattr(current, member.name), depth + 1))
+            stack.append((member.name, depth + 1))
+
+
 def _validate_tool_payload_bounds(value: Any) -> None:
     """Reject oversized, cyclic, deep, or non-data MCP payloads before use."""
 
-    remaining = _MAX_TOOL_PAYLOAD
-    items = 0
-    seen: set[int] = set()
+    scan = _PayloadScan()
     stack: list[tuple[Any, int]] = [(value, 0)]
     while stack:
         current, depth = stack.pop()
-        if depth > _MAX_TOOL_DEPTH:
-            raise ValueError("payload_too_deep")
-        items += 1
-        if items > _MAX_TOOL_ITEMS:
-            raise ValueError("payload_too_many_items")
-        if current is None or isinstance(current, bool | int | float):
-            remaining -= 16
-        elif isinstance(current, str):
-            if len(current) > remaining:
-                raise ValueError("payload_too_large")
-            remaining -= len(current.encode("utf-8"))
-        elif isinstance(current, bytes):
-            remaining -= len(current)
-        elif isinstance(current, dict):
-            identity = id(current)
-            if identity in seen:
-                raise ValueError("payload_cycle")
-            seen.add(identity)
-            if len(current) > _MAX_TOOL_ITEMS - items:
-                raise ValueError("payload_too_many_items")
-            for key, item in current.items():
-                if not isinstance(key, str):
-                    raise TypeError("payload_key_invalid")
-                stack.append((item, depth + 1))
-                stack.append((key, depth + 1))
-        elif isinstance(current, list | tuple):
-            identity = id(current)
-            if identity in seen:
-                raise ValueError("payload_cycle")
-            seen.add(identity)
-            if len(current) > _MAX_TOOL_ITEMS - items:
-                raise ValueError("payload_too_many_items")
-            stack.extend((item, depth + 1) for item in current)
-        elif _is_fastmcp_structured_dataclass(current):
-            identity = id(current)
-            if identity in seen:
-                raise ValueError("payload_cycle")
-            seen.add(identity)
-            members = dataclass_fields(current)
-            if len(members) > _MAX_TOOL_ITEMS - items:
-                raise ValueError("payload_too_many_items")
-            for member in members:
-                stack.append((getattr(current, member.name), depth + 1))
-                stack.append((member.name, depth + 1))
-        else:
-            raise TypeError("payload_type_invalid")
-        if remaining < 0:
-            raise ValueError("payload_too_large")
+        scan.visit(current, depth, stack)
 
 
 def _is_fastmcp_structured_dataclass(value: Any) -> bool:
@@ -637,45 +701,81 @@ def _normalize_fastmcp_structured_data(value: Any) -> Any:
     return value
 
 
-def _decode_tool_result(result: Any) -> Any:
+def _decode_structured_value(value: Any) -> Any:
+    """Decode one non-empty ``data``/``structured_content`` attribute."""
+
+    if isinstance(value, str):
+        try:
+            return _parse_json_text(value)
+        except json.JSONDecodeError:
+            return value
+    if isinstance(value, BaseModel):
+        value = value.model_dump(mode="json")
+    _validate_tool_payload_bounds(value)
+    return _normalize_fastmcp_structured_data(value)
+
+
+def _decode_structured_attributes(result: Any) -> Any:
+    """Decode the first populated structured attribute, or ``_UNDECODED``."""
+
     for attr in ("data", "structured_content"):
         value = getattr(result, attr, None)
         if value not in (None, {}):
-            if isinstance(value, str):
-                try:
-                    return _parse_json_text(value)
-                except json.JSONDecodeError:
-                    return value
-            if isinstance(value, BaseModel):
-                value = value.model_dump(mode="json")
-            _validate_tool_payload_bounds(value)
-            return _normalize_fastmcp_structured_data(value)
+            return _decode_structured_value(value)
+    return _UNDECODED
+
+
+def _bounded_content_texts(content: list[Any]) -> list[str]:
+    """Collect the bounded text blocks of an MCP content list."""
+
+    texts: list[str] = []
+    characters = 0
+    for item in content:
+        text = str(getattr(item, "text", ""))
+        characters += len(text) + (1 if text and texts else 0)
+        if characters > _MAX_TOOL_PAYLOAD:
+            raise ValueError("payload_too_large")
+        if text:
+            texts.append(text)
+    return texts
+
+
+def _decode_content_list(content: list[Any]) -> Any:
+    """Decode an MCP content list, or ``_UNDECODED`` when it carries no text."""
+
+    if len(content) > _MAX_TOOL_ITEMS:
+        raise ValueError("payload_too_many_items")
+    joined = "\n".join(_bounded_content_texts(content))
+    if not joined:
+        return _UNDECODED
+    try:
+        return _parse_json_text(joined)
+    except json.JSONDecodeError:
+        return joined
+
+
+def _decode_text_result(result: str) -> Any:
+    """Decode a bare string result as JSON, or as bounded text."""
+
+    try:
+        return _parse_json_text(result)
+    except json.JSONDecodeError:
+        if len(result) > _MAX_TOOL_PAYLOAD:
+            raise ValueError("payload_too_large") from None
+        return result
+
+
+def _decode_tool_result(result: Any) -> Any:
+    decoded = _decode_structured_attributes(result)
+    if decoded is not _UNDECODED:
+        return decoded
     content = getattr(result, "content", None)
     if isinstance(content, list):
-        if len(content) > _MAX_TOOL_ITEMS:
-            raise ValueError("payload_too_many_items")
-        texts: list[str] = []
-        characters = 0
-        for item in content:
-            text = str(getattr(item, "text", ""))
-            characters += len(text) + (1 if text and texts else 0)
-            if characters > _MAX_TOOL_PAYLOAD:
-                raise ValueError("payload_too_large")
-            if text:
-                texts.append(text)
-        joined = "\n".join(texts)
-        if joined:
-            try:
-                return _parse_json_text(joined)
-            except json.JSONDecodeError:
-                return joined
+        decoded = _decode_content_list(content)
+        if decoded is not _UNDECODED:
+            return decoded
     if isinstance(result, str):
-        try:
-            return _parse_json_text(result)
-        except json.JSONDecodeError:
-            if len(result) > _MAX_TOOL_PAYLOAD:
-                raise ValueError("payload_too_large") from None
-            return result
+        return _decode_text_result(result)
     _validate_tool_payload_bounds(result)
     return result
 
@@ -924,6 +1024,20 @@ async def _list_tool_names(client: Any, timeout: float) -> set[str]:
     return names
 
 
+def _langfuse_tool_candidates(catalog: Any) -> list[str]:
+    """Extract the safely named prefixed `langfuse_observability` entries."""
+
+    candidates = []
+    if isinstance(catalog, dict):
+        for entry in catalog.get("tools") or []:
+            if (
+                isinstance(entry, dict)
+                and entry.get("tool") == "langfuse_observability"
+            ):
+                candidates.append(str(entry.get("prefixed_name") or ""))
+    return [name for name in candidates if _SAFE_ROUTE.fullmatch(name)]
+
+
 async def _load_langfuse_tool(client: Any, timeout: float) -> str:
     """Discover and load Langfuse through Graph-OS, never a direct endpoint."""
 
@@ -936,15 +1050,7 @@ async def _load_langfuse_tool(client: Any, timeout: float) -> str:
         {"server": "langfuse-mcp", "include_tools": True},
         timeout,
     )
-    candidates = []
-    if isinstance(catalog, dict):
-        for entry in catalog.get("tools") or []:
-            if (
-                isinstance(entry, dict)
-                and entry.get("tool") == "langfuse_observability"
-            ):
-                candidates.append(str(entry.get("prefixed_name") or ""))
-    candidates = [name for name in candidates if _SAFE_ROUTE.fullmatch(name)]
+    candidates = _langfuse_tool_candidates(catalog)
     if len(candidates) != 1:
         raise RuntimeError("langfuse_tool_discovery_failed")
     if candidates[0] not in names:
@@ -953,6 +1059,27 @@ async def _load_langfuse_tool(client: Any, timeout: float) -> str:
         if candidates[0] not in names:
             raise RuntimeError("langfuse_tool_load_failed")
     return candidates[0]
+
+
+async def _await_sync_worker(
+    completed: threading.Event, poisoned: threading.Event, timeout: float
+) -> None:
+    """Await the single SDK worker, poisoning the slot if it is abandoned."""
+
+    try:
+        deadline = time.monotonic() + max(1.0, timeout)
+        while not completed.is_set():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                if completed.is_set():
+                    break
+                poisoned.set()
+                raise TimeoutError("blocking_sdk_timeout")
+            await asyncio.sleep(min(0.05, remaining))
+    except BaseException:
+        if not completed.is_set():
+            poisoned.set()
+        raise
 
 
 async def _bounded_sync_call(function: Any, timeout: float) -> Any:
@@ -997,20 +1124,7 @@ async def _bounded_sync_call(function: Any, timeout: float) -> Any:
     except BaseException:
         active_guard.release()
         raise
-    try:
-        deadline = time.monotonic() + max(1.0, timeout)
-        while not completed.is_set():
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                if completed.is_set():
-                    break
-                poisoned.set()
-                raise TimeoutError("blocking_sdk_timeout")
-            await asyncio.sleep(min(0.05, remaining))
-    except BaseException:
-        if not completed.is_set():
-            poisoned.set()
-        raise
+    await _await_sync_worker(completed, poisoned, timeout)
     succeeded, value = outcome[0]
     if succeeded:
         return value
@@ -1070,6 +1184,46 @@ def _trace_row_evidence(row: dict[str, Any]) -> dict[str, str]:
     return evidence
 
 
+def _trace_list_arguments(
+    page: int, from_timestamp: str | None, expected_name: str
+) -> dict[str, Any]:
+    """Build one bounded, exact-name `trace_list` request for a single page."""
+
+    args: dict[str, Any] = {
+        "action": "trace_list",
+        "page": page,
+        # Cases run sequentially and each window expects one run-linked trace.
+        # Small pages stay below GraphOS's delegated-value boundary even when
+        # the shared project contains content-heavy automatic telemetry.
+        "limit": _TRACE_PAGE_LIMIT,
+        "order_by": "timestamp.desc",
+        "fields": "core,basic,metadata",
+    }
+    if from_timestamp:
+        args["from_timestamp"] = from_timestamp
+    # Filter at the provider boundary so unrelated shared-project traffic
+    # cannot consume the bounded page window or expand metadata exposure.
+    args["name"] = expected_name
+    return args
+
+
+def _collect_trace_rows(
+    snapshot: dict[str, TraceRecord], rows: list[Any], expected_name: str
+) -> None:
+    """Retain only exact-name rows and their closed evidence metadata."""
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        trace_id = str(row.get("id") or "")
+        name = str(row.get("name") or "")
+        if trace_id and len(trace_id) <= 256 and name == expected_name:
+            snapshot[trace_id] = TraceRecord(
+                name=name,
+                evidence=_trace_row_evidence(row),
+            )
+
+
 async def _trace_snapshot(
     client: Any,
     langfuse_tool: str,
@@ -1087,40 +1241,53 @@ async def _trace_snapshot(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError("trace_snapshot_timeout")
-        args: dict[str, Any] = {
-            "action": "trace_list",
-            "page": page,
-            # Cases run sequentially and each window expects one run-linked trace.
-            # Small pages stay below GraphOS's delegated-value boundary even when
-            # the shared project contains content-heavy automatic telemetry.
-            "limit": _TRACE_PAGE_LIMIT,
-            "order_by": "timestamp.desc",
-            "fields": "core,basic,metadata",
-        }
-        if from_timestamp:
-            args["from_timestamp"] = from_timestamp
-        # Filter at the provider boundary so unrelated shared-project traffic
-        # cannot consume the bounded page window or expand metadata exposure.
-        args["name"] = expected_name
+        args = _trace_list_arguments(page, from_timestamp, expected_name)
         payload = await _call_tool(client, langfuse_tool, args, min(remaining, timeout))
         rows = payload.get("data") if isinstance(payload, dict) else None
         if not isinstance(rows, list):
             raise RuntimeError("trace_snapshot_invalid")
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            trace_id = str(row.get("id") or "")
-            name = str(row.get("name") or "")
-            if trace_id and len(trace_id) <= 256 and name == expected_name:
-                snapshot[trace_id] = TraceRecord(
-                    name=name,
-                    evidence=_trace_row_evidence(row),
-                )
+        _collect_trace_rows(snapshot, rows, expected_name)
         if len(rows) < _TRACE_PAGE_LIMIT:
             return snapshot
     if from_timestamp:
         raise RuntimeError("trace_snapshot_boundary_exceeded")
     return snapshot
+
+
+async def _next_transient_retry(attempts: int, deadline: float) -> int | None:
+    """Charge one bounded retry for a typed child-tool failure.
+
+    Returns the new attempt count after sleeping the backoff, or ``None`` when
+    the retry budget or the caller's deadline is exhausted and the typed
+    failure must propagate as a certification gate.
+    """
+
+    if attempts >= _TRACE_TOOL_ERROR_RETRIES:
+        return None
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return None
+    await asyncio.sleep(min(_TRACE_TOOL_ERROR_RETRY_DELAY_SECONDS, remaining))
+    return attempts + 1
+
+
+def _matched_expected_trace(
+    current: dict[str, TraceRecord], expected_evidence: dict[str, str]
+) -> str | None:
+    """Return the single exact-evidence trace id, or None while none exists."""
+
+    matching = sorted(current)
+    if len(matching) == 1:
+        record = current[matching[0]]
+        if any(
+            record.evidence.get(key) != value
+            for key, value in expected_evidence.items()
+        ):
+            raise RuntimeError("trace_evidence_mismatch")
+        return matching[0]
+    if len(matching) > 1:
+        raise RuntimeError("trace_run_identifier_ambiguous")
+    return None
 
 
 async def _wait_for_expected_trace(
@@ -1156,27 +1323,38 @@ async def _wait_for_expected_trace(
             # parent ChangeEnvelope races another graph writer. Retry only the
             # typed child-tool failure, keep the attempt count bounded, and let
             # persistent provider/ingestion failures remain certification gates.
-            if transient_tool_errors >= _TRACE_TOOL_ERROR_RETRIES:
+            attempts = await _next_transient_retry(transient_tool_errors, deadline)
+            if attempts is None:
                 raise
-            transient_tool_errors += 1
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise
-            await asyncio.sleep(min(_TRACE_TOOL_ERROR_RETRY_DELAY_SECONDS, remaining))
+            transient_tool_errors = attempts
             continue
-        matching = sorted(current)
-        if len(matching) == 1:
-            record = current[matching[0]]
-            if any(
-                record.evidence.get(key) != value
-                for key, value in expected_evidence.items()
-            ):
-                raise RuntimeError("trace_evidence_mismatch")
-            return matching[0], "run-evidence"
-        if len(matching) > 1:
-            raise RuntimeError("trace_run_identifier_ambiguous")
+        matched = _matched_expected_trace(current, expected_evidence)
+        if matched is not None:
+            return matched, "run-evidence"
         await asyncio.sleep(1.0)
     raise TimeoutError("trace_not_observed")
+
+
+def _require_parent_ingestion_inputs(expected_name: str, timeout: float) -> None:
+    """Require an exact opaque trace name and a finite, positive time budget."""
+
+    if not re.fullmatch(r"graph_run:pref_run_[a-f0-9]{64}", expected_name):
+        raise RuntimeError("trace_expected_name_invalid")
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("trace_parent_ingestion_timeout_invalid")
+
+
+def _parent_ingestion_query(expected_name: str) -> dict[str, Any]:
+    """Build the bounded, identity-retaining parent-ingestion readback query."""
+
+    return {
+        "cypher": (
+            "MATCH (n:Trace) WHERE n.name = $name "
+            "RETURN n.id AS id, n.name AS name LIMIT 2"
+        ),
+        "params": json.dumps({"name": expected_name}, separators=(",", ":")),
+        "scope": "local",
+    }
 
 
 async def _verify_parent_ingested_trace(
@@ -1186,18 +1364,8 @@ async def _verify_parent_ingested_trace(
 ) -> int:
     """Require exactly one parent-mediated KG node for an exact opaque trace."""
 
-    if not re.fullmatch(r"graph_run:pref_run_[a-f0-9]{64}", expected_name):
-        raise RuntimeError("trace_expected_name_invalid")
-    if not math.isfinite(timeout) or timeout <= 0:
-        raise ValueError("trace_parent_ingestion_timeout_invalid")
-    arguments = {
-        "cypher": (
-            "MATCH (n:Trace) WHERE n.name = $name "
-            "RETURN n.id AS id, n.name AS name LIMIT 2"
-        ),
-        "params": json.dumps({"name": expected_name}, separators=(",", ":")),
-        "scope": "local",
-    }
+    _require_parent_ingestion_inputs(expected_name, timeout)
+    arguments = _parent_ingestion_query(expected_name)
     deadline = time.monotonic() + timeout
     transient_tool_errors = 0
     while True:
@@ -1212,13 +1380,10 @@ async def _verify_parent_ingested_trace(
                 min(15.0, remaining),
             )
         except (ToolError, ValidationChildToolError):
-            if transient_tool_errors >= _TRACE_TOOL_ERROR_RETRIES:
+            attempts = await _next_transient_retry(transient_tool_errors, deadline)
+            if attempts is None:
                 raise
-            transient_tool_errors += 1
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise
-            await asyncio.sleep(min(_TRACE_TOOL_ERROR_RETRY_DELAY_SECONDS, remaining))
+            transient_tool_errors = attempts
             continue
         count = _parent_ingested_trace_count(payload, expected_name=expected_name)
         if count == 1:
@@ -1231,16 +1396,8 @@ async def _verify_parent_ingested_trace(
         await asyncio.sleep(min(_PARENT_INGESTION_POLL_DELAY_SECONDS, remaining))
 
 
-def _parent_ingested_trace_count(payload: Any, *, expected_name: str) -> int | None:
-    """Count only governed trace-id rows in GraphQuery's EvidenceBundle trace.
-
-    Public graph reads must retain node identity so tenant, ACL, visibility, and
-    audit enforcement can govern every returned row.  The query is bounded at
-    two rows: one is the required materialization, zero is missing, and two
-    proves an ambiguous duplicate.  Accept only that closed projection; an
-    aggregate without node identity, a similarly named claim, or a widened row
-    is not proof of parent-mediated ingestion.
-    """
+def _graph_query_trace(payload: Any) -> dict[str, Any] | None:
+    """Return the single closed `graph_query` step of an EvidenceBundle trace."""
 
     if not isinstance(payload, dict):
         return None
@@ -1255,7 +1412,14 @@ def _parent_ingested_trace_count(payload: Any, *, expected_name: str) -> int | N
     if len(query_traces) != 1:
         return None
     trace = query_traces[0]
-    if set(trace) != {"step", "payload"}:
+    return trace if set(trace) == {"step", "payload"} else None
+
+
+def _graph_query_rows(payload: Any) -> list[Any] | None:
+    """Return the bounded row projection of GraphQuery's EvidenceBundle trace."""
+
+    trace = _graph_query_trace(payload)
+    if trace is None:
         return None
     aggregate = trace.get("payload")
     if not isinstance(aggregate, dict) or set(aggregate) != {"rows"}:
@@ -1263,17 +1427,39 @@ def _parent_ingested_trace_count(payload: Any, *, expected_name: str) -> int | N
     rows = aggregate.get("rows")
     if not isinstance(rows, list) or len(rows) > 2:
         return None
-    for row in rows:
-        if not isinstance(row, dict) or set(row) != {"id", "name"}:
-            return None
-        node_id = row.get("id")
-        if (
-            not isinstance(node_id, str)
-            or re.fullmatch(r"langfuse:trace:[a-f0-9]{32}", node_id) is None
-        ):
-            return None
-        if row.get("name") != expected_name:
-            return None
+    return rows
+
+
+def _governed_trace_row(row: Any, expected_name: str) -> bool:
+    """Accept only a two-field row whose node identity and name are governed."""
+
+    if not isinstance(row, dict) or set(row) != {"id", "name"}:
+        return False
+    node_id = row.get("id")
+    if (
+        not isinstance(node_id, str)
+        or re.fullmatch(r"langfuse:trace:[a-f0-9]{32}", node_id) is None
+    ):
+        return False
+    return row.get("name") == expected_name
+
+
+def _parent_ingested_trace_count(payload: Any, *, expected_name: str) -> int | None:
+    """Count only governed trace-id rows in GraphQuery's EvidenceBundle trace.
+
+    Public graph reads must retain node identity so tenant, ACL, visibility, and
+    audit enforcement can govern every returned row.  The query is bounded at
+    two rows: one is the required materialization, zero is missing, and two
+    proves an ambiguous duplicate.  Accept only that closed projection; an
+    aggregate without node identity, a similarly named claim, or a widened row
+    is not proof of parent-mediated ingestion.
+    """
+
+    rows = _graph_query_rows(payload)
+    if rows is None:
+        return None
+    if not all(_governed_trace_row(row, expected_name) for row in rows):
+        return None
     return len(rows)
 
 
@@ -1365,6 +1551,212 @@ def _validation_reasoning_effort(model_class: str, *, delegated: bool) -> str | 
     return "low" if delegated else None
 
 
+async def _attach_trace_evidence(
+    result: CaseResult,
+    *,
+    client: Any,
+    langfuse_tool: str,
+    started_at: str,
+    expected_trace_name: str,
+    expected_trace_evidence: dict[str, str],
+    trace_timeout: float,
+) -> None:
+    """Record the exact trace and its parent-ingested node, or a typed error."""
+
+    try:
+        trace_id, linkage = await _wait_for_expected_trace(
+            client,
+            langfuse_tool,
+            started_at,
+            expected_trace_name,
+            expected_trace_evidence,
+            trace_timeout,
+        )
+        result.trace = _PASS
+        result.trace_linkage = linkage
+        result.trace_name = expected_trace_name
+        result.langfuse_match_count = 1
+        result.trace_ref = _opaque_ref("trace", trace_id)
+        result.parent_kg_readback_count = await _verify_parent_ingested_trace(
+            client, expected_trace_name, min(15.0, trace_timeout)
+        )
+        result.parent_ingestion = _PASS
+    except Exception as exc:  # noqa: BLE001 - report only the exception class
+        result.add_error(f"trace_or_ingestion_{type(exc).__name__}")
+
+
+def _direct_case_model(case: ValidationCase, result: CaseResult) -> tuple[Any, str]:
+    """Bind the configured model and skill identity onto the case result."""
+
+    from agent_utilities.core.model_factory import create_model
+    from agent_utilities.orchestration.agent_runner import (
+        _configured_model_for_class,
+    )
+
+    selected_model = _configured_model_for_class(case.model_class)
+    model = create_model(
+        model_id=selected_model.id,
+        reasoning_effort=_validation_reasoning_effort(
+            case.model_class, delegated=False
+        ),
+    )
+    model_name = str(getattr(model, "model_name", "") or "")
+    if not model_name:
+        raise RuntimeError("runtime_model_identity_unavailable")
+    result.model_ref = _opaque_ref("model", model_name)
+    expected_model_ref = _opaque_ref("model", selected_model.id)
+    if result.model_ref != expected_model_ref:
+        result.add_error("direct_model_selection_mismatch")
+    else:
+        result.model_selection = _PASS
+    instruction_digest = _skill_instruction_digest(case.skill)
+    result.skill_ref = persistence_reference(
+        "skill", case.skill, namespace="execution-trace"
+    )
+    result.skill_body_ref = _opaque_ref("skill_body", instruction_digest)
+    result.skill_binding = _PASS
+    return model, model_name
+
+
+def _direct_model_settings(
+    *, system_prompt: str, model_identity: str, case_timeout: float
+) -> Any:
+    """Build bounded direct-run settings, folding the provider prompt-cache hint."""
+
+    from pydantic_ai import ModelSettings
+
+    direct_model_settings: Any = ModelSettings(
+        # The closed JSON contract is intentionally small. A bounded
+        # generation keeps CPU-only local-model validation practical.
+        max_tokens=_DIRECT_MAX_OUTPUT_TOKENS,
+        temperature=0.0,
+        timeout=case_timeout,
+    )
+    try:
+        # D-54c-4 — this call bypasses attach_profile_resolver (it invokes
+        # agent.run() directly with an explicit model_settings), so fold the
+        # provider-native prompt-cache directive here too (CONCEPT:AU-ORCH.optimization.provider-prompt-cache).
+        from agent_utilities.caching.prompt_cache import fold_prompt_cache_hint
+
+        return fold_prompt_cache_hint(
+            direct_model_settings,
+            system_prompt=system_prompt,
+            model_identity=model_identity,
+        )
+    except Exception:  # noqa: BLE001 - prompt-cache hint is best-effort
+        return direct_model_settings
+
+
+def _record_direct_semantic(case: ValidationCase, result: CaseResult, run: Any) -> None:
+    """Validate the closed semantic contract of a direct run into the result."""
+
+    semantic = SemanticOutput.model_validate(run.output)
+    semantic_errors = validate_semantic_output(case, semantic)
+    result.selected_routes = tuple(sorted(semantic.selected_routes))
+    for error in semantic_errors:
+        result.add_error(error)
+    result.semantic = _PASS if not semantic_errors else _FAIL
+
+
+async def _export_direct_trace(
+    result: CaseResult,
+    *,
+    run: Any,
+    validation_run_id: str,
+    model_name: str,
+    trace_evidence: dict[str, str],
+    case_timeout: float,
+) -> None:
+    """Emit the exact run trace through the single bounded blocking-SDK slot."""
+
+    from agent_utilities.observability.langfuse_exporter import get_langfuse_exporter
+
+    exporter = get_langfuse_exporter()
+    if exporter is None:
+        result.add_error("trace_exporter_unavailable")
+        return
+
+    def emit_trace() -> bool | None:
+        if not exporter.enabled:
+            return None
+        emitted = exporter.export_graph_run(
+            run_id=validation_run_id,
+            query="",
+            status=("success" if result.semantic == _PASS else "validation_failed"),
+            token_usage=_usage_counts(run),
+            model=model_name,
+            metadata={"validation_kind": "bundled_skill_direct"},
+            evidence={
+                key: value for key, value in trace_evidence.items() if key != "run_ref"
+            },
+        )
+        exporter.flush()
+        return emitted
+
+    emitted = await _bounded_sync_call(emit_trace, min(30.0, case_timeout))
+    if emitted is None:
+        result.add_error("trace_exporter_unavailable")
+    elif not emitted:
+        result.add_error("trace_export_failed")
+
+
+async def _execute_direct_case(
+    case: ValidationCase,
+    result: CaseResult,
+    *,
+    validation_run_id: str,
+    expected_trace_name: str,
+    case_timeout: float,
+) -> dict[str, str]:
+    """Run one direct in-process case and return its expected trace evidence."""
+
+    expected_trace_evidence: dict[str, str] = {}
+    async with _DIRECT_CASE_LOCK:
+        try:
+            from agent_utilities.core.contextual_model import create_context_agent
+
+            with _direct_evidence_authority(case.skill):
+                model, model_name = _direct_case_model(case, result)
+                expected_trace_evidence = {
+                    "run_ref": expected_trace_name.removeprefix("graph_run:"),
+                    "model_ref": result.model_ref,
+                    "model_class": case.model_class,
+                    "skill_ref": result.skill_ref,
+                    "skill_body_ref": result.skill_body_ref,
+                }
+                direct_system_prompt = (
+                    f"{_skill_runtime_body(case.skill)}\n\n"
+                    f"{_contract_instruction(case)}"
+                )
+                agent = create_context_agent(
+                    model=model,
+                    output_type=_direct_semantic_output_type(case),
+                    system_prompt=direct_system_prompt,
+                    model_settings=_direct_model_settings(
+                        system_prompt=direct_system_prompt,
+                        model_identity=model_name,
+                        case_timeout=case_timeout,
+                    ),
+                    retries=2,
+                )
+                run = await asyncio.wait_for(
+                    agent.run(_direct_execution_prompt(case)), timeout=case_timeout
+                )
+                _record_direct_semantic(case, result, run)
+                await _export_direct_trace(
+                    result,
+                    run=run,
+                    validation_run_id=validation_run_id,
+                    model_name=model_name,
+                    trace_evidence=expected_trace_evidence,
+                    case_timeout=case_timeout,
+                )
+                result.run_ref = expected_trace_name.removeprefix("graph_run:")
+        except Exception as exc:  # noqa: BLE001 - report only the exception class
+            result.add_error(f"direct_{type(exc).__name__}")
+    return expected_trace_evidence
+
+
 async def _run_direct_case(
     case: ValidationCase,
     *,
@@ -1396,159 +1788,139 @@ async def _run_direct_case(
         result.add_error("trace_run_identifier_preexisting")
         return result
     started_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-    expected_trace_evidence: dict[str, str] = {}
-    async with _DIRECT_CASE_LOCK:
-        try:
-            from pydantic_ai import ModelSettings
-
-            from agent_utilities.core.contextual_model import create_context_agent
-            from agent_utilities.core.model_factory import create_model
-            from agent_utilities.orchestration.agent_runner import (
-                _configured_model_for_class,
-            )
-
-            with _direct_evidence_authority(case.skill):
-                selected_model = _configured_model_for_class(case.model_class)
-                model = create_model(
-                    model_id=selected_model.id,
-                    reasoning_effort=_validation_reasoning_effort(
-                        case.model_class, delegated=False
-                    ),
-                )
-                model_name = str(getattr(model, "model_name", "") or "")
-                if not model_name:
-                    raise RuntimeError("runtime_model_identity_unavailable")
-                result.model_ref = _opaque_ref("model", model_name)
-                expected_model_ref = _opaque_ref("model", selected_model.id)
-                if result.model_ref != expected_model_ref:
-                    result.add_error("direct_model_selection_mismatch")
-                else:
-                    result.model_selection = _PASS
-                instruction_digest = _skill_instruction_digest(case.skill)
-                result.skill_ref = persistence_reference(
-                    "skill", case.skill, namespace="execution-trace"
-                )
-                result.skill_body_ref = _opaque_ref("skill_body", instruction_digest)
-                result.skill_binding = _PASS
-                expected_trace_evidence = {
-                    "run_ref": expected_trace_name.removeprefix("graph_run:"),
-                    "model_ref": result.model_ref,
-                    "model_class": case.model_class,
-                    "skill_ref": result.skill_ref,
-                    "skill_body_ref": result.skill_body_ref,
-                }
-                direct_system_prompt = (
-                    f"{_skill_runtime_body(case.skill)}\n\n"
-                    f"{_contract_instruction(case)}"
-                )
-                direct_model_settings: Any = ModelSettings(
-                    # The closed JSON contract is intentionally small. A bounded
-                    # generation keeps CPU-only local-model validation practical.
-                    max_tokens=_DIRECT_MAX_OUTPUT_TOKENS,
-                    temperature=0.0,
-                    timeout=case_timeout,
-                )
-                try:
-                    # D-54c-4 — this call bypasses attach_profile_resolver (it invokes
-                    # agent.run() directly with an explicit model_settings), so fold the
-                    # provider-native prompt-cache directive here too (CONCEPT:AU-ORCH.optimization.provider-prompt-cache).
-                    from agent_utilities.caching.prompt_cache import (
-                        fold_prompt_cache_hint,
-                    )
-
-                    direct_model_settings = fold_prompt_cache_hint(
-                        direct_model_settings,
-                        system_prompt=direct_system_prompt,
-                        model_identity=model_name,
-                    )
-                except Exception:  # noqa: BLE001 - prompt-cache hint is best-effort
-                    pass
-                agent = create_context_agent(
-                    model=model,
-                    output_type=_direct_semantic_output_type(case),
-                    system_prompt=direct_system_prompt,
-                    model_settings=direct_model_settings,
-                    retries=2,
-                )
-                run = await asyncio.wait_for(
-                    agent.run(_direct_execution_prompt(case)), timeout=case_timeout
-                )
-                semantic = SemanticOutput.model_validate(run.output)
-                semantic_errors = validate_semantic_output(case, semantic)
-                result.selected_routes = tuple(sorted(semantic.selected_routes))
-                for error in semantic_errors:
-                    result.add_error(error)
-                result.semantic = _PASS if not semantic_errors else _FAIL
-
-                from agent_utilities.observability.langfuse_exporter import (
-                    get_langfuse_exporter,
-                )
-
-                exporter = get_langfuse_exporter()
-                if exporter is None:
-                    result.add_error("trace_exporter_unavailable")
-                else:
-
-                    def emit_trace() -> bool | None:
-                        if not exporter.enabled:
-                            return None
-                        emitted = exporter.export_graph_run(
-                            run_id=validation_run_id,
-                            query="",
-                            status=(
-                                "success"
-                                if result.semantic == _PASS
-                                else "validation_failed"
-                            ),
-                            token_usage=_usage_counts(run),
-                            model=model_name,
-                            metadata={"validation_kind": "bundled_skill_direct"},
-                            evidence={
-                                key: value
-                                for key, value in expected_trace_evidence.items()
-                                if key != "run_ref"
-                            },
-                        )
-                        exporter.flush()
-                        return emitted
-
-                    emitted = await _bounded_sync_call(
-                        emit_trace, min(30.0, case_timeout)
-                    )
-                    if emitted is None:
-                        result.add_error("trace_exporter_unavailable")
-                    elif not emitted:
-                        result.add_error("trace_export_failed")
-                result.run_ref = expected_trace_name.removeprefix("graph_run:")
-        except Exception as exc:  # noqa: BLE001 - report only the exception class
-            result.add_error(f"direct_{type(exc).__name__}")
-
+    expected_trace_evidence = await _execute_direct_case(
+        case,
+        result,
+        validation_run_id=validation_run_id,
+        expected_trace_name=expected_trace_name,
+        case_timeout=case_timeout,
+    )
     if _SYNC_CALL_POISONED.is_set():
         return result
     if not expected_trace_evidence:
         result.add_error("trace_expected_evidence_unavailable")
-    else:
-        try:
-            trace_id, linkage = await _wait_for_expected_trace(
-                client,
-                langfuse_tool,
-                started_at,
-                expected_trace_name,
-                expected_trace_evidence,
-                trace_timeout,
-            )
-            result.trace = _PASS
-            result.trace_linkage = linkage
-            result.trace_name = expected_trace_name
-            result.langfuse_match_count = 1
-            result.trace_ref = _opaque_ref("trace", trace_id)
-            result.parent_kg_readback_count = await _verify_parent_ingested_trace(
-                client, expected_trace_name, min(15.0, trace_timeout)
-            )
-            result.parent_ingestion = _PASS
-        except Exception as exc:  # noqa: BLE001 - report only the exception class
-            result.add_error(f"trace_or_ingestion_{type(exc).__name__}")
+        return result
+    await _attach_trace_evidence(
+        result,
+        client=client,
+        langfuse_tool=langfuse_tool,
+        started_at=started_at,
+        expected_trace_name=expected_trace_name,
+        expected_trace_evidence=expected_trace_evidence,
+        trace_timeout=trace_timeout,
+    )
     return result
+
+
+def _delegation_request(
+    case: ValidationCase, *, max_steps: int, token_budget: int
+) -> dict[str, Any]:
+    """Build the bounded `graph_orchestrate` request for one delegated case."""
+
+    return {
+        "agent_name": case.skill,
+        "task": f"{case.task}\n\n{_contract_instruction(case)}",
+        "max_steps": max_steps,
+        "budget_tokens": token_budget,
+        "allowed_tools": ",".join(case.allowed_tools),
+        "reasoning_effort": _validation_reasoning_effort(
+            case.model_class, delegated=True
+        ),
+        "model_class": case.model_class,
+        "response_format": "json",
+    }
+
+
+def _record_delegated_semantic(
+    case: ValidationCase, result: CaseResult, output: Any
+) -> None:
+    """Validate the delegated semantic contract, retaining only error codes."""
+
+    try:
+        semantic = _semantic_from_delegation_output(output)
+        semantic_errors = validate_semantic_output(case, semantic)
+        result.selected_routes = tuple(sorted(semantic.selected_routes))
+        for error in semantic_errors:
+            result.add_error(error)
+        result.semantic = _PASS if not semantic_errors else _FAIL
+    except Exception as exc:  # noqa: BLE001 - controlled semantic evidence only
+        if isinstance(exc, DelegationContractError):
+            result.add_error(exc.code)
+        else:
+            result.add_error(f"delegated_semantic_{type(exc).__name__}")
+
+
+def _delegated_check_status(evidence_errors: list[str], prefix: str) -> str:
+    """Pass a delegated check only when no evidence error carries its prefix."""
+
+    return (
+        _PASS
+        if not any(error.startswith(prefix) for error in evidence_errors)
+        else _FAIL
+    )
+
+
+def _record_delegated_evidence(
+    case: ValidationCase, result: CaseResult, status: dict[str, Any]
+) -> str:
+    """Record the delegated run's controlled evidence; return its skill digest."""
+
+    terminal_error = _delegation_terminal_error_code(status)
+    if terminal_error:
+        result.add_error(terminal_error)
+    (
+        evidence_errors,
+        model_ref,
+        skill_ref,
+        digest,
+    ) = _validate_delegated_runtime_evidence(case, status)
+    for error in evidence_errors:
+        result.add_error(error)
+    result.model_ref = model_ref
+    result.skill_ref = skill_ref
+    result.skill_body_ref = _opaque_ref("skill_body", digest) if digest else ""
+    result.model_selection = _delegated_check_status(evidence_errors, "model_")
+    result.skill_binding = _delegated_check_status(evidence_errors, "skill_")
+    result.delegation = (
+        _PASS if not evidence_errors and terminal_error is None else _FAIL
+    )
+    return digest
+
+
+def _delegated_trace_evidence(
+    case: ValidationCase, result: CaseResult, expected_trace_name: str, digest: str
+) -> dict[str, str]:
+    """Return the exact trace evidence, or empty when a reference is missing."""
+
+    if not (result.model_ref and result.skill_ref and digest):
+        return {}
+    return {
+        "run_ref": expected_trace_name.removeprefix("graph_run:"),
+        "model_ref": result.model_ref,
+        "model_class": case.model_class,
+        "skill_ref": result.skill_ref,
+        "skill_body_ref": _opaque_ref("skill_body", digest),
+    }
+
+
+async def _record_delegated_run(
+    case: ValidationCase,
+    result: CaseResult,
+    *,
+    client: Any,
+    run_id: str,
+    expected_trace_name: str,
+    case_timeout: float,
+) -> dict[str, str]:
+    """Await the delegated run and record its controlled completion evidence."""
+
+    if not run_id:
+        result.add_error("delegation_run_handle_missing")
+        return {}
+    result.run_ref = expected_trace_name.removeprefix("graph_run:")
+    status = await _wait_for_run_completion(client, run_id, min(case_timeout, 30.0))
+    digest = _record_delegated_evidence(case, result, status)
+    return _delegated_trace_evidence(case, result, expected_trace_name, digest)
 
 
 async def _run_delegated_case(
@@ -1577,76 +1949,20 @@ async def _run_delegated_case(
         response = await _call_tool(
             client,
             "graph_orchestrate",
-            {
-                "agent_name": case.skill,
-                "task": f"{case.task}\n\n{_contract_instruction(case)}",
-                "max_steps": max_steps,
-                "budget_tokens": token_budget,
-                "allowed_tools": ",".join(case.allowed_tools),
-                "reasoning_effort": _validation_reasoning_effort(
-                    case.model_class, delegated=True
-                ),
-                "model_class": case.model_class,
-                "response_format": "json",
-            },
+            _delegation_request(case, max_steps=max_steps, token_budget=token_budget),
             case_timeout,
         )
         output, run_id = _extract_delegation_envelope(response)
         expected_trace_name = _expected_trace_name(run_id, tenant_id)
-        try:
-            semantic = _semantic_from_delegation_output(output)
-            semantic_errors = validate_semantic_output(case, semantic)
-            result.selected_routes = tuple(sorted(semantic.selected_routes))
-            for error in semantic_errors:
-                result.add_error(error)
-            result.semantic = _PASS if not semantic_errors else _FAIL
-        except Exception as exc:  # noqa: BLE001 - controlled semantic evidence only
-            if isinstance(exc, DelegationContractError):
-                result.add_error(exc.code)
-            else:
-                result.add_error(f"delegated_semantic_{type(exc).__name__}")
-        if not run_id:
-            result.add_error("delegation_run_handle_missing")
-        else:
-            result.run_ref = expected_trace_name.removeprefix("graph_run:")
-            status = await _wait_for_run_completion(
-                client, run_id, min(case_timeout, 30.0)
-            )
-            terminal_error = _delegation_terminal_error_code(status)
-            if terminal_error:
-                result.add_error(terminal_error)
-            (
-                evidence_errors,
-                model_ref,
-                skill_ref,
-                digest,
-            ) = _validate_delegated_runtime_evidence(case, status)
-            for error in evidence_errors:
-                result.add_error(error)
-            result.model_ref = model_ref
-            result.skill_ref = skill_ref
-            result.skill_body_ref = _opaque_ref("skill_body", digest) if digest else ""
-            result.model_selection = (
-                _PASS
-                if not any(error.startswith("model_") for error in evidence_errors)
-                else _FAIL
-            )
-            result.skill_binding = (
-                _PASS
-                if not any(error.startswith("skill_") for error in evidence_errors)
-                else _FAIL
-            )
-            result.delegation = (
-                _PASS if not evidence_errors and terminal_error is None else _FAIL
-            )
-            if result.model_ref and result.skill_ref and digest:
-                expected_trace_evidence = {
-                    "run_ref": expected_trace_name.removeprefix("graph_run:"),
-                    "model_ref": result.model_ref,
-                    "model_class": case.model_class,
-                    "skill_ref": result.skill_ref,
-                    "skill_body_ref": _opaque_ref("skill_body", digest),
-                }
+        _record_delegated_semantic(case, result, output)
+        expected_trace_evidence = await _record_delegated_run(
+            case,
+            result,
+            client=client,
+            run_id=run_id,
+            expected_trace_name=expected_trace_name,
+            case_timeout=case_timeout,
+        )
     except Exception as exc:  # noqa: BLE001 - retain only controlled diagnostics
         if isinstance(exc, DelegationContractError):
             result.add_error(exc.code)
@@ -1658,26 +1974,15 @@ async def _run_delegated_case(
     elif not expected_trace_evidence:
         result.add_error("trace_expected_evidence_unavailable")
     else:
-        try:
-            trace_id, linkage = await _wait_for_expected_trace(
-                client,
-                langfuse_tool,
-                started_at,
-                expected_trace_name,
-                expected_trace_evidence,
-                trace_timeout,
-            )
-            result.trace = _PASS
-            result.trace_linkage = linkage
-            result.trace_name = expected_trace_name
-            result.langfuse_match_count = 1
-            result.trace_ref = _opaque_ref("trace", trace_id)
-            result.parent_kg_readback_count = await _verify_parent_ingested_trace(
-                client, expected_trace_name, min(15.0, trace_timeout)
-            )
-            result.parent_ingestion = _PASS
-        except Exception as exc:  # noqa: BLE001 - report only the exception class
-            result.add_error(f"trace_or_ingestion_{type(exc).__name__}")
+        await _attach_trace_evidence(
+            result,
+            client=client,
+            langfuse_tool=langfuse_tool,
+            started_at=started_at,
+            expected_trace_name=expected_trace_name,
+            expected_trace_evidence=expected_trace_evidence,
+            trace_timeout=trace_timeout,
+        )
     return result
 
 
@@ -1729,6 +2034,50 @@ def _report_payload(content: str) -> bytes:
     return payload
 
 
+def _raise_report_directory_error(
+    part: str, directory_fd: int, exc: OSError
+) -> NoReturn:
+    """Classify a failed component open without ever following the component."""
+
+    try:
+        metadata = os.stat(part, dir_fd=directory_fd, follow_symlinks=False)
+    except OSError:
+        raise RuntimeError("report_directory_invalid") from None
+    code = (
+        "report_directory_symlink"
+        if stat.S_ISLNK(metadata.st_mode)
+        else "report_directory_invalid"
+    )
+    raise RuntimeError(code) from exc
+
+
+def _create_report_component(directory_fd: int, part: str, flags: int) -> int:
+    """Create one missing component 0700 and reopen it no-follow."""
+
+    try:
+        os.mkdir(part, mode=0o700, dir_fd=directory_fd)
+        _fsync_report_directory(directory_fd)
+    except FileExistsError:
+        pass
+    try:
+        return os.open(part, flags, dir_fd=directory_fd)
+    except OSError as exc:
+        _raise_report_directory_error(part, directory_fd, exc)
+
+
+def _open_report_component(directory_fd: int, part: str, flags: int) -> int:
+    """Open one path component no-follow, creating it when it is absent."""
+
+    if part in {"", ".", ".."}:
+        raise RuntimeError("report_directory_invalid")
+    try:
+        return os.open(part, flags, dir_fd=directory_fd)
+    except FileNotFoundError:
+        return _create_report_component(directory_fd, part, flags)
+    except OSError as exc:
+        _raise_report_directory_error(part, directory_fd, exc)
+
+
 def _open_report_directory(path: Path) -> int:
     """Open or create a POSIX directory by traversing every component no-follow."""
 
@@ -1742,48 +2091,7 @@ def _open_report_directory(path: Path) -> int:
     current_fd = os.open(absolute.anchor, directory_flags)
     try:
         for part in absolute.parts[1:]:
-            if part in {"", ".", ".."}:
-                raise RuntimeError("report_directory_invalid")
-            try:
-                next_fd = os.open(part, directory_flags, dir_fd=current_fd)
-            except FileNotFoundError:
-                try:
-                    os.mkdir(part, mode=0o700, dir_fd=current_fd)
-                    _fsync_report_directory(current_fd)
-                except FileExistsError:
-                    pass
-                try:
-                    next_fd = os.open(part, directory_flags, dir_fd=current_fd)
-                except OSError as exc:
-                    try:
-                        metadata = os.stat(
-                            part,
-                            dir_fd=current_fd,
-                            follow_symlinks=False,
-                        )
-                    except OSError:
-                        raise RuntimeError("report_directory_invalid") from None
-                    code = (
-                        "report_directory_symlink"
-                        if stat.S_ISLNK(metadata.st_mode)
-                        else "report_directory_invalid"
-                    )
-                    raise RuntimeError(code) from exc
-            except OSError as exc:
-                try:
-                    metadata = os.stat(
-                        part,
-                        dir_fd=current_fd,
-                        follow_symlinks=False,
-                    )
-                except OSError:
-                    raise RuntimeError("report_directory_invalid") from None
-                code = (
-                    "report_directory_symlink"
-                    if stat.S_ISLNK(metadata.st_mode)
-                    else "report_directory_invalid"
-                )
-                raise RuntimeError(code) from exc
+            next_fd = _open_report_component(current_fd, part, directory_flags)
             os.close(current_fd)
             current_fd = next_fd
         return current_fd
@@ -1901,6 +2209,12 @@ def _validate_result_set(results: list[CaseResult], *, mode: str) -> None:
         for result in results
     ):
         raise RuntimeError("runtime_case_contract_invalid")
+    _require_unique_evidence_references(results)
+
+
+def _require_unique_evidence_references(results: list[CaseResult]) -> None:
+    """Reject any two cases claiming the same run or trace reference."""
+
     for attribute in ("run_ref", "trace_ref"):
         references = [
             str(getattr(result, attribute))
@@ -1911,13 +2225,30 @@ def _validate_result_set(results: list[CaseResult], *, mode: str) -> None:
             raise RuntimeError("runtime_evidence_reference_collision")
 
 
-def render_report(results: list[CaseResult], *, generated_at: str) -> str:
-    """Render only controlled fields and opaque references."""
+# Column order of the per-skill table; changing either tuple changes the report.
+_DIRECT_REPORT_CHECKS = (
+    "structural",
+    "model_selection",
+    "skill_binding",
+    "semantic",
+    "trace",
+    "parent_ingestion",
+)
+_DELEGATED_REPORT_CHECKS = (
+    "structural",
+    "model_selection",
+    "skill_binding",
+    "semantic",
+    "delegation",
+    "trace",
+    "parent_ingestion",
+)
 
-    by_skill: dict[str, dict[str, CaseResult]] = {}
-    for result in results:
-        by_skill.setdefault(result.skill, {})[result.mode] = result
-    lines = [
+
+def _report_header_lines(generated_at: str) -> list[str]:
+    """Return the report preamble and the per-skill table header."""
+
+    return [
         "# Agent Utilities consolidated skill validation matrix",
         "",
         f"Generated: {generated_at}",
@@ -1932,33 +2263,78 @@ def render_report(results: list[CaseResult], *, generated_at: str) -> str:
         "| Skill | Direct static | Direct model selection | Direct skill binding | Direct semantic | Direct trace | Direct KG ingest | Delegated static | Delegated model selection | Delegated skill binding | Delegated semantic | Graph-OS delegation | Delegated trace | Delegated KG ingest | Paired result |",
         "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
-    for skill in sorted(by_skill):
-        direct = by_skill[skill].get("direct")
-        delegated = by_skill[skill].get("delegated")
-        pair_passed = bool(direct and delegated and direct.passed and delegated.passed)
-        lines.append(
-            "| "
-            + " | ".join(
-                [
-                    f"`{skill}`",
-                    direct.structural if direct else "not-run",
-                    direct.model_selection if direct else "not-run",
-                    direct.skill_binding if direct else "not-run",
-                    direct.semantic if direct else "not-run",
-                    direct.trace if direct else "not-run",
-                    direct.parent_ingestion if direct else "not-run",
-                    delegated.structural if delegated else "not-run",
-                    delegated.model_selection if delegated else "not-run",
-                    delegated.skill_binding if delegated else "not-run",
-                    delegated.semantic if delegated else "not-run",
-                    delegated.delegation if delegated else "not-run",
-                    delegated.trace if delegated else "not-run",
-                    delegated.parent_ingestion if delegated else "not-run",
-                    _PASS if pair_passed else _FAIL,
-                ]
-            )
-            + " |"
-        )
+
+
+def _report_check_cells(
+    result: CaseResult | None, checks: tuple[str, ...]
+) -> list[str]:
+    """Render one mode's check columns, or `not-run` when the case is absent."""
+
+    if result is None:
+        return ["not-run"] * len(checks)
+    return [str(getattr(result, name)) for name in checks]
+
+
+def _skill_matrix_row(skill: str, pair: dict[str, CaseResult]) -> str:
+    """Render one skill's direct/delegated row of the per-skill table."""
+
+    direct = pair.get("direct")
+    delegated = pair.get("delegated")
+    pair_passed = bool(direct and delegated and direct.passed and delegated.passed)
+    cells = [
+        f"`{skill}`",
+        *_report_check_cells(direct, _DIRECT_REPORT_CHECKS),
+        *_report_check_cells(delegated, _DELEGATED_REPORT_CHECKS),
+        _PASS if pair_passed else _FAIL,
+    ]
+    return "| " + " | ".join(cells) + " |"
+
+
+def _evidence_report_row(result: CaseResult) -> str:
+    """Render one case's row of the privacy-safe evidence table."""
+
+    routes = ", ".join(f"`{route}`" for route in result.selected_routes) or "none"
+    errors = ", ".join(f"`{code}`" for code in result.error_codes) or "none"
+    return (
+        f"| `{result.case_id}` | {routes} | `{result.model_ref or 'none'}` | "
+        f"`{result.skill_ref or 'none'}` | `{result.skill_body_ref or 'none'}` | "
+        f"`{result.run_ref or 'none'}` | `{result.trace_ref or 'none'}` | "
+        f"{result.trace_linkage} | {errors} |"
+    )
+
+
+def _report_aggregate_lines(
+    results: list[CaseResult], by_skill: dict[str, dict[str, CaseResult]]
+) -> list[str]:
+    """Render the aggregate section and its linkage/ingestion method notes."""
+
+    passed = sum(result.passed for result in results)
+    fully_passed = sum(
+        all(item.passed for item in pair.values()) and len(pair) == 2
+        for pair in by_skill.values()
+    )
+    return [
+        "",
+        "## Aggregate",
+        "",
+        f"- Cases passed: {passed}/{len(results)}",
+        f"- Skills fully passed: {fully_passed}/{len(by_skill)}",
+        "- Trace linkage method: one exact-name `graph_run` trace whose metadata binds the case run, configured model, model class, skill, and skill body, queried through the Langfuse MCP tool mounted by Graph-OS.",
+        "- Parent-ingestion proof: each exact trace resolves to exactly one `Trace` node written by Graph-OS parent mediation under verified `kg:write` authority.",
+        "",
+    ]
+
+
+def render_report(results: list[CaseResult], *, generated_at: str) -> str:
+    """Render only controlled fields and opaque references."""
+
+    by_skill: dict[str, dict[str, CaseResult]] = {}
+    for result in results:
+        by_skill.setdefault(result.skill, {})[result.mode] = result
+    lines = _report_header_lines(generated_at)
+    lines.extend(
+        _skill_matrix_row(skill, by_skill[skill]) for skill in sorted(by_skill)
+    )
     lines.extend(
         [
             "",
@@ -1968,28 +2344,11 @@ def render_report(results: list[CaseResult], *, generated_at: str) -> str:
             "|---|---|---|---|---|---|---|---|---|",
         ]
     )
-    for result in sorted(results, key=lambda item: item.case_id):
-        routes = ", ".join(f"`{route}`" for route in result.selected_routes) or "none"
-        errors = ", ".join(f"`{code}`" for code in result.error_codes) or "none"
-        lines.append(
-            f"| `{result.case_id}` | {routes} | `{result.model_ref or 'none'}` | "
-            f"`{result.skill_ref or 'none'}` | `{result.skill_body_ref or 'none'}` | "
-            f"`{result.run_ref or 'none'}` | `{result.trace_ref or 'none'}` | "
-            f"{result.trace_linkage} | {errors} |"
-        )
-    passed = sum(result.passed for result in results)
     lines.extend(
-        [
-            "",
-            "## Aggregate",
-            "",
-            f"- Cases passed: {passed}/{len(results)}",
-            f"- Skills fully passed: {sum(all(item.passed for item in pair.values()) and len(pair) == 2 for pair in by_skill.values())}/{len(by_skill)}",
-            "- Trace linkage method: one exact-name `graph_run` trace whose metadata binds the case run, configured model, model class, skill, and skill body, queried through the Langfuse MCP tool mounted by Graph-OS.",
-            "- Parent-ingestion proof: each exact trace resolves to exactly one `Trace` node written by Graph-OS parent mediation under verified `kg:write` authority.",
-            "",
-        ]
+        _evidence_report_row(result)
+        for result in sorted(results, key=lambda item: item.case_id)
     )
+    lines.extend(_report_aggregate_lines(results, by_skill))
     rendered = "\n".join(lines)
     _clean, privacy = PersistencePrivacyGuard().sanitize_text(rendered)
     if privacy.changed:
@@ -1997,26 +2356,31 @@ def render_report(results: list[CaseResult], *, generated_at: str) -> str:
     return rendered
 
 
-def _validate_external_command_argv(argv: object) -> list[str]:
-    """Resolve one bounded, non-shell external command without executing it."""
+def _valid_command_word(item: object) -> bool:
+    """Accept only a bounded, NUL-free, non-empty argv word."""
 
-    if (
-        not isinstance(argv, list)
-        or not 1 <= len(argv) <= 32
-        or not all(
-            isinstance(item, str) and 0 < len(item) <= 4_096 and "\x00" not in item
-            for item in argv
-        )
-    ):
-        raise RuntimeError("evidence_command_reference_invalid")
-    executable = Path(argv[0])
-    try:
-        original = executable.lstat()
-        canonical = executable.resolve(strict=True)
-        metadata = canonical.lstat()
-    except OSError as exc:
-        raise RuntimeError("evidence_command_reference_invalid") from exc
-    if (
+    return isinstance(item, str) and 0 < len(item) <= 4_096 and "\x00" not in item
+
+
+def _valid_command_argv(argv: object) -> TypeGuard[list[str]]:
+    """Accept only a bounded list of valid argv words."""
+
+    return (
+        isinstance(argv, list)
+        and 1 <= len(argv) <= 32
+        and all(_valid_command_word(item) for item in argv)
+    )
+
+
+def _external_executable_unsafe(
+    executable: Path,
+    original: os.stat_result,
+    canonical: Path,
+    metadata: os.stat_result,
+) -> bool:
+    """Reject a relative, symlinked, swapped, shell, or non-executable target."""
+
+    return (
         not executable.is_absolute()
         or stat.S_ISLNK(original.st_mode)
         or not stat.S_ISREG(original.st_mode)
@@ -2025,7 +2389,22 @@ def _validate_external_command_argv(argv: object) -> list[str]:
         or canonical.is_symlink()
         or not stat.S_ISREG(metadata.st_mode)
         or not os.access(canonical, os.X_OK)
-    ):
+    )
+
+
+def _validate_external_command_argv(argv: object) -> list[str]:
+    """Resolve one bounded, non-shell external command without executing it."""
+
+    if not _valid_command_argv(argv):
+        raise RuntimeError("evidence_command_reference_invalid")
+    executable = Path(argv[0])
+    try:
+        original = executable.lstat()
+        canonical = executable.resolve(strict=True)
+        metadata = canonical.lstat()
+    except OSError as exc:
+        raise RuntimeError("evidence_command_reference_invalid") from exc
+    if _external_executable_unsafe(executable, original, canonical, metadata):
         raise RuntimeError("evidence_command_reference_invalid")
     return [str(canonical), *argv[1:]]
 
@@ -2138,6 +2517,99 @@ def verify_signed_evidence(
     return unsigned
 
 
+def _controlled_ref(value: str) -> str | None:
+    """Retain an opaque reference only when it matches the exact ref pattern."""
+
+    return value if re.fullmatch(r"pref_[a-z_]+_[a-f0-9]{64}", value or "") else None
+
+
+def _controlled_trace_name(value: str) -> str | None:
+    """Retain a trace name only when it matches the exact opaque run pattern."""
+
+    return (
+        value if re.fullmatch(r"graph_run:pref_run_[a-f0-9]{64}", value or "") else None
+    )
+
+
+def _require_exact_case_set(
+    results: list[CaseResult],
+    result_by_id: dict[str, CaseResult],
+    cases: list[ValidationCase],
+) -> None:
+    """Require exactly one result per catalog case, with no duplicate ids."""
+
+    if (
+        len(results) != _CASE_COUNT
+        or len(result_by_id) != _CASE_COUNT
+        or set(result_by_id) != {case.case_id for case in cases}
+    ):
+        raise RuntimeError("runtime_case_set_not_exact")
+
+
+def _evidence_case_entry(
+    case: ValidationCase, result: CaseResult, case_digest: str
+) -> dict[str, Any]:
+    """Build the closed, content-free evidence subject for one case."""
+
+    return {
+        "caseId": case.case_id,
+        "caseDigest": case_digest,
+        "skill": case.skill,
+        "mode": case.mode,
+        "modelClass": result.model_class,
+        "status": _PASS if result.passed else _FAIL,
+        "checks": {
+            "structural": result.structural,
+            "modelSelection": result.model_selection,
+            "skillBinding": result.skill_binding,
+            "semantic": result.semantic,
+            "delegation": result.delegation,
+            "trace": result.trace,
+            "parentKnowledgeGraph": result.parent_ingestion,
+        },
+        "skillRef": _controlled_ref(result.skill_ref),
+        "skillBodyRef": _controlled_ref(result.skill_body_ref),
+        "runRef": _controlled_ref(result.run_ref),
+        "traceRef": _controlled_ref(result.trace_ref),
+        "langfuse": {
+            "lookupMethod": "exact-name",
+            "metadataOnly": True,
+            "traceName": _controlled_trace_name(result.trace_name),
+            "matchCount": result.langfuse_match_count,
+            "linkage": result.trace_linkage,
+        },
+        "parentKnowledgeGraph": {
+            "readbackMethod": "exact-trace-name",
+            "matchCount": result.parent_kg_readback_count,
+        },
+        "errorCodes": sorted(result.error_codes),
+    }
+
+
+def _fully_passed_skill_count(results: list[CaseResult]) -> int:
+    """Count skills whose direct and delegated cases are both present and passed."""
+
+    skills = {result.skill for result in results}
+    return sum(
+        len(items) == 2 and all(item.passed for item in items)
+        for skill in skills
+        for items in [[item for item in results if item.skill == skill]]
+    )
+
+
+def _evidence_result_block(passed: int, fully_passed: int) -> dict[str, Any]:
+    """Build the aggregate result block of the evidence subject."""
+
+    exact = passed == _CASE_COUNT and fully_passed == _SKILL_COUNT
+    return {
+        "status": _PASS if exact else _FAIL,
+        "passedCases": passed,
+        "totalCases": _CASE_COUNT,
+        "fullyPassedSkills": fully_passed,
+        "totalSkills": _SKILL_COUNT,
+    }
+
+
 def build_evidence(
     results: list[CaseResult],
     *,
@@ -2165,73 +2637,17 @@ def build_evidence(
     _defaults, cases = load_matrix()
     catalog = _test_catalog_evidence(cases)
     result_by_id = {result.case_id: result for result in results}
-    expected_ids = {case.case_id for case in cases}
-    if (
-        len(results) != _CASE_COUNT
-        or len(result_by_id) != _CASE_COUNT
-        or set(result_by_id) != expected_ids
-    ):
-        raise RuntimeError("runtime_case_set_not_exact")
-
-    evidence_cases: list[dict[str, Any]] = []
-
-    def controlled_ref(value: str) -> str | None:
-        return (
-            value if re.fullmatch(r"pref_[a-z_]+_[a-f0-9]{64}", value or "") else None
+    _require_exact_case_set(results, result_by_id, cases)
+    evidence_cases = [
+        _evidence_case_entry(
+            case,
+            result_by_id[case.case_id],
+            catalog["caseDigests"][case.case_id],
         )
-
-    def controlled_trace_name(value: str) -> str | None:
-        return (
-            value
-            if re.fullmatch(r"graph_run:pref_run_[a-f0-9]{64}", value or "")
-            else None
-        )
-
-    for case in sorted(cases, key=lambda item: item.case_id):
-        result = result_by_id[case.case_id]
-        evidence_cases.append(
-            {
-                "caseId": case.case_id,
-                "caseDigest": catalog["caseDigests"][case.case_id],
-                "skill": case.skill,
-                "mode": case.mode,
-                "modelClass": result.model_class,
-                "status": _PASS if result.passed else _FAIL,
-                "checks": {
-                    "structural": result.structural,
-                    "modelSelection": result.model_selection,
-                    "skillBinding": result.skill_binding,
-                    "semantic": result.semantic,
-                    "delegation": result.delegation,
-                    "trace": result.trace,
-                    "parentKnowledgeGraph": result.parent_ingestion,
-                },
-                "skillRef": controlled_ref(result.skill_ref),
-                "skillBodyRef": controlled_ref(result.skill_body_ref),
-                "runRef": controlled_ref(result.run_ref),
-                "traceRef": controlled_ref(result.trace_ref),
-                "langfuse": {
-                    "lookupMethod": "exact-name",
-                    "metadataOnly": True,
-                    "traceName": controlled_trace_name(result.trace_name),
-                    "matchCount": result.langfuse_match_count,
-                    "linkage": result.trace_linkage,
-                },
-                "parentKnowledgeGraph": {
-                    "readbackMethod": "exact-trace-name",
-                    "matchCount": result.parent_kg_readback_count,
-                },
-                "errorCodes": sorted(result.error_codes),
-            }
-        )
-
+        for case in sorted(cases, key=lambda item: item.case_id)
+    ]
     passed = sum(result.passed for result in results)
-    skills = {result.skill for result in results}
-    fully_passed = sum(
-        len(items) == 2 and all(item.passed for item in items)
-        for skill in skills
-        for items in [[item for item in results if item.skill == skill]]
-    )
+    fully_passed = _fully_passed_skill_count(results)
     evidence = {
         "apiVersion": "graphos.io/v2",
         "kind": "PrebundledSkillValidationEvidence",
@@ -2259,17 +2675,7 @@ def build_evidence(
             "caseCatalogDigest": catalog["caseCatalogDigest"],
         },
         "cases": evidence_cases,
-        "result": {
-            "status": (
-                _PASS
-                if passed == _CASE_COUNT and fully_passed == _SKILL_COUNT
-                else _FAIL
-            ),
-            "passedCases": passed,
-            "totalCases": _CASE_COUNT,
-            "fullyPassedSkills": fully_passed,
-            "totalSkills": _SKILL_COUNT,
-        },
+        "result": _evidence_result_block(passed, fully_passed),
         "privacy": {
             "containsPrompts": False,
             "containsModelOutput": False,
@@ -2292,13 +2698,10 @@ def render_evidence(evidence: dict[str, Any]) -> str:
     return rendered
 
 
-async def run(args: argparse.Namespace) -> list[CaseResult]:
-    defaults, all_cases = load_matrix()
-    cases = [case for case in all_cases if args.mode in {"all", case.mode}]
+def _validated_graph_os_url(args: argparse.Namespace) -> str:
+    """Require a configured Graph-OS URL and a metadata-only, ingesting runtime."""
 
     from agent_utilities.core.config import config, setting
-    from agent_utilities.mcp.client_credentials import child_auth, child_auth_header
-    from agent_utilities.mcp.toolset_factory import build_http_toolset
 
     graph_os_url = str(args.graph_os_url or config.mcp_url or "").strip()
     if not graph_os_url:
@@ -2308,6 +2711,91 @@ async def run(args: argparse.Namespace) -> list[CaseResult]:
         raise RuntimeError("langfuse_content_capture_must_be_disabled")
     if not config.langfuse_kg_auto_ingest:
         raise RuntimeError("langfuse_parent_ingestion_required")
+    return graph_os_url
+
+
+async def _prepare_validation_tools(
+    client: Any, cases: list[ValidationCase], tenant_id: str
+) -> str:
+    """Load the exact tool surface and prove no probe trace already exists."""
+
+    await _ensure_tool(client, "graph_orchestrate", 30.0)
+    await _ensure_tool(client, "graph_query", 30.0)
+    if any(case.mode == "delegated" for case in cases):
+        await _ensure_tool(client, "graph_jobs", 30.0)
+    langfuse_tool = await _load_langfuse_tool(client, 30.0)
+    await _verify_langfuse_posture(client, langfuse_tool, 30.0)
+    probe_name = _expected_trace_name(new_run_id(), tenant_id)
+    if await _trace_snapshot(
+        client,
+        langfuse_tool,
+        30.0,
+        expected_name=probe_name,
+    ):
+        raise RuntimeError("trace_probe_collision")
+    return langfuse_tool
+
+
+async def _run_validation_case(
+    case: ValidationCase,
+    *,
+    client: Any,
+    langfuse_tool: str,
+    tenant_id: str,
+    defaults: dict[str, int | bool],
+    args: argparse.Namespace,
+    expected_authority: Any,
+) -> CaseResult:
+    """Renew the per-mode authority and run one case on its execution path."""
+
+    trace_timeout = float(defaults["trace_timeout_seconds"])
+    minimum_ttl_seconds = _direct_case_minimum_authority_ttl(
+        case_timeout=args.case_timeout, trace_timeout=trace_timeout
+    )
+    if case.mode == "direct":
+        from agent_utilities.knowledge_graph.core.session import use_session
+        from agent_utilities.security.brain_context import use_actor
+
+        validation_session = await _renew_direct_validation_session(
+            expected_authority=expected_authority,
+            minimum_ttl_seconds=minimum_ttl_seconds,
+        )
+        with (
+            use_actor(validation_session.actor),
+            use_session(validation_session),
+        ):
+            return await _run_direct_case(
+                case,
+                client=client,
+                langfuse_tool=langfuse_tool,
+                tenant_id=tenant_id,
+                case_timeout=args.case_timeout,
+                trace_timeout=trace_timeout,
+            )
+    await _renew_delegated_validation_session(
+        expected_authority=expected_authority,
+        minimum_ttl_seconds=minimum_ttl_seconds,
+    )
+    return await _run_delegated_case(
+        case,
+        client=client,
+        langfuse_tool=langfuse_tool,
+        tenant_id=tenant_id,
+        max_steps=int(defaults["max_steps"]),
+        token_budget=int(defaults["token_budget"]),
+        case_timeout=args.case_timeout,
+        trace_timeout=trace_timeout,
+    )
+
+
+async def run(args: argparse.Namespace) -> list[CaseResult]:
+    defaults, all_cases = load_matrix()
+    cases = [case for case in all_cases if args.mode in {"all", case.mode}]
+
+    graph_os_url = _validated_graph_os_url(args)
+
+    from agent_utilities.mcp.client_credentials import child_auth, child_auth_header
+    from agent_utilities.mcp.toolset_factory import build_http_toolset
 
     headers = child_auth_header({})
     identity_session = await _verified_validation_session(
@@ -2323,69 +2811,26 @@ async def run(args: argparse.Namespace) -> list[CaseResult]:
     )
     results: list[CaseResult] = []
     async with toolset.client as client:
-        await _ensure_tool(client, "graph_orchestrate", 30.0)
-        await _ensure_tool(client, "graph_query", 30.0)
-        if any(case.mode == "delegated" for case in cases):
-            await _ensure_tool(client, "graph_jobs", 30.0)
-        langfuse_tool = await _load_langfuse_tool(client, 30.0)
-        await _verify_langfuse_posture(client, langfuse_tool, 30.0)
-        probe_name = _expected_trace_name(new_run_id(), tenant_id)
-        if await _trace_snapshot(
-            client,
-            langfuse_tool,
-            30.0,
-            expected_name=probe_name,
-        ):
-            raise RuntimeError("trace_probe_collision")
+        langfuse_tool = await _prepare_validation_tools(client, cases, tenant_id)
         for case in cases:
-            if case.mode == "direct":
-                from agent_utilities.knowledge_graph.core.session import use_session
-                from agent_utilities.security.brain_context import use_actor
-
-                validation_session = await _renew_direct_validation_session(
-                    expected_authority=expected_authority,
-                    minimum_ttl_seconds=_direct_case_minimum_authority_ttl(
-                        case_timeout=args.case_timeout,
-                        trace_timeout=float(defaults["trace_timeout_seconds"]),
-                    ),
-                )
-                with (
-                    use_actor(validation_session.actor),
-                    use_session(validation_session),
-                ):
-                    item = await _run_direct_case(
-                        case,
-                        client=client,
-                        langfuse_tool=langfuse_tool,
-                        tenant_id=tenant_id,
-                        case_timeout=args.case_timeout,
-                        trace_timeout=float(defaults["trace_timeout_seconds"]),
-                    )
-            else:
-                await _renew_delegated_validation_session(
-                    expected_authority=expected_authority,
-                    minimum_ttl_seconds=_direct_case_minimum_authority_ttl(
-                        case_timeout=args.case_timeout,
-                        trace_timeout=float(defaults["trace_timeout_seconds"]),
-                    ),
-                )
-                item = await _run_delegated_case(
-                    case,
-                    client=client,
-                    langfuse_tool=langfuse_tool,
-                    tenant_id=tenant_id,
-                    max_steps=int(defaults["max_steps"]),
-                    token_budget=int(defaults["token_budget"]),
-                    case_timeout=args.case_timeout,
-                    trace_timeout=float(defaults["trace_timeout_seconds"]),
-                )
+            item = await _run_validation_case(
+                case,
+                client=client,
+                langfuse_tool=langfuse_tool,
+                tenant_id=tenant_id,
+                defaults=defaults,
+                args=args,
+                expected_authority=expected_authority,
+            )
             results.append(item)
             if _SYNC_CALL_POISONED.is_set():
                 raise RuntimeError("blocking_sdk_worker_abandoned")
     return results
 
 
-def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
+def _build_argument_parser() -> argparse.ArgumentParser:
+    """Declare the full command-line surface of the validation harness."""
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("direct", "delegated", "all"), default="all")
     parser.add_argument(
@@ -2429,10 +2874,13 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
         default=_VERIFIER_COMMAND_REFERENCE,
         help="Environment variable containing the external verifier JSON argv.",
     )
-    args = parser.parse_args(argv)
-    if not 1.0 <= args.case_timeout <= 600.0:
-        parser.error("--case-timeout must be between 1 and 600 seconds")
-    release_values = (
+    return parser
+
+
+def _release_argument_values(args: argparse.Namespace) -> tuple[str, ...]:
+    """Return the exact-release argument values in their declared order."""
+
+    return (
         args.release_id,
         args.release_specification_digest,
         args.promotion_evidence_digest,
@@ -2442,38 +2890,65 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
         args.runtime_profile_digest,
         args.model_registry_digest,
     )
+
+
+def _validate_release_destinations(
+    parser: argparse.ArgumentParser, args: argparse.Namespace
+) -> None:
+    """Require both publication destinations, colocated and correctly suffixed."""
+
+    if (
+        args.report is None
+        or args.evidence is None
+        or not all(_release_argument_values(args))
+    ):
+        parser.error(
+            "--mode all requires --report, --evidence, --release-id, "
+            "--release-specification-digest, --promotion-evidence-digest, "
+            "--graph-os-digest, --engine-digest, --runtime-config-digest, "
+            "--runtime-profile-digest, and --model-registry-digest"
+        )
+    if args.report.parent.absolute() != args.evidence.parent.absolute():
+        parser.error("--report and --evidence must be published alongside")
+    if args.report.suffix.casefold() != ".md" or args.evidence.suffix != ".json":
+        parser.error("--report must be Markdown and --evidence must be JSON")
+
+
+def _validate_release_references(
+    parser: argparse.ArgumentParser, args: argparse.Namespace
+) -> None:
+    """Require an exact release id, real digests, and signer/verifier refs."""
+
+    if _RELEASE_ID.fullmatch(args.release_id) is None:
+        parser.error("--release-id is invalid")
+    for option, value in (
+        ("--release-specification-digest", args.release_specification_digest),
+        ("--promotion-evidence-digest", args.promotion_evidence_digest),
+        ("--graph-os-digest", args.graph_os_digest),
+        ("--engine-digest", args.engine_digest),
+        ("--runtime-config-digest", args.runtime_config_digest),
+        ("--runtime-profile-digest", args.runtime_profile_digest),
+        ("--model-registry-digest", args.model_registry_digest),
+    ):
+        if _DIGEST.fullmatch(value) is None:
+            parser.error(f"{option} must be a non-sentinel sha256 digest")
+    for option, value in (
+        ("--signer-command-ref", args.signer_command_ref),
+        ("--verifier-command-ref", args.verifier_command_ref),
+    ):
+        if _COMMAND_REFERENCE.fullmatch(value) is None:
+            parser.error(f"{option} must be an environment reference")
+
+
+def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = _build_argument_parser()
+    args = parser.parse_args(argv)
+    if not 1.0 <= args.case_timeout <= 600.0:
+        parser.error("--case-timeout must be between 1 and 600 seconds")
     if args.mode == "all":
-        if args.report is None or args.evidence is None or not all(release_values):
-            parser.error(
-                "--mode all requires --report, --evidence, --release-id, "
-                "--release-specification-digest, --promotion-evidence-digest, "
-                "--graph-os-digest, --engine-digest, --runtime-config-digest, "
-                "--runtime-profile-digest, and --model-registry-digest"
-            )
-        if args.report.parent.absolute() != args.evidence.parent.absolute():
-            parser.error("--report and --evidence must be published alongside")
-        if args.report.suffix.casefold() != ".md" or args.evidence.suffix != ".json":
-            parser.error("--report must be Markdown and --evidence must be JSON")
-        if _RELEASE_ID.fullmatch(args.release_id) is None:
-            parser.error("--release-id is invalid")
-        for option, value in (
-            ("--release-specification-digest", args.release_specification_digest),
-            ("--promotion-evidence-digest", args.promotion_evidence_digest),
-            ("--graph-os-digest", args.graph_os_digest),
-            ("--engine-digest", args.engine_digest),
-            ("--runtime-config-digest", args.runtime_config_digest),
-            ("--runtime-profile-digest", args.runtime_profile_digest),
-            ("--model-registry-digest", args.model_registry_digest),
-        ):
-            if _DIGEST.fullmatch(value) is None:
-                parser.error(f"{option} must be a non-sentinel sha256 digest")
-        for option, value in (
-            ("--signer-command-ref", args.signer_command_ref),
-            ("--verifier-command-ref", args.verifier_command_ref),
-        ):
-            if _COMMAND_REFERENCE.fullmatch(value) is None:
-                parser.error(f"{option} must be an environment reference")
-    elif args.evidence is not None or any(release_values):
+        _validate_release_destinations(parser, args)
+        _validate_release_references(parser, args)
+    elif args.evidence is not None or any(_release_argument_values(args)):
         parser.error("exact release evidence is emitted only by --mode all")
     return args
 
