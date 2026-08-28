@@ -76,15 +76,20 @@ Traps verified in THIS workspace 2026-08-28, all defended below:
           with `invalid digit found in string`. Combined with TRAP-J4, this
           script never passes `--exit-code` at all — see TRAP-J4's fix.
 
- TRAP-J6  "Files analyzed" in jscpd's own summary table only counts files
-          that participate in an ALREADY-detected clone (i.e. cleared
-          min-tokens/min-lines) — NOT the count of files actually scanned.
-          Two 100%-identical 12-line files with jscpd's own default
-          `min-tokens=50` reported "Files analyzed: 0" — indistinguishable
-          at a glance from TRAP-J3's "walked nothing" failure. This script
-          therefore ALSO reports the raw file count it handed to jscpd
-          (independent of jscpd's own table) so a real zero can be told
-          apart from a threshold miss or a walk that found nothing.
+ TRAP-J6  jscpd reports file counts in TWO places that sound like the same
+          thing and are not. The CONSOLE table's "Files analyzed" column
+          only counts files that participate in an ALREADY-detected clone
+          (two 100%-identical 12-line files, below jscpd's own default
+          `min-tokens=50`, reported "Files analyzed: 0" — indistinguishable
+          at a glance from TRAP-J3's "walked nothing" failure). The JSON
+          reporter's `statistics.*.sources` field is a DIFFERENT thing: the
+          total count of files of that format actually scanned, clone or
+          not — confirmed by matching it 1670-vs-1701 against an independent
+          `find *.py` count on `agent_utilities/`. This script's own
+          `_print_stats` reports `sources` (the real corpus-scanned count)
+          plus an INDEPENDENT `_iter_files` count computed without asking
+          jscpd anything, so a real zero can be told apart from a threshold
+          miss or a walk that found nothing — trust neither number alone.
 ────────────────────────────────────────────────────────────────────────────
 
 Usage::
@@ -272,21 +277,31 @@ _IGNORE_GLOBS = [
 
 
 def _repo_scan_targets(root: Path) -> list[Path]:
-    """Safe scan targets for one directory. TRAP-J3's actual fix: never hand
-    jscpd a path that is itself a git repo root. Decomposes into `root`'s
-    own top-level children, dropping dot-dirs and _JUNK_DIR_NAMES. Falls
-    back to `[root]` for a leaf directory with no such children (e.g.
-    pointing this gate directly at a small module dir)."""
+    """Safe scan target(s) for one directory.
+
+    TRAP-J3's actual fix: never hand jscpd a path that is ITSELF a git repo
+    root (has a `.git` entry) — decompose one level instead, dropping
+    dot-entries and _JUNK_DIR_NAMES, and pass the survivors (files AND
+    directories both — an earlier version of this function kept only
+    subdirectories and silently dropped every top-level *file*, losing e.g.
+    a repo's own top-level *.py/*.md content from every census run).
+
+    A `root` that is NOT itself a git repo root (e.g. `scripts/`, one
+    directory inside a repo already decomposed one level up) is handed to
+    jscpd WHOLE, unmodified — there is nothing to dodge one level down that
+    --ignore does not already cover, and decomposing unconditionally is what
+    silently dropped files in the first place.
+    """
     if not root.is_dir():
+        return [root]
+    if not (root / ".git").exists():
         return [root]
     kept = []
     for child in sorted(root.iterdir()):
-        if not child.is_dir():
-            continue
         name = child.name
         if name.startswith("."):
             continue
-        if name in _JUNK_DIR_NAMES or name.endswith(".egg-info"):
+        if child.is_dir() and (name in _JUNK_DIR_NAMES or name.endswith(".egg-info")):
             continue
         kept.append(child)
     return kept or [root]
@@ -376,15 +391,16 @@ def _print_stats(doc: dict, targets: list[Path], label: str) -> None:
     stats = doc.get("statistics", {}).get("total", {})
     n_files_handed = sum(1 for _ in _iter_files(targets))
     print(
-        f"\njscpd gate [{label}]: {stats.get('clones', 0)} clone(s) across "
-        f"{stats.get('sources', 0)} file(s) with reported duplication "
-        f"({stats.get('duplicatedLines', 0)} of {stats.get('lines', 0)} "
-        f"lines, {stats.get('percentage', 0):.2f}%)"
+        f"\njscpd gate [{label}]: {stats.get('clones', 0)} clone(s) found "
+        f"across {stats.get('sources', 0)} scanned file(s) of a matched "
+        f"format ({stats.get('duplicatedLines', 0)} of {stats.get('lines', 0)} "
+        f"duplicated lines, {stats.get('percentage', 0):.2f}%)"
     )
     print(
         f"jscpd gate [{label}]: {n_files_handed} real file(s) existed "
-        f"under the {len(targets)} scanned root(s) — cross-check against "
-        f"TRAP-J6 if 'sources' above looks suspiciously low."
+        f"under the {len(targets)} scanned root(s), counted independently "
+        f"of jscpd — cross-check against TRAP-J6 if 'sources' above looks "
+        f"suspiciously low relative to this."
     )
 
 
