@@ -58,9 +58,7 @@ async def test_expert_execute_attempt_does_not_mask_a_genuine_validator_crash(
 
     dispatched = {"called": False}
 
-    async def _fake_dispatch(
-        _ctx: StepContext, _node_id: str, _step: Any
-    ) -> None:
+    async def _fake_dispatch(_ctx: StepContext, _node_id: str, _step: Any) -> None:
         dispatched["called"] = True
 
     monkeypatch.setattr(_router_impl, "_expert_dispatch_step_handler", _fake_dispatch)
@@ -70,7 +68,7 @@ async def test_expert_execute_attempt_does_not_mask_a_genuine_validator_crash(
     ctx: StepContext = StepContext(state=state, deps=deps, inputs=None)
     step = ExecutionStep(id="researcher", description="do the thing")
 
-    with pytest.raises(Exception):
+    with pytest.raises(RuntimeError, match="contract validator internal crash"):
         await _router_impl._expert_execute_attempt(
             ctx, "researcher", step, max_retries=0
         )

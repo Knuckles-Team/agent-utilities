@@ -1310,7 +1310,9 @@ def test_cancelled_run_trace_write_survives_a_repeated_cancel() -> None:
             and node.test.args[1].attr == "CancelledError"
         )
 
-    branch_node = next(n for n in ast.walk(run_agent_def) if _is_cancelled_error_check(n))
+    branch_node = next(
+        n for n in ast.walk(run_agent_def) if _is_cancelled_error_check(n)
+    )
 
     _TARGETS = {"_record_execution_trace_ordered", "_record_delegation_over_budget"}
 
