@@ -1114,6 +1114,20 @@ def test_invalid_catalog_model_field_is_explicitly_unavailable(monkeypatch):
     }
 
 
+def _page_read(statements: list[str]) -> str:
+    """The page SELECT among the statements a route issued, by SHAPE not position.
+
+    Since BUG-CX-118 the page is read FIRST and the (unvalidatable) ``SELECT
+    COUNT(*)`` is issued only when that page turns out to be incomplete — so on
+    a multi-page path the count, not the page, is what ``statements[-1]`` holds.
+    """
+
+    for statement in statements:
+        if not statement.lstrip().upper().startswith("SELECT COUNT("):
+            return statement
+    raise AssertionError(f"no page read among {statements!r}")
+
+
 def test_a_huge_table_is_paged_not_materialized(monkeypatch):
     """The defect this branch fixes: a table far past `_MAX_CATALOG_ROWS`
     (10_000) used to force-fetch `_MAX_CATALOG_ROWS + 1` rows on every
@@ -1132,7 +1146,7 @@ def test_a_huge_table_is_paged_not_materialized(monkeypatch):
     assert body["count"] == 10_001
     assert len(body["items"]) == 5
     assert body["next_cursor"]
-    page_statement = engine.graph_compute.statements[-1]
+    page_statement = _page_read(engine.graph_compute.statements)
     assert "LIMIT 6" in page_statement  # limit + 1, never the table size
 
 
