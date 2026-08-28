@@ -1931,109 +1931,162 @@ class EpistemicGraphA2ABroker(Broker):
                 control.abort("lease_lost")
                 return
 
+    async def _claim_next_delivery(
+        self,
+    ) -> tuple[str, dict[str, Any], int, bool] | None:
+        """Consume the next broker delivery, or ``None`` if the queue is idle
+        (the poll sleep has already happened)."""
+
+        claimed = await self.runtime.call(
+            "broker",
+            "consume",
+            self._queue,
+            group="a2a-workers",
+            consumer=self._consumer,
+            now_ms=_now_ms(),
+            lease_ms=self.lease_ms,
+            prefetch=self.prefetch,
+        )
+        if claimed is None:
+            await anyio.sleep(self.poll_interval_ms / 1000)
+            return None
+        if (
+            not isinstance(claimed, tuple | list)
+            or len(claimed) != 2
+            or not isinstance(claimed[0], str)
+            or not isinstance(claimed[1], dict)
+        ):
+            raise RuntimeError("native A2A broker returned an invalid consume tuple")
+        node_id, properties = claimed
+        tag = self._delivery_tag(properties)
+        delivery_count = properties.get("delivery_count")
+        if (
+            not isinstance(delivery_count, int)
+            or isinstance(delivery_count, bool)
+            or delivery_count <= 0
+        ):
+            raise RuntimeError("native A2A broker delivery count is invalid")
+        exhausts_retries = delivery_count >= self.max_delivery_count
+        return node_id, properties, tag, exhausts_retries
+
+    def _start_delivery(
+        self,
+        task_operation: TaskOperation,
+        tag: int,
+        binding: _ExecutionBinding | None,
+    ) -> tuple[
+        _DeliveryControl,
+        Token[_ExecutionBinding | None] | None,
+        Token[_DeliveryControl | None],
+        asyncio.Task[None],
+    ]:
+        control = _DeliveryControl(
+            task_id=str(task_operation["params"]["id"]),
+            delivery_tag=tag,
+            consumer=self._consumer,
+            monitor_cancellation=task_operation["operation"] == "run",
+        )
+        binding_token: Token[_ExecutionBinding | None] | None = None
+        if binding is not None:
+            binding_token = _EXECUTION_BINDING.set(binding)
+        control_token = _DELIVERY_CONTROL.set(control)
+        heartbeat = asyncio.create_task(
+            self._maintain_lease(control, binding),
+            name="a2a-delivery-heartbeat",
+        )
+        return control, binding_token, control_token, heartbeat
+
+    async def _finish_delivery_failure(
+        self,
+        control: _DeliveryControl,
+        tag: int,
+        binding: _ExecutionBinding | None,
+        exhausts_retries: bool,
+    ) -> None:
+        failed = False
+        if binding is not None and exhausts_retries:
+            await self._fail_exhausted_delivery(binding)
+            failed = True
+        outcome = await self._nack_tag(
+            tag,
+            requeue=True,
+            allow_absent=control.abort_reason == "lease_lost",
+        )
+        if (
+            binding is not None
+            and not failed
+            and outcome in {"dead-lettered", "dropped"}
+        ):
+            await self._fail_exhausted_delivery(binding)
+
+    async def _finish_delivery_success(
+        self, control: _DeliveryControl, tag: int
+    ) -> None:
+        if control.abort_reason == "lease_lost":
+            await self._nack_tag(tag, requeue=True, allow_absent=True)
+            raise _A2ADeliveryRetry("A2A delivery lease was lost")
+        acknowledged = await self.runtime.call(
+            "broker", "ack_tag", tag, consumer=self._consumer
+        )
+        if not isinstance(acknowledged, bool) or not acknowledged:
+            raise RuntimeError(
+                "native A2A broker could not acknowledge its fenced delivery"
+            )
+
+    async def _cleanup_delivery(
+        self,
+        control: _DeliveryControl,
+        heartbeat: asyncio.Task[None],
+        control_token: Token[_DeliveryControl | None],
+        binding_token: Token[_ExecutionBinding | None] | None,
+    ) -> None:
+        control.stop_event.set()
+        heartbeat.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await heartbeat
+        try:
+            _DELIVERY_CONTROL.reset(control_token)
+        except ValueError:
+            # Async-generator shutdown can be driven by the event loop's
+            # finalizer context after its owning task has already ended.
+            _DELIVERY_CONTROL.set(None)
+        if binding_token is not None:
+            try:
+                _EXECUTION_BINDING.reset(binding_token)
+            except ValueError:
+                _EXECUTION_BINDING.set(None)
+
     async def receive_task_operations(self) -> AsyncGenerator[TaskOperation, None]:
         if not self._active:
             raise RuntimeError("native A2A broker is not entered")
         while self._active:
             self._raise_reconciler_failure()
-            claimed = await self.runtime.call(
-                "broker",
-                "consume",
-                self._queue,
-                group="a2a-workers",
-                consumer=self._consumer,
-                now_ms=_now_ms(),
-                lease_ms=self.lease_ms,
-                prefetch=self.prefetch,
-            )
-            if claimed is None:
-                await anyio.sleep(self.poll_interval_ms / 1000)
+            claim = await self._claim_next_delivery()
+            if claim is None:
                 continue
-            if (
-                not isinstance(claimed, tuple | list)
-                or len(claimed) != 2
-                or not isinstance(claimed[0], str)
-                or not isinstance(claimed[1], dict)
-            ):
-                raise RuntimeError(
-                    "native A2A broker returned an invalid consume tuple"
-                )
-            _node_id, properties = claimed
-            tag = self._delivery_tag(properties)
-            delivery_count = properties.get("delivery_count")
-            if (
-                not isinstance(delivery_count, int)
-                or isinstance(delivery_count, bool)
-                or delivery_count <= 0
-            ):
-                raise RuntimeError("native A2A broker delivery count is invalid")
-            exhausts_retries = delivery_count >= self.max_delivery_count
+            _node_id, properties, tag, exhausts_retries = claim
             try:
                 task_operation, binding, tag = await self._decode_claim(properties)
             except ValueError:
                 await self._nack_tag(tag, requeue=False, allow_absent=False)
                 continue
 
-            control = _DeliveryControl(
-                task_id=str(task_operation["params"]["id"]),
-                delivery_tag=tag,
-                consumer=self._consumer,
-                monitor_cancellation=task_operation["operation"] == "run",
-            )
-            binding_token: Token[_ExecutionBinding | None] | None = None
-            if binding is not None:
-                binding_token = _EXECUTION_BINDING.set(binding)
-            control_token = _DELIVERY_CONTROL.set(control)
-            heartbeat = asyncio.create_task(
-                self._maintain_lease(control, binding),
-                name="a2a-delivery-heartbeat",
+            control, binding_token, control_token, heartbeat = self._start_delivery(
+                task_operation, tag, binding
             )
             try:
                 yield task_operation
             except BaseException:
-                failed = False
-                if binding is not None and exhausts_retries:
-                    await self._fail_exhausted_delivery(binding)
-                    failed = True
-                outcome = await self._nack_tag(
-                    tag,
-                    requeue=True,
-                    allow_absent=control.abort_reason == "lease_lost",
+                await self._finish_delivery_failure(
+                    control, tag, binding, exhausts_retries
                 )
-                if (
-                    binding is not None
-                    and not failed
-                    and outcome in {"dead-lettered", "dropped"}
-                ):
-                    await self._fail_exhausted_delivery(binding)
                 raise
             else:
-                if control.abort_reason == "lease_lost":
-                    await self._nack_tag(tag, requeue=True, allow_absent=True)
-                    raise _A2ADeliveryRetry("A2A delivery lease was lost")
-                acknowledged = await self.runtime.call(
-                    "broker", "ack_tag", tag, consumer=self._consumer
-                )
-                if not isinstance(acknowledged, bool) or not acknowledged:
-                    raise RuntimeError(
-                        "native A2A broker could not acknowledge its fenced delivery"
-                    )
+                await self._finish_delivery_success(control, tag)
             finally:
-                control.stop_event.set()
-                heartbeat.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await heartbeat
-                try:
-                    _DELIVERY_CONTROL.reset(control_token)
-                except ValueError:
-                    # Async-generator shutdown can be driven by the event loop's
-                    # finalizer context after its owning task has already ended.
-                    _DELIVERY_CONTROL.set(None)
-                if binding_token is not None:
-                    try:
-                        _EXECUTION_BINDING.reset(binding_token)
-                    except ValueError:
-                        _EXECUTION_BINDING.set(None)
+                await self._cleanup_delivery(
+                    control, heartbeat, control_token, binding_token
+                )
 
 
 class EpistemicGraphAgentWorker(AgentWorker):
