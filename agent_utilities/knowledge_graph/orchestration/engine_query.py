@@ -11,6 +11,7 @@ import typing
 
 if typing.TYPE_CHECKING:
     from .._engine_protocol import _EngineProtocol
+    from ..backends.base import GraphBackend
     from ..core.session import GraphSession
 
     # D-CDX-71: a plain `_Base = _EngineProtocol` variable assignment is not
@@ -190,346 +191,362 @@ class _HybridSearchRequest:
     session: GraphSession | None
 
 
-class QueryMixin(_Base):
-    """Query and search capabilities for the KG engine."""
+def _scope_aggregate_cypher(
+    engine: Any,
+    scoped_query: str,
+    query: str,
+    session: GraphSession,
+    params: dict[str, Any],
+) -> str:
+    """Push tenant + owner/scope + commons-catalog restrictions INTO an
+    aggregate query's text.
 
-    def _scope_aggregate_cypher(
-        self,
-        scoped_query: str,
-        query: str,
-        session: GraphSession,
-        params: dict[str, Any],
-    ) -> str:
-        """Push tenant + owner/scope + commons-catalog restrictions INTO an
-        aggregate query's text.
+    CONCEPT:AU-KG.compute.data-is-private-its — an aggregate has no row to
+    post-filter by owner/scope, so that boundary is pushed into the query
+    text instead: the aggregate is computed only over rows the actor's
+    owner/scope would have kept anyway. This is a no-op (returns the query
+    unchanged) for a privileged actor, exactly mirroring
+    `secured_reads.visible`'s own privileged bypass.
 
-        CONCEPT:AU-KG.compute.data-is-private-its — an aggregate has no row to
-        post-filter by owner/scope, so that boundary is pushed into the query
-        text instead: the aggregate is computed only over rows the actor's
-        owner/scope would have kept anyway. This is a no-op (returns the query
-        unchanged) for a privileged actor, exactly mirroring
-        `secured_reads.visible`'s own privileged bypass.
+    D-SH-4 (reports/deferred/lane-skill-harvest.md): `apply_visibility`
+    defaults to writing its predicate against a hardcoded `n` variable.
+    Detect THIS query's own primary bound variable (the same detector
+    `scope()`/`scope_cypher_query` now uses) and pass it explicitly — a
+    query aliased as e.g. `MATCH (w:WorkItem) RETURN count(w) AS c`
+    otherwise gets a visibility predicate referencing a variable that
+    doesn't exist, which Cypher treats as never matching (a silent
+    zero-row/zero-count aggregate instead of the real answer). A fully
+    anonymous first pattern has no variable to scope by; skip the
+    injection rather than reference a fabricated name (mirrors
+    `scope_cypher_query`'s own fail-open-to-unscoped decision for the same
+    case).
 
-        D-SH-4 (reports/deferred/lane-skill-harvest.md): `apply_visibility`
-        defaults to writing its predicate against a hardcoded `n` variable.
-        Detect THIS query's own primary bound variable (the same detector
-        `scope()`/`scope_cypher_query` now uses) and pass it explicitly — a
-        query aliased as e.g. `MATCH (w:WorkItem) RETURN count(w) AS c`
-        otherwise gets a visibility predicate referencing a variable that
-        doesn't exist, which Cypher treats as never matching (a silent
-        zero-row/zero-count aggregate instead of the real answer). A fully
-        anonymous first pattern has no variable to scope by; skip the
-        injection rather than reference a fabricated name (mirrors
-        `scope_cypher_query`'s own fail-open-to-unscoped decision for the same
-        case).
-        """
-        from agent_utilities.knowledge_graph.core.cypher_scope_vars import (
-            primary_bound_variable,
+    Takes ``engine`` as a plain parameter (not ``self``) — this is called
+    from ``QueryMixin.query_cypher``, which several tests invoke UNBOUND
+    (``QueryMixin.query_cypher(duck_typed_host, ...)``) against lightweight
+    duck-typed stand-ins that are not ``QueryMixin`` instances. A bound
+    ``self.<helper>()`` call would ``AttributeError`` there; a plain function
+    taking the host object explicitly works for both a real engine and a
+    duck-typed one.
+    """
+    from agent_utilities.knowledge_graph.core.cypher_scope_vars import (
+        primary_bound_variable,
+    )
+    from agent_utilities.knowledge_graph.core.tenant_sharing import (
+        apply_commons_catalog_restriction,
+        apply_visibility,
+    )
+
+    agg_var = primary_bound_variable(query)
+    if agg_var is None:
+        return scoped_query
+    # D-W2T-2: same (query, extra_params) contract as scope() above — the
+    # visibility owner id is a bound `$_visibility_owner_id` parameter now.
+    scoped_query, vis_params = apply_visibility(
+        scoped_query, session.actor, var=agg_var
+    )
+    params.update(vis_params)
+
+    # GOC-61 phase 1 (2026-08-09 owner ruling, read/write split): the
+    # commons catalog READ restriction, injected the same way and for the
+    # same reason — this is the ONLY place the restriction can reach an
+    # aggregate projection (count(n), etc.), since it has no per-row
+    # properties for filter_commons_catalog to post-filter. A no-op unless
+    # this engine is bound to the commons graph and the actor is
+    # unprivileged (see apply_commons_catalog_restriction's own
+    # docstring).
+    graph_name = getattr(getattr(engine, "graph_compute", None), "graph_name", None)
+    scoped_query, catalog_params = apply_commons_catalog_restriction(
+        scoped_query, session.actor, graph_name, var=agg_var
+    )
+    params.update(catalog_params)
+    return scoped_query
+
+
+def _scope_row_cypher(
+    engine: Any,
+    scoped_query: str,
+    session: GraphSession,
+    params: dict[str, Any],
+) -> tuple[str, bool, bool]:
+    """Best-effort commons-catalog + owner/scope visibility pushdown for a
+    non-aggregate (row-returning) query.
+
+    BUG-PE-040: the identical defect `read_union` was fixed for
+    (`tenant_sharing.read_union` / BUG-PE-039, commit 7b8075b8d) exists at
+    THIS chokepoint too. The non-aggregate row-read path (`filter_commons_
+    catalog`) fails CLOSED by design — a row with no `node_type` is
+    dropped — but a *projecting* query (`RETURN t.id AS id`) returns rows
+    with no `node_type` column even for a catalog-shareable node, so every
+    commons row was silently dropped. Push the restriction into the query
+    text instead, so a projecting query is narrowed at the source rather
+    than relying on row-shape the executor may not preserve.
+
+    Best-effort and MUST NOT fail open: any failure here (e.g. no bound
+    node variable to scope by) just leaves `scoped_query` unchanged and
+    `commons_pushed_down`/`visibility_pushed_down` False — the row-level
+    classifier stays fail-closed, exactly the pre-existing behaviour.
+    Idempotent (a WHERE predicate ANDed twice is harmless), so this stacks
+    harmlessly with any pushdown a caller already applied upstream.
+
+    Returns ``(scoped_query, commons_pushed_down, visibility_pushed_down)``.
+    See ``_scope_aggregate_cypher`` for why this is a plain function.
+    """
+    from agent_utilities.knowledge_graph.core.tenant_sharing import (
+        apply_commons_catalog_restriction,
+        push_down_visibility,
+    )
+
+    commons_pushed_down = False
+    graph_name = getattr(getattr(engine, "graph_compute", None), "graph_name", None)
+    try:
+        candidate_query, catalog_params = apply_commons_catalog_restriction(
+            scoped_query, session.actor, graph_name
         )
-        from agent_utilities.knowledge_graph.core.tenant_sharing import (
-            apply_commons_catalog_restriction,
-            apply_visibility,
+    except Exception as exc:  # noqa: BLE001 — pushdown is best-effort; the row-level fallback is the safety net and must never fail open
+        logger.debug("query_cypher: commons catalog pushdown unavailable: %s", exc)
+    else:
+        if candidate_query != scoped_query:
+            scoped_query = candidate_query
+            params.update(catalog_params)
+            commons_pushed_down = True
+
+    # fix/empty-projection: owner/scope visibility pushdown for the
+    # non-aggregate path — best-effort, same shape as the commons-catalog
+    # pushdown just above (and the aggregate branch's mandatory
+    # equivalent). MUST NOT fail open: any failure (no derivable bound
+    # variable, `UnscopableQueryError`, or any other error) leaves
+    # `scoped_query` unchanged and `visibility_pushed_down` False, and the
+    # post-hoc `visible()`/`filter_rows()` pass (which never needed this
+    # flag to run correctly — only to decide what to do with an
+    # UNCLASSIFIABLE row) stays exactly the pre-existing fail-closed
+    # behavior.
+    scoped_query, vis_params, visibility_pushed_down = push_down_visibility(
+        scoped_query, session.actor
+    )
+    params.update(vis_params)
+    return scoped_query, commons_pushed_down, visibility_pushed_down
+
+
+def _scoped_cypher_query(
+    engine: Any,
+    query: str,
+    params: dict[str, Any],
+    session: GraphSession,
+    aggregate_query: bool,
+) -> tuple[str, bool, bool]:
+    """Tenant-scope + owner/scope-restrict ``query`` at the MCP/orchestration
+    read chokepoint (CONCEPT:AU-KG.query.skip-assimilated-papers + KG-2.60).
+    Mandatory — this isolates ``graph_query`` on a shared backend graph
+    (the named-graph physical partition only applies in sharded/direct-
+    engine paths).
+
+    Returns ``(scoped_query, commons_pushed_down, visibility_pushed_down)``.
+    See ``_scope_aggregate_cypher`` for why this is a plain function.
+    """
+    commons_pushed_down = False
+    visibility_pushed_down = False
+    try:
+        from agent_utilities.knowledge_graph.core.secured_reads import scope
+
+        # D-W2T-2: `scope()` now returns (query, extra_params) — the tenant
+        # id is injected as a bound `$_tenant_scope_id` parameter, not a
+        # string-literal splice. Merge it into this call's own params dict
+        # (same convention as the `_clearance_level` system param above).
+        scoped_query, tenant_params = scope(query, session.actor)
+        params.update(tenant_params)
+        if aggregate_query:
+            scoped_query = _scope_aggregate_cypher(
+                engine, scoped_query, query, session, params
+            )
+        else:
+            scoped_query, commons_pushed_down, visibility_pushed_down = (
+                _scope_row_cypher(engine, scoped_query, session, params)
+            )
+    except PermissionError as exc:
+        # A genuine, already-typed fail-closed scoping/authorization
+        # decision reached here — e.g. `cypher_scoping.UnscopableQueryError`
+        # (the query binds no node variable a tenant/visibility predicate
+        # can be written against) or `secured_reads.scope()`'s own
+        # verified-actor/infrastructure denial. Propagate the SAME
+        # exception: its specific type and message are the only thing
+        # that lets an operator tell "this query's shape can't be safely
+        # scoped" apart from "this actor lacks permission" apart from any
+        # other denial. Re-wrapping it into one generic "Graph query
+        # scoping failed" — the bug this replaces — made a pure
+        # query-shape problem (``MATCH ()-[r]->() RETURN count(r)``, which
+        # binds no node variable at all) indistinguishable from an actual
+        # authorization denial.
+        from agent_utilities.core.log_privacy import sanitize_log_text
+
+        logger.error(
+            "Graph query scoping denied: %s | query=%s",
+            sanitize_log_text(_describe_secured_read_failure(exc)),
+            sanitize_log_text(str(query))[:240],
+        )
+        raise
+    except Exception as exc:
+        # NOT an authorization decision: an `AttributeError`/`TypeError`/
+        # etc. raised INSIDE the scoping pipeline itself (e.g. a
+        # caller-supplied actor object missing an expected method) is a
+        # CODE DEFECT, not a permission denial. Failing closed is still
+        # correct here — `scoped_query`/`params` are never used past this
+        # point on this path, so a defect here can never fall through to
+        # executing an unscoped read — but labeling it `PermissionError`
+        # actively misdirects debugging toward the authorization layer.
+        # Reproduced: an actor object missing `ensure_credential_current`
+        # alone raised the exact same "Graph query scoping failed" a real
+        # denial would.
+        from agent_utilities.core.log_privacy import sanitize_log_text
+        from agent_utilities.knowledge_graph.core.cypher_scoping import (
+            QueryScopingError,
         )
 
-        agg_var = primary_bound_variable(query)
-        if agg_var is None:
-            return scoped_query
-        # D-W2T-2: same (query, extra_params) contract as scope() above — the
-        # visibility owner id is a bound `$_visibility_owner_id` parameter now.
-        scoped_query, vis_params = apply_visibility(
-            scoped_query, session.actor, var=agg_var
+        logger.error(
+            "Graph query scoping raised a non-authorization failure "
+            "before a scope could be established (code defect, not a "
+            "permission denial): %s | query=%s",
+            sanitize_log_text(_describe_secured_read_failure(exc)),
+            sanitize_log_text(str(query))[:240],
         )
-        params.update(vis_params)
+        raise QueryScopingError(
+            "Graph query scoping failed due to an internal defect, not "
+            "an authorization denial"
+        ) from exc
+    return scoped_query, commons_pushed_down, visibility_pushed_down
+
+
+def _read_backend_for(engine: Any, scoped_query: str) -> Any:
+    """Select control vs. content read backend for ``scoped_query``.
+
+    CONCEPT:AU-KG.backend.schedule-on-control-graph — control/content read
+    isolation. A query containing only current control-plane labels must
+    use the configured control authority. Missing control authority is a
+    hard configuration error: reading the content graph would return a
+    misleading empty result and silently split operational truth.
+
+    See ``_scope_aggregate_cypher`` for why this is a plain function.
+    """
+    if _is_control_plane_query(scoped_query):
+        read_backend = getattr(engine, "control_backend", None)
+        if read_backend is None:
+            raise RuntimeError(
+                "Control-plane query requires the configured WorkItem authority"
+            )
+        return read_backend
+    return engine.backend
+
+
+def _governed_cypher_rows(
+    engine: Any,
+    rows: list[dict[str, Any]],
+    session: GraphSession,
+    query: str,
+    *,
+    aggregate_query: bool,
+    visibility_pushed_down: bool,
+    commons_pushed_down: bool,
+) -> list[dict[str, Any]]:
+    """Apply row-level ACL/visibility/commons-catalog filtering + audit.
+
+    See ``_scope_aggregate_cypher`` for why this is a plain function.
+    """
+    try:
+        from agent_utilities.knowledge_graph.core.secured_reads import (
+            audit_read,
+            filter_rows,
+            row_node_ids,
+            visible,
+        )
+
+        if aggregate_query:
+            # No per-row node id exists to ACL-check or audit by id (the rows
+            # ARE the aggregate result, e.g. a single {"c": 142} row) — the
+            # owner/scope boundary already ran query-side above, and the
+            # fine-grained per-node classification ACL (KG-2.46) has no row to
+            # apply to. This is a scoped, deliberate trade-off (aggregate reads
+            # are governed by tenant + owner/scope, not per-node classification
+            # ACL), not a silent bypass of tenant/owner-scope isolation. The
+            # read is still audited, with an empty node-id list (nothing
+            # governable to name).
+            audit_read(
+                [], summary="native-cypher-read (aggregate)", actor=session.actor
+            )
+            return rows
+
+        # fix/empty-projection: `trust_pushdown=visibility_pushed_down` —
+        # set above only when `push_down_visibility` demonstrably narrowed
+        # `scoped_query` for this call (or the actor is privileged) — lets
+        # a row with NO governed id at all (e.g. a plain `RETURN n.name AS
+        # name` projection, which carries no `id` column full stop)
+        # survive here instead of raising for the WHOLE read, exactly
+        # mirroring `filter_commons_catalog`'s own `trust_pushdown` escape
+        # just below. A row that DOES carry a governed id is still
+        # classified against the fine-grained ACL exactly as before,
+        # regardless of this flag.
+        rows = visible(
+            filter_rows(rows, session.actor, trust_pushdown=visibility_pushed_down),
+            session.actor,
+        )
 
         # GOC-61 phase 1 (2026-08-09 owner ruling, read/write split): the
-        # commons catalog READ restriction, injected the same way and for the
-        # same reason — this is the ONLY place the restriction can reach an
-        # aggregate projection (count(n), etc.), since it has no per-row
-        # properties for filter_commons_catalog to post-filter. A no-op unless
-        # this engine is bound to the commons graph and the actor is
-        # unprivileged (see apply_commons_catalog_restriction's own
-        # docstring).
-        graph_name = getattr(getattr(self, "graph_compute", None), "graph_name", None)
-        scoped_query, catalog_params = apply_commons_catalog_restriction(
-            scoped_query, session.actor, graph_name, var=agg_var
-        )
-        params.update(catalog_params)
-        return scoped_query
-
-    def _scope_row_cypher(
-        self,
-        scoped_query: str,
-        session: GraphSession,
-        params: dict[str, Any],
-    ) -> tuple[str, bool, bool]:
-        """Best-effort commons-catalog + owner/scope visibility pushdown for a
-        non-aggregate (row-returning) query.
-
-        BUG-PE-040: the identical defect `read_union` was fixed for
-        (`tenant_sharing.read_union` / BUG-PE-039, commit 7b8075b8d) exists at
-        THIS chokepoint too. The non-aggregate row-read path (`filter_commons_
-        catalog`) fails CLOSED by design — a row with no `node_type` is
-        dropped — but a *projecting* query (`RETURN t.id AS id`) returns rows
-        with no `node_type` column even for a catalog-shareable node, so every
-        commons row was silently dropped. Push the restriction into the query
-        text instead, so a projecting query is narrowed at the source rather
-        than relying on row-shape the executor may not preserve.
-
-        Best-effort and MUST NOT fail open: any failure here (e.g. no bound
-        node variable to scope by) just leaves `scoped_query` unchanged and
-        `commons_pushed_down`/`visibility_pushed_down` False — the row-level
-        classifier stays fail-closed, exactly the pre-existing behaviour.
-        Idempotent (a WHERE predicate ANDed twice is harmless), so this stacks
-        harmlessly with any pushdown a caller already applied upstream.
-
-        Returns ``(scoped_query, commons_pushed_down, visibility_pushed_down)``.
-        """
+        # commons catalog READ restriction, Python-side. Runs AFTER
+        # visible()/filter_rows() (owner/scope) — this is an ADDITIONAL
+        # restriction, not a replacement: owner/scope already hides
+        # another tenant's OWNED-private rows; this closes the remaining
+        # gap for UNOWNED/commons-scoped operational rows (WorkItem,
+        # RuntimeSignal, Concept, ...) that owner/scope alone treats as
+        # visible to everyone. A no-op unless this engine is bound to the
+        # commons graph and the actor is unprivileged.
+        #
+        # BUG-PE-040: `trust_pushdown=commons_pushed_down` — set above
+        # only when `apply_commons_catalog_restriction` demonstrably
+        # narrowed `scoped_query` for this call — lets an otherwise-
+        # unclassifiable projected row (no `node_type` column) survive
+        # here instead of being fail-closed dropped, exactly mirroring
+        # `read_union`'s row-level fallback (BUG-PE-039). A row that DOES
+        # carry a classifiable `node_type` is judged exactly as before
+        # regardless of this flag.
         from agent_utilities.knowledge_graph.core.tenant_sharing import (
-            apply_commons_catalog_restriction,
-            push_down_visibility,
+            filter_commons_catalog,
         )
 
-        commons_pushed_down = False
-        graph_name = getattr(getattr(self, "graph_compute", None), "graph_name", None)
-        try:
-            candidate_query, catalog_params = apply_commons_catalog_restriction(
-                scoped_query, session.actor, graph_name
-            )
-        except Exception as exc:  # noqa: BLE001 — pushdown is best-effort; the row-level fallback is the safety net and must never fail open
-            logger.debug("query_cypher: commons catalog pushdown unavailable: %s", exc)
-        else:
-            if candidate_query != scoped_query:
-                scoped_query = candidate_query
-                params.update(catalog_params)
-                commons_pushed_down = True
-
-        # fix/empty-projection: owner/scope visibility pushdown for the
-        # non-aggregate path — best-effort, same shape as the commons-catalog
-        # pushdown just above (and the aggregate branch's mandatory
-        # equivalent). MUST NOT fail open: any failure (no derivable bound
-        # variable, `UnscopableQueryError`, or any other error) leaves
-        # `scoped_query` unchanged and `visibility_pushed_down` False, and the
-        # post-hoc `visible()`/`filter_rows()` pass (which never needed this
-        # flag to run correctly — only to decide what to do with an
-        # UNCLASSIFIABLE row) stays exactly the pre-existing fail-closed
-        # behavior.
-        scoped_query, vis_params, visibility_pushed_down = push_down_visibility(
-            scoped_query, session.actor
+        graph_name = getattr(getattr(engine, "graph_compute", None), "graph_name", None)
+        rows = filter_commons_catalog(
+            rows, session.actor, graph_name, trust_pushdown=commons_pushed_down
         )
-        params.update(vis_params)
-        return scoped_query, commons_pushed_down, visibility_pushed_down
 
-    def _scoped_cypher_query(
-        self,
-        query: str,
-        params: dict[str, Any],
-        session: GraphSession,
-        aggregate_query: bool,
-    ) -> tuple[str, bool, bool]:
-        """Tenant-scope + owner/scope-restrict ``query`` at the MCP/orchestration
-        read chokepoint (CONCEPT:AU-KG.query.skip-assimilated-papers + KG-2.60).
-        Mandatory — this isolates ``graph_query`` on a shared backend graph
-        (the named-graph physical partition only applies in sharded/direct-
-        engine paths).
+        # The engine also emits its protocol audit. This service-level
+        # record proves the guarded GraphSession/query boundary ran
+        # without persisting raw query text or parameters.
+        audit_read(
+            row_node_ids(rows, trust_pushdown=visibility_pushed_down),
+            summary="native-cypher-read",
+            actor=session.actor,
+        )
+    except Exception as exc:
+        # Surface the TRUE failing step server-side before collapsing it to
+        # the generic caller-facing message — this exact boundary was a
+        # documented repeat instance of the swallowed-cause anti-pattern (a
+        # bare ``raise PermissionError(...) from exc`` with nothing logged
+        # first). The public PermissionError message is unchanged; only the
+        # log gains detail, and it is still sanitized (endpoints/paths/
+        # emails redacted) before it reaches any handler. Include the
+        # (sanitized, truncated) QUERY too: the failing site is otherwise
+        # unidentifiable from the log alone.
+        from agent_utilities.core.log_privacy import sanitize_log_text
 
-        Returns ``(scoped_query, commons_pushed_down, visibility_pushed_down)``.
-        """
-        commons_pushed_down = False
-        visibility_pushed_down = False
-        try:
-            from agent_utilities.knowledge_graph.core.secured_reads import scope
+        logger.error(
+            "Graph row-policy or audit enforcement failed: %s | query=%s",
+            sanitize_log_text(_describe_secured_read_failure(exc)),
+            sanitize_log_text(str(query))[:240],
+        )
+        raise PermissionError("Graph row-policy or audit enforcement failed") from exc
+    return rows
 
-            # D-W2T-2: `scope()` now returns (query, extra_params) — the tenant
-            # id is injected as a bound `$_tenant_scope_id` parameter, not a
-            # string-literal splice. Merge it into this call's own params dict
-            # (same convention as the `_clearance_level` system param above).
-            scoped_query, tenant_params = scope(query, session.actor)
-            params.update(tenant_params)
-            if aggregate_query:
-                scoped_query = self._scope_aggregate_cypher(
-                    scoped_query, query, session, params
-                )
-            else:
-                scoped_query, commons_pushed_down, visibility_pushed_down = (
-                    self._scope_row_cypher(scoped_query, session, params)
-                )
-        except PermissionError as exc:
-            # A genuine, already-typed fail-closed scoping/authorization
-            # decision reached here — e.g. `cypher_scoping.UnscopableQueryError`
-            # (the query binds no node variable a tenant/visibility predicate
-            # can be written against) or `secured_reads.scope()`'s own
-            # verified-actor/infrastructure denial. Propagate the SAME
-            # exception: its specific type and message are the only thing
-            # that lets an operator tell "this query's shape can't be safely
-            # scoped" apart from "this actor lacks permission" apart from any
-            # other denial. Re-wrapping it into one generic "Graph query
-            # scoping failed" — the bug this replaces — made a pure
-            # query-shape problem (``MATCH ()-[r]->() RETURN count(r)``, which
-            # binds no node variable at all) indistinguishable from an actual
-            # authorization denial.
-            from agent_utilities.core.log_privacy import sanitize_log_text
 
-            logger.error(
-                "Graph query scoping denied: %s | query=%s",
-                sanitize_log_text(_describe_secured_read_failure(exc)),
-                sanitize_log_text(str(query))[:240],
-            )
-            raise
-        except Exception as exc:
-            # NOT an authorization decision: an `AttributeError`/`TypeError`/
-            # etc. raised INSIDE the scoping pipeline itself (e.g. a
-            # caller-supplied actor object missing an expected method) is a
-            # CODE DEFECT, not a permission denial. Failing closed is still
-            # correct here — `scoped_query`/`params` are never used past this
-            # point on this path, so a defect here can never fall through to
-            # executing an unscoped read — but labeling it `PermissionError`
-            # actively misdirects debugging toward the authorization layer.
-            # Reproduced: an actor object missing `ensure_credential_current`
-            # alone raised the exact same "Graph query scoping failed" a real
-            # denial would.
-            from agent_utilities.core.log_privacy import sanitize_log_text
-            from agent_utilities.knowledge_graph.core.cypher_scoping import (
-                QueryScopingError,
-            )
-
-            logger.error(
-                "Graph query scoping raised a non-authorization failure "
-                "before a scope could be established (code defect, not a "
-                "permission denial): %s | query=%s",
-                sanitize_log_text(_describe_secured_read_failure(exc)),
-                sanitize_log_text(str(query))[:240],
-            )
-            raise QueryScopingError(
-                "Graph query scoping failed due to an internal defect, not "
-                "an authorization denial"
-            ) from exc
-        return scoped_query, commons_pushed_down, visibility_pushed_down
-
-    def _read_backend_for(self, scoped_query: str) -> Any:
-        """Select control vs. content read backend for ``scoped_query``.
-
-        CONCEPT:AU-KG.backend.schedule-on-control-graph — control/content read
-        isolation. A query containing only current control-plane labels must
-        use the configured control authority. Missing control authority is a
-        hard configuration error: reading the content graph would return a
-        misleading empty result and silently split operational truth.
-        """
-        if _is_control_plane_query(scoped_query):
-            read_backend = getattr(self, "control_backend", None)
-            if read_backend is None:
-                raise RuntimeError(
-                    "Control-plane query requires the configured WorkItem authority"
-                )
-            return read_backend
-        return self.backend
-
-    def _governed_cypher_rows(
-        self,
-        rows: list[dict[str, Any]],
-        session: GraphSession,
-        query: str,
-        *,
-        aggregate_query: bool,
-        visibility_pushed_down: bool,
-        commons_pushed_down: bool,
-    ) -> list[dict[str, Any]]:
-        """Apply row-level ACL/visibility/commons-catalog filtering + audit."""
-        try:
-            from agent_utilities.knowledge_graph.core.secured_reads import (
-                audit_read,
-                filter_rows,
-                row_node_ids,
-                visible,
-            )
-
-            if aggregate_query:
-                # No per-row node id exists to ACL-check or audit by id (the rows
-                # ARE the aggregate result, e.g. a single {"c": 142} row) — the
-                # owner/scope boundary already ran query-side above, and the
-                # fine-grained per-node classification ACL (KG-2.46) has no row to
-                # apply to. This is a scoped, deliberate trade-off (aggregate reads
-                # are governed by tenant + owner/scope, not per-node classification
-                # ACL), not a silent bypass of tenant/owner-scope isolation. The
-                # read is still audited, with an empty node-id list (nothing
-                # governable to name).
-                audit_read(
-                    [], summary="native-cypher-read (aggregate)", actor=session.actor
-                )
-                return rows
-
-            # fix/empty-projection: `trust_pushdown=visibility_pushed_down` —
-            # set above only when `push_down_visibility` demonstrably narrowed
-            # `scoped_query` for this call (or the actor is privileged) — lets
-            # a row with NO governed id at all (e.g. a plain `RETURN n.name AS
-            # name` projection, which carries no `id` column full stop)
-            # survive here instead of raising for the WHOLE read, exactly
-            # mirroring `filter_commons_catalog`'s own `trust_pushdown` escape
-            # just below. A row that DOES carry a governed id is still
-            # classified against the fine-grained ACL exactly as before,
-            # regardless of this flag.
-            rows = visible(
-                filter_rows(rows, session.actor, trust_pushdown=visibility_pushed_down),
-                session.actor,
-            )
-
-            # GOC-61 phase 1 (2026-08-09 owner ruling, read/write split): the
-            # commons catalog READ restriction, Python-side. Runs AFTER
-            # visible()/filter_rows() (owner/scope) — this is an ADDITIONAL
-            # restriction, not a replacement: owner/scope already hides
-            # another tenant's OWNED-private rows; this closes the remaining
-            # gap for UNOWNED/commons-scoped operational rows (WorkItem,
-            # RuntimeSignal, Concept, ...) that owner/scope alone treats as
-            # visible to everyone. A no-op unless this engine is bound to the
-            # commons graph and the actor is unprivileged.
-            #
-            # BUG-PE-040: `trust_pushdown=commons_pushed_down` — set above
-            # only when `apply_commons_catalog_restriction` demonstrably
-            # narrowed `scoped_query` for this call — lets an otherwise-
-            # unclassifiable projected row (no `node_type` column) survive
-            # here instead of being fail-closed dropped, exactly mirroring
-            # `read_union`'s row-level fallback (BUG-PE-039). A row that DOES
-            # carry a classifiable `node_type` is judged exactly as before
-            # regardless of this flag.
-            from agent_utilities.knowledge_graph.core.tenant_sharing import (
-                filter_commons_catalog,
-            )
-
-            graph_name = getattr(
-                getattr(self, "graph_compute", None), "graph_name", None
-            )
-            rows = filter_commons_catalog(
-                rows, session.actor, graph_name, trust_pushdown=commons_pushed_down
-            )
-
-            # The engine also emits its protocol audit. This service-level
-            # record proves the guarded GraphSession/query boundary ran
-            # without persisting raw query text or parameters.
-            audit_read(
-                row_node_ids(rows, trust_pushdown=visibility_pushed_down),
-                summary="native-cypher-read",
-                actor=session.actor,
-            )
-        except Exception as exc:
-            # Surface the TRUE failing step server-side before collapsing it to
-            # the generic caller-facing message — this exact boundary was a
-            # documented repeat instance of the swallowed-cause anti-pattern (a
-            # bare ``raise PermissionError(...) from exc`` with nothing logged
-            # first). The public PermissionError message is unchanged; only the
-            # log gains detail, and it is still sanitized (endpoints/paths/
-            # emails redacted) before it reaches any handler. Include the
-            # (sanitized, truncated) QUERY too: the failing site is otherwise
-            # unidentifiable from the log alone.
-            from agent_utilities.core.log_privacy import sanitize_log_text
-
-            logger.error(
-                "Graph row-policy or audit enforcement failed: %s | query=%s",
-                sanitize_log_text(_describe_secured_read_failure(exc)),
-                sanitize_log_text(str(query))[:240],
-            )
-            raise PermissionError(
-                "Graph row-policy or audit enforcement failed"
-            ) from exc
-        return rows
+class QueryMixin(_Base):
+    """Query and search capabilities for the KG engine."""
 
     def query_cypher(
         self,
@@ -595,15 +612,16 @@ class QueryMixin(_Base):
         aggregate_query = is_aggregation_cypher(query)
 
         scoped_query, commons_pushed_down, visibility_pushed_down = (
-            self._scoped_cypher_query(query, params, session, aggregate_query)
+            _scoped_cypher_query(self, query, params, session, aggregate_query)
         )
 
-        read_backend = self._read_backend_for(scoped_query)
+        read_backend = _read_backend_for(self, scoped_query)
         if not read_backend:
             raise RuntimeError("The authoritative graph read service is unavailable")
         rows = read_backend.execute_read(scoped_query, params)
 
-        rows = self._governed_cypher_rows(
+        rows = _governed_cypher_rows(
+            self,
             rows,
             session,
             query,
@@ -2041,10 +2059,10 @@ class QueryMixin(_Base):
         }
 
     def _backend_epistemic_beliefs(
-        self, query: str, top_k: int
+        self, backend: GraphBackend, query: str, top_k: int
     ) -> list[dict[str, Any]]:
         """1. Find claims matching the query (beliefs)."""
-        belief_results = self.backend.execute(
+        belief_results = backend.execute(
             "MATCH (c:Claim) WHERE c.claim_text CONTAINS $q "
             "OR c.name CONTAINS $q "
             "RETURN c ORDER BY c.confidence DESC LIMIT $limit",
@@ -2052,9 +2070,11 @@ class QueryMixin(_Base):
         )
         return [row.get("c", row) for row in belief_results]
 
-    def _backend_supporting_evidence(self, claim_id: str) -> list[dict[str, Any]]:
+    def _backend_supporting_evidence(
+        self, backend: GraphBackend, claim_id: str
+    ) -> list[dict[str, Any]]:
         """2. Find supporting evidence (BUILDS_ON, EXEMPLIFIES, CITES)."""
-        support_results = self.backend.execute(
+        support_results = backend.execute(
             "MATCH (s)-[r]->(c {id: $cid}) "
             "WHERE type(r) IN ['BUILDS_ON', 'EXEMPLIFIES', 'CITES', "
             "'builds_on', 'exemplifies', 'cites'] "
@@ -2069,9 +2089,11 @@ class QueryMixin(_Base):
             supporting.append(support_node)
         return supporting
 
-    def _backend_contradicting_evidence(self, claim_id: str) -> list[dict[str, Any]]:
+    def _backend_contradicting_evidence(
+        self, backend: GraphBackend, claim_id: str
+    ) -> list[dict[str, Any]]:
         """3. Find contradicting evidence (CONTRADICTS)."""
-        contradict_results = self.backend.execute(
+        contradict_results = backend.execute(
             "MATCH (s)-[r]->(c {id: $cid}) "
             "WHERE type(r) IN ['CONTRADICTS', 'contradicts', "
             "'CONTRADICTS_BELIEF', 'contradicts_belief'] "
@@ -2089,14 +2111,22 @@ class QueryMixin(_Base):
     def _backend_epistemic_view(
         self, query: str, top_k: int, include_contradictions: bool
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
-        beliefs = self._backend_epistemic_beliefs(query, top_k)
+        # `self.backend` is `GraphBackend | None`; the sole caller only
+        # reaches this method inside its own `if self.backend:` guard, but
+        # that narrowing does not cross the function boundary, so re-narrow
+        # here and thread the non-None `backend` down explicitly.
+        backend = self.backend
+        assert backend is not None
+        beliefs = self._backend_epistemic_beliefs(backend, query, top_k)
         supporting: list[dict[str, Any]] = []
         contradicting: list[dict[str, Any]] = []
         for claim in beliefs:
             claim_id = claim.get("id", "")
-            supporting.extend(self._backend_supporting_evidence(claim_id))
+            supporting.extend(self._backend_supporting_evidence(backend, claim_id))
             if include_contradictions:
-                contradicting.extend(self._backend_contradicting_evidence(claim_id))
+                contradicting.extend(
+                    self._backend_contradicting_evidence(backend, claim_id)
+                )
         return beliefs, supporting, contradicting
 
     def _gce_epistemic_beliefs(self, query: str, top_k: int) -> list[dict[str, Any]]:
