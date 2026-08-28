@@ -1343,6 +1343,75 @@ def _repo_provenance_ingest(engine: Any, obj: Any, node_id: str, repo_id: str) -
     )
 
 
+def _ontology_derive_discover_extensions(sample_text: str, object_type: str) -> str:
+    # Ontology-aware schema discovery (KG-2.259): propose .ttl extensions
+    # from a text sample, diffed against the live ontology. Human/SHACL-
+    # gated — returns a proposal, never auto-merges.
+    from agent_utilities.knowledge_graph.enrichment.cards import make_lite_llm_fn
+    from agent_utilities.knowledge_graph.extraction.schema_discovery import (
+        discover_schema_extensions,
+        discovery_report,
+    )
+
+    texts = [sample_text] if sample_text else []
+    discovered = discover_schema_extensions(
+        texts, object_type or "document", make_lite_llm_fn()
+    )
+    return json.dumps(discovery_report(discovered), default=str)
+
+
+def _ontology_derive_generate(sample_text: str, object_type: str) -> str:
+    # From-scratch ontology generator (Ontology-Playground coverage row #13):
+    # the SAME schema-discovery LLM path as 'discover_extensions', run against
+    # an EMPTY base — a complete standalone Interface/LinkType proposal,
+    # never a diff vs the live ontology. Never auto-applied/merged (respects
+    # the platform's gated-.ttl governance, same as 'discover_extensions').
+    from agent_utilities.knowledge_graph.enrichment.cards import make_lite_llm_fn
+    from agent_utilities.knowledge_graph.extraction.schema_discovery import (
+        generate_standalone_ontology,
+        ontology_generation_report,
+    )
+
+    texts = [sample_text] if sample_text else []
+    discovered = generate_standalone_ontology(texts, object_type, make_lite_llm_fn())
+    return json.dumps(
+        ontology_generation_report(discovered, domain_hint=object_type), default=str
+    )
+
+
+def _ontology_derive_list() -> str:
+    from agent_utilities.knowledge_graph.ontology.derived_properties import (
+        DEFAULT_DERIVED_REGISTRY,
+    )
+
+    return json.dumps(
+        [
+            {
+                "name": d.name,
+                "object_type": d.object_type,
+                "backing": str(d.backing),
+                "output_type": str(d.output_type),
+                "description": d.description,
+            }
+            for d in DEFAULT_DERIVED_REGISTRY.list_all()
+        ],
+        default=str,
+    )
+
+
+def _ontology_derive_compute(object_json: str, name: str, object_type: str) -> str:
+    ont = kg_server._ontology_system()
+    obj = json.loads(object_json) if object_json else {}
+    res = ont.derive(obj, name, object_type=object_type or None)
+    return json.dumps(res.model_dump(), default=str)
+
+
+def _ontology_derive_compute_all(object_json: str, object_type: str) -> str:
+    ont = kg_server._ontology_system()
+    obj = json.loads(object_json) if object_json else {}
+    return json.dumps(ont.derive_all(obj, object_type=object_type or None), default=str)
+
+
 def register_ontology_tools(mcp):
     """Register the ontology_tools group on the given FastMCP server."""
 
@@ -2611,73 +2680,17 @@ def register_ontology_tools(mcp):
         ),
     ) -> str:
         """Compute derived properties / discover or generate ontology extensions."""
-        from agent_utilities.knowledge_graph.ontology.derived_properties import (
-            DEFAULT_DERIVED_REGISTRY,
-        )
-
         try:
             if action == "discover_extensions":
-                # Ontology-aware schema discovery (KG-2.259): propose .ttl extensions
-                # from a text sample, diffed against the live ontology. Human/SHACL-
-                # gated — returns a proposal, never auto-merges.
-                from agent_utilities.knowledge_graph.enrichment.cards import (
-                    make_lite_llm_fn,
-                )
-                from agent_utilities.knowledge_graph.extraction.schema_discovery import (
-                    discover_schema_extensions,
-                    discovery_report,
-                )
-
-                texts = [sample_text] if sample_text else []
-                discovered = discover_schema_extensions(
-                    texts, object_type or "document", make_lite_llm_fn()
-                )
-                return json.dumps(discovery_report(discovered), default=str)
+                return _ontology_derive_discover_extensions(sample_text, object_type)
             if action == "generate":
-                # From-scratch ontology generator (Ontology-Playground coverage
-                # row #13): the SAME schema-discovery LLM path as
-                # 'discover_extensions', run against an EMPTY base — a complete
-                # standalone Interface/LinkType proposal, never a diff vs the
-                # live ontology. Never auto-applied/merged (respects the
-                # platform's gated-.ttl governance, same as 'discover_extensions').
-                from agent_utilities.knowledge_graph.enrichment.cards import (
-                    make_lite_llm_fn,
-                )
-                from agent_utilities.knowledge_graph.extraction.schema_discovery import (
-                    generate_standalone_ontology,
-                    ontology_generation_report,
-                )
-
-                texts = [sample_text] if sample_text else []
-                discovered = generate_standalone_ontology(
-                    texts, object_type, make_lite_llm_fn()
-                )
-                return json.dumps(
-                    ontology_generation_report(discovered, domain_hint=object_type),
-                    default=str,
-                )
+                return _ontology_derive_generate(sample_text, object_type)
             if action == "list":
-                return json.dumps(
-                    [
-                        {
-                            "name": d.name,
-                            "object_type": d.object_type,
-                            "backing": str(d.backing),
-                            "output_type": str(d.output_type),
-                            "description": d.description,
-                        }
-                        for d in DEFAULT_DERIVED_REGISTRY.list_all()
-                    ],
-                    default=str,
-                )
-            ont = kg_server._ontology_system()
-            obj = json.loads(object_json) if object_json else {}
-            otype = object_type or None
+                return _ontology_derive_list()
             if action == "compute":
-                res = ont.derive(obj, name, object_type=otype)
-                return json.dumps(res.model_dump(), default=str)
+                return _ontology_derive_compute(object_json, name, object_type)
             if action == "compute_all":
-                return json.dumps(ont.derive_all(obj, object_type=otype), default=str)
+                return _ontology_derive_compute_all(object_json, object_type)
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
