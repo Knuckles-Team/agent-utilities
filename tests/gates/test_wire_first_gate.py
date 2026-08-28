@@ -13,6 +13,7 @@ flag — ``scripts/`` is not a package, so ``importlib`` loads it by path.
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 
@@ -427,16 +428,18 @@ def test_symbol_gate_scoped_resolution_still_trips_when_the_collision_partner_ha
 
 
 # ---------------------------------------------------------------------------
-# Regression lock — the real repo's ratchet must stay green
+# Regression lock — the real repo must stay green with nothing new since HEAD
 # ---------------------------------------------------------------------------
 
 
-def test_gate_report_passes_against_the_frozen_repo_baseline():
-    """The combined report must exit 0 against the real repo as long as
-    nothing NEW beyond the frozen baseline was introduced — the regression
-    lock proving the ratchet mechanics work end-to-end, not just on
-    synthetic fixtures (mirrors ``test_swallowed_errors_gate.py``'s
-    equivalent test)."""
+def test_gate_passes_on_the_real_repo():
+    """The combined report must exit 0 against the real repo with a clean
+    tree — the regression lock proving the census + absolute-zero +
+    diff-scoped mechanics work end-to-end, not just on synthetic fixtures
+    (mirrors ``test_swallowed_errors_gate.py``'s equivalent test). This is
+    NOT a claim the repo has no test-only symbols — it has 1107, and the
+    gate prints all of them every run. It is a claim that leaving them
+    alone does not fail."""
     import subprocess
 
     result = subprocess.run(
@@ -446,3 +449,152 @@ def test_gate_report_passes_against_the_frozen_repo_baseline():
         cwd=ROOT,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Extraction-invariance — WD4-RAT-02's key question for this gate
+# ---------------------------------------------------------------------------
+
+
+def _symbol_keys_for(root, src_text: str, test_text: str) -> set[str]:
+    root.mkdir(parents=True)
+    src_dir = root / "agent_utilities"
+    src_dir.mkdir()
+    (src_dir / "foo.py").write_text(src_text)
+    tests_dir = root / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_foo.py").write_text(test_text)
+    findings = check_wiring.find_test_only_symbols(
+        src_dir=src_dir, tests_dir=tests_dir, display_root=root
+    )
+    return {check_wiring._finding_key(e) for e in findings}
+
+
+_BAR_TEST = (
+    "from agent_utilities.foo import Foo\n\n"
+    "def test_x():\n"
+    "    assert Foo().bar() == 1\n"
+)
+
+
+def test_symbol_key_survives_extraction_into_a_new_nested_helper(tmp_path):
+    """The regression this gate's replacement was measured against, not
+    assumed. The retired swallowed-error baseline keyed on the ENCLOSING
+    SYMBOL, so a handler moved by extraction from ``create_agent`` into
+    ``create_agent._setup_mcp_url_toolset`` re-keyed as brand-new debt (37
+    phantom findings, D-SWG-1). This gate's key is ``(file, symbol,
+    ordinal)`` where ``symbol`` for a method IS ``Class.method`` — the
+    question is whether the SAME complexity-collapse technique (moving a
+    flagged method's body into a NEW NESTED PRIVATE helper defined inside
+    it) perturbs it. It must not: nested defs are invisible to
+    ``_public_top_level_defs``/``_public_methods`` in the first place, so
+    ``Foo.bar`` itself is untouched by the refactor."""
+    before = _symbol_keys_for(
+        tmp_path / "before",
+        "class Foo:\n    def bar(self):\n        return 1\n",
+        _BAR_TEST,
+    )
+    after = _symbol_keys_for(
+        tmp_path / "after",
+        "class Foo:\n"
+        "    def bar(self):\n"
+        "        def _bar_compute():\n"
+        "            return 1\n"
+        "        return _bar_compute()\n",
+        _BAR_TEST,
+    )
+    assert before == after, (
+        f"extraction into a new nested private helper must not manufacture "
+        f"a phantom finding: {before} vs {after}"
+    )
+
+
+def test_symbol_key_does_change_on_a_genuine_enclosing_class_rename(tmp_path):
+    """The other half, proving the invariance test above is not vacuous: a
+    GENUINE rename of the enclosing class (a different, much rarer operation
+    than private-helper extraction, and not the technique the
+    complexity-collapse program's automation applies) DOES change the key —
+    documented and expected, the same residual D-SWG-1-class instability the
+    module docstring names, not silently swept under the rug."""
+    before = _symbol_keys_for(
+        tmp_path / "before",
+        "class Foo:\n    def bar(self):\n        return 1\n",
+        _BAR_TEST,
+    )
+    after = _symbol_keys_for(
+        tmp_path / "after",
+        "class FooRenamed:\n    def bar(self):\n        return 1\n",
+        (
+            "from agent_utilities.foo import FooRenamed\n\n"
+            "def test_x():\n"
+            "    assert FooRenamed().bar() == 1\n"
+        ),
+    )
+    assert before != after, "a genuine class rename is expected to re-key"
+
+
+# ---------------------------------------------------------------------------
+# Retired flag
+# ---------------------------------------------------------------------------
+
+
+def test_update_wire_first_baseline_flag_is_retired():
+    """The retired flag must REFUSE, not silently do nothing — the same
+    convention the liveness/complexity/swallowed-error gates adopted when
+    their baselines were removed."""
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--update-wire-first-baseline"],
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+    )
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "RETIRED" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# GIT_DIR/GIT_INDEX_FILE ambient-env hazard (found by WD4-RAT-02's own plant
+# proof under exported GIT_DIR/GIT_INDEX_FILE, not assumed)
+# ---------------------------------------------------------------------------
+
+
+def test_snapshot_symbol_scan_survives_ambient_git_dir_env(tmp_path, monkeypatch):
+    """git sets GIT_DIR/GIT_INDEX_FILE/GIT_WORK_TREE in every hook
+    subprocess (BUG-043/BUG-180). Left in the environment while scanning a
+    bare ``git archive`` extraction (not a git repo itself),
+    ``_tracked_or_walked``'s git-ls-files preference silently resolves
+    against the AMBIENT (real) repository instead of erroring "not a git
+    repository", and ``_scan_snapshot_for_test_only_symbols`` used to trust
+    that wrong non-empty result — manufacturing a near-empty au_sources/
+    tests set and reading EVERY current finding as new. Reproduced directly
+    against the fixed function, without paying for a full repo scan: a real
+    ambient GIT_DIR/GIT_INDEX_FILE (this very repo's own) must not blank out
+    a scan of an unrelated synthetic snapshot directory. Found by running
+    this exact scenario end to end (plant present, exported GIT_DIR/
+    GIT_INDEX_FILE): 1 genuinely new finding read as 1108 (the entire
+    backlog) before the fix in ``_scan_snapshot_for_test_only_symbols``."""
+    snapshot = tmp_path / "snapshot"
+    src_dir = snapshot / "agent_utilities"
+    src_dir.mkdir(parents=True)
+    (src_dir / "foo.py").write_text(
+        "class Foo:\n    def bar(self):\n        return 1\n"
+    )
+    tests_dir = snapshot / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_foo.py").write_text(_BAR_TEST)
+
+    real_git_dir = subprocess.run(
+        ["git", "rev-parse", "--absolute-git-dir"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    monkeypatch.setenv("GIT_DIR", real_git_dir)
+    monkeypatch.setenv("GIT_INDEX_FILE", f"{real_git_dir}/index")
+
+    findings = check_wiring._scan_snapshot_for_test_only_symbols(snapshot)
+    symbols = {f["symbol"] for f in findings}
+    assert "Foo.bar" in symbols, (
+        "ambient GIT_DIR/GIT_INDEX_FILE must not blank out the snapshot scan"
+    )

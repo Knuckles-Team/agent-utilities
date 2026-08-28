@@ -17,7 +17,7 @@ the gate's own report), not by this unit test.
 from __future__ import annotations
 
 import importlib.util
-import json
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -136,114 +136,105 @@ def test_allowlisted_doc_paths_are_never_findings(gate):
 # --- the checker's actual FAIL/PASS verdict (exit code / structured result) -
 
 
-def test_checker_fails_on_undocumented_route(gate):
+def test_checker_flags_new_undocumented_route_vs_an_empty_head(gate):
     app = _app_with_undocumented_raw_route()
     findings = gate.compute_findings(app=app)
-    empty_baseline: dict[str, list[str]] = {
+    empty_head: dict[str, list[str]] = {
         "undocumented_routes": [],
         "missing_description": [],
     }
-    result = gate.evaluate(findings, empty_baseline)
-    assert result["exit_code"] == 1
-    assert "POST /api/graph/query" in result["undocumented_routes"]["new"]
+    new = gate._diff_new_findings(findings, empty_head)
+    assert "POST /api/graph/query" in new["undocumented_routes"]
 
 
-def test_checker_passes_on_documented_route(gate):
+def test_checker_reports_nothing_new_on_documented_route(gate):
     app = _app_with_documented_route()
     findings = gate.compute_findings(app=app)
-    empty_baseline: dict[str, list[str]] = {
+    empty_head: dict[str, list[str]] = {
         "undocumented_routes": [],
         "missing_description": [],
     }
-    result = gate.evaluate(findings, empty_baseline)
-    assert result["exit_code"] == 0
-    assert result["undocumented_routes"]["new"] == []
-    assert result["missing_description"]["new"] == []
+    new = gate._diff_new_findings(findings, empty_head)
+    assert new["undocumented_routes"] == []
+    assert new["missing_description"] == []
 
 
-# --- the baseline ratchet itself --------------------------------------------
+# --- diff-scoped comparison against HEAD (the ratchet's replacement) -------
 
 
-def test_new_route_beyond_baseline_fails(gate):
-    """A baseline that already accepts a DIFFERENT undocumented route must
-    still fail when a NEW, unbaselined one shows up."""
+def test_new_route_absent_from_head_is_new(gate):
+    """A HEAD finding-set missing this route entirely must report it as
+    NEW — mirrors the retired ratchet's "unbaselined -> fails" behavior,
+    now expressed as "absent at HEAD -> fails"."""
     app = _app_with_undocumented_raw_route()
     findings = gate.compute_findings(app=app)
-    baseline_missing_this_route: dict[str, list[str]] = {
+    head_missing_this_route: dict[str, list[str]] = {
         "undocumented_routes": ["GET /api/some/other/pre-existing/route"],
         "missing_description": [],
     }
-    result = gate.evaluate(findings, baseline_missing_this_route)
-    assert result["exit_code"] == 1
-    assert "POST /api/graph/query" in result["undocumented_routes"]["new"]
+    new = gate._diff_new_findings(findings, head_missing_this_route)
+    assert "POST /api/graph/query" in new["undocumented_routes"]
 
 
-def test_same_count_against_matching_baseline_passes(gate):
-    """The exact same finding, once accepted into the baseline, must pass —
-    proving the ratchet is set-based (not merely a count), and that fixing
-    it is provable too (baselined-but-no-longer-current -> reported as
-    'fixed', never re-flagged as new)."""
+def test_same_finding_present_at_head_is_not_new(gate):
+    """The exact same finding, already present at HEAD, must NOT be
+    reported as new — proving the comparison is set-based (not merely a
+    count) and that fixing it is provable too: once the route is mounted
+    correctly, it simply no longer appears in either set."""
     app = _app_with_undocumented_raw_route()
     findings = gate.compute_findings(app=app)
-    baseline_with_this_route: dict[str, list[str]] = {
+    head_with_this_route: dict[str, list[str]] = {
         "undocumented_routes": ["POST /api/graph/query"],
         "missing_description": [],
     }
-    result = gate.evaluate(findings, baseline_with_this_route)
-    assert result["exit_code"] == 0
-    assert result["undocumented_routes"]["new"] == []
-    assert result["undocumented_routes"]["baselined"] == 1
+    new = gate._diff_new_findings(findings, head_with_this_route)
+    assert new["undocumented_routes"] == []
 
-    # Now prove the OTHER direction: fixing the route (mounting it correctly)
-    # against the SAME baseline reports it as fixed, not as a new problem.
+    # Now prove the OTHER direction: fixing the route (mounting it
+    # correctly) against the SAME head set reports nothing new either — it
+    # simply isn't in the CURRENT set any more.
     fixed_app = _app_with_documented_route()
     fixed_findings = gate.compute_findings(app=fixed_app)
-    fixed_result = gate.evaluate(fixed_findings, baseline_with_this_route)
-    assert fixed_result["exit_code"] == 0
-    assert fixed_result["undocumented_routes"]["fixed"] == ["POST /api/graph/query"]
+    fixed_new = gate._diff_new_findings(fixed_findings, head_with_this_route)
+    assert fixed_new["undocumented_routes"] == []
 
 
-def test_baseline_set_ratchet_is_not_fooled_by_matching_count(gate):
-    """A count-only ratchet would be fooled by route A becoming documented
-    while route B (never seen before) becomes undocumented, net count
-    unchanged. This gate is set-based: prove that exact swap still fails."""
+def test_diff_is_not_fooled_by_a_matching_count(gate):
+    """A count-only comparison would be fooled by route A becoming
+    documented while route B (never seen before) becomes undocumented, net
+    count unchanged. This comparison is set-based: prove that exact swap
+    still reports the new member."""
     app = FastAPI(title="probe")
     app.add_route("/api/brand/new/route", _raw_handler, methods=["POST"])
     findings = gate.compute_findings(app=app)
-    # Baseline accepts ONE undocumented route, but a DIFFERENT one than the
-    # app actually has — same count (1), different member.
-    baseline_same_count_different_route: dict[str, list[str]] = {
+    # HEAD has ONE undocumented route, but a DIFFERENT one than the app
+    # actually has now — same count (1), different member.
+    head_same_count_different_route: dict[str, list[str]] = {
         "undocumented_routes": ["POST /api/graph/query"],
         "missing_description": [],
     }
-    result = gate.evaluate(findings, baseline_same_count_different_route)
-    assert result["exit_code"] == 1
-    assert result["undocumented_routes"]["new"] == ["POST /api/brand/new/route"]
-    assert result["undocumented_routes"]["fixed"] == ["POST /api/graph/query"]
+    new = gate._diff_new_findings(findings, head_same_count_different_route)
+    assert new["undocumented_routes"] == ["POST /api/brand/new/route"]
 
 
-# --- baseline file round-trip (--update-baseline) ---------------------------
+# --- retired flag ------------------------------------------------------
 
 
-def test_update_baseline_writes_current_findings_and_gate_then_passes(gate, tmp_path):
-    app = _app_with_undocumented_raw_route()
-    findings = gate.compute_findings(app=app)
-
-    baseline_path = tmp_path / "openapi_coverage_baseline.json"
-    original = gate.BASELINE
-    try:
-        gate.BASELINE = baseline_path
-        gate._write_baseline(findings)
-        assert baseline_path.exists()
-
-        written = json.loads(baseline_path.read_text(encoding="utf-8"))
-        assert written["undocumented_routes"] == ["POST /api/graph/query"]
-
-        reloaded = gate._load_baseline()
-        result = gate.evaluate(findings, reloaded)
-        assert result["exit_code"] == 0
-    finally:
-        gate.BASELINE = original
+def test_update_baseline_flag_is_retired():
+    """The retired flag must REFUSE, not silently do nothing — the same
+    convention the liveness/complexity/swallowed-error/wire-first gates
+    adopted when their baselines were removed."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).parents[3] / "scripts" / "check_openapi_coverage.py"),
+            "--update-baseline",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "RETIRED" in result.stderr
 
 
 # --- real allowlist entries used by the production script ------------------
