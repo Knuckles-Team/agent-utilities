@@ -61,7 +61,7 @@ import secrets
 import shlex
 import subprocess
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -542,6 +542,76 @@ def _changed_paths(repo: Path) -> tuple[tuple[str, ...], str, str, bool]:
     return (), head, "", False
 
 
+def _autosync_disabled_result(config: AutosyncConfig) -> dict[str, Any] | None:
+    if not config.enabled:
+        return {
+            "action": "skipped",
+            "why": "autosync is off (`autosync on` enables it)",
+        }
+    return None
+
+
+def _live_checkout_guard_result(
+    workspace: Workspace, repo: Path
+) -> dict[str, Any] | None:
+    if not _is_live_checkout(workspace, repo):
+        return {
+            "action": "skipped",
+            "why": (
+                f"{repo} is not the checkout installed into {workspace.venv}; "
+                "merging in a linked worktree does not change what is live"
+            ),
+        }
+    return None
+
+
+def _resolve_trigger_branch(
+    repo: Path, config: AutosyncConfig
+) -> tuple[str, dict[str, Any] | None]:
+    """Return ``(branch, skip_result)`` — ``skip_result`` is ``None`` when the
+    branch was read AND is one of ``config.flip_branches``."""
+
+    try:
+        branch = _git(repo, "rev-parse", "--abbrev-ref", "HEAD")
+    except VenvSyncError as exc:
+        return "", {"action": "skipped", "why": f"could not read the branch: {exc}"}
+    if branch not in config.flip_branches:
+        return branch, {
+            "action": "skipped",
+            "why": f"branch {branch!r} is not one of {list(config.flip_branches)}",
+        }
+    return branch, None
+
+
+def _resolve_source_only_change_class(
+    workspace: Workspace,
+    repo: Path,
+    branch: str,
+    paths: tuple[str, ...],
+) -> tuple[str, str, dict[str, Any] | None]:
+    """Downgrade a ``SOURCE_ONLY`` change class once every stale member install
+    is accounted for. Returns ``(change_class, note, early_result)`` —
+    ``early_result`` is not ``None`` when the whole trigger is already
+    satisfied (every editable member already imports the merged source) and
+    the caller must return it immediately without enqueuing an intent."""
+
+    stale = [s for s in member_install_states(workspace) if s.stale]
+    if not stale:
+        record = {
+            "action": "already-live",
+            "why": (
+                "source-only change in an editable member: it and every "
+                "downstream dependent already import the merged source"
+            ),
+            "repo": str(repo),
+            "branch": branch,
+            "changed": len(paths),
+        }
+        _record_run(workspace, record)
+        return SOURCE_ONLY, "", record
+    return METADATA, f"{len(stale)} member(s) already had stale install metadata", None
+
+
 def trigger(
     workspace: Workspace,
     repo: Path,
@@ -552,53 +622,29 @@ def trigger(
     """Handle one hook firing: decide, record, and (maybe) kick the reconciler."""
 
     config = load_config(workspace)
-    if not config.enabled:
-        return {
-            "action": "skipped",
-            "why": "autosync is off (`autosync on` enables it)",
-        }
+    skip = _autosync_disabled_result(config)
+    if skip is not None:
+        return skip
 
     repo = repo.resolve()
-    if not _is_live_checkout(workspace, repo):
-        return {
-            "action": "skipped",
-            "why": (
-                f"{repo} is not the checkout installed into {workspace.venv}; "
-                "merging in a linked worktree does not change what is live"
-            ),
-        }
+    skip = _live_checkout_guard_result(workspace, repo)
+    if skip is not None:
+        return skip
 
-    try:
-        branch = _git(repo, "rev-parse", "--abbrev-ref", "HEAD")
-    except VenvSyncError as exc:
-        return {"action": "skipped", "why": f"could not read the branch: {exc}"}
-    if branch not in config.flip_branches:
-        return {
-            "action": "skipped",
-            "why": f"branch {branch!r} is not one of {list(config.flip_branches)}",
-        }
+    branch, skip = _resolve_trigger_branch(repo, config)
+    if skip is not None:
+        return skip
 
     paths, head, previous, known = _changed_paths(repo)
     change_class = classify_change(paths) if known else METADATA
     note = "" if known else "changed paths unknown; escalated to metadata"
 
     if change_class == SOURCE_ONLY:
-        stale = [s for s in member_install_states(workspace) if s.stale]
-        if not stale:
-            record = {
-                "action": "already-live",
-                "why": (
-                    "source-only change in an editable member: it and every "
-                    "downstream dependent already import the merged source"
-                ),
-                "repo": str(repo),
-                "branch": branch,
-                "changed": len(paths),
-            }
-            _record_run(workspace, record)
-            return record
-        note = f"{len(stale)} member(s) already had stale install metadata"
-        change_class = METADATA
+        change_class, note, early = _resolve_source_only_change_class(
+            workspace, repo, branch, paths
+        )
+        if early is not None:
+            return early
 
     intent = Intent(
         id=f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')}-{secrets.randbelow(1 << 24):06x}",
@@ -676,6 +722,60 @@ def _spawn_reconciler(workspace: Workspace) -> int | None:
 _CLASS_RANK = {SOURCE_ONLY: 0, LOCK: 1, NATIVE: 2, METADATA: 3}
 
 
+def _apply_drain(
+    workspace: Workspace,
+    worst: Intent,
+    config: AutosyncConfig,
+    *,
+    ignore_activity: bool,
+    intents: Sequence[Intent],
+    payload: dict[str, Any],
+) -> tuple[bool, Any] | None:
+    """Run the exclusive-lock apply step for :func:`drain`, mutating ``payload``
+    in place. Returns ``(applied, verdict)`` on success, or ``None`` if the
+    lock was busy — in which case ``payload`` already holds the deferred
+    result and the caller must record + return it immediately."""
+
+    try:
+        with exclusive_lock(workspace):
+            if worst.change_class == METADATA and config.on_metadata_change == "relock":
+                upgrade_outcome = upgrade(
+                    workspace,
+                    all_packages=True,
+                    reason="merge flip: metadata change",
+                    ignore_activity=ignore_activity,
+                    hold_lock=False,
+                )
+                payload["upgrade"] = upgrade_outcome.as_dict()
+                return upgrade_outcome.ok, upgrade_outcome.verdict
+            sync_outcome = sync(
+                workspace,
+                reason=f"merge flip: {worst.change_class}",
+                apply=True,
+                ignore_activity=ignore_activity,
+                hold_lock=False,
+            )
+            payload["sync"] = sync_outcome.as_dict()
+            if (
+                worst.change_class == METADATA
+                and config.on_metadata_change == "propose"
+                and not sync_outcome.verdict.allowed
+            ):
+                payload["proposal"] = (
+                    "a merge changed packaging metadata, so uv.lock no longer "
+                    "matches the manifests. Review and apply it with "
+                    "`agent-utilities-venv relock` (backed up, verified, "
+                    "auto-rolled-back), or set on_metadata_change=relock to "
+                    "have this happen automatically."
+                )
+            return sync_outcome.verdict.allowed, sync_outcome.verdict
+    except LockBusyError as exc:
+        payload.update(
+            {"action": "deferred", "why": str(exc), "drained": 0, "kept": len(intents)}
+        )
+        return None
+
+
 def drain(workspace: Workspace, *, ignore_activity: bool = False) -> dict[str, Any]:
     """Apply every queued flip, under the same guardrails as any other mutation.
 
@@ -698,48 +798,18 @@ def drain(workspace: Workspace, *, ignore_activity: bool = False) -> dict[str, A
         "repos": sorted({i.repo for i in intents}),
     }
 
-    try:
-        with exclusive_lock(workspace):
-            if worst.change_class == METADATA and config.on_metadata_change == "relock":
-                upgrade_outcome = upgrade(
-                    workspace,
-                    all_packages=True,
-                    reason="merge flip: metadata change",
-                    ignore_activity=ignore_activity,
-                    hold_lock=False,
-                )
-                payload["upgrade"] = upgrade_outcome.as_dict()
-                applied = upgrade_outcome.ok
-                verdict = upgrade_outcome.verdict
-            else:
-                sync_outcome = sync(
-                    workspace,
-                    reason=f"merge flip: {worst.change_class}",
-                    apply=True,
-                    ignore_activity=ignore_activity,
-                    hold_lock=False,
-                )
-                payload["sync"] = sync_outcome.as_dict()
-                applied = sync_outcome.verdict.allowed
-                verdict = sync_outcome.verdict
-                if (
-                    worst.change_class == METADATA
-                    and config.on_metadata_change == "propose"
-                    and not sync_outcome.verdict.allowed
-                ):
-                    payload["proposal"] = (
-                        "a merge changed packaging metadata, so uv.lock no longer "
-                        "matches the manifests. Review and apply it with "
-                        "`agent-utilities-venv relock` (backed up, verified, "
-                        "auto-rolled-back), or set on_metadata_change=relock to "
-                        "have this happen automatically."
-                    )
-    except LockBusyError as exc:
-        payload.update(
-            {"action": "deferred", "why": str(exc), "drained": 0, "kept": len(intents)}
-        )
+    outcome = _apply_drain(
+        workspace,
+        worst,
+        config,
+        ignore_activity=ignore_activity,
+        intents=intents,
+        payload=payload,
+    )
+    if outcome is None:
         _record_run(workspace, payload)
         return payload
+    applied, verdict = outcome
 
     if applied or verdict.decision == ALLOW:
         _clear(workspace, intents)
@@ -761,88 +831,143 @@ def _resolve_repos(workspace: Workspace, requested: Sequence[str]) -> list[Path]
     return [member.path for member in workspace.members()]
 
 
-def dispatch(args: argparse.Namespace, workspace: Workspace, *, as_json: bool) -> int:
+def _dispatch_toggle(
+    args: argparse.Namespace,
+    workspace: Workspace,
+    config: AutosyncConfig,
+    *,
+    as_json: bool,
+) -> int:
     from agent_utilities.deployment.venv_sync import emit
 
-    action = args.action
+    config.enabled = args.action == "on"
+    save_config(workspace, config)
+    emit(
+        {
+            "enabled": config.enabled,
+            "config": str(_config_path(workspace)),
+            "note": (
+                "hooks stay installed either way; this switch alone turns the "
+                "auto-flip on and off"
+            ),
+        },
+        as_json=as_json,
+    )
+    return 0
+
+
+def _dispatch_status(
+    args: argparse.Namespace,
+    workspace: Workspace,
+    config: AutosyncConfig,
+    *,
+    as_json: bool,
+) -> int:
+    from agent_utilities.deployment.venv_sync import emit
+
+    backend = TRIGGER_BACKENDS["git-hook"]
+    repos = _resolve_repos(workspace, config.installed_repos)
+    statuses = []
+    for repo in repos:
+        try:
+            statuses.append(backend.status(workspace, repo))
+        except VenvSyncError as exc:
+            statuses.append({"repo": str(repo), "error": str(exc)})
+    emit(
+        {
+            "enabled": config.enabled,
+            "on_metadata_change": config.on_metadata_change,
+            "flip_branches": list(config.flip_branches),
+            "pending_intents": len(pending(workspace)),
+            "trigger_script": str(_trigger_script_path(workspace)),
+            "repos": statuses,
+        },
+        as_json=as_json,
+    )
+    return 0
+
+
+def _dispatch_install_uninstall(
+    args: argparse.Namespace,
+    workspace: Workspace,
+    config: AutosyncConfig,
+    *,
+    as_json: bool,
+) -> int:
+    from agent_utilities.deployment.venv_sync import emit
+
+    backend = TRIGGER_BACKENDS["git-hook"]
+    repos = _resolve_repos(workspace, args.repo)
+    results = []
+    installed = set(config.installed_repos)
+    for repo in repos:
+        try:
+            if args.action == "install":
+                results.append(backend.install(workspace, repo))
+                installed.add(str(repo))
+            else:
+                results.append(backend.uninstall(workspace, repo))
+                installed.discard(str(repo))
+        except VenvSyncError as exc:
+            results.append({"repo": str(repo), "error": str(exc)})
+    config.installed_repos = tuple(sorted(installed))
+    save_config(workspace, config)
+    emit(
+        {
+            "action": args.action,
+            "count": len(results),
+            "enabled": config.enabled,
+            "results": results,
+        },
+        as_json=as_json,
+    )
+    return 0
+
+
+def _dispatch_drain_action(
+    args: argparse.Namespace,
+    workspace: Workspace,
+    config: AutosyncConfig,
+    *,
+    as_json: bool,
+) -> int:
+    from agent_utilities.deployment.venv_sync import emit
+
+    emit(drain(workspace, ignore_activity=args.ignore_activity), as_json=as_json)
+    return 0
+
+
+def _dispatch_trigger_action(
+    args: argparse.Namespace,
+    workspace: Workspace,
+    config: AutosyncConfig,
+    *,
+    as_json: bool,
+) -> int:
+    from agent_utilities.deployment.venv_sync import emit
+
+    repo = Path(args.repo[0]) if args.repo else Path.cwd()
+    emit(
+        trigger(workspace, repo, event=args.event, inline=args.inline),
+        as_json=as_json,
+    )
+    return 0
+
+
+_AUTOSYNC_DISPATCH: dict[str, Callable[..., int]] = {
+    "on": _dispatch_toggle,
+    "off": _dispatch_toggle,
+    "status": _dispatch_status,
+    "install": _dispatch_install_uninstall,
+    "uninstall": _dispatch_install_uninstall,
+    "drain": _dispatch_drain_action,
+    "trigger": _dispatch_trigger_action,
+}
+
+
+def dispatch(args: argparse.Namespace, workspace: Workspace, *, as_json: bool) -> int:
     config = load_config(workspace)
-
-    if action in ("on", "off"):
-        config.enabled = action == "on"
-        save_config(workspace, config)
-        emit(
-            {
-                "enabled": config.enabled,
-                "config": str(_config_path(workspace)),
-                "note": (
-                    "hooks stay installed either way; this switch alone turns the "
-                    "auto-flip on and off"
-                ),
-            },
-            as_json=as_json,
-        )
-        return 0
-
-    if action == "status":
-        backend = TRIGGER_BACKENDS["git-hook"]
-        repos = _resolve_repos(workspace, config.installed_repos)
-        statuses = []
-        for repo in repos:
-            try:
-                statuses.append(backend.status(workspace, repo))
-            except VenvSyncError as exc:
-                statuses.append({"repo": str(repo), "error": str(exc)})
-        emit(
-            {
-                "enabled": config.enabled,
-                "on_metadata_change": config.on_metadata_change,
-                "flip_branches": list(config.flip_branches),
-                "pending_intents": len(pending(workspace)),
-                "trigger_script": str(_trigger_script_path(workspace)),
-                "repos": statuses,
-            },
-            as_json=as_json,
-        )
-        return 0
-
-    if action in ("install", "uninstall"):
-        backend = TRIGGER_BACKENDS["git-hook"]
-        repos = _resolve_repos(workspace, args.repo)
-        results = []
-        installed = set(config.installed_repos)
-        for repo in repos:
-            try:
-                if action == "install":
-                    results.append(backend.install(workspace, repo))
-                    installed.add(str(repo))
-                else:
-                    results.append(backend.uninstall(workspace, repo))
-                    installed.discard(str(repo))
-            except VenvSyncError as exc:
-                results.append({"repo": str(repo), "error": str(exc)})
-        config.installed_repos = tuple(sorted(installed))
-        save_config(workspace, config)
-        emit(
-            {
-                "action": action,
-                "count": len(results),
-                "enabled": config.enabled,
-                "results": results,
-            },
-            as_json=as_json,
-        )
-        return 0
-
-    if action == "drain":
-        emit(drain(workspace, ignore_activity=args.ignore_activity), as_json=as_json)
-        return 0
-
-    if action == "trigger":
-        repo = Path(args.repo[0]) if args.repo else Path.cwd()
-        emit(
-            trigger(workspace, repo, event=args.event, inline=args.inline),
-            as_json=as_json,
-        )
-        return 0
-
-    raise VenvSyncError(f"unhandled autosync action {action!r}")
+    handler = _AUTOSYNC_DISPATCH.get(args.action)
+    if handler is None:
+        raise VenvSyncError(f"unhandled autosync action {args.action!r}")
+    return handler(args, workspace, config, as_json=as_json)
