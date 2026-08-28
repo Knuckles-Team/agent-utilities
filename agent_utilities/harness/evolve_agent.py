@@ -1375,7 +1375,8 @@ class EvolveAgent:
         record, proposal_path, error = self._load_proposal_for_approval(proposal_id)
         if error is not None:
             return error
-        assert record is not None
+        if record is None:
+            return {"approved": False, "error": "proposal_ref_invalid"}
 
         compiled_state = record.get("program_compiled_state") or {}
         if not compiled_state:

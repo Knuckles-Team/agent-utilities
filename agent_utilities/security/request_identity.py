@@ -669,7 +669,11 @@ def _fetch_process_identity_token(token_ref: str, oauth2: Any) -> str:
             return resolve_runtime_secret_reference(token_ref)
         from .oauth_client_credentials import build_provider_from_config
 
-        assert oauth2 is not None  # guaranteed by the XOR check above
+        if oauth2 is None:
+            raise RuntimeError(
+                "No graph process identity source configured: expected "
+                "KG_IDENTITY_OAUTH2 when KG_AUTH_TOKEN_REF is unset"
+            )
         return build_provider_from_config(oauth2).get_token()
     except Exception as exc:
         # BUG-PE-028: was `from None`, discarding the real cause (a
@@ -852,21 +856,27 @@ def _extract_prevalidated_claims(scope: Any) -> Any:
     return state.get("user_claims") if isinstance(state, dict) else None
 
 
-async def _mint_request_session(
-    actor: ActorContext, send: Any
-) -> tuple[GraphSession | None, bool]:
-    """``(session, handled)`` — mints the server-owned GraphSession or sends
-    the matching 401/403 and reports ``handled=True``."""
+async def _mint_request_session(actor: ActorContext, send: Any) -> GraphSession | None:
+    """The server-owned GraphSession, or ``None`` once the matching 401/403 has
+    already been sent.
+
+    A ``None`` return therefore means "response already handled" — the caller
+    must return immediately. The previous shape returned ``(session, handled)``,
+    but ``handled`` was exactly ``session is None`` on every path, and the caller
+    needed a narrowing ``assert`` to use the session. ``assert`` is stripped
+    under ``-O``, which on this authenticated dispatch path would have let a
+    ``None`` session reach the route; making the check load-bearing removes that.
+    """
     from agent_utilities.knowledge_graph.core.session import SessionExpiredError
 
     try:
-        return mint_graph_session(actor), False
+        return mint_graph_session(actor)
     except SessionExpiredError:
         await _send_json(send, 401, {"error": "Bearer credential expired"})
-        return None, True
+        return None
     except PermissionError:
         await _send_json(send, 403, {"error": "Verified tenant claim required"})
-        return None, True
+        return None
 
 
 class ActorIdentityMiddleware:
@@ -995,10 +1005,9 @@ class ActorIdentityMiddleware:
         # The authenticated request establishes both ambient currencies.  The
         # session is minted here, outside every served route, so async tasks and
         # worker-thread dispatch inherit one immutable, verified authority.
-        session, handled = await _mint_request_session(actor, send)
-        if handled:
+        session = await _mint_request_session(actor, send)
+        if session is None:
             return
-        assert session is not None  # guaranteed by _mint_request_session's contract
 
         await self._dispatch_authenticated(scope, receive, send, actor, session)
 
