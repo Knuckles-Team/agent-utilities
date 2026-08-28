@@ -13,6 +13,7 @@ automated fallback strategies for resilience in production workflows.
 import asyncio
 import logging
 import os
+from dataclasses import dataclass
 from typing import Any, NamedTuple, cast
 
 from pydantic_ai import DeferredToolRequests
@@ -1225,422 +1226,41 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
     from contextlib import AsyncExitStack
 
     async with AsyncExitStack() as stack:
-        # Bind the specific subset of MCP tools (with deduplication)
-        bound_tool_count = 0
-        actually_bound_tools: list[str] = []
-        matched_toolsets: list[Any] = []
-        _seen_toolset_ids: set[int] = set()
-
-        for toolset in ctx.deps.mcp_toolsets:
-            ts_identity = id(toolset)
-            if ts_identity in _seen_toolset_ids:
-                continue
-
-            server_id = getattr(toolset, "id", getattr(toolset, "name", None))
-            if server_id:
-                target = (agent_info.mcp_server or "").lower().replace("-", "_")
-                current = server_id.lower().replace("-", "_")
-
-                if (
-                    current == target
-                    or current.startswith(f"{target}_")
-                    or target.startswith(f"{current}_")
-                ):
-                    _seen_toolset_ids.add(ts_identity)
-                    matched_toolsets.append(toolset)
-
-                    if hasattr(toolset, "tools"):
-                        for t_name in toolset.tools.keys():
-                            if t_name not in actually_bound_tools:
-                                actually_bound_tools.append(t_name)
-                        bound_tool_count += len(toolset.tools)
-                    else:
-                        bound_tool_count += len(total_tools)
-
-                    logger.info(
-                        f"[LAYER:GRAPH:EXPERT] Bound toolset '{server_id}' to expert '{agent_info.name}'"
-                    )
-
-        target_server_name = (agent_info.mcp_server or "").lower().replace("-", "_")
-        if target_server_name and not matched_toolsets:
-            try:
-                from pydantic_ai.mcp import load_mcp_toolsets
-
-                from agent_utilities.core.workspace import resolve_mcp_config_path
-                from agent_utilities.mcp.protocol_compat import (
-                    force_legacy_protocol_mode,
-                    install_mcp_v2_bridge,
-                )
-
-                install_mcp_v2_bridge()
-
-                mcp_path = resolve_mcp_config_path(None)
-                if mcp_path and mcp_path.exists():
-                    all_servers = force_legacy_protocol_mode(
-                        load_mcp_toolsets(mcp_path)
-                    )
-                    for srv in all_servers:
-                        srv_id = getattr(srv, "id", getattr(srv, "name", str(srv)))
-                        current = srv_id.lower().replace("-", "_")
-                        if (
-                            current == target_server_name
-                            or current.startswith(f"{target_server_name}_")
-                            or target_server_name.startswith(f"{current}_")
-                        ):
-                            logger.info(
-                                f"[LAYER:GRAPH:EXPERT] Lazy loading MCP server '{srv_id}' for expert '{agent_info.name}'"
-                            )
-                            await stack.enter_async_context(srv)
-                            matched_toolsets.append(srv)
-                            _tools = getattr(srv, "tools", {})
-                            for t_name in (
-                                _tools.keys() if hasattr(_tools, "keys") else []
-                            ):
-                                if t_name not in actually_bound_tools:
-                                    actually_bound_tools.append(t_name)
-                            bound_tool_count += len(_tools)
-                            break
-            except Exception as e:
-                logger.warning(
-                    f"Failed to lazy load MCP server '{target_server_name}': {e}"
-                )
-
-        # Bind MCP toolsets to the mandatory caller identity policy. Approval
-        # decisions trigger DeferredToolRequests; policy denials fail closed.
-        from agent_utilities.security.tool_guard import flag_mcp_tool_definitions
-
-        guarded_toolsets = flag_mcp_tool_definitions(
+        (
             matched_toolsets,
-            permissions_kernel=ctx.deps.permissions_kernel,
-            agent_identity=ctx.deps.agent_identity,
-            engine=ctx.deps.knowledge_engine,
+            bound_tool_count,
+            actually_bound_tools,
+        ) = await _bind_specialist_toolsets(ctx, stack, agent_info, total_tools)
+
+        agent = _build_guarded_specialist_agent(ctx, agent_sys_prompt, matched_toolsets)
+
+        _emit_tool_binding_telemetry(
+            ctx, agent_info, bound_tool_count, actually_bound_tools, matched_toolsets
         )
 
-        # Include DeferredToolRequests in output type so the agent can defer
-        # sensitive tool calls instead of failing.
-
-        from pydantic_ai import DeferredToolRequests
-
-        # CONCEPT:AU-ORCH.session.invoker-agent-handoff — enforce the invoker's least-privilege tool allow-list (if any).
-        _scoped_tools, guarded_toolsets = apply_tool_scope(
-            ctx.state, [], guarded_toolsets
-        )
-
-        # `ctx.deps.agent_model` resolves to `Any` (GraphDeps.agent_model, like the
-        # rest of this generic pydantic-graph state — see the module-level mypy
-        # override for this file), which combined with the `output_type=[...]` list
-        # form and the generic AgentDepsT/OutputDataT inference doesn't land on any
-        # single Agent() overload. Tracked with the file's other pydantic-graph
-        # generic-typing debt (mypy-remediation-plan.md Phase 2), not a runtime bug.
-        agent = create_context_agent(
-            model=ctx.deps.agent_model,
-            permissions_kernel=ctx.deps.permissions_kernel,
-            agent_identity=ctx.deps.agent_identity,
-            permission_engine=ctx.deps.knowledge_engine,
-            system_prompt=agent_sys_prompt,
-            deps_type=GraphDeps,
-            toolsets=guarded_toolsets,
-            output_type=[str, DeferredToolRequests],
-            end_strategy="early",
-        )
-
-        # Tool-count telemetry: surfaces blind or overloaded adaptive_agent_router
-        emit_graph_event(
-            ctx.deps.event_queue,
-            "tools_bound",
-            expert=agent_info.name,
-            count=bound_tool_count,
-            tools=actually_bound_tools,
-            toolset_count=len(matched_toolsets),
-        )
-
-        if bound_tool_count == 0:
-            logger.warning(
-                f"[TELEMETRY] Specialist '{agent_info.name}' has ZERO tools bound "
-                f"(server='{agent_info.mcp_server}'). Agent will run blind."
-            )
-            emit_graph_event(
-                ctx.deps.event_queue,
-                "expert_warning",
-                message=f"No tools bound for server '{agent_info.mcp_server}'. Agent may be blind.",
-            )
-        elif bound_tool_count > 50:
-            logger.warning(
-                f"[TELEMETRY] Specialist '{agent_info.name}' has {bound_tool_count} tools "
-                f"bound — consider partitioning to reduce context overhead."
-            )
-        else:
-            logger.info(
-                f"[TELEMETRY] Specialist '{agent_info.name}': "
-                f"{bound_tool_count} tools across {len(matched_toolsets)} toolset(s)"
-            )
-
-        # Build Query
-        sub_query = ctx.state.query
-        step_input = ctx.inputs
-        # CONCEPT:AU-ORCH.planning.recursion-nesting-depth — Prefer refined subtask over raw query
-        if isinstance(step_input, ExecutionStep) and step_input.refined_subtask:
-            sub_query = step_input.refined_subtask
-            logger.info(
-                "[CONCEPT:AU-ORCH.planning.recursion-nesting-depth] Using refined subtask for '%s': '%s'",
-                agent_info.name,
-                sub_query[:100],
-            )
-        elif isinstance(step_input, ExecutionStep) and step_input.description:
-            if isinstance(step_input.description, dict):
-                sub_query = step_input.description.get("question", sub_query)
-            elif isinstance(step_input.description, str):
-                sub_query = step_input.description
-
-        # Execute with Per-Node Timeout and Retries
-        node_timeout = 120.0
-        if isinstance(step_input, ExecutionStep):
-            node_timeout = step_input.timeout
+        sub_query, node_timeout = _resolve_specialist_query_and_timeout(ctx, agent_info)
 
         # Retrieve cached message history for re-dispatch context
         cache_key = agent_info.name.lower().replace(" ", "_")
         prev_messages = ctx.deps.message_history_cache.get(cache_key)
 
         max_attempts = 3
-        last_error = None
-        attempt_no = 0
+        state = _SpecialistDispatchState(
+            ctx=ctx,
+            agent_info=agent_info,
+            agent=agent,
+            agent_sys_prompt=agent_sys_prompt,
+            sub_query=sub_query,
+            node_timeout=node_timeout,
+            cache_key=cache_key,
+            prev_messages=prev_messages,
+            server_name=server_name,
+            agent_name=agent_name,
+            max_attempts=max_attempts,
+        )
 
-        async def _dispatch_specialist_once() -> str:
-            nonlocal last_error, attempt_no
-            attempt_no += 1
-            emit_graph_event(
-                ctx.deps.event_queue,
-                "expert_thinking",
-                expert=agent_info.name,
-                attempt=attempt_no,
-            )
-            try:
-                logger.info(
-                    f"[LAYER:GRAPH:EXPERT] '{agent_info.name}' LLM Call Starting (attempt {attempt_no}). Prompt length: {len(agent_sys_prompt)}"
-                )
-                # Wrap user query in XML tags to protect against prompt injection
-                # and provide clear boundaries for the model.
-                raw_input = (
-                    ctx.state.query_parts
-                    if ctx.state.query_parts and sub_query == ctx.state.query
-                    else sub_query
-                )
-                run_input = (
-                    f"<user_query>\n{raw_input}\n</user_query>"
-                    if isinstance(raw_input, str)
-                    else raw_input
-                )
-                # CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating — Declarative Resilience Policy.
-                # The single per-node-timeout LLM call is wrapped in the
-                # declarative retry/backoff/timeout policy so transient model
-                # or tool errors (TimeoutError/ConnectionError) are retried with
-                # exponential backoff *before* surfacing to the outer attempt
-                # loop. This composes with — and does not replace — the existing
-                # per-server circuit breaker (``ctx.deps.server_health``) and the
-                # ``node_timeout`` second wait, which is now enforced per attempt
-                # by the policy's ``timeout_s``.
-                _policy = _specialist_resilience_policy(node_timeout)
-
-                async def _run_agent_once(
-                    _agent: Any = agent,
-                    _input: Any = run_input,
-                    _hist: Any = prev_messages,
-                ) -> Any:
-                    return await _agent.run(
-                        _input, deps=ctx.deps, message_history=_hist
-                    )
-
-                res = await run_with_resilience(_run_agent_once, _policy)
-                logger.info(
-                    f"[LAYER:GRAPH:EXPERT] '{agent_info.name}' LLM Call Completed."
-                )
-                ctx.state._update_usage(getattr(res, "usage", None))
-
-                # Accumulate this expert's tool calls for :ToolCall provenance on the
-                # graph path (CONCEPT:AU-KG.temporal.message-history-read). Unconditional — the WebUI
-                # event block below is gated on ``event_queue`` and skipped for headless
-                # (MCP/telegram) delegations, which is exactly where provenance was lost.
-                try:
-                    from ..orchestration.tool_provenance import extract_tool_calls
-
-                    ctx.state.tool_calls.extend(extract_tool_calls(res))
-                except Exception as _tc_exc:  # noqa: BLE001 — never break a run
-                    logger.debug("expert tool-call provenance skipped: %s", _tc_exc)
-
-                # Cache message history for potential re-dispatch
-                try:
-                    ctx.deps.message_history_cache[cache_key] = res.all_messages()
-                except Exception as e:  # noqa: BLE001 — message_history_cache is a best-effort re-dispatch optimization; a failed write just means a future re-dispatch re-fetches/regenerates history instead of reusing a cached copy, it does not lose the run's actual result (already handled above)
-                    logger.debug(f"Failed to update cache for '{cache_key}': {e}")
-                    pass
-
-                # Record success on circuit breaker
-                srv_name = server_name or "unknown"
-                if srv_name not in ctx.deps.server_health:
-                    ctx.deps.server_health[srv_name] = MCPServerHealth(
-                        server_name=srv_name,
-                    )
-                ctx.deps.server_health[srv_name].record_success()
-
-                # Stream events to WebUI
-                if ctx.deps.event_queue:
-                    from pydantic_ai.messages import (
-                        ModelRequest,
-                        ModelResponse,
-                        ToolCallPart,
-                        ToolReturnPart,
-                    )
-
-                    for msg in res.all_messages():
-                        if isinstance(msg, ModelResponse):
-                            for part in msg.parts:
-                                if isinstance(part, ToolCallPart):
-                                    emit_graph_event(
-                                        ctx.deps.event_queue,
-                                        "expert_tool_call",
-                                        domain=agent_info.name or "unknown",
-                                        tool_name=part.tool_name,
-                                        args=part.args,
-                                    )
-                                elif hasattr(part, "content") and part.content:
-                                    emit_graph_event(
-                                        ctx.deps.event_queue,
-                                        "expert_text",
-                                        domain=agent_info.name or "unknown",
-                                        content=part.content,
-                                    )
-                        elif isinstance(msg, ModelRequest):
-                            for req_part in msg.parts:
-                                if isinstance(req_part, ToolReturnPart):
-                                    emit_graph_event(
-                                        ctx.deps.event_queue,
-                                        event_type="tool_result",
-                                        agent=agent_info.name,
-                                        tool=req_part.tool_name,
-                                        result=str(req_part.content)[:500],
-                                    )
-                result_str = str(res.output)
-
-                # RLM Large Result Summarization
-                from ..rlm.config import RLMConfig
-
-                rlm_config = RLMConfig()
-                if len(result_str) > rlm_config.max_context_threshold:
-                    logger.warning(
-                        f"Expert '{agent_info.name}' result ({len(result_str)} chars) exceeds threshold. "
-                        "Routing to RLM for summarization."
-                    )
-                    from ..rlm.specialist import recursive_reasoner_tool
-
-                    try:
-                        summary = await recursive_reasoner_tool(
-                            ctx,
-                            prompt=f"The specialist '{agent_info.name}' returned a massive output. Summarize the key findings relevant to the user's query: {ctx.state.query}",
-                            context_data=result_str,
-                        )
-                        result_str = (
-                            f"[RLM Synthesized Summary of Massive Data]\n{summary}"
-                        )
-                    except Exception as rlm_err:
-                        logger.error(f"RLM summarization failed: {rlm_err}")
-                        result_str = (
-                            result_str[: rlm_config.max_context_threshold]
-                            + "... [TRUNCATED DUE TO SIZE & RLM FAILURE]"
-                        )
-
-                # Data Enhancement Synthesizer: Synthesize response from real output tool data captured
-                if (
-                    "no data" in result_str.lower()
-                    or "returned no" in result_str.lower()
-                ):
-                    from pydantic_ai.messages import ModelRequest, ToolReturnPart
-
-                    tool_returns: list[str] = []
-                    for msg in res.all_messages():
-                        if isinstance(msg, ModelRequest):
-                            for ret_part in msg.parts:
-                                if (
-                                    isinstance(ret_part, ToolReturnPart)
-                                    and ret_part.content
-                                ):
-                                    content_str = str(ret_part.content)
-                                    if content_str and content_str not in (
-                                        "[]",
-                                        "None",
-                                        "null",
-                                        "",
-                                    ):
-                                        tool_returns.append(
-                                            f"**{ret_part.tool_name}**: {content_str}"
-                                        )
-                    if tool_returns:
-                        logger.warning(
-                            f"Expert '{agent_info.name}': LLM dismissed tool response data. "
-                            f"Injection {len(tool_returns)} raw tool return(s) into result."
-                        )
-                        result_str = (
-                            "### Tool Execution Results\n"
-                            + "\n".join(tool_returns)
-                            + f"\n\n### Agent Summary\n{result_str}"
-                        )
-                node_uid = f"{cache_key}_{ctx.state.step_cursor}"
-                ctx.state.results_registry[node_uid] = result_str
-
-                result_key = agent_info.name or cache_key
-                ctx.state.routed_domain = result_key
-                logger.info(
-                    f"Expert: '{agent_info.name}' succeeded (attempt {attempt_no}). "
-                    f"Result: {len(result_str)} chars. Registry key: '{node_uid}'"
-                )
-                # Emit completion event
-                emit_graph_event(
-                    ctx.deps.event_queue,
-                    "subagent_completed",
-                    domain=agent_info.name or "unknown",
-                    status="success",
-                )
-                # HSM: Exit action (success)
-                await on_exit_specialist(
-                    ctx_deps=ctx.deps,
-                    ctx_state=ctx.state,
-                    agent_name=agent_name,
-                    success=True,
-                    server_name=server_name or "unknown",
-                )
-                return "execution_joiner"
-
-            except TimeoutError:
-                last_error = f"Timeout after {node_timeout}s"
-                logger.warning(
-                    f"Expert '{agent_name}' timed out (attempt {attempt_no}/{max_attempts})"
-                )
-                emit_graph_event(
-                    ctx.deps.event_queue,
-                    "expert_complete",
-                    expert=agent_info.name,
-                    status="timeout",
-                )
-                raise
-            except Exception as e:
-                last_error = str(e)
-                logger.warning(
-                    f"Expert '{agent_name}' failed (attempt {attempt_no}/{max_attempts}): {e}"
-                )
-                emit_graph_event(
-                    ctx.deps.event_queue,
-                    "subagent_tool_call",
-                    domain=agent_info.name or "unknown",
-                    tool_name=getattr(e, "tool_name", "unknown"),
-                    args=getattr(e, "args", {}),
-                )
-                emit_graph_event(
-                    ctx.deps.event_queue,
-                    "expert_complete",
-                    expert=agent_info.name,
-                    status="error",
-                    error=str(e),
-                )
-                raise
+        async def _dispatch_once() -> str:
+            return await _dispatch_specialist_once(state)
 
         # Historical outer dispatch backoff min(2**n, 10)s, declaratively
         # (CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating). This OUTER policy retries the whole specialist
@@ -1656,7 +1276,7 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
             name=f"specialist-dispatch:{agent_info.name or 'unknown'}",
         )
         try:
-            return await run_with_resilience(_dispatch_specialist_once, dispatch_policy)
+            return await run_with_resilience(_dispatch_once, dispatch_policy)
         except Exception:  # noqa: BLE001 - exhausted; fall through to HSM exit + fallback
             pass
 
@@ -1675,10 +1295,550 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
         if fallback_result:
             return fallback_result
 
-        ctx.state.error = (
-            f"Agent '{agent_name}' failed after {max_attempts} attempts: {last_error}"
-        )
+        ctx.state.error = f"Agent '{agent_name}' failed after {max_attempts} attempts: {state.last_error}"
         raise RuntimeError(ctx.state.error)
+
+
+def _toolset_matches_target(toolset: Any, target: str) -> str | None:
+    """Return the toolset's normalized server_id if it matches ``target``, else ``None``."""
+    server_id = getattr(toolset, "id", getattr(toolset, "name", None))
+    if not server_id:
+        return None
+    current = server_id.lower().replace("-", "_")
+    if (
+        current == target
+        or current.startswith(f"{target}_")
+        or target.startswith(f"{current}_")
+    ):
+        return server_id
+    return None
+
+
+def _bind_matched_toolset(
+    toolset: Any,
+    total_tools: list[Any],
+    actually_bound_tools: list[str],
+) -> int:
+    """Merge one matched toolset's tool names into ``actually_bound_tools`` (in place);
+    returns its tool-count contribution."""
+    if hasattr(toolset, "tools"):
+        for t_name in toolset.tools.keys():
+            if t_name not in actually_bound_tools:
+                actually_bound_tools.append(t_name)
+        return len(toolset.tools)
+    return len(total_tools)
+
+
+def _match_bound_toolsets(
+    ctx: StepContext, agent_info: MCPAgent, total_tools: list[Any]
+) -> tuple[list[Any], int, list[str]]:
+    """Match already-live MCP toolsets against ``agent_info.mcp_server`` (deduplicated)."""
+    bound_tool_count = 0
+    actually_bound_tools: list[str] = []
+    matched_toolsets: list[Any] = []
+    seen_toolset_ids: set[int] = set()
+    target = (agent_info.mcp_server or "").lower().replace("-", "_")
+
+    for toolset in ctx.deps.mcp_toolsets:
+        if id(toolset) in seen_toolset_ids:
+            continue
+        server_id = _toolset_matches_target(toolset, target)
+        if server_id is None:
+            continue
+
+        seen_toolset_ids.add(id(toolset))
+        matched_toolsets.append(toolset)
+        bound_tool_count += _bind_matched_toolset(
+            toolset, total_tools, actually_bound_tools
+        )
+        logger.info(
+            f"[LAYER:GRAPH:EXPERT] Bound toolset '{server_id}' to expert '{agent_info.name}'"
+        )
+    return matched_toolsets, bound_tool_count, actually_bound_tools
+
+
+async def _lazy_load_specialist_toolset(
+    ctx: StepContext,
+    stack: Any,
+    agent_info: MCPAgent,
+    matched_toolsets: list[Any],
+    bound_tool_count: int,
+    actually_bound_tools: list[str],
+) -> tuple[list[Any], int, list[str]]:
+    """When no live toolset matched, lazily load + enter the target MCP server from config."""
+    target_server_name = (agent_info.mcp_server or "").lower().replace("-", "_")
+    if not target_server_name or matched_toolsets:
+        return matched_toolsets, bound_tool_count, actually_bound_tools
+    try:
+        from pydantic_ai.mcp import load_mcp_toolsets
+
+        from agent_utilities.core.workspace import resolve_mcp_config_path
+        from agent_utilities.mcp.protocol_compat import (
+            force_legacy_protocol_mode,
+            install_mcp_v2_bridge,
+        )
+
+        install_mcp_v2_bridge()
+
+        mcp_path = resolve_mcp_config_path(None)
+        if mcp_path and mcp_path.exists():
+            all_servers = force_legacy_protocol_mode(load_mcp_toolsets(mcp_path))
+            for srv in all_servers:
+                srv_id = getattr(srv, "id", getattr(srv, "name", str(srv)))
+                current = srv_id.lower().replace("-", "_")
+                if not (
+                    current == target_server_name
+                    or current.startswith(f"{target_server_name}_")
+                    or target_server_name.startswith(f"{current}_")
+                ):
+                    continue
+                logger.info(
+                    f"[LAYER:GRAPH:EXPERT] Lazy loading MCP server '{srv_id}' for expert '{agent_info.name}'"
+                )
+                await stack.enter_async_context(srv)
+                matched_toolsets.append(srv)
+                _tools = getattr(srv, "tools", {})
+                for t_name in _tools.keys() if hasattr(_tools, "keys") else []:
+                    if t_name not in actually_bound_tools:
+                        actually_bound_tools.append(t_name)
+                bound_tool_count += len(_tools)
+                break
+    except Exception as e:
+        logger.warning(f"Failed to lazy load MCP server '{target_server_name}': {e}")
+    return matched_toolsets, bound_tool_count, actually_bound_tools
+
+
+async def _bind_specialist_toolsets(
+    ctx: StepContext, stack: Any, agent_info: MCPAgent, total_tools: list[Any]
+) -> tuple[list[Any], int, list[str]]:
+    """Bind the specific subset of MCP tools for this specialist (dedup + lazy-load fallback)."""
+    matched_toolsets, bound_tool_count, actually_bound_tools = _match_bound_toolsets(
+        ctx, agent_info, total_tools
+    )
+    return await _lazy_load_specialist_toolset(
+        ctx, stack, agent_info, matched_toolsets, bound_tool_count, actually_bound_tools
+    )
+
+
+def _build_guarded_specialist_agent(
+    ctx: StepContext, agent_sys_prompt: str, matched_toolsets: list[Any]
+) -> Any:
+    """Guard matched toolsets under caller-identity policy + invoker tool-scope, build the real agent."""
+    # Bind MCP toolsets to the mandatory caller identity policy. Approval
+    # decisions trigger DeferredToolRequests; policy denials fail closed.
+    from agent_utilities.security.tool_guard import flag_mcp_tool_definitions
+
+    guarded_toolsets = flag_mcp_tool_definitions(
+        matched_toolsets,
+        permissions_kernel=ctx.deps.permissions_kernel,
+        agent_identity=ctx.deps.agent_identity,
+        engine=ctx.deps.knowledge_engine,
+    )
+
+    # Include DeferredToolRequests in output type so the agent can defer
+    # sensitive tool calls instead of failing.
+    from pydantic_ai import DeferredToolRequests
+
+    # CONCEPT:AU-ORCH.session.invoker-agent-handoff — enforce the invoker's least-privilege tool allow-list (if any).
+    _scoped_tools, guarded_toolsets = apply_tool_scope(ctx.state, [], guarded_toolsets)
+
+    # `ctx.deps.agent_model` resolves to `Any` (GraphDeps.agent_model, like the
+    # rest of this generic pydantic-graph state — see the module-level mypy
+    # override for this file), which combined with the `output_type=[...]` list
+    # form and the generic AgentDepsT/OutputDataT inference doesn't land on any
+    # single Agent() overload. Tracked with the file's other pydantic-graph
+    # generic-typing debt (mypy-remediation-plan.md Phase 2), not a runtime bug.
+    return create_context_agent(
+        model=ctx.deps.agent_model,
+        permissions_kernel=ctx.deps.permissions_kernel,
+        agent_identity=ctx.deps.agent_identity,
+        permission_engine=ctx.deps.knowledge_engine,
+        system_prompt=agent_sys_prompt,
+        deps_type=GraphDeps,
+        toolsets=guarded_toolsets,
+        output_type=[str, DeferredToolRequests],
+        end_strategy="early",
+    )
+
+
+def _emit_tool_binding_telemetry(
+    ctx: StepContext,
+    agent_info: MCPAgent,
+    bound_tool_count: int,
+    actually_bound_tools: list[str],
+    matched_toolsets: list[Any],
+) -> None:
+    """Tool-count telemetry: surfaces blind or overloaded adaptive_agent_router."""
+    emit_graph_event(
+        ctx.deps.event_queue,
+        "tools_bound",
+        expert=agent_info.name,
+        count=bound_tool_count,
+        tools=actually_bound_tools,
+        toolset_count=len(matched_toolsets),
+    )
+
+    if bound_tool_count == 0:
+        logger.warning(
+            f"[TELEMETRY] Specialist '{agent_info.name}' has ZERO tools bound "
+            f"(server='{agent_info.mcp_server}'). Agent will run blind."
+        )
+        emit_graph_event(
+            ctx.deps.event_queue,
+            "expert_warning",
+            message=f"No tools bound for server '{agent_info.mcp_server}'. Agent may be blind.",
+        )
+    elif bound_tool_count > 50:
+        logger.warning(
+            f"[TELEMETRY] Specialist '{agent_info.name}' has {bound_tool_count} tools "
+            f"bound — consider partitioning to reduce context overhead."
+        )
+    else:
+        logger.info(
+            f"[TELEMETRY] Specialist '{agent_info.name}': "
+            f"{bound_tool_count} tools across {len(matched_toolsets)} toolset(s)"
+        )
+
+
+def _resolve_specialist_query_and_timeout(
+    ctx: StepContext, agent_info: MCPAgent
+) -> tuple[str, float]:
+    """Prefer the Conductor's refined subtask over the raw query; resolve the per-node timeout."""
+    sub_query = ctx.state.query
+    step_input = ctx.inputs
+    # CONCEPT:AU-ORCH.planning.recursion-nesting-depth — Prefer refined subtask over raw query
+    if isinstance(step_input, ExecutionStep) and step_input.refined_subtask:
+        sub_query = step_input.refined_subtask
+        logger.info(
+            "[CONCEPT:AU-ORCH.planning.recursion-nesting-depth] Using refined subtask for '%s': '%s'",
+            agent_info.name,
+            sub_query[:100],
+        )
+    elif isinstance(step_input, ExecutionStep) and step_input.description:
+        if isinstance(step_input.description, dict):
+            sub_query = step_input.description.get("question", sub_query)
+        elif isinstance(step_input.description, str):
+            sub_query = step_input.description
+
+    # Execute with Per-Node Timeout and Retries
+    node_timeout = 120.0
+    if isinstance(step_input, ExecutionStep):
+        node_timeout = step_input.timeout
+
+    return sub_query, node_timeout
+
+
+@dataclass
+class _SpecialistDispatchState:
+    """Mutable per-dispatch state shared across retry attempts of one specialist call.
+
+    ``last_error``/``attempt_no`` are mutated in place across attempts (the same
+    instance is reused by every retry of :func:`_dispatch_specialist_once`, exactly
+    as the closure's ``nonlocal last_error, attempt_no`` did before extraction).
+    """
+
+    ctx: StepContext
+    agent_info: MCPAgent
+    agent: Any
+    agent_sys_prompt: str
+    sub_query: str
+    node_timeout: float
+    cache_key: str
+    prev_messages: Any
+    server_name: str | None
+    agent_name: str
+    max_attempts: int
+    last_error: str | None = None
+    attempt_no: int = 0
+
+
+async def _run_specialist_llm_call(
+    state: _SpecialistDispatchState, run_input: Any
+) -> Any:
+    """CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating — the per-attempt LLM call, policy-wrapped.
+
+    The single per-node-timeout LLM call is wrapped in the declarative
+    retry/backoff/timeout policy so transient model or tool errors
+    (TimeoutError/ConnectionError) are retried with exponential backoff *before*
+    surfacing to the outer attempt loop. This composes with — and does not
+    replace — the existing per-server circuit breaker (``server_health``) and the
+    ``node_timeout`` second wait, which is now enforced per attempt by the
+    policy's ``timeout_s``.
+    """
+    _policy = _specialist_resilience_policy(state.node_timeout)
+
+    async def _run_agent_once(
+        _agent: Any = state.agent,
+        _input: Any = run_input,
+        _hist: Any = state.prev_messages,
+    ) -> Any:
+        return await _agent.run(_input, deps=state.ctx.deps, message_history=_hist)
+
+    return await run_with_resilience(_run_agent_once, _policy)
+
+
+def _record_specialist_call_provenance(
+    ctx: StepContext, res: Any, cache_key: str
+) -> None:
+    """Accumulate :ToolCall provenance and cache message history (both best-effort)."""
+    # Accumulate this expert's tool calls for :ToolCall provenance on the
+    # graph path (CONCEPT:AU-KG.temporal.message-history-read). Unconditional — the WebUI
+    # event block below is gated on ``event_queue`` and skipped for headless
+    # (MCP/telegram) delegations, which is exactly where provenance was lost.
+    try:
+        from ..orchestration.tool_provenance import extract_tool_calls
+
+        ctx.state.tool_calls.extend(extract_tool_calls(res))
+    except Exception as _tc_exc:  # noqa: BLE001 — never break a run
+        logger.debug("expert tool-call provenance skipped: %s", _tc_exc)
+
+    # Cache message history for potential re-dispatch
+    try:
+        ctx.deps.message_history_cache[cache_key] = res.all_messages()
+    except Exception as e:  # noqa: BLE001 — message_history_cache is a best-effort re-dispatch optimization; a failed write just means a future re-dispatch re-fetches/regenerates history instead of reusing a cached copy, it does not lose the run's actual result (already handled above)
+        logger.debug(f"Failed to update cache for '{cache_key}': {e}")
+
+
+def _record_specialist_circuit_success(
+    ctx: StepContext, server_name: str | None
+) -> None:
+    """Record a successful call on the per-server circuit breaker."""
+    srv_name = server_name or "unknown"
+    if srv_name not in ctx.deps.server_health:
+        ctx.deps.server_health[srv_name] = MCPServerHealth(
+            server_name=srv_name,
+        )
+    ctx.deps.server_health[srv_name].record_success()
+
+
+def _stream_response_parts(ctx: StepContext, agent_info: MCPAgent, msg: Any) -> None:
+    """Stream one ModelResponse's tool-call/text parts to the WebUI event queue."""
+    from pydantic_ai.messages import ToolCallPart
+
+    for part in msg.parts:
+        if isinstance(part, ToolCallPart):
+            emit_graph_event(
+                ctx.deps.event_queue,
+                "expert_tool_call",
+                domain=agent_info.name or "unknown",
+                tool_name=part.tool_name,
+                args=part.args,
+            )
+        elif hasattr(part, "content") and part.content:
+            emit_graph_event(
+                ctx.deps.event_queue,
+                "expert_text",
+                domain=agent_info.name or "unknown",
+                content=part.content,
+            )
+
+
+def _stream_request_parts(ctx: StepContext, agent_info: MCPAgent, msg: Any) -> None:
+    """Stream one ModelRequest's tool-return parts to the WebUI event queue."""
+    from pydantic_ai.messages import ToolReturnPart
+
+    for req_part in msg.parts:
+        if isinstance(req_part, ToolReturnPart):
+            emit_graph_event(
+                ctx.deps.event_queue,
+                event_type="tool_result",
+                agent=agent_info.name,
+                tool=req_part.tool_name,
+                result=str(req_part.content)[:500],
+            )
+
+
+def _stream_specialist_events(ctx: StepContext, agent_info: MCPAgent, res: Any) -> None:
+    """Stream this call's tool-call/text/tool-result events to the WebUI event queue."""
+    if not ctx.deps.event_queue:
+        return
+    from pydantic_ai.messages import ModelRequest, ModelResponse
+
+    for msg in res.all_messages():
+        if isinstance(msg, ModelResponse):
+            _stream_response_parts(ctx, agent_info, msg)
+        elif isinstance(msg, ModelRequest):
+            _stream_request_parts(ctx, agent_info, msg)
+
+
+async def _summarize_oversized_result(
+    ctx: StepContext, agent_info: MCPAgent, result_str: str
+) -> str:
+    """RLM Large Result Summarization: shrink an oversized specialist result via RLM, else truncate."""
+    from ..rlm.config import RLMConfig
+
+    rlm_config = RLMConfig()
+    if len(result_str) <= rlm_config.max_context_threshold:
+        return result_str
+
+    logger.warning(
+        f"Expert '{agent_info.name}' result ({len(result_str)} chars) exceeds threshold. "
+        "Routing to RLM for summarization."
+    )
+    from ..rlm.specialist import recursive_reasoner_tool
+
+    try:
+        summary = await recursive_reasoner_tool(
+            ctx,
+            prompt=f"The specialist '{agent_info.name}' returned a massive output. Summarize the key findings relevant to the user's query: {ctx.state.query}",
+            context_data=result_str,
+        )
+        return f"[RLM Synthesized Summary of Massive Data]\n{summary}"
+    except Exception as rlm_err:
+        logger.error(f"RLM summarization failed: {rlm_err}")
+        return (
+            result_str[: rlm_config.max_context_threshold]
+            + "... [TRUNCATED DUE TO SIZE & RLM FAILURE]"
+        )
+
+
+def _synthesize_from_tool_returns(
+    agent_info: MCPAgent, res: Any, result_str: str
+) -> str:
+    """Data Enhancement Synthesizer: inject raw tool-return data when the LLM claims 'no data'."""
+    if "no data" not in result_str.lower() and "returned no" not in result_str.lower():
+        return result_str
+
+    from pydantic_ai.messages import ModelRequest, ToolReturnPart
+
+    tool_returns: list[str] = []
+    for msg in res.all_messages():
+        if isinstance(msg, ModelRequest):
+            for ret_part in msg.parts:
+                if isinstance(ret_part, ToolReturnPart) and ret_part.content:
+                    content_str = str(ret_part.content)
+                    if content_str and content_str not in ("[]", "None", "null", ""):
+                        tool_returns.append(f"**{ret_part.tool_name}**: {content_str}")
+    if not tool_returns:
+        return result_str
+
+    logger.warning(
+        f"Expert '{agent_info.name}': LLM dismissed tool response data. "
+        f"Injection {len(tool_returns)} raw tool return(s) into result."
+    )
+    return (
+        "### Tool Execution Results\n"
+        + "\n".join(tool_returns)
+        + f"\n\n### Agent Summary\n{result_str}"
+    )
+
+
+async def _finalize_specialist_dispatch_success(
+    state: _SpecialistDispatchState, result_str: str
+) -> str:
+    """Write the result to the registry, mark routed_domain, and run the HSM success exit."""
+    node_uid = f"{state.cache_key}_{state.ctx.state.step_cursor}"
+    state.ctx.state.results_registry[node_uid] = result_str
+
+    result_key = state.agent_info.name or state.cache_key
+    state.ctx.state.routed_domain = result_key
+    logger.info(
+        f"Expert: '{state.agent_info.name}' succeeded (attempt {state.attempt_no}). "
+        f"Result: {len(result_str)} chars. Registry key: '{node_uid}'"
+    )
+    # Emit completion event
+    emit_graph_event(
+        state.ctx.deps.event_queue,
+        "subagent_completed",
+        domain=state.agent_info.name or "unknown",
+        status="success",
+    )
+    # HSM: Exit action (success)
+    await on_exit_specialist(
+        ctx_deps=state.ctx.deps,
+        ctx_state=state.ctx.state,
+        agent_name=state.agent_name,
+        success=True,
+        server_name=state.server_name or "unknown",
+    )
+    return "execution_joiner"
+
+
+def _handle_specialist_timeout(state: _SpecialistDispatchState) -> None:
+    """Record + emit a per-attempt timeout (the caller re-raises)."""
+    state.last_error = f"Timeout after {state.node_timeout}s"
+    logger.warning(
+        f"Expert '{state.agent_name}' timed out (attempt {state.attempt_no}/{state.max_attempts})"
+    )
+    emit_graph_event(
+        state.ctx.deps.event_queue,
+        "expert_complete",
+        expert=state.agent_info.name,
+        status="timeout",
+    )
+
+
+def _handle_specialist_error(state: _SpecialistDispatchState, e: Exception) -> None:
+    """Record + emit a per-attempt failure (the caller re-raises)."""
+    state.last_error = str(e)
+    logger.warning(
+        f"Expert '{state.agent_name}' failed (attempt {state.attempt_no}/{state.max_attempts}): {e}"
+    )
+    emit_graph_event(
+        state.ctx.deps.event_queue,
+        "subagent_tool_call",
+        domain=state.agent_info.name or "unknown",
+        tool_name=getattr(e, "tool_name", "unknown"),
+        args=getattr(e, "args", {}),
+    )
+    emit_graph_event(
+        state.ctx.deps.event_queue,
+        "expert_complete",
+        expert=state.agent_info.name,
+        status="error",
+        error=str(e),
+    )
+
+
+async def _dispatch_specialist_once(state: _SpecialistDispatchState) -> str:
+    """One attempt of a specialist LLM dispatch: call, record, stream, synthesize, finalize."""
+    state.attempt_no += 1
+    emit_graph_event(
+        state.ctx.deps.event_queue,
+        "expert_thinking",
+        expert=state.agent_info.name,
+        attempt=state.attempt_no,
+    )
+    try:
+        logger.info(
+            f"[LAYER:GRAPH:EXPERT] '{state.agent_info.name}' LLM Call Starting (attempt {state.attempt_no}). Prompt length: {len(state.agent_sys_prompt)}"
+        )
+        # Wrap user query in XML tags to protect against prompt injection
+        # and provide clear boundaries for the model.
+        raw_input = (
+            state.ctx.state.query_parts
+            if state.ctx.state.query_parts and state.sub_query == state.ctx.state.query
+            else state.sub_query
+        )
+        run_input = (
+            f"<user_query>\n{raw_input}\n</user_query>"
+            if isinstance(raw_input, str)
+            else raw_input
+        )
+        res = await _run_specialist_llm_call(state, run_input)
+        logger.info(
+            f"[LAYER:GRAPH:EXPERT] '{state.agent_info.name}' LLM Call Completed."
+        )
+        state.ctx.state._update_usage(getattr(res, "usage", None))
+
+        _record_specialist_call_provenance(state.ctx, res, state.cache_key)
+        _record_specialist_circuit_success(state.ctx, state.server_name)
+        _stream_specialist_events(state.ctx, state.agent_info, res)
+
+        result_str = str(res.output)
+        result_str = await _summarize_oversized_result(
+            state.ctx, state.agent_info, result_str
+        )
+        result_str = _synthesize_from_tool_returns(state.agent_info, res, result_str)
+
+        return await _finalize_specialist_dispatch_success(state, result_str)
+
+    except TimeoutError:
+        _handle_specialist_timeout(state)
+        raise
+    except Exception as e:
+        _handle_specialist_error(state, e)
+        raise
 
 
 async def _find_fallback_siblings(failed_agent: MCPAgent) -> list[MCPAgent]:
