@@ -151,11 +151,35 @@ def test_engine_sql_rejects_writes():
             eng.sql(stmt)
 
 
-def test_engine_sql_allows_with_and_explain():
+def test_engine_sql_allows_with_and_explain(monkeypatch):
+    # Bridge-plumbing only: this asserts the read-only guard ADMITS WITH /
+    # EXPLAIN, not that the rows are governed. `{"n": 1}` carries no governed
+    # node id, so the (now fail-closed, BUG-CX-103) row-policy pass would
+    # rightly deny it — same neutralization convention as
+    # `test_engine_sql_bridges_to_client` above. Denial of an id-less
+    # projection is proved in
+    # `tests/unit/knowledge_graph/orchestration/
+    # test_engine_query_surface_rls_fail_closed.py`.
+    from agent_utilities.knowledge_graph.core import secured_reads
+
+    monkeypatch.setattr(secured_reads, "filter_rows", lambda rows, _actor=None: rows)
+    monkeypatch.setattr(secured_reads, "visible", lambda rows, _actor=None: rows)
+
     rows = [{"n": 1}]
     eng = _Engine(_Backend(rows))
     assert eng.sql("WITH t AS (SELECT 1) SELECT * FROM t") == rows
     assert eng.sql("EXPLAIN SELECT id FROM nodes") == rows
+
+
+def test_engine_sql_denies_an_ungoverned_projection():
+    """BUG-CX-103 regression guard at the surface these bridge tests neutralize.
+
+    A projection with no id column (the normal shape of a `graph_table`-mirrored
+    connector table) must DENY, never return the pre-filter rows.
+    """
+    eng = _Engine(_Backend([{"name": "alice"}]))
+    with pytest.raises(PermissionError):
+        eng.sql("SELECT name FROM nodes")
 
 
 def test_engine_sql_no_surface_raises():

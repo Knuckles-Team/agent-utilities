@@ -189,7 +189,9 @@ def test_query_unified_include_epistemic_carries_engine_envelope(
     _assert_currency_row(matches[0], claim_id, evidence_id)
 
 
-def test_uql_include_epistemic_carries_engine_envelope(engine_graph: Any) -> None:
+def test_uql_include_epistemic_carries_engine_envelope(
+    engine_graph: Any, monkeypatch: Any
+) -> None:
     """``IntelligenceGraphEngine.uql(..., include_epistemic=True)`` — the UQL
     text-query surface currency-upgraded (item 1 of the documented follow-ups).
 
@@ -198,7 +200,19 @@ def test_uql_include_epistemic_carries_engine_envelope(engine_graph: Any) -> Non
     ``test_unified_plan_retrieval.py``'s ``HybridRetriever.__new__`` convention),
     wired directly to the REAL ``engine_graph`` fixture's ``GraphComputeEngine``.
     """
+    from agent_utilities.knowledge_graph.core import secured_reads
     from agent_utilities.knowledge_graph.orchestration.engine_query import QueryMixin
+
+    # BUG-CX-103: `QueryMixin.uql` now applies the same fail-closed row-level
+    # ACL/owner-scope pass `sql()`/`sparql()` do (it previously applied NONE).
+    # This test is about the epistemic-envelope plumbing, not governance, and
+    # its seeded Claim carries no registered ACL — neutralize the pass, the
+    # same convention `tests/unit/mcp/test_graph_query_sql.py`'s bridge tests
+    # use. Enforcement itself is proved in
+    # `tests/unit/knowledge_graph/orchestration/
+    # test_engine_query_surface_rls_fail_closed.py`.
+    monkeypatch.setattr(secured_reads, "filter_rows", lambda rows, _actor=None: rows)
+    monkeypatch.setattr(secured_reads, "visible", lambda rows, _actor=None: rows)
 
     if not hasattr(engine_graph, "explain_provenance_by_ids"):
         pytest.skip(
