@@ -1955,6 +1955,59 @@ DEFAULT_MCP_ALWAYS_LOAD_TOOLS: tuple[str, ...] = (
 )
 
 
+def _assert_ascii_http_host(host: str) -> None:
+    """An allow-list host must be ASCII, bounded, and free of URL punctuation."""
+    try:
+        host.encode("ascii")
+    except UnicodeEncodeError as exc:
+        raise ValueError("HTTP host allow-lists require ASCII hostnames") from exc
+    if (
+        not host
+        or len(host) > 253
+        or any(ord(character) < 33 for character in host)
+        or any(character in host for character in "/@*?#[]")
+    ):
+        raise ValueError("HTTP host allow-lists require exact hostnames")
+
+
+def _is_exact_hostname_label(label: str) -> bool:
+    """One DNS label: non-empty, <=63 chars, no leading/trailing '-', LDH only."""
+    return bool(
+        label
+        and len(label) <= 63
+        and not label.startswith("-")
+        and not label.endswith("-")
+        and all(character.isalnum() or character == "-" for character in label)
+    )
+
+
+def _assert_exact_http_host(host: str) -> None:
+    """Accept a literal IP address, or a hostname whose every label is exact."""
+    _assert_ascii_http_host(host)
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        if not all(_is_exact_hostname_label(label) for label in host.split(".")):
+            raise ValueError("HTTP host allow-lists require exact hostnames") from None
+
+
+# Model role keyword -> the AgentConfig property that resolves it. A dispatch
+# table in place of the original if/elif ladder.
+_MODEL_ROLE_ATTRS: dict[str, str] = {
+    "": "default_chat_model",
+    "chat": "default_chat_model",
+    "default": "default_chat_model",
+    "lite": "lite_chat_model",
+    "super": "super_chat_model",
+    "embedding": "default_embedding_model",
+    "embed": "default_embedding_model",
+}
+
+_EMBEDDING_FALLBACK_KEYS = frozenset(
+    {"embedding:fallback", "embed:fallback", "embedding-fallback"}
+)
+
+
 class AgentConfig(BaseSettings):
     """Configuration schema for the AI Agent server.
 
@@ -2754,17 +2807,11 @@ class AgentConfig(BaseSettings):
         ``"embedding"``/``"embed"``), or ``None`` (→ default chat model). Returns
         ``None`` when nothing matches.
         """
-        cfg: ChatModelConfig | EmbeddingModelConfig | None = None
         key = (model or "").strip().lower()
-        if key in ("", "chat", "default"):
-            cfg = self.default_chat_model
-        elif key == "lite":
-            cfg = self.lite_chat_model
-        elif key == "super":
-            cfg = self.super_chat_model
-        elif key in ("embedding", "embed"):
-            cfg = self.default_embedding_model
-        elif key in ("embedding:fallback", "embed:fallback", "embedding-fallback"):
+        role_attr = _MODEL_ROLE_ATTRS.get(key)
+        if role_attr is not None:
+            return getattr(self, role_attr)
+        if key in _EMBEDDING_FALLBACK_KEYS:
             # The automatic-failover endpoint (CONCEPT:AU-KG.enrichment.each-call-resolves-active): resolve it as a
             # first-class model key so the WHOLE capacity guard — server_ceiling,
             # adaptive capacity, gpu_group budget (CONCEPT:AU-KG.ingest.keys-off) — keys off the
@@ -2772,18 +2819,20 @@ class AgentConfig(BaseSettings):
             # while failed-over, so fallback embeds inherit the shared GPU's joint
             # budget and can't OOM it.
             primary = self.default_embedding_model
-            cfg = primary.fallback if primary is not None else None
-        else:
-            for m in self.chat_models:
-                if m.id == model:
-                    cfg = m
-                    break
-            if cfg is None:
-                for em in self.embedding_models:
-                    if em.id == model:
-                        cfg = em
-                        break
-        return cfg
+            return primary.fallback if primary is not None else None
+        return self._model_config_by_id(model)
+
+    def _model_config_by_id(
+        self, model: str | None
+    ) -> "ChatModelConfig | EmbeddingModelConfig | None":
+        """Match ``model`` against the chat registry, then the embedding registry."""
+        for m in self.chat_models:
+            if m.id == model:
+                return m
+        for em in self.embedding_models:
+            if em.id == model:
+                return em
+        return None
 
     def resolve_chat_model_config(
         self, model: str | None = None
@@ -4685,36 +4734,7 @@ class AgentConfig(BaseSettings):
         normalized: set[str] = set()
         for raw in value:
             host = str(raw).strip().lower().rstrip(".")
-            try:
-                host.encode("ascii")
-            except UnicodeEncodeError as exc:
-                raise ValueError(
-                    "HTTP host allow-lists require ASCII hostnames"
-                ) from exc
-            if (
-                not host
-                or len(host) > 253
-                or any(ord(character) < 33 for character in host)
-                or any(character in host for character in "/@*?#[]")
-            ):
-                raise ValueError("HTTP host allow-lists require exact hostnames")
-            try:
-                ipaddress.ip_address(host)
-            except ValueError:
-                labels = host.split(".")
-                if any(
-                    not label
-                    or len(label) > 63
-                    or label.startswith("-")
-                    or label.endswith("-")
-                    or not all(
-                        character.isalnum() or character == "-" for character in label
-                    )
-                    for label in labels
-                ):
-                    raise ValueError(
-                        "HTTP host allow-lists require exact hostnames"
-                    ) from None
+            _assert_exact_http_host(host)
             normalized.add(host)
         return sorted(normalized)
 
@@ -6918,6 +6938,50 @@ def _fetch_tools(engine: Any, errors: list[str] | None = None) -> list[MCPToolIn
     return tools
 
 
+def _tool_tags(tool: MCPToolInfo) -> list[str]:
+    """Every tag a tool carries, falling back to its single ``tag``."""
+    return tool.all_tags if tool.all_tags else ([tool.tag] if tool.tag else [])
+
+
+def _partition_server_tag(mcp_server: str) -> str:
+    """The server name reduced to its bare partition tag."""
+    tag = mcp_server.lower()
+    for suffix in ("-mcp", "_mcp", "-manager", "-agent", "-server"):
+        tag = tag.replace(suffix, "")
+    return tag
+
+
+def _tool_partitions(tools: list[MCPToolInfo]) -> dict[str, list[MCPToolInfo]]:
+    """Group tools by tag; untagged/general tools get a per-server partition."""
+    partitions: dict[str, list[MCPToolInfo]] = {}
+    for tool in tools:
+        tags = _tool_tags(tool)
+        if not tags or tags == ["general"]:
+            partition_tags = {f"{tool.mcp_server}_general"}
+        else:
+            partition_tags = set(tags)
+            partition_tags.add(_partition_server_tag(tool.mcp_server))
+        for tag in partition_tags:
+            partitions.setdefault(tag, []).append(tool)
+    return partitions
+
+
+def _partition_agent(tag: str, partition_tools: list[MCPToolInfo]) -> MCPAgent:
+    """The synthesized specialist agent representing one tool partition."""
+    mcp_servers = list(set(t.mcp_server for t in partition_tools))
+    primary_server = mcp_servers[0] if mcp_servers else "unknown"
+    return MCPAgent(
+        name=tag,
+        description=f"Dynamically synthesized agent for {tag} capabilities.",
+        agent_type="specialist",
+        system_prompt=f"You are the {tag} specialist.",
+        tool_count=len(partition_tools),
+        mcp_server=primary_server,
+        tools=[t.name for t in partition_tools],
+        capabilities=list({c_tag for t in partition_tools for c_tag in _tool_tags(t)}),
+    )
+
+
 def _synthesize_partition_agents(
     tools: list[MCPToolInfo],
     existing_agent_names: set[str],
@@ -6926,58 +6990,11 @@ def _synthesize_partition_agents(
 
     CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Re-derive Server Agents from Tools (Dynamic Partitioning at read-time)
     """
-    partitions: dict[str, list[MCPToolInfo]] = {}
-    for t in tools:
-        tags = t.all_tags if t.all_tags else ([t.tag] if t.tag else [])
-        server_tag = (
-            t.mcp_server.lower()
-            .replace("-mcp", "")
-            .replace("_mcp", "")
-            .replace("-manager", "")
-            .replace("-agent", "")
-            .replace("-server", "")
-        )
-        if not tags or tags == ["general"]:
-            all_partition_tags = {f"{t.mcp_server}_general"}
-        else:
-            all_partition_tags = set(tags)
-            all_partition_tags.add(server_tag)
-
-        for tag in all_partition_tags:
-            if tag not in partitions:
-                partitions[tag] = []
-            partitions[tag].append(t)
-
-    agents: list[MCPAgent] = []
-    for tag, partition_tools in partitions.items():
-        if tag in existing_agent_names:
-            continue
-
-        mcp_servers = list(set(t.mcp_server for t in partition_tools))
-        primary_server = mcp_servers[0] if mcp_servers else "unknown"
-
-        agents.append(
-            MCPAgent(
-                name=tag,
-                description=f"Dynamically synthesized agent for {tag} capabilities.",
-                agent_type="specialist",
-                system_prompt=f"You are the {tag} specialist.",
-                tool_count=len(partition_tools),
-                mcp_server=primary_server,
-                tools=[t.name for t in partition_tools],
-                capabilities=list(
-                    set(
-                        c_tag
-                        for t in partition_tools
-                        for c_tag in (
-                            t.all_tags if t.all_tags else ([t.tag] if t.tag else [])
-                        )
-                    )
-                ),
-            )
-        )
-
-    return agents
+    return [
+        _partition_agent(tag, partition_tools)
+        for tag, partition_tools in _tool_partitions(tools).items()
+        if tag not in existing_agent_names
+    ]
 
 
 def get_discovery_registry() -> MCPAgentRegistryModel:
