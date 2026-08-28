@@ -724,7 +724,6 @@ class OntologyLifecycle:
         return {"activated": True, **record.as_dict()}
 
     # ── load / register ──────────────────────────────────────────────────────
-    @_with_ontology_graph_scope
     @staticmethod
     def _resolve_ontology_iri(
         iri: str | None, summary: dict[str, Any], source: str
@@ -750,6 +749,7 @@ class OntologyLifecycle:
             return bool(activate)
         return bool(activate) and bool(engine_report.get("loaded_to_engine"))
 
+    @_with_ontology_graph_scope
     def load(
         self,
         source: str,
@@ -1029,7 +1029,6 @@ class OntologyLifecycle:
             logger.debug("remove_triples failed: %s", exc)
             return {"retracted_from_engine": False, "reason": str(exc)}
 
-    @_with_ontology_graph_scope
     def _delete_keys(self, iri: str, version: str | None) -> list[str]:
         if version is not None:
             key = _key(iri, version)
@@ -1070,6 +1069,7 @@ class OntologyLifecycle:
             or "retract unavailable"
         )
 
+    @_with_ontology_graph_scope
     def delete(
         self, iri: str, *, version: str | None = None, drop_inferences: bool = False
     ) -> dict[str, Any]:
