@@ -294,6 +294,52 @@ def _encode_metadata(data: dict[str, Any]) -> str:
     return base64.b64encode(json.dumps(data).encode()).decode()
 
 
+def _decode_metadata_json(raw: str) -> dict[str, Any] | None:
+    """Attempt 1: a valid JSON object string."""
+    try:
+        result = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return None  # nosec B110
+    return result if isinstance(result, dict) else None
+
+
+def _decode_metadata_b64_json(raw: str) -> dict[str, Any] | None:
+    """Attempt 2: base64-encoded JSON."""
+    try:
+        result = json.loads(base64.b64decode(raw).decode())
+    except Exception:
+        return None  # nosec B110
+    return result if isinstance(result, dict) else None
+
+
+def _decode_metadata_kv(raw: str) -> dict[str, Any] | None:
+    """Attempt 3: regex fallback for malformed key-value strings.
+
+    Handles patterns like ``{error: some message, target: /path/to/file}``.
+    """
+    try:
+        stripped = raw.strip()
+        if not stripped.startswith("{") or not stripped.endswith("}"):
+            return None
+        pairs: dict[str, Any] = {}
+        # Split on ", " that precedes a key pattern (word followed by colon)
+        for part in re.split(r",\s*(?=\w+:)", stripped[1:-1]):
+            match = re.match(r"(\w+):\s*(.+)", part.strip())
+            if match:
+                pairs[match.group(1)] = match.group(2).strip()
+        return pairs or None
+    except Exception:
+        return None  # nosec B110
+
+
+# Tried in order; the first decoder that returns a dict wins.
+_METADATA_DECODERS = (
+    _decode_metadata_json,
+    _decode_metadata_b64_json,
+    _decode_metadata_kv,
+)
+
+
 def _decode_metadata(raw: str | None) -> dict[str, Any]:
     """Robustly decode metadata from any stored format.
 
@@ -305,42 +351,10 @@ def _decode_metadata(raw: str | None) -> dict[str, Any]:
     """
     if not raw:
         return {}
-
-    # Attempt 1: Direct JSON parse
-    try:
-        result = json.loads(raw)
-        if isinstance(result, dict):
-            return result
-    except (json.JSONDecodeError, TypeError):
-        pass  # nosec B110
-
-    # Attempt 2: Base64-encoded JSON
-    try:
-        decoded = base64.b64decode(raw).decode()
-        result = json.loads(decoded)
-        if isinstance(result, dict):
-            return result
-    except Exception:
-        pass  # nosec B110
-
-    # Attempt 3: Regex fallback for malformed key-value strings
-    # Handles patterns like: {error: some message, target: /path/to/file}
-    try:
-        stripped = raw.strip()
-        if stripped.startswith("{") and stripped.endswith("}"):
-            inner = stripped[1:-1]
-            pairs = {}
-            # Split on ", " that precedes a key pattern (word followed by colon)
-            parts = re.split(r",\s*(?=\w+:)", inner)
-            for part in parts:
-                match = re.match(r"(\w+):\s*(.+)", part.strip())
-                if match:
-                    pairs[match.group(1)] = match.group(2).strip()
-            if pairs:
-                return pairs
-    except Exception:
-        pass  # nosec B110
-
+    for decode in _METADATA_DECODERS:
+        decoded = decode(raw)
+        if decoded is not None:
+            return decoded
     logger.warning("Failed to decode task metadata: %.100s...", raw)
     return {"_raw": raw}
 
@@ -1732,6 +1746,268 @@ def _admit_claimed_task(
     return True
 
 
+_TASK_STATUS_BUCKETS = (
+    "running",
+    "pending",
+    "scheduled",
+    "blocked",
+    "completed",
+    "failed",
+    "cancelled",
+    "dead_letter",
+    "unknown",
+)
+
+# Result-summary keys copied onto a completed job's public listing entry.
+_COMPLETED_SUMMARY_KEYS = (
+    "chunks_added",
+    "nodes_added",
+    "edges_added",
+    "diffs_added",
+    "chunks_skipped",
+    "skip_reason",
+)
+
+
+def _task_list_entry(job_id: str, item: dict[str, Any], status: str) -> dict[str, Any]:
+    """The public per-job record rendered into a ``list_tasks`` bucket."""
+    meta = item.get("metadata") or {}
+    job_info: dict[str, Any] = {
+        "job_id": job_id,
+        "target": meta.get("target", "unknown"),
+    }
+    if status in {"failed", "dead_letter"}:
+        job_info["error"] = item.get("error_ref") or "Unknown error"
+    elif status == "completed":
+        # Include result summary for completed jobs
+        for key in _COMPLETED_SUMMARY_KEYS:
+            if key in meta:
+                job_info[key] = meta[key]
+    return job_info
+
+
+def _stamp_task_progress(response: dict[str, Any], total_tasks: int) -> None:
+    """Add the progress rollup onto a rendered ``list_tasks`` response."""
+    completed_count = len(response["completed"])
+    progress = round((completed_count / total_tasks) * 100, 2)
+    response["progress_percentage"] = f"{progress}% complete"
+    response["progress_stats"] = {
+        "total_tasks": total_tasks,
+        "completed": completed_count,
+        "pending_in_graph": len(response["pending"]),
+        "running_in_graph": len(response["running"]),
+        "scheduled": len(response["scheduled"]),
+        "blocked": len(response["blocked"]),
+    }
+
+
+def _repo_from_code_path(path: str) -> str:
+    """The repository a ``Code`` node's path belongs to, or ``""``.
+
+    Resolved by the portable tree marker, independent of checkout depth, account
+    name, or operating system.
+    """
+    parts = [part for part in path.replace("\\", "/").split("/") if part]
+    if "agent-packages" not in parts:
+        return ""
+    marker = parts.index("agent-packages")
+    return parts[marker + 1] if marker + 1 < len(parts) else ""
+
+
+def _sample_submission_queue_depth(host: Any) -> None:
+    """Backpressure visibility (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer): sample the durable
+    submission-queue depth every pass so depth (and, for Kafka, kg-ingest consumer
+    lag) lands on the OS-5.23 gateway Prometheus registry — including under load,
+    exactly when it matters most.
+    """
+    q = getattr(host, "_submission_queue", None)
+    if q is None:
+        return
+    try:
+        host._record_queue_telemetry(q.get_queue_size())
+    except Exception:  # noqa: BLE001 — queue probe best-effort
+        pass  # nosec B110
+
+
+def _run_maintenance_job(name: str, tick: Any) -> None:
+    """Run one due maintenance job; one job's failure never stops others."""
+    logger.info("[maint-loop] running job %r", name)
+    try:
+        tick()
+        logger.info("[maint-loop] job %r done", name)
+    except Exception as e:  # one job's failure never stops others
+        logger.error("Maintenance job '%s' error: %s", name, e)
+
+
+def _maintenance_scheduler_pass(
+    host: Any,
+    jobs: list[tuple[str, float, Any]],
+    last_run: dict[str, float],
+    leadership: Any,
+) -> None:
+    """One pass of :meth:`TaskManagerMixin._maintenance_scheduler_loop`."""
+    POLL = 5.0
+    if not getattr(host, "backend", None):
+        time.sleep(10.0)
+        return
+
+    # Leader-only gate (CONCEPT:AU-OS.state.cross-host-daemon-leadership): non-leader hosts skip all
+    # singleton maintenance ticks and re-check for fail-over.
+    if not leadership.is_leader():
+        time.sleep(10.0)
+        return
+
+    _sample_submission_queue_depth(host)
+
+    # This loop now runs ONLY the scheduler, including stale-tick
+    # collapse (CONCEPT:AU-OS.state.stale-tick-collapse). Native
+    # ClaimWorkItem owns lease recovery, dependency release, and
+    # delayed availability. Unlike the heavy job *bodies* it
+    # enqueues, scheduler plumbing must run even when workers are
+    # saturated. It is therefore
+    # deliberately NOT gated by the foreground throttle or a
+    # bulk-ingest auto-defer: gating it was the regression that let a
+    # stale-tick backlog and dead-worker leases pile up *precisely*
+    # while ingestion was busy and the queue most needed healing.
+    now = time.time()
+    for name, interval, tick in jobs:
+        if now - last_run[name] < interval:
+            continue
+        _run_maintenance_job(name, tick)
+        last_run[name] = time.time()
+    time.sleep(POLL)
+
+
+def _leaked_comm_tenants(client: Any) -> list[str]:
+    """Ephemeral ``__enrich_comm_`` tenants currently present — never a real graph."""
+    try:
+        tenants = client.tenants.list()
+    except Exception:  # noqa: BLE001 — best-effort sweep
+        return []
+    return [
+        t["name"]
+        for t in tenants
+        if isinstance(t, dict) and "__enrich_comm_" in t.get("name", "")
+    ]
+
+
+def _delete_tenants(client: Any, names: list[str]) -> int:
+    """Drop each named tenant; returns how many went. One failure never stops the sweep."""
+    deleted = 0
+    for name in names:
+        try:
+            client.tenants.delete(name)
+            deleted += 1
+        except Exception:  # noqa: BLE001 — one failure never stops the sweep
+            pass  # nosec B110
+    return deleted
+
+
+def _mirror_drift_totals(summaries: list[dict[str, Any]]) -> tuple[int, int, int]:
+    """``(nodes_missing, edges_missing, errors)`` across per-mirror reconcile reports."""
+    nodes_missing = sum(int(r.get("nodes_missing", 0)) for r in summaries)
+    edges_missing = sum(int(r.get("edges_missing", 0)) for r in summaries)
+    errs = sum(int(r.get("errors", 0)) for r in summaries) + sum(
+        1 for r in summaries if "error" in r
+    )
+    return nodes_missing, edges_missing, errs
+
+
+def _log_mirror_reconcile(reports: dict[str, Any]) -> None:
+    """Report whatever drift survived a mirror reconcile pass."""
+    summaries = [r for r in reports.values() if isinstance(r, dict)]
+    nodes_missing, edges_missing, errs = _mirror_drift_totals(summaries)
+    if not (nodes_missing + edges_missing) and not errs:
+        logger.debug("mirror reconcile: all configured mirrors are in sync")
+        return
+    logger.warning(
+        "mirror reconcile: drift remains after repair — "
+        "%d nodes / %d edges missing, %d write errors (%s)",
+        nodes_missing,
+        edges_missing,
+        errs,
+        reports,
+    )
+
+
+def _count_scorable_items(
+    host: Any, primary_codebase: str | None, topic_count: int
+) -> int:
+    """Relevance-sweep candidates, when there is a codebase target at all."""
+    if not primary_codebase or topic_count <= 0:
+        return 0
+    try:
+        count_result = host.query_cypher(
+            "MATCH (n) WHERE n:Document OR n:Codebase RETURN count(n) AS total",
+        )
+        papers_scored = count_result[0].get("total", 0) if count_result else 0
+        logger.info(
+            "Evolution: %d items available for relevance sweep against '%s'",
+            papers_scored,
+            primary_codebase,
+        )
+        return papers_scored
+    except Exception as e:
+        logger.warning(f"Evolution: relevance count failed: {e}")
+        return 0
+
+
+def _evolution_optimization_throughput(host: Any, cycle_start: datetime) -> int:
+    """``OptimizationTrajectory`` nodes created since the previous evolution cycle."""
+    try:
+        throughput_query = host.query_cypher(
+            "MATCH (n:OptimizationTrajectory) WHERE n.created_at >= $timestamp "
+            "RETURN count(n) AS throughput",
+            params={
+                "timestamp": (
+                    cycle_start - timedelta(seconds=_EVOLUTION_INTERVAL)
+                ).isoformat()
+            },
+        )
+        throughput = throughput_query[0].get("throughput", 0) if throughput_query else 0
+        logger.info("Evolution: OptimizationTrajectoryNode throughput = %d", throughput)
+        return throughput
+    except Exception as e:
+        logger.warning(f"Evolution: failed to get throughput: {e}")
+        return 0
+
+
+def _log_evolution_cycle(
+    host: Any,
+    cycle_id: str,
+    cycle_start: datetime,
+    topic_count: int,
+    papers_scored: int,
+    primary_codebase: str | None,
+) -> None:
+    """Log one evolution cycle as an ``EvolutionCycle`` KG node (best-effort)."""
+    try:
+        from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+
+        throughput = _evolution_optimization_throughput(host, cycle_start)
+        if isinstance(host, IntelligenceGraphEngine):
+            host.add_node(
+                node_id=cycle_id,
+                node_type="EvolutionCycle",
+                properties={
+                    "triggered_by": "daemon",
+                    "topics_scanned": topic_count,
+                    "papers_scored": papers_scored,
+                    "primary_codebase": primary_codebase or "unknown",
+                    "optimization_throughput": throughput,
+                    "created_at": cycle_start.isoformat(),
+                },
+            )
+            logger.info(
+                "Evolution: logged cycle %s (topics=%d, scored=%d)",
+                cycle_id,
+                topic_count,
+                papers_scored,
+            )
+    except Exception as e:
+        logger.warning(f"Evolution: failed to log cycle node: {e}")
+
+
 class SQLiteTaskQueue(QueueBackend):
     """Thread-safe, persistent SQLite-backed queue for tasks to prevent memory loss on restarts."""
 
@@ -2593,25 +2869,12 @@ class TaskManagerMixin(GraphEngineProtocol):
                 "MATCH (c:Code) WHERE c.file_path IS NOT NULL "
                 "RETURN c.id AS id, c.file_path AS path LIMIT 500"
             )
-            if not results:
-                return None
-
             # Extract repository roots from paths
             repo_counts: dict[str, int] = {}
-            for row in results:
-                path = row.get("path", "")
-                if not path:
-                    continue
-                # Resolve the repository by the portable tree marker, independent
-                # of checkout depth, account name, or operating system.
-                parts = [part for part in path.replace("\\", "/").split("/") if part]
-                if "agent-packages" in parts:
-                    marker = parts.index("agent-packages")
-                    repo_name = parts[marker + 1] if marker + 1 < len(parts) else ""
-                    if not repo_name:
-                        continue
+            for row in results or []:
+                repo_name = _repo_from_code_path(row.get("path", "") or "")
+                if repo_name:
                     repo_counts[repo_name] = repo_counts.get(repo_name, 0) + 1
-
             if repo_counts:
                 return max(repo_counts, key=repo_counts.get)  # type: ignore[arg-type]
         except Exception as e:  # noqa: BLE001 — best-effort heuristic; returns None (the documented 'unknown' case) exactly like when repo_counts is empty, so callers already handle this return uniformly
@@ -3319,8 +3582,6 @@ class TaskManagerMixin(GraphEngineProtocol):
         default ``is_leader()`` is always true (flock already enforces a single
         per-host daemon).
         """
-        import time
-
         from agent_utilities.core.leadership import get_leadership
 
         jobs = self._maintenance_jobs()
@@ -3329,57 +3590,13 @@ class TaskManagerMixin(GraphEngineProtocol):
         names = ", ".join(n for n, _, _ in jobs)
         logger.info("KG maintenance scheduler started with jobs: %s", names)
 
-        POLL = 5.0
         leadership = get_leadership("kg-maintenance")
         # Stagger first runs so a startup burst doesn't fire everything at once.
         last_run = {name: time.time() - interval + 15.0 for name, interval, _ in jobs}
 
         while True:
             try:
-                if not getattr(self, "backend", None):
-                    time.sleep(10.0)
-                    continue
-
-                # Leader-only gate (CONCEPT:AU-OS.state.cross-host-daemon-leadership): non-leader hosts skip all
-                # singleton maintenance ticks and re-check for fail-over.
-                if not leadership.is_leader():
-                    time.sleep(10.0)
-                    continue
-
-                # Backpressure visibility (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer): sample the durable
-                # submission-queue depth every pass so depth (and, for Kafka,
-                # kg-ingest consumer lag) lands on the OS-5.23 gateway Prometheus
-                # registry — including under load, exactly when it matters most.
-                q = getattr(self, "_submission_queue", None)
-                if q is not None:
-                    try:
-                        self._record_queue_telemetry(q.get_queue_size())
-                    except Exception:  # noqa: BLE001 — queue probe best-effort
-                        pass
-
-                # This loop now runs ONLY the scheduler, including stale-tick
-                # collapse (CONCEPT:AU-OS.state.stale-tick-collapse). Native
-                # ClaimWorkItem owns lease recovery, dependency release, and
-                # delayed availability. Unlike the heavy job *bodies* it
-                # enqueues, scheduler plumbing must run even when workers are
-                # saturated. It is therefore
-                # deliberately NOT gated by the foreground throttle or a
-                # bulk-ingest auto-defer: gating it was the regression that let a
-                # stale-tick backlog and dead-worker leases pile up *precisely*
-                # while ingestion was busy and the queue most needed healing.
-
-                now = time.time()
-                for name, interval, tick in jobs:
-                    if now - last_run[name] < interval:
-                        continue
-                    logger.info("[maint-loop] running job %r", name)
-                    try:
-                        tick()
-                        logger.info("[maint-loop] job %r done", name)
-                    except Exception as e:  # one job's failure never stops others
-                        logger.error("Maintenance job '%s' error: %s", name, e)
-                    last_run[name] = time.time()
-                time.sleep(POLL)
+                _maintenance_scheduler_pass(self, jobs, last_run, leadership)
             except Exception as e:
                 logger.error(f"MaintenanceScheduler error: {e}")
                 time.sleep(30.0)
@@ -4204,22 +4421,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         client = getattr(graph, "_client", None)
         if client is None:
             return
-        try:
-            tenants = client.tenants.list()
-        except Exception:  # noqa: BLE001 — best-effort sweep
-            return
-        leaked = [
-            t["name"]
-            for t in tenants
-            if isinstance(t, dict) and "__enrich_comm_" in t.get("name", "")
-        ]
-        deleted = 0
-        for name in leaked:
-            try:
-                client.tenants.delete(name)
-                deleted += 1
-            except Exception:  # noqa: BLE001 — one failure never stops the sweep
-                pass
+        deleted = _delete_tenants(client, _leaked_comm_tenants(client))
         if deleted:
             logger.info(
                 "tenant GC: dropped %d leaked community tenant(s) (checkpoint sprawl)",
@@ -4235,25 +4437,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         if not isinstance(fanout, FanOutBackend):
             return
         try:
-            reports = fanout.reconcile()
-            summaries = [r for r in reports.values() if isinstance(r, dict)]
-            nodes_missing = sum(int(r.get("nodes_missing", 0)) for r in summaries)
-            edges_missing = sum(int(r.get("edges_missing", 0)) for r in summaries)
-            errs = sum(int(r.get("errors", 0)) for r in summaries) + sum(
-                1 for r in summaries if "error" in r
-            )
-            missing = nodes_missing + edges_missing
-            if missing or errs:
-                logger.warning(
-                    "mirror reconcile: drift remains after repair — "
-                    "%d nodes / %d edges missing, %d write errors (%s)",
-                    nodes_missing,
-                    edges_missing,
-                    errs,
-                    reports,
-                )
-            else:
-                logger.debug("mirror reconcile: all configured mirrors are in sync")
+            _log_mirror_reconcile(fanout.reconcile())
         except Exception as e:  # noqa: BLE001
             logger.warning("mirror reconcile tick failed: %s", e)
 
@@ -4307,9 +4491,6 @@ class TaskManagerMixin(GraphEngineProtocol):
         primary codebase, logs an ``EvolutionCycle`` node, and triggers the
         telemetry-ingestion sweep. Run by the consolidated maintenance scheduler.
         """
-        from datetime import datetime
-
-        EVOLUTION_INTERVAL = _EVOLUTION_INTERVAL
         cycle_start = datetime.now(UTC)
         cycle_id = f"evo_cycle_{cycle_start.strftime('%Y%m%d_%H%M%S')}"
         logger.info("Evolution: starting cycle %s", cycle_id)
@@ -4326,68 +4507,12 @@ class TaskManagerMixin(GraphEngineProtocol):
         primary_codebase = self._detect_primary_codebase()
 
         # 3. Count scorable items if we have a codebase target
-        papers_scored = 0
-        if primary_codebase and topic_count > 0:
-            try:
-                count_result = self.query_cypher(
-                    "MATCH (n) WHERE n:Document OR n:Codebase RETURN count(n) AS total",
-                )
-                papers_scored = count_result[0].get("total", 0) if count_result else 0
-                logger.info(
-                    "Evolution: %d items available for relevance sweep against '%s'",
-                    papers_scored,
-                    primary_codebase,
-                )
-            except Exception as e:
-                logger.warning(f"Evolution: relevance count failed: {e}")
+        papers_scored = _count_scorable_items(self, primary_codebase, topic_count)
 
         # 4. Log evolution cycle as a KG node
-        try:
-            from agent_utilities.knowledge_graph.core.engine import (
-                IntelligenceGraphEngine,
-            )
-
-            throughput = 0
-            try:
-                throughput_query = self.query_cypher(
-                    "MATCH (n:OptimizationTrajectory) WHERE n.created_at >= $timestamp "
-                    "RETURN count(n) AS throughput",
-                    params={
-                        "timestamp": (
-                            cycle_start - timedelta(seconds=EVOLUTION_INTERVAL)
-                        ).isoformat()
-                    },
-                )
-                throughput = (
-                    throughput_query[0].get("throughput", 0) if throughput_query else 0
-                )
-                logger.info(
-                    "Evolution: OptimizationTrajectoryNode throughput = %d", throughput
-                )
-            except Exception as e:
-                logger.warning(f"Evolution: failed to get throughput: {e}")
-
-            if isinstance(self, IntelligenceGraphEngine):
-                self.add_node(
-                    node_id=cycle_id,
-                    node_type="EvolutionCycle",
-                    properties={
-                        "triggered_by": "daemon",
-                        "topics_scanned": topic_count,
-                        "papers_scored": papers_scored,
-                        "primary_codebase": primary_codebase or "unknown",
-                        "optimization_throughput": throughput,
-                        "created_at": cycle_start.isoformat(),
-                    },
-                )
-                logger.info(
-                    "Evolution: logged cycle %s (topics=%d, scored=%d)",
-                    cycle_id,
-                    topic_count,
-                    papers_scored,
-                )
-        except Exception as e:
-            logger.warning(f"Evolution: failed to log cycle node: {e}")
+        _log_evolution_cycle(
+            self, cycle_id, cycle_start, topic_count, papers_scored, primary_codebase
+        )
 
         # 5. Telemetry/failure ingestion now runs as its own dedicated maintenance
         # job (``failure_ingest`` → _tick_failure_ingest, CONCEPT:AU-AHE.harness.failure-evolution), opt-in
@@ -7637,59 +7762,17 @@ class TaskManagerMixin(GraphEngineProtocol):
 
     def list_tasks(self) -> dict:
         """Group ingestion WorkItems by their rendered public status."""
-        work = self._ingest_work_item_index()
-        response: dict[str, Any] = {
-            "running": [],
-            "pending": [],
-            "scheduled": [],
-            "blocked": [],
-            "completed": [],
-            "failed": [],
-            "cancelled": [],
-            "dead_letter": [],
-            "unknown": [],
-        }
+        response: dict[str, Any] = {name: [] for name in _TASK_STATUS_BUCKETS}
 
-        for job_id, item in work.items():
+        for job_id, item in self._ingest_work_item_index().items():
             status = _task_status_from_work_item(item)
-            meta = item.get("metadata") or {}
-            job_info: dict[str, Any] = {
-                "job_id": job_id,
-                "target": meta.get("target", "unknown"),
-            }
-            if status in {"failed", "dead_letter"}:
-                job_info["error"] = item.get("error_ref") or "Unknown error"
-                response[status].append(job_info)
-            elif status in response:
-                if status == "completed":
-                    # Include result summary for completed jobs
-                    for key in (
-                        "chunks_added",
-                        "nodes_added",
-                        "edges_added",
-                        "diffs_added",
-                        "chunks_skipped",
-                        "skip_reason",
-                    ):
-                        if key in meta:
-                            job_info[key] = meta[key]
-                response[status].append(job_info)
+            if status not in response:
+                continue
+            response[status].append(_task_list_entry(job_id, item, status))
 
         total_tasks = sum(len(items) for items in response.values())
-
         if total_tasks > 0:
-            completed_count = len(response["completed"])
-            progress = round((completed_count / total_tasks) * 100, 2)
-            response["progress_percentage"] = f"{progress}% complete"
-            response["progress_stats"] = {
-                "total_tasks": total_tasks,
-                "completed": completed_count,
-                "pending_in_graph": len(response["pending"]),
-                "running_in_graph": len(response["running"]),
-                "scheduled": len(response["scheduled"]),
-                "blocked": len(response["blocked"]),
-            }
-
+            _stamp_task_progress(response, total_tasks)
         return response
 
     def remove_task(self, job_id: str) -> bool:
