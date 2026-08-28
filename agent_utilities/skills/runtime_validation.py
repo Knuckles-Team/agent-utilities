@@ -1551,6 +1551,212 @@ def _validation_reasoning_effort(model_class: str, *, delegated: bool) -> str | 
     return "low" if delegated else None
 
 
+async def _attach_trace_evidence(
+    result: CaseResult,
+    *,
+    client: Any,
+    langfuse_tool: str,
+    started_at: str,
+    expected_trace_name: str,
+    expected_trace_evidence: dict[str, str],
+    trace_timeout: float,
+) -> None:
+    """Record the exact trace and its parent-ingested node, or a typed error."""
+
+    try:
+        trace_id, linkage = await _wait_for_expected_trace(
+            client,
+            langfuse_tool,
+            started_at,
+            expected_trace_name,
+            expected_trace_evidence,
+            trace_timeout,
+        )
+        result.trace = _PASS
+        result.trace_linkage = linkage
+        result.trace_name = expected_trace_name
+        result.langfuse_match_count = 1
+        result.trace_ref = _opaque_ref("trace", trace_id)
+        result.parent_kg_readback_count = await _verify_parent_ingested_trace(
+            client, expected_trace_name, min(15.0, trace_timeout)
+        )
+        result.parent_ingestion = _PASS
+    except Exception as exc:  # noqa: BLE001 - report only the exception class
+        result.add_error(f"trace_or_ingestion_{type(exc).__name__}")
+
+
+def _direct_case_model(case: ValidationCase, result: CaseResult) -> tuple[Any, str]:
+    """Bind the configured model and skill identity onto the case result."""
+
+    from agent_utilities.core.model_factory import create_model
+    from agent_utilities.orchestration.agent_runner import (
+        _configured_model_for_class,
+    )
+
+    selected_model = _configured_model_for_class(case.model_class)
+    model = create_model(
+        model_id=selected_model.id,
+        reasoning_effort=_validation_reasoning_effort(
+            case.model_class, delegated=False
+        ),
+    )
+    model_name = str(getattr(model, "model_name", "") or "")
+    if not model_name:
+        raise RuntimeError("runtime_model_identity_unavailable")
+    result.model_ref = _opaque_ref("model", model_name)
+    expected_model_ref = _opaque_ref("model", selected_model.id)
+    if result.model_ref != expected_model_ref:
+        result.add_error("direct_model_selection_mismatch")
+    else:
+        result.model_selection = _PASS
+    instruction_digest = _skill_instruction_digest(case.skill)
+    result.skill_ref = persistence_reference(
+        "skill", case.skill, namespace="execution-trace"
+    )
+    result.skill_body_ref = _opaque_ref("skill_body", instruction_digest)
+    result.skill_binding = _PASS
+    return model, model_name
+
+
+def _direct_model_settings(
+    *, system_prompt: str, model_identity: str, case_timeout: float
+) -> Any:
+    """Build bounded direct-run settings, folding the provider prompt-cache hint."""
+
+    from pydantic_ai import ModelSettings
+
+    direct_model_settings: Any = ModelSettings(
+        # The closed JSON contract is intentionally small. A bounded
+        # generation keeps CPU-only local-model validation practical.
+        max_tokens=_DIRECT_MAX_OUTPUT_TOKENS,
+        temperature=0.0,
+        timeout=case_timeout,
+    )
+    try:
+        # D-54c-4 — this call bypasses attach_profile_resolver (it invokes
+        # agent.run() directly with an explicit model_settings), so fold the
+        # provider-native prompt-cache directive here too (CONCEPT:AU-ORCH.optimization.provider-prompt-cache).
+        from agent_utilities.caching.prompt_cache import fold_prompt_cache_hint
+
+        return fold_prompt_cache_hint(
+            direct_model_settings,
+            system_prompt=system_prompt,
+            model_identity=model_identity,
+        )
+    except Exception:  # noqa: BLE001 - prompt-cache hint is best-effort
+        return direct_model_settings
+
+
+def _record_direct_semantic(case: ValidationCase, result: CaseResult, run: Any) -> None:
+    """Validate the closed semantic contract of a direct run into the result."""
+
+    semantic = SemanticOutput.model_validate(run.output)
+    semantic_errors = validate_semantic_output(case, semantic)
+    result.selected_routes = tuple(sorted(semantic.selected_routes))
+    for error in semantic_errors:
+        result.add_error(error)
+    result.semantic = _PASS if not semantic_errors else _FAIL
+
+
+async def _export_direct_trace(
+    result: CaseResult,
+    *,
+    run: Any,
+    validation_run_id: str,
+    model_name: str,
+    trace_evidence: dict[str, str],
+    case_timeout: float,
+) -> None:
+    """Emit the exact run trace through the single bounded blocking-SDK slot."""
+
+    from agent_utilities.observability.langfuse_exporter import get_langfuse_exporter
+
+    exporter = get_langfuse_exporter()
+    if exporter is None:
+        result.add_error("trace_exporter_unavailable")
+        return
+
+    def emit_trace() -> bool | None:
+        if not exporter.enabled:
+            return None
+        emitted = exporter.export_graph_run(
+            run_id=validation_run_id,
+            query="",
+            status=("success" if result.semantic == _PASS else "validation_failed"),
+            token_usage=_usage_counts(run),
+            model=model_name,
+            metadata={"validation_kind": "bundled_skill_direct"},
+            evidence={
+                key: value for key, value in trace_evidence.items() if key != "run_ref"
+            },
+        )
+        exporter.flush()
+        return emitted
+
+    emitted = await _bounded_sync_call(emit_trace, min(30.0, case_timeout))
+    if emitted is None:
+        result.add_error("trace_exporter_unavailable")
+    elif not emitted:
+        result.add_error("trace_export_failed")
+
+
+async def _execute_direct_case(
+    case: ValidationCase,
+    result: CaseResult,
+    *,
+    validation_run_id: str,
+    expected_trace_name: str,
+    case_timeout: float,
+) -> dict[str, str]:
+    """Run one direct in-process case and return its expected trace evidence."""
+
+    expected_trace_evidence: dict[str, str] = {}
+    async with _DIRECT_CASE_LOCK:
+        try:
+            from agent_utilities.core.contextual_model import create_context_agent
+
+            with _direct_evidence_authority(case.skill):
+                model, model_name = _direct_case_model(case, result)
+                expected_trace_evidence = {
+                    "run_ref": expected_trace_name.removeprefix("graph_run:"),
+                    "model_ref": result.model_ref,
+                    "model_class": case.model_class,
+                    "skill_ref": result.skill_ref,
+                    "skill_body_ref": result.skill_body_ref,
+                }
+                direct_system_prompt = (
+                    f"{_skill_runtime_body(case.skill)}\n\n"
+                    f"{_contract_instruction(case)}"
+                )
+                agent = create_context_agent(
+                    model=model,
+                    output_type=_direct_semantic_output_type(case),
+                    system_prompt=direct_system_prompt,
+                    model_settings=_direct_model_settings(
+                        system_prompt=direct_system_prompt,
+                        model_identity=model_name,
+                        case_timeout=case_timeout,
+                    ),
+                    retries=2,
+                )
+                run = await asyncio.wait_for(
+                    agent.run(_direct_execution_prompt(case)), timeout=case_timeout
+                )
+                _record_direct_semantic(case, result, run)
+                await _export_direct_trace(
+                    result,
+                    run=run,
+                    validation_run_id=validation_run_id,
+                    model_name=model_name,
+                    trace_evidence=expected_trace_evidence,
+                    case_timeout=case_timeout,
+                )
+                result.run_ref = expected_trace_name.removeprefix("graph_run:")
+        except Exception as exc:  # noqa: BLE001 - report only the exception class
+            result.add_error(f"direct_{type(exc).__name__}")
+    return expected_trace_evidence
+
+
 async def _run_direct_case(
     case: ValidationCase,
     *,
@@ -1582,159 +1788,139 @@ async def _run_direct_case(
         result.add_error("trace_run_identifier_preexisting")
         return result
     started_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-    expected_trace_evidence: dict[str, str] = {}
-    async with _DIRECT_CASE_LOCK:
-        try:
-            from pydantic_ai import ModelSettings
-
-            from agent_utilities.core.contextual_model import create_context_agent
-            from agent_utilities.core.model_factory import create_model
-            from agent_utilities.orchestration.agent_runner import (
-                _configured_model_for_class,
-            )
-
-            with _direct_evidence_authority(case.skill):
-                selected_model = _configured_model_for_class(case.model_class)
-                model = create_model(
-                    model_id=selected_model.id,
-                    reasoning_effort=_validation_reasoning_effort(
-                        case.model_class, delegated=False
-                    ),
-                )
-                model_name = str(getattr(model, "model_name", "") or "")
-                if not model_name:
-                    raise RuntimeError("runtime_model_identity_unavailable")
-                result.model_ref = _opaque_ref("model", model_name)
-                expected_model_ref = _opaque_ref("model", selected_model.id)
-                if result.model_ref != expected_model_ref:
-                    result.add_error("direct_model_selection_mismatch")
-                else:
-                    result.model_selection = _PASS
-                instruction_digest = _skill_instruction_digest(case.skill)
-                result.skill_ref = persistence_reference(
-                    "skill", case.skill, namespace="execution-trace"
-                )
-                result.skill_body_ref = _opaque_ref("skill_body", instruction_digest)
-                result.skill_binding = _PASS
-                expected_trace_evidence = {
-                    "run_ref": expected_trace_name.removeprefix("graph_run:"),
-                    "model_ref": result.model_ref,
-                    "model_class": case.model_class,
-                    "skill_ref": result.skill_ref,
-                    "skill_body_ref": result.skill_body_ref,
-                }
-                direct_system_prompt = (
-                    f"{_skill_runtime_body(case.skill)}\n\n"
-                    f"{_contract_instruction(case)}"
-                )
-                direct_model_settings: Any = ModelSettings(
-                    # The closed JSON contract is intentionally small. A bounded
-                    # generation keeps CPU-only local-model validation practical.
-                    max_tokens=_DIRECT_MAX_OUTPUT_TOKENS,
-                    temperature=0.0,
-                    timeout=case_timeout,
-                )
-                try:
-                    # D-54c-4 — this call bypasses attach_profile_resolver (it invokes
-                    # agent.run() directly with an explicit model_settings), so fold the
-                    # provider-native prompt-cache directive here too (CONCEPT:AU-ORCH.optimization.provider-prompt-cache).
-                    from agent_utilities.caching.prompt_cache import (
-                        fold_prompt_cache_hint,
-                    )
-
-                    direct_model_settings = fold_prompt_cache_hint(
-                        direct_model_settings,
-                        system_prompt=direct_system_prompt,
-                        model_identity=model_name,
-                    )
-                except Exception:  # noqa: BLE001 - prompt-cache hint is best-effort
-                    pass
-                agent = create_context_agent(
-                    model=model,
-                    output_type=_direct_semantic_output_type(case),
-                    system_prompt=direct_system_prompt,
-                    model_settings=direct_model_settings,
-                    retries=2,
-                )
-                run = await asyncio.wait_for(
-                    agent.run(_direct_execution_prompt(case)), timeout=case_timeout
-                )
-                semantic = SemanticOutput.model_validate(run.output)
-                semantic_errors = validate_semantic_output(case, semantic)
-                result.selected_routes = tuple(sorted(semantic.selected_routes))
-                for error in semantic_errors:
-                    result.add_error(error)
-                result.semantic = _PASS if not semantic_errors else _FAIL
-
-                from agent_utilities.observability.langfuse_exporter import (
-                    get_langfuse_exporter,
-                )
-
-                exporter = get_langfuse_exporter()
-                if exporter is None:
-                    result.add_error("trace_exporter_unavailable")
-                else:
-
-                    def emit_trace() -> bool | None:
-                        if not exporter.enabled:
-                            return None
-                        emitted = exporter.export_graph_run(
-                            run_id=validation_run_id,
-                            query="",
-                            status=(
-                                "success"
-                                if result.semantic == _PASS
-                                else "validation_failed"
-                            ),
-                            token_usage=_usage_counts(run),
-                            model=model_name,
-                            metadata={"validation_kind": "bundled_skill_direct"},
-                            evidence={
-                                key: value
-                                for key, value in expected_trace_evidence.items()
-                                if key != "run_ref"
-                            },
-                        )
-                        exporter.flush()
-                        return emitted
-
-                    emitted = await _bounded_sync_call(
-                        emit_trace, min(30.0, case_timeout)
-                    )
-                    if emitted is None:
-                        result.add_error("trace_exporter_unavailable")
-                    elif not emitted:
-                        result.add_error("trace_export_failed")
-                result.run_ref = expected_trace_name.removeprefix("graph_run:")
-        except Exception as exc:  # noqa: BLE001 - report only the exception class
-            result.add_error(f"direct_{type(exc).__name__}")
-
+    expected_trace_evidence = await _execute_direct_case(
+        case,
+        result,
+        validation_run_id=validation_run_id,
+        expected_trace_name=expected_trace_name,
+        case_timeout=case_timeout,
+    )
     if _SYNC_CALL_POISONED.is_set():
         return result
     if not expected_trace_evidence:
         result.add_error("trace_expected_evidence_unavailable")
-    else:
-        try:
-            trace_id, linkage = await _wait_for_expected_trace(
-                client,
-                langfuse_tool,
-                started_at,
-                expected_trace_name,
-                expected_trace_evidence,
-                trace_timeout,
-            )
-            result.trace = _PASS
-            result.trace_linkage = linkage
-            result.trace_name = expected_trace_name
-            result.langfuse_match_count = 1
-            result.trace_ref = _opaque_ref("trace", trace_id)
-            result.parent_kg_readback_count = await _verify_parent_ingested_trace(
-                client, expected_trace_name, min(15.0, trace_timeout)
-            )
-            result.parent_ingestion = _PASS
-        except Exception as exc:  # noqa: BLE001 - report only the exception class
-            result.add_error(f"trace_or_ingestion_{type(exc).__name__}")
+        return result
+    await _attach_trace_evidence(
+        result,
+        client=client,
+        langfuse_tool=langfuse_tool,
+        started_at=started_at,
+        expected_trace_name=expected_trace_name,
+        expected_trace_evidence=expected_trace_evidence,
+        trace_timeout=trace_timeout,
+    )
     return result
+
+
+def _delegation_request(
+    case: ValidationCase, *, max_steps: int, token_budget: int
+) -> dict[str, Any]:
+    """Build the bounded `graph_orchestrate` request for one delegated case."""
+
+    return {
+        "agent_name": case.skill,
+        "task": f"{case.task}\n\n{_contract_instruction(case)}",
+        "max_steps": max_steps,
+        "budget_tokens": token_budget,
+        "allowed_tools": ",".join(case.allowed_tools),
+        "reasoning_effort": _validation_reasoning_effort(
+            case.model_class, delegated=True
+        ),
+        "model_class": case.model_class,
+        "response_format": "json",
+    }
+
+
+def _record_delegated_semantic(
+    case: ValidationCase, result: CaseResult, output: Any
+) -> None:
+    """Validate the delegated semantic contract, retaining only error codes."""
+
+    try:
+        semantic = _semantic_from_delegation_output(output)
+        semantic_errors = validate_semantic_output(case, semantic)
+        result.selected_routes = tuple(sorted(semantic.selected_routes))
+        for error in semantic_errors:
+            result.add_error(error)
+        result.semantic = _PASS if not semantic_errors else _FAIL
+    except Exception as exc:  # noqa: BLE001 - controlled semantic evidence only
+        if isinstance(exc, DelegationContractError):
+            result.add_error(exc.code)
+        else:
+            result.add_error(f"delegated_semantic_{type(exc).__name__}")
+
+
+def _delegated_check_status(evidence_errors: list[str], prefix: str) -> str:
+    """Pass a delegated check only when no evidence error carries its prefix."""
+
+    return (
+        _PASS
+        if not any(error.startswith(prefix) for error in evidence_errors)
+        else _FAIL
+    )
+
+
+def _record_delegated_evidence(
+    case: ValidationCase, result: CaseResult, status: dict[str, Any]
+) -> str:
+    """Record the delegated run's controlled evidence; return its skill digest."""
+
+    terminal_error = _delegation_terminal_error_code(status)
+    if terminal_error:
+        result.add_error(terminal_error)
+    (
+        evidence_errors,
+        model_ref,
+        skill_ref,
+        digest,
+    ) = _validate_delegated_runtime_evidence(case, status)
+    for error in evidence_errors:
+        result.add_error(error)
+    result.model_ref = model_ref
+    result.skill_ref = skill_ref
+    result.skill_body_ref = _opaque_ref("skill_body", digest) if digest else ""
+    result.model_selection = _delegated_check_status(evidence_errors, "model_")
+    result.skill_binding = _delegated_check_status(evidence_errors, "skill_")
+    result.delegation = (
+        _PASS if not evidence_errors and terminal_error is None else _FAIL
+    )
+    return digest
+
+
+def _delegated_trace_evidence(
+    case: ValidationCase, result: CaseResult, expected_trace_name: str, digest: str
+) -> dict[str, str]:
+    """Return the exact trace evidence, or empty when a reference is missing."""
+
+    if not (result.model_ref and result.skill_ref and digest):
+        return {}
+    return {
+        "run_ref": expected_trace_name.removeprefix("graph_run:"),
+        "model_ref": result.model_ref,
+        "model_class": case.model_class,
+        "skill_ref": result.skill_ref,
+        "skill_body_ref": _opaque_ref("skill_body", digest),
+    }
+
+
+async def _record_delegated_run(
+    case: ValidationCase,
+    result: CaseResult,
+    *,
+    client: Any,
+    run_id: str,
+    expected_trace_name: str,
+    case_timeout: float,
+) -> dict[str, str]:
+    """Await the delegated run and record its controlled completion evidence."""
+
+    if not run_id:
+        result.add_error("delegation_run_handle_missing")
+        return {}
+    result.run_ref = expected_trace_name.removeprefix("graph_run:")
+    status = await _wait_for_run_completion(client, run_id, min(case_timeout, 30.0))
+    digest = _record_delegated_evidence(case, result, status)
+    return _delegated_trace_evidence(case, result, expected_trace_name, digest)
 
 
 async def _run_delegated_case(
@@ -1763,76 +1949,20 @@ async def _run_delegated_case(
         response = await _call_tool(
             client,
             "graph_orchestrate",
-            {
-                "agent_name": case.skill,
-                "task": f"{case.task}\n\n{_contract_instruction(case)}",
-                "max_steps": max_steps,
-                "budget_tokens": token_budget,
-                "allowed_tools": ",".join(case.allowed_tools),
-                "reasoning_effort": _validation_reasoning_effort(
-                    case.model_class, delegated=True
-                ),
-                "model_class": case.model_class,
-                "response_format": "json",
-            },
+            _delegation_request(case, max_steps=max_steps, token_budget=token_budget),
             case_timeout,
         )
         output, run_id = _extract_delegation_envelope(response)
         expected_trace_name = _expected_trace_name(run_id, tenant_id)
-        try:
-            semantic = _semantic_from_delegation_output(output)
-            semantic_errors = validate_semantic_output(case, semantic)
-            result.selected_routes = tuple(sorted(semantic.selected_routes))
-            for error in semantic_errors:
-                result.add_error(error)
-            result.semantic = _PASS if not semantic_errors else _FAIL
-        except Exception as exc:  # noqa: BLE001 - controlled semantic evidence only
-            if isinstance(exc, DelegationContractError):
-                result.add_error(exc.code)
-            else:
-                result.add_error(f"delegated_semantic_{type(exc).__name__}")
-        if not run_id:
-            result.add_error("delegation_run_handle_missing")
-        else:
-            result.run_ref = expected_trace_name.removeprefix("graph_run:")
-            status = await _wait_for_run_completion(
-                client, run_id, min(case_timeout, 30.0)
-            )
-            terminal_error = _delegation_terminal_error_code(status)
-            if terminal_error:
-                result.add_error(terminal_error)
-            (
-                evidence_errors,
-                model_ref,
-                skill_ref,
-                digest,
-            ) = _validate_delegated_runtime_evidence(case, status)
-            for error in evidence_errors:
-                result.add_error(error)
-            result.model_ref = model_ref
-            result.skill_ref = skill_ref
-            result.skill_body_ref = _opaque_ref("skill_body", digest) if digest else ""
-            result.model_selection = (
-                _PASS
-                if not any(error.startswith("model_") for error in evidence_errors)
-                else _FAIL
-            )
-            result.skill_binding = (
-                _PASS
-                if not any(error.startswith("skill_") for error in evidence_errors)
-                else _FAIL
-            )
-            result.delegation = (
-                _PASS if not evidence_errors and terminal_error is None else _FAIL
-            )
-            if result.model_ref and result.skill_ref and digest:
-                expected_trace_evidence = {
-                    "run_ref": expected_trace_name.removeprefix("graph_run:"),
-                    "model_ref": result.model_ref,
-                    "model_class": case.model_class,
-                    "skill_ref": result.skill_ref,
-                    "skill_body_ref": _opaque_ref("skill_body", digest),
-                }
+        _record_delegated_semantic(case, result, output)
+        expected_trace_evidence = await _record_delegated_run(
+            case,
+            result,
+            client=client,
+            run_id=run_id,
+            expected_trace_name=expected_trace_name,
+            case_timeout=case_timeout,
+        )
     except Exception as exc:  # noqa: BLE001 - retain only controlled diagnostics
         if isinstance(exc, DelegationContractError):
             result.add_error(exc.code)
@@ -1844,26 +1974,15 @@ async def _run_delegated_case(
     elif not expected_trace_evidence:
         result.add_error("trace_expected_evidence_unavailable")
     else:
-        try:
-            trace_id, linkage = await _wait_for_expected_trace(
-                client,
-                langfuse_tool,
-                started_at,
-                expected_trace_name,
-                expected_trace_evidence,
-                trace_timeout,
-            )
-            result.trace = _PASS
-            result.trace_linkage = linkage
-            result.trace_name = expected_trace_name
-            result.langfuse_match_count = 1
-            result.trace_ref = _opaque_ref("trace", trace_id)
-            result.parent_kg_readback_count = await _verify_parent_ingested_trace(
-                client, expected_trace_name, min(15.0, trace_timeout)
-            )
-            result.parent_ingestion = _PASS
-        except Exception as exc:  # noqa: BLE001 - report only the exception class
-            result.add_error(f"trace_or_ingestion_{type(exc).__name__}")
+        await _attach_trace_evidence(
+            result,
+            client=client,
+            langfuse_tool=langfuse_tool,
+            started_at=started_at,
+            expected_trace_name=expected_trace_name,
+            expected_trace_evidence=expected_trace_evidence,
+            trace_timeout=trace_timeout,
+        )
     return result
 
 
@@ -2579,13 +2698,10 @@ def render_evidence(evidence: dict[str, Any]) -> str:
     return rendered
 
 
-async def run(args: argparse.Namespace) -> list[CaseResult]:
-    defaults, all_cases = load_matrix()
-    cases = [case for case in all_cases if args.mode in {"all", case.mode}]
+def _validated_graph_os_url(args: argparse.Namespace) -> str:
+    """Require a configured Graph-OS URL and a metadata-only, ingesting runtime."""
 
     from agent_utilities.core.config import config, setting
-    from agent_utilities.mcp.client_credentials import child_auth, child_auth_header
-    from agent_utilities.mcp.toolset_factory import build_http_toolset
 
     graph_os_url = str(args.graph_os_url or config.mcp_url or "").strip()
     if not graph_os_url:
@@ -2595,6 +2711,91 @@ async def run(args: argparse.Namespace) -> list[CaseResult]:
         raise RuntimeError("langfuse_content_capture_must_be_disabled")
     if not config.langfuse_kg_auto_ingest:
         raise RuntimeError("langfuse_parent_ingestion_required")
+    return graph_os_url
+
+
+async def _prepare_validation_tools(
+    client: Any, cases: list[ValidationCase], tenant_id: str
+) -> str:
+    """Load the exact tool surface and prove no probe trace already exists."""
+
+    await _ensure_tool(client, "graph_orchestrate", 30.0)
+    await _ensure_tool(client, "graph_query", 30.0)
+    if any(case.mode == "delegated" for case in cases):
+        await _ensure_tool(client, "graph_jobs", 30.0)
+    langfuse_tool = await _load_langfuse_tool(client, 30.0)
+    await _verify_langfuse_posture(client, langfuse_tool, 30.0)
+    probe_name = _expected_trace_name(new_run_id(), tenant_id)
+    if await _trace_snapshot(
+        client,
+        langfuse_tool,
+        30.0,
+        expected_name=probe_name,
+    ):
+        raise RuntimeError("trace_probe_collision")
+    return langfuse_tool
+
+
+async def _run_validation_case(
+    case: ValidationCase,
+    *,
+    client: Any,
+    langfuse_tool: str,
+    tenant_id: str,
+    defaults: dict[str, int | bool],
+    args: argparse.Namespace,
+    expected_authority: Any,
+) -> CaseResult:
+    """Renew the per-mode authority and run one case on its execution path."""
+
+    trace_timeout = float(defaults["trace_timeout_seconds"])
+    minimum_ttl_seconds = _direct_case_minimum_authority_ttl(
+        case_timeout=args.case_timeout, trace_timeout=trace_timeout
+    )
+    if case.mode == "direct":
+        from agent_utilities.knowledge_graph.core.session import use_session
+        from agent_utilities.security.brain_context import use_actor
+
+        validation_session = await _renew_direct_validation_session(
+            expected_authority=expected_authority,
+            minimum_ttl_seconds=minimum_ttl_seconds,
+        )
+        with (
+            use_actor(validation_session.actor),
+            use_session(validation_session),
+        ):
+            return await _run_direct_case(
+                case,
+                client=client,
+                langfuse_tool=langfuse_tool,
+                tenant_id=tenant_id,
+                case_timeout=args.case_timeout,
+                trace_timeout=trace_timeout,
+            )
+    await _renew_delegated_validation_session(
+        expected_authority=expected_authority,
+        minimum_ttl_seconds=minimum_ttl_seconds,
+    )
+    return await _run_delegated_case(
+        case,
+        client=client,
+        langfuse_tool=langfuse_tool,
+        tenant_id=tenant_id,
+        max_steps=int(defaults["max_steps"]),
+        token_budget=int(defaults["token_budget"]),
+        case_timeout=args.case_timeout,
+        trace_timeout=trace_timeout,
+    )
+
+
+async def run(args: argparse.Namespace) -> list[CaseResult]:
+    defaults, all_cases = load_matrix()
+    cases = [case for case in all_cases if args.mode in {"all", case.mode}]
+
+    graph_os_url = _validated_graph_os_url(args)
+
+    from agent_utilities.mcp.client_credentials import child_auth, child_auth_header
+    from agent_utilities.mcp.toolset_factory import build_http_toolset
 
     headers = child_auth_header({})
     identity_session = await _verified_validation_session(
@@ -2610,62 +2811,17 @@ async def run(args: argparse.Namespace) -> list[CaseResult]:
     )
     results: list[CaseResult] = []
     async with toolset.client as client:
-        await _ensure_tool(client, "graph_orchestrate", 30.0)
-        await _ensure_tool(client, "graph_query", 30.0)
-        if any(case.mode == "delegated" for case in cases):
-            await _ensure_tool(client, "graph_jobs", 30.0)
-        langfuse_tool = await _load_langfuse_tool(client, 30.0)
-        await _verify_langfuse_posture(client, langfuse_tool, 30.0)
-        probe_name = _expected_trace_name(new_run_id(), tenant_id)
-        if await _trace_snapshot(
-            client,
-            langfuse_tool,
-            30.0,
-            expected_name=probe_name,
-        ):
-            raise RuntimeError("trace_probe_collision")
+        langfuse_tool = await _prepare_validation_tools(client, cases, tenant_id)
         for case in cases:
-            if case.mode == "direct":
-                from agent_utilities.knowledge_graph.core.session import use_session
-                from agent_utilities.security.brain_context import use_actor
-
-                validation_session = await _renew_direct_validation_session(
-                    expected_authority=expected_authority,
-                    minimum_ttl_seconds=_direct_case_minimum_authority_ttl(
-                        case_timeout=args.case_timeout,
-                        trace_timeout=float(defaults["trace_timeout_seconds"]),
-                    ),
-                )
-                with (
-                    use_actor(validation_session.actor),
-                    use_session(validation_session),
-                ):
-                    item = await _run_direct_case(
-                        case,
-                        client=client,
-                        langfuse_tool=langfuse_tool,
-                        tenant_id=tenant_id,
-                        case_timeout=args.case_timeout,
-                        trace_timeout=float(defaults["trace_timeout_seconds"]),
-                    )
-            else:
-                await _renew_delegated_validation_session(
-                    expected_authority=expected_authority,
-                    minimum_ttl_seconds=_direct_case_minimum_authority_ttl(
-                        case_timeout=args.case_timeout,
-                        trace_timeout=float(defaults["trace_timeout_seconds"]),
-                    ),
-                )
-                item = await _run_delegated_case(
-                    case,
-                    client=client,
-                    langfuse_tool=langfuse_tool,
-                    tenant_id=tenant_id,
-                    max_steps=int(defaults["max_steps"]),
-                    token_budget=int(defaults["token_budget"]),
-                    case_timeout=args.case_timeout,
-                    trace_timeout=float(defaults["trace_timeout_seconds"]),
-                )
+            item = await _run_validation_case(
+                case,
+                client=client,
+                langfuse_tool=langfuse_tool,
+                tenant_id=tenant_id,
+                defaults=defaults,
+                args=args,
+                expected_authority=expected_authority,
+            )
             results.append(item)
             if _SYNC_CALL_POISONED.is_set():
                 raise RuntimeError("blocking_sdk_worker_abandoned")
