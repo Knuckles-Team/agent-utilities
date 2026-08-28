@@ -1325,97 +1325,109 @@ class IntelligenceGraphEngine(
 
         from agent_utilities.security.brain_context import use_actor
 
-        from .bitemporal import stamp_bitemporal
         from .session import resolve_session
-        from .tenant_sharing import stamp_classification, stamp_ownership
 
         session = resolve_session(session, required_scope="kg:write")
-        operations: list[dict[str, Any]] = []
         with use_actor(session.actor):
-            for mutation in mutations:
-                if not isinstance(mutation, dict):
-                    raise ValueError("typed batch mutations must be mappings")
-                kind = str(mutation.get("kind") or "")
-                raw_properties = mutation.get("properties") or {}
-                if not isinstance(raw_properties, dict):
-                    raise ValueError(
-                        "typed batch mutation properties must be a mapping"
-                    )
-                if kind == "node":
-                    node_id = str(mutation.get("id") or "").strip()
-                    node_type = str(mutation.get("node_type") or "").strip()
-                    if not node_id or not node_type:
-                        raise ValueError("typed node batch requires id and node_type")
-                    props = dict(raw_properties)
-                    if "type" in props:
-                        raise retired_node_type_property_error()
-                    node_type = self._normalize_label(node_type)
-                    props["node_type"] = node_type
-                    self._audit_candidate_type("node", node_type)
-                    prepared = self._prepare_node_props(
-                        node_type, {"id": node_id, **props}
-                    )
-                    prepared.setdefault("id", node_id)
-                    # BUG-033/BUG-039: fail closed, same as ``_upsert_node``
-                    # above — no bound actor must never silently produce an
-                    # unowned node (see that seam's comment for the full
-                    # rationale).
-                    stamp_ownership(prepared)
-                    stamp_classification(prepared, node_type)
-                    operations.append(
-                        {
-                            "op": "upsert_node" if upsert else "add_node",
-                            "id": node_id,
-                            "properties": {
-                                **prepared,
-                                "id": node_id,
-                                "node_type": prepared.get("node_type", node_type),
-                            },
-                        }
-                    )
-                    continue
-
-                if kind == "edge":
-                    source_id = str(mutation.get("source") or "").strip()
-                    target_id = str(mutation.get("target") or "").strip()
-                    rel_type = str(mutation.get("rel_type") or "").strip()
-                    if not source_id or not target_id or not rel_type:
-                        raise ValueError(
-                            "typed edge batch requires source, target, and rel_type"
-                        )
-                    props = dict(raw_properties)
-                    aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(props)
-                    if aliases:
-                        raise retired_edge_relationship_property_error(aliases)
-                    self._audit_candidate_type("edge", rel_type)
-                    rel_type = validate_identifier(
-                        rel_type.upper(), kind="relationship type"
-                    )
-                    props.setdefault("confidence", 1.0)
-                    props.setdefault("source", "system")
-                    stamp_bitemporal(props, event_time=props.get("event_time"))
-                    # BUG-062: fail closed, same as the node branch above and
-                    # ``_upsert_edge`` — no bound actor must never silently
-                    # produce an unowned/unclassified edge (see that seam's
-                    # comment for the full rationale). This batch path bypasses
-                    # ``_upsert_edge`` entirely (it goes straight to
-                    # ``apply_typed_batch``), so it needs its own stamp.
-                    stamp_ownership(props)
-                    stamp_classification(props, rel_type)
-                    operations.append(
-                        {
-                            "op": "upsert_edge" if upsert else "add_edge",
-                            "source": source_id,
-                            "target": target_id,
-                            "properties": {**props, "relationship": rel_type},
-                        }
-                    )
-                    continue
-
-                raise ValueError(f"unsupported typed batch mutation kind: {kind!r}")
-
+            operations = [
+                self._prepare_typed_mutation_op(mutation, upsert=upsert)
+                for mutation in mutations
+            ]
             apply(operations)
         return True
+
+    def _prepare_typed_node_mutation(
+        self,
+        mutation: dict[str, Any],
+        raw_properties: dict[str, Any],
+        *,
+        upsert: bool,
+    ) -> dict[str, Any]:
+        from .tenant_sharing import stamp_classification, stamp_ownership
+
+        node_id = str(mutation.get("id") or "").strip()
+        node_type = str(mutation.get("node_type") or "").strip()
+        if not node_id or not node_type:
+            raise ValueError("typed node batch requires id and node_type")
+        props = dict(raw_properties)
+        if "type" in props:
+            raise retired_node_type_property_error()
+        node_type = self._normalize_label(node_type)
+        props["node_type"] = node_type
+        self._audit_candidate_type("node", node_type)
+        prepared = self._prepare_node_props(node_type, {"id": node_id, **props})
+        prepared.setdefault("id", node_id)
+        # BUG-033/BUG-039: fail closed, same as ``_upsert_node`` above — no
+        # bound actor must never silently produce an unowned node (see that
+        # seam's comment for the full rationale).
+        stamp_ownership(prepared)
+        stamp_classification(prepared, node_type)
+        return {
+            "op": "upsert_node" if upsert else "add_node",
+            "id": node_id,
+            "properties": {
+                **prepared,
+                "id": node_id,
+                "node_type": prepared.get("node_type", node_type),
+            },
+        }
+
+    def _prepare_typed_edge_mutation(
+        self,
+        mutation: dict[str, Any],
+        raw_properties: dict[str, Any],
+        *,
+        upsert: bool,
+    ) -> dict[str, Any]:
+        from .bitemporal import stamp_bitemporal
+        from .tenant_sharing import stamp_classification, stamp_ownership
+
+        source_id = str(mutation.get("source") or "").strip()
+        target_id = str(mutation.get("target") or "").strip()
+        rel_type = str(mutation.get("rel_type") or "").strip()
+        if not source_id or not target_id or not rel_type:
+            raise ValueError("typed edge batch requires source, target, and rel_type")
+        props = dict(raw_properties)
+        aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(props)
+        if aliases:
+            raise retired_edge_relationship_property_error(aliases)
+        self._audit_candidate_type("edge", rel_type)
+        rel_type = validate_identifier(rel_type.upper(), kind="relationship type")
+        props.setdefault("confidence", 1.0)
+        props.setdefault("source", "system")
+        stamp_bitemporal(props, event_time=props.get("event_time"))
+        # BUG-062: fail closed, same as the node branch above and
+        # ``_upsert_edge`` — no bound actor must never silently produce an
+        # unowned/unclassified edge (see that seam's comment for the full
+        # rationale). This batch path bypasses ``_upsert_edge`` entirely (it
+        # goes straight to ``apply_typed_batch``), so it needs its own stamp.
+        stamp_ownership(props)
+        stamp_classification(props, rel_type)
+        return {
+            "op": "upsert_edge" if upsert else "add_edge",
+            "source": source_id,
+            "target": target_id,
+            "properties": {**props, "relationship": rel_type},
+        }
+
+    def _prepare_typed_mutation_op(
+        self, mutation: Any, *, upsert: bool
+    ) -> dict[str, Any]:
+        if not isinstance(mutation, dict):
+            raise ValueError("typed batch mutations must be mappings")
+        kind = str(mutation.get("kind") or "")
+        raw_properties = mutation.get("properties") or {}
+        if not isinstance(raw_properties, dict):
+            raise ValueError("typed batch mutation properties must be a mapping")
+        if kind == "node":
+            return self._prepare_typed_node_mutation(
+                mutation, raw_properties, upsert=upsert
+            )
+        if kind == "edge":
+            return self._prepare_typed_edge_mutation(
+                mutation, raw_properties, upsert=upsert
+            )
+        raise ValueError(f"unsupported typed batch mutation kind: {kind!r}")
 
     def add_edge(
         self,
