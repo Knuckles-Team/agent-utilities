@@ -242,7 +242,7 @@ import hashlib
 import json
 import logging
 import uuid
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -1126,7 +1126,7 @@ def _backfill_legacy_rows(gc: Any, table: str, added_columns: list[str]) -> None
 
 
 def _add_missing_columns(
-    gc: Any, table: str, columns: set[str], existing: set[str]
+    gc: Any, table: str, columns: Iterable[str], existing: set[str]
 ) -> list[str]:
     newly_added: list[str] = []
     for column in columns:
@@ -1146,7 +1146,7 @@ def _apply_step_for_table(
     gc: Any,
     migration_id: str,
     table: str,
-    columns: set[str],
+    columns: Iterable[str],
     current_columns: dict[str, set[str]],
 ) -> None:
     existing = current_columns.setdefault(table, set())
