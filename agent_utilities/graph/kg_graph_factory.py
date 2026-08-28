@@ -216,6 +216,31 @@ class KGMaterializedStep(BaseModel, BaseNode[GraphState, GraphDeps, GraphRespons
 # ---------------------------------------------------------------------------
 
 
+def _try_prompt_node_lookup(
+    engine: IntelligenceGraphEngine,
+    query: str,
+    pid: str,
+    tier_label: str,
+) -> tuple[str, str] | None:
+    """Run one Cypher lookup tier of ``_resolve_prompt_from_kg``.
+
+    Returns ``(prompt_text, node_id)`` on a hit, or ``None`` on a miss/error —
+    the caller falls through to the next tier either way.
+    """
+    if not (hasattr(engine, "backend") and engine.backend):
+        return None
+    try:
+        results = engine.backend.execute(query, {"pid": pid})
+        if results:
+            row = results[0]
+            prompt_text = row.get("prompt", "")
+            if prompt_text:
+                return prompt_text, row.get("id", pid)
+    except Exception as e:  # noqa: BLE001 — one of 3 documented fallback tiers; the docstring contracts ("", "") as the legitimate all-failed return
+        logger.debug("%s lookup failed for '%s': %s", tier_label, pid, e)
+    return None
+
+
 def _resolve_prompt_from_kg(
     engine: IntelligenceGraphEngine | None,
     prompt_id_or_role: str,
@@ -234,40 +259,26 @@ def _resolve_prompt_from_kg(
         return "", ""
 
     # ── Try direct Prompt node lookup ──
-    if hasattr(engine, "backend") and engine.backend:
-        try:
-            results = engine.backend.execute(
-                "MATCH (p:Prompt) WHERE p.id = $pid "
-                "RETURN p.system_prompt AS prompt, p.id AS id",
-                {"pid": prompt_id_or_role},
-            )
-            if results:
-                row = results[0]
-                prompt_text = row.get("prompt", "")
-                if prompt_text:
-                    return prompt_text, row.get("id", prompt_id_or_role)
-        except Exception as e:  # noqa: BLE001 — 1st of 3 documented fallback tiers; the docstring contracts ("", "") as the legitimate all-failed return
-            logger.debug(
-                "Direct Prompt lookup failed for '%s': %s", prompt_id_or_role, e
-            )
+    found = _try_prompt_node_lookup(
+        engine,
+        "MATCH (p:Prompt) WHERE p.id = $pid "
+        "RETURN p.system_prompt AS prompt, p.id AS id",
+        prompt_id_or_role,
+        "Direct Prompt",
+    )
+    if found:
+        return found
 
     # ── Try SystemPrompt node lookup ──
-    if hasattr(engine, "backend") and engine.backend:
-        try:
-            results = engine.backend.execute(
-                "MATCH (sp:SystemPrompt) WHERE sp.id = $pid "
-                "RETURN sp.content AS prompt, sp.id AS id",
-                {"pid": prompt_id_or_role},
-            )
-            if results:
-                row = results[0]
-                prompt_text = row.get("prompt", "")
-                if prompt_text:
-                    return prompt_text, row.get("id", prompt_id_or_role)
-        except Exception as e:  # noqa: BLE001 — 2nd of 3 fallback tiers; falls through to the file-based load_specialized_prompts fallback
-            logger.debug(
-                "SystemPrompt lookup failed for '%s': %s", prompt_id_or_role, e
-            )
+    found = _try_prompt_node_lookup(
+        engine,
+        "MATCH (sp:SystemPrompt) WHERE sp.id = $pid "
+        "RETURN sp.content AS prompt, sp.id AS id",
+        prompt_id_or_role,
+        "SystemPrompt",
+    )
+    if found:
+        return found
 
     # ── Fallback: load from specialized prompts config ──
     try:
@@ -278,6 +289,36 @@ def _resolve_prompt_from_kg(
         pass  # nosec B110
 
     return "", ""
+
+
+def _query_node_names(
+    engine: IntelligenceGraphEngine,
+    query: str,
+    ids: list[str],
+    *,
+    log_errors: bool,
+) -> list[str]:
+    """Run one ``_resolve_tools_from_kg`` lookup tier; collect ``name`` rows.
+
+    ``log_errors`` mirrors the two tiers' original divergent error handling —
+    the first tier logged at debug, the second silently swallowed (``nosec
+    B110``) — preserved here rather than unified, since a lane's job is to
+    restore semantics, not quietly change them.
+    """
+    if not (hasattr(engine, "backend") and engine.backend):
+        return []
+    names: list[str] = []
+    try:
+        results = engine.backend.execute(query, {"ids": ids})
+        for row in results:
+            name = row.get("name", "")
+            if name:
+                names.append(name)
+    except Exception as e:  # noqa: BLE001 — docstring-contracted to return whatever it could resolve; caller just gets fewer bound tools, not a false "fully configured" step
+        if log_errors:
+            logger.debug("Tool resolution failed: %s", e)
+        # else: nosec B110 — 2nd tier swallows silently, matching the original
+    return names
 
 
 def _resolve_tools_from_kg(
@@ -296,40 +337,84 @@ def _resolve_tools_from_kg(
     if not engine or not toolset_ids:
         return []
 
-    tool_names: list[str] = []
-
-    if hasattr(engine, "backend") and engine.backend:
-        try:
-            results = engine.backend.execute(
-                "MATCH (t:Tool) WHERE t.id IN $ids "
-                "RETURN t.name AS name, t.mcp_server AS server",
-                {"ids": toolset_ids},
-            )
-            for row in results:
-                name = row.get("name", "")
-                if name:
-                    tool_names.append(name)
-        except Exception as e:  # noqa: BLE001 — docstring-contracted to return whatever it could resolve; caller just gets fewer bound tools, not a false "fully configured" step
-            logger.debug("Tool resolution failed: %s", e)
+    tool_names = _query_node_names(
+        engine,
+        "MATCH (t:Tool) WHERE t.id IN $ids "
+        "RETURN t.name AS name, t.mcp_server AS server",
+        toolset_ids,
+        log_errors=True,
+    )
 
     # If some IDs weren't found as Tool nodes, try CallableResource
     if len(tool_names) < len(toolset_ids):
         missing = [tid for tid in toolset_ids if tid not in tool_names]
-        if hasattr(engine, "backend") and engine.backend:
-            try:
-                results = engine.backend.execute(
-                    "MATCH (cr:CallableResource) WHERE cr.id IN $ids "
-                    "RETURN cr.name AS name",
-                    {"ids": missing},
-                )
-                for row in results:
-                    name = row.get("name", "")
-                    if name:
-                        tool_names.append(name)
-            except Exception:
-                pass  # nosec B110
+        tool_names.extend(
+            _query_node_names(
+                engine,
+                "MATCH (cr:CallableResource) WHERE cr.id IN $ids RETURN cr.name AS name",
+                missing,
+                log_errors=False,
+            )
+        )
 
     return tool_names
+
+
+def _hybrid_search_templates(
+    engine: IntelligenceGraphEngine,
+    query: str,
+    top_k: int,
+) -> list[dict[str, Any]]:
+    """First tier of ``_resolve_templates_from_kg``: hybrid (vector + keyword)
+    search via ``engine.search()``. Empty list on a miss or an error — the
+    caller falls through to the label-scan fallback either way."""
+    templates: list[dict[str, Any]] = []
+    try:
+        if hasattr(engine, "search"):
+            results = engine.search(
+                query=query,
+                top_k=top_k,
+                node_types=["AgentTemplate"],
+            )
+            if results:
+                for r in results:
+                    if isinstance(r, dict):
+                        templates.append(r)
+                    elif hasattr(r, "model_dump"):
+                        templates.append(r.model_dump())
+    except Exception as e:  # noqa: BLE001 — falls through to label-scan fallback; if both fail, the caller (build_pydantic_graph_from_kg) explicitly checks the empty list and routes to KGTeamComposer
+        logger.debug("Hybrid search for AgentTemplate failed: %s", e)
+    return templates
+
+
+def _scan_agent_templates(
+    engine: IntelligenceGraphEngine,
+    top_k: int,
+) -> list[dict[str, Any]]:
+    """Second tier of ``_resolve_templates_from_kg``: a plain label scan."""
+    templates: list[dict[str, Any]] = []
+    if hasattr(engine, "backend") and engine.backend:
+        try:
+            results = engine.backend.execute(
+                "MATCH (at:AgentTemplate) "
+                "RETURN at.id AS id, at.name AS name, at.role AS role, "
+                "at.system_prompt_id AS system_prompt_id, "
+                "at.toolset_ids AS toolset_ids, "
+                "at.model_preference AS model_preference, "
+                "at.execution_tier AS execution_tier, "
+                "at.step_order AS step_order, "
+                "at.is_parallel AS is_parallel, "
+                "at.max_retries AS max_retries, "
+                "at.description AS description "
+                "ORDER BY at.step_order ASC "
+                f"LIMIT {top_k}",
+                {},
+            )
+            for row in results:
+                templates.append(dict(row))
+        except Exception as e:  # noqa: BLE001 — same handled-empty-list contract as the hybrid-search fallback above
+            logger.debug("AgentTemplate scan failed: %s", e)
+    return templates
 
 
 def _resolve_templates_from_kg(
@@ -353,51 +438,11 @@ def _resolve_templates_from_kg(
     if not engine:
         return []
 
-    templates: list[dict[str, Any]] = []
+    templates = _hybrid_search_templates(engine, query, top_k)
+    if templates:
+        return templates
 
-    # ── Try hybrid search via engine.search() ──
-    try:
-        if hasattr(engine, "search"):
-            results = engine.search(
-                query=query,
-                top_k=top_k,
-                node_types=["AgentTemplate"],
-            )
-            if results:
-                for r in results:
-                    if isinstance(r, dict):
-                        templates.append(r)
-                    elif hasattr(r, "model_dump"):
-                        templates.append(r.model_dump())
-                if templates:
-                    return templates
-    except Exception as e:  # noqa: BLE001 — falls through to label-scan fallback; if both fail, the caller (build_pydantic_graph_from_kg) explicitly checks the empty list and routes to KGTeamComposer
-        logger.debug("Hybrid search for AgentTemplate failed: %s", e)
-
-    # ── Fallback: scan all AgentTemplate nodes ──
-    if hasattr(engine, "backend") and engine.backend:
-        try:
-            results = engine.backend.execute(
-                "MATCH (at:AgentTemplate) "
-                "RETURN at.id AS id, at.name AS name, at.role AS role, "
-                "at.system_prompt_id AS system_prompt_id, "
-                "at.toolset_ids AS toolset_ids, "
-                "at.model_preference AS model_preference, "
-                "at.execution_tier AS execution_tier, "
-                "at.step_order AS step_order, "
-                "at.is_parallel AS is_parallel, "
-                "at.max_retries AS max_retries, "
-                "at.description AS description "
-                "ORDER BY at.step_order ASC "
-                f"LIMIT {top_k}",
-                {},
-            )
-            for row in results:
-                templates.append(dict(row))
-        except Exception as e:  # noqa: BLE001 — same handled-empty-list contract as the hybrid-search fallback above
-            logger.debug("AgentTemplate scan failed: %s", e)
-
-    return templates
+    return _scan_agent_templates(engine, top_k)
 
 
 def _resolve_topology_edges(
@@ -433,6 +478,168 @@ def _resolve_topology_edges(
 # ---------------------------------------------------------------------------
 # Main Factory
 # ---------------------------------------------------------------------------
+
+
+def _generic_executor_template() -> dict[str, Any]:
+    """Placeholder AgentTemplate row used by ``build_pydantic_graph_from_kg``
+    when the KG has no templates and no (or an empty) team composition to
+    fall back to."""
+    return {
+        "id": f"agent:{uuid.uuid4().hex}",
+        "role": "executor",
+        "system_prompt_id": "",
+        "toolset_ids": [],
+        "model_preference": "",
+        "step_order": 0,
+        "is_parallel": False,
+        "system_prompt": "Fallback generic executor",
+        "description": "Fallback generic executor",
+    }
+
+
+def _templates_from_team_composition(
+    team_composition: TeamComposition,
+) -> list[dict[str, Any]]:
+    """Convert ``TeamComposition`` specialists into pseudo-templates, for
+    ``build_pydantic_graph_from_kg``'s KGTeamComposer fallback."""
+    templates: list[dict[str, Any]] = []
+    for spec in team_composition.adaptive_agent_router:
+        templates.append(
+            {
+                "id": spec.get(
+                    "agent_id",
+                    spec.get("role", f"agent:{uuid.uuid4().hex}"),
+                ),
+                "role": spec.get("role", "executor"),
+                "system_prompt_id": "",
+                "toolset_ids": spec.get("tools", []),
+                "model_preference": spec.get("model_id", ""),
+                "step_order": 0,
+                "is_parallel": False,
+                "system_prompt": spec.get("system_prompt", ""),
+                "description": f"Fallback specialist: {spec.get('role', 'executor')}",
+            }
+        )
+    return templates
+
+
+def _compose_team_or_none(
+    engine: IntelligenceGraphEngine,
+    query: str,
+) -> TeamComposition | None:
+    """Run ``KGTeamComposer.compose_team``, degrading to ``None`` on an empty
+    roster rather than letting an otherwise-recoverable ``LookupError`` crash
+    the whole ``build_pydantic_graph_from_kg`` call."""
+    logger.info(
+        "[CONCEPT:AU-ORCH.adapter.kg-graph-materialization] No AgentTemplate nodes found. "
+        "Falling back to KGTeamComposer."
+    )
+    composer = KGTeamComposer(engine=engine)
+    try:
+        return composer.compose_team(query=query)
+    except LookupError as exc:
+        # The KG has no AgentTemplate nodes AND no authorized Agent roster for
+        # the domain (e.g. a fresh/empty graph, or a genuinely
+        # under-populated one) — degrade to the same generic placeholder
+        # used for `engine is None` rather than letting the whole factory
+        # call crash on an otherwise-recoverable empty roster.
+        logger.warning(
+            "[CONCEPT:AU-ORCH.adapter.kg-graph-materialization] KGTeamComposer "
+            "found no authorized agents (%s). Falling back to a generic executor.",
+            exc,
+        )
+        return None
+
+
+def _resolve_templates_with_fallback(
+    engine: IntelligenceGraphEngine | None,
+    query: str,
+    templates: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], TeamComposition | None]:
+    """Step 2 of ``build_pydantic_graph_from_kg``: if the KG search found no
+    AgentTemplate nodes, fall back to KGTeamComposer, and if THAT has no
+    authorized roster either, fall back further to a single generic executor
+    template."""
+    if templates:
+        return templates, None
+    if engine is None:
+        return [_generic_executor_template()], None
+
+    team_composition = _compose_team_or_none(engine, query)
+    if team_composition is None:
+        return [_generic_executor_template()], None
+    return _templates_from_team_composition(team_composition), team_composition
+
+
+def _materialize_step(
+    engine: IntelligenceGraphEngine | None,
+    tmpl: dict[str, Any],
+    index: int,
+    sorted_templates: list[dict[str, Any]],
+    dep_edges: list[tuple[str, str]],
+) -> tuple[str, str, KGMaterializedStep, dict[str, Any], dict[str, Any]]:
+    """Resolve one sorted template into a ``KGMaterializedStep`` plus its
+    specialist config and provenance record — the per-iteration body of Step
+    5 in ``build_pydantic_graph_from_kg``.
+
+    Returns ``(tmpl_id, role, step, specialist_config, provenance)``.
+    """
+    tmpl_id = tmpl.get("id", f"step:{uuid.uuid4().hex}")
+    role = tmpl.get("role", f"specialist_{index}")
+
+    # Resolve system prompt
+    prompt_id = tmpl.get("system_prompt_id", "")
+    if prompt_id:
+        system_prompt, resolved_prompt_id = _resolve_prompt_from_kg(engine, prompt_id)
+    else:
+        # Use inline prompt if available (from TeamComposer fallback)
+        system_prompt = tmpl.get("system_prompt", "")
+        resolved_prompt_id = ""
+
+    # Resolve tools
+    toolset_ids = tmpl.get("toolset_ids", [])
+    if isinstance(toolset_ids, list) and toolset_ids:
+        tool_names = _resolve_tools_from_kg(engine, toolset_ids)
+    else:
+        tool_names = []
+
+    # Determine next steps
+    downstream = [edge[1] for edge in dep_edges if edge[0] == tmpl_id]
+    if not downstream and index < len(sorted_templates) - 1:
+        # Default: sequential to next step
+        downstream = [sorted_templates[index + 1].get("id", "")]
+
+    is_terminal = index == len(sorted_templates) - 1 and not downstream
+
+    step = KGMaterializedStep(
+        step_id=tmpl_id,
+        role=role,
+        system_prompt=system_prompt,
+        tool_names=tool_names,
+        model_preference=tmpl.get("model_preference", ""),
+        next_step_ids=downstream,
+        is_terminal=is_terminal,
+        template_node_id=tmpl_id,
+        prompt_node_id=resolved_prompt_id,
+    )
+
+    specialist_config = {
+        "agent_id": tmpl_id,
+        "model_id": tmpl.get("model_preference", ""),
+        "tools": tool_names,
+        "system_prompt": system_prompt[:200] if system_prompt else "",
+        "role": role,
+    }
+
+    provenance = {
+        "type": "agent_template",
+        "node_id": tmpl_id,
+        "role": role,
+        "prompt_node_id": resolved_prompt_id,
+        "tool_count": len(tool_names),
+    }
+
+    return tmpl_id, role, step, specialist_config, provenance
 
 
 def build_pydantic_graph_from_kg(
@@ -483,76 +690,9 @@ def build_pydantic_graph_from_kg(
     templates = _resolve_templates_from_kg(engine, query, top_k)
 
     # ── Step 2: If no templates, fall back to TeamComposer ──
-    team_composition: TeamComposition | None = None
-    if not templates:
-        if engine is None:
-            templates.append(
-                {
-                    "id": f"agent:{uuid.uuid4().hex}",
-                    "role": "executor",
-                    "system_prompt_id": "",
-                    "toolset_ids": [],
-                    "model_preference": "",
-                    "step_order": 0,
-                    "is_parallel": False,
-                    "system_prompt": "Fallback generic executor",
-                    "description": "Fallback generic executor",
-                }
-            )
-        else:
-            logger.info(
-                "[CONCEPT:AU-ORCH.adapter.kg-graph-materialization] No AgentTemplate nodes found. "
-                "Falling back to KGTeamComposer."
-            )
-            composer = KGTeamComposer(engine=engine)
-            try:
-                team_composition = composer.compose_team(query=query)
-            except LookupError as exc:
-                # The KG has no AgentTemplate nodes AND no authorized Agent roster for
-                # the domain (e.g. a fresh/empty graph, or a genuinely
-                # under-populated one) — degrade to the same generic placeholder
-                # used for `engine is None` rather than letting the whole factory
-                # call crash on an otherwise-recoverable empty roster.
-                logger.warning(
-                    "[CONCEPT:AU-ORCH.adapter.kg-graph-materialization] KGTeamComposer "
-                    "found no authorized agents (%s). Falling back to a generic executor.",
-                    exc,
-                )
-                team_composition = None
-
-            if team_composition is None:
-                templates.append(
-                    {
-                        "id": f"agent:{uuid.uuid4().hex}",
-                        "role": "executor",
-                        "system_prompt_id": "",
-                        "toolset_ids": [],
-                        "model_preference": "",
-                        "step_order": 0,
-                        "is_parallel": False,
-                        "system_prompt": "Fallback generic executor",
-                        "description": "Fallback generic executor",
-                    }
-                )
-            else:
-                # Convert TeamComposition specialists to pseudo-templates
-                for spec in team_composition.adaptive_agent_router:
-                    templates.append(
-                        {
-                            "id": spec.get(
-                                "agent_id",
-                                spec.get("role", f"agent:{uuid.uuid4().hex}"),
-                            ),
-                            "role": spec.get("role", "executor"),
-                            "system_prompt_id": "",
-                            "toolset_ids": spec.get("tools", []),
-                            "model_preference": spec.get("model_id", ""),
-                            "step_order": 0,
-                            "is_parallel": False,
-                            "system_prompt": spec.get("system_prompt", ""),
-                            "description": f"Fallback specialist: {spec.get('role', 'executor')}",
-                        }
-                    )
+    templates, team_composition = _resolve_templates_with_fallback(
+        engine, query, templates
+    )
 
     _emit(
         "kg_query_complete",
@@ -572,69 +712,13 @@ def build_pydantic_graph_from_kg(
     step_ids_ordered: list[str] = []
 
     for i, tmpl in enumerate(sorted_templates):
-        tmpl_id = tmpl.get("id", f"step:{uuid.uuid4().hex}")
-        role = tmpl.get("role", f"specialist_{i}")
-
-        # Resolve system prompt
-        prompt_id = tmpl.get("system_prompt_id", "")
-        if prompt_id:
-            system_prompt, resolved_prompt_id = _resolve_prompt_from_kg(
-                engine, prompt_id
-            )
-        else:
-            # Use inline prompt if available (from TeamComposer fallback)
-            system_prompt = tmpl.get("system_prompt", "")
-            resolved_prompt_id = ""
-
-        # Resolve tools
-        toolset_ids = tmpl.get("toolset_ids", [])
-        if isinstance(toolset_ids, list) and toolset_ids:
-            tool_names = _resolve_tools_from_kg(engine, toolset_ids)
-        else:
-            tool_names = []
-
-        # Determine next steps
-        downstream = [edge[1] for edge in dep_edges if edge[0] == tmpl_id]
-        if not downstream and i < len(sorted_templates) - 1:
-            # Default: sequential to next step
-            downstream = [sorted_templates[i + 1].get("id", "")]
-
-        is_terminal = i == len(sorted_templates) - 1 and not downstream
-
-        step = KGMaterializedStep(
-            step_id=tmpl_id,
-            role=role,
-            system_prompt=system_prompt,
-            tool_names=tool_names,
-            model_preference=tmpl.get("model_preference", ""),
-            next_step_ids=downstream,
-            is_terminal=is_terminal,
-            template_node_id=tmpl_id,
-            prompt_node_id=resolved_prompt_id,
+        tmpl_id, role, step, specialist_config, provenance = _materialize_step(
+            engine, tmpl, i, sorted_templates, dep_edges
         )
-
         steps[tmpl_id] = step
         step_ids_ordered.append(tmpl_id)
-
-        # Build specialist config
-        specialist_configs[role] = {
-            "agent_id": tmpl_id,
-            "model_id": tmpl.get("model_preference", ""),
-            "tools": tool_names,
-            "system_prompt": system_prompt[:200] if system_prompt else "",
-            "role": role,
-        }
-
-        # Record provenance
-        kg_provenance.append(
-            {
-                "type": "agent_template",
-                "node_id": tmpl_id,
-                "role": role,
-                "prompt_node_id": resolved_prompt_id,
-                "tool_count": len(tool_names),
-            }
-        )
+        specialist_configs[role] = specialist_config
+        kg_provenance.append(provenance)
 
     # ── Step 6: Build pydantic-graph ──
     g = GraphBuilder(
@@ -693,19 +777,12 @@ def build_pydantic_graph_from_kg(
 # ---------------------------------------------------------------------------
 
 
-def _topological_sort(
+def _build_dependency_maps(
     templates: list[dict[str, Any]],
     edges: list[tuple[str, str]],
-) -> list[dict[str, Any]]:
-    """Sort templates in dependency order using Kahn's algorithm.
-
-    Falls back to step_order sorting if no edges exist.
-    """
-    if not edges:
-        # Sort by step_order when no explicit dependencies
-        return sorted(templates, key=lambda t: t.get("step_order", 0))
-
-    # Build adjacency and in-degree maps
+) -> tuple[dict[str, dict[str, Any]], dict[str, int], dict[str, list[str]]]:
+    """Build the id->template, in-degree, and adjacency maps Kahn's algorithm
+    needs, from ``_topological_sort``."""
     id_to_template = {t.get("id", ""): t for t in templates}
     in_degree: dict[str, int] = {t.get("id", ""): 0 for t in templates}
     adj: dict[str, list[str]] = {t.get("id", ""): [] for t in templates}
@@ -715,7 +792,17 @@ def _topological_sort(
             adj[src].append(tgt)
             in_degree[tgt] += 1
 
-    # Kahn's algorithm
+    return id_to_template, in_degree, adj
+
+
+def _kahn_order(
+    id_to_template: dict[str, dict[str, Any]],
+    in_degree: dict[str, int],
+    adj: dict[str, list[str]],
+) -> list[str]:
+    """Kahn's algorithm main loop for ``_topological_sort``: node ids in
+    dependency order, stable-sorted by ``step_order`` within each ready
+    level."""
     queue = [nid for nid, deg in in_degree.items() if deg == 0]
     sorted_ids: list[str] = []
 
@@ -729,6 +816,24 @@ def _topological_sort(
             in_degree[neighbor] -= 1
             if in_degree[neighbor] == 0:
                 queue.append(neighbor)
+
+    return sorted_ids
+
+
+def _topological_sort(
+    templates: list[dict[str, Any]],
+    edges: list[tuple[str, str]],
+) -> list[dict[str, Any]]:
+    """Sort templates in dependency order using Kahn's algorithm.
+
+    Falls back to step_order sorting if no edges exist.
+    """
+    if not edges:
+        # Sort by step_order when no explicit dependencies
+        return sorted(templates, key=lambda t: t.get("step_order", 0))
+
+    id_to_template, in_degree, adj = _build_dependency_maps(templates, edges)
+    sorted_ids = _kahn_order(id_to_template, in_degree, adj)
 
     # Add any remaining (cycle detection graceful fallback)
     for tmpl in templates:
