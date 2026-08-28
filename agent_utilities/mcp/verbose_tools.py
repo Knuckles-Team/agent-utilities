@@ -35,6 +35,7 @@ import inspect
 import keyword
 import logging
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from fastmcp import Context
@@ -349,6 +350,115 @@ def _build_typed_tool(
     return _tool
 
 
+@dataclass
+class _VerboseRegistrationContext:
+    """Everything shared across every method registered in one
+    :func:`register_verbose_tools` call, threaded through so the per-method
+    helpers stay under the parameter cap."""
+
+    mcp: Any
+    client_cls: type
+    get_client: Any
+    owners: dict[str, type]
+    prefix: str
+    domain_map: dict[str, str] | None
+    domains: dict[str, str]
+
+
+def _resolve_verbose_tool_domain(
+    method_name: str,
+    op: dict | None,
+    domain_map: dict[str, str] | None,
+    domains: dict[str, str],
+) -> str:
+    return (
+        (domain_map or {}).get(method_name)
+        or (op or {}).get("domain")
+        or domains.get(method_name)
+        or "api"
+    )
+
+
+def _resolve_verbose_tool_name(method_name: str, prefix: str) -> str:
+    # Avoid a doubled prefix when the client method is already named with the
+    # service prefix (e.g. service ``postiz`` + method ``postiz_create_post``
+    # would otherwise yield ``postiz_postiz_create_post``).
+    if method_name == prefix or method_name.startswith(f"{prefix}_"):
+        return method_name
+    return f"{prefix}_{method_name}"
+
+
+def _typed_tier_doc(op: dict | None) -> str:
+    return ((op or {}).get("summary") or (op or {}).get("description") or "").strip()
+
+
+def _params_json_tier_doc(client_cls: type, method_name: str, op: dict | None) -> str:
+    method = getattr(client_cls, method_name, None)
+    return (
+        (op or {}).get("summary")
+        or (op or {}).get("description")
+        or (getattr(method, "__doc__", None) or "")
+    ).strip()
+
+
+def _build_verbose_tool_fn(
+    client_cls: type, method_name: str, op: dict | None, get_client: Any
+) -> tuple[Any, str]:
+    """``(tool_fn, doc)`` — the typed tier only when every param name is a
+    usable Python identifier — some specs carry body fields like
+    ``urn:ietf:...:Group`` (SCIM) that cannot be a function parameter; those
+    operations fall back to the params_json tool so the client still
+    receives every field."""
+    params = (op or {}).get("params") or []
+    destructive = is_destructive_action(method_name, op)
+    if params and all(_is_typeable_param(p) for p in params):
+        tool_fn = _build_typed_tool(
+            method_name, params, get_client, destructive=destructive
+        )
+        return tool_fn, _typed_tier_doc(op)
+    tool_fn = _build_params_json_tool(method_name, get_client, destructive=destructive)
+    return tool_fn, _params_json_tier_doc(client_cls, method_name, op)
+
+
+def _register_one_verbose_tool(
+    ctx: _VerboseRegistrationContext, method_name: str, op: dict | None
+) -> str | None:
+    """Returns the registered tool name, or ``None`` when this method was
+    skipped (a manifest op for a method the client doesn't actually
+    expose — can't be dispatched, so no tool is registered that would only
+    error on call)."""
+    if method_name not in ctx.owners and not hasattr(ctx.client_cls, method_name):
+        logger.warning(
+            "register_verbose_tools: manifest method %r not found on %s; skipping",
+            method_name,
+            ctx.client_cls.__name__,
+        )
+        return None
+
+    domain = _resolve_verbose_tool_domain(method_name, op, ctx.domain_map, ctx.domains)
+    tool_name = _resolve_verbose_tool_name(method_name, ctx.prefix)
+    tool_fn, doc = _build_verbose_tool_fn(
+        ctx.client_cls, method_name, op, ctx.get_client
+    )
+
+    tool_fn.__name__ = tool_name
+    tool_fn.__doc__ = doc or f"Invoke the {method_name} operation."
+    ctx.mcp.tool(name=tool_name, tags={"verbose", domain, GRANULAR_TAG})(tool_fn)
+    return tool_name
+
+
+def _manifest_ops_by_method(manifest: list[dict] | None) -> dict[str, dict]:
+    return {op["method"]: op for op in (manifest or []) if op.get("method")}
+
+
+def _typed_from_manifest_count(
+    method_names: list[str], manifest_by_method: dict[str, dict]
+) -> int:
+    return sum(
+        1 for m in method_names if (manifest_by_method.get(m) or {}).get("params")
+    )
+
+
 def register_verbose_tools(
     mcp: Any,
     client_cls: type,
@@ -394,9 +504,7 @@ def register_verbose_tools(
     """
     prefix = tool_prefix or _tool_prefix(service)
     owners = _domain_methods(client_cls)
-    manifest_by_method = {
-        op["method"]: op for op in (manifest or []) if op.get("method")
-    }
+    manifest_by_method = _manifest_ops_by_method(manifest)
     if not owners and not manifest_by_method:
         logger.warning(
             "register_verbose_tools: no domain methods found on %s for service %r",
@@ -405,70 +513,30 @@ def register_verbose_tools(
         )
         return []
     domains = _derive_domains(owners)
-    registered: list[str] = []
+    ctx = _VerboseRegistrationContext(
+        mcp=mcp,
+        client_cls=client_cls,
+        get_client=get_client,
+        owners=owners,
+        prefix=prefix,
+        domain_map=domain_map,
+        domains=domains,
+    )
 
     method_names = sorted(set(owners) | set(manifest_by_method))
+    registered: list[str] = []
     for method_name in method_names:
         op = manifest_by_method.get(method_name)
-        # A manifest op for a method the client doesn't actually expose can't be
-        # dispatched — skip it rather than register a tool that errors on call.
-        if method_name not in owners and not hasattr(client_cls, method_name):
-            logger.warning(
-                "register_verbose_tools: manifest method %r not found on %s; skipping",
-                method_name,
-                client_cls.__name__,
-            )
-            continue
-
-        domain = (
-            (domain_map or {}).get(method_name)
-            or (op or {}).get("domain")
-            or domains.get(method_name)
-            or "api"
-        )
-        # Avoid a doubled prefix when the client method is already named with the
-        # service prefix (e.g. service ``postiz`` + method ``postiz_create_post``
-        # would otherwise yield ``postiz_postiz_create_post``).
-        if method_name == prefix or method_name.startswith(f"{prefix}_"):
-            tool_name = method_name
-        else:
-            tool_name = f"{prefix}_{method_name}"
-        params = (op or {}).get("params") or []
-        destructive = is_destructive_action(method_name, op)
-
-        # Typed tier only when every param name is a usable Python identifier — some
-        # specs carry body fields like ``urn:ietf:...:Group`` (SCIM) that cannot be a
-        # function parameter; those operations fall back to the params_json tool so
-        # the client still receives every field.
-        if params and all(_is_typeable_param(p) for p in params):
-            tool_fn = _build_typed_tool(
-                method_name, params, get_client, destructive=destructive
-            )
-            doc = (
-                (op or {}).get("summary") or (op or {}).get("description") or ""
-            ).strip()
-        else:
-            tool_fn = _build_params_json_tool(
-                method_name, get_client, destructive=destructive
-            )
-            method = getattr(client_cls, method_name, None)
-            doc = (
-                (op or {}).get("summary")
-                or (op or {}).get("description")
-                or (getattr(method, "__doc__", None) or "")
-            ).strip()
-
-        tool_fn.__name__ = tool_name
-        tool_fn.__doc__ = doc or f"Invoke the {method_name} operation."
-        mcp.tool(name=tool_name, tags={"verbose", domain, GRANULAR_TAG})(tool_fn)
-        registered.append(tool_name)
+        tool_name = _register_one_verbose_tool(ctx, method_name, op)
+        if tool_name is not None:
+            registered.append(tool_name)
 
     logger.debug(
         "Registered %d verbose tools for %s (prefix=%s, %d typed from manifest)",
         len(registered),
         service,
         prefix,
-        sum(1 for m in method_names if (manifest_by_method.get(m) or {}).get("params")),
+        _typed_from_manifest_count(method_names, manifest_by_method),
     )
     return registered
 
@@ -584,6 +652,82 @@ def _action_enum(tool: Any) -> list[str]:
     return []
 
 
+def _import_fastmcp_transforms() -> tuple[Any, Any] | None:
+    try:
+        from fastmcp.tools import Tool
+        from fastmcp.tools.tool_transform import ArgTransform
+
+        return Tool, ArgTransform
+    except Exception as exc:  # pragma: no cover - defensive (older FastMCP)
+        logger.warning(
+            "autowire_verbose_from_condensed: FastMCP transforms unavailable "
+            "(exception_type=%s)",
+            type(exc).__name__,
+        )
+        return None
+
+
+def _is_already_derived_verbose_tool(tool_name: str, tool: Any) -> bool:
+    # Don't re-expand an already-derived verbose tool (idempotent re-runs).
+    return bool(
+        "__" in tool_name and getattr(tool, "tags", None) and "verbose" in tool.tags
+    )
+
+
+@dataclass
+class _AutowireContext:
+    """Everything shared across every derived tool in one
+    :func:`autowire_verbose_from_condensed` call."""
+
+    mcp: Any
+    source_tools: dict[str, Any]
+    tool_cls: Any
+    arg_transform_cls: Any
+
+
+def _derive_one_verbose_action_tool(
+    ctx: _AutowireContext,
+    tool: Any,
+    tool_name: str,
+    action: str,
+    base_tags: set[str],
+) -> str | None:
+    verbose_name = f"{tool_name}__{action}"
+    if verbose_name in ctx.source_tools:
+        return None
+    try:
+        verbose_tool = ctx.tool_cls.from_tool(
+            tool,
+            name=verbose_name,
+            transform_args={
+                _ACTION_ARG: ctx.arg_transform_cls(default=action, hide=True)
+            },
+            tags=base_tags | {"verbose"},
+        )
+        ctx.mcp.add_tool(verbose_tool)
+    except Exception as exc:  # pragma: no cover - defensive per-action
+        logger.warning(
+            "autowire_verbose_from_condensed: could not derive tool "
+            "(exception_type=%s)",
+            type(exc).__name__,
+        )
+        return None
+    return verbose_name
+
+
+def _derive_verbose_tools_for_tool(
+    ctx: _AutowireContext, tool_name: str, tool: Any, actions: list[str]
+) -> list[str]:
+    src_tags = getattr(tool, "tags", None)
+    base_tags = set(src_tags) if isinstance(src_tags, set) else set()
+    derived: list[str] = []
+    for action in actions:
+        name = _derive_one_verbose_action_tool(ctx, tool, tool_name, action, base_tags)
+        if name is not None:
+            derived.append(name)
+    return derived
+
+
 def autowire_verbose_from_condensed(mcp: Any) -> list[str]:
     """Derive a verbose 1:1 surface from the already-registered condensed tools.
 
@@ -621,52 +765,28 @@ def autowire_verbose_from_condensed(mcp: Any) -> list[str]:
     CONCEPT:AU-ECO.mcp.fleet-wide-verbose-auto — fleet-wide verbose auto-wire from condensed action enums
     CONCEPT:AU-ECO.mcp.verbose-auto-wire — verbose auto-wire enumerates dynamic (runtime) actions
     """
-    try:
-        from fastmcp.tools import Tool
-        from fastmcp.tools.tool_transform import ArgTransform
-    except Exception as exc:  # pragma: no cover - defensive (older FastMCP)
-        logger.warning(
-            "autowire_verbose_from_condensed: FastMCP transforms unavailable "
-            "(exception_type=%s)",
-            type(exc).__name__,
-        )
+    transforms = _import_fastmcp_transforms()
+    if transforms is None:
         return []
+    tool_cls, arg_transform_cls = transforms
 
     source_tools = _provider_tools(mcp)
     providers: dict[str, Any] = getattr(mcp, _ACTION_PROVIDERS_ATTR, {})
+    ctx = _AutowireContext(
+        mcp=mcp,
+        source_tools=source_tools,
+        tool_cls=tool_cls,
+        arg_transform_cls=arg_transform_cls,
+    )
     derived: list[str] = []
     for tool_name in sorted(source_tools):
         tool = source_tools[tool_name]
-        # Don't re-expand an already-derived verbose tool (idempotent re-runs).
-        if "__" in tool_name and getattr(tool, "tags", None) and "verbose" in tool.tags:
+        if _is_already_derived_verbose_tool(tool_name, tool):
             continue
         actions = _tool_action_names(tool, providers)
         if not actions:
             continue
-        src_tags = getattr(tool, "tags", None)
-        base_tags = set(src_tags) if isinstance(src_tags, set) else set()
-        for action in actions:
-            verbose_name = f"{tool_name}__{action}"
-            if verbose_name in source_tools:
-                continue
-            try:
-                verbose_tool = Tool.from_tool(
-                    tool,
-                    name=verbose_name,
-                    transform_args={
-                        _ACTION_ARG: ArgTransform(default=action, hide=True)
-                    },
-                    tags=base_tags | {"verbose"},
-                )
-                mcp.add_tool(verbose_tool)
-            except Exception as exc:  # pragma: no cover - defensive per-action
-                logger.warning(
-                    "autowire_verbose_from_condensed: could not derive tool "
-                    "(exception_type=%s)",
-                    type(exc).__name__,
-                )
-                continue
-            derived.append(verbose_name)
+        derived.extend(_derive_verbose_tools_for_tool(ctx, tool_name, tool, actions))
 
     logger.debug(
         "autowire_verbose_from_condensed: derived %d verbose tools from %d condensed tools",
@@ -674,6 +794,38 @@ def autowire_verbose_from_condensed(mcp: Any) -> list[str]:
         sum(1 for n in source_tools if _tool_action_names(source_tools[n], providers)),
     )
     return derived
+
+
+def _condensed_entries_from_module(tools_module: Any) -> list[tuple[str, str, Any]]:
+    """Auto-discover every ``register_<tag>_tools`` callable on a module/namespace."""
+    found: list[tuple[str, str, Any]] = []
+    for name in sorted(vars(tools_module)):
+        match = re.fullmatch(r"register_(.+)_tools", name)
+        fn = getattr(tools_module, name)
+        # Skip the shared helpers (they match the pattern but are not a
+        # connector's domain registrars) and any non-callable.
+        if not match or not callable(fn) or name in _SURFACE_HELPER_NAMES:
+            continue
+        tag = match.group(1)
+        found.append((tag, f"{tag.upper()}TOOL", fn))
+    return found
+
+
+def _condensed_entries_from_registrars(
+    registrars: list | None,
+) -> list[tuple[str, str, Any]]:
+    """A list whose items are either a bare ``register_fn`` or a
+    ``(tag, env_var, fn)`` tuple."""
+    entries: list[tuple[str, str, Any]] = []
+    for item in registrars or []:
+        if isinstance(item, tuple):
+            entries.append(item)  # type: ignore[arg-type]
+            continue
+        name = getattr(item, "__name__", "")
+        match = re.fullmatch(r"register_(.+)_tools", name)
+        tag = match.group(1) if match else name
+        entries.append((tag, f"{tag.upper()}TOOL", item))
+    return entries
 
 
 def _condensed_entries(
@@ -695,30 +847,9 @@ def _condensed_entries(
     """
     if tool_registry:
         return [tuple(e) for e in tool_registry]  # type: ignore[misc]
-
     if tools_module is not None:
-        found: list[tuple[str, str, Any]] = []
-        for name in sorted(vars(tools_module)):
-            match = re.fullmatch(r"register_(.+)_tools", name)
-            fn = getattr(tools_module, name)
-            # Skip the shared helpers (they match the pattern but are not a
-            # connector's domain registrars) and any non-callable.
-            if not match or not callable(fn) or name in _SURFACE_HELPER_NAMES:
-                continue
-            tag = match.group(1)
-            found.append((tag, f"{tag.upper()}TOOL", fn))
-        return found
-
-    entries: list[tuple[str, str, Any]] = []
-    for item in registrars or []:
-        if isinstance(item, tuple):
-            entries.append(item)  # type: ignore[arg-type]
-            continue
-        name = getattr(item, "__name__", "")
-        match = re.fullmatch(r"register_(.+)_tools", name)
-        tag = match.group(1) if match else name
-        entries.append((tag, f"{tag.upper()}TOOL", item))
-    return entries
+        return _condensed_entries_from_module(tools_module)
+    return _condensed_entries_from_registrars(registrars)
 
 
 def gated_tool_names(mcp: Any) -> set[str]:
@@ -733,6 +864,157 @@ def gated_tool_names(mcp: Any) -> set[str]:
     already registered locally — just hidden by default).
     """
     return set(getattr(mcp, "_intent_gated_tools", ()) or ())
+
+
+def _resolve_tool_mode(mode_override: str | None) -> str:
+    if mode_override is not None and mode_override not in VALID_TOOL_MODES:
+        raise ValueError(
+            f"mode_override must be one of {VALID_TOOL_MODES}, got {mode_override!r}"
+        )
+    return mode_override or tool_mode()
+
+
+def _resolve_verbose_targets(
+    verbose_targets: list[dict] | None,
+    client_cls: type | None,
+    get_client: Any,
+    tool_prefix: str | None,
+    manifest: list[dict] | None,
+) -> list[dict] | None:
+    if verbose_targets is not None or client_cls is None or get_client is None:
+        return verbose_targets
+    return [
+        {
+            "client_cls": client_cls,
+            "get_client": get_client,
+            "tool_prefix": tool_prefix,
+            "manifest": manifest,
+        }
+    ]
+
+
+@dataclass
+class _CondensedRegistrationContext:
+    mcp: Any
+    setting: Any
+    force_condensed_registration: bool
+    gate_condensed_visibility: bool
+    toggles: dict[str, str]
+    gated: set[str]
+
+
+def _register_one_condensed_registrar(
+    ctx: _CondensedRegistrationContext, tag: str, env_var: str, register_fn: Any
+) -> bool:
+    """Register one condensed registrar's tools, stamping domain/gate tags and
+    recording the tool->toggle-env map. Returns True iff it actually ran (was
+    not toggled off)."""
+    if not ctx.force_condensed_registration and not ctx.setting(env_var, True):
+        return False
+    before = set(_provider_tools(ctx.mcp))
+    register_fn(ctx.mcp)
+    # Tools this registrar just added belong to this domain: stamp the
+    # canonical domain tag (so every condensed tool carries the tag that
+    # matches its toggle — standardizing the ad-hoc per-author tags) and
+    # record the exact tool->toggle-env map for docs/introspection.
+    after = _provider_tools(ctx.mcp)
+    for name in set(after) - before:
+        tags_attr = getattr(after[name], "tags", None)
+        if isinstance(tags_attr, set):
+            tags_attr.add(tag)
+            tags_attr.add(GRANULAR_TAG)
+            if ctx.gate_condensed_visibility:
+                tags_attr.add(GATED_TAG)
+                ctx.gated.add(name)
+        ctx.toggles[name] = env_var
+    return True
+
+
+def _register_condensed_tools(
+    mcp: Any,
+    mode: str,
+    has_verbose: bool,
+    entries: list[tuple[str, str, Any]],
+    *,
+    force_condensed_registration: bool,
+    setting: Any,
+) -> list[str]:
+    """Condensed registers in condensed/both/intent — and ALWAYS in verbose mode
+    too, because the condensed registrars are what populate the dispatch core
+    (``REGISTERED_TOOLS``) that ``_execute_tool``/the REST surface/every verbose
+    alias dispatches through (D-WS-1: verbose mode used to skip this whenever the
+    agent had its own explicit verbose surface — e.g. graph-os's
+    ``verbose_register`` — leaving the dispatch core empty while hundreds of
+    verbose tools were still served, so every call raised "Tool <x> not
+    registered"). When the agent already has its own verbose surface
+    (``has_verbose``), the condensed tools are gated from the default session
+    view exactly like ``intent`` does — they still populate the dispatch core,
+    they just aren't double-listed alongside the 1:1 verbose tools. When the
+    agent has no verbose surface at all, the condensed tools stay the visible
+    fallback surface (unchanged prior behavior for condensed-only servers under a
+    deployment-wide MCP_TOOL_MODE=verbose meant for connectors).
+    ``intent`` registers the SAME condensed tools (REST/_execute_tool/
+    REGISTERED_TOOLS are unaffected — they are the backing surface the intent
+    verbs dispatch into) but additionally gates them from the default session
+    view (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse)."""
+    if mode not in ("condensed", "both", "intent", "verbose"):
+        return []
+    toggles: dict[str, str] = getattr(mcp, "_condensed_tool_toggles", {})
+    gated: set[str] = getattr(mcp, "_intent_gated_tools", set())
+    gate_condensed_visibility = mode == "intent" or (mode == "verbose" and has_verbose)
+    ctx = _CondensedRegistrationContext(
+        mcp=mcp,
+        setting=setting,
+        force_condensed_registration=force_condensed_registration,
+        gate_condensed_visibility=gate_condensed_visibility,
+        toggles=toggles,
+        gated=gated,
+    )
+    registered_tags: list[str] = []
+    for tag, env_var, register_fn in entries:
+        if _register_one_condensed_registrar(ctx, tag, env_var, register_fn):
+            registered_tags.append(tag)
+    if toggles:
+        mcp._condensed_tool_toggles = toggles
+    if gated:
+        mcp._intent_gated_tools = gated
+    return registered_tags
+
+
+def _register_verbose_surface(
+    mcp: Any,
+    mode: str,
+    targets: list[dict] | None,
+    *,
+    service: str,
+    verbose_register: Any,
+    autowire_condensed: bool,
+    action_providers: dict[str, Any] | None,
+) -> None:
+    """Explicit verbose targets, then the custom builder, then (default ON) the
+    fleet-wide auto-wire from condensed action tools -- see
+    :func:`register_tool_surface`'s docstring for the full "why"."""
+    if mode not in ("verbose", "both"):
+        return
+    for target in targets or []:
+        register_verbose_tools(
+            mcp,
+            target["client_cls"],
+            target["get_client"],
+            service=target.get("service", service),
+            tool_prefix=target.get("tool_prefix"),
+            manifest=target.get("manifest"),
+        )
+    if verbose_register is not None:
+        verbose_register(mcp)
+    # Universal fallback: expand every condensed action-routed tool's actions
+    # into 1:1 verbose tools, so a connector exposing ONLY condensed tools still
+    # gets a verbose surface with no per-connector wiring (ECO-4.89). Free-form
+    # action tools enumerate via the registered action providers (ECO-4.90).
+    if autowire_condensed:
+        for tool_name, actions in (action_providers or {}).items():
+            register_action_provider(mcp, tool_name, actions)
+        autowire_verbose_from_condensed(mcp)
 
 
 def register_tool_surface(
@@ -797,95 +1079,28 @@ def register_tool_surface(
     """
     from agent_utilities.core.config import setting
 
-    if mode_override is not None and mode_override not in VALID_TOOL_MODES:
-        raise ValueError(
-            f"mode_override must be one of {VALID_TOOL_MODES}, got {mode_override!r}"
-        )
-    mode = mode_override or tool_mode()
-    registered_tags: list[str] = []
-
-    targets = verbose_targets
-    if targets is None and client_cls is not None and get_client is not None:
-        targets = [
-            {
-                "client_cls": client_cls,
-                "get_client": get_client,
-                "tool_prefix": tool_prefix,
-                "manifest": manifest,
-            }
-        ]
+    mode = _resolve_tool_mode(mode_override)
+    targets = _resolve_verbose_targets(
+        verbose_targets, client_cls, get_client, tool_prefix, manifest
+    )
     has_verbose = bool(targets) or verbose_register is not None
 
-    # Condensed registers in condensed/both/intent — and ALWAYS in verbose mode too,
-    # because the condensed registrars are what populate the dispatch core
-    # (``REGISTERED_TOOLS``) that ``_execute_tool``/the REST surface/every verbose
-    # alias dispatches through (D-WS-1: verbose mode used to skip this whenever the
-    # agent had its own explicit verbose surface — e.g. graph-os's
-    # ``verbose_register`` — leaving the dispatch core empty while hundreds of
-    # verbose tools were still served, so every call raised "Tool <x> not
-    # registered"). When the agent already has its own verbose surface
-    # (``has_verbose``), the condensed tools are gated from the default session
-    # view exactly like ``intent`` does — they still populate the dispatch core,
-    # they just aren't double-listed alongside the 1:1 verbose tools. When the
-    # agent has no verbose surface at all, the condensed tools stay the visible
-    # fallback surface (unchanged prior behavior for condensed-only servers under a
-    # deployment-wide MCP_TOOL_MODE=verbose meant for connectors).
-    # ``intent`` registers the SAME condensed tools (REST/_execute_tool/
-    # REGISTERED_TOOLS are unaffected — they are the backing surface the intent
-    # verbs dispatch into) but additionally gates them from the default session
-    # view (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse).
-    if mode in ("condensed", "both", "intent", "verbose"):
-        toggles: dict[str, str] = getattr(mcp, "_condensed_tool_toggles", {})
-        gated: set[str] = getattr(mcp, "_intent_gated_tools", set())
-        gate_condensed_visibility = mode == "intent" or (
-            mode == "verbose" and has_verbose
-        )
-        for tag, env_var, register_fn in _condensed_entries(
-            tool_registry, tools_module, registrars
-        ):
-            if not force_condensed_registration and not setting(env_var, True):
-                continue
-            before = set(_provider_tools(mcp))
-            register_fn(mcp)
-            # Tools this registrar just added belong to this domain: stamp the
-            # canonical domain tag (so every condensed tool carries the tag that
-            # matches its toggle — standardizing the ad-hoc per-author tags) and
-            # record the exact tool->toggle-env map for docs/introspection.
-            after = _provider_tools(mcp)
-            for name in set(after) - before:
-                tags_attr = getattr(after[name], "tags", None)
-                if isinstance(tags_attr, set):
-                    tags_attr.add(tag)
-                    tags_attr.add(GRANULAR_TAG)
-                    if gate_condensed_visibility:
-                        tags_attr.add(GATED_TAG)
-                        gated.add(name)
-                toggles[name] = env_var
-            registered_tags.append(tag)
-        if toggles:
-            mcp._condensed_tool_toggles = toggles
-        if gated:
-            mcp._intent_gated_tools = gated
-
-    if mode in ("verbose", "both"):
-        for target in targets or []:
-            register_verbose_tools(
-                mcp,
-                target["client_cls"],
-                target["get_client"],
-                service=target.get("service", service),
-                tool_prefix=target.get("tool_prefix"),
-                manifest=target.get("manifest"),
-            )
-        if verbose_register is not None:
-            verbose_register(mcp)
-        # Universal fallback: expand every condensed action-routed tool's actions
-        # into 1:1 verbose tools, so a connector exposing ONLY condensed tools still
-        # gets a verbose surface with no per-connector wiring (ECO-4.89). Free-form
-        # action tools enumerate via the registered action providers (ECO-4.90).
-        if autowire_condensed:
-            for tool_name, actions in (action_providers or {}).items():
-                register_action_provider(mcp, tool_name, actions)
-            autowire_verbose_from_condensed(mcp)
-
+    entries = _condensed_entries(tool_registry, tools_module, registrars)
+    registered_tags = _register_condensed_tools(
+        mcp,
+        mode,
+        has_verbose,
+        entries,
+        force_condensed_registration=force_condensed_registration,
+        setting=setting,
+    )
+    _register_verbose_surface(
+        mcp,
+        mode,
+        targets,
+        service=service,
+        verbose_register=verbose_register,
+        autowire_condensed=autowire_condensed,
+        action_providers=action_providers,
+    )
     return registered_tags
