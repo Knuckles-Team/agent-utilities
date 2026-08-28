@@ -60,10 +60,58 @@ def test_empty_dirs_bypasses_cache(clean_registry):
 
 
 def test_factory_used_in_create_agent():
-    """Wire-First: the live agent factory routes SkillsToolset through the warm cache."""
+    """Wire-First: the live agent factory routes SkillsToolset through the warm cache.
+
+    Resolved through the module's CALL GRAPH rather than by grepping
+    ``create_agent``'s own source text. The previous form asserted the literal
+    ``"get_or_build_skills_toolset" in inspect.getsource(create_agent)``, which
+    broke the moment the call moved one frame down into an extracted helper --
+    while the wiring it exists to protect was completely intact. A source-text
+    assertion answers "does this name appear in these bytes", which is never the
+    same question as "is the warm cache on the live path".
+    """
+    import ast
     import inspect
 
     from agent_utilities.agent import factory as agent_factory
 
-    src = inspect.getsource(agent_factory.create_agent)
-    assert "get_or_build_skills_toolset" in src
+    module = ast.parse(inspect.getsource(agent_factory))
+    defs = {
+        n.name: n
+        for n in module.body
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+    def called_names(node):
+        out = set()
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Call):
+                fn = sub.func
+                if isinstance(fn, ast.Name):
+                    out.add(fn.id)
+                elif isinstance(fn, ast.Attribute):
+                    out.add(fn.attr)
+            elif isinstance(sub, ast.Name):
+                out.add(sub.id)
+        return out
+
+    # Breadth-first over module-level helpers reachable from create_agent.
+    seen: set[str] = set()
+    frontier = ["create_agent"]
+    reachable: set[str] = set()
+    while frontier:
+        name = frontier.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        node = defs.get(name)
+        if node is None:
+            continue
+        names = called_names(node)
+        reachable |= names
+        frontier.extend(n for n in names if n in defs and n not in seen)
+
+    assert "get_or_build_skills_toolset" in reachable, (
+        "the warm skills cache is no longer reachable from create_agent; "
+        f"reachable helpers were {sorted(seen)}"
+    )
