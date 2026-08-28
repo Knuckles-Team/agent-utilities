@@ -3468,32 +3468,37 @@ def resolve_explicit_graph(
             f"connection {name!r} has no physical-graph concept; explicit "
             "graph selection is supported only on the default connection"
         )
+    _validate_graph_exists_in_catalog(engine, graph)
+    return entries
+
+
+def _validate_graph_exists_in_catalog(engine: Any, graph: str) -> None:
+    """Best-effort existence check for ``graph`` against the engine's catalog.
+
+    A degraded/unavailable catalog probe must never itself deny or (worse)
+    silently permit — the engine's own RBAC/RLS is the real authorization
+    boundary either way, so this just skips the check in that case and lets
+    the actual call surface whatever the engine decides.
+    """
     tenants = getattr(
         getattr(getattr(engine, "graph_compute", None), "client", None),
         "tenants",
         None,
     )
     list_graphs = getattr(tenants, "list", None)
-    if callable(list_graphs):
-        try:
-            catalog = list_graphs() or []
-        except Exception:  # noqa: BLE001 — best-effort probe; the engine's own
-            # RBAC/RLS is the real authorization boundary either way, so a
-            # degraded/unavailable catalog probe must never itself deny or
-            # (worse) silently permit — it just skips the early check and lets
-            # the actual call surface whatever the engine decides.
-            catalog = None
-        if catalog is not None:
-            names = {
-                row.get("name")
-                for row in catalog
-                if isinstance(row, dict) and row.get("name")
-            }
-            if graph not in names:
-                raise GraphNotFoundError(
-                    f"graph {graph!r} is not present in the engine catalog"
-                )
-    return entries
+    if not callable(list_graphs):
+        return
+    try:
+        catalog = list_graphs() or []
+    except Exception:  # noqa: BLE001 — best-effort probe; see docstring
+        return
+    names = {
+        row.get("name") for row in catalog if isinstance(row, dict) and row.get("name")
+    }
+    if graph not in names:
+        raise GraphNotFoundError(
+            f"graph {graph!r} is not present in the engine catalog"
+        )
 
 
 @contextlib.contextmanager
