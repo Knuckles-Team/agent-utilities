@@ -1024,6 +1024,20 @@ async def _list_tool_names(client: Any, timeout: float) -> set[str]:
     return names
 
 
+def _langfuse_tool_candidates(catalog: Any) -> list[str]:
+    """Extract the safely named prefixed `langfuse_observability` entries."""
+
+    candidates = []
+    if isinstance(catalog, dict):
+        for entry in catalog.get("tools") or []:
+            if (
+                isinstance(entry, dict)
+                and entry.get("tool") == "langfuse_observability"
+            ):
+                candidates.append(str(entry.get("prefixed_name") or ""))
+    return [name for name in candidates if _SAFE_ROUTE.fullmatch(name)]
+
+
 async def _load_langfuse_tool(client: Any, timeout: float) -> str:
     """Discover and load Langfuse through Graph-OS, never a direct endpoint."""
 
@@ -1036,15 +1050,7 @@ async def _load_langfuse_tool(client: Any, timeout: float) -> str:
         {"server": "langfuse-mcp", "include_tools": True},
         timeout,
     )
-    candidates = []
-    if isinstance(catalog, dict):
-        for entry in catalog.get("tools") or []:
-            if (
-                isinstance(entry, dict)
-                and entry.get("tool") == "langfuse_observability"
-            ):
-                candidates.append(str(entry.get("prefixed_name") or ""))
-    candidates = [name for name in candidates if _SAFE_ROUTE.fullmatch(name)]
+    candidates = _langfuse_tool_candidates(catalog)
     if len(candidates) != 1:
         raise RuntimeError("langfuse_tool_discovery_failed")
     if candidates[0] not in names:
@@ -1053,6 +1059,27 @@ async def _load_langfuse_tool(client: Any, timeout: float) -> str:
         if candidates[0] not in names:
             raise RuntimeError("langfuse_tool_load_failed")
     return candidates[0]
+
+
+async def _await_sync_worker(
+    completed: threading.Event, poisoned: threading.Event, timeout: float
+) -> None:
+    """Await the single SDK worker, poisoning the slot if it is abandoned."""
+
+    try:
+        deadline = time.monotonic() + max(1.0, timeout)
+        while not completed.is_set():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                if completed.is_set():
+                    break
+                poisoned.set()
+                raise TimeoutError("blocking_sdk_timeout")
+            await asyncio.sleep(min(0.05, remaining))
+    except BaseException:
+        if not completed.is_set():
+            poisoned.set()
+        raise
 
 
 async def _bounded_sync_call(function: Any, timeout: float) -> Any:
@@ -1097,20 +1124,7 @@ async def _bounded_sync_call(function: Any, timeout: float) -> Any:
     except BaseException:
         active_guard.release()
         raise
-    try:
-        deadline = time.monotonic() + max(1.0, timeout)
-        while not completed.is_set():
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                if completed.is_set():
-                    break
-                poisoned.set()
-                raise TimeoutError("blocking_sdk_timeout")
-            await asyncio.sleep(min(0.05, remaining))
-    except BaseException:
-        if not completed.is_set():
-            poisoned.set()
-        raise
+    await _await_sync_worker(completed, poisoned, timeout)
     succeeded, value = outcome[0]
     if succeeded:
         return value
@@ -1170,6 +1184,46 @@ def _trace_row_evidence(row: dict[str, Any]) -> dict[str, str]:
     return evidence
 
 
+def _trace_list_arguments(
+    page: int, from_timestamp: str | None, expected_name: str
+) -> dict[str, Any]:
+    """Build one bounded, exact-name `trace_list` request for a single page."""
+
+    args: dict[str, Any] = {
+        "action": "trace_list",
+        "page": page,
+        # Cases run sequentially and each window expects one run-linked trace.
+        # Small pages stay below GraphOS's delegated-value boundary even when
+        # the shared project contains content-heavy automatic telemetry.
+        "limit": _TRACE_PAGE_LIMIT,
+        "order_by": "timestamp.desc",
+        "fields": "core,basic,metadata",
+    }
+    if from_timestamp:
+        args["from_timestamp"] = from_timestamp
+    # Filter at the provider boundary so unrelated shared-project traffic
+    # cannot consume the bounded page window or expand metadata exposure.
+    args["name"] = expected_name
+    return args
+
+
+def _collect_trace_rows(
+    snapshot: dict[str, TraceRecord], rows: list[Any], expected_name: str
+) -> None:
+    """Retain only exact-name rows and their closed evidence metadata."""
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        trace_id = str(row.get("id") or "")
+        name = str(row.get("name") or "")
+        if trace_id and len(trace_id) <= 256 and name == expected_name:
+            snapshot[trace_id] = TraceRecord(
+                name=name,
+                evidence=_trace_row_evidence(row),
+            )
+
+
 async def _trace_snapshot(
     client: Any,
     langfuse_tool: str,
@@ -1187,40 +1241,53 @@ async def _trace_snapshot(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError("trace_snapshot_timeout")
-        args: dict[str, Any] = {
-            "action": "trace_list",
-            "page": page,
-            # Cases run sequentially and each window expects one run-linked trace.
-            # Small pages stay below GraphOS's delegated-value boundary even when
-            # the shared project contains content-heavy automatic telemetry.
-            "limit": _TRACE_PAGE_LIMIT,
-            "order_by": "timestamp.desc",
-            "fields": "core,basic,metadata",
-        }
-        if from_timestamp:
-            args["from_timestamp"] = from_timestamp
-        # Filter at the provider boundary so unrelated shared-project traffic
-        # cannot consume the bounded page window or expand metadata exposure.
-        args["name"] = expected_name
+        args = _trace_list_arguments(page, from_timestamp, expected_name)
         payload = await _call_tool(client, langfuse_tool, args, min(remaining, timeout))
         rows = payload.get("data") if isinstance(payload, dict) else None
         if not isinstance(rows, list):
             raise RuntimeError("trace_snapshot_invalid")
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            trace_id = str(row.get("id") or "")
-            name = str(row.get("name") or "")
-            if trace_id and len(trace_id) <= 256 and name == expected_name:
-                snapshot[trace_id] = TraceRecord(
-                    name=name,
-                    evidence=_trace_row_evidence(row),
-                )
+        _collect_trace_rows(snapshot, rows, expected_name)
         if len(rows) < _TRACE_PAGE_LIMIT:
             return snapshot
     if from_timestamp:
         raise RuntimeError("trace_snapshot_boundary_exceeded")
     return snapshot
+
+
+async def _next_transient_retry(attempts: int, deadline: float) -> int | None:
+    """Charge one bounded retry for a typed child-tool failure.
+
+    Returns the new attempt count after sleeping the backoff, or ``None`` when
+    the retry budget or the caller's deadline is exhausted and the typed
+    failure must propagate as a certification gate.
+    """
+
+    if attempts >= _TRACE_TOOL_ERROR_RETRIES:
+        return None
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return None
+    await asyncio.sleep(min(_TRACE_TOOL_ERROR_RETRY_DELAY_SECONDS, remaining))
+    return attempts + 1
+
+
+def _matched_expected_trace(
+    current: dict[str, TraceRecord], expected_evidence: dict[str, str]
+) -> str | None:
+    """Return the single exact-evidence trace id, or None while none exists."""
+
+    matching = sorted(current)
+    if len(matching) == 1:
+        record = current[matching[0]]
+        if any(
+            record.evidence.get(key) != value
+            for key, value in expected_evidence.items()
+        ):
+            raise RuntimeError("trace_evidence_mismatch")
+        return matching[0]
+    if len(matching) > 1:
+        raise RuntimeError("trace_run_identifier_ambiguous")
+    return None
 
 
 async def _wait_for_expected_trace(
@@ -1256,27 +1323,38 @@ async def _wait_for_expected_trace(
             # parent ChangeEnvelope races another graph writer. Retry only the
             # typed child-tool failure, keep the attempt count bounded, and let
             # persistent provider/ingestion failures remain certification gates.
-            if transient_tool_errors >= _TRACE_TOOL_ERROR_RETRIES:
+            attempts = await _next_transient_retry(transient_tool_errors, deadline)
+            if attempts is None:
                 raise
-            transient_tool_errors += 1
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise
-            await asyncio.sleep(min(_TRACE_TOOL_ERROR_RETRY_DELAY_SECONDS, remaining))
+            transient_tool_errors = attempts
             continue
-        matching = sorted(current)
-        if len(matching) == 1:
-            record = current[matching[0]]
-            if any(
-                record.evidence.get(key) != value
-                for key, value in expected_evidence.items()
-            ):
-                raise RuntimeError("trace_evidence_mismatch")
-            return matching[0], "run-evidence"
-        if len(matching) > 1:
-            raise RuntimeError("trace_run_identifier_ambiguous")
+        matched = _matched_expected_trace(current, expected_evidence)
+        if matched is not None:
+            return matched, "run-evidence"
         await asyncio.sleep(1.0)
     raise TimeoutError("trace_not_observed")
+
+
+def _require_parent_ingestion_inputs(expected_name: str, timeout: float) -> None:
+    """Require an exact opaque trace name and a finite, positive time budget."""
+
+    if not re.fullmatch(r"graph_run:pref_run_[a-f0-9]{64}", expected_name):
+        raise RuntimeError("trace_expected_name_invalid")
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("trace_parent_ingestion_timeout_invalid")
+
+
+def _parent_ingestion_query(expected_name: str) -> dict[str, Any]:
+    """Build the bounded, identity-retaining parent-ingestion readback query."""
+
+    return {
+        "cypher": (
+            "MATCH (n:Trace) WHERE n.name = $name "
+            "RETURN n.id AS id, n.name AS name LIMIT 2"
+        ),
+        "params": json.dumps({"name": expected_name}, separators=(",", ":")),
+        "scope": "local",
+    }
 
 
 async def _verify_parent_ingested_trace(
@@ -1286,18 +1364,8 @@ async def _verify_parent_ingested_trace(
 ) -> int:
     """Require exactly one parent-mediated KG node for an exact opaque trace."""
 
-    if not re.fullmatch(r"graph_run:pref_run_[a-f0-9]{64}", expected_name):
-        raise RuntimeError("trace_expected_name_invalid")
-    if not math.isfinite(timeout) or timeout <= 0:
-        raise ValueError("trace_parent_ingestion_timeout_invalid")
-    arguments = {
-        "cypher": (
-            "MATCH (n:Trace) WHERE n.name = $name "
-            "RETURN n.id AS id, n.name AS name LIMIT 2"
-        ),
-        "params": json.dumps({"name": expected_name}, separators=(",", ":")),
-        "scope": "local",
-    }
+    _require_parent_ingestion_inputs(expected_name, timeout)
+    arguments = _parent_ingestion_query(expected_name)
     deadline = time.monotonic() + timeout
     transient_tool_errors = 0
     while True:
@@ -1312,13 +1380,10 @@ async def _verify_parent_ingested_trace(
                 min(15.0, remaining),
             )
         except (ToolError, ValidationChildToolError):
-            if transient_tool_errors >= _TRACE_TOOL_ERROR_RETRIES:
+            attempts = await _next_transient_retry(transient_tool_errors, deadline)
+            if attempts is None:
                 raise
-            transient_tool_errors += 1
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise
-            await asyncio.sleep(min(_TRACE_TOOL_ERROR_RETRY_DELAY_SECONDS, remaining))
+            transient_tool_errors = attempts
             continue
         count = _parent_ingested_trace_count(payload, expected_name=expected_name)
         if count == 1:
@@ -1331,16 +1396,8 @@ async def _verify_parent_ingested_trace(
         await asyncio.sleep(min(_PARENT_INGESTION_POLL_DELAY_SECONDS, remaining))
 
 
-def _parent_ingested_trace_count(payload: Any, *, expected_name: str) -> int | None:
-    """Count only governed trace-id rows in GraphQuery's EvidenceBundle trace.
-
-    Public graph reads must retain node identity so tenant, ACL, visibility, and
-    audit enforcement can govern every returned row.  The query is bounded at
-    two rows: one is the required materialization, zero is missing, and two
-    proves an ambiguous duplicate.  Accept only that closed projection; an
-    aggregate without node identity, a similarly named claim, or a widened row
-    is not proof of parent-mediated ingestion.
-    """
+def _graph_query_trace(payload: Any) -> dict[str, Any] | None:
+    """Return the single closed `graph_query` step of an EvidenceBundle trace."""
 
     if not isinstance(payload, dict):
         return None
@@ -1355,7 +1412,14 @@ def _parent_ingested_trace_count(payload: Any, *, expected_name: str) -> int | N
     if len(query_traces) != 1:
         return None
     trace = query_traces[0]
-    if set(trace) != {"step", "payload"}:
+    return trace if set(trace) == {"step", "payload"} else None
+
+
+def _graph_query_rows(payload: Any) -> list[Any] | None:
+    """Return the bounded row projection of GraphQuery's EvidenceBundle trace."""
+
+    trace = _graph_query_trace(payload)
+    if trace is None:
         return None
     aggregate = trace.get("payload")
     if not isinstance(aggregate, dict) or set(aggregate) != {"rows"}:
@@ -1363,17 +1427,39 @@ def _parent_ingested_trace_count(payload: Any, *, expected_name: str) -> int | N
     rows = aggregate.get("rows")
     if not isinstance(rows, list) or len(rows) > 2:
         return None
-    for row in rows:
-        if not isinstance(row, dict) or set(row) != {"id", "name"}:
-            return None
-        node_id = row.get("id")
-        if (
-            not isinstance(node_id, str)
-            or re.fullmatch(r"langfuse:trace:[a-f0-9]{32}", node_id) is None
-        ):
-            return None
-        if row.get("name") != expected_name:
-            return None
+    return rows
+
+
+def _governed_trace_row(row: Any, expected_name: str) -> bool:
+    """Accept only a two-field row whose node identity and name are governed."""
+
+    if not isinstance(row, dict) or set(row) != {"id", "name"}:
+        return False
+    node_id = row.get("id")
+    if (
+        not isinstance(node_id, str)
+        or re.fullmatch(r"langfuse:trace:[a-f0-9]{32}", node_id) is None
+    ):
+        return False
+    return row.get("name") == expected_name
+
+
+def _parent_ingested_trace_count(payload: Any, *, expected_name: str) -> int | None:
+    """Count only governed trace-id rows in GraphQuery's EvidenceBundle trace.
+
+    Public graph reads must retain node identity so tenant, ACL, visibility, and
+    audit enforcement can govern every returned row.  The query is bounded at
+    two rows: one is the required materialization, zero is missing, and two
+    proves an ambiguous duplicate.  Accept only that closed projection; an
+    aggregate without node identity, a similarly named claim, or a widened row
+    is not proof of parent-mediated ingestion.
+    """
+
+    rows = _graph_query_rows(payload)
+    if rows is None:
+        return None
+    if not all(_governed_trace_row(row, expected_name) for row in rows):
+        return None
     return len(rows)
 
 
