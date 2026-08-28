@@ -18,7 +18,7 @@ import json
 import re
 from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import Field, StrictBool, StrictInt, field_validator, model_validator
 
@@ -646,8 +646,7 @@ class PlacementDecision(ProtocolModel):
     def validate_evaluated_at(cls, value: datetime) -> datetime:
         return _utc(value, name="evaluated_at")
 
-    @model_validator(mode="after")
-    def validate_result(self) -> PlacementDecision:
+    def _assert_evidence_shape(self) -> None:
         if self.candidate_count < len(self.evidence):
             raise ValueError("evidence cannot contain more rows than candidates")
         if self.candidate_count <= MAX_EVIDENCE and (
@@ -659,6 +658,8 @@ class PlacementDecision(ProtocolModel):
         evidence_ids = [item.snapshot_id for item in self.evidence]
         if len(evidence_ids) != len(set(evidence_ids)):
             raise ValueError("placement evidence snapshot IDs must be unique")
+
+    def _assert_status_consistency(self) -> None:
         if self.status == "placed":
             if not (
                 self.selected_pool_ref
@@ -672,7 +673,9 @@ class PlacementDecision(ProtocolModel):
                 )
         elif not self.denial_reasons:
             raise ValueError("denied decision must expose denial reasons")
-        identity = {
+
+    def _decision_identity(self) -> dict[str, Any]:
+        return {
             "schema_version": self.schema_version,
             "requirement_id": self.requirement_id,
             "evaluated_at": self.evaluated_at.astimezone(UTC).isoformat(),
@@ -685,6 +688,8 @@ class PlacementDecision(ProtocolModel):
             "candidate_count": self.candidate_count,
             "evidence_truncated": self.evidence_truncated,
         }
+
+    def _assert_decision_identity(self, identity: dict[str, Any]) -> tuple[str, str]:
         expected_id = (
             "placement-decision:"
             + hashlib.sha256(_canonical(identity)).hexdigest()[:32]
@@ -700,6 +705,14 @@ class PlacementDecision(ProtocolModel):
             raise ResourcePoolContractError(
                 "decision_digest does not match immutable identity"
             )
+        return expected_id, expected_digest
+
+    @model_validator(mode="after")
+    def validate_result(self) -> PlacementDecision:
+        self._assert_evidence_shape()
+        self._assert_status_consistency()
+        identity = self._decision_identity()
+        expected_id, expected_digest = self._assert_decision_identity(identity)
         object.__setattr__(self, "decision_id", expected_id)
         object.__setattr__(self, "decision_digest", expected_digest)
         return self
@@ -772,34 +785,63 @@ def _check_memory_capability(
         reasons.append("insufficient_memory")
 
 
+def _check_disk_capacity(
+    disk: ResourceAccounting, required_mib: int, reasons: list[DenialReason]
+) -> None:
+    if not required_mib:
+        return
+    if not _known(disk):
+        reasons.append("unknown_storage")
+    elif disk.available is None or disk.available < required_mib:
+        reasons.append("disk_insufficient")
+
+
+def _check_disk_iops(
+    amount: ResourceAmount, required: int, reasons: list[DenialReason]
+) -> None:
+    if required and not _amount_at_least(amount, required):
+        reasons.append(
+            "unknown_storage" if amount.state != "known" else "disk_insufficient"
+        )
+
+
 def _check_storage_disk_capability(
     snapshot: ResourcePoolSnapshot,
     requirement: PlacementRequirement,
     reasons: list[DenialReason],
 ) -> None:
     storage = snapshot.capabilities.storage
-    disk = storage.disk
-    if requirement.disk_mib:
-        if not _known(disk):
-            reasons.append("unknown_storage")
-        elif disk.available is None or disk.available < requirement.disk_mib:
-            reasons.append("disk_insufficient")
-    if requirement.disk_read_iops and not _amount_at_least(
-        storage.disk_read_iops, requirement.disk_read_iops
+    _check_disk_capacity(storage.disk, requirement.disk_mib, reasons)
+    _check_disk_iops(storage.disk_read_iops, requirement.disk_read_iops, reasons)
+    _check_disk_iops(storage.disk_write_iops, requirement.disk_write_iops, reasons)
+
+
+def _check_gpu_mig_profile(
+    gpu: GpuCapability, gpu_req: GpuRequirement, reasons: list[DenialReason]
+) -> None:
+    if not gpu_req.mig_profile_ref:
+        return
+    matching = [
+        profile
+        for profile in gpu.mig_profiles
+        if profile.profile_ref == gpu_req.mig_profile_ref
+    ]
+    if not matching or not _amount_at_least(matching[0].count, gpu_req.count):
+        reasons.append("gpu_mig_unavailable")
+
+
+def _check_gpu_known_capacity(
+    gpu: GpuCapability, gpu_req: GpuRequirement, reasons: list[DenialReason]
+) -> None:
+    if not _amount_at_least(gpu.device_count, gpu_req.count):
+        reasons.append("gpu_unavailable")
+    if gpu_req.runtime is not None and gpu.runtime != gpu_req.runtime:
+        reasons.append("gpu_runtime_mismatch")
+    if gpu_req.memory_mib and (
+        gpu.memory.available is None or gpu.memory.available < gpu_req.memory_mib
     ):
-        reasons.append(
-            "unknown_storage"
-            if storage.disk_read_iops.state != "known"
-            else "disk_insufficient"
-        )
-    if requirement.disk_write_iops and not _amount_at_least(
-        storage.disk_write_iops, requirement.disk_write_iops
-    ):
-        reasons.append(
-            "unknown_storage"
-            if storage.disk_write_iops.state != "known"
-            else "disk_insufficient"
-        )
+        reasons.append("unknown_gpu" if not _known(gpu.memory) else "gpu_unavailable")
+    _check_gpu_mig_profile(gpu, gpu_req, reasons)
 
 
 def _check_gpu_capability(
@@ -809,33 +851,14 @@ def _check_gpu_capability(
 ) -> None:
     gpu_req = requirement.gpu
     gpu = snapshot.capabilities.gpu
-    if gpu_req.count:
-        if gpu.state == "absent":
-            reasons.append("gpu_unavailable")
-        elif gpu.state != "known":
-            reasons.append("unknown_gpu")
-        else:
-            if not _amount_at_least(gpu.device_count, gpu_req.count):
-                reasons.append("gpu_unavailable")
-            if gpu_req.runtime is not None and gpu.runtime != gpu_req.runtime:
-                reasons.append("gpu_runtime_mismatch")
-            if gpu_req.memory_mib and (
-                gpu.memory.available is None
-                or gpu.memory.available < gpu_req.memory_mib
-            ):
-                reasons.append(
-                    "unknown_gpu" if not _known(gpu.memory) else "gpu_unavailable"
-                )
-            if gpu_req.mig_profile_ref:
-                matching = [
-                    profile
-                    for profile in gpu.mig_profiles
-                    if profile.profile_ref == gpu_req.mig_profile_ref
-                ]
-                if not matching or not _amount_at_least(
-                    matching[0].count, gpu_req.count
-                ):
-                    reasons.append("gpu_mig_unavailable")
+    if not gpu_req.count:
+        return
+    if gpu.state == "absent":
+        reasons.append("gpu_unavailable")
+    elif gpu.state != "known":
+        reasons.append("unknown_gpu")
+    else:
+        _check_gpu_known_capacity(gpu, gpu_req, reasons)
 
 
 def _check_nvme_capability(
@@ -859,6 +882,32 @@ def _check_nvme_capability(
                 reasons.append("nvme_iops_insufficient")
 
 
+def _network_requirement_active(network_req: NetworkRequirement) -> bool:
+    return bool(
+        network_req.ingress_mbps
+        or network_req.egress_mbps
+        or network_req.max_latency_us is not None
+    )
+
+
+def _check_network_thresholds(
+    network: NetworkCapability, network_req: NetworkRequirement
+) -> DenialReason | None:
+    if network.state != "known":
+        return "unknown_network"
+    if not _amount_at_least(network.ingress_mbps, network_req.ingress_mbps):
+        return "network_insufficient"
+    if not _amount_at_least(network.egress_mbps, network_req.egress_mbps):
+        return "network_insufficient"
+    if network_req.max_latency_us is not None and (
+        network.latency_us.state != "known"
+        or network.latency_us.value is None
+        or network.latency_us.value > network_req.max_latency_us
+    ):
+        return "network_insufficient"
+    return None
+
+
 def _check_network_capability(
     snapshot: ResourcePoolSnapshot,
     requirement: PlacementRequirement,
@@ -866,23 +915,11 @@ def _check_network_capability(
 ) -> None:
     network_req = requirement.network
     network = snapshot.capabilities.network
-    if (
-        network_req.ingress_mbps
-        or network_req.egress_mbps
-        or network_req.max_latency_us is not None
-    ):
-        if network.state != "known":
-            reasons.append("unknown_network")
-        elif not _amount_at_least(network.ingress_mbps, network_req.ingress_mbps):
-            reasons.append("network_insufficient")
-        elif not _amount_at_least(network.egress_mbps, network_req.egress_mbps):
-            reasons.append("network_insufficient")
-        elif network_req.max_latency_us is not None and (
-            network.latency_us.state != "known"
-            or network.latency_us.value is None
-            or network.latency_us.value > network_req.max_latency_us
-        ):
-            reasons.append("network_insufficient")
+    if not _network_requirement_active(network_req):
+        return
+    reason = _check_network_thresholds(network, network_req)
+    if reason is not None:
+        reasons.append(reason)
 
 
 def _check_energy_capability(
@@ -953,6 +990,90 @@ def _candidate_rank(snapshot: ResourcePoolSnapshot) -> tuple[int, int, int, int,
     )
 
 
+def _validate_placement_candidates(
+    candidates: tuple[ResourcePoolSnapshot, ...],
+) -> None:
+    if len(candidates) > MAX_CANDIDATES:
+        raise ResourcePoolContractError("placement candidate set exceeds bound")
+    ids = [snapshot.snapshot_id for snapshot in candidates]
+    if len(ids) != len(set(ids)):
+        raise ResourcePoolContractError(
+            "placement candidates contain duplicate snapshots"
+        )
+
+
+_CheckedSnapshots = tuple[tuple[ResourcePoolSnapshot, tuple[DenialReason, ...]], ...]
+
+
+def _check_all_snapshots(
+    requirement: PlacementRequirement,
+    candidates: tuple[ResourcePoolSnapshot, ...],
+    current: datetime,
+) -> _CheckedSnapshots:
+    return tuple(
+        (snapshot, _check_snapshot(snapshot, requirement, current))
+        for snapshot in sorted(candidates, key=lambda item: item.snapshot_digest)
+    )
+
+
+def _build_all_evidence(checked: _CheckedSnapshots) -> tuple[PlacementEvidence, ...]:
+    return tuple(
+        PlacementEvidence(
+            snapshot_id=snapshot.snapshot_id,
+            snapshot_digest=snapshot.snapshot_digest,
+            eligible=not reasons,
+            denial_reasons=reasons,
+        )
+        for snapshot, reasons in checked
+    )
+
+
+def _select_eligible_candidate(
+    checked: _CheckedSnapshots,
+) -> ResourcePoolSnapshot | None:
+    eligible = [snapshot for snapshot, reasons in checked if not reasons]
+    return min(eligible, key=_candidate_rank) if eligible else None
+
+
+def _build_evidence_rows(
+    all_evidence: tuple[PlacementEvidence, ...],
+    selected: ResourcePoolSnapshot | None,
+) -> list[PlacementEvidence]:
+    evidence_rows = list(all_evidence[:MAX_EVIDENCE])
+    if selected is not None and all(
+        item.snapshot_id != selected.snapshot_id for item in evidence_rows
+    ):
+        selected_evidence = next(
+            item for item in all_evidence if item.snapshot_id == selected.snapshot_id
+        )
+        evidence_rows[-1] = selected_evidence
+        evidence_rows.sort(key=lambda item: item.snapshot_digest)
+    return evidence_rows
+
+
+def _resolve_decision_fields(
+    selected: ResourcePoolSnapshot | None, checked: _CheckedSnapshots
+) -> tuple[
+    DecisionStatus, tuple[DenialReason, ...], str | None, str | None, str | None
+]:
+    """``(status, denial_reasons, selected_pool_ref, selected_snapshot_id,
+    selected_snapshot_digest)``."""
+    if selected is not None:
+        return (
+            "placed",
+            (),
+            selected.pool_ref,
+            selected.snapshot_id,
+            selected.snapshot_digest,
+        )
+    denial_reasons = tuple(
+        sorted({reason for _, reasons in checked for reason in reasons})
+    )[:MAX_DENIAL_REASONS]
+    if not denial_reasons:
+        denial_reasons = ("unknown_cpu",)
+    return "denied", denial_reasons, None, None, None
+
+
 def place(
     requirement: PlacementRequirement,
     snapshots: Iterable[ResourcePoolSnapshot],
@@ -968,53 +1089,20 @@ def place(
 
     current = _utc(now, name="now")
     candidates = tuple(snapshots)
-    if len(candidates) > MAX_CANDIDATES:
-        raise ResourcePoolContractError("placement candidate set exceeds bound")
-    ids = [snapshot.snapshot_id for snapshot in candidates]
-    if len(ids) != len(set(ids)):
-        raise ResourcePoolContractError(
-            "placement candidates contain duplicate snapshots"
-        )
-    checked = tuple(
-        (snapshot, _check_snapshot(snapshot, requirement, current))
-        for snapshot in sorted(candidates, key=lambda item: item.snapshot_digest)
-    )
-    all_evidence = tuple(
-        PlacementEvidence(
-            snapshot_id=snapshot.snapshot_id,
-            snapshot_digest=snapshot.snapshot_digest,
-            eligible=not reasons,
-            denial_reasons=reasons,
-        )
-        for snapshot, reasons in checked
-    )
-    eligible = [snapshot for snapshot, reasons in checked if not reasons]
-    selected = min(eligible, key=_candidate_rank) if eligible else None
-    evidence_rows = list(all_evidence[:MAX_EVIDENCE])
-    if selected is not None and all(
-        item.snapshot_id != selected.snapshot_id for item in evidence_rows
-    ):
-        selected_evidence = next(
-            item for item in all_evidence if item.snapshot_id == selected.snapshot_id
-        )
-        evidence_rows[-1] = selected_evidence
-        evidence_rows.sort(key=lambda item: item.snapshot_digest)
-    if selected is not None:
-        status: DecisionStatus = "placed"
-        denial_reasons: tuple[DenialReason, ...] = ()
-        selected_pool_ref = selected.pool_ref
-        selected_snapshot_id = selected.snapshot_id
-        selected_snapshot_digest = selected.snapshot_digest
-    else:
-        status = "denied"
-        selected_pool_ref = None
-        selected_snapshot_id = None
-        selected_snapshot_digest = None
-        denial_reasons = tuple(
-            sorted({reason for _, reasons in checked for reason in reasons})
-        )[:MAX_DENIAL_REASONS]
-        if not denial_reasons:
-            denial_reasons = ("unknown_cpu",)
+    _validate_placement_candidates(candidates)
+
+    checked = _check_all_snapshots(requirement, candidates, current)
+    all_evidence = _build_all_evidence(checked)
+    selected = _select_eligible_candidate(checked)
+    evidence_rows = _build_evidence_rows(all_evidence, selected)
+    (
+        status,
+        denial_reasons,
+        selected_pool_ref,
+        selected_snapshot_id,
+        selected_snapshot_digest,
+    ) = _resolve_decision_fields(selected, checked)
+
     return PlacementDecision(
         requirement_id=requirement.requirement_id,
         evaluated_at=current,
