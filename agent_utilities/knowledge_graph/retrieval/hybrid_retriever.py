@@ -1109,6 +1109,23 @@ class HybridRetriever:
                 node["_source_trust_boost"] = sb
             node["_score"] *= rb * sb
 
+    def _apply_embedding_task_boost(
+        self,
+        scored_nodes: list[dict[str, Any]],
+        active_task: str,
+        active_task_emb: Any,
+    ) -> None:
+        for node in scored_nodes:
+            node_emb = node.get("embedding")
+            if not node_emb:
+                # Overlap-based attention boost fallback
+                self._apply_active_task_overlap_boost(node, active_task)
+                continue
+            task_sim = cosine_similarity(active_task_emb, node_emb)
+            if task_sim > 0.0:
+                node["_score"] *= 1.0 + 0.5 * task_sim
+                node["_active_task_boost"] = task_sim
+
     def _apply_active_task_boost(
         self,
         scored_nodes: list[dict[str, Any]],
@@ -1116,20 +1133,14 @@ class HybridRetriever:
         embed_breaker: Any,
     ) -> None:
         try:
-            if self.embed_model and not (
+            embed_available = self.embed_model and not (
                 embed_breaker is not None and embed_breaker.is_tripped()
-            ):
+            )
+            if embed_available:
                 active_task_emb = self.embed_model.get_text_embedding(active_task)
-                for node in scored_nodes:
-                    node_emb = node.get("embedding")
-                    if node_emb:
-                        task_sim = cosine_similarity(active_task_emb, node_emb)
-                        if task_sim > 0.0:
-                            node["_score"] *= 1.0 + 0.5 * task_sim
-                            node["_active_task_boost"] = task_sim
-                    else:
-                        # Overlap-based attention boost fallback
-                        self._apply_active_task_overlap_boost(node, active_task)
+                self._apply_embedding_task_boost(
+                    scored_nodes, active_task, active_task_emb
+                )
             else:
                 # Overlap-based attention boost fallback if no embed model
                 for node in scored_nodes:
