@@ -516,45 +516,63 @@ def safe_json_load(s: Any) -> Any:
     return s
 
 
-def _parse_skill_md(path: Any) -> dict[str, Any]:
-    """Parse YAML frontmatter from a SKILL.md file."""
+def _parse_skill_md_frontmatter(content: str) -> dict[str, Any]:
+    """Extract the YAML frontmatter block from a SKILL.md's raw content.
+
+    Falls back to a line-by-line ``key: value`` scan when the block is not
+    valid YAML. Returns ``{}`` when there is no frontmatter block at all.
+    """
     import re
-    from pathlib import Path
 
     import yaml
+
+    match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
+    if not match:
+        return {}
+    try:
+        return yaml.safe_load(match.group(1)) or {}
+    except Exception:
+        metadata: dict[str, Any] = {}
+        for line in match.group(1).splitlines():
+            if ":" in line:
+                k, v = line.split(":", 1)
+                metadata[k.strip()] = v.strip()
+        return metadata
+
+
+def _skill_record_from_metadata(
+    metadata: dict[str, Any], path_obj: Any
+) -> dict[str, Any]:
+    """Build the skill-registration record from parsed frontmatter metadata."""
+    name = metadata.get("name") or path_obj.parent.name
+    description = metadata.get("description") or ""
+    domain = metadata.get("domain") or (
+        path_obj.parent.parent.name if len(path_obj.parts) > 2 else ""
+    )
+    tags = metadata.get("tags") or []
+    if isinstance(tags, str):
+        tags = [t.strip() for t in tags.split(",") if t.strip()]
+
+    return {
+        "id": name,
+        "name": name,
+        "description": description,
+        "domain": domain,
+        "tags": tags,
+        "enabled": True,
+        "file_path": f"skill://{name}",
+    }
+
+
+def _parse_skill_md(path: Any) -> dict[str, Any]:
+    """Parse YAML frontmatter from a SKILL.md file."""
+    from pathlib import Path
 
     path_obj = Path(path)
     try:
         content = path_obj.read_text(encoding="utf-8", errors="ignore")
-        match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
-        metadata: dict[str, Any] = {}
-        if match:
-            try:
-                metadata = yaml.safe_load(match.group(1)) or {}
-            except Exception:
-                for line in match.group(1).splitlines():
-                    if ":" in line:
-                        k, v = line.split(":", 1)
-                        metadata[k.strip()] = v.strip()
-
-        name = metadata.get("name") or path_obj.parent.name
-        description = metadata.get("description") or ""
-        domain = metadata.get("domain") or (
-            path_obj.parent.parent.name if len(path_obj.parts) > 2 else ""
-        )
-        tags = metadata.get("tags") or []
-        if isinstance(tags, str):
-            tags = [t.strip() for t in tags.split(",") if t.strip()]
-
-        return {
-            "id": name,
-            "name": name,
-            "description": description,
-            "domain": domain,
-            "tags": tags,
-            "enabled": True,
-            "file_path": f"skill://{name}",
-        }
+        metadata = _parse_skill_md_frontmatter(content)
+        return _skill_record_from_metadata(metadata, path_obj)
     except Exception as e:
         logger.error("Failed to parse SKILL.md: %s", e)
         name = path_obj.parent.name
