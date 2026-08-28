@@ -3137,61 +3137,135 @@ def _check_hooks() -> dict[str, Any]:
     return _result("hooks", "ok", f"{len(installed)} agent hook(s) healthy", data=rep)
 
 
+def _require_observability_imports() -> None:
+    """Fail closed when the observability stack is not importable at all.
+
+    Kept as an explicit up-front gate because the pre-split check imported every
+    dependency before deciding anything: a broken install must still report
+    ``error``, never a ``skip``/``fail`` derived from half a stack.
+    """
+    from agent_utilities.core.transport_security import (  # noqa: F401
+        resolve_configured_tls_profile,
+    )
+    from agent_utilities.observability.custom_observability import (  # noqa: F401
+        _same_origin,
+    )
+    from agent_utilities.observability.langfuse_trust import (  # noqa: F401
+        resolve_langfuse_credentials,
+        resolve_langfuse_host,
+    )
+    from agent_utilities.security.cli_secrets import (  # noqa: F401
+        resolve_runtime_secret_reference,
+    )
+
+
+def _otel_endpoint(cfg: Any, langfuse_pair: bool) -> tuple[str, bool]:
+    """``(endpoint, derived_from_langfuse)`` for the OTLP exporter."""
+    from agent_utilities.observability.langfuse_trust import resolve_langfuse_host
+
+    endpoint = str(cfg.otel_exporter_otlp_endpoint or "").strip()
+    endpoint_derived = not endpoint and langfuse_pair
+    if endpoint_derived:
+        endpoint = f"{resolve_langfuse_host('').rstrip('/')}/api/public/otel"
+    return endpoint, endpoint_derived
+
+
+def _otel_transport_posture(cfg: Any) -> SimpleNamespace:
+    """Which OTLP endpoint applies and which authentication tier backs it."""
+    from agent_utilities.observability.custom_observability import _same_origin
+    from agent_utilities.observability.langfuse_trust import resolve_langfuse_host
+
+    langfuse_pair = bool(cfg.langfuse_public_key_ref and cfg.langfuse_secret_key_ref)
+    endpoint, endpoint_derived = _otel_endpoint(cfg, langfuse_pair)
+    langfuse_auth = bool(
+        langfuse_pair and endpoint and _same_origin(endpoint, resolve_langfuse_host(""))
+    )
+    header_auth = bool(cfg.otel_exporter_otlp_headers_ref)
+    key_auth = bool(
+        cfg.otel_exporter_otlp_public_key_ref and cfg.otel_exporter_otlp_secret_key_ref
+    )
+    return SimpleNamespace(
+        endpoint=endpoint,
+        endpoint_derived=endpoint_derived,
+        langfuse_auth=langfuse_auth,
+        header_auth=header_auth,
+        key_auth=key_auth,
+        auth_ready=header_auth or key_auth or langfuse_auth,
+    )
+
+
+def _otel_tls_profile_configured(cfg: Any, langfuse_auth: bool) -> bool:
+    """Whether an OTEL TLS profile is configured, directly or via Langfuse."""
+    return bool(
+        cfg.otel_tls_profile
+        or cfg.otel_tls_profile_ref
+        or (
+            langfuse_auth and (cfg.langfuse_tls_profile or cfg.langfuse_tls_profile_ref)
+        )
+    )
+
+
+def _otel_data(cfg: Any, posture: SimpleNamespace, metrics: Any) -> dict[str, Any]:
+    """The redacted, metadata-only observability readiness data."""
+    return {
+        "enabled": bool(cfg.enable_otel),
+        "endpoint_configured": bool(posture.endpoint),
+        "endpoint_derived_from_langfuse": posture.endpoint_derived,
+        "auth_reference_configured": posture.auth_ready,
+        "tls_profile_configured": _otel_tls_profile_configured(
+            cfg, posture.langfuse_auth
+        ),
+        "metrics_enabled": bool(metrics),
+        "metadata_only": True,
+        "redacted": True,
+    }
+
+
+def _otel_prove_credentials(cfg: Any, posture: SimpleNamespace) -> None:
+    """Resolve the reference tier actually in use; raises when it is unavailable."""
+    from agent_utilities.observability.langfuse_trust import (
+        resolve_langfuse_credentials,
+    )
+    from agent_utilities.security.cli_secrets import resolve_runtime_secret_reference
+
+    if posture.header_auth:
+        resolve_runtime_secret_reference(cfg.otel_exporter_otlp_headers_ref)
+    elif posture.key_auth:
+        resolve_runtime_secret_reference(cfg.otel_exporter_otlp_public_key_ref)
+        resolve_runtime_secret_reference(cfg.otel_exporter_otlp_secret_key_ref)
+    else:
+        resolve_langfuse_credentials(agent_config=cfg)
+
+
+def _otel_tls_verify_enabled(cfg: Any, langfuse_auth: bool) -> bool:
+    """Resolve the OTEL TLS profile (falling back to Langfuse's) and report verify."""
+    from agent_utilities.core.transport_security import resolve_configured_tls_profile
+
+    profile_name = cfg.otel_tls_profile
+    profile_ref = cfg.otel_tls_profile_ref
+    if langfuse_auth and not (profile_name or profile_ref):
+        profile_name = cfg.langfuse_tls_profile
+        profile_ref = cfg.langfuse_tls_profile_ref
+    trust = resolve_configured_tls_profile(
+        "OTEL",
+        profile_name=profile_name,
+        profile_ref=profile_ref,
+        config=cfg,
+    )
+    return trust.verify_enabled
+
+
 def _check_observability() -> dict[str, Any]:
     from agent_utilities.core.config import AgentConfig, setting
     from agent_utilities.core.profile_guard import is_production_profile
 
     try:
-        from agent_utilities.core.transport_security import (
-            resolve_configured_tls_profile,
-        )
-        from agent_utilities.observability.custom_observability import _same_origin
-        from agent_utilities.observability.langfuse_trust import (
-            resolve_langfuse_credentials,
-            resolve_langfuse_host,
-        )
-        from agent_utilities.security.cli_secrets import (
-            resolve_runtime_secret_reference,
-        )
-
+        _require_observability_imports()
         cfg = AgentConfig()
         production = is_production_profile()
         metrics = setting("GATEWAY_METRICS", False, cast=bool)
-        langfuse_pair = bool(
-            cfg.langfuse_public_key_ref and cfg.langfuse_secret_key_ref
-        )
-        endpoint = str(cfg.otel_exporter_otlp_endpoint or "").strip()
-        endpoint_derived = not endpoint and langfuse_pair
-        if endpoint_derived:
-            endpoint = f"{resolve_langfuse_host('').rstrip('/')}/api/public/otel"
-        langfuse_auth = bool(
-            langfuse_pair
-            and endpoint
-            and _same_origin(endpoint, resolve_langfuse_host(""))
-        )
-        header_auth = bool(cfg.otel_exporter_otlp_headers_ref)
-        key_auth = bool(
-            cfg.otel_exporter_otlp_public_key_ref
-            and cfg.otel_exporter_otlp_secret_key_ref
-        )
-        auth_ready = header_auth or key_auth or langfuse_auth
-        data = {
-            "enabled": bool(cfg.enable_otel),
-            "endpoint_configured": bool(endpoint),
-            "endpoint_derived_from_langfuse": endpoint_derived,
-            "auth_reference_configured": auth_ready,
-            "tls_profile_configured": bool(
-                cfg.otel_tls_profile
-                or cfg.otel_tls_profile_ref
-                or (
-                    langfuse_auth
-                    and (cfg.langfuse_tls_profile or cfg.langfuse_tls_profile_ref)
-                )
-            ),
-            "metrics_enabled": bool(metrics),
-            "metadata_only": True,
-            "redacted": True,
-        }
+        posture = _otel_transport_posture(cfg)
+        data = _otel_data(cfg, posture, metrics)
         if not cfg.enable_otel and not production:
             return _result(
                 "observability",
@@ -3199,7 +3273,7 @@ def _check_observability() -> dict[str, Any]:
                 "metadata-only OTLP export is disabled",
                 data=data,
             )
-        if not endpoint or not auth_ready:
+        if not posture.endpoint or not posture.auth_ready:
             return _result(
                 "observability",
                 "fail" if cfg.enable_otel else "warn",
@@ -3211,25 +3285,8 @@ def _check_observability() -> dict[str, Any]:
                 skill="service-observability-provisioner",
                 data=data,
             )
-        if header_auth:
-            resolve_runtime_secret_reference(cfg.otel_exporter_otlp_headers_ref)
-        elif key_auth:
-            resolve_runtime_secret_reference(cfg.otel_exporter_otlp_public_key_ref)
-            resolve_runtime_secret_reference(cfg.otel_exporter_otlp_secret_key_ref)
-        else:
-            resolve_langfuse_credentials(agent_config=cfg)
-        profile_name = cfg.otel_tls_profile
-        profile_ref = cfg.otel_tls_profile_ref
-        if langfuse_auth and not (profile_name or profile_ref):
-            profile_name = cfg.langfuse_tls_profile
-            profile_ref = cfg.langfuse_tls_profile_ref
-        trust = resolve_configured_tls_profile(
-            "OTEL",
-            profile_name=profile_name,
-            profile_ref=profile_ref,
-            config=cfg,
-        )
-        data["tls_valid"] = trust.verify_enabled
+        _otel_prove_credentials(cfg, posture)
+        data["tls_valid"] = _otel_tls_verify_enabled(cfg, posture.langfuse_auth)
         if production and not metrics:
             return _result(
                 "observability",
@@ -3522,200 +3579,264 @@ def _probe_langfuse_live(cfg: Any) -> dict[str, Any]:
     return result
 
 
-def _check_langfuse(live: bool = False) -> dict[str, Any]:
-    """Validate Langfuse statically, or prove its live privacy-safe paths."""
-    try:
-        from agent_utilities.core.config import AgentConfig, setting
-        from agent_utilities.observability.langfuse_trust import (
-            LangfuseTrustError,
-            configure_langfuse_trust,
-            langfuse_credentials_configured,
-            langfuse_provider_contract_ready,
-            resolve_langfuse_credentials,
-            resolve_langfuse_persistence_hmac_key,
-        )
+_LANGFUSE_CREDENTIAL_REMEDIATION = (
+    "Verify both secret references resolve to real runtime key material; "
+    "redaction masks and unresolved templates are rejected locally."
+)
 
-        cfg = AgentConfig()
-        # A strict secret reference is preferred, but the direct
-        # LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY pair — the names
-        # langfuse_agent.auth reads for the standalone agent/MCP server — is
-        # accepted too; see langfuse_credentials_configured().
-        public_input = bool(cfg.langfuse_public_key_ref) or bool(
-            setting("LANGFUSE_PUBLIC_KEY", "")
-        )
-        secret_input = bool(cfg.langfuse_secret_key_ref) or bool(
-            setting("LANGFUSE_SECRET_KEY", "")
-        )
-        enabled = bool(
+
+def _langfuse_inputs(cfg: Any) -> SimpleNamespace:
+    """Which Langfuse credential inputs and integrations are configured.
+
+    A strict secret reference is preferred, but the direct
+    ``LANGFUSE_PUBLIC_KEY`` / ``LANGFUSE_SECRET_KEY`` pair -- the names
+    ``langfuse_agent.auth`` reads for the standalone agent/MCP server -- is
+    accepted too; see ``langfuse_credentials_configured()``.
+    """
+    from agent_utilities.core.config import setting
+    from agent_utilities.observability.langfuse_trust import (
+        langfuse_provider_contract_ready,
+    )
+
+    return SimpleNamespace(
+        public_input=bool(cfg.langfuse_public_key_ref)
+        or bool(setting("LANGFUSE_PUBLIC_KEY", "")),
+        secret_input=bool(cfg.langfuse_secret_key_ref)
+        or bool(setting("LANGFUSE_SECRET_KEY", "")),
+        enabled=bool(
             cfg.langfuse_mcp_enabled
             or cfg.kg_failure_evolution
             or cfg.trace_export_enabled
             or cfg.langfuse_kg_auto_ingest
+        ),
+        executable_ready=langfuse_provider_contract_ready(),
+    )
+
+
+def _langfuse_data(cfg: Any, inputs: SimpleNamespace) -> dict[str, Any]:
+    """The redacted Langfuse readiness data, before any gate or live probe."""
+    return {
+        "enabled": inputs.enabled,
+        "credential_pair_configured": inputs.public_input and inputs.secret_input,
+        "credential_refs_configured": bool(
+            cfg.langfuse_public_key_ref and cfg.langfuse_secret_key_ref
+        ),
+        "credential_material_ready": False,
+        "tls_profile_configured": bool(
+            cfg.langfuse_tls_profile or cfg.langfuse_tls_profile_ref
+        ),
+        "persistence_enabled": bool(cfg.langfuse_kg_auto_ingest),
+        "persistence_key_ref_configured": bool(cfg.langfuse_persistence_hmac_key_ref),
+        "persistence_key_ready": False,
+        "mcp_launcher_available": inputs.executable_ready,
+        "mcp_launcher_required": bool(cfg.langfuse_mcp_enabled),
+        "live_probed": False,
+        "redacted": True,
+    }
+
+
+def _langfuse_configuration_gate(
+    cfg: Any, inputs: SimpleNamespace, data: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Skip an unconfigured integration; fail a half-configured credential pair."""
+    from agent_utilities.observability.langfuse_trust import (
+        langfuse_credentials_configured,
+    )
+
+    if not inputs.enabled and not inputs.public_input and not inputs.secret_input:
+        return _result(
+            "langfuse",
+            "skip",
+            "Langfuse integration is not configured",
+            data=data,
         )
-        executable_ready = langfuse_provider_contract_ready()
-        data: dict[str, Any] = {
-            "enabled": enabled,
-            "credential_pair_configured": public_input and secret_input,
-            "credential_refs_configured": bool(
-                cfg.langfuse_public_key_ref and cfg.langfuse_secret_key_ref
+    if (
+        inputs.public_input != inputs.secret_input
+        or not langfuse_credentials_configured(agent_config=cfg)
+    ):
+        return _result(
+            "langfuse",
+            "fail",
+            "Langfuse credential configuration is incomplete",
+            remediation=(
+                "Configure LANGFUSE_PUBLIC_KEY_REF and LANGFUSE_SECRET_KEY_REF "
+                "(resolved only at the runtime boundary), or the direct "
+                "LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY pair used by "
+                "langfuse-agent."
             ),
-            "credential_material_ready": False,
-            "tls_profile_configured": bool(
-                cfg.langfuse_tls_profile or cfg.langfuse_tls_profile_ref
-            ),
-            "persistence_enabled": bool(cfg.langfuse_kg_auto_ingest),
-            "persistence_key_ref_configured": bool(
-                cfg.langfuse_persistence_hmac_key_ref
-            ),
-            "persistence_key_ready": False,
-            "mcp_launcher_available": executable_ready,
-            "mcp_launcher_required": bool(cfg.langfuse_mcp_enabled),
-            "live_probed": False,
-            "redacted": True,
-        }
-        if not enabled and not public_input and not secret_input:
-            return _result(
-                "langfuse",
-                "skip",
-                "Langfuse integration is not configured",
-                data=data,
-            )
-        if public_input != secret_input or not langfuse_credentials_configured(
-            agent_config=cfg
-        ):
-            return _result(
-                "langfuse",
-                "fail",
-                "Langfuse credential configuration is incomplete",
-                remediation=(
-                    "Configure LANGFUSE_PUBLIC_KEY_REF and LANGFUSE_SECRET_KEY_REF "
-                    "(resolved only at the runtime boundary), or the direct "
-                    "LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY pair used by "
-                    "langfuse-agent."
-                ),
-                data=data,
-            )
-        try:
-            resolve_langfuse_credentials(agent_config=cfg)
-        except LangfuseTrustError as exc:
-            data["error_code"] = exc.reason
-            return _result(
-                "langfuse",
-                "fail",
-                "Langfuse credential material is unavailable or invalid",
-                remediation=(
-                    "Verify both secret references resolve to real runtime key material; "
-                    "redaction masks and unresolved templates are rejected locally."
-                ),
-                data=data,
-            )
-        except Exception:  # noqa: BLE001 - never expose provider details
-            data["error_code"] = "langfuse_credentials_invalid"
-            return _result(
-                "langfuse",
-                "fail",
-                "Langfuse credential material is unavailable or invalid",
-                remediation=(
-                    "Verify both secret references resolve to real runtime key material; "
-                    "redaction masks and unresolved templates are rejected locally."
-                ),
-                data=data,
-            )
+            data=data,
+        )
+    return None
+
+
+def _langfuse_credential_gate(cfg: Any, data: dict[str, Any]) -> dict[str, Any] | None:
+    """Resolve the credential material; anything unresolvable is a fail, never ok."""
+    from agent_utilities.observability.langfuse_trust import (
+        LangfuseTrustError,
+        resolve_langfuse_credentials,
+    )
+
+    try:
+        resolve_langfuse_credentials(agent_config=cfg)
+    except LangfuseTrustError as exc:
+        data["error_code"] = exc.reason
+    except Exception:  # noqa: BLE001 - never expose provider details
+        data["error_code"] = "langfuse_credentials_invalid"
+    else:
         data["credential_material_ready"] = True
-        if cfg.langfuse_kg_auto_ingest and not cfg.langfuse_persistence_hmac_key_ref:
-            return _result(
-                "langfuse",
-                "fail",
-                "Langfuse graph persistence requires a dedicated identity key",
-                remediation=(
-                    "Configure LANGFUSE_PERSISTENCE_HMAC_KEY_REF; the project API "
-                    "secret is never reused for identity derivation."
-                ),
-                data=data,
-            )
-        if cfg.langfuse_persistence_hmac_key_ref:
-            try:
-                resolve_langfuse_persistence_hmac_key(agent_config=cfg)
-            except Exception:  # noqa: BLE001 - keep secret-provider details private
-                return _result(
-                    "langfuse",
-                    "fail",
-                    "Langfuse persistence identity key is unavailable",
-                    remediation=(
-                        "Verify LANGFUSE_PERSISTENCE_HMAC_KEY_REF resolves to at "
-                        "least 32 bytes at the runtime boundary."
-                    ),
-                    data=data,
-                )
-            data["persistence_key_ready"] = True
-        trust = configure_langfuse_trust(agent_config=cfg)
-        data["tls_valid"] = trust.valid
-        data["custom_trust_configured"] = trust.configured
-        if not trust.valid:
-            return _result(
-                "langfuse",
-                "fail",
-                f"Langfuse TLS configuration is invalid ({trust.reason or 'invalid'})",
-                remediation=(
-                    "Configure a valid LANGFUSE_TLS_PROFILE_REF or runtime trust "
-                    "environment; TLS verification cannot be disabled."
-                ),
-                data=data,
-            )
-        if cfg.langfuse_mcp_enabled and not executable_ready:
-            data["error_code"] = "langfuse_mcp_provider_contract_unavailable"
-            return _result(
-                "langfuse",
-                "fail",
-                "Langfuse MCP is enabled but its current child contract is unavailable",
-                remediation=(
-                    "Install the current agent-utilities[serving] artifact in the "
-                    "GraphOS runtime environment."
-                ),
-                data=data,
-            )
-        if not enabled:
-            return _result(
-                "langfuse",
-                "warn",
-                "Langfuse credentials are ready but all integrations are disabled",
-                remediation=(
-                    "Enable metadata-only trace export, MCP access, or governed "
-                    "failure evolution as required."
-                ),
-                data=data,
-            )
-        if not live:
-            return _result(
-                "langfuse",
-                "ok",
-                "Langfuse credentials and TLS are statically valid; live proof was not requested",
-                data=data,
-            )
-        live_data = _probe_langfuse_live(cfg)
-        data.update(live_data)
-        live_ok = bool(data.get("api_reachable"))
-        if cfg.langfuse_mcp_enabled:
-            live_ok = live_ok and data.get("mcp_visible") is True
-        if cfg.trace_export_enabled:
-            live_ok = live_ok and data.get("trace_round_trip") is True
-        if not live_ok:
-            return _result(
-                "langfuse",
-                "fail",
-                "Langfuse live proof failed",
-                remediation=(
-                    "Verify the runtime secret references, TLS profile, API reachability, "
-                    "and the Langfuse MCP child installation; diagnostic output is redacted."
-                ),
-                data=data,
-            )
+        return None
+    return _result(
+        "langfuse",
+        "fail",
+        "Langfuse credential material is unavailable or invalid",
+        remediation=_LANGFUSE_CREDENTIAL_REMEDIATION,
+        data=data,
+    )
+
+
+def _langfuse_persistence_gate(cfg: Any, data: dict[str, Any]) -> dict[str, Any] | None:
+    """Graph persistence needs its own identity key, and that key must resolve."""
+    from agent_utilities.observability.langfuse_trust import (
+        resolve_langfuse_persistence_hmac_key,
+    )
+
+    if cfg.langfuse_kg_auto_ingest and not cfg.langfuse_persistence_hmac_key_ref:
+        return _result(
+            "langfuse",
+            "fail",
+            "Langfuse graph persistence requires a dedicated identity key",
+            remediation=(
+                "Configure LANGFUSE_PERSISTENCE_HMAC_KEY_REF; the project API "
+                "secret is never reused for identity derivation."
+            ),
+            data=data,
+        )
+    if not cfg.langfuse_persistence_hmac_key_ref:
+        return None
+    try:
+        resolve_langfuse_persistence_hmac_key(agent_config=cfg)
+    except Exception:  # noqa: BLE001 - keep secret-provider details private
+        return _result(
+            "langfuse",
+            "fail",
+            "Langfuse persistence identity key is unavailable",
+            remediation=(
+                "Verify LANGFUSE_PERSISTENCE_HMAC_KEY_REF resolves to at "
+                "least 32 bytes at the runtime boundary."
+            ),
+            data=data,
+        )
+    data["persistence_key_ready"] = True
+    return None
+
+
+def _langfuse_trust_gate(cfg: Any, data: dict[str, Any]) -> dict[str, Any] | None:
+    """TLS verification can never be disabled for the Langfuse transport."""
+    from agent_utilities.observability.langfuse_trust import configure_langfuse_trust
+
+    trust = configure_langfuse_trust(agent_config=cfg)
+    data["tls_valid"] = trust.valid
+    data["custom_trust_configured"] = trust.configured
+    if trust.valid:
+        return None
+    return _result(
+        "langfuse",
+        "fail",
+        f"Langfuse TLS configuration is invalid ({trust.reason or 'invalid'})",
+        remediation=(
+            "Configure a valid LANGFUSE_TLS_PROFILE_REF or runtime trust "
+            "environment; TLS verification cannot be disabled."
+        ),
+        data=data,
+    )
+
+
+def _langfuse_live_result(cfg: Any, data: dict[str, Any]) -> dict[str, Any]:
+    """Prove every enabled live path; an unproven path is a fail, never ok."""
+    data.update(_probe_langfuse_live(cfg))
+    live_ok = bool(data.get("api_reachable"))
+    if cfg.langfuse_mcp_enabled:
+        live_ok = live_ok and data.get("mcp_visible") is True
+    if cfg.trace_export_enabled:
+        live_ok = live_ok and data.get("trace_round_trip") is True
+    if not live_ok:
+        return _result(
+            "langfuse",
+            "fail",
+            "Langfuse live proof failed",
+            remediation=(
+                "Verify the runtime secret references, TLS profile, API reachability, "
+                "and the Langfuse MCP child installation; diagnostic output is redacted."
+            ),
+            data=data,
+        )
+    return _result(
+        "langfuse",
+        "ok",
+        "Langfuse API and enabled live paths are proven",
+        data=data,
+    )
+
+
+def _langfuse_ready_result(
+    cfg: Any, inputs: SimpleNamespace, data: dict[str, Any], *, live: bool
+) -> dict[str, Any]:
+    """The verdict once every static gate has passed."""
+    if cfg.langfuse_mcp_enabled and not inputs.executable_ready:
+        data["error_code"] = "langfuse_mcp_provider_contract_unavailable"
+        return _result(
+            "langfuse",
+            "fail",
+            "Langfuse MCP is enabled but its current child contract is unavailable",
+            remediation=(
+                "Install the current agent-utilities[serving] artifact in the "
+                "GraphOS runtime environment."
+            ),
+            data=data,
+        )
+    if not inputs.enabled:
+        return _result(
+            "langfuse",
+            "warn",
+            "Langfuse credentials are ready but all integrations are disabled",
+            remediation=(
+                "Enable metadata-only trace export, MCP access, or governed "
+                "failure evolution as required."
+            ),
+            data=data,
+        )
+    if not live:
         return _result(
             "langfuse",
             "ok",
-            "Langfuse API and enabled live paths are proven",
+            "Langfuse credentials and TLS are statically valid; live proof was not requested",
             data=data,
         )
+    return _langfuse_live_result(cfg, data)
+
+
+def _check_langfuse(live: bool = False) -> dict[str, Any]:
+    """Validate Langfuse statically, or prove its live privacy-safe paths."""
+    try:
+        from agent_utilities.core.config import AgentConfig
+
+        cfg = AgentConfig()
+        inputs = _langfuse_inputs(cfg)
+        data = _langfuse_data(cfg, inputs)
+        # Gates run in this exact order; each one that cannot complete returns a
+        # fail rather than letting a later gate report ok on its behalf.
+        configuration = _langfuse_configuration_gate(cfg, inputs, data)
+        if configuration is not None:
+            return configuration
+        for gate in (
+            _langfuse_credential_gate,
+            _langfuse_persistence_gate,
+            _langfuse_trust_gate,
+        ):
+            failure = gate(cfg, data)
+            if failure is not None:
+                return failure
+        return _langfuse_ready_result(cfg, inputs, data, live=live)
     except Exception as exc:  # noqa: BLE001 - doctor output remains redacted
         return _result(
             "langfuse",
