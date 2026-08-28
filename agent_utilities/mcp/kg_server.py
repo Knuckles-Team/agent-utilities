@@ -1449,33 +1449,10 @@ async def graph_query_endpoint(request: Request) -> JSONResponse:
             status_code=400,
         )
 
-    query_val = body.get("query")
-    cypher_val = body.get("cypher")
-    if query_val is not None and cypher_val is not None and query_val != cypher_val:
-        return JSONResponse(
-            {
-                "status": "error",
-                "message": (
-                    "both 'query' and 'cypher' were supplied with different "
-                    "values; send exactly one (or identical values in both)."
-                ),
-            },
-            status_code=400,
-        )
-
-    unknown = sorted(set(body) - _GRAPH_QUERY_TOOL_FIELDS - {"query"})
-    if unknown:
-        return JSONResponse(
-            {
-                "status": "error",
-                "message": f"Unsupported field(s): {', '.join(unknown)}.",
-            },
-            status_code=400,
-        )
-
-    kwargs = {k: v for k, v in body.items() if k in _GRAPH_QUERY_TOOL_FIELDS}
-    if "cypher" not in kwargs and query_val is not None:
-        kwargs["cypher"] = query_val
+    kwargs, error = _graph_query_request_kwargs(body)
+    if error is not None:
+        payload, status_code = error
+        return JSONResponse(payload, status_code=status_code)
 
     try:
         res = await _execute_tool("graph_query", **kwargs)
@@ -1488,6 +1465,46 @@ async def graph_query_endpoint(request: Request) -> JSONResponse:
         return _external_error_response(e, status_code=400, code="invalid_request")
     except Exception as e:
         return _external_error_response(e)
+
+
+def _graph_query_request_kwargs(
+    body: dict[str, Any],
+) -> tuple[dict[str, Any] | None, tuple[dict[str, Any], int] | None]:
+    """Validate + normalize a ``graph_query`` REST body into tool kwargs.
+
+    Handles the ``query``/``cypher`` aliasing documented on
+    :func:`graph_query_endpoint`. Returns ``(kwargs, None)`` on success, or
+    ``(None, (payload, status_code))`` for a 4xx the caller should return
+    verbatim.
+    """
+    query_val = body.get("query")
+    cypher_val = body.get("cypher")
+    if query_val is not None and cypher_val is not None and query_val != cypher_val:
+        return None, (
+            {
+                "status": "error",
+                "message": (
+                    "both 'query' and 'cypher' were supplied with different "
+                    "values; send exactly one (or identical values in both)."
+                ),
+            },
+            400,
+        )
+
+    unknown = sorted(set(body) - _GRAPH_QUERY_TOOL_FIELDS - {"query"})
+    if unknown:
+        return None, (
+            {
+                "status": "error",
+                "message": f"Unsupported field(s): {', '.join(unknown)}.",
+            },
+            400,
+        )
+
+    kwargs = {k: v for k, v in body.items() if k in _GRAPH_QUERY_TOOL_FIELDS}
+    if "cypher" not in kwargs and query_val is not None:
+        kwargs["cypher"] = query_val
+    return kwargs, None
 
 
 async def graph_search_endpoint(request: Request) -> JSONResponse:
