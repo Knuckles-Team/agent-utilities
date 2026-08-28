@@ -223,6 +223,17 @@ def _mkey(node_id: str, tenant: str | None) -> tuple[str, str]:
     return resolved_tenant, resolved_node
 
 
+def _hydrate_marking_row(row: dict[str, Any]) -> None:
+    """Load one persisted marking row into :data:`MARKING_REGISTRY`."""
+    nid = row.get("node_id")
+    tenant = row.get("tenant_id") or ""
+    raw = row.get("markings")
+    names = json.loads(raw) if isinstance(raw, str) else (raw or [])
+    if isinstance(nid, str) and nid and tenant:
+        key = (str(tenant), nid)
+        MARKING_REGISTRY.setdefault(key, set()).update(str(n) for n in names if n)
+
+
 def _hydrate_markings() -> None:
     """Load persisted markings into the cache; failures deny access."""
     global _markings_hydrated  # noqa: PLW0603
@@ -240,15 +251,7 @@ def _hydrate_markings() -> None:
             or []
         )
         for row in rows:
-            nid = row.get("node_id")
-            tenant = row.get("tenant_id") or ""
-            raw = row.get("markings")
-            names = json.loads(raw) if isinstance(raw, str) else (raw or [])
-            if isinstance(nid, str) and nid and tenant:
-                key = (str(tenant), nid)
-                MARKING_REGISTRY.setdefault(key, set()).update(
-                    str(n) for n in names if n
-                )
+            _hydrate_marking_row(row)
         _markings_hydrated = True
     except Exception as exc:
         raise PermissionError("Mandatory-marking hydration failed") from exc
@@ -417,6 +420,51 @@ def actor_clearance(actor: ActorContext) -> int:
     return _CLASS_ORDER[DataClassification.PUBLIC]
 
 
+def _redact_key_kind(key: str) -> str:
+    """Classify a key as 'metadata' (dropped), 'identity' (always kept), or 'value'."""
+    if key in ("__classification__", "__markings__") or key.endswith(
+        "__classification"
+    ):
+        return "metadata"
+    if key in _IDENTITY_KEYS:
+        return "identity"
+    return "value"
+
+
+def _property_denied(
+    obj: dict[str, Any], key: str, clearance: int, actor_marks: set[str]
+) -> bool:
+    """Whether property ``key`` is withheld by classification or marking."""
+    prop_class = _property_classification(obj, key)
+    if prop_class is not None and _CLASS_ORDER.get(prop_class, 0) > clearance:
+        return True
+    prop_marks = _property_markings(obj, key)
+    return bool(prop_marks and not prop_marks.issubset(actor_marks))
+
+
+def _redact_entry(
+    obj: dict[str, Any],
+    key: str,
+    value: Any,
+    *,
+    privileged: bool,
+    clearance: int,
+    actor_marks: set[str],
+    mask: bool,
+) -> tuple[bool, Any]:
+    """Whether ``key`` survives redaction, and the value to use if so."""
+    kind = _redact_key_kind(key)
+    # Drop the metadata side-channels from the materialized view.
+    if kind == "metadata":
+        return False, None
+    if kind == "identity" or privileged:
+        return True, value
+    if _property_denied(obj, key, clearance, actor_marks):
+        # Masked view keeps the key with a token; else drop entirely.
+        return mask, MASK_TOKEN
+    return True, value
+
+
 def redact_object(
     obj: dict[str, Any],
     actor: ActorContext | None = None,
@@ -447,39 +495,44 @@ def redact_object(
 
     out: dict[str, Any] = {}
     for key, value in obj.items():
-        # Drop the metadata side-channels from the materialized view.
-        if key in ("__classification__", "__markings__") or key.endswith(
-            "__classification"
-        ):
-            continue
-        if key in _IDENTITY_KEYS:
-            out[key] = value
-            continue
-        if privileged:
-            out[key] = value
-            continue
-
-        prop_class = _property_classification(obj, key)
-        prop_marks = _property_markings(obj, key)
-
-        denied = False
-        if prop_class is not None and _CLASS_ORDER.get(prop_class, 0) > clearance:
-            denied = True
-        if prop_marks and not prop_marks.issubset(actor_marks):
-            denied = True
-
-        if denied:
-            if mask:
-                out[key] = MASK_TOKEN
-            # else: drop entirely
-            continue
-        out[key] = value
+        keep, out_value = _redact_entry(
+            obj,
+            key,
+            value,
+            privileged=privileged,
+            clearance=clearance,
+            actor_marks=actor_marks,
+            mask=mask,
+        )
+        if keep:
+            out[key] = out_value
     return out
 
 
 # ---------------------------------------------------------------------------
 # Marking-based mandatory control — propagation over edges
 # ---------------------------------------------------------------------------
+
+
+def _propagate_classification(source_id: str, target_id: str) -> None:
+    """Best-effort: give ``target_id`` the stricter of source/target's classification."""
+    try:
+        perms = get_company_brain().permissions
+        levels: list[DataClassification] = []
+        for nid in (source_id, target_id):
+            acl = perms.get_acl(nid)
+            if acl is not None:
+                levels.append(acl.classification)
+        if not levels:
+            return
+        strictest = max(levels, key=lambda c: _CLASS_ORDER.get(c, 0))
+        tgt_acl = perms.get_acl(target_id)
+        if tgt_acl is None or _CLASS_ORDER.get(
+            tgt_acl.classification, 0
+        ) < _CLASS_ORDER.get(strictest, 0):
+            perms.classify_node(target_id, strictest)
+    except Exception as exc:  # pragma: no cover - defensive boundary
+        raise PermissionError("Classification propagation failed") from exc
 
 
 def propagate_markings(
@@ -515,22 +568,7 @@ def propagate_markings(
         _persist_markings(tgt_key)
 
     if propagate_classification:
-        try:
-            perms = get_company_brain().permissions
-            levels: list[DataClassification] = []
-            for nid in (source_id, target_id):
-                acl = perms.get_acl(nid)
-                if acl is not None:
-                    levels.append(acl.classification)
-            if levels:
-                strictest = max(levels, key=lambda c: _CLASS_ORDER.get(c, 0))
-                tgt_acl = perms.get_acl(target_id)
-                if tgt_acl is None or _CLASS_ORDER.get(
-                    tgt_acl.classification, 0
-                ) < _CLASS_ORDER.get(strictest, 0):
-                    perms.classify_node(target_id, strictest)
-        except Exception as exc:  # pragma: no cover - defensive boundary
-            raise PermissionError("Classification propagation failed") from exc
+        _propagate_classification(source_id, target_id)
 
     return set(MARKING_REGISTRY.get(tgt_key, ()))
 
@@ -574,24 +612,34 @@ def _marking_permits(node_id: str, actor: ActorContext) -> bool:
     return marks.issubset(_actor_marking_tokens(actor))
 
 
-def _node_id_of(obj: Any) -> str | None:
-    """Best-effort node id extraction from a row/object (dict or model)."""
-    if isinstance(obj, dict):
-        for key in (*_IDENTITY_KEYS, "n.id"):
-            val = obj.get(key)
-            if isinstance(val, str) and val.strip():
-                return val.strip()
-        for val in obj.values():
-            if isinstance(val, dict):
-                inner = val.get("id") or val.get("node_id")
-                if isinstance(inner, str) and inner.strip():
-                    return inner.strip()
-        return None
+def _node_id_from_dict(obj: dict[str, Any]) -> str | None:
+    """Best-effort node id extraction from a dict row."""
+    for key in (*_IDENTITY_KEYS, "n.id"):
+        val = obj.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    for val in obj.values():
+        if isinstance(val, dict):
+            inner = val.get("id") or val.get("node_id")
+            if isinstance(inner, str) and inner.strip():
+                return inner.strip()
+    return None
+
+
+def _node_id_from_attrs(obj: Any) -> str | None:
+    """Best-effort node id extraction from a model object's attributes."""
     for attr in _IDENTITY_KEYS:
         val = getattr(obj, attr, None)
         if isinstance(val, str) and val.strip():
             return val.strip()
     return None
+
+
+def _node_id_of(obj: Any) -> str | None:
+    """Best-effort node id extraction from a row/object (dict or model)."""
+    if isinstance(obj, dict):
+        return _node_id_from_dict(obj)
+    return _node_id_from_attrs(obj)
 
 
 def _acl_permits(node_id: str, actor: ActorContext) -> bool:
