@@ -217,124 +217,147 @@ def run_program_optimization(
 
     Missing capability, invalid response, or native execution failure fails closed.
     """
-    from agent_utilities.harness.trace_examples import (
-        blend_trainset,
-        record_trace_derived_finding,
-    )
+    from agent_utilities.harness.trace_examples import blend_trainset
 
     blended, trace_stats = blend_trainset(engine, target, artifact, trainset)
     if not blended:
         return None
+
+    return _invoke_native_program_optimization(
+        target=target,
+        artifact=artifact,
+        holdout_fraction=holdout_fraction,
+        engine=engine,
+        blended=blended,
+        trace_stats=trace_stats,
+    )
+
+
+def _serialize_program_example(example: Any) -> dict[str, Any]:
+    """Normalize one blended training example to a plain, JSON-safe dict."""
+    if isinstance(example, dict):
+        return dict(example)
+    to_dict = getattr(example, "toDict", None)
+    if callable(to_dict):
+        candidate = to_dict()
+        if isinstance(candidate, dict):
+            return dict(candidate)
+    return {
+        key: getattr(example, key)
+        for key in ("context", "task", "response", "reward", "failure_reason")
+        if hasattr(example, key)
+    }
+
+
+_COMPILED_STATE_FIELDS = (
+    "id",
+    "program_ref",
+    "optimizer",
+    "execution",
+    "candidate_role",
+    "demonstration_refs",
+    "artifact_refs",
+    "composition_refs",
+    "instruction_ref",
+    "tool_policy_ref",
+    "model_profile_ref",
+    "evidence_refs",
+    "source_refs",
+    "proof_ids",
+    "contradiction_ids",
+    "modalities",
+)
+
+
+def _select_native_candidate(result_payload: Any) -> dict[str, Any] | None:
+    """Extract the sole ``selected`` candidate row from a completed native result.
+
+    Returns ``None`` (and logs) on any shape violation: not a dict, no list
+    ``rows``, or not exactly one row with ``selected is True``.
+    """
+    if not isinstance(result_payload, dict):
+        logger.error("eg-program returned an invalid optimization result")
+        return None
+    rows = result_payload.get("rows")
+    if not isinstance(rows, list):
+        logger.error("eg-program returned an invalid candidate shape")
+        return None
+    candidates = [
+        row for row in rows if isinstance(row, dict) and row.get("kind") == "program_candidate"
+    ]
+    selected_candidates = [row for row in candidates if row.get("selected") is True]
+    if len(selected_candidates) != 1:
+        logger.error("eg-program returned an invalid candidate selection")
+        return None
+    return selected_candidates[0]
+
+
+def _compiled_state_from_candidate(selected: dict[str, Any]) -> dict[str, Any]:
+    from agent_utilities.prompting.structured import ProgramCompiledState
+
+    compiled_state = {key: selected.get(key) for key in _COMPILED_STATE_FIELDS}
+    return ProgramCompiledState.model_validate(compiled_state).model_dump()
+
+
+def _invoke_native_program_optimization(
+    *,
+    target: OptimizableTarget,
+    artifact: dict[str, Any],
+    holdout_fraction: float,
+    engine: Any,
+    blended: list[Any],
+    trace_stats: dict[str, Any],
+) -> OptimizationResult | None:
+    """Submit the blended examples to the native optimizer and normalize the result.
+
+    Split out of :func:`run_program_optimization` so this function's own
+    complexity is bounded; the candidate-selection and compiled-state shaping
+    are further split into :func:`_select_native_candidate` and
+    :func:`_compiled_state_from_candidate`.
+    """
     from agent_utilities.harness.optimization_backend import (
         OptimizationRequest,
         try_native_optimization,
     )
+    from agent_utilities.harness.trace_examples import record_trace_derived_finding
 
-    def invoke_native() -> OptimizationResult | None:
-        serializable_examples: list[dict[str, Any]] = []
-        for example in blended:
-            if isinstance(example, dict):
-                serializable_examples.append(dict(example))
-                continue
-            to_dict = getattr(example, "toDict", None)
-            if callable(to_dict):
-                candidate = to_dict()
-                if isinstance(candidate, dict):
-                    serializable_examples.append(dict(candidate))
-                    continue
-            serializable_examples.append(
-                {
-                    key: getattr(example, key)
-                    for key in (
-                        "context",
-                        "task",
-                        "response",
-                        "reward",
-                        "failure_reason",
-                    )
-                    if hasattr(example, key)
-                }
-            )
-        native_artifact = {
-            key: value for key, value in artifact.items() if key != "__file_path__"
-        }
-        request = OptimizationRequest(
-            target=target.component_type,
-            objective=OPTIMIZATION_TARGETS_META.get(target.component_type, {}).get(
-                "metric", "graded held-out score"
-            ),
-            data={
-                "artifact": native_artifact,
-                "trainset": serializable_examples,
-                "holdout_fraction": holdout_fraction,
-            },
-        )
-        attempt = try_native_optimization(engine, request)
-        if attempt.disposition == "completed":
-            result_payload = attempt.payload["result"]
-            if not isinstance(result_payload, dict):
-                logger.error("eg-program returned an invalid optimization result")
-                return None
-            rows = result_payload.get("rows")
-            if not isinstance(rows, list):
-                logger.error("eg-program returned an invalid candidate shape")
-                return None
-            candidates = [
-                row
-                for row in rows
-                if isinstance(row, dict) and row.get("kind") == "program_candidate"
-            ]
-            selected_candidates = [
-                row for row in candidates if row.get("selected") is True
-            ]
-            if len(selected_candidates) != 1:
-                logger.error("eg-program returned an invalid candidate selection")
-                return None
-            selected = selected_candidates[0]
-            demonstration_refs = list(selected.get("demonstration_refs", []))
-            compiled_state = {
-                key: selected.get(key)
-                for key in (
-                    "id",
-                    "program_ref",
-                    "optimizer",
-                    "execution",
-                    "candidate_role",
-                    "demonstration_refs",
-                    "artifact_refs",
-                    "composition_refs",
-                    "instruction_ref",
-                    "tool_policy_ref",
-                    "model_profile_ref",
-                    "evidence_refs",
-                    "source_refs",
-                    "proof_ids",
-                    "contradiction_ids",
-                    "modalities",
-                )
-            }
-            from agent_utilities.prompting.structured import ProgramCompiledState
-
-            compiled_state = ProgramCompiledState.model_validate(
-                compiled_state
-            ).model_dump()
-            record_trace_derived_finding(engine, trace_stats)
-            return OptimizationResult(
-                component_type=target.component_type,
-                artifact_ref=str(selected["id"]),
-                compiled_state=compiled_state,
-                demonstration_refs=demonstration_refs,
-                trainset_size=len(blended),
-                optimizer="eg-program",
-                confidence=float(selected.get("confidence", 0.0)),
-                trace_derived_count=trace_stats["trace_derived"],
-                trace_failure_count=trace_stats["trace_failures"],
-            )
+    serializable_examples = [_serialize_program_example(example) for example in blended]
+    native_artifact = {
+        key: value for key, value in artifact.items() if key != "__file_path__"
+    }
+    request = OptimizationRequest(
+        target=target.component_type,
+        objective=OPTIMIZATION_TARGETS_META.get(target.component_type, {}).get(
+            "metric", "graded held-out score"
+        ),
+        data={
+            "artifact": native_artifact,
+            "trainset": serializable_examples,
+            "holdout_fraction": holdout_fraction,
+        },
+    )
+    attempt = try_native_optimization(engine, request)
+    if attempt.disposition != "completed":
         error_code = attempt.error_code or f"native_{attempt.disposition}"
         logger.error("eg-program optimization failed: %s", error_code)
         return None
 
-    return invoke_native()
+    selected = _select_native_candidate(attempt.payload["result"])
+    if selected is None:
+        return None
+    compiled_state = _compiled_state_from_candidate(selected)
+    record_trace_derived_finding(engine, trace_stats)
+    return OptimizationResult(
+        component_type=target.component_type,
+        artifact_ref=str(selected["id"]),
+        compiled_state=compiled_state,
+        demonstration_refs=list(selected.get("demonstration_refs", [])),
+        trainset_size=len(blended),
+        optimizer="eg-program",
+        confidence=float(selected.get("confidence", 0.0)),
+        trace_derived_count=trace_stats["trace_derived"],
+        trace_failure_count=trace_stats["trace_failures"],
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -628,6 +651,64 @@ class PromptHardeningOutcome:
         }
 
 
+def _gather_extraction_data(
+    rows_fn: Callable[[str], list[dict[str, Any]]], limit: int
+) -> dict[str, Any]:
+    rows = rows_fn(
+        f"MATCH (d:Document) WHERE d.content IS NOT NULL "
+        f"RETURN d.id AS id, d.content AS content LIMIT {limit}"
+    )
+    return {"documents": [str(r.get("content")) for r in rows if r.get("content")]}
+
+
+def _gather_concept_match_data(
+    rows_fn: Callable[[str], list[dict[str, Any]]], limit: int
+) -> dict[str, Any]:
+    rows = rows_fn(
+        f"MATCH (c:Concept)-[:ADDRESSED_BY]->(s) "
+        f"RETURN c.id AS id, c.name AS concept, coalesce(s.content, s.name) AS article "
+        f"LIMIT {limit}"
+    )
+    positives = [
+        (str(r.get("article")), str(r.get("concept")), True)
+        for r in rows
+        if r.get("article") and r.get("concept")
+    ]
+    # Synthesize negatives by pairing each concept with a neighbour's article.
+    negatives = (
+        [
+            (positives[(i + 1) % len(positives)][0], positives[i][1], False)
+            for i in range(len(positives))
+        ]
+        if len(positives) > 1
+        else []
+    )
+    return {"labeled_pairs": positives + negatives}
+
+
+def _gather_routing_data(
+    rows_fn: Callable[[str], list[dict[str, Any]]], limit: int
+) -> dict[str, Any]:
+    rows = rows_fn(
+        f"MATCH (t:ExecutionTrace) "
+        f"RETURN t.id AS id, t.task_text AS task_text, t.primitive_used AS primitive_used, "
+        f"t.success AS success LIMIT {limit}"
+    )
+    return {"traces": rows}
+
+
+# One gatherer per self-supervised optimization target. A target absent here
+# (e.g. system_prompt/tool_description/skill, which are evolution-cycle driven)
+# yields ``{}`` from :func:`gather_optimization_data`, matching prior behaviour.
+_OPTIMIZATION_DATA_GATHERERS: dict[
+    str, Callable[[Callable[[str], list[dict[str, Any]]], int], dict[str, Any]]
+] = {
+    "extraction": _gather_extraction_data,
+    "concept_match": _gather_concept_match_data,
+    "routing": _gather_routing_data,
+}
+
+
 def gather_optimization_data(
     engine: Any, target: str, *, limit: int = 50
 ) -> dict[str, Any]:
@@ -649,41 +730,76 @@ def gather_optimization_data(
         except Exception:  # noqa: BLE001 - data gathering is best-effort
             return []
 
-    if target == "extraction":
-        rows = _rows(
-            f"MATCH (d:Document) WHERE d.content IS NOT NULL "
-            f"RETURN d.id AS id, d.content AS content LIMIT {limit}"
+    gatherer = _OPTIMIZATION_DATA_GATHERERS.get(target)
+    if gatherer is None:
+        return {}
+    return gatherer(_rows, limit)
+
+
+def _deferred_sweep_entry(name: str, now: float) -> dict[str, Any] | None:
+    """Return the deferred-report entry for ``name`` if backoff blocks a retry now.
+
+    Returns ``None`` when there is no active backoff (or it has elapsed), in
+    which case the sweep should attempt the target normally.
+    """
+    with _BACKOFF_LOCK:
+        backoff = _TARGET_BACKOFF.get(name)
+    if backoff is None or now >= backoff.next_eligible_at:
+        return None
+    # Bounded backoff still active — no immediate retry, and a deferred
+    # target is not a fresh failure (no warning amplification).
+    return {
+        "target": name,
+        "status": "deferred",
+        "detail": "bounded backoff after consecutive unavailable/execution failures",
+        "consecutive_failures": backoff.consecutive_failures,
+        "retry_after_s": round(backoff.next_eligible_at - now, 3),
+    }
+
+
+def _apply_sweep_status(name: str, result: dict[str, Any], now: float) -> str:
+    """Apply backoff bookkeeping for one sweep result; return its outcome bucket.
+
+    Bucket is one of ``"optimized"``, ``"idle"``, ``"failed"``, or ``"other"``
+    (any status this sweep does not specially track).
+    """
+    status = result.get("status")
+    if status in {"optimized", "proposed"}:
+        reset_target_backoff(name)
+        return "optimized"
+    if status == "no_data":
+        # U-103/U-135: a normal idle outcome — never a failure, never
+        # amplifies backoff, no promotion.
+        reset_target_backoff(name)
+        return "idle"
+    if status == "error":
+        error_code = result.get("error_code", "")
+        if error_code in _RETRYABLE_ERROR_CODES:
+            with _BACKOFF_LOCK:
+                state = _TARGET_BACKOFF.get(name, _TargetBackoff())
+                state.consecutive_failures += 1
+                state.next_eligible_at = now + _backoff_delay_s(
+                    state.consecutive_failures
+                )
+                _TARGET_BACKOFF[name] = state
+        return "failed"
+    return "other"
+
+
+def _record_sweep_evidence(engine: Any, name: str, result: dict[str, Any]) -> None:
+    # Unified Evidence resource (lane 7.1, CONCEPT:AU-KG.evolution.unified-evidence-resource) —
+    # the optimization_signal channel: recorded HERE, at the one place this
+    # target's real outcome is computed, never re-derived by a second query.
+    # Best-effort audit overlay; never gates the sweep.
+    try:
+        from agent_utilities.knowledge_graph.research.evidence import (
+            from_optimization_result,
+            record_evidence,
         )
-        return {"documents": [str(r.get("content")) for r in rows if r.get("content")]}
-    if target == "concept_match":
-        rows = _rows(
-            f"MATCH (c:Concept)-[:ADDRESSED_BY]->(s) "
-            f"RETURN c.id AS id, c.name AS concept, coalesce(s.content, s.name) AS article "
-            f"LIMIT {limit}"
-        )
-        positives = [
-            (str(r.get("article")), str(r.get("concept")), True)
-            for r in rows
-            if r.get("article") and r.get("concept")
-        ]
-        # Synthesize negatives by pairing each concept with a neighbour's article.
-        negatives = (
-            [
-                (positives[(i + 1) % len(positives)][0], positives[i][1], False)
-                for i in range(len(positives))
-            ]
-            if len(positives) > 1
-            else []
-        )
-        return {"labeled_pairs": positives + negatives}
-    if target == "routing":
-        rows = _rows(
-            f"MATCH (t:ExecutionTrace) "
-            f"RETURN t.id AS id, t.task_text AS task_text, t.primitive_used AS primitive_used, "
-            f"t.success AS success LIMIT {limit}"
-        )
-        return {"traces": rows}
-    return {}
+
+        record_evidence(engine, from_optimization_result(name, result))
+    except Exception as e:  # noqa: BLE001 — the lineage overlay is best-effort
+        logger.debug("optimization sweep: evidence record failed for %s: %s", name, e)
 
 
 def run_optimization_sweep(
@@ -709,59 +825,22 @@ def run_optimization_sweep(
     deferred: list[str] = []
     for name in names:
         now = time.monotonic()
-        with _BACKOFF_LOCK:
-            backoff = _TARGET_BACKOFF.get(name)
-        if backoff is not None and now < backoff.next_eligible_at:
-            # Bounded backoff still active — no immediate retry, and a deferred
-            # target is not a fresh failure (no warning amplification).
-            report[name] = {
-                "target": name,
-                "status": "deferred",
-                "detail": "bounded backoff after consecutive unavailable/execution failures",
-                "consecutive_failures": backoff.consecutive_failures,
-                "retry_after_s": round(backoff.next_eligible_at - now, 3),
-            }
+        deferred_entry = _deferred_sweep_entry(name, now)
+        if deferred_entry is not None:
+            report[name] = deferred_entry
             deferred.append(name)
             continue
 
         data = gather_optimization_data(engine, name)
         result = run_component_optimization(name, data, engine=engine)
         report[name] = result
-        status = result.get("status")
-        if status in {"optimized", "proposed"}:
+        bucket = _apply_sweep_status(name, result, now)
+        if bucket == "optimized":
             optimized.append(name)
-            reset_target_backoff(name)
-        elif status == "no_data":
-            # U-103/U-135: a normal idle outcome — never a failure, never
-            # amplifies backoff, no promotion.
-            reset_target_backoff(name)
-        elif status == "error":
+        elif bucket == "failed":
             failed.append(name)
-            error_code = result.get("error_code", "")
-            if error_code in _RETRYABLE_ERROR_CODES:
-                with _BACKOFF_LOCK:
-                    state = _TARGET_BACKOFF.get(name, _TargetBackoff())
-                    state.consecutive_failures += 1
-                    state.next_eligible_at = now + _backoff_delay_s(
-                        state.consecutive_failures
-                    )
-                    _TARGET_BACKOFF[name] = state
 
-        # Unified Evidence resource (lane 7.1, CONCEPT:AU-KG.evolution.unified-evidence-resource) —
-        # the optimization_signal channel: recorded HERE, at the one place this
-        # target's real outcome is computed, never re-derived by a second query.
-        # Best-effort audit overlay; never gates the sweep.
-        try:
-            from agent_utilities.knowledge_graph.research.evidence import (
-                from_optimization_result,
-                record_evidence,
-            )
-
-            record_evidence(engine, from_optimization_result(name, result))
-        except Exception as e:  # noqa: BLE001 — the lineage overlay is best-effort
-            logger.debug(
-                "optimization sweep: evidence record failed for %s: %s", name, e
-            )
+        _record_sweep_evidence(engine, name, result)
     duration = time.monotonic() - t0
 
     if failed:

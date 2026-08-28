@@ -12,7 +12,7 @@ from __future__ import annotations
 import inspect
 import json
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -177,38 +177,61 @@ def _policy(seed: str) -> dict[str, Any]:
     }
 
 
+def _sequence_or_none(value: Any) -> list[Any] | None:
+    """Return ``value`` as a list iff it is a non-string/bytes ``Sequence``."""
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        return list(value)
+    return None
+
+
+def _rows_from_documents(data: Mapping[str, Any]) -> list[Any] | None:
+    documents = _sequence_or_none(data.get("documents"))
+    if documents is None:
+        return None
+    return [
+        {"context": "", "task": "extract governed facts", "response": value}
+        for value in documents
+    ]
+
+
+def _rows_from_labeled_pairs(data: Mapping[str, Any]) -> list[Any] | None:
+    pairs = _sequence_or_none(data.get("labeled_pairs"))
+    if pairs is None:
+        return None
+    return [
+        {
+            "context": pair[0],
+            "task": pair[1],
+            "response": "relevant" if bool(pair[2]) else "not_relevant",
+        }
+        for pair in pairs
+        if _sequence_or_none(pair) is not None and len(pair) >= 3
+    ]
+
+
+def _rows_from_traces(data: Mapping[str, Any]) -> list[Any] | None:
+    return _sequence_or_none(data.get("traces"))
+
+
+# Fallback sources tried, in order, when neither ``trainset`` nor ``examples``
+# supplied a usable row sequence. Each returns ``None`` when its key is absent
+# or not a non-string/bytes sequence, so the caller can try the next source.
+_TRAINING_ROW_SOURCES: tuple[Callable[[Mapping[str, Any]], list[Any] | None], ...] = (
+    _rows_from_documents,
+    _rows_from_labeled_pairs,
+    _rows_from_traces,
+)
+
+
 def _training_rows(data: Mapping[str, Any]) -> list[dict[str, Any]]:
-    supplied = data.get("trainset") or data.get("examples")
-    rows: list[Any]
-    if isinstance(supplied, Sequence) and not isinstance(supplied, str | bytes):
-        rows = list(supplied)
-    elif isinstance(data.get("documents"), Sequence) and not isinstance(
-        data.get("documents"), str | bytes
-    ):
-        rows = [
-            {"context": "", "task": "extract governed facts", "response": value}
-            for value in data["documents"]
-        ]
-    elif isinstance(data.get("labeled_pairs"), Sequence) and not isinstance(
-        data.get("labeled_pairs"), str | bytes
-    ):
-        rows = [
-            {
-                "context": pair[0],
-                "task": pair[1],
-                "response": "relevant" if bool(pair[2]) else "not_relevant",
-            }
-            for pair in data["labeled_pairs"]
-            if isinstance(pair, Sequence)
-            and not isinstance(pair, str | bytes)
-            and len(pair) >= 3
-        ]
-    elif isinstance(data.get("traces"), Sequence) and not isinstance(
-        data.get("traces"), str | bytes
-    ):
-        rows = list(data["traces"])
-    else:
-        rows = []
+    rows = _sequence_or_none(data.get("trainset") or data.get("examples"))
+    if rows is None:
+        for source in _TRAINING_ROW_SOURCES:
+            rows = source(data)
+            if rows is not None:
+                break
+        else:
+            rows = []
 
     normalized: list[dict[str, Any]] = []
     for row in rows:
@@ -243,56 +266,91 @@ def _row_modalities(row: Mapping[str, Any]) -> tuple[str, ...]:
     return normalized
 
 
+def _evidence_character_range(_seed: str) -> dict[str, Any]:
+    return {"kind": "character_range", "start": 0, "end": 1}
+
+
+def _evidence_image_region(_seed: str) -> dict[str, Any]:
+    return {"kind": "image_region", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0}
+
+
+def _evidence_audio_range(_seed: str) -> dict[str, Any]:
+    return {"kind": "audio_range", "start_ms": 0, "end_ms": 1}
+
+
+def _evidence_frame_range(_seed: str) -> dict[str, Any]:
+    return {"kind": "frame_range", "start_frame": 0, "end_frame": 0}
+
+
+def _evidence_metric_window(_seed: str) -> dict[str, Any]:
+    return {"kind": "metric_window", "start_ms": 0, "end_ms": 1}
+
+
+def _evidence_row_version(seed: str) -> dict[str, Any]:
+    return {"kind": "row_version", "row_ref": _opaque("row", seed), "version": 1}
+
+
+def _evidence_table_cell_range(_seed: str) -> dict[str, Any]:
+    return {
+        "kind": "table_cell_range",
+        "row_start": 0,
+        "row_end": 0,
+        "col_start": 0,
+        "col_end": 0,
+    }
+
+
+def _evidence_point(_seed: str) -> dict[str, Any]:
+    return {"kind": "point", "x": 0.0, "y": 0.0}
+
+
+def _evidence_code_symbol(seed: str) -> dict[str, Any]:
+    return {
+        "kind": "code_symbol",
+        "revision_ref": _opaque("revision", seed),
+        "symbol_ref": _opaque("symbol", seed),
+        "start_line": 1,
+        "end_line": 1,
+    }
+
+
+def _evidence_trace_span(seed: str) -> dict[str, Any]:
+    return {
+        "kind": "trace_span",
+        "trace_ref": _opaque("trace", seed),
+        "span_ref": _opaque("span", seed),
+    }
+
+
+# One builder per native program modality. ``graph``/``vector``/``binary`` share
+# ``_evidence_row_version``; ``table``/``tensor`` share ``_evidence_table_cell_range``;
+# ``text``/``document`` share ``_evidence_character_range`` — matching the original
+# grouped-branch semantics exactly.
+_EVIDENCE_ADDRESS_BUILDERS: dict[str, Callable[[str], dict[str, Any]]] = {
+    "text": _evidence_character_range,
+    "document": _evidence_character_range,
+    "image": _evidence_image_region,
+    "audio": _evidence_audio_range,
+    "video": _evidence_frame_range,
+    "time_series": _evidence_metric_window,
+    "graph": _evidence_row_version,
+    "vector": _evidence_row_version,
+    "binary": _evidence_row_version,
+    "table": _evidence_table_cell_range,
+    "tensor": _evidence_table_cell_range,
+    "spatial": _evidence_point,
+    "code": _evidence_code_symbol,
+    "trace": _evidence_trace_span,
+}
+
+
 def _evidence_address(modality: str, seed: str) -> dict[str, Any]:
     """Build a valid numeric/opaque locus for every native program modality."""
 
-    if modality in {"text", "document"}:
-        return {"kind": "character_range", "start": 0, "end": 1}
-    if modality == "image":
-        return {
-            "kind": "image_region",
-            "x": 0.0,
-            "y": 0.0,
-            "width": 1.0,
-            "height": 1.0,
-        }
-    if modality == "audio":
-        return {"kind": "audio_range", "start_ms": 0, "end_ms": 1}
-    if modality == "video":
-        return {"kind": "frame_range", "start_frame": 0, "end_frame": 0}
-    if modality == "time_series":
-        return {"kind": "metric_window", "start_ms": 0, "end_ms": 1}
-    if modality in {"graph", "vector", "binary"}:
-        return {
-            "kind": "row_version",
-            "row_ref": _opaque("row", seed),
-            "version": 1,
-        }
-    if modality in {"table", "tensor"}:
-        return {
-            "kind": "table_cell_range",
-            "row_start": 0,
-            "row_end": 0,
-            "col_start": 0,
-            "col_end": 0,
-        }
-    if modality == "spatial":
-        return {"kind": "point", "x": 0.0, "y": 0.0}
-    if modality == "code":
-        return {
-            "kind": "code_symbol",
-            "revision_ref": _opaque("revision", seed),
-            "symbol_ref": _opaque("symbol", seed),
-            "start_line": 1,
-            "end_line": 1,
-        }
-    if modality == "trace":
-        return {
-            "kind": "trace_span",
-            "trace_ref": _opaque("trace", seed),
-            "span_ref": _opaque("span", seed),
-        }
-    raise ValueError("program example contains an unsupported modality")
+    builder = _EVIDENCE_ADDRESS_BUILDERS.get(modality)
+    if builder is None:
+        raise ValueError("program example contains an unsupported modality")
+    return builder(seed)
 
 
 def _validate_optimization_request(
@@ -647,40 +705,31 @@ def _program_authority(engine: Any) -> Any:
     return None
 
 
-def try_native_optimization(
-    engine: Any, request: OptimizationRequest
-) -> NativeOptimizationAttempt:
-    """Invoke the sole native backend and fail closed on protocol errors.
+def _build_native_payload(
+    request: OptimizationRequest,
+) -> tuple[dict[str, Any] | None, NativeOptimizationAttempt | None]:
+    """Build the request payload, or the terminal attempt if that fails.
 
-    U-103/U-135: the request is built and validated *before* the native call is
-    ever attempted, so a normal absence of governed training data (or a
-    malformed request, or an unsupported optimizer) can never be misclassified
-    as a native engine failure. ``native_execution_failed`` is reserved
-    strictly for an exception raised by the invoked native method itself.
+    Returns ``(payload, None)`` on success, or ``(None, attempt)`` where
+    ``attempt`` is the disposition ``try_native_optimization`` should return
+    immediately without ever invoking the native method.
     """
-    method = getattr(_program_authority(engine), "optimize_program", None)
-    if not callable(method):
-        return NativeOptimizationAttempt(disposition="unavailable")
-
     try:
-        payload = request.to_payload()
+        return request.to_payload(), None
     except OptimizationDataUnavailable:
         # No governed training data — a normal idle outcome, not a failure.
-        return NativeOptimizationAttempt(disposition="no_data")
+        return None, NativeOptimizationAttempt(disposition="no_data")
     except OptimizationCapabilityUnavailable:
         # The named optimizer strategy has no execution mapping — a missing capability.
-        return NativeOptimizationAttempt(disposition="unavailable")
+        return None, NativeOptimizationAttempt(disposition="unavailable")
     except Exception:  # noqa: BLE001 - malformed input is a request defect
-        return NativeOptimizationAttempt(
+        return None, NativeOptimizationAttempt(
             disposition="error", error_code="native_request_invalid"
         )
 
-    try:
-        raw = method(payload)
-    except Exception:  # noqa: BLE001 - durable reports receive only bounded codes
-        return NativeOptimizationAttempt(
-            disposition="error", error_code="native_execution_failed"
-        )
+
+def _classify_native_response(raw: Any) -> NativeOptimizationAttempt:
+    """Validate the shape of a raw native-method result and normalize it."""
     if inspect.isawaitable(raw):
         close = getattr(raw, "close", None)
         if callable(close):
@@ -697,6 +746,34 @@ def try_native_optimization(
             disposition="error", error_code="native_invalid_response"
         )
     return NativeOptimizationAttempt(disposition="completed", payload=dict(raw))
+
+
+def try_native_optimization(
+    engine: Any, request: OptimizationRequest
+) -> NativeOptimizationAttempt:
+    """Invoke the sole native backend and fail closed on protocol errors.
+
+    U-103/U-135: the request is built and validated *before* the native call is
+    ever attempted, so a normal absence of governed training data (or a
+    malformed request, or an unsupported optimizer) can never be misclassified
+    as a native engine failure. ``native_execution_failed`` is reserved
+    strictly for an exception raised by the invoked native method itself.
+    """
+    method = getattr(_program_authority(engine), "optimize_program", None)
+    if not callable(method):
+        return NativeOptimizationAttempt(disposition="unavailable")
+
+    payload, failure = _build_native_payload(request)
+    if failure is not None:
+        return failure
+
+    try:
+        raw = method(payload)
+    except Exception:  # noqa: BLE001 - durable reports receive only bounded codes
+        return NativeOptimizationAttempt(
+            disposition="error", error_code="native_execution_failed"
+        )
+    return _classify_native_response(raw)
 
 
 __all__ = [

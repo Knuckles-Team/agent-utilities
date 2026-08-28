@@ -15,6 +15,7 @@ See docs/pillars/3_agentic_harness_engineering.md
 
 import logging
 import re
+from collections.abc import Callable
 
 from pydantic import BaseModel, Field
 
@@ -36,6 +37,39 @@ _CONCEPT_PATTERN = re.compile(
 _URL_PATTERN = re.compile(r"https?://[^\s\)\]\"'<>]+", re.IGNORECASE)
 _FILE_REF_PATTERN = re.compile(r"file:///[^\s\)\]\"'<>]+", re.IGNORECASE)
 _ARXIV_PATTERN = re.compile(r"(?:arXiv:\s*)?(\d{4}\.\d{4,5})", re.IGNORECASE)
+
+
+def _group1_stripped(match: re.Match[str]) -> tuple[str, str]:
+    """``(source_id, raw_text)`` for a pattern whose id is a stripped group 1."""
+    return match.group(1).strip(), match.group(0)
+
+
+def _group1_raw(match: re.Match[str]) -> tuple[str, str]:
+    """``(source_id, raw_text)`` for a pattern whose id is an unstripped group 1."""
+    return match.group(1), match.group(0)
+
+
+def _full_match_trimmed(match: re.Match[str]) -> tuple[str, str]:
+    """``(source_id, raw_text)`` for a pattern where the whole match IS the id.
+
+    Trailing punctuation likely to be sentence structure, not part of the
+    reference, is stripped; ``source_id`` and ``raw_text`` are identical.
+    """
+    value = match.group(0).rstrip(".,;:)")
+    return value, value
+
+
+# One (pattern, citation_type, row-extractor) entry per citation form. Order
+# matches the original sequential scan: KG refs, concepts, URLs, files, arXiv.
+_CITATION_EXTRACTORS: tuple[
+    tuple[re.Pattern[str], str, Callable[[re.Match[str]], tuple[str, str]]], ...
+] = (
+    (_KG_REF_PATTERN, "kg_node", _group1_stripped),
+    (_CONCEPT_PATTERN, "concept", _group1_stripped),
+    (_URL_PATTERN, "url", _full_match_trimmed),
+    (_FILE_REF_PATTERN, "file", _full_match_trimmed),
+    (_ARXIV_PATTERN, "arxiv", _group1_raw),
+)
 
 
 class Citation(BaseModel):
@@ -131,73 +165,45 @@ class CitationTracker:
         """
         citations: list[Citation] = []
         seen: set[str] = set()
-
-        # KG node references
-        for match in _KG_REF_PATTERN.finditer(response_text):
-            source_id = match.group(1).strip()
-            if source_id not in seen:
+        for pattern, citation_type, row in _CITATION_EXTRACTORS:
+            for match in pattern.finditer(response_text):
+                source_id, raw_text = row(match)
+                if source_id in seen:
+                    continue
                 seen.add(source_id)
                 citations.append(
                     Citation(
                         source_id=source_id,
-                        citation_type="kg_node",
-                        raw_text=match.group(0),
+                        citation_type=citation_type,
+                        raw_text=raw_text,
                     )
                 )
-
-        # Concept references
-        for match in _CONCEPT_PATTERN.finditer(response_text):
-            source_id = match.group(1).strip()
-            if source_id not in seen:
-                seen.add(source_id)
-                citations.append(
-                    Citation(
-                        source_id=source_id,
-                        citation_type="concept",
-                        raw_text=match.group(0),
-                    )
-                )
-
-        # URLs
-        for match in _URL_PATTERN.finditer(response_text):
-            url = match.group(0).rstrip(".,;:)")
-            if url not in seen:
-                seen.add(url)
-                citations.append(
-                    Citation(
-                        source_id=url,
-                        citation_type="url",
-                        raw_text=url,
-                    )
-                )
-
-        # File references
-        for match in _FILE_REF_PATTERN.finditer(response_text):
-            path = match.group(0).rstrip(".,;:)")
-            if path not in seen:
-                seen.add(path)
-                citations.append(
-                    Citation(
-                        source_id=path,
-                        citation_type="file",
-                        raw_text=path,
-                    )
-                )
-
-        # arXiv IDs
-        for match in _ARXIV_PATTERN.finditer(response_text):
-            arxiv_id = match.group(1)
-            if arxiv_id not in seen:
-                seen.add(arxiv_id)
-                citations.append(
-                    Citation(
-                        source_id=arxiv_id,
-                        citation_type="arxiv",
-                        raw_text=match.group(0),
-                    )
-                )
-
         return citations
+
+    @staticmethod
+    def _citation_type_counts(citations: list[Citation]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for c in citations:
+            counts[c.citation_type] = counts.get(c.citation_type, 0) + 1
+        return counts
+
+    @staticmethod
+    def _precision_recall_f1(
+        cited_ids: set[str], reference_set: set[str]
+    ) -> tuple[float, float, float]:
+        if not reference_set:
+            # No reference set — precision can't be computed meaningfully, and
+            # recall is vacuously 0 (nothing to have recalled).
+            return 1.0, 0.0, 0.0
+        matched = cited_ids & reference_set
+        precision = len(matched) / len(cited_ids) if cited_ids else 0.0
+        recall = len(matched) / len(reference_set)
+        f1 = (
+            2 * precision * recall / (precision + recall)
+            if (precision + recall) > 0
+            else 0.0
+        )
+        return precision, recall, f1
 
     def evaluate_citations(
         self,
@@ -220,11 +226,7 @@ class CitationTracker:
         reference_set = retrieved | gold
 
         cited_ids = {c.source_id for c in citations}
-
-        # Type distribution
-        type_counts: dict[str, int] = {}
-        for c in citations:
-            type_counts[c.citation_type] = type_counts.get(c.citation_type, 0) + 1
+        type_counts = self._citation_type_counts(citations)
 
         if not citations:
             return CitationReport(
@@ -233,27 +235,7 @@ class CitationTracker:
                 citation_types=type_counts,
             )
 
-        # Precision: fraction of citations that match retrieved/gold docs
-        if reference_set:
-            matched = cited_ids & reference_set
-            precision = len(matched) / len(cited_ids) if cited_ids else 0.0
-        else:
-            # No reference set — can't compute precision meaningfully
-            precision = 1.0
-
-        # Recall: fraction of retrieved/gold docs that were cited
-        if reference_set:
-            matched = cited_ids & reference_set
-            recall = len(matched) / len(reference_set)
-        else:
-            recall = 0.0
-
-        # F1
-        f1 = (
-            2 * precision * recall / (precision + recall)
-            if (precision + recall) > 0
-            else 0.0
-        )
+        precision, recall, f1 = self._precision_recall_f1(cited_ids, reference_set)
 
         # Diagnostics
         hallucinated = sorted(cited_ids - reference_set) if reference_set else []
