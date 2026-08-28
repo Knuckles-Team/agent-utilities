@@ -1657,14 +1657,302 @@ def _prepare_deep_delegation(
     return tool_params, node_ids
 
 
+def _ocel_evidence(tenant: str, slice_: Any, envelope: Any) -> dict[str, Any]:
+    """The tEKG evidence snapshot for one imported OCEL slice + its envelope."""
+    return {
+        "mode": "ocel_2.0",
+        "tenant": tenant,
+        "content_hash": slice_.canonical_digest(),
+        "idempotency_key": envelope.idempotency_key,
+        "mapping_version": slice_.mapping_version,
+        "node_count": len(envelope.typed_payload["entities"]),
+        "relationship_count": len(envelope.typed_payload["relationships"]),
+    }
+
+
+def _record_process_signal_evidence(
+    evidence: dict[str, Any], engine: Any = None
+) -> None:
+    """Best-effort Unified-Evidence ``process_signal`` write.
+
+    CONCEPT:AU-KG.evolution.unified-evidence-resource (D-71-1) — recorded at
+    the one place the import's real outcome is computed, never re-derived by a
+    second query. A pure observability side-channel: it must never gate the
+    import, so every failure is swallowed at DEBUG. ``engine`` is resolved
+    lazily *inside* the guard when the caller has none yet, so a failing
+    engine resolution degrades exactly like a failing record.
+    """
+    try:
+        from agent_utilities.knowledge_graph.research.evidence import (
+            from_process_signal,
+            record_evidence,
+        )
+
+        record_evidence(
+            engine if engine is not None else kg_server._get_engine(),
+            from_process_signal(evidence),
+        )
+    except Exception as exc:  # noqa: BLE001 — deliberate best-effort audit overlay: this Evidence write is a pure observability side-channel over an import whose authoritative outcome is already reported through the normal return path. Only the exception type is recorded, at DEBUG.
+        logger.debug(
+            "OCEL process_signal evidence record failed for %s: %s",
+            evidence.get("idempotency_key"),
+            type(exc).__name__,
+        )
+
+
+def _ocel_replay_deriver(slice_: Any) -> Any:
+    """Replay an imported OCEL slice through the incremental deriver.
+
+    CONCEPT:AU-KG.mining.incremental-object-centric-derivation — read-only by
+    construction; commits nothing.
+    """
+    from agent_utilities.knowledge_graph.ingestion.object_centric_derivation import (
+        IncrementalObjectCentricDeriver,
+    )
+
+    deriver = IncrementalObjectCentricDeriver()
+    for business_object in slice_.objects:
+        deriver.observe_object_attributes(
+            business_object.object_id, business_object.attributes
+        )
+    observed_at = datetime.now(UTC)
+    for event in sorted(
+        slice_.events,
+        key=lambda item: (
+            item.occurred_at,
+            item.sequence_tiebreaker,
+            item.event_id,
+        ),
+    ):
+        for participation in event.objects:
+            deriver.ingest_event(
+                event,
+                object_id=participation.object_id,
+                state_id=(
+                    f"{slice_.log_id}:{participation.object_id}:{event.event_id}"
+                ),
+                observed_at=observed_at,
+            )
+    return deriver
+
+
+def _ocel_derive_response(
+    action: str, slice_: Any, tenant: str, evidence: dict[str, Any]
+) -> str:
+    """``ocel_mode='derive'`` — the read-only incremental-derivation replay.
+
+    The ONE surface exposure of ``ingestion/object_centric_derivation.py``
+    (previously built-but-not-wired). Returns the derived aggregate
+    directly-follows graph, per-object timelines, and derivation generation.
+    It commits nothing — that stays exclusive to ``mine``.
+    """
+    deriver = _ocel_replay_deriver(slice_)
+    object_ids = sorted(
+        {
+            participation.object_id
+            for event in slice_.events
+            for participation in event.objects
+        }
+    )
+    return json.dumps(
+        {
+            "surface": "mining",
+            "action": action,
+            "ocel_mode": "derive",
+            "tenant": tenant,
+            "generation": deriver.generation,
+            "directly_follows": [
+                {"from": pair[0], "to": pair[1], "count": count}
+                for pair, count in sorted(deriver.dfg_snapshot().items())
+            ],
+            "timelines": {
+                object_id: [event.event_id for event in deriver.timeline(object_id)]
+                for object_id in object_ids
+            },
+            "tekg": evidence,
+        },
+        default=_json_default,
+    )
+
+
+def _ocel_mine(
+    action: str,
+    params: dict,
+    slice_: Any,
+    tenant: str,
+    provenance: Any,
+    exported: Any,
+) -> str | tuple[Any, dict[str, Any]]:
+    """``ocel_mode='mine'`` — commit source truth + the disclosed perspective.
+
+    Returns a ready-to-send JSON error string, or ``(projection, evidence)``
+    for the caller to fold into the trace-mining response.
+
+    ``mine`` mode always materializes source truth AND discloses any
+    case-notion flattening it derives from that same truth
+    (CONCEPT:AU-KG.mining.governed-perspective-flattening) — the perspective
+    used for the trace projection is folded into the SAME committed slice as a
+    real, versioned ``ProcessPerspective`` node, never a silent side channel.
+    """
+    from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
+        ingest_graph_slice,
+    )
+    from agent_utilities.knowledge_graph.ingestion.event_log_adapter import (
+        project_object_centric_slice,
+    )
+
+    perspective = _require_process_perspective(params)
+    projection = project_object_centric_slice(slice_, perspective=perspective)
+    committed_slice = slice_.model_copy(
+        update={"perspectives": (*slice_.perspectives, perspective)}
+    )
+    # ``to_change_envelope`` still stamps tenant_id/ocel_provenance onto every
+    # entity/link and computes the digest-derived idempotency key — reuse that
+    # rendering — but a multi-entity slice's ``{"entities": [...],
+    # "relationships": [...]}`` typed_payload is NOT the single-row (+ optional
+    # ``_nodes``/``_links`` auxiliary) shape ``ingest_envelope``'s
+    # ``to_entity_dict``/``_prepare_node_rows`` understand: handing that
+    # envelope to ``ingest_envelope`` directly silently collapses the whole
+    # slice onto ONE untyped node (verified against a real engine — the
+    # "success" status did not mean the ProcessEvent/BusinessObject/
+    # ProcessPerspective nodes were ever created). ``ingest_graph_slice`` is
+    # the existing writer built for exactly this multi-node shape (first entity
+    # primary, the rest as governed ``_nodes``/``_links`` auxiliaries) — the
+    # same one ``IngestionEngine`` already uses for its concepts/facts passes.
+    envelope = committed_slice.to_change_envelope(
+        tenant=tenant,
+        provenance=provenance,
+    )
+    # THE single commit of this slice. The degradation wrapper is wire-first's:
+    # a write-path outage surfaces as a structured error, never a crash.
+    try:
+        engine = kg_server._get_engine()
+        applied = ingest_graph_slice(
+            engine,
+            envelope.connector,
+            envelope.typed_payload["entities"],
+            envelope.typed_payload["relationships"],
+            source_instance=envelope.source_instance,
+            checkpoint=envelope.checkpoint,
+        )
+    except Exception as exc:  # noqa: BLE001 — a write-path outage degrades graph_mine, never crashes it
+        return _surface_error(
+            exc,
+            surface="mining",
+            action=action,
+            code="dependency_unavailable",
+        )
+    if applied.get("status") not in {"success", "skipped"}:
+        return json.dumps(
+            {
+                "surface": "mining",
+                "action": action,
+                "code": "write_failed",
+                "error": (
+                    "governed OCEL ChangeEnvelope commit failed: "
+                    f"{applied.get('error') or applied.get('status')}"
+                ),
+                "ocel": exported,
+                "tekg": {"idempotency_key": envelope.idempotency_key},
+            },
+            default=_json_default,
+        )
+    evidence = {
+        **_ocel_evidence(tenant, committed_slice, envelope),
+        "idempotency_key": applied.get("idempotency_key", envelope.idempotency_key),
+        "commit_status": applied.get("status"),
+        "write_status": applied.get("status"),
+    }
+    _record_process_signal_evidence(evidence, engine)
+    return projection, evidence
+
+
+def _ocel_import_slice(params: dict) -> tuple[str, Any, Any, str]:
+    """Pop + validate the governed OCEL import inputs, then import the slice.
+
+    Returns ``(tenant, slice_, provenance, ocel_mode)``. Raises ``ValueError``
+    for a missing tenant or an unknown ``ocel_mode`` — the caller maps those
+    onto an ``invalid_request`` surface error.
+    """
+    from agent_utilities.knowledge_graph.ingestion.ocel_adapter import (
+        import_ocel_json,
+    )
+    from agent_utilities.usage.authorization import resolve_usage_tenant
+
+    tenant = resolve_usage_tenant(str(params.pop("tenant", "") or "") or None)
+    if not tenant:
+        raise ValueError("tenant is required for governed OCEL import")
+    slice_, provenance = import_ocel_json(
+        params.pop("ocel_json"),
+        tenant=tenant,
+        source_ref=str(params.pop("source_ref", "") or ""),
+        mapping_version=str(params.pop("mapping_version", "") or ""),
+        provenance=params.pop("provenance", None),
+    )
+    ocel_mode = str(params.pop("ocel_mode", "mine") or "mine").strip()
+    if ocel_mode not in {"mine", "validate", "derive"}:
+        raise ValueError("ocel_mode must be 'mine', 'validate', or 'derive'")
+    return tenant, slice_, provenance, ocel_mode
+
+
+def _ocel_import_and_dispatch(
+    action: str, params: dict
+) -> str | tuple[Any, Any, dict[str, Any]]:
+    """Import the governed OCEL document and run the requested ``ocel_mode``.
+
+    Returns a ready-to-send JSON string for the terminal ``derive``/
+    ``validate``/error modes, or ``(projection, exported, evidence)`` when
+    ``mine`` committed and the caller must still project + mine traces.
+    """
+    from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (  # noqa: F401 — imported up-front so an unavailable write path fails here, exactly as it did before this function was extracted
+        ingest_graph_slice,
+    )
+    from agent_utilities.knowledge_graph.ingestion.event_log_adapter import (  # noqa: F401 — see above
+        project_object_centric_slice,
+    )
+    from agent_utilities.knowledge_graph.ingestion.ocel_adapter import (
+        export_ocel_json,
+    )
+
+    tenant, slice_, provenance, ocel_mode = _ocel_import_slice(params)
+    exported = export_ocel_json(slice_)
+    # Computed here from the bare (pre-perspective) ``slice_`` so this
+    # best-effort observability snapshot never blocks the import; each mode
+    # branch still computes its OWN envelope for the actual commit (the
+    # ``mine`` branch's includes the perspective).
+    envelope = slice_.to_change_envelope(tenant=tenant, provenance=provenance)
+    evidence = _ocel_evidence(tenant, slice_, envelope)
+    _record_process_signal_evidence(evidence)
+    if ocel_mode == "derive":
+        return _ocel_derive_response(action, slice_, tenant, evidence)
+    if ocel_mode == "validate":
+        envelope = slice_.to_change_envelope(
+            tenant=tenant,
+            provenance=provenance,
+        )
+        return json.dumps(
+            {
+                "surface": "mining",
+                "action": action,
+                "ocel": exported,
+                "tekg": _ocel_evidence(tenant, slice_, envelope),
+            },
+            default=_json_default,
+        )
+    mined = _ocel_mine(action, params, slice_, tenant, provenance, exported)
+    if isinstance(mined, str):
+        return mined
+    projection, evidence = mined
+    return projection, exported, evidence
+
+
 def _graph_mine_process_ocel_json(action: str, params: dict, graph: str) -> str | None:
     """graph_mine's 'process' action, OCEL JSON import path (mine/validate/derive).
 
-    Extracted verbatim from ``graph_mine`` (pure extract-method, no
-    behaviour change). Returns ``None`` when this branch's guard condition
-    does not match -- the caller must then try the next special case /
-    fall through to the generic ``_invoke`` dispatch, exactly like the
-    original's sequential ``if action == "process" and ...:`` chain.
+    Returns ``None`` when this branch's guard condition does not match -- the
+    caller must then try the next special case / fall through to the generic
+    ``_invoke`` dispatch, exactly like the original's sequential
+    ``if action == "process" and ...:`` chain.
     """
     if not (action == "process" and "ocel_json" in params):
         return None
@@ -1677,280 +1965,8 @@ def _graph_mine_process_ocel_json(action: str, params: dict, graph: str) -> str 
                 "error": "provide OCEL input instead of events or traces",
             }
         )
-    from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
-        ingest_graph_slice,
-    )
-    from agent_utilities.knowledge_graph.ingestion.event_log_adapter import (
-        project_object_centric_slice,
-    )
-    from agent_utilities.knowledge_graph.ingestion.ocel_adapter import (
-        export_ocel_json,
-        import_ocel_json,
-    )
-    from agent_utilities.usage.authorization import resolve_usage_tenant
-
     try:
-        tenant = resolve_usage_tenant(
-            str(params.pop("tenant", "") or "") or None
-        )
-        if not tenant:
-            raise ValueError("tenant is required for governed OCEL import")
-        slice_, provenance = import_ocel_json(
-            params.pop("ocel_json"),
-            tenant=tenant,
-            source_ref=str(params.pop("source_ref", "") or ""),
-            mapping_version=str(params.pop("mapping_version", "") or ""),
-            provenance=params.pop("provenance", None),
-        )
-        ocel_mode = str(params.pop("ocel_mode", "mine") or "mine").strip()
-        if ocel_mode not in {"mine", "validate", "derive"}:
-            raise ValueError(
-                "ocel_mode must be 'mine', 'validate', or 'derive'"
-            )
-        exported = export_ocel_json(slice_)
-        # Merge fix (feat/retrieval-eval-policy x fix/sweep-orch-skills):
-        # the process_signal evidence snapshot below reads `envelope`
-        # before either mode-branch computes its own further down —
-        # a pre-existing NameError on fix/sweep-orch-skills@504c903d,
-        # not something either lane's change caused directly. Computed
-        # here from the bare (pre-perspective) `slice_` so this
-        # best-effort observability snapshot never blocks the import;
-        # each mode branch still computes its OWN envelope for the
-        # actual commit (the `mine` branch's includes the perspective).
-        envelope = slice_.to_change_envelope(
-            tenant=tenant, provenance=provenance
-        )
-        evidence = {
-            "mode": "ocel_2.0",
-            "tenant": tenant,
-            "content_hash": slice_.canonical_digest(),
-            "idempotency_key": envelope.idempotency_key,
-            "mapping_version": slice_.mapping_version,
-            "node_count": len(envelope.typed_payload["entities"]),
-            "relationship_count": len(envelope.typed_payload["relationships"]),
-        }
-        # Unified Evidence resource (CONCEPT:AU-KG.evolution.unified-evidence-resource,
-        # D-71-1) — the process_signal channel: recorded HERE, at the one place
-        # this import's real outcome is computed, never re-derived by a second
-        # query. Best-effort audit overlay; never gates the import.
-        try:
-            from agent_utilities.knowledge_graph.research.evidence import (
-                from_process_signal,
-                record_evidence,
-            )
-
-            record_evidence(
-                kg_server._get_engine(), from_process_signal(evidence)
-            )
-        except Exception as exc:  # noqa: BLE001 — deliberate best-effort audit overlay: this Evidence write is a pure observability side-channel over an import that has ALREADY succeeded, and the comment above states it "never gates the import". Failing it must not fail the caller's OCEL import. Only the exception type is recorded, at DEBUG because the authoritative import outcome is already reported through the normal return path.
-            logger.debug(
-                "OCEL process_signal evidence record failed for %s: %s",
-                evidence.get("idempotency_key"),
-                type(exc).__name__,
-            )
-        if ocel_mode == "derive":
-            # CONCEPT:AU-KG.mining.incremental-object-centric-derivation —
-            # the ONE surface exposure of
-            # ``ingestion/object_centric_derivation.py``. That module was
-            # implemented and unit-tested but reachable from no gateway/MCP
-            # path at all (check_surface_parity's "unexposed capability"),
-            # i.e. built-but-not-wired. It is read-only by construction:
-            # ``derive`` replays the imported slice through the incremental
-            # deriver and returns the derived aggregate directly-follows
-            # graph, per-object timelines, and derivation generation. It
-            # commits nothing — that stays exclusive to ``mine``.
-            from agent_utilities.knowledge_graph.ingestion.object_centric_derivation import (
-                IncrementalObjectCentricDeriver,
-            )
-
-            deriver = IncrementalObjectCentricDeriver()
-            for business_object in slice_.objects:
-                deriver.observe_object_attributes(
-                    business_object.object_id, business_object.attributes
-                )
-            observed_at = datetime.now(UTC)
-            for event in sorted(
-                slice_.events,
-                key=lambda item: (
-                    item.occurred_at,
-                    item.sequence_tiebreaker,
-                    item.event_id,
-                ),
-            ):
-                for participation in event.objects:
-                    deriver.ingest_event(
-                        event,
-                        object_id=participation.object_id,
-                        state_id=(
-                            f"{slice_.log_id}:{participation.object_id}:"
-                            f"{event.event_id}"
-                        ),
-                        observed_at=observed_at,
-                    )
-            object_ids = sorted(
-                {
-                    participation.object_id
-                    for event in slice_.events
-                    for participation in event.objects
-                }
-            )
-            return json.dumps(
-                {
-                    "surface": "mining",
-                    "action": action,
-                    "ocel_mode": "derive",
-                    "tenant": tenant,
-                    "generation": deriver.generation,
-                    "directly_follows": [
-                        {"from": pair[0], "to": pair[1], "count": count}
-                        for pair, count in sorted(
-                            deriver.dfg_snapshot().items()
-                        )
-                    ],
-                    "timelines": {
-                        object_id: [
-                            event.event_id
-                            for event in deriver.timeline(object_id)
-                        ]
-                        for object_id in object_ids
-                    },
-                    "tekg": evidence,
-                },
-                default=_json_default,
-            )
-        if ocel_mode == "validate":
-            envelope = slice_.to_change_envelope(
-                tenant=tenant,
-                provenance=provenance,
-            )
-            evidence = {
-                "mode": "ocel_2.0",
-                "tenant": tenant,
-                "content_hash": slice_.canonical_digest(),
-                "idempotency_key": envelope.idempotency_key,
-                "mapping_version": slice_.mapping_version,
-                "node_count": len(envelope.typed_payload["entities"]),
-                "relationship_count": len(
-                    envelope.typed_payload["relationships"]
-                ),
-            }
-            return json.dumps(
-                {
-                    "surface": "mining",
-                    "action": action,
-                    "ocel": exported,
-                    "tekg": evidence,
-                },
-                default=_json_default,
-            )
-        # ``mine`` mode always materializes source truth AND discloses
-        # any case-notion flattening it derives from that same truth
-        # (CONCEPT:AU-KG.mining.governed-perspective-flattening) — the
-        # perspective used for the trace projection below is folded
-        # into the SAME committed slice as a real, versioned
-        # ``ProcessPerspective`` node, never a silent side channel.
-        perspective = _require_process_perspective(params)
-        projection = project_object_centric_slice(
-            slice_,
-            perspective=perspective,
-        )
-        committed_slice = slice_.model_copy(
-            update={"perspectives": (*slice_.perspectives, perspective)}
-        )
-        # ``to_change_envelope`` still stamps tenant_id/ocel_provenance
-        # onto every entity/link and computes the digest-derived
-        # idempotency key — reuse that rendering — but a
-        # multi-entity slice's ``{"entities": [...], "relationships":
-        # [...]}`` typed_payload is NOT the single-row (+ optional
-        # ``_nodes``/``_links`` auxiliary) shape ``ingest_envelope``'s
-        # ``to_entity_dict``/``_prepare_node_rows`` understand: handing
-        # that envelope to ``ingest_envelope`` directly silently
-        # collapses the whole slice onto ONE untyped node (verified
-        # against a real engine — the "success" status did not mean
-        # the ProcessEvent/BusinessObject/ProcessPerspective nodes
-        # were ever created). ``ingest_graph_slice`` is the existing
-        # writer built for exactly this multi-node shape (first
-        # entity primary, the rest as governed ``_nodes``/``_links``
-        # auxiliaries) — the same one ``IngestionEngine`` already uses
-        # for its concepts/facts passes.
-        envelope = committed_slice.to_change_envelope(
-            tenant=tenant,
-            provenance=provenance,
-        )
-        # THE single commit of this slice. Three lanes touched this one
-        # spot: feat/ocel-roundtrip-and-derivation and
-        # feat/wire-first-reachability-gate each independently fixed the
-        # discarded ChangeEnvelope (kept ONE commit, the ocel form, which
-        # also commits the disclosed ProcessPerspective), and
-        # feat/wave6-followups-ocel then fixed the commit ITSELF: routing
-        # a {entities, relationships} payload through ingest_envelope
-        # silently collapsed every entity onto ONE untyped node while
-        # still returning status="success" (D-61-4). ingest_graph_slice is
-        # the correct writer. The degradation wrapper is wire-first's: a
-        # write-path outage surfaces as a structured error, never a crash.
-        try:
-            engine = kg_server._get_engine()
-            applied = ingest_graph_slice(
-                engine,
-                envelope.connector,
-                envelope.typed_payload["entities"],
-                envelope.typed_payload["relationships"],
-                source_instance=envelope.source_instance,
-                checkpoint=envelope.checkpoint,
-            )
-        except Exception as exc:  # noqa: BLE001 — a write-path outage degrades graph_mine, never crashes it
-            return _surface_error(
-                exc,
-                surface="mining",
-                action=action,
-                code="dependency_unavailable",
-            )
-        if applied.get("status") not in {"success", "skipped"}:
-            return json.dumps(
-                {
-                    "surface": "mining",
-                    "action": action,
-                    "code": "write_failed",
-                    "error": (
-                        "governed OCEL ChangeEnvelope commit failed: "
-                        f"{applied.get('error') or applied.get('status')}"
-                    ),
-                    "ocel": exported,
-                    "tekg": {"idempotency_key": envelope.idempotency_key},
-                },
-                default=_json_default,
-            )
-        evidence = {
-            "mode": "ocel_2.0",
-            "tenant": tenant,
-            "content_hash": committed_slice.canonical_digest(),
-            "idempotency_key": applied.get(
-                "idempotency_key", envelope.idempotency_key
-            ),
-            "mapping_version": committed_slice.mapping_version,
-            "node_count": len(envelope.typed_payload["entities"]),
-            "relationship_count": len(envelope.typed_payload["relationships"]),
-            "commit_status": applied.get("status"),
-            "write_status": applied.get("status"),
-        }
-        # Unified Evidence resource (CONCEPT:AU-KG.evolution.unified-evidence-resource,
-        # D-71-1) — the process_signal channel, recorded HERE because this
-        # is the one place the import's REAL outcome is known (post-commit
-        # `applied` status and idempotency key), never re-derived by a
-        # second query. Best-effort audit overlay; never gates the import.
-        try:
-            from agent_utilities.knowledge_graph.research.evidence import (
-                from_process_signal,
-                record_evidence,
-            )
-
-            record_evidence(engine, from_process_signal(evidence))
-        except Exception as exc:  # noqa: BLE001 — deliberate best-effort audit overlay: a pure observability side-channel over an import that has ALREADY committed, so failing it must not fail the caller's OCEL import. Only the exception type is recorded, at DEBUG because the authoritative outcome is already reported through the normal return path.
-            logger.debug(
-                "OCEL process_signal evidence record failed for %s: %s",
-                evidence.get("idempotency_key"),
-                type(exc).__name__,
-            )
+        outcome = _ocel_import_and_dispatch(action, params)
     except (PermissionError, TypeError, ValueError) as exc:
         return _surface_error(
             exc,
@@ -1965,6 +1981,9 @@ def _graph_mine_process_ocel_json(action: str, params: dict, graph: str) -> str 
             action=action,
             code="commit_failed",
         )
+    if isinstance(outcome, str):
+        return outcome
+    projection, exported, evidence = outcome
     params["traces"] = projection.engine_traces()
     response = json.loads(
         _invoke(
@@ -1981,14 +2000,124 @@ def _graph_mine_process_ocel_json(action: str, params: dict, graph: str) -> str 
     return json.dumps(response, default=_json_default)
 
 
-def _graph_mine_process_conformance(action: str, params: dict, graph: str) -> str | None:
+def _popped_str(params: dict, key: str, *, strip: bool = True) -> str:
+    """``params.pop(key)`` coerced to a plain (optionally stripped) string.
+
+    The ``str(params.pop(k, "") or "")`` idiom repeated across the governed
+    mining entrypoints, in one place: a missing key, ``None``, ``0`` and ``""``
+    all collapse to the empty string.
+    """
+    value = str(params.pop(key, "") or "")
+    return value.strip() if strip else value
+
+
+def _conformance_inputs(params: dict) -> dict[str, Any]:
+    """Pop + validate every governed conformance-checking input, in order.
+
+    The validation ORDER here is load-bearing: a doubly-invalid request must
+    keep reporting the same first offence it always did.
+    """
+    from agent_utilities.usage.authorization import resolve_usage_tenant
+
+    tenant = resolve_usage_tenant(_popped_str(params, "tenant", strip=False) or None)
+    if not tenant:
+        raise ValueError("tenant is required for governed conformance checking")
+    perspective = _require_process_perspective(params)
+    traces = [tuple(trace) for trace in params.pop("traces")]
+    object_ids = list(params.pop("object_ids"))
+    allowed_edges = [
+        (str(pair[0]), str(pair[1])) for pair in params.pop("allowed_edges")
+    ]
+    model_ref = _popped_str(params, "model_ref")
+    graph_as_of_raw = _popped_str(params, "graph_as_of")
+    mapping_version = _popped_str(params, "mapping_version")
+    export_digest = _popped_str(params, "export_digest")
+    if not model_ref or not graph_as_of_raw or not mapping_version:
+        raise ValueError(
+            "conformance checking requires 'model_ref', 'graph_as_of', "
+            "and 'mapping_version'"
+        )
+    if not export_digest:
+        raise ValueError(
+            "conformance checking requires 'export_digest' — the export "
+            "digest of the source data this run executed over"
+        )
+    graph_as_of = datetime.fromisoformat(graph_as_of_raw.replace("Z", "+00:00"))
+    source_ref = _popped_str(params, "source_ref", strip=False)
+    run_id = (
+        _popped_str(params, "run_id", strip=False)
+        or hashlib.sha256(
+            "\x1f".join(
+                [
+                    source_ref,
+                    perspective.perspective_id,
+                    model_ref,
+                    export_digest,
+                    graph_as_of.isoformat(),
+                ]
+            ).encode("utf-8")
+        ).hexdigest()[:32]
+    )
+    return {
+        "tenant": tenant,
+        "perspective": perspective,
+        "traces": traces,
+        "object_ids": object_ids,
+        "allowed_edges": allowed_edges,
+        "model_ref": model_ref,
+        "graph_as_of": graph_as_of,
+        "mapping_version": mapping_version,
+        "export_digest": export_digest,
+        "source_ref": source_ref,
+        "run_id": run_id,
+        "start_activities": params.pop("start_activities", None),
+        "end_activities": params.pop("end_activities", None),
+    }
+
+
+def _conformance_commit(
+    inputs: dict[str, Any], run: Any, deviations: Any
+) -> dict[str, Any]:
+    """Commit one ``ConformanceRun`` (+ its Deviations) as a tenant-scoped slice."""
+    from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
+        ingest_graph_slice,
+    )
+    from agent_utilities.knowledge_graph.ingestion.process_conformance import (
+        conformance_run_graph_slice,
+    )
+
+    entities, links = conformance_run_graph_slice(
+        run, deviations, source_ref=inputs["source_ref"]
+    )
+    for entity in entities:
+        entity["tenant_id"] = inputs["tenant"]
+    for link in links:
+        link["tenant_id"] = inputs["tenant"]
+    engine = kg_server._get_engine()
+    applied = ingest_graph_slice(
+        engine,
+        "conformance",
+        entities,
+        links,
+        source_instance=inputs["run_id"],
+    )
+    if applied.get("status") not in {"success", "skipped"}:
+        raise RuntimeError(
+            "ConformanceRun ChangeEnvelope commit failed: "
+            f"{applied.get('error') or applied.get('status')}"
+        )
+    return {"applied": applied, "entities": entities, "links": links}
+
+
+def _graph_mine_process_conformance(
+    action: str, params: dict, graph: str
+) -> str | None:
     """graph_mine's 'process' action, conformance-checking path (allowed_edges given).
 
-    Extracted verbatim from ``graph_mine`` (pure extract-method, no
-    behaviour change). Returns ``None`` when this branch's guard condition
-    does not match -- the caller must then try the next special case /
-    fall through to the generic ``_invoke`` dispatch, exactly like the
-    original's sequential ``if action == "process" and ...:`` chain.
+    Returns ``None`` when this branch's guard condition does not match -- the
+    caller must then try the next special case / fall through to the generic
+    ``_invoke`` dispatch, exactly like the original's sequential
+    ``if action == "process" and ...:`` chain.
     """
     if not (action == "process" and "allowed_edges" in params):
         return None
@@ -2000,100 +2129,33 @@ def _graph_mine_process_conformance(action: str, params: dict, graph: str) -> st
     # here (there is no engine-side conformance primitive to dispatch
     # to — the whole point of the ``ConformanceWorker`` seam is that the
     # native/default worker needs none).
-    from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
+    from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (  # noqa: F401 — imported up-front so an unavailable write path fails here, exactly as it did before _conformance_commit was extracted
         ingest_graph_slice,
     )
     from agent_utilities.knowledge_graph.ingestion.process_conformance import (
         ConformanceRun,
-        conformance_run_graph_slice,
         run_conformance_check,
     )
-    from agent_utilities.usage.authorization import resolve_usage_tenant
 
     try:
-        tenant = resolve_usage_tenant(
-            str(params.pop("tenant", "") or "") or None
-        )
-        if not tenant:
-            raise ValueError(
-                "tenant is required for governed conformance checking"
-            )
-        perspective = _require_process_perspective(params)
-        traces = [tuple(trace) for trace in params.pop("traces")]
-        object_ids = list(params.pop("object_ids"))
-        allowed_edges = [
-            (str(pair[0]), str(pair[1])) for pair in params.pop("allowed_edges")
-        ]
-        model_ref = str(params.pop("model_ref", "") or "").strip()
-        graph_as_of_raw = str(params.pop("graph_as_of", "") or "").strip()
-        mapping_version = str(params.pop("mapping_version", "") or "").strip()
-        export_digest = str(params.pop("export_digest", "") or "").strip()
-        if not model_ref or not graph_as_of_raw or not mapping_version:
-            raise ValueError(
-                "conformance checking requires 'model_ref', 'graph_as_of', "
-                "and 'mapping_version'"
-            )
-        if not export_digest:
-            raise ValueError(
-                "conformance checking requires 'export_digest' — the export "
-                "digest of the source data this run executed over"
-            )
-        graph_as_of = datetime.fromisoformat(
-            graph_as_of_raw.replace("Z", "+00:00")
-        )
-        source_ref = str(params.pop("source_ref", "") or "")
-        run_id = (
-            str(params.pop("run_id", "") or "")
-            or hashlib.sha256(
-                "\x1f".join(
-                    [
-                        source_ref,
-                        perspective.perspective_id,
-                        model_ref,
-                        export_digest,
-                        graph_as_of.isoformat(),
-                    ]
-                ).encode("utf-8")
-            ).hexdigest()[:32]
-        )
-        start_activities = params.pop("start_activities", None)
-        end_activities = params.pop("end_activities", None)
+        inputs = _conformance_inputs(params)
         run = ConformanceRun(
-            run_id=run_id,
-            perspective=perspective,
-            graph_as_of=graph_as_of,
-            mapping_version=mapping_version,
-            model_ref=model_ref,
-            export_digest=export_digest,
+            run_id=inputs["run_id"],
+            perspective=inputs["perspective"],
+            graph_as_of=inputs["graph_as_of"],
+            mapping_version=inputs["mapping_version"],
+            model_ref=inputs["model_ref"],
+            export_digest=inputs["export_digest"],
         )
         run, deviations = run_conformance_check(
-            traces,
-            object_ids,
-            allowed_edges,
+            inputs["traces"],
+            inputs["object_ids"],
+            inputs["allowed_edges"],
             run=run,
-            start_activities=start_activities,
-            end_activities=end_activities,
+            start_activities=inputs["start_activities"],
+            end_activities=inputs["end_activities"],
         )
-        entities, links = conformance_run_graph_slice(
-            run, deviations, source_ref=source_ref
-        )
-        for entity in entities:
-            entity["tenant_id"] = tenant
-        for link in links:
-            link["tenant_id"] = tenant
-        engine = kg_server._get_engine()
-        applied = ingest_graph_slice(
-            engine,
-            "conformance",
-            entities,
-            links,
-            source_instance=run_id,
-        )
-        if applied.get("status") not in {"success", "skipped"}:
-            raise RuntimeError(
-                "ConformanceRun ChangeEnvelope commit failed: "
-                f"{applied.get('error') or applied.get('status')}"
-            )
+        committed = _conformance_commit(inputs, run, deviations)
     except (PermissionError, TypeError, ValueError) as exc:
         return _surface_error(
             exc,
@@ -2121,9 +2183,9 @@ def _graph_mine_process_conformance(action: str, params: dict, graph: str) -> st
                 deviation.model_dump(mode="json") for deviation in deviations
             ],
             "tekg": {
-                "commit_status": applied.get("status"),
-                "node_count": len(entities),
-                "relationship_count": len(links),
+                "commit_status": committed["applied"].get("status"),
+                "node_count": len(committed["entities"]),
+                "relationship_count": len(committed["links"]),
             },
         },
         default=_json_default,
