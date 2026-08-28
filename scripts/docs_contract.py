@@ -242,15 +242,34 @@ def check_skill_certification_docs_contract(content: str | None = None) -> list[
 
 
 def _setting_calls() -> dict[str, set[str]]:
+    # Same-module ``*args`` indirection: a local helper like
+    # ``def _any_setting(*keys: str) -> bool: return any(setting(key) for
+    # key in keys)`` (agent_utilities/knowledge_graph/core/hydration.py's
+    # real shape) forwards each of its own callers' literal string
+    # arguments into ``setting()`` — a genuine call-site read for every
+    # literal passed at a call site, even though the var name never
+    # appears next to a ``setting(`` call itself. Reuses the shared
+    # detector from the env-var-drift guard (CONCEPT:AU-OS.config.env-var-
+    # drift-guard) rather than re-deriving it, so this catalog and that
+    # gate never drift back out of agreement on what counts as a read.
+    from agent_utilities.mcp.check_env_var_drift import (
+        _collect_setting_passthrough_helpers,
+        _passthrough_helper_call_literals,
+    )
+
     calls: dict[str, set[str]] = defaultdict(set)
     for path in tracked_or_walked(ROOT / "agent_utilities", "*.py", root=ROOT):
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         except (OSError, SyntaxError, UnicodeError):
             continue
+        rel = path.relative_to(ROOT).as_posix()
+        passthrough_helpers = _collect_setting_passthrough_helpers(tree)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call) or not node.args:
                 continue
+            for literal in _passthrough_helper_call_literals(node, passthrough_helpers):
+                calls[literal].add(rel)
             name = ""
             if isinstance(node.func, ast.Name):
                 name = node.func.id
@@ -262,7 +281,7 @@ def _setting_calls() -> dict[str, set[str]]:
                 and isinstance(first, ast.Constant)
                 and isinstance(first.value, str)
             ):
-                calls[first.value].add(path.relative_to(ROOT).as_posix())
+                calls[first.value].add(rel)
     return calls
 
 

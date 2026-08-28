@@ -417,6 +417,25 @@ def test_docs_gate_requires_installed_release_skill_attestation():
     ]
 
 
+def test_setting_calls_credits_passthrough_helper_literals():
+    """``_setting_calls()`` must count a literal passed to a same-module
+    ``_any_setting``/``_all_settings``-shaped helper -- the real pattern in
+    ``agent_utilities/knowledge_graph/core/hydration.py``'s
+    ``HydrationManager.get_status()`` -- as a genuine call-site read, not
+    just a literal passed directly to ``setting(``. Regenerating
+    ``docs/reference/runtime-configuration.md`` with a version of
+    ``_setting_calls()`` blind to this indirection silently DROPPED 15 real
+    vars (CADDY_API_URL, JIRA_TOKEN, VAULT_URL, ...) from the generated
+    catalog -- this pins the fix."""
+    contract = _load_script("docs_contract.py")
+    calls = contract._setting_calls()
+    for var in ("JIRA_TOKEN", "JIRA_API_TOKEN", "CADDY_API_URL", "VAULT_URL"):
+        assert var in calls, f"{var} missing from _setting_calls() output"
+        assert any("hydration.py" in path for path in calls[var]), (
+            f"{var} not attributed to hydration.py: {calls[var]}"
+        )
+
+
 def test_generated_agent_tree_contains_only_tracked_top_level_paths():
     """Ignored runtime artifacts must not leak into the generated project tree."""
     generator = _load_script("gen_agents_md.py")
