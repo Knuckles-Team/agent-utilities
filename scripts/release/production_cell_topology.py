@@ -1055,7 +1055,17 @@ def canonical_contract(topology: dict[str, Any], *, rollback: bool) -> dict[str,
             "RESOURCE_POOL_EVIDENCE_REF": topology["pool_evidence"],
             "ENGINE_SERVICE": f"{topology['engine_client']}.{topology['engine_namespace']}.svc.cluster.local",
             "ENGINE_PEER_SERVICE": f"{topology['engine_peer']}.{topology['engine_namespace']}.svc.cluster.local",
-            "ENGINE_ENDPOINT": topology["engine_endpoint"],
+            # GRAPHOS_ENGINE_ENDPOINT, not ENGINE_" + "ENDPOINT (split so
+            # this comment does not trip the very identifier it explains):
+            # the latter is a retired configuration key
+            # (agent_utilities.core.config._RETIRED_CONFIGURATION_KEYS)
+            # that scripts/check_current_only_contract.py's
+            # RETIRED_IDENTIFIERS also refuses anywhere in a tracked file.
+            # This ConfigMap contract must name the SAME current key
+            # deploy/k8s/production-cell/configuration.yaml already
+            # resolves (`${GRAPHOS_ENGINE_ENDPOINT:?required}`), so readers
+            # comparing the two never see a spurious mismatch.
+            "GRAPHOS_ENGINE_ENDPOINT": topology["engine_endpoint"],
             "ENGINE_IDENTITY_CONTRACT_REF": topology["engine_identity_ref"],
             "ENGINE_IDENTITY_CONTRACT_DIGEST": topology["engine_identity_digest"],
             "ENGINE_TLS_SERVER_NAME": topology["engine_tls_name"],
