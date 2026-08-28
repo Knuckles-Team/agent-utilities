@@ -220,6 +220,40 @@ class _Authority:
             self._mint_count += 1
         return f"{signing_input.decode('ascii')}.{_base64url(signature)}"
 
+    def _authenticated_client(self, authorization: str, fields: dict[str, str]) -> bool:
+        """Basic-auth header credentials if present, else body ``client_id``/``client_secret``."""
+        if authorization:
+            return self._authenticate(authorization)
+        return bool(
+            set(fields) >= {"client_id", "client_secret"}
+            and secrets.compare_digest(fields["client_id"], self._client_id)
+            and secrets.compare_digest(fields["client_secret"], self._client_secret)
+        )
+
+    def _validate_token_request(
+        self, request: _Request, fields: dict[str, str]
+    ) -> tuple[HTTPStatus, dict[str, Any]] | None:
+        """Validate auth/grant/audience/scope; ``None`` means the request may proceed.
+
+        Extracted from :meth:`token`. Every branch returns the exact error tuple
+        the inline version returned; ``None`` is the ONLY "proceed to mint" outcome
+        (fail-closed: any unhandled case falls through the guards below and is
+        rejected by one of them, never silently admitted).
+        """
+        authorization = request.headers.get("authorization", "")
+        body_credentials = "client_id" in fields or "client_secret" in fields
+        if authorization and body_credentials:
+            return HTTPStatus.BAD_REQUEST, {"error": "invalid_request"}
+        if not self._authenticated_client(authorization, fields):
+            return HTTPStatus.UNAUTHORIZED, {"error": "invalid_client"}
+        if fields.get("grant_type") != "client_credentials":
+            return HTTPStatus.BAD_REQUEST, {"error": "unsupported_grant_type"}
+        if fields.get("audience", _AUDIENCE) != _AUDIENCE:
+            return HTTPStatus.BAD_REQUEST, {"error": "invalid_target"}
+        if fields.get("scope", "kg:admin").split() != ["kg:admin"]:
+            return HTTPStatus.BAD_REQUEST, {"error": "invalid_scope"}
+        return None
+
     def token(self, request: _Request) -> tuple[HTTPStatus, dict[str, Any]]:
         content_type = request.headers.get("content-type", "").partition(";")[0]
         if content_type.strip().lower() != "application/x-www-form-urlencoded":
@@ -244,27 +278,9 @@ class _Authority:
             "scope",
         }:
             return HTTPStatus.BAD_REQUEST, {"error": "invalid_request"}
-        authorization = request.headers.get("authorization", "")
-        body_credentials = "client_id" in fields or "client_secret" in fields
-        if authorization and body_credentials:
-            return HTTPStatus.BAD_REQUEST, {"error": "invalid_request"}
-        authenticated = (
-            self._authenticate(authorization)
-            if authorization
-            else bool(
-                set(fields) >= {"client_id", "client_secret"}
-                and secrets.compare_digest(fields["client_id"], self._client_id)
-                and secrets.compare_digest(fields["client_secret"], self._client_secret)
-            )
-        )
-        if not authenticated:
-            return HTTPStatus.UNAUTHORIZED, {"error": "invalid_client"}
-        if fields.get("grant_type") != "client_credentials":
-            return HTTPStatus.BAD_REQUEST, {"error": "unsupported_grant_type"}
-        if fields.get("audience", _AUDIENCE) != _AUDIENCE:
-            return HTTPStatus.BAD_REQUEST, {"error": "invalid_target"}
-        if fields.get("scope", "kg:admin").split() != ["kg:admin"]:
-            return HTTPStatus.BAD_REQUEST, {"error": "invalid_scope"}
+        error = self._validate_token_request(request, fields)
+        if error is not None:
+            return error
         return HTTPStatus.OK, {
             "access_token": self.mint(),
             "expires_in": self._token_ttl_seconds,
@@ -273,8 +289,15 @@ class _Authority:
         }
 
 
-def _read_request(connection: socket.socket) -> _Request:
-    deadline = time.monotonic() + _SOCKET_DEADLINE_SECONDS
+def _read_headers_block(
+    connection: socket.socket, deadline: float
+) -> tuple[bytes, bytearray]:
+    """Read from ``connection`` until the header/body boundary.
+
+    Extracted from :func:`_read_request`. Returns ``(header_block, leftover_body)``
+    where ``leftover_body`` is whatever body bytes rode in on the same read(s) as
+    the header block.
+    """
     incoming = bytearray()
     header_end = -1
     while header_end < 0:
@@ -293,7 +316,11 @@ def _read_request(connection: socket.socket) -> _Request:
         raise _RequestError(HTTPStatus.REQUEST_HEADER_FIELDS_TOO_LARGE)
     header_block = bytes(incoming[:header_end])
     body = bytearray(incoming[header_end + 4 :])
-    lines = header_block.split(b"\r\n")
+    return header_block, body
+
+
+def _parse_request_start_line(lines: list[bytes]) -> tuple[str, str, str]:
+    """Decode the request line and validate its method/version tokens."""
     if not lines or len(lines[0]) > _MAX_REQUEST_LINE_BYTES:
         raise _RequestError(HTTPStatus.REQUEST_URI_TOO_LONG)
     try:
@@ -302,6 +329,11 @@ def _read_request(connection: socket.socket) -> _Request:
         raise _RequestError(HTTPStatus.BAD_REQUEST) from None
     if method not in {"GET", "POST"} or version not in {"HTTP/1.0", "HTTP/1.1"}:
         raise _RequestError(HTTPStatus.METHOD_NOT_ALLOWED)
+    return method, target, version
+
+
+def _validate_request_target(target: str) -> Any:
+    """Validate the request line's target is an origin-form path; return it parsed."""
     parsed_target = urlsplit(target)
     if (
         not target.startswith("/")
@@ -311,23 +343,46 @@ def _read_request(connection: socket.socket) -> _Request:
         or parsed_target.fragment
     ):
         raise _RequestError(HTTPStatus.BAD_REQUEST)
+    return parsed_target
+
+
+def _parse_request_line(lines: list[bytes]) -> tuple[str, Any]:
+    """Parse+validate the request line; return ``(method, parsed_target)``."""
+    method, target, _version = _parse_request_start_line(lines)
+    parsed_target = _validate_request_target(target)
+    return method, parsed_target
+
+
+def _parse_header_line(line: bytes, headers: dict[str, str]) -> tuple[str, str]:
+    """Parse+validate one header line; ``headers`` is read-only, for the dup-name check."""
+    if not line or len(line) > _MAX_HEADER_LINE_BYTES or b":" not in line:
+        raise _RequestError(HTTPStatus.BAD_REQUEST)
+    raw_name, raw_value = line.split(b":", 1)
+    try:
+        name = raw_name.decode("ascii").lower()
+        value = raw_value.strip().decode("ascii")
+    except UnicodeDecodeError:
+        raise _RequestError(HTTPStatus.BAD_REQUEST) from None
+    if not _HEADER_NAME.fullmatch(name) or name in headers:
+        raise _RequestError(HTTPStatus.BAD_REQUEST)
+    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in value):
+        raise _RequestError(HTTPStatus.BAD_REQUEST)
+    return name, value
+
+
+def _parse_header_lines(lines: list[bytes]) -> dict[str, str]:
+    """Parse+validate the header lines (all but the request line) into a dict."""
     if len(lines) - 1 > _MAX_HEADER_COUNT:
         raise _RequestError(HTTPStatus.REQUEST_HEADER_FIELDS_TOO_LARGE)
     headers: dict[str, str] = {}
     for line in lines[1:]:
-        if not line or len(line) > _MAX_HEADER_LINE_BYTES or b":" not in line:
-            raise _RequestError(HTTPStatus.BAD_REQUEST)
-        raw_name, raw_value = line.split(b":", 1)
-        try:
-            name = raw_name.decode("ascii").lower()
-            value = raw_value.strip().decode("ascii")
-        except UnicodeDecodeError:
-            raise _RequestError(HTTPStatus.BAD_REQUEST) from None
-        if not _HEADER_NAME.fullmatch(name) or name in headers:
-            raise _RequestError(HTTPStatus.BAD_REQUEST)
-        if any(ord(character) < 0x20 or ord(character) == 0x7F for character in value):
-            raise _RequestError(HTTPStatus.BAD_REQUEST)
+        name, value = _parse_header_line(line, headers)
         headers[name] = value
+    return headers
+
+
+def _validated_content_length(headers: dict[str, str], *, method: str) -> int:
+    """Validate transfer-encoding/content-length headers; return the body length."""
     if "transfer-encoding" in headers:
         raise _RequestError(HTTPStatus.BAD_REQUEST)
     raw_length = headers.get("content-length", "0")
@@ -338,6 +393,16 @@ def _read_request(connection: socket.socket) -> _Request:
         raise _RequestError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
     if method == "GET" and content_length:
         raise _RequestError(HTTPStatus.BAD_REQUEST)
+    return content_length
+
+
+def _read_body(
+    connection: socket.socket,
+    body: bytearray,
+    content_length: int,
+    deadline: float,
+) -> bytes:
+    """Read the remaining body bytes up to ``content_length``, respecting ``deadline``."""
     if len(body) > content_length:
         raise _RequestError(HTTPStatus.BAD_REQUEST)
     while len(body) < content_length:
@@ -349,7 +414,18 @@ def _read_request(connection: socket.socket) -> _Request:
         if not chunk:
             raise _RequestError(HTTPStatus.BAD_REQUEST)
         body.extend(chunk)
-    return _Request(method, parsed_target.path, headers, bytes(body))
+    return bytes(body)
+
+
+def _read_request(connection: socket.socket) -> _Request:
+    deadline = time.monotonic() + _SOCKET_DEADLINE_SECONDS
+    header_block, body = _read_headers_block(connection, deadline)
+    lines = header_block.split(b"\r\n")
+    method, parsed_target = _parse_request_line(lines)
+    headers = _parse_header_lines(lines)
+    content_length = _validated_content_length(headers, method=method)
+    body_bytes = _read_body(connection, body, content_length, deadline)
+    return _Request(method, parsed_target.path, headers, body_bytes)
 
 
 def _send_json(
@@ -415,11 +491,38 @@ class _LoopbackServer(socketserver.TCPServer):
         return True
 
 
+def _route_certification_request(
+    authority: _Authority, request: _Request
+) -> tuple[HTTPStatus, dict[str, Any]]:
+    """Dispatch one parsed request to its endpoint. Extracted from :meth:`_Handler.handle`."""
+    if request.method == "GET" and request.path == (
+        "/.well-known/openid-configuration"
+    ):
+        return HTTPStatus.OK, authority.discovery()
+    if request.method == "GET" and request.path == "/jwks":
+        return HTTPStatus.OK, authority.jwks
+    if request.method == "POST" and request.path == "/token":
+        return authority.token(request)
+    return HTTPStatus.NOT_FOUND, {"error": "not_found"}
+
+
+def _send_error_response(
+    connection: socket.socket, status: HTTPStatus, error: str
+) -> None:
+    """Best-effort error response: a send failure on an already-broken connection
+    must not raise out of :meth:`_Handler.handle`."""
+    try:
+        _send_json(connection, status, {"error": error})
+    except OSError:
+        return
+
+
 class _Handler(socketserver.BaseRequestHandler):
     def handle(self) -> None:
         server = self.server
         if not isinstance(server, _LoopbackServer) or server.authority is None:
             return
+        authority = server.authority
         try:
             if not server.admit():
                 _send_json(
@@ -430,31 +533,14 @@ class _Handler(socketserver.BaseRequestHandler):
             expected_host = f"{_BIND_HOST}:{server.server_address[1]}"
             if request.headers.get("host") != expected_host:
                 raise _RequestError(HTTPStatus.BAD_REQUEST)
-            if request.method == "GET" and request.path == (
-                "/.well-known/openid-configuration"
-            ):
-                status, payload = HTTPStatus.OK, server.authority.discovery()
-            elif request.method == "GET" and request.path == "/jwks":
-                status, payload = HTTPStatus.OK, server.authority.jwks
-            elif request.method == "POST" and request.path == "/token":
-                status, payload = server.authority.token(request)
-            else:
-                status, payload = HTTPStatus.NOT_FOUND, {"error": "not_found"}
+            status, payload = _route_certification_request(authority, request)
             _send_json(self.request, status, payload)
         except _RequestError as exc:
-            try:
-                _send_json(self.request, exc.status, {"error": exc.oauth_error})
-            except OSError:
-                return
+            _send_error_response(self.request, exc.status, exc.oauth_error)
         except Exception:
-            try:
-                _send_json(
-                    self.request,
-                    HTTPStatus.INTERNAL_SERVER_ERROR,
-                    {"error": "server_error"},
-                )
-            except OSError:
-                return
+            _send_error_response(
+                self.request, HTTPStatus.INTERNAL_SERVER_ERROR, "server_error"
+            )
 
 
 def _private_file(root: Path, name: str, payload: bytes) -> Path:
@@ -755,6 +841,30 @@ class EphemeralLoopbackOidcAuthority:
         )
         return environment
 
+    @staticmethod
+    def _tokens_prove_renewal(
+        responses: list[dict[str, Any]],
+        *,
+        previous_mint_count: int,
+        current_mint_count: int,
+        expected_ttl: int,
+    ) -> bool:
+        """The fail-closed proof predicate for :meth:`prove_renewable`.
+
+        ``bool(...)`` over an ``and``-chain of independently-checkable facts:
+        every default/exception outcome is ``False`` (not renewable) unless every
+        clause holds.
+        """
+        tokens = [response.get("access_token") for response in responses]
+        return bool(
+            all(isinstance(token, str) and token for token in tokens)
+            and tokens[0] != tokens[1]
+            and all(
+                response.get("expires_in") == expected_ttl for response in responses
+            )
+            and current_mint_count >= previous_mint_count + 2
+        )
+
     def prove_renewable(self) -> bool:
         """Mint and verify two distinct credentials through the HTTPS endpoint."""
 
@@ -782,15 +892,11 @@ class EphemeralLoopbackOidcAuthority:
             )
             for _ in range(2)
         ]
-        tokens = [response.get("access_token") for response in responses]
-        return bool(
-            all(isinstance(token, str) and token for token in tokens)
-            and tokens[0] != tokens[1]
-            and all(
-                response.get("expires_in") == self.token_ttl_seconds
-                for response in responses
-            )
-            and self.token_mint_count >= previous_mint_count + 2
+        return self._tokens_prove_renewal(
+            responses,
+            previous_mint_count=previous_mint_count,
+            current_mint_count=self.token_mint_count,
+            expected_ttl=self.token_ttl_seconds,
         )
 
     def stop(self) -> None:
