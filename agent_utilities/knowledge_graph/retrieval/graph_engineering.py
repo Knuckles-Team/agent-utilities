@@ -318,6 +318,40 @@ def _as_candidate(
 # ---------------------------------------------------------------------------
 
 
+def _describe_edge(graph: Any, node_id: str, neighbor_id: str) -> str:
+    try:
+        edge_props = graph._get_edge_properties(node_id, neighbor_id) or {}  # noqa: SLF001
+    except Exception:  # noqa: BLE001
+        edge_props = {}
+    relationship = str(edge_props.get("relationship") or "related_to")
+    return f"{node_id} {relationship} {neighbor_id}"
+
+
+def _neighbor_edge_descriptions(
+    graph: Any,
+    node_id: str,
+    neighbors: list[str],
+    member_set: set[str],
+    seen_pairs: set[tuple[str, str]],
+    *,
+    limit: int,
+) -> list[str]:
+    """Edge descriptions for one probed node's neighbors, up to ``limit`` new ones."""
+    descriptions: list[str] = []
+    for neighbor_id in neighbors:
+        if len(descriptions) >= limit:
+            break
+        if neighbor_id not in member_set or neighbor_id == node_id:
+            continue
+        first, second = sorted((node_id, neighbor_id))
+        pair: tuple[str, str] = (first, second)
+        if pair in seen_pairs:
+            continue
+        seen_pairs.add(pair)
+        descriptions.append(_describe_edge(graph, node_id, neighbor_id))
+    return descriptions
+
+
 def _community_edge_descriptions(graph: Any, members_sorted: list[str]) -> list[str]:
     """Best-effort intra-community edge descriptions for the summary prompt.
 
@@ -336,22 +370,192 @@ def _community_edge_descriptions(graph: Any, members_sorted: list[str]) -> list[
             neighbors = graph.get_neighbors(node_id) or []
         except Exception:  # noqa: BLE001 — best-effort enrichment only
             continue
-        for neighbor_id in neighbors:
-            if neighbor_id not in member_set or neighbor_id == node_id:
-                continue
-            pair = tuple(sorted((node_id, neighbor_id)))
-            if pair in seen_pairs:
-                continue
-            seen_pairs.add(pair)
-            try:
-                edge_props = graph._get_edge_properties(node_id, neighbor_id) or {}  # noqa: SLF001
-            except Exception:  # noqa: BLE001
-                edge_props = {}
-            relationship = str(edge_props.get("relationship") or "related_to")
-            descriptions.append(f"{node_id} {relationship} {neighbor_id}")
-            if len(descriptions) >= _MAX_EDGE_DESCRIPTIONS:
-                break
+        remaining = _MAX_EDGE_DESCRIPTIONS - len(descriptions)
+        descriptions.extend(
+            _neighbor_edge_descriptions(
+                graph, node_id, neighbors, member_set, seen_pairs, limit=remaining
+            )
+        )
     return descriptions
+
+
+def _rank_communities(
+    communities: list[Any], *, min_size: int, max_communities: int
+) -> list[tuple[int, list[str]]]:
+    """Filter communities by size, sort largest-first, cap the count."""
+    sized = [
+        (idx, list(members))
+        for idx, members in enumerate(communities)
+        if len(members) >= min_size
+    ]
+    sized.sort(key=lambda kv: len(kv[1]), reverse=True)
+    return sized[:max_communities]
+
+
+def _hydrate_community_members(
+    graph: Any, ranked: list[tuple[int, list[str]]]
+) -> tuple[dict[str, dict[str, Any]], dict[str, int]]:
+    """Batch-fetch node properties + degree for every member across ranked communities."""
+    member_props: dict[str, dict[str, Any]] = {}
+    degree: dict[str, int] = {}
+    for _idx, members in ranked:
+        for node_id in members:
+            if node_id in member_props:
+                continue
+            member_props[node_id] = _safe_node_properties(graph, node_id)
+            degree[node_id] = _safe_degree(graph, node_id)
+    return member_props, degree
+
+
+def _safe_node_properties(graph: Any, node_id: str) -> dict[str, Any]:
+    try:
+        return graph._get_node_properties(node_id) or {}  # noqa: SLF001
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _safe_degree(graph: Any, node_id: str) -> int:
+    try:
+        return graph.degree(node_id)  # type: ignore[no-any-return]
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def _summarize_communities(
+    graph: Any,
+    ranked: list[tuple[int, list[str]]],
+    member_props: dict[str, dict[str, Any]],
+    degree: dict[str, int],
+    llm_fn: Any,
+) -> tuple[list[dict[str, Any]], list[str], list[str]]:
+    """Build one report-meta dict + report text + theme per ranked community (level 0)."""
+    report_meta: list[dict[str, Any]] = []
+    report_texts: list[str] = []
+    level0_themes: list[str] = []
+    for community_idx, members in ranked:
+        members_sorted = sorted(members, key=lambda m: degree.get(m, 0), reverse=True)
+        labels = [_node_label(member_props.get(nid, {}), nid) for nid in members_sorted]
+        edge_descriptions = _community_edge_descriptions(graph, members_sorted)
+        theme, summary = summarize_community(labels, edge_descriptions, llm_fn)
+        report_id = f"community_report:{community_idx}"
+        level0_themes.append(theme)
+        report_texts.append(f"{theme}. {summary}".strip(". ") or theme)
+        report_meta.append(
+            {
+                "report_id": report_id,
+                "community": community_idx,
+                "member_count": len(members),
+                "theme": theme,
+                "summary": summary,
+                "members": members,
+            }
+        )
+    return report_meta, report_texts, level0_themes
+
+
+def _embed_texts(texts: list[str], *, embed: bool) -> list[list[float] | None]:
+    """Best-effort batch embedding; returns all-``None`` if disabled/unavailable."""
+    embeddings: list[list[float] | None] = [None] * len(texts)
+    if not (embed and texts):
+        return embeddings
+    embed_model = _resolve_embed_model()
+    if embed_model is None:
+        return embeddings
+    try:
+        return list(embed_model.get_text_embedding_batch(texts))
+    except Exception as exc:  # noqa: BLE001 — embedding is additive, never fatal
+        logger.debug("build_community_reports: embedding batch failed: %s", exc)
+        return embeddings
+
+
+def _write_level0_reports(
+    graph: Any,
+    report_meta: list[dict[str, Any]],
+    embeddings: list[list[float] | None],
+) -> int:
+    """Write each level-0 CommunityReport node + its PART_OF_COMMUNITY edges."""
+    written = 0
+    for meta, embedding in zip(report_meta, embeddings, strict=False):
+        props: dict[str, Any] = {
+            "node_type": "CommunityReport",
+            "community": meta["community"],
+            "level": 0,
+            "member_count": meta["member_count"],
+            "theme": meta["theme"],
+            "summary": meta["summary"],
+            "label": meta["theme"],
+        }
+        if embedding:
+            props["embedding"] = embedding
+        try:
+            graph.add_node(meta["report_id"], props)
+            for nid in meta["members"]:
+                graph.add_edge(nid, meta["report_id"], relationship="PART_OF_COMMUNITY")
+            written += 1
+        except Exception as exc:  # noqa: BLE001 — one bad report shouldn't abort the rest
+            logger.warning(
+                "build_community_reports: failed to write %s: %s",
+                meta["report_id"],
+                exc,
+            )
+    return written
+
+
+def _global_embedding(theme: str, summary: str, *, embed: bool) -> list[float] | None:
+    """Best-effort single embedding for the level-1 global report."""
+    if not embed:
+        return None
+    embed_model = _resolve_embed_model()
+    if embed_model is None:
+        return None
+    try:
+        return embed_model.get_text_embedding(  # type: ignore[no-any-return]
+            f"{theme}. {summary}".strip(". ") or theme
+        )
+    except Exception as exc:  # noqa: BLE001 — global_embedding stays None on failure; the
+        # CommunityReport node below is written either way, just without an embedding.
+        logger.debug("build_community_reports: global embedding failed: %s", exc)
+        return None
+
+
+def _write_global_report(
+    graph: Any,
+    level0_themes: list[str],
+    report_meta: list[dict[str, Any]],
+    llm_fn: Any,
+    *,
+    embed: bool,
+) -> int:
+    """Summarize + write the single level-1 'global' CommunityReport, if >=2 themes."""
+    if len(level0_themes) < 2:
+        return 0
+    theme, summary = summarize_community(
+        [f"Theme: {t}" for t in level0_themes], [], llm_fn
+    )
+    global_id = "community_report:global"
+    global_embedding = _global_embedding(theme, summary, embed=embed)
+    props: dict[str, Any] = {
+        "node_type": "CommunityReport",
+        "level": 1,
+        "member_count": len(level0_themes),
+        "theme": theme or "Global themes",
+        "summary": summary,
+        "label": theme or "Global themes",
+    }
+    if global_embedding:
+        props["embedding"] = global_embedding
+    try:
+        graph.add_node(global_id, props)
+        for meta in report_meta:
+            graph.add_edge(
+                meta["report_id"], global_id, relationship="PART_OF_COMMUNITY"
+            )
+        return 1
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "build_community_reports: failed to write global report: %s", exc
+        )
+        return 0
 
 
 def build_community_reports(
@@ -386,127 +590,23 @@ def build_community_reports(
     if not communities:
         return {"community_reports": 0}
 
-    sized = [
-        (idx, list(members))
-        for idx, members in enumerate(communities)
-        if len(members) >= min_size
-    ]
-    sized.sort(key=lambda kv: len(kv[1]), reverse=True)
-    ranked = sized[:max_communities]
+    ranked = _rank_communities(
+        communities, min_size=min_size, max_communities=max_communities
+    )
     if not ranked:
         return {"community_reports": 0}
 
-    member_props: dict[str, dict[str, Any]] = {}
-    degree: dict[str, int] = {}
-    for _idx, members in ranked:
-        for node_id in members:
-            if node_id in member_props:
-                continue
-            try:
-                member_props[node_id] = graph._get_node_properties(node_id) or {}  # noqa: SLF001
-            except Exception:  # noqa: BLE001
-                member_props[node_id] = {}
-            try:
-                degree[node_id] = graph.degree(node_id)
-            except Exception:  # noqa: BLE001
-                degree[node_id] = 0
-
+    member_props, degree = _hydrate_community_members(graph, ranked)
     llm_fn = resolve_llm_fn()
+    report_meta, report_texts, level0_themes = _summarize_communities(
+        graph, ranked, member_props, degree, llm_fn
+    )
+    embeddings = _embed_texts(report_texts, embed=embed)
 
-    report_meta: list[dict[str, Any]] = []
-    report_texts: list[str] = []
-    level0_themes: list[str] = []
-    for community_idx, members in ranked:
-        members_sorted = sorted(members, key=lambda m: degree.get(m, 0), reverse=True)
-        labels = [_node_label(member_props.get(nid, {}), nid) for nid in members_sorted]
-        edge_descriptions = _community_edge_descriptions(graph, members_sorted)
-        theme, summary = summarize_community(labels, edge_descriptions, llm_fn)
-        report_id = f"community_report:{community_idx}"
-        level0_themes.append(theme)
-        report_texts.append(f"{theme}. {summary}".strip(". ") or theme)
-        report_meta.append(
-            {
-                "report_id": report_id,
-                "community": community_idx,
-                "member_count": len(members),
-                "theme": theme,
-                "summary": summary,
-                "members": members,
-            }
-        )
-
-    embeddings: list[list[float] | None] = [None] * len(report_texts)
-    if embed and report_texts:
-        embed_model = _resolve_embed_model()
-        if embed_model is not None:
-            try:
-                embeddings = list(embed_model.get_text_embedding_batch(report_texts))
-            except Exception as exc:  # noqa: BLE001 — embedding is additive, never fatal
-                logger.debug("build_community_reports: embedding batch failed: %s", exc)
-
-    written = 0
-    for meta, embedding in zip(report_meta, embeddings, strict=False):
-        props: dict[str, Any] = {
-            "node_type": "CommunityReport",
-            "community": meta["community"],
-            "level": 0,
-            "member_count": meta["member_count"],
-            "theme": meta["theme"],
-            "summary": meta["summary"],
-            "label": meta["theme"],
-        }
-        if embedding:
-            props["embedding"] = embedding
-        try:
-            graph.add_node(meta["report_id"], props)
-            for nid in meta["members"]:
-                graph.add_edge(nid, meta["report_id"], relationship="PART_OF_COMMUNITY")
-            written += 1
-        except Exception as exc:  # noqa: BLE001 — one bad report shouldn't abort the rest
-            logger.warning(
-                "build_community_reports: failed to write %s: %s",
-                meta["report_id"],
-                exc,
-            )
-
-    if len(level0_themes) >= 2:
-        theme, summary = summarize_community(
-            [f"Theme: {t}" for t in level0_themes], [], llm_fn
-        )
-        global_id = "community_report:global"
-        global_embedding = None
-        if embed:
-            embed_model = _resolve_embed_model()
-            if embed_model is not None:
-                try:
-                    global_embedding = embed_model.get_text_embedding(
-                        f"{theme}. {summary}".strip(". ") or theme
-                    )
-                except Exception as exc:  # noqa: BLE001 — global_embedding stays at its initialized None on failure; the CommunityReport node below is written either way, just without a global_embedding property
-                    logger.debug(
-                        "build_community_reports: global embedding failed: %s", exc
-                    )
-        props = {
-            "node_type": "CommunityReport",
-            "level": 1,
-            "member_count": len(level0_themes),
-            "theme": theme or "Global themes",
-            "summary": summary,
-            "label": theme or "Global themes",
-        }
-        if global_embedding:
-            props["embedding"] = global_embedding
-        try:
-            graph.add_node(global_id, props)
-            for meta in report_meta:
-                graph.add_edge(
-                    meta["report_id"], global_id, relationship="PART_OF_COMMUNITY"
-                )
-            written += 1
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "build_community_reports: failed to write global report: %s", exc
-            )
+    written = _write_level0_reports(graph, report_meta, embeddings)
+    written += _write_global_report(
+        graph, level0_themes, report_meta, llm_fn, embed=embed
+    )
 
     return {"community_reports": written, "communities_considered": len(ranked)}
 
@@ -514,6 +614,83 @@ def build_community_reports(
 # ---------------------------------------------------------------------------
 # Local search — entity + its relationship-path neighborhood
 # ---------------------------------------------------------------------------
+
+
+def _extract_entity_name_via_llm(query: str, llm_fn: Any) -> str | None:
+    """Best-effort structured entity-name extraction via the ``kg_graph_query`` prompt."""
+    if llm_fn is None:
+        return None
+    try:
+        rendered = load_canonical_prompt(
+            "kg_graph_query",
+            fallback=_GRAPH_QUERY_PROMPT_DEFAULT,
+            question=query,
+            node_labels="(unknown)",
+        )
+        parsed = _extract_json_object(llm_fn(rendered))
+        if parsed:
+            name = parsed.get("entity_name")
+            if isinstance(name, str) and name.strip():
+                return name.strip()
+    except Exception as exc:  # noqa: BLE001 — falls through to semantic search
+        logger.debug("local_search: graph-query prompt failed: %s", exc)
+    return None
+
+
+def _candidate_names(entity_name: str | None, query: str) -> list[str]:
+    return list(dict.fromkeys(n for n in (entity_name, query.strip()) if n))
+
+
+def _exact_match_one(
+    query_cypher: Any, candidate_name: str, *, top_k: int, session: Any
+) -> list[str]:
+    try:
+        rows = query_cypher(
+            "MATCH (n) WHERE n.name = $name OR n.label = $name "
+            "OR n.id = $name RETURN n.id AS id LIMIT $limit",
+            {"name": candidate_name, "limit": max(top_k, 1)},
+            session=session,
+        )
+        return [str(r["id"]) for r in rows if isinstance(r, dict) and r.get("id")]
+    except Exception as exc:  # noqa: BLE001 — falls through to semantic search
+        logger.debug("local_search: exact-match lookup failed: %s", exc)
+        return []
+
+
+def _exact_match_seed_ids(
+    query_cypher: Any,
+    entity_name: str | None,
+    query: str,
+    *,
+    top_k: int,
+    session: Any,
+) -> list[str]:
+    """Bounded, parameterized native-Cypher exact match over candidate names."""
+    if not callable(query_cypher):
+        return []
+    for candidate_name in _candidate_names(entity_name, query):
+        ids = _exact_match_one(
+            query_cypher, candidate_name, top_k=top_k, session=session
+        )
+        if ids:
+            return ids
+    return []
+
+
+def _semantic_search_seed_ids(
+    graph: Any, entity_name: str | None, query: str, *, top_k: int
+) -> list[str]:
+    """Semantic-search fallback seed resolution."""
+    embed_model = _resolve_embed_model()
+    if embed_model is None:
+        return []
+    try:
+        query_embedding = embed_model.get_text_embedding(entity_name or query)
+        hits = graph.semantic_search(query_embedding, n_results=max(top_k, 1)) or []
+        return [str(hit_id) for hit_id, _score in hits]
+    except Exception as exc:  # noqa: BLE001 — no seed resolvable
+        logger.debug("local_search: semantic_search fallback failed: %s", exc)
+        return []
 
 
 def _resolve_seed_ids(
@@ -541,23 +718,7 @@ def _resolve_seed_ids(
     if not query:
         return []
     graph = _graph_compute(engine)
-
-    entity_name = None
-    if llm_fn is not None:
-        try:
-            rendered = load_canonical_prompt(
-                "kg_graph_query",
-                fallback=_GRAPH_QUERY_PROMPT_DEFAULT,
-                question=query,
-                node_labels="(unknown)",
-            )
-            parsed = _extract_json_object(llm_fn(rendered))
-            if parsed:
-                name = parsed.get("entity_name")
-                if isinstance(name, str) and name.strip():
-                    entity_name = name.strip()
-        except Exception as exc:  # noqa: BLE001 — falls through to semantic search
-            logger.debug("local_search: graph-query prompt failed: %s", exc)
+    entity_name = _extract_entity_name_via_llm(query, llm_fn)
 
     # CONCEPT:AU-KG.query.single-governed-read-path — routed through the
     # engine's own `query_cypher` (tenant scope + owner/scope ACL + audit,
@@ -568,32 +729,120 @@ def _resolve_seed_ids(
     # when `session` is ``None`` (this function's default), so passing it
     # straight through preserves every existing no-session caller unchanged.
     query_cypher = getattr(engine, "query_cypher", None)
-    for candidate_name in dict.fromkeys(n for n in (entity_name, query.strip()) if n):
-        try:
-            if callable(query_cypher):
-                rows = query_cypher(
-                    "MATCH (n) WHERE n.name = $name OR n.label = $name "
-                    "OR n.id = $name RETURN n.id AS id LIMIT $limit",
-                    {"name": candidate_name, "limit": max(top_k, 1)},
-                    session=session,
-                )
-                ids = [
-                    str(r["id"]) for r in rows if isinstance(r, dict) and r.get("id")
-                ]
-                if ids:
-                    return ids
-        except Exception as exc:  # noqa: BLE001 — falls through to semantic search
-            logger.debug("local_search: exact-match lookup failed: %s", exc)
+    ids = _exact_match_seed_ids(
+        query_cypher, entity_name, query, top_k=top_k, session=session
+    )
+    if ids:
+        return ids
 
-    embed_model = _resolve_embed_model()
-    if embed_model is not None:
+    return _semantic_search_seed_ids(graph, entity_name, query, top_k=top_k)
+
+
+def _prefetch_hop(
+    graph: Any, frontier: list[str], seen: set[str]
+) -> tuple[dict[str, list[str]], dict[str, dict[str, Any]]]:
+    """Batch-hydrate this hop's frontier + their neighbors in ONE round-trip
+    up front (CONCEPT:AU-KG.retrieval.batch-hydrate), instead of a per-node
+    ``_get_node_properties`` point-read per BFS visit — this leg feeds the
+    ContextCompiler's local-search candidates and the per-hit reads dominated
+    its latency under engine contention. Edge-property reads (relationship
+    labels) are untouched — no batched edge-property primitive exists.
+    """
+    hop_node_ids = [n for n in frontier if n not in seen]
+    neighbors_by_node: dict[str, list[str]] = {}
+    prefetch_ids: list[str] = []
+    for node_id in hop_node_ids:
         try:
-            query_embedding = embed_model.get_text_embedding(entity_name or query)
-            hits = graph.semantic_search(query_embedding, n_results=max(top_k, 1)) or []
-            return [str(hit_id) for hit_id, _score in hits]
-        except Exception as exc:  # noqa: BLE001 — no seed resolvable
-            logger.debug("local_search: semantic_search fallback failed: %s", exc)
-    return []
+            nbrs = graph.get_neighbors(node_id) or []
+        except Exception:  # noqa: BLE001
+            nbrs = []
+        neighbors_by_node[node_id] = nbrs
+        prefetch_ids.append(node_id)
+        prefetch_ids.extend(nbrs)
+    hydrated = _batch_node_properties(graph, prefetch_ids)
+    return neighbors_by_node, hydrated
+
+
+def _edge_relationship(graph: Any, node_id: str, neighbor_id: str) -> str:
+    try:
+        edge_props = graph._get_edge_properties(node_id, neighbor_id) or {}  # noqa: SLF001
+    except Exception:  # noqa: BLE001
+        edge_props = {}
+    return str(edge_props.get("relationship") or "related_to")
+
+
+def _append_neighbor_candidates(
+    graph: Any,
+    node_id: str,
+    neighbors: list[str],
+    seen: set[str],
+    hydrated: dict[str, dict[str, Any]],
+    candidates: list[dict[str, Any]],
+    *,
+    hop: int,
+) -> tuple[list[str], bool]:
+    """Append neighbor candidates to ``candidates`` IN PLACE.
+
+    Returns ``(next_frontier_additions, capped)`` — ``capped`` is True once
+    ``candidates`` has reached ``_MAX_LOCAL_NEIGHBORS``.
+    """
+    next_frontier: list[str] = []
+    for neighbor_id in neighbors:
+        if neighbor_id in seen:
+            continue
+        relationship = _edge_relationship(graph, node_id, neighbor_id)
+        neighbor_props = hydrated.get(neighbor_id, {})
+        candidates.append(
+            _as_candidate(
+                neighbor_id,
+                neighbor_props,
+                score=max(0.2, 0.8 - 0.2 * hop),
+                relationship=relationship,
+                related_to=node_id,
+            )
+        )
+        next_frontier.append(neighbor_id)
+        if len(candidates) >= _MAX_LOCAL_NEIGHBORS:
+            return next_frontier, True
+    return next_frontier, False
+
+
+def _process_hop(
+    graph: Any,
+    frontier: list[str],
+    seen: set[str],
+    seed_set: set[str],
+    candidates: list[dict[str, Any]],
+    *,
+    hop: int,
+) -> tuple[list[str], bool]:
+    """Process one BFS hop: hydrate, append candidates to ``candidates`` IN
+    PLACE, build the next frontier. Returns ``(next_frontier, capped)``.
+    """
+    neighbors_by_node, hydrated = _prefetch_hop(graph, frontier, seen)
+    next_frontier: list[str] = []
+    for node_id in frontier:
+        if node_id in seen:
+            continue
+        seen.add(node_id)
+        props = hydrated.get(node_id, {})
+        candidates.append(
+            _as_candidate(
+                node_id,
+                props,
+                score=1.0 if node_id in seed_set else max(0.3, 0.9 - 0.2 * hop),
+            )
+        )
+        if len(candidates) >= _MAX_LOCAL_NEIGHBORS:
+            return next_frontier, True
+        neighbors = neighbors_by_node.get(node_id, [])
+        added_next, capped = _append_neighbor_candidates(
+            graph, node_id, neighbors, seen, hydrated, candidates, hop=hop
+        )
+        next_frontier.extend(added_next)
+        if capped:
+            return next_frontier, True
+    return next_frontier, False
 
 
 def _fetch_entity_neighborhood(
@@ -608,65 +857,11 @@ def _fetch_entity_neighborhood(
     seed_set = set(seed_ids)
     frontier = list(dict.fromkeys(seed_ids))
     for hop in range(max(1, depth)):
-        next_frontier: list[str] = []
-
-        # Batch-hydrate this hop's frontier + their neighbors in ONE round-trip
-        # up front (CONCEPT:AU-KG.retrieval.batch-hydrate), instead of a per-node
-        # `_get_node_properties` point-read per BFS visit below — this leg feeds
-        # the ContextCompiler's local-search candidates and the per-hit reads
-        # dominated its latency under engine contention. `_MAX_LOCAL_NEIGHBORS`
-        # bounds the total prefetch even when the cap below stops us early.
-        # Edge-property reads (relationship labels) are untouched — no batched
-        # edge-property primitive exists.
-        hop_node_ids = [n for n in frontier if n not in seen]
-        neighbors_by_node: dict[str, list[str]] = {}
-        prefetch_ids: list[str] = []
-        for node_id in hop_node_ids:
-            try:
-                nbrs = graph.get_neighbors(node_id) or []
-            except Exception:  # noqa: BLE001
-                nbrs = []
-            neighbors_by_node[node_id] = nbrs
-            prefetch_ids.append(node_id)
-            prefetch_ids.extend(nbrs)
-        hydrated = _batch_node_properties(graph, prefetch_ids)
-
-        for node_id in frontier:
-            if node_id in seen:
-                continue
-            seen.add(node_id)
-            props = hydrated.get(node_id, {})
-            candidates.append(
-                _as_candidate(
-                    node_id,
-                    props,
-                    score=1.0 if node_id in seed_set else max(0.3, 0.9 - 0.2 * hop),
-                )
-            )
-            if len(candidates) >= _MAX_LOCAL_NEIGHBORS:
-                return candidates
-            neighbors = neighbors_by_node.get(node_id, [])
-            for neighbor_id in neighbors:
-                if neighbor_id in seen:
-                    continue
-                try:
-                    edge_props = graph._get_edge_properties(node_id, neighbor_id) or {}  # noqa: SLF001
-                except Exception:  # noqa: BLE001
-                    edge_props = {}
-                relationship = str(edge_props.get("relationship") or "related_to")
-                neighbor_props = hydrated.get(neighbor_id, {})
-                candidates.append(
-                    _as_candidate(
-                        neighbor_id,
-                        neighbor_props,
-                        score=max(0.2, 0.8 - 0.2 * hop),
-                        relationship=relationship,
-                        related_to=node_id,
-                    )
-                )
-                next_frontier.append(neighbor_id)
-                if len(candidates) >= _MAX_LOCAL_NEIGHBORS:
-                    return candidates
+        next_frontier, capped = _process_hop(
+            graph, frontier, seen, seed_set, candidates, hop=hop
+        )
+        if capped:
+            return candidates
         frontier = next_frontier
     return candidates
 
@@ -734,20 +929,34 @@ def local_search(
         token_budget=token_budget,
     )
 
-    answer = None
-    if synthesize_answer and llm_fn is not None and bundle.items:
-        rendered = load_canonical_prompt(
-            "kg_grounded_answer",
-            fallback=_GROUNDED_ANSWER_PROMPT_DEFAULT,
-            question=query or f"What do we know about {seed_ids[0]}?",
-            context=bundle.as_text(),
-        )
-        try:
-            answer = llm_fn(rendered)
-        except Exception as exc:  # noqa: BLE001 — the bundle is still useful without prose
-            logger.debug("local_search: grounded-answer synthesis failed: %s", exc)
-
+    answer = _synthesize_local_answer(
+        query, seed_ids, llm_fn, bundle, synthesize_answer=synthesize_answer
+    )
     return {"seed_ids": seed_ids, "answer": answer, "bundle": bundle.to_dict()}
+
+
+def _synthesize_local_answer(
+    query: str,
+    seed_ids: list[str],
+    llm_fn: Any,
+    bundle: Any,
+    *,
+    synthesize_answer: bool,
+) -> str | None:
+    """Render the ``kg_grounded_answer`` canonical prompt over the assembled bundle."""
+    if not (synthesize_answer and llm_fn is not None and bundle.items):
+        return None
+    rendered = load_canonical_prompt(
+        "kg_grounded_answer",
+        fallback=_GROUNDED_ANSWER_PROMPT_DEFAULT,
+        question=query or f"What do we know about {seed_ids[0]}?",
+        context=bundle.as_text(),
+    )
+    try:
+        return llm_fn(rendered)
+    except Exception as exc:  # noqa: BLE001 — the bundle is still useful without prose
+        logger.debug("local_search: grounded-answer synthesis failed: %s", exc)
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -779,6 +988,33 @@ def _load_community_reports(
     return [dict(row) for row in rows if isinstance(row, dict) and row.get("id")]
 
 
+def _resolve_query_embedding(query: str) -> list[float] | None:
+    embed_model = _resolve_embed_model() if query else None
+    if embed_model is None:
+        return None
+    try:
+        return embed_model.get_text_embedding(query)  # type: ignore[no-any-return]
+    except Exception as exc:  # noqa: BLE001 — degrades to lexical/no-embedding ranking
+        # (_rank_reports docstring documents this rather than dropping candidates)
+        logger.debug("global_search: query embedding failed: %s", exc)
+        return None
+
+
+def _score_report(
+    report: dict[str, Any], query_embedding: list[float] | None
+) -> dict[str, Any]:
+    similarity = 0.0
+    embedding = report.get("embedding")
+    if query_embedding is not None and isinstance(embedding, list) and embedding:
+        try:
+            similarity = cosine_similarity(query_embedding, embedding)
+        except Exception:  # noqa: BLE001
+            similarity = 0.0
+    item = dict(report)
+    item["_similarity"] = similarity
+    return item
+
+
 def _rank_reports(reports: list[dict[str, Any]], query: str) -> list[dict[str, Any]]:
     """Rank community reports by embedding-cosine similarity to ``query``.
 
@@ -786,32 +1022,43 @@ def _rank_reports(reports: list[dict[str, Any]], query: str) -> list[dict[str, A
     report carries an embedding (e.g. reports written before this feature) or
     no embedding model is configured — never silently drops candidates.
     """
-    embed_model = _resolve_embed_model() if query else None
-    query_embedding = None
-    if embed_model is not None:
-        try:
-            query_embedding = embed_model.get_text_embedding(query)
-        except Exception as exc:  # noqa: BLE001 — query_embedding stays None on failure; _rank_reports already documents (docstring) that it degrades to lexical/no-embedding ranking rather than dropping candidates when no embedding model is configured
-            logger.debug("global_search: query embedding failed: %s", exc)
-
-    scored: list[dict[str, Any]] = []
-    for report in reports:
-        similarity = 0.0
-        embedding = report.get("embedding")
-        if query_embedding is not None and isinstance(embedding, list) and embedding:
-            try:
-                similarity = cosine_similarity(query_embedding, embedding)
-            except Exception:  # noqa: BLE001
-                similarity = 0.0
-        item = dict(report)
-        item["_similarity"] = similarity
-        scored.append(item)
+    query_embedding = _resolve_query_embedding(query)
+    scored = [_score_report(report, query_embedding) for report in reports]
 
     if query_embedding is not None and any(r["_similarity"] > 0 for r in scored):
         scored.sort(key=lambda r: r["_similarity"], reverse=True)
     else:
         scored.sort(key=lambda r: _as_int(r.get("member_count")), reverse=True)
     return scored
+
+
+def _map_one_report(query: str, report: dict[str, Any], llm_fn: Any) -> dict[str, Any]:
+    report_id = str(report.get("id") or "")
+    theme = str(report.get("theme") or "")
+    summary = str(report.get("summary") or "")
+    if llm_fn is None:
+        return {
+            "report_id": report_id,
+            "theme": theme,
+            "partial_answer": summary,
+            "score": float(report.get("_similarity", 0.0)) * 100,
+        }
+    rendered = _MAP_PARTIAL_ANSWER_PROMPT.safe_substitute(
+        question=query, theme=theme, summary=summary
+    )
+    partial_answer, score = summary, 0.0
+    try:
+        parsed = _extract_json_object(llm_fn(rendered)) or {}
+        partial_answer = str(parsed.get("partial_answer") or "").strip() or summary
+        score = float(parsed.get("score") or 0.0)
+    except Exception as exc:  # noqa: BLE001 — degrade to the raw summary
+        logger.debug("global_search: map step failed for %s: %s", report_id, exc)
+    return {
+        "report_id": report_id,
+        "theme": theme,
+        "partial_answer": partial_answer,
+        "score": score,
+    }
 
 
 def _map_partial_answers(
@@ -821,39 +1068,7 @@ def _map_partial_answers(
     answer (GraphRAG global search). Best-effort — degrades to the report's
     own theme+summary (no extra LLM cost) when no LLM is configured.
     """
-    results: list[dict[str, Any]] = []
-    for report in reports:
-        report_id = str(report.get("id") or "")
-        theme = str(report.get("theme") or "")
-        summary = str(report.get("summary") or "")
-        if llm_fn is None:
-            results.append(
-                {
-                    "report_id": report_id,
-                    "theme": theme,
-                    "partial_answer": summary,
-                    "score": float(report.get("_similarity", 0.0)) * 100,
-                }
-            )
-            continue
-        rendered = _MAP_PARTIAL_ANSWER_PROMPT.safe_substitute(
-            question=query, theme=theme, summary=summary
-        )
-        partial_answer, score = summary, 0.0
-        try:
-            parsed = _extract_json_object(llm_fn(rendered)) or {}
-            partial_answer = str(parsed.get("partial_answer") or "").strip() or summary
-            score = float(parsed.get("score") or 0.0)
-        except Exception as exc:  # noqa: BLE001 — degrade to the raw summary
-            logger.debug("global_search: map step failed for %s: %s", report_id, exc)
-        results.append(
-            {
-                "report_id": report_id,
-                "theme": theme,
-                "partial_answer": partial_answer,
-                "score": score,
-            }
-        )
+    results = [_map_one_report(query, report, llm_fn) for report in reports]
     results.sort(key=lambda r: r["score"], reverse=True)
     return results
 
@@ -888,13 +1103,9 @@ def global_search(
         ``{"answer": str | None, "bundle": <ContextBundle dict> | None,
         "communities_used": [report_id, ...]}``.
     """
-    reports = _load_community_reports(engine, level=level, session=session)
-    if not reports and auto_build_reports:
-        try:
-            build_community_reports(engine)
-        except Exception as exc:  # noqa: BLE001 — fall through to "no reports"
-            logger.debug("global_search: auto build_community_reports failed: %s", exc)
-        reports = _load_community_reports(engine, level=level, session=session)
+    reports = _ensure_community_reports(
+        engine, level=level, session=session, auto_build_reports=auto_build_reports
+    )
     if not reports:
         return {
             "answer": None,
@@ -908,29 +1119,7 @@ def global_search(
 
     llm_fn = resolve_llm_fn()
     partial_answers = _map_partial_answers(query, top, llm_fn)
-
-    candidates = [
-        {
-            "id": pa["report_id"],
-            "name": pa["theme"] or pa["report_id"],
-            "description": pa["partial_answer"],
-            "score": pa["score"] / 100.0,
-        }
-        for pa in partial_answers
-        if pa["partial_answer"]
-    ]
-    if not candidates:
-        # Nothing scored (e.g. no LLM AND no embeddings): fall back to the raw
-        # report summaries themselves so global_search still degrades usefully.
-        candidates = [
-            {
-                "id": r["id"],
-                "name": r.get("theme") or r["id"],
-                "description": r.get("summary") or "",
-                "score": float(r.get("_similarity", 0.0)),
-            }
-            for r in top
-        ]
+    candidates = _global_search_candidates(partial_answers, top)
 
     compiler = ContextCompiler(
         engine, hybrid_retriever=_StaticCandidateRetriever(candidates)
@@ -943,24 +1132,75 @@ def global_search(
         token_budget=token_budget,
     )
 
-    answer = None
-    if llm_fn is not None and bundle.items:
-        rendered = load_canonical_prompt(
-            "kg_grounded_answer",
-            fallback=_GROUNDED_ANSWER_PROMPT_DEFAULT,
-            question=query,
-            context=bundle.as_text(),
-        )
-        try:
-            answer = llm_fn(rendered)
-        except Exception as exc:  # noqa: BLE001 — the bundle is still useful without prose
-            logger.debug("global_search: grounded-answer synthesis failed: %s", exc)
+    answer = _synthesize_global_answer(query, llm_fn, bundle)
 
     return {
         "answer": answer,
         "bundle": bundle.to_dict(),
         "communities_used": [c["id"] for c in candidates],
     }
+
+
+def _ensure_community_reports(
+    engine: Any, *, level: int, session: Any, auto_build_reports: bool
+) -> list[dict[str, Any]]:
+    """Load ``:CommunityReport`` nodes, building them once on demand if missing."""
+    reports = _load_community_reports(engine, level=level, session=session)
+    if reports or not auto_build_reports:
+        return reports
+    try:
+        build_community_reports(engine)
+    except Exception as exc:  # noqa: BLE001 — fall through to "no reports"
+        logger.debug("global_search: auto build_community_reports failed: %s", exc)
+    return _load_community_reports(engine, level=level, session=session)
+
+
+def _global_search_candidates(
+    partial_answers: list[dict[str, Any]], top: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """ContextCompiler-shaped candidates from MAP-step partial answers.
+
+    Falls back to the raw report summaries when nothing scored (e.g. no LLM
+    AND no embeddings), so ``global_search`` still degrades usefully.
+    """
+    candidates = [
+        {
+            "id": pa["report_id"],
+            "name": pa["theme"] or pa["report_id"],
+            "description": pa["partial_answer"],
+            "score": pa["score"] / 100.0,
+        }
+        for pa in partial_answers
+        if pa["partial_answer"]
+    ]
+    if candidates:
+        return candidates
+    return [
+        {
+            "id": r["id"],
+            "name": r.get("theme") or r["id"],
+            "description": r.get("summary") or "",
+            "score": float(r.get("_similarity", 0.0)),
+        }
+        for r in top
+    ]
+
+
+def _synthesize_global_answer(query: str, llm_fn: Any, bundle: Any) -> str | None:
+    """Render the ``kg_grounded_answer`` canonical prompt over the assembled bundle."""
+    if not (llm_fn is not None and bundle.items):
+        return None
+    rendered = load_canonical_prompt(
+        "kg_grounded_answer",
+        fallback=_GROUNDED_ANSWER_PROMPT_DEFAULT,
+        question=query,
+        context=bundle.as_text(),
+    )
+    try:
+        return llm_fn(rendered)
+    except Exception as exc:  # noqa: BLE001 — the bundle is still useful without prose
+        logger.debug("global_search: grounded-answer synthesis failed: %s", exc)
+        return None
 
 
 # ---------------------------------------------------------------------------
