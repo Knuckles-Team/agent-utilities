@@ -169,6 +169,25 @@ def _parse_instant(value: Any) -> datetime | None:
         return None
 
 
+def _bfs_next_frontier(
+    frontier: set[str],
+    visited: set[str],
+    all_discovered: list[str],
+    expand_fn: Any,
+    neighbors_of_fn: Any,
+) -> set[str]:
+    # Resolve the WHOLE frontier's neighbourhoods in one overlapped wave, then
+    # filter — same id set as the per-node successors/predecessors pair, one
+    # wave of round-trips instead of 2x|frontier| serial ones.
+    expand_fn(sorted(frontier))
+    next_frontier: set[str] = set()
+    for nid in frontier:
+        for n in neighbors_of_fn(nid):
+            if n not in visited and n not in all_discovered:
+                next_frontier.add(n)
+    return next_frontier
+
+
 class HybridRetriever:
     """Retrieves relevant subgraph context using Hybrid GraphRAG.
 
@@ -1411,17 +1430,9 @@ class HybridRetriever:
         all_discovered = [node_id]
         frontier = {node_id}
         for _depth in range(multi_hop_depth):
-            next_frontier: set[str] = set()
-            # Resolve the WHOLE frontier's neighbourhoods in one
-            # overlapped wave, then filter — same id set as the
-            # per-node successors/predecessors pair, one wave of
-            # round-trips instead of 2x|frontier| serial ones.
-            expand_fn(sorted(frontier))
-            for nid in frontier:
-                for n in neighbors_of_fn(nid):
-                    if n not in visited and n not in all_discovered:
-                        next_frontier.add(n)
-            frontier = next_frontier
+            frontier = _bfs_next_frontier(
+                frontier, visited, all_discovered, expand_fn, neighbors_of_fn
+            )
             for f_node in sorted(frontier):
                 if f_node not in all_discovered:
                     all_discovered.append(f_node)
