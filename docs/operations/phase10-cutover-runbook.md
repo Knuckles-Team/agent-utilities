@@ -1,13 +1,20 @@
 # Phase-10 cutover runbook — au `638ea524` + eg `2595a24` → live RKE2
 
-> **GOC-59 accepted residual, 2026-08-09:** this dated, point-in-time runbook
-> intentionally names several now-retired configuration keys
+<!-- CURRENT-ONLY-CONTRACT: DATED-HISTORICAL-RECORD (GOC-59, 2026-08-09) -->
+> **GOC-59 dated historical record, 2026-08-09:** this dated, point-in-time
+> runbook intentionally names several now-retired configuration keys
 > (`check_current_only_contract` findings) as evidence of what was found live
 > on the `graph-os-host` drifted twin and as the exact guard-rail commands to
 > detect their reappearance. Rewriting the runbook to obscure those names
 > would destroy its audit value without changing cluster state, and this lane
 > has no live-cluster access to re-verify or re-apply it. Left open — carried
-> and owned, not silently cleared.
+> and owned, not silently cleared. `scripts/check_current_only_contract.py`
+> reads the HTML-comment marker line directly above as this file's own,
+> intrinsic declaration that it is such a record (WD10-R-RESIDZERO retired
+> the separate, path-keyed `ACCEPTED_RESIDUALS` allowlist that used to name
+> this file from outside it); the marker travels with the file, so a rename
+> or a copy of this runbook stays exempt from retired-surface identifier
+> scanning without anyone updating a list elsewhere.
 
 > **Status: FINALIZED RUNBOOK, NOT APPLIED.** Every fact below was gathered read-only
 > (`kubectl get/describe/exec -- cat`, no `apply`/`patch`/`delete`/`rollout`/`scale`

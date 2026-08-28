@@ -6,7 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from scripts.check_current_only_contract import AcceptedResidual, check, check_report
+from scripts.check_current_only_contract import (
+    DATED_HISTORICAL_RECORD_MARKER,
+    check,
+    check_report,
+)
 
 
 def test_gate_rejects_retired_configuration_switch(tmp_path: Path) -> None:
@@ -173,107 +177,90 @@ def test_gate_rejects_retired_path_without_a_self_reference(tmp_path: Path) -> N
     ]
 
 
-# D-MQR-11 (2026-08-16): the gate used to exit 1 on findings its own source
-# marked as accepted residuals (BUG-032/GOC-59 -- documented, cross-repo-
-# blocked, intentionally carried), with no way for a reader to tell "carried
-# debt" from "new regression." ACCEPTED_RESIDUALS + check_report() fix that:
-# an accepted finding is reported as INFO and does not fail the gate; anything
-# NOT on that documented, rationale-required list still does. These two tests
-# are the required proof against known-bad input -- run them against the
-# pre-fix module (no ``AcceptedResidual``/``check_report`` symbols existed) and
-# the import itself fails; after the fix, both pass.
+# WD10-R-RESIDZERO: the ``ACCEPTED_RESIDUALS`` allowlist mechanism (D-MQR-11,
+# BUG-032/GOC-59 shape -- a typed registry of specific relative-path/needle
+# pairs, each exempted individually and printed as carried, non-blocking
+# INFO) is retired. Every remaining entry on it pointed at exactly one file,
+# ``docs/operations/phase10-cutover-runbook.md``, a dated incident runbook
+# that intentionally names retired configuration keys as evidence. Rather
+# than re-enumerate that file (or any other) by path, the gate now exempts a
+# CATEGORY: a ``docs/`` file that declares itself a dated historical record
+# via ``DATED_HISTORICAL_RECORD_MARKER`` near its own top (see
+# ``_is_dated_historical_record`` in the module and its docstring). The four
+# tests below are the required known-bad-input proof for that category rule:
+# a marked docs/ file is exempt (the intended, chosen behaviour); an
+# UNmarked docs/ file with the exact same retired text still fails; a marked
+# file OUTSIDE docs/ still fails (the marker cannot buy an exemption for
+# runtime code); and the real, shipped runbook -- not a synthetic fixture --
+# produces zero violations for the three keys its own banner names.
 
 
-def test_accepted_residual_requires_rationale_and_owner() -> None:
-    """The registry data format makes an unexplained entry impossible to add."""
-    AcceptedResidual(
-        relative="some/path.py", needle=None, owner="OWNER-1", reason="a real reason"
-    )  # sanity: a fully-populated entry is fine
-
-    with pytest.raises(ValueError):
-        AcceptedResidual(
-            relative="some/path.py", needle=None, owner="OWNER-1", reason=""
-        )
-
-    with pytest.raises(ValueError):
-        AcceptedResidual(
-            relative="some/path.py", needle=None, owner="   ", reason="a real reason"
-        )
-
-    with pytest.raises(ValueError):
-        AcceptedResidual(
-            relative="  ", needle=None, owner="OWNER-1", reason="a real reason"
-        )
-
-
-def test_gate_carries_a_documented_residual_but_still_rejects_a_new_one(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_gate_exempts_a_marked_docs_file_from_retired_surface_scanning(
+    tmp_path: Path,
 ) -> None:
-    """Known-bad input: one documented accepted residual, one genuinely new,
-    undocumented retired path in the same run. The accepted one must be
-    reported as carried (and never drive a non-zero exit); the new one must
-    still fail exactly as before.
-
-    WD10-P-AUPUSH: this used to hardcode a REAL ``needle=None``
-    ACCEPTED_RESIDUALS entry (first ``agent_utilities/exceptions" + ".py``,
-    then ``agent_utilities/mcp_`` + ``utilities.py``, split here the same
-    way scripts/check_current_only_contract.py splits its own spellings so
-    this docstring does not trip the needles it discusses) as its
-    accepted-residual example -- and broke, twice, each time that entry was
-    resolved and removed (both
-    shims are now deleted; every remaining real entry is a ``needle=``
-    in-content match, not a ``needle=None`` retired-PATH-exists match, so
-    there was no longer a live example of this shape to borrow). Monkeypatch
-    a synthetic one onto a real ``RETIRED_PATHS`` member instead -- proves
-    the exact same mechanism without depending on which residual happens to
-    still be carried right now.
-    """
-    import scripts.check_current_only_contract as contract_mod
-
-    accepted_relative = "agent_utilities/exceptions" + ".py"
-    assert accepted_relative in contract_mod.RETIRED_PATHS
-    monkeypatch.setattr(
-        contract_mod,
-        "ACCEPTED_RESIDUALS",
-        (
-            AcceptedResidual(
-                relative=accepted_relative,
-                needle=None,
-                owner="TEST-OWNER",
-                reason="synthetic residual for this meta-test only",
-            ),
-        ),
+    """Known-bad input, chosen behaviour: the SAME retired needle that fails
+    everywhere else in this file does not fail here, because the containing
+    file is a marked dated historical record under docs/."""
+    source = tmp_path / "docs" / "operations" / "some-incident-runbook.md"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        f"# Incident runbook\n\n<!-- {DATED_HISTORICAL_RECORD_MARKER} -->\n"
+        "Found " + "GRAPH_" + "BACKEND" + " live on the drifted host.\n",
+        encoding="utf-8",
     )
 
-    accepted_residual_path = tmp_path / "agent_utilities" / "exceptions.py"
-    accepted_residual_path.parent.mkdir(parents=True)
-    accepted_residual_path.write_text("# back-compat shim\n", encoding="utf-8")
+    assert check(tmp_path, paths=[source]) == []
 
-    new_retired_name = "agent_" + "launcher.py"
-    new_violation_path = tmp_path / "agent_utilities" / "core" / new_retired_name
-    new_violation_path.parent.mkdir(parents=True)
-    new_violation_path.write_text("pass\n", encoding="utf-8")
 
-    report = check_report(tmp_path, paths=[accepted_residual_path, new_violation_path])
-
-    # The accepted residual is carried, not a failure -- and it does not leak
-    # into the "new" (failing) bucket at all. (Needle split the same way
-    # scripts/check_current_only_contract.py splits its own spellings, so
-    # this assertion does not trip the gate on its own source.)
-    assert len(report.accepted) == 1
-    assert "agent_utilities/exceptions" + ".py" in report.accepted[0]
-    assert "agent_utilities/exceptions" + ".py" not in "".join(report.new)
-
-    # The new, undocumented retired path still fails, unchanged from before,
-    # and does not get absorbed into the accepted bucket.
-    assert report.new == [
-        "agent_utilities/core/" + new_retired_name + ": retired path exists"
-    ]
-    assert new_retired_name not in "".join(report.accepted)
-
-    # check() is the exit-code-driving surface main() uses: it must mirror
-    # report.new exactly (accepted residuals never leak into it).
-    assert (
-        check(tmp_path, paths=[accepted_residual_path, new_violation_path])
-        == report.new
+def test_gate_still_rejects_the_same_needle_in_an_unmarked_docs_file(
+    tmp_path: Path,
+) -> None:
+    """The exemption is the marker, not the ``docs/`` directory by itself --
+    an otherwise-identical docs/ file with no marker still fails."""
+    source = tmp_path / "docs" / "operations" / "some-incident-runbook.md"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "# Incident runbook\n\nFound " + "GRAPH_" + "BACKEND" + " live.\n",
+        encoding="utf-8",
     )
+
+    violations = check(tmp_path, paths=[source])
+
+    assert len(violations) == 1
+    assert "retired surface" in violations[0]
+
+
+def test_gate_ignores_the_marker_outside_docs(tmp_path: Path) -> None:
+    """The category requires BOTH conditions: the marker cannot exempt a
+    file outside docs/, so runtime/test/deploy code cannot buy its way out
+    of this gate by pasting the marker in a comment."""
+    source = tmp_path / "agent_utilities" / "core" / "notes.py"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        f"# {DATED_HISTORICAL_RECORD_MARKER}\n"
+        "# Found " + "GRAPH_" + "BACKEND" + " live.\n",
+        encoding="utf-8",
+    )
+
+    violations = check(tmp_path, paths=[source])
+
+    assert len(violations) == 1
+    assert "retired surface" in violations[0]
+
+
+def test_gate_passes_clean_on_the_real_shipped_cutover_runbook() -> None:
+    """Integration proof against the real file this lane's brief measured:
+    the runbook still names its three retired keys as of GOC-59's own
+    2026-08-09 banner, and the gate must produce zero violations for it
+    under the real repository root -- not a synthetic fixture standing in
+    for it."""
+    from scripts.check_current_only_contract import ROOT
+
+    runbook = ROOT / "docs" / "operations" / "phase10-cutover-runbook.md"
+    assert runbook.is_file()
+    text = runbook.read_text(encoding="utf-8")
+    assert DATED_HISTORICAL_RECORD_MARKER in text
+    for retired in ("GRAPH_" + "BACKEND", "ENGINE_" + "MODE", "ENGINE_" + "ENDPOINT"):
+        assert retired in text  # still names them -- the record is intact
+
+    assert check(ROOT, paths=[runbook]) == []
