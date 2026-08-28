@@ -110,11 +110,30 @@ class _Engine(QueryMixin):
         self.backend = backend
 
 
-def test_engine_sparql_bridges_to_graph_compute():
+def test_engine_sparql_bridges_to_graph_compute(monkeypatch):
+    # Bridge plumbing only (backend.graph.sparql): neutralize the row-level
+    # ACL/visibility pass, which — now fail-closed per BUG-CX-103 — would
+    # rightly deny this synthetic id-less `{"name": "alice"}` projection.
+    # Same convention as `test_graph_query_sql.py`'s bridge tests; the denial
+    # itself is proved in
+    # `tests/unit/knowledge_graph/orchestration/
+    # test_engine_query_surface_rls_fail_closed.py`.
+    from agent_utilities.knowledge_graph.core import secured_reads
+
+    monkeypatch.setattr(secured_reads, "filter_rows", lambda rows, _actor=None: rows)
+    monkeypatch.setattr(secured_reads, "visible", lambda rows, _actor=None: rows)
+
     rows = [{"name": "alice"}]
     eng = _Engine(_Backend(rows))
     assert eng.sparql("SELECT ?name WHERE { ?s :name ?name }") == rows
     assert eng.backend.graph.seen[0].startswith("SELECT ?name")
+
+
+def test_engine_sparql_denies_an_ungoverned_projection():
+    """BUG-CX-103 regression guard — an id-less SPARQL projection must deny."""
+    eng = _Engine(_Backend([{"name": "alice"}]))
+    with pytest.raises(PermissionError):
+        eng.sparql("SELECT ?name WHERE { ?s :name ?name }")
 
 
 def test_engine_sparql_no_surface_raises():
