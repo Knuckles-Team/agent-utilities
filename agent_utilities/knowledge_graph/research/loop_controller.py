@@ -28,6 +28,7 @@ import hashlib
 import logging
 import re
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Any
 
 from agent_utilities.core.config import setting
@@ -98,6 +99,168 @@ def _run_coro(coro: Any) -> Any:
     ctx = contextvars.copy_context()
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
         return ex.submit(ctx.run, asyncio.run, coro).result()
+
+
+# Stage gates whose ``None`` default resolves from the typed AgentConfig field
+# named here. run_one_cycle keeps its explicit keyword signature; this table is
+# what turns "unset" into the configured default, once, in declaration order.
+_CYCLE_FLAG_DEFAULTS: dict[str, str] = {
+    "distill": "kg_loop_distill",
+    "breadth": "kg_loop_breadth",
+    "standardize": "kg_loop_standardize",
+    "discover": "kg_loop_discover",
+    "mine_discovery": "kg_loop_mine_discovery",
+    "belief_revision": "kg_loop_belief_revision",
+    "insight_validation": "kg_loop_insight_validation",
+    "trace_mining": "kg_loop_trace_mining",
+    "skill_evolution": "kg_loop_skill_evolution",
+}
+
+
+@dataclass
+class _CycleOptions:
+    """One ``run_one_cycle`` invocation's knobs, carried as a single record.
+
+    Every field mirrors the identically named ``run_one_cycle`` keyword
+    argument. The ``bool | None`` gates are resolved in place against
+    :data:`_CYCLE_FLAG_DEFAULTS` by ``LoopController._resolve_cycle_flags``
+    before any stage group reads them.
+    """
+
+    max_topics: int = 5
+    distill: bool | None = None
+    synthesize: bool = True
+    assimilate: bool = True
+    breadth: bool | None = None
+    force_assimilate: bool = False
+    standardize: bool | None = None
+    topics: list[dict[str, Any]] | None = None
+    synthesize_search: bool = False
+    discover: bool | None = None
+    papers: list[dict[str, Any]] | None = None
+    reason: bool = True
+    tri_evolution: bool = False
+    focus_query: str = ""
+    mine_discovery: bool | None = None
+    belief_revision: bool | None = None
+    insight_validation: bool | None = None
+    trace_mining: bool | None = None
+    skill_evolution: bool | None = None
+
+
+def _new_cycle_report(propose_only: bool) -> dict[str, Any]:
+    """The empty cycle report every stage group fills in place."""
+    return {
+        "propose_only": propose_only,
+        "topics_intake": 0,
+        "topics_resolved": 0,
+        "sources_linked": 0,
+        "intake_papers": None,
+        "breadth": None,
+        "archivebox": None,
+        "assimilate": None,
+        "reason": None,
+        "mine_discovery": None,
+        "evidence_intake": None,
+        "insight_validation": None,
+        "trace_mining": None,
+        "skill_evolution": None,
+        "placement_control": None,
+        "belief_revision": None,
+        "standardize": None,
+        "skill_proposals": None,
+        "executed": None,
+        "spec_drafts": [],
+        "team": None,
+        "search_tasks": None,
+        "tri_evolution": None,
+        "errors": [],
+        "metrics": {"stage_ms": {}},
+    }
+
+
+@dataclass
+class _ClaimPipelineRun:
+    """Per-cycle state for ONE mined-claim governance pass.
+
+    Both closed-loop mining stages — ``_run_insight_validation`` (workstream C4,
+    mined findings + unified Evidence) and ``_run_trace_mining`` (workstream C6,
+    repeated FAILURE tool-call sequences) — run the IDENTICAL
+    CandidateInsight → EvidenceBundle → Claim → Validation → Action-gate
+    pipeline. This record carries the per-cycle collaborators and the running
+    counts so the shared per-candidate steps are one implementation, not two.
+    ``stage`` is the error-message prefix that distinguishes them.
+    """
+
+    stage: str
+    validator: Any
+    action_policy: Any
+    flywheel: Any
+    router: Any = None
+    autonomy_on: bool = False
+    errors: list[str] = field(default_factory=list)
+    examples: list[dict[str, Any]] = field(default_factory=list)
+    persisted: int = 0
+    promoted: int = 0
+    routed: int = 0
+
+
+@dataclass(slots=True)
+class _LoopRunOptions:
+    """The caller-supplied ``run_loop`` knobs, carried as one record.
+
+    Every field mirrors the identically named ``run_loop`` keyword argument;
+    grouping them keeps the per-stage ``_loop_*`` helpers below at a readable
+    arity instead of threading a dozen positional arguments through each.
+    """
+
+    max_iterations: int | None = None
+    on_iteration: Callable[[int, dict[str, Any]], None] | None = None
+    desired_state: Callable[[], str | None] | None = None
+    goal_evaluator: Any = None
+    resource_optimizer: Any = None
+    deadline: float | None = None
+    max_duration_s: float | None = None
+    no_progress_window: int | None = None
+    max_consecutive_failures: int | None = None
+    event_probe: Callable[[], bool] | None = None
+
+
+@dataclass(slots=True)
+class _LoopRun:
+    """One ``run_loop`` execution's resolved configuration + mutable state.
+
+    The eight agent-loop exit conditions each need a signal computed in one
+    stage and read in another (the statechart ``posttick`` payload, then the
+    terminal dispatch). This record is that shared state, so each stage stays a
+    small, separately measurable function instead of one closure-heavy body.
+    """
+
+    loop: dict[str, Any]
+    loop_id: str
+    kind: str
+    opts: _LoopRunOptions
+    max_it: int
+    status: Any
+    start_monotonic: float
+    deadline: float | None
+    stall_window: int
+    fail_guard: Any
+    evaluator: Any
+    event_probe: Callable[[], bool] | None
+    progress_hashes: list[str] = field(default_factory=list)
+    # -- populated once the native claim is won --
+    it: int = 0
+    item_id: str = ""
+    claim: Any = None
+    # -- per-iteration signals, read by the terminal dispatch --
+    verdict: Any = None
+    measured_pass: bool = False
+    error_threshold_tripped: bool = False
+    stalled_flag: bool = False
+    turn_cap_reached: bool = False
+    deadline_flag: bool = False
+    should_break: bool = False
 
 
 class LoopController:
@@ -226,62 +389,76 @@ class LoopController:
         ``synthesize``. The report carries
         a ``metrics`` block (per-stage timings + error count) and is persisted as an
         ``EvolutionCycle`` node for monitoring.
+
+        The stage groups themselves live in the ``_cycle_*`` helpers below, in the
+        SAME order they are called here; this method is the cycle's spine.
         """
         import time
 
+        opts = _CycleOptions(
+            max_topics=max_topics,
+            distill=distill,
+            synthesize=synthesize,
+            assimilate=assimilate,
+            breadth=breadth,
+            force_assimilate=force_assimilate,
+            standardize=standardize,
+            topics=topics,
+            synthesize_search=synthesize_search,
+            discover=discover,
+            papers=papers,
+            reason=reason,
+            tri_evolution=tri_evolution,
+            focus_query=focus_query,
+            mine_discovery=mine_discovery,
+            belief_revision=belief_revision,
+            insight_validation=insight_validation,
+            trace_mining=trace_mining,
+            skill_evolution=skill_evolution,
+        )
+        self._resolve_cycle_flags(opts)
+        report = _new_cycle_report(self.propose_only)
+        cycle_start = time.monotonic()
+        self._start_beacon(opts.focus_query)
+        stage, run = self._cycle_stage_runner(report)
+
+        self._cycle_intake_stages(report, stage, opts)
+        self._cycle_mining_stages(report, stage, opts)
+        self._cycle_insight_stages(report, stage, opts)
+        self._cycle_proposal_stages(report, stage, opts)
+        cycle_topics = self._cycle_topics(report, stage, opts)
+        self._cycle_topic_stages(report, stage, opts, cycle_topics)
+        self._cycle_tail_stages(report, stage, opts)
+
+        self._finalize_metrics(report, cycle_start)
+        # PA-R0.1: the cycle completed — finalize the durable run so the next daemon
+        # tick starts fresh (a crash before this leaves the run resumable).
+        run.finish()
+        return report
+
+    # -- run_one_cycle mechanics -------------------------------------------- #
+    @staticmethod
+    def _resolve_cycle_flags(opts: _CycleOptions) -> None:
+        """Fill every unset (``None``) stage gate from its typed config default."""
         from agent_utilities.core.config import config
 
-        if distill is None:
-            distill = config.kg_loop_distill
-        if breadth is None:
-            breadth = config.kg_loop_breadth
-        if standardize is None:
-            standardize = config.kg_loop_standardize
-        if discover is None:
-            discover = config.kg_loop_discover
-        if mine_discovery is None:
-            mine_discovery = config.kg_loop_mine_discovery
-        if belief_revision is None:
-            belief_revision = config.kg_loop_belief_revision
-        if insight_validation is None:
-            insight_validation = config.kg_loop_insight_validation
-        if trace_mining is None:
-            trace_mining = config.kg_loop_trace_mining
-        if skill_evolution is None:
-            skill_evolution = config.kg_loop_skill_evolution
+        for name, attr in _CYCLE_FLAG_DEFAULTS.items():
+            if getattr(opts, name) is None:
+                setattr(opts, name, getattr(config, attr))
 
-        report: dict[str, Any] = {
-            "propose_only": self.propose_only,
-            "topics_intake": 0,
-            "topics_resolved": 0,
-            "sources_linked": 0,
-            "intake_papers": None,
-            "breadth": None,
-            "archivebox": None,
-            "assimilate": None,
-            "reason": None,
-            "mine_discovery": None,
-            "evidence_intake": None,
-            "insight_validation": None,
-            "trace_mining": None,
-            "skill_evolution": None,
-            "placement_control": None,
-            "belief_revision": None,
-            "standardize": None,
-            "skill_proposals": None,
-            "executed": None,
-            "spec_drafts": [],
-            "team": None,
-            "search_tasks": None,
-            "tri_evolution": None,
-            "errors": [],
-            "metrics": {"stage_ms": {}},
-        }
-        cycle_start = time.monotonic()
+    @staticmethod
+    def _configured(name: str) -> bool:
+        """A non-empty ``setting`` is the on-signal for its optional intake stage."""
+        return bool((setting(name, default="") or "").strip())
 
-        # CONCEPT:AU-KG.research.evolutionstate-live-surface-per — live per-stage progress beacon. A single mutable node
-        # updated at every stage boundary so the cycle is legible MID-FLIGHT (not only
-        # at finalize): graph_loops(action="state") reports the current stage + why.
+    def _start_beacon(self, focus_query: str) -> None:
+        """CONCEPT:AU-KG.research.evolutionstate-live-surface-per — live per-stage progress beacon.
+
+        A single mutable node updated at every stage boundary so the cycle is
+        legible MID-FLIGHT (not only at finalize): graph_loops(action="state")
+        reports the current stage + why.
+        """
+        import time
         import uuid as _uuid
 
         from .evolution_state import StageBeacon
@@ -296,20 +473,27 @@ class LoopController:
         )
         self._beacon.enter("start")
 
-        # PA-R0.1: this daemon tick is long, unattended and crash-exposed — the SDD
-        # develop run + LLM/KG writes happen inside these stages. Route every stage
-        # through the ONE durable substrate so a kill -9 mid-cycle RESUMES from the
-        # last completed stage on the next tick instead of re-running the whole cycle
-        # (re-mining, re-distilling, re-ingesting). Stages run live + finalize on the
-        # healthy path (behaviour unchanged); the triple opt-in (KG_LOOP /
-        # KG_LOOP_DISTILL / KG_LOOP_AUTO_DEVELOP) still decides WHICH stages run —
-        # durable checkpointing only wraps the ones that do.
+    def _cycle_stage_runner(self, report: dict[str, Any]) -> tuple[Callable, Any]:
+        """Build this cycle's ``(stage, durable_run)`` pair.
+
+        PA-R0.1: the daemon tick is long, unattended and crash-exposed — the SDD
+        develop run + LLM/KG writes happen inside these stages. Every stage is
+        routed through the ONE durable substrate so a kill -9 mid-cycle RESUMES
+        from the last completed stage on the next tick instead of re-running the
+        whole cycle (re-mining, re-distilling, re-ingesting). Stages run live +
+        finalize on the healthy path (behaviour unchanged); the triple opt-in
+        (KG_LOOP / KG_LOOP_DISTILL / KG_LOOP_AUTO_DEVELOP) still decides WHICH
+        stages run — durable checkpointing only wraps the ones that do.
+
+        DE1 (CONCEPT:AU-KG.storage.durable-execution-unit): the run mirrors its
+        checkpoint transitions into a queryable ``:DurableRun`` KG node —
+        ``engine`` is optional on ``DurableRun`` and the mirror is a no-op when it
+        is None, so this is a pure addition, never a new failure mode.
+        """
+        import time
+
         from agent_utilities.orchestration.durable_execution import DurableRun
 
-        # DE1 (CONCEPT:AU-KG.storage.durable-execution-unit): mirror this run's
-        # checkpoint transitions into a queryable ``:DurableRun`` KG node —
-        # ``engine`` is optional on ``DurableRun`` and the mirror is a no-op
-        # when it is None, so this is a pure addition, never a new failure mode.
         run = DurableRun(_RESEARCH_LOOP_SESSION, engine=self.engine)
 
         def _stage(name: str, fn):
@@ -332,286 +516,269 @@ class LoopController:
                     (time.monotonic() - t0) * 1000, 1
                 )
 
-        # -2. INTAKE PAPERS — discover + ingest research (scholarx → tiered KB
-        # ingest → LLM concept/fact extraction) so the cycle is a research-pipeline
-        # runner: the assimilate stage then matches the fresh papers against the
-        # ecosystem. Opt-in (external calls) via KG_LOOP_DISCOVER; caller-supplied
-        # ``papers`` always run. (CONCEPT:AU-KG.research.research-intelligence-loop)
-        if discover or papers:
-            report["intake_papers"] = _stage(
-                "intake_papers", lambda: self._run_intake_papers(papers)
+        return _stage, run
+
+    def _cycle_intake_stages(
+        self, report: dict[str, Any], stage: Callable, opts: _CycleOptions
+    ) -> None:
+        """Stages -2 … -0.3 — pull fresh external corpus into the graph.
+
+        ``intake_papers`` discovers + ingests research (scholarx → tiered KB
+        ingest → LLM concept/fact extraction) so the cycle is a research-pipeline
+        runner: the assimilate stage then matches the fresh papers against the
+        ecosystem. Opt-in (external calls) via KG_LOOP_DISCOVER; caller-supplied
+        ``papers`` always run. (CONCEPT:AU-KG.research.research-intelligence-loop)
+        ``breadth`` ingests the OSS/repos/docs corpus (idempotent; opt-in). The
+        archivebox / freshrss / arxiv intakes are default-ON *when configured* —
+        the setting's presence is the on-signal, the watermark keeps each
+        idempotent, and the world-model relevance gate keeps them selective
+        (KG-2.116, CONCEPT:AU-KG.ingest.arxiv-feed-connector, KG-7.3).
+        """
+        if opts.discover or opts.papers:
+            report["intake_papers"] = stage(
+                "intake_papers", lambda: self._run_intake_papers(opts.papers)
             )
+        if opts.breadth:
+            report["breadth"] = stage("breadth", self._run_breadth)
+        if self._configured("ARCHIVEBOX_URL"):
+            report["archivebox"] = stage("archivebox", self._run_archivebox_intake)
+        if self._configured("FRESHRSS_URL"):
+            report["freshrss"] = stage("freshrss", self._run_freshrss_intake)
+        if self._configured("KG_ARXIV_CATEGORIES"):
+            report["arxiv"] = stage("arxiv", self._run_arxiv_intake)
 
-        # -1. BREADTH — ingest the OSS/repos/docs corpus (idempotent; opt-in).
-        if breadth:
-            report["breadth"] = _stage("breadth", self._run_breadth)
+    def _cycle_mining_stages(
+        self, report: dict[str, Any], stage: Callable, opts: _CycleOptions
+    ) -> None:
+        """Stages 0 … 0a1.5 — the graph-compute middle and the discovery mining pass.
 
-        # -0.5 ARCHIVEBOX — pull preserved snapshots (delta) when an ArchiveBox
-        # instance is wired. Default ON when configured (Native by default); the
-        # URL's presence is the on-signal, the watermark keeps it idempotent.
-        if (setting("ARCHIVEBOX_URL", default="") or "").strip():
-            report["archivebox"] = _stage("archivebox", self._run_archivebox_intake)
-
-        # -0.4 FRESHRSS — pull curated RSS items through the world-model relevance
-        # gate (delta) when a FreshRSS instance is wired. Default ON when configured;
-        # the URL's presence is the on-signal, the watermark keeps it idempotent, and
-        # the gate keeps it selective (only KG-relevant/novel items land). (KG-2.116)
-        if (setting("FRESHRSS_URL", default="") or "").strip():
-            report["freshrss"] = _stage("freshrss", self._run_freshrss_intake)
-
-        # -0.3 ARXIV — pull native arXiv category listings through the SAME
-        # world-model research gate (delta), when categories are configured. Default
-        # ON when configured; the category list's presence is the on-signal, the
-        # watermark keeps it idempotent, and the SAME budget gate as FreshRSS/
-        # ScholarX keeps it selective. (CONCEPT:AU-KG.ingest.arxiv-feed-connector, KG-7.3)
-        if (setting("KG_ARXIV_CATEGORIES", default="") or "").strip():
-            report["arxiv"] = _stage("arxiv", self._run_arxiv_intake)
-
-        # 0. ASSIMILATE — graph-compute middle (dedup/gap/synergy/rank), idempotent.
-        if assimilate:
-            report["assimilate"] = _stage(
-                "assimilate", lambda: self._run_assimilate(force=force_assimilate)
-            )
-
-        # 0a. REASON — OWL/RDF reasoning over the ONE ecosystem ontology; harvest the
-        # extrapolated relationships and surface cross-domain inferences as fresh
-        # research Loops (CONCEPT:AU-KG.research.best-effort-lightweight-never). Best-effort + lightweight; never blocks.
-        if reason:
-            report["reason"] = _stage("reason", self._run_reason)
-
-        # 0a1. MINE DISCOVERY — the discovery-flywheel mining pass (CONCEPT:AU-KG.evolution.mining-flywheel):
-        # association-rule mining over Capability/Concept co-occurrence, an anomaly
-        # pass over capability-coverage divergence, and graph_learn link-prediction
-        # over Concept relations — each writes back typed KG nodes (:AssociationRule/
-        # :Anomaly/:PredictedEdge) for a human/agent to review (propose-only; never
-        # auto-merges). Placed after ``reason`` so mining sees OWL-inferred edges
-        # already materialized, and before ``synthesize`` so the team/spec synthesis
-        # stage can eventually read the freshly-mined nodes. Best-effort + gated
-        # (KG_LOOP_MINE_DISCOVERY, default ON — sub-steps degrade to empty/no-op on a
-        # no-mining engine build, so it's safe to leave on everywhere).
-        if mine_discovery:
-            report["mine_discovery"] = _stage(
-                "mine_discovery", self._run_mine_discovery
-            )
-
-        # 0a1.02 EVIDENCE INTAKE — the unified Evidence resource (lane 7.1,
-        # CONCEPT:AU-KG.evolution.unified-evidence-resource): normalizes the
-        # execution-trace and graph-health channels onto ONE contract and stages
-        # them for ``insight_validation`` below (see ``_run_evidence_intake``'s
-        # docstring). Gated on the SAME flag as its one consumer — this stage
-        # exists only to feed it.
-        if insight_validation:
-            report["evidence_intake"] = _stage(
-                "evidence_intake", self._run_evidence_intake
-            )
-
-        # 0a1.5 AUDIT GAPS — the code-correctness/security-audit discovery track
-        # (CONCEPT:AU-AHE.harness.audit-gap-detector, Wave-6 D1-ext). An AI review over
-        # the ALREADY-INGESTED code KG files a canonical :Gap per Macroscope-class finding
-        # (severity → priority), flowing the SAME Gap→SDD→publish→resolved lifecycle. It
-        # sits alongside mining (both are engine-native passes over the KG). Opt-in
-        # (KG_LOOP_AUDIT, default OFF) — a non-opted-in deployment is unaffected; the
-        # flywheel proposes, humans veto.
+        ``assimilate`` runs dedup/gap/synergy/rank (idempotent). ``reason`` runs
+        OWL/RDF reasoning over the ONE ecosystem ontology and surfaces
+        cross-domain inferences as fresh research Loops
+        (CONCEPT:AU-KG.research.best-effort-lightweight-never) — placed before
+        mining so mining sees OWL-inferred edges already materialized.
+        ``mine_discovery`` is the discovery-flywheel pass
+        (CONCEPT:AU-KG.evolution.mining-flywheel): association rules over
+        Capability/Concept co-occurrence, a capability-coverage anomaly pass, and
+        graph_learn link prediction — each writing back typed :AssociationRule /
+        :Anomaly / :PredictedEdge nodes for review (propose-only).
+        ``evidence_intake`` normalizes the execution-trace and graph-health
+        channels onto the ONE Evidence contract (lane 7.1,
+        CONCEPT:AU-KG.evolution.unified-evidence-resource) and stages them for
+        ``insight_validation`` — gated on the SAME flag as its one consumer.
+        ``audit_gaps`` is the opt-in code-correctness/security audit track
+        (CONCEPT:AU-AHE.harness.audit-gap-detector, KG_LOOP_AUDIT default OFF).
+        """
         from agent_utilities.core.config import config as _audit_cfg
 
+        if opts.assimilate:
+            report["assimilate"] = stage(
+                "assimilate",
+                lambda: self._run_assimilate(force=opts.force_assimilate),
+            )
+        if opts.reason:
+            report["reason"] = stage("reason", self._run_reason)
+        if opts.mine_discovery:
+            report["mine_discovery"] = stage("mine_discovery", self._run_mine_discovery)
+        if opts.insight_validation:
+            report["evidence_intake"] = stage(
+                "evidence_intake", self._run_evidence_intake
+            )
         if getattr(_audit_cfg, "kg_loop_audit", False):
-            report["audit_gaps"] = _stage("audit_gaps", self._run_audit_gaps)
+            report["audit_gaps"] = stage("audit_gaps", self._run_audit_gaps)
 
-        # 0a1.4 INSIGHT VALIDATION — the Insight Engine closed loop (workstream C4,
-        # CONCEPT:AU-KG.evolution.insight-engine-closed-loop): Mine → CandidateInsight →
-        # EvidenceBundle → Claim → Validation (REUSES promotion_governance +
-        # capability_ratchet as-is) → Action gate (REUSES action_policy.decide(),
-        # kind="promote_mined_claim", shipped default approval_required —
-        # SAFETY-CRITICAL, see ``_run_insight_validation``'s docstring). Runs when
-        # mine_discovery OR evidence_intake produced something this cycle (either
-        # feeds this SAME stage — see ``_run_insight_validation``'s ``evidence``
-        # param, lane 7.1). Best-effort + gated (KG_LOOP_INSIGHT_VALIDATION,
-        # default ON — the stage is itself propose-only regardless of the flag;
-        # see the config field's docstring in ``core/config.py``).
-        if insight_validation and (
+    def _cycle_insight_stages(
+        self, report: dict[str, Any], stage: Callable, opts: _CycleOptions
+    ) -> None:
+        """Stages 0a1.4 … 0a1.5 — turn mined findings into governed proposals.
+
+        ``insight_validation`` is the Insight Engine closed loop (workstream C4,
+        CONCEPT:AU-KG.evolution.insight-engine-closed-loop): Mine →
+        CandidateInsight → EvidenceBundle → Claim → Validation (REUSES
+        promotion_governance + capability_ratchet as-is) → Action gate (REUSES
+        action_policy.decide(), kind="promote_mined_claim", shipped default
+        approval_required — SAFETY-CRITICAL, see ``_run_insight_validation``).
+        It runs when mine_discovery OR evidence_intake produced something this
+        cycle (either feeds this SAME stage — lane 7.1).
+        ``trace_mining`` is closed-loop agent mining (workstream C6) over
+        RunTrace/OutcomeEvaluation/ToolCall provenance through the SAME C4
+        pipeline — SAFETY-CRITICAL, see ``_run_trace_mining``'s docstring.
+        ``placement_control`` is the one automatic caller of workload-aware
+        placement mining (X-5), governed by the typed opt-in and reusing the same
+        propose → ActionPolicy → measured canary → promote/rollback spine.
+        ``belief_revision`` recomputes every ``Belief`` node's confidence from its
+        support/contradiction neighborhood, persisting each outcome as a
+        ``:BeliefRevisionProposal`` — never a mutation of the live belief
+        (propose-only; the Critic flags, it does not arbitrate).
+        """
+        from agent_utilities.core.config import config
+
+        if opts.insight_validation and (
             report.get("mine_discovery") or report.get("evidence_intake")
         ):
-            report["insight_validation"] = _stage(
+            report["insight_validation"] = stage(
                 "insight_validation",
                 lambda: self._run_insight_validation(
                     report["mine_discovery"], evidence=self._gathered_evidence
                 ),
             )
-
-        # 0a1.45 TRACE MINING — closed-loop agent mining (workstream C6,
-        # CONCEPT:AU-KG.evolution.insight-engine-closed-loop): mines RunTrace/
-        # OutcomeEvaluation/ToolCall provenance for repeated FAILURE tool-call
-        # sequences (``trace_pattern_miner``) and runs each mined pattern through
-        # the SAME C4 CandidateInsight→Claim→Validation→Action-gate pipeline —
-        # REUSES ``action_policy.decide(kind="route_policy_update")``, shipped
-        # default approval_required. SAFETY-CRITICAL: see ``_run_trace_mining``'s
-        # docstring — ``OutcomeRouter.record()`` is NEVER called before that
-        # ``decide()`` call on any path (tests/unit/knowledge_graph/
-        # test_trace_pattern_miner.py::test_gate_runs_before_any_outcome_record).
-        # Best-effort + gated (KG_LOOP_TRACE_MINING, default ON — the stage is
-        # itself propose-only regardless of the flag; see the config field's
-        # docstring in ``core/config.py``).
-        if trace_mining:
-            report["trace_mining"] = _stage("trace_mining", self._run_trace_mining)
-
-        # 0a1.46 PLACEMENT CONTROL — workload-aware placement mining (X-5).
-        # This is the one automatic caller governed by the typed opt-in. The
-        # controller itself reuses the same propose -> ActionPolicy -> measured
-        # canary -> promote/rollback spine as the explicit graph_loops action;
-        # approval_required remains the shipped mutation posture.
+        if opts.trace_mining:
+            report["trace_mining"] = stage("trace_mining", self._run_trace_mining)
         if config.placement_control_loop_enabled:
             from .placement_mining import placement_control_loop
 
-            report["placement_control"] = _stage(
+            report["placement_control"] = stage(
                 "placement_control",
                 lambda: placement_control_loop(self.engine, enabled=True),
             )
-
-        # 0a1.5 BELIEF REVISION — confidence propagation + light TMS (CONCEPT:AU-KG.
-        # adaptation.confidence-propagation-belief-revision, workstream C2): recomputes
-        # every ``Belief`` node's confidence from its support/contradiction
-        # neighborhood (fresh ``ContradictionDetector`` friction + already-recorded
-        # edges), persisting each outcome as a ``:BeliefRevisionProposal`` — never a
-        # mutation of the live belief (propose-only; the Critic flags, it does not
-        # arbitrate). Placed right after ``mine_discovery`` so revision sees any
-        # newly-mined/reasoned structure first. Best-effort + gated
-        # (KG_LOOP_BELIEF_REVISION, default ON — degrades to a no-op ``skipped``
-        # result with fewer than 2 Belief nodes, so it's safe to leave on everywhere).
-        if belief_revision:
-            report["belief_revision"] = _stage(
+        if opts.belief_revision:
+            report["belief_revision"] = stage(
                 "belief_revision", self._run_belief_revision
             )
 
-        # 0a2. DISTILL SKILLS — turn the mapped processes of ALL connected systems
-        # (egeria/leanix/aris/camunda) into propose-only atomic-skill and
-        # skill-workflow PROPOSALS (CONCEPT:AU-KG.ontology.connector-agnostic-proposal/2.83). Connector-agnostic over
-        # the ontology, default-ON, propose-only (nothing lands in any repo). Best-
-        # effort: a failing stage never aborts the cycle.
-        report["skill_proposals"] = _stage("distill_skills", self._distill_skills)
+    def _cycle_proposal_stages(
+        self, report: dict[str, Any], stage: Callable, opts: _CycleOptions
+    ) -> None:
+        """Stages 0a2 … 0b — skill proposals, skill evolution, standardization.
 
-        # 0a3. SKILL EVOLUTION — the SkillOpt-native ReflACT cycle
-        # (CONCEPT:AU-AHE.optimization.skillopt-native-reflact): Rollout->Reflect->
-        # Aggregate/Select/Update->Evaluate over any registered skill-eval target,
-        # gated onto "active" only by beating the incumbent on a held-out benchmark
-        # AND action_policy.decide(kind="promote_skill_version") (shipped default
-        # approval_required — a benchmark win alone never auto-promotes). Sibling to
-        # distill_skills (which proposes brand-new skills from connector-mapped
-        # processes); this stage evolves EXISTING skills. Best-effort + gated
-        # (KG_LOOP_SKILL_EVOLUTION, default ON — degrades to a clean no-op with zero
-        # registered skill-eval targets, mirroring belief_revision's <2-node no-op).
-        if skill_evolution:
-            report["skill_evolution"] = _stage(
+        ``distill_skills`` turns the mapped processes of ALL connected systems
+        (egeria/leanix/aris/camunda) into propose-only atomic-skill and
+        skill-workflow PROPOSALS (CONCEPT:AU-KG.ontology.connector-agnostic-proposal/2.83)
+        — connector-agnostic over the ontology, default-ON, nothing lands in any
+        repo. ``skill_evolution`` is the SkillOpt-native ReflACT cycle
+        (CONCEPT:AU-AHE.optimization.skillopt-native-reflact) over EXISTING
+        skills, gated onto "active" only by beating the incumbent on a held-out
+        benchmark AND action_policy.decide(kind="promote_skill_version").
+        ``standardize`` is the enterprise standardization + consolidation pass
+        (CONCEPT:AU-KG.ontology.populated-at-import-real-3), propose-only and
+        idempotent (CONFORMS_TO/ABSORBED_INTO cleared on re-write).
+        """
+        report["skill_proposals"] = stage("distill_skills", self._distill_skills)
+        if opts.skill_evolution:
+            report["skill_evolution"] = stage(
                 "skill_evolution", self._run_skill_evolution
             )
+        if opts.standardize:
+            report["standardize"] = stage("standardize", self._run_standardize)
 
-        # 0b. STANDARDIZE — enterprise standardization + consolidation (CONCEPT:AU-KG.ontology.populated-at-import-real-3),
-        # propose-only. Gated (KG_LOOP_STANDARDIZE) since it requires a harvested
-        # enterprise estate; idempotent (CONFORMS_TO/ABSORBED_INTO cleared on re-write).
-        if standardize:
-            report["standardize"] = _stage("standardize", self._run_standardize)
+    def _cycle_topics(
+        self, report: dict[str, Any], stage: Callable, opts: _CycleOptions
+    ) -> list[dict[str, Any]]:
+        """Stage 1 INTAKE — every active Loop the engine should advance.
 
-        # 1. INTAKE — every active Loop the engine should advance (CONCEPT:AU-KG.research.these-properties-carry):
-        # research/develop/skill objectives + autonomous gaps, each carrying its
-        # ``kind`` so later stages dispatch correctly. Caller-supplied ``topics``
-        # (e.g. the failure-ingest tick's just-materialized failure_gap loops)
-        # bypass the generic ``active_loops`` scan so a brand-new gap is addressed
-        # deterministically instead of competing for a slot. (CONCEPT:AU-AHE.harness.failure-evolution)
+        Research/develop/skill objectives + autonomous gaps, each carrying its
+        ``kind`` so later stages dispatch correctly (CONCEPT:AU-KG.research.
+        these-properties-carry). Caller-supplied ``topics`` (e.g. the
+        failure-ingest tick's just-materialized failure_gap loops) bypass the
+        generic ``active_loops`` scan so a brand-new gap is addressed
+        deterministically instead of competing for a slot
+        (CONCEPT:AU-AHE.harness.failure-evolution). A caller-supplied
+        ``focus_query`` becomes a prioritized research topic for this cycle so
+        acquire/resolve converges on it first.
+        """
+        topics = opts.topics
         if topics is not None:
-            topics = topics[:max_topics] if max_topics else list(topics)
+            topics = topics[: opts.max_topics] if opts.max_topics else list(topics)
             report["metrics"]["stage_ms"]["intake"] = 0.0
         else:
             topics = (
-                _stage("intake", lambda: active_loops(self.engine, max_topics)) or []
+                stage("intake", lambda: active_loops(self.engine, opts.max_topics))
+                or []
             )
-        # Focus-query biasing: a caller-supplied query becomes a prioritized research
-        # topic for this cycle so acquire/resolve converges on it first (CONCEPT:AU-KG.research.research-intelligence-loop).
-        fq = (focus_query or "").strip()
+        fq = (opts.focus_query or "").strip()
         if fq:
             topics = [
                 {"id": f"focus:{fq}", "name": fq, "kind": "research"},
                 *topics,
             ]
-            if max_topics:
-                topics = topics[:max_topics]
+            if opts.max_topics:
+                topics = topics[: opts.max_topics]
         report["topics_intake"] = len(topics)
+        return topics
 
-        # 1b. EXECUTE — advance develop/skill Loops one step through the SAME hot
-        # path (CONCEPT:AU-KG.research.these-properties-carry L3): develop runs act→validate, skill runs its
-        # skill/skill-workflow. Research loops fall through to acquire_resolve below.
+    def _cycle_topic_stages(
+        self,
+        report: dict[str, Any],
+        stage: Callable,
+        opts: _CycleOptions,
+        topics: list[dict[str, Any]],
+    ) -> None:
+        """Stages 1b … 5 — advance the intake topics.
+
+        ``execute`` advances develop/skill Loops one step through the SAME hot
+        path (CONCEPT:AU-KG.research.these-properties-carry L3): develop runs
+        act→validate, skill runs its skill/skill-workflow. Research loops fall
+        through to ``acquire_resolve`` (ACQUIRE related sources + RESOLVE
+        ADDRESSES so the loop converges), then the gated propose-only ``distill``
+        (spec drafts → .specify/) and ``synthesize`` (a team proposal).
+        """
         exec_loops = [t for t in topics if t.get("kind", "research") != "research"]
         if exec_loops:
-            report["executed"] = _stage(
+            report["executed"] = stage(
                 "execute", lambda: self._run_execute_loops(exec_loops)
             )
+        if not topics:
+            return
+        stage("acquire_resolve", lambda: self._acquire_resolve(report, topics))
+        if opts.distill:
+            report["spec_drafts"] = (
+                stage("distill", lambda: self._distill_specs(topics)) or []
+            )
+        if opts.synthesize:
+            report["team"] = stage("synthesize", lambda: self._synthesize_team(topics))
 
-        if topics:
-            # 2–3. ACQUIRE related sources + RESOLVE (ADDRESSES) so the loop converges.
-            def _acquire_resolve():
-                from ..enrichment.semantic import make_embed_fn
-                from .search import _ACQUIRE_TIMEOUT_S, bounded_embed
+    def _acquire_resolve(
+        self, report: dict[str, Any], topics: list[dict[str, Any]]
+    ) -> None:
+        """Stages 2–3 — acquire related sources and mark the topics ADDRESSED.
 
-                # Build the embedder ONCE per cycle (not per topic), then a single
-                # bounded probe: if embeddings are down, skip the whole stage in
-                # seconds instead of paying the per-topic timeout for every topic.
-                embed_fn = make_embed_fn()
-                if bounded_embed(embed_fn, "ping", _ACQUIRE_TIMEOUT_S) is None:
-                    report["errors"].append(
-                        "acquire_resolve:embedding endpoint unavailable — stage skipped"
-                    )
-                    return
-                for t in topics:
-                    # Only RESEARCH loops are resolved by acquiring sources; develop/
-                    # skill loops are advanced by their own stages (CONCEPT:AU-KG.research.these-properties-carry,
-                    # L3) and must NOT be marked addressed by semantic sources here.
-                    if t.get("kind", "research") != "research":
-                        continue
-                    srcs = acquire_for_topic_perspectival(
-                        self.engine, t, embed_fn=embed_fn
-                    )
-                    if srcs:
-                        n = mark_addressed(
-                            self.engine, t["id"], srcs, source="loop_engine"
-                        )
-                        if n:
-                            report["topics_resolved"] += 1
-                            report["sources_linked"] += n
+        The embedder is built ONCE per cycle (not per topic), then a single
+        bounded probe: if embeddings are down, skip the whole stage in seconds
+        instead of paying the per-topic timeout for every topic.
+        """
+        from ..enrichment.semantic import make_embed_fn
+        from .search import _ACQUIRE_TIMEOUT_S, bounded_embed
 
-            _stage("acquire_resolve", _acquire_resolve)
+        embed_fn = make_embed_fn()
+        if bounded_embed(embed_fn, "ping", _ACQUIRE_TIMEOUT_S) is None:
+            report["errors"].append(
+                "acquire_resolve:embedding endpoint unavailable — stage skipped"
+            )
+            return
+        for t in topics:
+            # Only RESEARCH loops are resolved by acquiring sources; develop/
+            # skill loops are advanced by their own stages (CONCEPT:AU-KG.research.these-properties-carry,
+            # L3) and must NOT be marked addressed by semantic sources here.
+            if t.get("kind", "research") != "research":
+                continue
+            srcs = acquire_for_topic_perspectival(self.engine, t, embed_fn=embed_fn)
+            if not srcs:
+                continue
+            n = mark_addressed(self.engine, t["id"], srcs, source="loop_engine")
+            if n:
+                report["topics_resolved"] += 1
+                report["sources_linked"] += n
 
-            # 4. DISTILL spec drafts (gated; propose-only → .specify/).
-            if distill:
-                report["spec_drafts"] = (
-                    _stage("distill", lambda: self._distill_specs(topics)) or []
-                )
+    def _cycle_tail_stages(
+        self, report: dict[str, Any], stage: Callable, opts: _CycleOptions
+    ) -> None:
+        """Stages 6–7 — the two opt-in tail stages.
 
-            # 5. SYNTHESIZE a team proposal for the open topics (propose-only).
-            if synthesize:
-                report["team"] = _stage(
-                    "synthesize", lambda: self._synthesize_team(topics)
-                )
-
-        # 6. SELF-PLAY SEARCH-TASK SYNTHESIS (CONCEPT:AU-KG.retrieval.evidence-graph-workspace/2.71/2.72) — build
-        # shortcut-resistant deep-search tasks from the evidence graph and draft a
-        # training corpus (propose-only). Opt-in: it does not depend on open
-        # topics and is skipped by default to keep the zero-infra cycle cheap.
-        if synthesize_search:
-            report["search_tasks"] = _stage(
+        ``synthesize_search`` (CONCEPT:AU-KG.retrieval.evidence-graph-workspace/
+        2.71/2.72) builds shortcut-resistant deep-search tasks from the evidence
+        graph and drafts a training corpus (propose-only). It does not depend on
+        open topics and is skipped by default to keep the zero-infra cycle cheap.
+        ``tri_evolution`` (CONCEPT:AU-AHE.harness.co-evolve-research) co-evolves
+        the research proposer/solver/judge and reports the ablation that proves
+        co-evolution beats solo (HOTE arXiv:2606.13710) — off by default; the CPU
+        ablation harness runs without LLMs.
+        """
+        if opts.synthesize_search:
+            report["search_tasks"] = stage(
                 "synthesize_search", self._synthesize_search_tasks
             )
-
-        # 7. HYBRID TRI-EVOLUTION (CONCEPT:AU-AHE.harness.co-evolve-research) — co-evolve the research
-        # proposer/solver/judge and report the ablation that proves co-evolution
-        # beats solo (HOTE arXiv:2606.13710). Opt-in (off by default): the CPU
-        # ablation harness runs without LLMs; the LLM-backed integration of the
-        # real OntologyReasoningDriver/ARA/ConceptMatcher is the production path.
-        if tri_evolution:
-            report["tri_evolution"] = _stage("tri_evolution", self._run_tri_evolution)
-
-        self._finalize_metrics(report, cycle_start)
-        # PA-R0.1: the cycle completed — finalize the durable run so the next daemon
-        # tick starts fresh (a crash before this leaves the run resumable).
-        run.finish()
-        return report
+        if opts.tri_evolution:
+            report["tri_evolution"] = stage("tri_evolution", self._run_tri_evolution)
 
     # ------------------------------------------------------------------
     def _run_tri_evolution(self, *, rounds: int = 20) -> dict[str, Any]:
@@ -715,23 +882,35 @@ class LoopController:
         double with no Cypher support at all).
         """
         q = getattr(self.engine, "query_cypher", None)
-        if callable(q):
-            try:
-                rows = q(
-                    "MATCH (n) WHERE n.id = $id RETURN n.id AS id, n.hash AS hash LIMIT 1",
-                    {"id": _WATERMARK_NODE},
-                )
-            except Exception:  # noqa: BLE001 - fall back to the full scan
-                rows = None
-            else:
-                if not rows:
-                    return None
-                row = rows[0]
-                if isinstance(row, dict):
-                    return row.get("hash")
-                if isinstance(row, list | tuple) and row:
-                    return row[0]
-                return None
+        if not callable(q):
+            return self._watermark_from_scan()
+        try:
+            rows = q(
+                "MATCH (n) WHERE n.id = $id RETURN n.id AS id, n.hash AS hash LIMIT 1",
+                {"id": _WATERMARK_NODE},
+            )
+        except Exception:  # noqa: BLE001 - fall back to the full scan
+            return self._watermark_from_scan()
+        return self._watermark_from_row(rows)
+
+    @staticmethod
+    def _watermark_from_row(rows: Any) -> str | None:
+        """Read the hash out of the bounded id-match's single row, if any."""
+        if not rows:
+            return None
+        row = rows[0]
+        if isinstance(row, dict):
+            return row.get("hash")
+        if isinstance(row, list | tuple) and row:
+            return row[0]
+        return None
+
+    def _watermark_from_scan(self) -> str | None:
+        """Last-resort ``graph.nodes()`` scan — only when Cypher is unavailable.
+
+        See :meth:`_load_watermark` for why this must never run against a live
+        engine at ecosystem scale.
+        """
         graph = getattr(self.engine, "graph", None)
         if graph is None:
             return None
@@ -762,11 +941,9 @@ class LoopController:
         O(cohort), and the matrix is materialized to ``matrix_node_id`` (a cohort
         gets its own node instead of overwriting the ecosystem-wide one).
         """
-        pre = self._state_watermark()
-        # The watermark guards the WHOLE-graph cycle; a scoped (cohort) pass always
-        # runs — its delta isn't reflected in the global watermark.
-        if not force and restrict_to is None and pre and pre == self._load_watermark():
-            return {"skipped": True, "reason": "unchanged", "watermark": pre}
+        unchanged = self._assimilate_watermark_skip(force, restrict_to)
+        if unchanged is not None:
+            return unchanged
 
         from agent_utilities.core.resource_priority import (
             PriorityClass,
@@ -821,37 +998,9 @@ class LoopController:
                 feature_ids=(list(restrict_to) if restrict_to is not None else None),
             )
 
-        # Materialize the comparative feature/innovation matrix from the now-
-        # assimilated graph (CONCEPT:AU-KG.research.default-so-every-cycle) — default-ON so every cycle emits the
-        # deliverable: coverage rows, leverage-ranked novel gaps, and the cross-source
-        # synergy bundles (the combine-to-surpass candidates).
-        matrix_summary: dict[str, Any] = {}
-        try:
-            from datetime import UTC, datetime
-
-            from ..assimilation.feature_matrix import build_feature_matrix, materialize
-
-            with _pstage("matrix"):
-                matrix = build_feature_matrix(
-                    self.engine,
-                    generated_at=datetime.now(UTC).isoformat(),
-                    restrict_to=restrict_to,
-                )
-                matrix_summary = materialize(
-                    self.engine, matrix, node_id=matrix_node_id
-                )
-        except Exception as e:  # noqa: BLE001 — best-effort, never fails the cycle
-            logger.debug("feature matrix materialize failed: %s", e)
-
+        matrix_summary = self._assimilate_matrix(restrict_to, matrix_node_id)
         watermark = self._state_watermark()
-        try:
-            self.engine.add_node(
-                _WATERMARK_NODE,
-                "assimilation_watermark",
-                properties={"hash": watermark},
-            )
-        except Exception as e:  # noqa: BLE001 - watermark persistence is best-effort
-            logger.debug("watermark persist failed: %s", e)
+        self._persist_watermark(watermark)
 
         return {
             "skipped": False,
@@ -873,6 +1022,58 @@ class LoopController:
             "feature_matrix": matrix_summary,
             "watermark": watermark,
         }
+
+    def _assimilate_watermark_skip(
+        self, force: bool, restrict_to: set[str] | None
+    ) -> dict[str, Any] | None:
+        """The idempotence gate: an unchanged input watermark skips the whole pass.
+
+        The watermark guards the WHOLE-graph cycle; a scoped (cohort) pass always
+        runs — its delta isn't reflected in the global watermark.
+        """
+        pre = self._state_watermark()
+        if not force and restrict_to is None and pre and pre == self._load_watermark():
+            return {"skipped": True, "reason": "unchanged", "watermark": pre}
+        return None
+
+    def _assimilate_matrix(
+        self, restrict_to: set[str] | None, matrix_node_id: str
+    ) -> dict[str, Any]:
+        """Materialize the comparative feature/innovation matrix (best-effort).
+
+        CONCEPT:AU-KG.research.default-so-every-cycle — default-ON so every cycle
+        emits the deliverable: coverage rows, leverage-ranked novel gaps, and the
+        cross-source synergy bundles (the combine-to-surpass candidates). Never
+        fails the cycle.
+        """
+        from ..core.ingest_profile import stage as _pstage
+
+        try:
+            from datetime import UTC, datetime
+
+            from ..assimilation.feature_matrix import build_feature_matrix, materialize
+
+            with _pstage("matrix"):
+                matrix = build_feature_matrix(
+                    self.engine,
+                    generated_at=datetime.now(UTC).isoformat(),
+                    restrict_to=restrict_to,
+                )
+                return materialize(self.engine, matrix, node_id=matrix_node_id)
+        except Exception as e:  # noqa: BLE001 — best-effort, never fails the cycle
+            logger.debug("feature matrix materialize failed: %s", e)
+            return {}
+
+    def _persist_watermark(self, watermark: str) -> None:
+        """Stamp the post-pass input watermark so the next cycle can skip."""
+        try:
+            self.engine.add_node(
+                _WATERMARK_NODE,
+                "assimilation_watermark",
+                properties={"hash": watermark},
+            )
+        except Exception as e:  # noqa: BLE001 - watermark persistence is best-effort
+            logger.debug("watermark persist failed: %s", e)
 
     def _run_intake_papers(self, papers: list[dict[str, Any]] | None) -> dict[str, Any]:
         """Discover + ingest research papers as the cycle's front stage.
@@ -1078,10 +1279,38 @@ class LoopController:
 
     def _mine_capability_anomalies(self, errors: list[str]) -> dict[str, Any]:
         """Coverage-divergence anomaly pass over ``Capability`` nodes (see class docstring)."""
-        import json as _json
+        empty: dict[str, Any] = {"count": 0, "examples": []}
+        coverage = self._capability_coverage(errors)
+        if coverage is None:
+            return empty
+        ids, values = coverage
+        if len(values) < 3:
+            # Not enough population for a meaningful outlier pass — empty, not an error.
+            return empty
+        payload = self._invoke_mining(
+            errors,
+            ("mine_anomaly:invoke", "mine_anomaly"),
+            "mining",
+            "anomaly",
+            {"values": values, "algorithm": "zscore", "writeback": True},
+        )
+        if payload is None:
+            return empty
+        result = payload.get("result") or {}
+        examples = self._anomaly_examples(result.get("rows") or [], ids, values)
+        return {
+            "count": int(result.get("n_anomalies") or len(examples)),
+            "examples": examples,
+        }
 
-        from agent_utilities.mcp.tools.engine_surface_tools import _invoke
+    def _capability_coverage(
+        self, errors: list[str]
+    ) -> tuple[list[Any], list[float]] | None:
+        """Bounded ``(capability id, covered-concept count)`` population for the pass.
 
+        Returns None when the query itself failed (a query failure degrades, never
+        raises).
+        """
         try:
             rows = (
                 self.engine.query_cypher(
@@ -1094,33 +1323,15 @@ class LoopController:
             )
         except Exception as e:  # noqa: BLE001 — a query failure degrades, never raises
             errors.append(f"mine_anomaly:query: {e}")
-            return {"count": 0, "examples": []}
-        ids = [r["id"] for r in rows if isinstance(r, dict) and r.get("id")]
-        values = [
-            float(r.get("covered") or 0)
-            for r in rows
-            if isinstance(r, dict) and r.get("id")
-        ]
-        if len(values) < 3:
-            # Not enough population for a meaningful outlier pass — empty, not an error.
-            return {"count": 0, "examples": []}
-        try:
-            raw = _invoke(
-                surface="mining",
-                action="anomaly",
-                graph="",
-                candidates=(("mining", "anomaly"),),
-                params={"values": values, "algorithm": "zscore", "writeback": True},
-            )
-            payload = _json.loads(raw)
-        except Exception as e:  # noqa: BLE001
-            errors.append(f"mine_anomaly:invoke: {e}")
-            return {"count": 0, "examples": []}
-        if not self._mining_ok(payload):
-            errors.append(f"mine_anomaly: {payload.get('error') or payload}")
-            return {"count": 0, "examples": []}
-        result = payload.get("result") or {}
-        rows_out = result.get("rows") or []
+            return None
+        valid = [r for r in rows if isinstance(r, dict) and r.get("id")]
+        return [r["id"] for r in valid], [float(r.get("covered") or 0) for r in valid]
+
+    @staticmethod
+    def _anomaly_examples(
+        rows_out: list[Any], ids: list[Any], values: list[float]
+    ) -> list[dict[str, Any]]:
+        """At most five flagged rows, re-joined to the capability they came from."""
         examples: list[dict[str, Any]] = []
         for idx, row in enumerate(rows_out):
             if not (isinstance(row, dict) and row.get("is_anomaly")):
@@ -1134,65 +1345,80 @@ class LoopController:
             )
             if len(examples) >= 5:
                 break
-        return {
-            "count": int(result.get("n_anomalies") or len(examples)),
-            "examples": examples,
-        }
+        return examples
 
-    def _mine_predicted_edges(self, errors: list[str]) -> dict[str, Any]:
-        """``graph_learn`` fit→predict link prediction over ``Concept`` nodes (see class docstring)."""
+    def _invoke_mining(
+        self,
+        errors: list[str],
+        labels: tuple[str, str],
+        surface: str,
+        action: str,
+        params: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """One engine-surface mining call, decoded and success-checked.
+
+        ``labels`` is the ``(invoke-failure, unsuccessful-payload)`` error-message
+        prefix pair for this call site. Returns None on either failure — every
+        mining sub-step degrades to a no-op rather than raising.
+        """
         import json as _json
 
         from agent_utilities.mcp.tools.engine_surface_tools import _invoke
 
+        invoke_label, fail_label = labels
         try:
-            raw = _invoke(
-                surface="graphlearn",
-                action="fit",
-                graph="",
-                candidates=(("graphlearn", "fit"),),
-                params={
-                    "node_label": "Concept",
-                    "direction": "any",
-                    "epochs": 50,
-                    "writeback": False,
-                },
+            payload = _json.loads(
+                _invoke(
+                    surface=surface,
+                    action=action,
+                    graph="",
+                    candidates=((surface, action),),
+                    params=params,
+                )
             )
-            fit_payload = _json.loads(raw)
         except Exception as e:  # noqa: BLE001
-            errors.append(f"mine_predict:fit: {e}")
-            return {"count": 0, "examples": []}
-        if not self._mining_ok(fit_payload):
-            errors.append(
-                f"mine_predict:fit: {fit_payload.get('error') or fit_payload}"
-            )
-            return {"count": 0, "examples": []}
+            errors.append(f"{invoke_label}: {e}")
+            return None
+        if not self._mining_ok(payload):
+            errors.append(f"{fail_label}: {payload.get('error') or payload}")
+            return None
+        return payload
+
+    def _mine_predicted_edges(self, errors: list[str]) -> dict[str, Any]:
+        """``graph_learn`` fit→predict link prediction over ``Concept`` nodes (see class docstring)."""
+        empty: dict[str, Any] = {"count": 0, "examples": []}
+        fit_payload = self._invoke_mining(
+            errors,
+            ("mine_predict:fit", "mine_predict:fit"),
+            "graphlearn",
+            "fit",
+            {
+                "node_label": "Concept",
+                "direction": "any",
+                "epochs": 50,
+                "writeback": False,
+            },
+        )
+        if fit_payload is None:
+            return empty
         model = (fit_payload.get("result") or {}).get("model")
         if not model:
             errors.append("mine_predict:fit: no model returned")
-            return {"count": 0, "examples": []}
-        try:
-            raw = _invoke(
-                surface="graphlearn",
-                action="predict",
-                graph="",
-                candidates=(("graphlearn", "predict"),),
-                params={
-                    "model": model,
-                    "node_label": "Concept",
-                    "top_k": 10,
-                    "writeback": True,
-                },
-            )
-            predict_payload = _json.loads(raw)
-        except Exception as e:  # noqa: BLE001
-            errors.append(f"mine_predict:predict: {e}")
-            return {"count": 0, "examples": []}
-        if not self._mining_ok(predict_payload):
-            errors.append(
-                f"mine_predict:predict: {predict_payload.get('error') or predict_payload}"
-            )
-            return {"count": 0, "examples": []}
+            return empty
+        predict_payload = self._invoke_mining(
+            errors,
+            ("mine_predict:predict", "mine_predict:predict"),
+            "graphlearn",
+            "predict",
+            {
+                "model": model,
+                "node_label": "Concept",
+                "top_k": 10,
+                "writeback": True,
+            },
+        )
+        if predict_payload is None:
+            return empty
         result = predict_payload.get("result") or {}
         predicted = result.get("predicted") or []
         semantic_events = self._emit_predicted_edges_as_semantic_events(
@@ -1235,63 +1461,16 @@ class LoopController:
         raises, and emits nothing (``{"emitted": 0}``) when there are no
         above-floor predictions or no reachable engine.
         """
-        above_floor = [
-            row
-            for row in predicted
-            if isinstance(row, dict) and row.get("src") and row.get("dst")
-        ]
+        above_floor = self._predictable_rows(predicted)
         if not above_floor or self.engine is None:
             return {"emitted": 0}
 
         from ..ingestion.envelope_ingest import ingest_graph_slice
-        from ..ingestion.semantic_event_model import (
-            BusinessObject,
-            NeuralRelationPrediction,
-            ObjectCentricGraphSlice,
-            OcelObjectType,
-            SemanticEntityRef,
-        )
 
         try:
-            from agent_utilities.security.brain_context import current_actor
-
-            tenant = current_actor().tenant_id or "kg-mining"
-        except Exception:  # noqa: BLE001 — no ambient actor outside a request context
-            tenant = "kg-mining"
-
-        object_ids = sorted(
-            {str(row["src"]) for row in above_floor}
-            | {str(row["dst"]) for row in above_floor}
-        )
-        predictions = [
-            NeuralRelationPrediction(
-                prediction_id=f"{row['src']}->{row['dst']}",
-                subject=SemanticEntityRef(kind="object", source_id=str(row["src"])),
-                predicate="predicted_related_to",
-                object=SemanticEntityRef(kind="object", source_id=str(row["dst"])),
-                score=(score := max(0.0, min(1.0, float(row.get("score") or 0.0)))),
-                uncertainty=round(1.0 - score, 6),
-                model_ref="graphlearn:kan-link-predictor",
-                candidate_set_ref=f"graphlearn:{node_label}",
-                evidence_refs=(str(row["src"]), str(row["dst"])),
-            )
-            for row in above_floor
-        ]
-
-        try:
-            slice_ = ObjectCentricGraphSlice(
-                log_id=f"neural-relation-predictions:{node_label}",
-                source_ref="loop_controller:mine_predicted_edges",
-                mapping_version="neural-relation-prediction-1.0",
-                object_types=(OcelObjectType(name=node_label),),
-                objects=tuple(
-                    BusinessObject(object_id=object_id, object_type=node_label)
-                    for object_id in object_ids
-                ),
-                neural_predictions=tuple(predictions),
-            )
+            slice_, predictions = self._prediction_slice(above_floor, node_label)
             envelope = slice_.to_change_envelope(
-                tenant=tenant,
+                tenant=self._mining_tenant(),
                 provenance={
                     "source": "loop_controller._mine_predicted_edges",
                     "predictor": "graphlearn:kan-link-predictor",
@@ -1322,6 +1501,69 @@ class LoopController:
             "envelope_id": applied.get("envelope_id"),
         }
 
+    @staticmethod
+    def _predictable_rows(predicted: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Only predictions carrying BOTH endpoints can become a semantic event."""
+        return [
+            row
+            for row in predicted
+            if isinstance(row, dict) and row.get("src") and row.get("dst")
+        ]
+
+    @staticmethod
+    def _mining_tenant() -> str:
+        """The ambient actor's tenant, or the mining default outside a request."""
+        try:
+            from agent_utilities.security.brain_context import current_actor
+
+            return current_actor().tenant_id or "kg-mining"
+        except Exception:  # noqa: BLE001 — no ambient actor outside a request context
+            return "kg-mining"
+
+    @staticmethod
+    def _prediction_slice(
+        above_floor: list[dict[str, Any]], node_label: str
+    ) -> tuple[Any, list[Any]]:
+        """Build the one validated ``ObjectCentricGraphSlice`` for these predictions."""
+        from ..ingestion.semantic_event_model import (
+            BusinessObject,
+            NeuralRelationPrediction,
+            ObjectCentricGraphSlice,
+            OcelObjectType,
+            SemanticEntityRef,
+        )
+
+        object_ids = sorted(
+            {str(row["src"]) for row in above_floor}
+            | {str(row["dst"]) for row in above_floor}
+        )
+        predictions = [
+            NeuralRelationPrediction(
+                prediction_id=f"{row['src']}->{row['dst']}",
+                subject=SemanticEntityRef(kind="object", source_id=str(row["src"])),
+                predicate="predicted_related_to",
+                object=SemanticEntityRef(kind="object", source_id=str(row["dst"])),
+                score=(score := max(0.0, min(1.0, float(row.get("score") or 0.0)))),
+                uncertainty=round(1.0 - score, 6),
+                model_ref="graphlearn:kan-link-predictor",
+                candidate_set_ref=f"graphlearn:{node_label}",
+                evidence_refs=(str(row["src"]), str(row["dst"])),
+            )
+            for row in above_floor
+        ]
+        slice_ = ObjectCentricGraphSlice(
+            log_id=f"neural-relation-predictions:{node_label}",
+            source_ref="loop_controller:mine_predicted_edges",
+            mapping_version="neural-relation-prediction-1.0",
+            object_types=(OcelObjectType(name=node_label),),
+            objects=tuple(
+                BusinessObject(object_id=object_id, object_type=node_label)
+                for object_id in object_ids
+            ),
+            neural_predictions=tuple(predictions),
+        )
+        return slice_, predictions
+
     # -- X-6 / Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance) -- #
     def _register_derived_claim(
         self, claim: Any, errors: list[str], context: str
@@ -1338,6 +1580,162 @@ class LoopController:
         from .candidate_insight import register_claim_materialization
 
         register_claim_materialization(self.engine, claim, errors, context=context)
+
+    # -- shared mined-claim pipeline mechanics ------------------------------- #
+    @staticmethod
+    def _guarded(
+        errors: list[str], label: str, fn: Callable[[], Any]
+    ) -> tuple[bool, Any]:
+        """Run one best-effort pipeline sub-step; record any failure, never raise.
+
+        Every sub-step of the mined-claim pipeline is independently best-effort
+        (mirroring the ``_mine_*``/belief-revision sub-step tolerance) so one bad
+        candidate never blocks the rest. Returns ``(ok, result)`` — callers that
+        must abandon the candidate branch on ``not ok``.
+        """
+        try:
+            return True, fn()
+        except Exception as e:  # noqa: BLE001 — every mining sub-step is best-effort
+            errors.append(f"{label}: {e}")
+            return False, None
+
+    @staticmethod
+    def _claim_spec(claim: Any) -> dict[str, Any]:
+        """The ``PromotionGovernanceValidator``/``GovernedAutoMerger`` view of a claim."""
+        return {
+            "id": claim.id,
+            "name": claim.name,
+            "goal": claim.claim_text,
+            "description": claim.claim_text,
+            "quality_score": claim.confidence,
+            "type": "Claim",
+        }
+
+    @staticmethod
+    def _claim_record(
+        cand: Any, claim: Any, verdict: Any, decision: Any, outcome_key: str
+    ) -> dict[str, Any]:
+        """The per-candidate example row, with its stage-specific outcome flag."""
+        return {
+            "claim_id": claim.id,
+            "finding_type": cand.finding_type,
+            "confidence": round(cand.confidence, 4),
+            "governance_valid": verdict.valid,
+            "action_decision": decision.decision,
+            outcome_key: False,
+        }
+
+    @staticmethod
+    def _note_claim_example(ctx: _ClaimPipelineRun, record: dict[str, Any]) -> None:
+        """Keep at most five example rows per stage for the returned summary."""
+        if len(ctx.examples) < 5:
+            ctx.examples.append(record)
+
+    def _note_retracted(self, ctx: _ClaimPipelineRun, cand: Any, claim: Any) -> None:
+        """X3: a retracted claim is never re-proposed — record the skip and move on.
+
+        This holds even when re-mining produces the identical content-addressed
+        finding id again.
+        """
+        self._note_claim_example(
+            ctx,
+            {
+                "claim_id": claim.id,
+                "finding_type": cand.finding_type,
+                "confidence": round(cand.confidence, 4),
+                "skipped": "retracted",
+            },
+        )
+
+    def _persist_claim_proposal(
+        self, ctx: _ClaimPipelineRun, cand: Any, claim: Any, bundle: Any
+    ) -> bool:
+        """Persist the proposal ALWAYS — propose-only is this controller's floor.
+
+        ``type`` is excluded from the dump: ClaimNode's own ``type`` field (the
+        RegistryNodeType enum value, e.g. "claim") would otherwise collide with
+        the ``"Claim"`` node-label positional arg once merged into
+        ``properties``. On success this also runs the X-6 / Seam 3 shared
+        writeback (CONCEPT:EG-KG.epistemic.truth-maintenance — see
+        ``_register_derived_claim``) and records the flywheel's PROPOSED event.
+        Returns False when the persist itself failed (abandon the candidate).
+        """
+        ok, _ = self._guarded(
+            ctx.errors,
+            f"{ctx.stage}:persist {claim.id}",
+            lambda: self.engine.add_node(
+                claim.id,
+                "Claim",
+                properties={
+                    **claim.to_graph_properties(),
+                    "status": "proposal",
+                    "evidence_bundle_json": bundle.model_dump_json(),
+                },
+            ),
+        )
+        if not ok:
+            return False
+        ctx.persisted += 1
+        self._register_derived_claim(claim, ctx.errors, ctx.stage)
+        self._guarded(
+            ctx.errors,
+            f"{ctx.stage}:flywheel_propose {claim.id}",
+            lambda: ctx.flywheel.propose(
+                claim.id, reason=f"mined {cand.finding_type} finding"
+            ),
+        )
+        return True
+
+    def _validate_claim(self, ctx: _ClaimPipelineRun, claim: Any) -> Any:
+        """REUSE ``promotion_governance`` as-is, never reimplemented.
+
+        Returns the verdict, or None when the validator itself errored (a
+        validator error holds the candidate, never crashes the cycle). The
+        flywheel's VALIDATED event is a best-effort audit overlay on top.
+        """
+        ok, verdict = self._guarded(
+            ctx.errors,
+            f"{ctx.stage}:validate {claim.id}",
+            lambda: ctx.validator.validate(self._claim_spec(claim)),
+        )
+        if not ok:
+            return None
+        self._guarded(
+            ctx.errors,
+            f"{ctx.stage}:flywheel_validate {claim.id}",
+            lambda: ctx.flywheel.validate(
+                claim.id, verdict.valid, reason="; ".join(verdict.failures)
+            ),
+        )
+        return verdict
+
+    def _gate_claim(self, ctx: _ClaimPipelineRun, claim: Any, request: Any) -> Any:
+        """SAFETY-CRITICAL action gate — unconditional, for every above-floor claim.
+
+        A mined claim is NEVER promoted (or routed) without this
+        ``action_policy.decide()`` call on the path, autonomy on or off; the
+        shipped default tier for both reserved kinds is ``approval_required``.
+        Returns the decision, or None when the gate itself errored (fail closed).
+        A ``deny`` additionally records the flywheel's REJECTED event.
+        """
+        ok, decision = self._guarded(
+            ctx.errors,
+            f"{ctx.stage}:action_policy {claim.id}",
+            lambda: ctx.action_policy.decide(request),
+        )
+        if not ok:
+            return None
+        if decision.decision == "deny":
+            self._guarded(
+                ctx.errors,
+                f"{ctx.stage}:flywheel_reject {claim.id}",
+                lambda: ctx.flywheel.reject(
+                    claim.id,
+                    reason=f"action_policy denied: {decision.reason}",
+                    action_decision=decision.decision,
+                ),
+            )
+        return decision
 
     # -- Insight Engine closed loop (CONCEPT:AU-KG.evolution.insight-engine-closed-loop, workstream C4) -- #
     def _run_insight_validation(
@@ -1392,7 +1790,8 @@ class LoopController:
         Every sub-step is independently best-effort (mirroring the ``_mine_*``/
         belief-revision sub-step tolerance) so one bad candidate never blocks the
         rest. Best-effort + gated (``KG_LOOP_INSIGHT_VALIDATION``, default ON —
-        this stage is itself propose-only regardless of the flag).
+        this stage is itself propose-only regardless of the flag). The per-candidate
+        body is :meth:`_insight_candidate`.
 
         ``evidence`` (lane 7.1, CONCEPT:AU-KG.evolution.unified-evidence-resource) —
         the cycle's ``_run_evidence_intake``-gathered :class:`~.evidence.Evidence`
@@ -1402,220 +1801,157 @@ class LoopController:
         candidate loop below — five evidence channels, one governance pipeline.
         """
         from agent_utilities.core.config import config as _cfg
-        from agent_utilities.orchestration.action_policy import (
-            ActionRequest,
-            get_action_policy,
-        )
+        from agent_utilities.orchestration.action_policy import get_action_policy
 
-        from .auto_merge import GovernedAutoMerger, MergePolicy
         from .candidate_insight import candidates_from_mine_discovery
         from .claim_flywheel import ClaimFlywheel
-        from .evidence import (
-            candidates_from_evidence,
-            from_candidate_insight,
-            record_evidence,
-        )
+        from .evidence import candidates_from_evidence
         from .promotion_governance import PromotionGovernanceValidator
 
-        errors: list[str] = []
         candidates = candidates_from_mine_discovery(mine_result)
         candidates.extend(candidates_from_evidence(evidence))
         below_floor = [c for c in candidates if not c.clears_floor]
         eligible = [c for c in candidates if c.clears_floor]
 
-        validator = PromotionGovernanceValidator(self.engine)
-        action_policy = get_action_policy(self.engine)
-        # X3 — the epistemic mining flywheel's lifecycle overlay (CONCEPT:AU-KG.
-        # evolution.mining-flywheel). One instance per cycle so its in-process
-        # cache keeps a single candidate's propose→validate→accept sequence
-        # correct even against a minimal engine double; cross-cycle
-        # retracted-memory (a claim never re-proposed) additionally depends on
-        # the engine's own query_cypher reflecting prior writes.
-        flywheel = ClaimFlywheel(self.engine)
-        autonomy_on = bool(_cfg.kg_insight_autonomy)
-
-        persisted = 0
-        promoted = 0
-        examples: list[dict[str, Any]] = []
-
+        # X3 — one ClaimFlywheel instance per cycle so its in-process cache keeps
+        # a single candidate's propose→validate→accept sequence correct even
+        # against a minimal engine double; cross-cycle retracted-memory (a claim
+        # never re-proposed) additionally depends on the engine's own
+        # query_cypher reflecting prior writes.
+        ctx = _ClaimPipelineRun(
+            stage="insight_validation",
+            validator=PromotionGovernanceValidator(self.engine),
+            action_policy=get_action_policy(self.engine),
+            flywheel=ClaimFlywheel(self.engine),
+            autonomy_on=bool(_cfg.kg_insight_autonomy),
+        )
         for cand in eligible:
-            claim = cand.to_claim_node()
-            bundle = cand.to_evidence_bundle()
-
-            # -- X3: a retracted claim is never re-proposed, even when re-mining
-            # produces the identical content-addressed finding id again. --
-            if flywheel.is_retracted(claim.id):
-                if len(examples) < 5:
-                    examples.append(
-                        {
-                            "claim_id": claim.id,
-                            "finding_type": cand.finding_type,
-                            "confidence": round(cand.confidence, 4),
-                            "skipped": "retracted",
-                        }
-                    )
-                continue
-
-            spec = {
-                "id": claim.id,
-                "name": claim.name,
-                "goal": claim.claim_text,
-                "description": claim.claim_text,
-                "quality_score": claim.confidence,
-                "type": "Claim",
-            }
-
-            # -- persist the proposal (ALWAYS; propose-only is the floor every
-            # other stage in this controller already guarantees). ``type`` is
-            # excluded from the dump: ClaimNode's own ``type`` field (the
-            # RegistryNodeType enum value, e.g. "claim") would otherwise collide
-            # with the ``"Claim"`` node-label positional arg once merged into
-            # ``properties``. --
-            try:
-                self.engine.add_node(
-                    claim.id,
-                    "Claim",
-                    properties={
-                        **claim.to_graph_properties(),
-                        "status": "proposal",
-                        "evidence_bundle_json": bundle.model_dump_json(),
-                    },
-                )
-                persisted += 1
-            except Exception as e:  # noqa: BLE001 — persistence is best-effort
-                errors.append(f"insight_validation:persist {claim.id}: {e}")
-                continue
-
-            # -- X-6 / Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance): the shared
-            # writeback seam — see ``_register_derived_claim`` docstring. --
-            self._register_derived_claim(claim, errors, "insight_validation")
-
-            # -- X3: record the flywheel's PROPOSED event (best-effort audit
-            # overlay; never gates the pipeline above). --
-            try:
-                flywheel.propose(claim.id, reason=f"mined {cand.finding_type} finding")
-            except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
-                errors.append(f"insight_validation:flywheel_propose {claim.id}: {e}")
-
-            # -- validation: REUSE promotion_governance (which itself reuses the
-            # capability ratchet's recorded verdict) as-is, never reimplemented. --
-            try:
-                verdict = validator.validate(spec)
-            except Exception as e:  # noqa: BLE001 — a validator error holds, never crashes
-                errors.append(f"insight_validation:validate {claim.id}: {e}")
-                continue
-
-            try:
-                flywheel.validate(
-                    claim.id, verdict.valid, reason="; ".join(verdict.failures)
-                )
-            except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
-                errors.append(f"insight_validation:flywheel_validate {claim.id}: {e}")
-
-            # -- action gate: SAFETY-CRITICAL, unconditional. A mined claim is
-            # NEVER promoted without this call, autonomy on or off (see docstring). --
-            try:
-                decision = action_policy.decide(
-                    ActionRequest(
-                        kind="promote_mined_claim",
-                        target=claim.id,
-                        params={
-                            "finding_type": cand.finding_type,
-                            "confidence": cand.confidence,
-                            "governance_valid": verdict.valid,
-                        },
-                        source="loop_engine",
-                        reason=(
-                            f"promote mined {cand.finding_type} finding to a "
-                            "verified claim"
-                        ),
-                    )
-                )
-            except Exception as e:  # noqa: BLE001 — fail closed, never crash
-                errors.append(f"insight_validation:action_policy {claim.id}: {e}")
-                continue
-
-            if decision.decision == "deny":
-                try:
-                    flywheel.reject(
-                        claim.id,
-                        reason=f"action_policy denied: {decision.reason}",
-                        action_decision=decision.decision,
-                    )
-                except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
-                    errors.append(f"insight_validation:flywheel_reject {claim.id}: {e}")
-
-            record: dict[str, Any] = {
-                "claim_id": claim.id,
-                "finding_type": cand.finding_type,
-                "confidence": round(cand.confidence, 4),
-                "governance_valid": verdict.valid,
-                "action_decision": decision.decision,
-                "promoted": False,
-            }
-
-            # -- X3: opt-in autonomy tier (KG_INSIGHT_AUTONOMY, default OFF). Both
-            # the action-policy gate above AND governance validity must
-            # independently allow before the EXISTING GovernedAutoMerger is even
-            # consulted; the merger applies its OWN merge_promotion action-policy
-            # check + the same governance validator on top (belt-and-suspenders). --
-            if autonomy_on and verdict.valid and decision.allowed:
-                # quality_threshold=0.0: this stage's own confidence floor
-                # (CandidateInsight.clears_floor) already gated eligibility above;
-                # the merger's quality check is redundant here — governance
-                # validity + the action-policy decision already gathered are what
-                # matter for this reused evaluate()/consider() call.
-                merger = GovernedAutoMerger(
-                    self.engine,
-                    policy=MergePolicy(enabled=True, quality_threshold=0.0),
-                    governance_validator=validator,
-                    promoter=self._claim_promoter(claim, bundle, errors),
-                )
-                try:
-                    evaluation = merger.consider(spec)
-                    record["promoted"] = bool(evaluation.merged)
-                    record["merge_reason"] = evaluation.reason
-                    if evaluation.merged:
-                        promoted += 1
-                        self._accept_mined_claim(
-                            cand, claim, decision.decision, flywheel, record, errors
-                        )
-                except Exception as e:  # noqa: BLE001 — never crash the cycle
-                    errors.append(f"insight_validation:merge {claim.id}: {e}")
-
-            # -- lane 7.1 lineage companion: every claim (mined finding OR
-            # evidence-derived) gets a matching :EvolutionEvidence node under the
-            # research_finding channel, so ``evidence.evidence_lineage`` can walk
-            # trace -> evidence -> claim -> proposal end to end regardless of
-            # which mining pass produced the claim, WITH the final governance/
-            # promotion outcome (never the pre-decision guess). Best-effort audit
-            # overlay — never gates the pipeline above. --
-            try:
-                record_evidence(
-                    self.engine,
-                    from_candidate_insight(
-                        cand,
-                        governance_valid=verdict.valid,
-                        action_decision=decision.decision,
-                        promoted=record["promoted"],
-                    ),
-                )
-            except Exception as e:  # noqa: BLE001 — the lineage overlay is best-effort
-                errors.append(f"insight_validation:evidence_lineage {claim.id}: {e}")
-
-            if len(examples) < 5:
-                examples.append(record)
+            self._insight_candidate(ctx, cand)
 
         return {
             "candidates": len(candidates),
             "below_floor": len(below_floor),
             "eligible": len(eligible),
-            "persisted_claims": persisted,
-            "promoted": promoted,
-            "autonomy_enabled": autonomy_on,
-            "examples": examples,
-            "errors": errors,
+            "persisted_claims": ctx.persisted,
+            "promoted": ctx.promoted,
+            "autonomy_enabled": ctx.autonomy_on,
+            "examples": ctx.examples,
+            "errors": ctx.errors,
         }
+
+    def _insight_candidate(self, ctx: _ClaimPipelineRun, cand: Any) -> None:
+        """One above-floor mined finding through the C4 governance pipeline."""
+        from agent_utilities.orchestration.action_policy import ActionRequest
+
+        from .evidence import from_candidate_insight, record_evidence
+
+        claim = cand.to_claim_node()
+        bundle = cand.to_evidence_bundle()
+        if ctx.flywheel.is_retracted(claim.id):
+            self._note_retracted(ctx, cand, claim)
+            return
+        if not self._persist_claim_proposal(ctx, cand, claim, bundle):
+            return
+        verdict = self._validate_claim(ctx, claim)
+        if verdict is None:
+            return
+        decision = self._gate_claim(
+            ctx,
+            claim,
+            ActionRequest(
+                kind="promote_mined_claim",
+                target=claim.id,
+                params={
+                    "finding_type": cand.finding_type,
+                    "confidence": cand.confidence,
+                    "governance_valid": verdict.valid,
+                },
+                source="loop_engine",
+                reason=(
+                    f"promote mined {cand.finding_type} finding to a verified claim"
+                ),
+            ),
+        )
+        if decision is None:
+            return
+        record = self._claim_record(cand, claim, verdict, decision, "promoted")
+
+        # -- X3: opt-in autonomy tier (KG_INSIGHT_AUTONOMY, default OFF). Both
+        # the action-policy gate above AND governance validity must
+        # independently allow before the EXISTING GovernedAutoMerger is even
+        # consulted; the merger applies its OWN merge_promotion action-policy
+        # check + the same governance validator on top (belt-and-suspenders). --
+        if ctx.autonomy_on and verdict.valid and decision.allowed:
+            self._insight_promote(ctx, cand, claim, bundle, record)
+
+        # -- lane 7.1 lineage companion: every claim (mined finding OR
+        # evidence-derived) gets a matching :EvolutionEvidence node under the
+        # research_finding channel, so ``evidence.evidence_lineage`` can walk
+        # trace -> evidence -> claim -> proposal end to end regardless of
+        # which mining pass produced the claim, WITH the final governance/
+        # promotion outcome (never the pre-decision guess). Best-effort audit
+        # overlay — never gates the pipeline above. --
+        self._guarded(
+            ctx.errors,
+            f"{ctx.stage}:evidence_lineage {claim.id}",
+            lambda: record_evidence(
+                self.engine,
+                from_candidate_insight(
+                    cand,
+                    governance_valid=verdict.valid,
+                    action_decision=decision.decision,
+                    promoted=record["promoted"],
+                ),
+            ),
+        )
+        self._note_claim_example(ctx, record)
+
+    def _insight_promote(
+        self,
+        ctx: _ClaimPipelineRun,
+        cand: Any,
+        claim: Any,
+        bundle: Any,
+        record: dict[str, Any],
+    ) -> None:
+        """Reuse the EXISTING ``GovernedAutoMerger`` to flip proposal → active.
+
+        ``quality_threshold=0.0``: this stage's own confidence floor
+        (``CandidateInsight.clears_floor``) already gated eligibility; the
+        merger's quality check is redundant here — governance validity + the
+        action-policy decision already gathered are what matter for this reused
+        ``evaluate()``/``consider()`` call.
+        """
+        from .auto_merge import GovernedAutoMerger, MergePolicy
+
+        merger = GovernedAutoMerger(
+            self.engine,
+            policy=MergePolicy(enabled=True, quality_threshold=0.0),
+            governance_validator=ctx.validator,
+            promoter=self._claim_promoter(claim, bundle, ctx.errors),
+        )
+        ok, evaluation = self._guarded(
+            ctx.errors,
+            f"{ctx.stage}:merge {claim.id}",
+            lambda: merger.consider(self._claim_spec(claim)),
+        )
+        if not ok:
+            return
+        record["promoted"] = bool(evaluation.merged)
+        record["merge_reason"] = evaluation.reason
+        if not evaluation.merged:
+            return
+        ctx.promoted += 1
+        self._accept_mined_claim(
+            cand, claim, record["action_decision"], ctx.flywheel, record, ctx.errors
+        )
+
+    @staticmethod
+    def _predicted_edge_endpoints(payload: dict[str, Any]) -> tuple[Any, Any]:
+        """The (source, target) endpoints of a ``PredictedEdge`` finding's payload."""
+        src = payload.get("source") or payload.get("src") or payload.get("from")
+        dst = payload.get("target") or payload.get("dst") or payload.get("to")
+        return src, dst
 
     def _accept_mined_claim(
         self,
@@ -1640,43 +1976,45 @@ class LoopController:
         Best-effort throughout — a failure here never unwinds the promotion
         that already happened.
         """
-        try:
-            flywheel.accept(
+        self._guarded(
+            errors,
+            f"insight_validation:flywheel_accept {claim.id}",
+            lambda: flywheel.accept(
                 claim.id,
                 reason=f"promoted mined {cand.finding_type} finding",
                 action_decision=action_decision,
-            )
-        except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
-            errors.append(f"insight_validation:flywheel_accept {claim.id}: {e}")
-
+            ),
+        )
         if cand.finding_type != "PredictedEdge":
             return
 
-        payload = cand.payload or {}
-        src = payload.get("source") or payload.get("src") or payload.get("from")
-        dst = payload.get("target") or payload.get("dst") or payload.get("to")
+        src, dst = self._predicted_edge_endpoints(cand.payload or {})
         if src and dst:
-            try:
-                self.engine.add_edge(
+            materialized, _ = self._guarded(
+                errors,
+                f"insight_validation:materialize {claim.id}",
+                lambda: self.engine.add_edge(
                     str(src),
                     str(dst),
                     "PREDICTED_RELATION",
                     confidence=cand.confidence,
                     claim_id=claim.id,
-                )
+                ),
+            )
+            if materialized:
                 record["materialized"] = True
-            except Exception as e:  # noqa: BLE001 — materialization is best-effort
-                errors.append(f"insight_validation:materialize {claim.id}: {e}")
 
-        try:
-            outcome = flywheel.record_outcome(
+        recorded, outcome = self._guarded(
+            errors,
+            f"insight_validation:outcome {claim.id}",
+            lambda: flywheel.record_outcome(
                 claim.id,
                 reward=cand.confidence,
                 note="ontology-gap claim accepted and materialized",
-            )
+            ),
+        )
+        if recorded:
             record["outcome"] = outcome
-        except Exception as e:  # noqa: BLE001 — outcome feedback is best-effort
-            errors.append(f"insight_validation:outcome {claim.id}: {e}")
 
     def _claim_promoter(
         self, claim: Any, bundle: Any, errors: list[str]
@@ -1749,12 +2087,16 @@ class LoopController:
 
         SAFETY INVARIANT — ``OutcomeRouter.record()`` MUST NEVER execute
         before the ``action_policy.decide()`` call above, on ANY path,
-        for ANY candidate. This method has exactly one call to each, in that
-        textual order, inside the same per-candidate loop iteration, with the
-        ``record()`` call gated on the ``decision`` variable ``decide()``
-        assigns — there is no branch that reaches ``router.record()`` without
-        first having executed ``action_policy.decide()`` for that same
-        candidate. See ``tests/unit/knowledge_graph/test_trace_pattern_miner.py::
+        for ANY candidate. The per-candidate body is
+        :meth:`_trace_candidate`: it has exactly one gate call
+        (``_gate_claim``, which is the sole caller of
+        ``action_policy.decide()`` for this stage) and one routing call
+        (``_trace_route_outcome``, the sole caller of ``router.record()``),
+        in that textual order, and the routing call is unreachable unless the
+        ``decision`` the gate returned is non-None and ``allowed`` — there is
+        no branch that reaches ``router.record()`` without first having
+        executed ``action_policy.decide()`` for that same candidate. See
+        ``tests/unit/knowledge_graph/test_trace_pattern_miner.py::
         test_gate_runs_before_any_outcome_record`` for the enforced ordering
         (a mock ``action_policy``/``router`` pair that fails the test if
         ``record()`` is ever observed before ``decide()``) and
@@ -1771,191 +2113,39 @@ class LoopController:
             load_trace_cursor,
             save_trace_cursor,
         )
-        from agent_utilities.orchestration.action_policy import (
-            ActionRequest,
-            get_action_policy,
-        )
-        from agent_utilities.orchestration.outcome_router import (
-            OutcomeRouter,
-            outcome_reward,
-        )
+        from agent_utilities.orchestration.action_policy import get_action_policy
+        from agent_utilities.orchestration.outcome_router import OutcomeRouter
 
         from .candidate_insight import candidates_from_sequential_patterns
         from .claim_flywheel import ClaimFlywheel
         from .promotion_governance import PromotionGovernanceValidator
         from .trace_pattern_miner import mine_trace_patterns
 
-        errors: list[str] = []
         cursor_consumer = "trace-pattern-miner"
         prior_cursor = load_trace_cursor(self.engine, cursor_consumer)
         mine_result = mine_trace_patterns(
             self.engine, after_sequence=prior_cursor.event_sequence
         )
-        errors.extend(mine_result.get("errors") or [])
         candidates = candidates_from_sequential_patterns(mine_result.get("patterns"))
         below_floor = [c for c in candidates if not c.clears_floor]
         eligible = [c for c in candidates if c.clears_floor]
 
-        validator = PromotionGovernanceValidator(self.engine)
-        action_policy = get_action_policy(self.engine)
-        router = OutcomeRouter(namespace="trace_pattern_miner")
         # X3 — the epistemic mining flywheel's lifecycle overlay (CONCEPT:AU-KG.
         # evolution.mining-flywheel); see ``_run_insight_validation`` for why one
         # instance per cycle.
-        flywheel = ClaimFlywheel(self.engine)
-
-        persisted = 0
-        routed = 0
-        examples: list[dict[str, Any]] = []
-
+        ctx = _ClaimPipelineRun(
+            stage="trace_mining",
+            validator=PromotionGovernanceValidator(self.engine),
+            action_policy=get_action_policy(self.engine),
+            flywheel=ClaimFlywheel(self.engine),
+            router=OutcomeRouter(namespace="trace_pattern_miner"),
+            errors=list(mine_result.get("errors") or []),
+        )
         for cand in eligible:
-            claim = cand.to_claim_node()
-            bundle = cand.to_evidence_bundle()
-
-            # -- X3: a retracted claim is never re-proposed. --
-            if flywheel.is_retracted(claim.id):
-                if len(examples) < 5:
-                    examples.append(
-                        {
-                            "claim_id": claim.id,
-                            "finding_type": cand.finding_type,
-                            "confidence": round(cand.confidence, 4),
-                            "skipped": "retracted",
-                        }
-                    )
-                continue
-
-            spec = {
-                "id": claim.id,
-                "name": claim.name,
-                "goal": claim.claim_text,
-                "description": claim.claim_text,
-                "quality_score": claim.confidence,
-                "type": "Claim",
-            }
-
-            # -- persist the proposal (ALWAYS; propose-only is the floor every
-            # other stage in this controller already guarantees). --
-            try:
-                self.engine.add_node(
-                    claim.id,
-                    "Claim",
-                    properties={
-                        **claim.to_graph_properties(),
-                        "status": "proposal",
-                        "evidence_bundle_json": bundle.model_dump_json(),
-                    },
-                )
-                persisted += 1
-            except Exception as e:  # noqa: BLE001 — persistence is best-effort
-                errors.append(f"trace_mining:persist {claim.id}: {e}")
-                continue
-
-            # -- X-6 / Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance): the SAME
-            # shared writeback seam ``_run_insight_validation`` uses — see
-            # ``_register_derived_claim`` docstring. --
-            self._register_derived_claim(claim, errors, "trace_mining")
-
-            try:
-                flywheel.propose(claim.id, reason=f"mined {cand.finding_type} finding")
-            except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
-                errors.append(f"trace_mining:flywheel_propose {claim.id}: {e}")
-
-            # -- validation: REUSE promotion_governance as-is, never reimplemented. --
-            try:
-                verdict = validator.validate(spec)
-            except Exception as e:  # noqa: BLE001 — a validator error holds, never crashes
-                errors.append(f"trace_mining:validate {claim.id}: {e}")
-                continue
-
-            try:
-                flywheel.validate(
-                    claim.id, verdict.valid, reason="; ".join(verdict.failures)
-                )
-            except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
-                errors.append(f"trace_mining:flywheel_validate {claim.id}: {e}")
-
-            task_class, choice = self._trace_pattern_route(cand)
-
-            # ── SAFETY: action_policy.decide() MUST run — and complete —
-            # before ANY OutcomeRouter.record() call for this candidate. See
-            # the docstring above; do not reorder. ──
-            try:
-                decision = action_policy.decide(
-                    ActionRequest(
-                        kind="route_policy_update",
-                        target=claim.id,
-                        params={
-                            "finding_type": cand.finding_type,
-                            "confidence": cand.confidence,
-                            "governance_valid": verdict.valid,
-                            "task_class": task_class,
-                            "choice": choice,
-                        },
-                        source="loop_engine",
-                        reason=(
-                            "apply a routing/prompt/tool change from a mined "
-                            "repeated-failure tool-call pattern"
-                        ),
-                    )
-                )
-            except Exception as e:  # noqa: BLE001 — fail closed, never crash
-                errors.append(f"trace_mining:action_policy {claim.id}: {e}")
-                continue
-
-            if decision.decision == "deny":
-                try:
-                    flywheel.reject(
-                        claim.id,
-                        reason=f"action_policy denied: {decision.reason}",
-                        action_decision=decision.decision,
-                    )
-                except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
-                    errors.append(f"trace_mining:flywheel_reject {claim.id}: {e}")
-
-            record: dict[str, Any] = {
-                "claim_id": claim.id,
-                "finding_type": cand.finding_type,
-                "confidence": round(cand.confidence, 4),
-                "governance_valid": verdict.valid,
-                "action_decision": decision.decision,
-                "routed": False,
-            }
-
-            # -- ONLY reachable after action_policy.decide() (above) returned.
-            # Gated on verdict.valid + decision.allowed (auto/auto_notify),
-            # mirroring the X3 autonomy-tier gate ``_run_insight_validation``
-            # uses. The shipped route_policy_update tier is
-            # approval_required, so this branch never fires out of the box. --
-            if verdict.valid and decision.allowed and task_class and choice:
-                try:
-                    router.record(
-                        task_class,
-                        choice,
-                        outcome_reward(success=False, latency_s=0.0),
-                    )
-                    record["routed"] = True
-                    routed += 1
-                except Exception as e:  # noqa: BLE001 — learning must never break the cycle
-                    errors.append(f"trace_mining:route {claim.id}: {e}")
-
-                if record["routed"]:
-                    self._accept_routed_claim(
-                        cand,
-                        claim,
-                        router,
-                        task_class,
-                        choice,
-                        decision.decision,
-                        flywheel,
-                        errors,
-                    )
-
-            if len(examples) < 5:
-                examples.append(record)
+            self._trace_candidate(ctx, cand)
 
         completed_cursor = prior_cursor
-        if not errors:
+        if not ctx.errors:
             completed_cursor = save_trace_cursor(
                 self.engine,
                 cursor_consumer,
@@ -1969,16 +2159,113 @@ class LoopController:
             "candidates": len(candidates),
             "below_floor": len(below_floor),
             "eligible": len(eligible),
-            "persisted_claims": persisted,
-            "routed": routed,
+            "persisted_claims": ctx.persisted,
+            "routed": ctx.routed,
             "failure_traces": mine_result.get("failure_traces", 0),
             "sequences_mined": mine_result.get("sequences_mined", 0),
             "after_event_sequence": prior_cursor.event_sequence,
             "next_event_sequence": completed_cursor.event_sequence,
             "cursor_advanced": completed_cursor > prior_cursor,
-            "examples": examples,
-            "errors": errors,
+            "examples": ctx.examples,
+            "errors": ctx.errors,
         }
+
+    def _trace_candidate(self, ctx: _ClaimPipelineRun, cand: Any) -> None:
+        """One above-floor mined failure pattern through the C6 governance pipeline.
+
+        SAFETY: ``_gate_claim`` (the sole ``action_policy.decide()`` caller for
+        this stage) runs — and completes — before ``_trace_route_outcome`` (the
+        sole ``OutcomeRouter.record()`` caller) is even reachable. Do not
+        reorder; see :meth:`_run_trace_mining`'s SAFETY INVARIANT.
+        """
+        from agent_utilities.orchestration.action_policy import ActionRequest
+
+        claim = cand.to_claim_node()
+        bundle = cand.to_evidence_bundle()
+        if ctx.flywheel.is_retracted(claim.id):
+            self._note_retracted(ctx, cand, claim)
+            return
+        if not self._persist_claim_proposal(ctx, cand, claim, bundle):
+            return
+        verdict = self._validate_claim(ctx, claim)
+        if verdict is None:
+            return
+
+        task_class, choice = self._trace_pattern_route(cand)
+        decision = self._gate_claim(
+            ctx,
+            claim,
+            ActionRequest(
+                kind="route_policy_update",
+                target=claim.id,
+                params={
+                    "finding_type": cand.finding_type,
+                    "confidence": cand.confidence,
+                    "governance_valid": verdict.valid,
+                    "task_class": task_class,
+                    "choice": choice,
+                },
+                source="loop_engine",
+                reason=(
+                    "apply a routing/prompt/tool change from a mined "
+                    "repeated-failure tool-call pattern"
+                ),
+            ),
+        )
+        if decision is None:
+            return
+        record = self._claim_record(cand, claim, verdict, decision, "routed")
+
+        # -- ONLY reachable after action_policy.decide() (above) returned.
+        # Gated on verdict.valid + decision.allowed (auto/auto_notify),
+        # mirroring the X3 autonomy-tier gate ``_run_insight_validation``
+        # uses. The shipped route_policy_update tier is
+        # approval_required, so this branch never fires out of the box. --
+        if verdict.valid and decision.allowed and task_class and choice:
+            self._trace_route_outcome(ctx, cand, claim, (task_class, choice), record)
+
+        self._note_claim_example(ctx, record)
+
+    def _trace_route_outcome(
+        self,
+        ctx: _ClaimPipelineRun,
+        cand: Any,
+        claim: Any,
+        route: tuple[str, str],
+        record: dict[str, Any],
+    ) -> None:
+        """Feed the mined failure pattern back through the EXISTING OutcomeRouter.
+
+        A repeated failure sequence is a ``reward=0.0`` data point for the
+        ``(task_class, choice)`` its leading tool call represents, steering
+        future ``OutcomeRouter.select()`` calls away from it. Learning must
+        never break the cycle, so the record itself is best-effort; the
+        acceptance writeback runs only once the record landed.
+        """
+        from agent_utilities.orchestration.outcome_router import outcome_reward
+
+        task_class, choice = route
+        routed, _ = self._guarded(
+            ctx.errors,
+            f"{ctx.stage}:route {claim.id}",
+            lambda: ctx.router.record(
+                task_class, choice, outcome_reward(success=False, latency_s=0.0)
+            ),
+        )
+        if not routed:
+            return
+        record["routed"] = True
+        ctx.routed += 1
+        self._accept_routed_claim(
+            cand,
+            claim,
+            ctx.router,
+            task_class,
+            choice,
+            record["action_decision"],
+            ctx.flywheel,
+            ctx.errors,
+        )
 
     @staticmethod
     def _trace_pattern_route(cand: Any) -> tuple[str, str]:
@@ -2157,39 +2444,37 @@ class LoopController:
         A single malformed row (bad confidence, missing id) is recorded and
         skipped rather than aborting the whole pass.
         """
-        from agent_utilities.models.knowledge_graph import (
-            BeliefNode,
-            RegistryNodeType,
-        )
-
         beliefs = []
         for row in rows:
             if not isinstance(row, dict) or not row.get("id"):
                 continue
             try:
-                raw_confidence = row.get("confidence")
-                confidence = 0.5 if raw_confidence is None else float(raw_confidence)
-                confidence = max(0.0, min(1.0, confidence))
-                beliefs.append(
-                    BeliefNode(
-                        id=row["id"],
-                        type=RegistryNodeType.BELIEF,
-                        name=str(row["id"]),
-                        statement=row.get("statement") or "",
-                        confidence=confidence,
-                        evidence_node_ids=list(row.get("evidence_node_ids") or []),
-                        supported_by_node_ids=list(
-                            row.get("supported_by_node_ids") or []
-                        ),
-                        contradicted_by_node_ids=list(
-                            row.get("contradicted_by_node_ids") or []
-                        ),
-                        last_reviewed=row.get("last_reviewed") or "",
-                    )
-                )
+                beliefs.append(LoopController._belief_from_row(row))
             except Exception as e:  # noqa: BLE001 — one bad row never blocks the rest
                 errors.append(f"belief_revision:parse {row.get('id')}: {e}")
         return beliefs
+
+    @staticmethod
+    def _belief_from_row(row: dict[str, Any]) -> Any:
+        """One well-formed ``Belief`` row as a ``BeliefNode``, confidence clamped."""
+        from agent_utilities.models.knowledge_graph import (
+            BeliefNode,
+            RegistryNodeType,
+        )
+
+        raw_confidence = row.get("confidence")
+        confidence = 0.5 if raw_confidence is None else float(raw_confidence)
+        return BeliefNode(
+            id=row["id"],
+            type=RegistryNodeType.BELIEF,
+            name=str(row["id"]),
+            statement=row.get("statement") or "",
+            confidence=max(0.0, min(1.0, confidence)),
+            evidence_node_ids=list(row.get("evidence_node_ids") or []),
+            supported_by_node_ids=list(row.get("supported_by_node_ids") or []),
+            contradicted_by_node_ids=list(row.get("contradicted_by_node_ids") or []),
+            last_reviewed=row.get("last_reviewed") or "",
+        )
 
     def _distill_skills(self) -> dict[str, Any]:
         """Distil connector processes into propose-only skill candidates.
@@ -2451,44 +2736,14 @@ class LoopController:
         """
         spec_id = (loop.get("spec_id") or "").strip()
         if spec_id:
-            from .spec_proposals import develop_spec
-
-            res = develop_spec(self.engine, spec_id)
-            status = str(res.get("status", ""))
-            # D5 — close the loop: on publish, walk this develop-Loop's RESOLVES edge
-            # back to the origin gap and flip it to resolved (the graph-native seam,
-            # idempotent with develop_spec's property-based close). The chain gets its
-            # visible END.
-            if status == "published":
-                from .gaps import resolve_gaps_for_loop
-
-                resolve_gaps_for_loop(self.engine, loop["id"])
-            # 'published'/'approval_queued' = the governed pipeline ran + queued a
-            # reviewable branch → the develop step did its job (complete). Hard
-            # failures stop the loop rather than retrying a broken synthesis forever.
-            done = status in ("published", "approval_queued", "approved")
-            import json as _json
-
-            return {
-                "status": "completed" if done else "failed",
-                "output": _json.dumps(res, default=str)[:2000],
-                "done": done,
-            }
+            return self._advance_spec_develop(loop, spec_id)
         cmd = (loop.get("validation_cmd") or "").strip()
         if not cmd:
             # no command to validate → nothing to advance; leave it active
             return {"status": loop.get("status", "pending"), "output": ""}
-        if self._develop_runner is None:
-            from agent_utilities.core.config import config
-
-            if not config.kg_loop_allow_host_validation:
-                return {
-                    "status": "pending",
-                    "output": (
-                        "host validation is disabled; configure a governed "
-                        "develop runner or explicitly enable the dangerous host runner"
-                    ),
-                }
+        blocked = self._host_validation_blocked()
+        if blocked is not None:
+            return blocked
         runner = self._develop_runner or _default_develop_runner
         ok, output = runner(cmd, self.codebase_root)
         from agent_utilities.httpsupport.redaction import redact_text
@@ -2502,6 +2757,57 @@ class LoopController:
         return {
             "status": "completed" if ok else "pending",
             "output": safe_output,
+        }
+
+    def _advance_spec_develop(
+        self, loop: dict[str, Any], spec_id: str
+    ) -> dict[str, Any]:
+        """Feed an approved spec into the EXISTING governed promotion pipeline.
+
+        D5 — close the loop: on publish, walk this develop-Loop's RESOLVES edge
+        back to the origin gap and flip it to resolved (the graph-native seam,
+        idempotent with ``develop_spec``'s property-based close). The chain gets
+        its visible END. 'published'/'approval_queued' = the governed pipeline ran
+        + queued a reviewable branch → the develop step did its job (complete).
+        Hard failures stop the loop rather than retrying a broken synthesis
+        forever.
+        """
+        import json as _json
+
+        from .spec_proposals import develop_spec
+
+        res = develop_spec(self.engine, spec_id)
+        status = str(res.get("status", ""))
+        if status == "published":
+            from .gaps import resolve_gaps_for_loop
+
+            resolve_gaps_for_loop(self.engine, loop["id"])
+        done = status in ("published", "approval_queued", "approved")
+        return {
+            "status": "completed" if done else "failed",
+            "output": _json.dumps(res, default=str)[:2000],
+            "done": done,
+        }
+
+    def _host_validation_blocked(self) -> dict[str, Any] | None:
+        """The dangerous host runner is opt-in; refuse to fall back to it silently.
+
+        Returns the pending result to return instead, or None when a runner is
+        available (an injected governed one, or the host runner explicitly
+        enabled).
+        """
+        if self._develop_runner is not None:
+            return None
+        from agent_utilities.core.config import config
+
+        if config.kg_loop_allow_host_validation:
+            return None
+        return {
+            "status": "pending",
+            "output": (
+                "host validation is disabled; configure a governed "
+                "develop runner or explicitly enable the dangerous host runner"
+            ),
         }
 
     def _advance_skill(self, loop: dict[str, Any]) -> dict[str, Any]:
@@ -2705,65 +3011,102 @@ class LoopController:
         all on the engine-native WorkItem, no sidecar). Every new knob is
         config-overridable with a safe default.
 
+        The per-stage mechanics live in the ``_loop_*`` helpers below (pre-tick
+        exits, one iteration's outcome, the terminal dispatch, the fall-through);
+        this method is the orchestrator that wires them into the while-loop.
+
         Returns ``{"id", "status", "iterations", "exit_reason"?, "interrupted"?}``.
         """
         import asyncio
+
+        from agent_utilities.orchestration.loop_guards import deadline_passed
+
+        from .loops import is_terminal
+
+        run = self._loop_build_run(
+            loop,
+            _LoopRunOptions(
+                max_iterations=max_iterations,
+                on_iteration=on_iteration,
+                desired_state=desired_state,
+                goal_evaluator=goal_evaluator,
+                resource_optimizer=resource_optimizer,
+                deadline=deadline,
+                max_duration_s=max_duration_s,
+                no_progress_window=no_progress_window,
+                max_consecutive_failures=max_consecutive_failures,
+                event_probe=event_probe,
+            ),
+        )
+        yielded = self._loop_claim(run)
+        if yielded is not None:
+            return yielded
+
+        # exit 4 is enforced in the while-condition (alongside the turn cap);
+        # the precise terminal status is decided right after the loop exits.
+        while (
+            run.it < run.max_it
+            and not deadline_passed(run.deadline)
+            and not is_terminal(run.status)
+        ):
+            # -- exits 3/6/8 (BUDGET CAP / HUMAN INTERRUPT / EXTERNAL EVENT):
+            # computed and decided in ``_loop_pretick`` BEFORE the step, so a
+            # risky iteration never starts once a pause/kill is desired
+            # (SAFE-1.5). --
+            pretick_result = self._loop_pretick(run)
+            if pretick_result is not None:
+                return pretick_result
+
+            run.it += 1
+            # _iterate may block (subprocess validation / workflow run); offload
+            # to a thread so the loop never stalls the event loop.
+            outcome = self._coerce_outcome(
+                await asyncio.to_thread(self._iterate, run.loop)
+            )
+            terminal_result = self._loop_apply_outcome(run, outcome)
+            if terminal_result is not None:
+                return terminal_result
+            if run.should_break:
+                break
+            if sleep_s:
+                await asyncio.sleep(sleep_s)
+
+        # -- The while-condition fell through: decide the PRECISE terminal cause
+        # so the exit is diagnosable rather than a generic 'failed'. --
+        return self._loop_fallthrough(run)
+
+    # -- run_loop mechanics ------------------------------------------------- #
+    @staticmethod
+    def _coerce_outcome(outcome: Any) -> dict[str, Any]:
+        """A non-dict ``_iterate`` result is treated as a bare pending heartbeat."""
+        return outcome if isinstance(outcome, dict) else {"status": "pending"}
+
+    def _loop_build_run(self, loop: dict[str, Any], opts: _LoopRunOptions) -> _LoopRun:
+        """Resolve every ``run_loop`` knob into the one mutable run record.
+
+        Each exit condition's configuration is resolved here exactly once:
+        exit 2's turn cap, exit 4's monotonic deadline, exit 5's stall window,
+        exit 7's consecutive-failure guard, exit 1's goal evaluator and exit 8's
+        external-event probe.
+        """
         import time as _time
 
         from agent_utilities.core.config import config as _cfg
-        from agent_utilities.orchestration import work_item as _wi
         from agent_utilities.orchestration.loop_guards import (
             ConsecutiveFailureGuard,
-            GoalEvaluation,
             build_goal_evaluator,
-            deadline_passed,
-            progress_signature,
-            resolve_deadline,
-            window_is_stalled,
         )
 
-        from .loops import (
-            LoopStatus,
-            claim_loop,
-            is_terminal,
-            mark_loop_status,
-            send_loop_statechart_event,
-            statechart_active_state,
-            to_status,
-        )
+        from .loops import LoopStatus, to_status
 
         loop_id = loop["id"]
         kind = str(loop.get("kind") or "research").strip().lower()
-        max_it = int(max_iterations or loop.get("max_iterations") or 20)
-        status = to_status(loop.get("status") or "running", default=LoopStatus.RUNNING)
-
-        # -- exit 4 WALL CLOCK: resolve one overall monotonic deadline up front. --
         start_monotonic = _time.monotonic()
-        if max_duration_s is None and deadline is None and _cfg.kg_loop_max_duration_s:
-            max_duration_s = float(_cfg.kg_loop_max_duration_s)
-        deadline = resolve_deadline(deadline, max_duration_s, start_monotonic)
-
-        # -- exit 5 NO PROGRESS: config-defaulted window + rolling signatures. --
-        stall_window = int(
-            no_progress_window
-            if no_progress_window is not None
-            else _cfg.kg_loop_no_progress_window
-        )
-        progress_hashes: list[str] = list(self._load_progress_window(loop_id))
-
-        # -- exit 7 ERROR THRESHOLD: per-loop guard (engine-breaker semantics). --
-        fail_guard = ConsecutiveFailureGuard(
-            threshold=int(
-                max_consecutive_failures
-                if max_consecutive_failures is not None
-                else _cfg.kg_loop_max_consecutive_failures
-            )
-        )
 
         # -- exit 1 GOAL MET: injected evaluator, else the default per-kind one
         # (deterministic for develop; rubric/LLM judge for research/skill,
         # degrading to callee-trust offline). --
-        evaluator = goal_evaluator
+        evaluator = opts.goal_evaluator
         if evaluator is None:
             evaluator = build_goal_evaluator(
                 loop,
@@ -2773,382 +3116,518 @@ class LoopController:
 
         # -- exit 8 EXTERNAL EVENT: an ``external_event`` loop resolves its probe
         # from the registered probes when the caller didn't pass one directly. --
+        event_probe = opts.event_probe
         if event_probe is None and kind == "external_event":
             event_probe = self._external_event_probe(loop)
 
-        # The native claim transaction owns expired-lease recovery. A negative
-        # result is authoritative; no sidecar checkpoint can grant re-entry.
-        won = claim_loop(self.engine, loop_id)
-        if not won:
-            it = self._resume_iteration(self.engine, loop_id)
+        return _LoopRun(
+            loop=loop,
+            loop_id=loop_id,
+            kind=kind,
+            opts=opts,
+            max_it=int(opts.max_iterations or loop.get("max_iterations") or 20),
+            status=to_status(
+                loop.get("status") or "running", default=LoopStatus.RUNNING
+            ),
+            start_monotonic=start_monotonic,
+            deadline=self._loop_deadline(opts, start_monotonic),
+            stall_window=int(
+                opts.no_progress_window
+                if opts.no_progress_window is not None
+                else _cfg.kg_loop_no_progress_window
+            ),
+            fail_guard=ConsecutiveFailureGuard(
+                threshold=int(
+                    opts.max_consecutive_failures
+                    if opts.max_consecutive_failures is not None
+                    else _cfg.kg_loop_max_consecutive_failures
+                )
+            ),
+            evaluator=evaluator,
+            event_probe=event_probe,
+            progress_hashes=list(self._load_progress_window(loop_id)),
+        )
+
+    @staticmethod
+    def _loop_deadline(opts: _LoopRunOptions, start_monotonic: float) -> float | None:
+        """exit 4 WALL CLOCK: resolve one overall monotonic deadline up front."""
+        from agent_utilities.core.config import config as _cfg
+        from agent_utilities.orchestration.loop_guards import resolve_deadline
+
+        max_duration_s = opts.max_duration_s
+        if (
+            max_duration_s is None
+            and opts.deadline is None
+            and _cfg.kg_loop_max_duration_s
+        ):
+            max_duration_s = float(_cfg.kg_loop_max_duration_s)
+        return resolve_deadline(opts.deadline, max_duration_s, start_monotonic)
+
+    def _loop_claim(self, run: _LoopRun) -> dict[str, Any] | None:
+        """Win the native claim, or yield to the driver that already holds it.
+
+        The native claim transaction owns expired-lease recovery. A negative
+        result is authoritative; no sidecar checkpoint can grant re-entry.
+        Returns the yield result to return immediately, else None (claim won,
+        with ``run.it``/``item_id``/``claim`` populated).
+        """
+        from agent_utilities.orchestration import work_item as _wi
+
+        from .loops import claim_loop
+
+        if not claim_loop(self.engine, run.loop_id):
+            it = self._resume_iteration(self.engine, run.loop_id)
             logger.info(
                 "run_loop: Loop %s already claimed by another driver — yielding.",
-                loop_id,
+                run.loop_id,
             )
             return {
-                "id": loop_id,
-                "status": str(loop.get("status") or "running"),
+                "id": run.loop_id,
+                "status": str(run.loop.get("status") or "running"),
                 "iterations": it,
                 "skipped": True,
             }
-        it = self._resume_iteration(self.engine, loop_id)
-        item_id = _wi.loop_work_item_id(loop_id)
-        claim = _wi.current_work_item_claim(self.engine, item_id)
-        if claim is None:
+        run.it = self._resume_iteration(self.engine, run.loop_id)
+        run.item_id = _wi.loop_work_item_id(run.loop_id)
+        run.claim = _wi.current_work_item_claim(self.engine, run.item_id)
+        if run.claim is None:
             raise _wi.WorkItemBackendUnavailable(
-                f"Loop {loop_id!r} lost its native claim before execution"
+                f"Loop {run.loop_id!r} lost its native claim before execution"
+            )
+        return None
+
+    def _loop_finish(
+        self,
+        run: _LoopRun,
+        final: Any,
+        *,
+        reason: str = "",
+        interrupted: bool = False,
+    ) -> dict[str, Any]:
+        """Guarded transition to a terminal state: commit + build the result.
+
+        The ``completed`` happy path stays the bare ``{"id", "status",
+        "iterations"}`` shape internal callers assert on; every other exit
+        additionally carries an ``exit_reason`` so the abnormal/exhaustion
+        terminals are diagnosable (never a generic 'failed').
+        """
+        from .loops import LoopStatus, mark_loop_status
+
+        mark_loop_status(
+            self.engine,
+            run.loop_id,
+            final.value,
+            iteration=run.it,
+            output=reason[:2000],
+        )
+        out: dict[str, Any] = {
+            "id": run.loop_id,
+            "status": final.value,
+            "iterations": run.it,
+        }
+        if final is not LoopStatus.COMPLETED and reason:
+            out["exit_reason"] = reason
+        if interrupted:
+            out["interrupted"] = True
+        return out
+
+    @staticmethod
+    def _loop_human_signal(desired: str | None) -> tuple[str | None, str]:
+        """exit 6 HUMAN INTERRUPT: map ``desired_state`` onto a corrigible signal."""
+        if not desired:
+            return None, ""
+        from agent_utilities.core.corrigibility import corrigibility_decision
+
+        _corrig_status, corrig_summary = corrigibility_decision(desired)
+        signal = desired if desired in ("pause", "kill", "cancel", "stop") else "pause"
+        return signal, corrig_summary
+
+    def _loop_pretick(self, run: _LoopRun) -> dict[str, Any] | None:
+        """Human-interrupt / budget / external-event pre-tick check.
+
+        Returns a terminal ``_loop_finish(...)`` result to return immediately, or
+        None to continue the iteration.
+        """
+        from agent_utilities.orchestration import work_item as _wi
+
+        from .loops import (
+            LoopStatus,
+            send_loop_statechart_event,
+            statechart_active_state,
+            to_status,
+        )
+
+        opts = run.opts
+        desired = opts.desired_state() if opts.desired_state is not None else None
+        human_signal, corrig_summary = self._loop_human_signal(desired)
+        budget_exceeded_flag = opts.resource_optimizer is not None and (
+            self._budget_exceeded(opts.resource_optimizer)
+        )
+        external_event_fired_flag = run.event_probe is not None and self._event_fired(
+            run.event_probe
+        )
+        # Key order matters here: the engine verifies this request's MAC against
+        # a canonical re-serialization of the payload with its keys in SORTED
+        # order (it round-trips through a ``serde_json::Value`` map), while the
+        # Python client signs/packs the dict in insertion order. A payload dict
+        # whose literal key order isn't already alphabetical byte-mismatches the
+        # server's recomputed MAC and the whole call fails closed with
+        # "Authentication failed" (reproduced/confirmed empirically — a 1-key or
+        # already-alphabetical payload passes, this exact 3-key combination did
+        # not). Keep these keys alphabetical.
+        pre_result = send_loop_statechart_event(
+            self.engine,
+            run.loop_id,
+            "pretick",
+            payload={
+                "budget_exceeded": bool(budget_exceeded_flag),
+                "external_event_fired": bool(external_event_fired_flag),
+                "human_signal": human_signal,
+            },
+        )
+        if pre_result is None:
+            raise _wi.WorkItemBackendUnavailable(
+                f"Loop {run.loop_id!r} has no eg-statechart instance for its WorkItem"
+            )
+        pre_active = statechart_active_state(pre_result)
+        if pre_active in (LoopStatus.PAUSED.value, LoopStatus.CANCELLED.value):
+            return self._loop_finish(
+                run,
+                to_status(pre_active, default=LoopStatus.FAILED),
+                reason=corrig_summary or f"human interrupt: {desired}",
+                interrupted=True,
+            )
+        if pre_active == LoopStatus.BUDGET_EXCEEDED.value:
+            return self._loop_finish(
+                run,
+                LoopStatus.BUDGET_EXCEEDED,
+                reason=(
+                    "resource budget exceeded: "
+                    f"{self._budget_detail(opts.resource_optimizer)}"
+                ),
+            )
+        if pre_active == LoopStatus.EXTERNAL_EVENT_SATISFIED.value:
+            return self._loop_finish(
+                run,
+                LoopStatus.EXTERNAL_EVENT_SATISFIED,
+                reason="external event signal fired",
+            )
+        return None
+
+    def _loop_apply_outcome(
+        self, run: _LoopRun, outcome: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Fold ONE iteration's outcome into the run; return a terminal result or None.
+
+        Order is load-bearing and unchanged: durable checkpoint → goal
+        measurement → heartbeat commit → progress/error-threshold signals →
+        the statechart ``posttick`` transition → the terminal dispatch.
+        """
+        from .loops import LoopStatus, to_status
+
+        step_status = to_status(
+            outcome.get("status", "pending"), default=LoopStatus.FAILED
+        )
+        self._loop_checkpoint(run)
+        run.verdict = self._loop_measure(run, outcome, step_status)
+        decided = self._loop_decide(run, step_status)
+
+        # -- exit 7 classification. A NON-TERMINAL (retryable) failure is a step
+        # that errored yet should be retried (the outcome carries ``error`` /
+        # ``retryable``) — distinct from a clean terminal ``failed`` give-up,
+        # which still stops the loop at once (legacy-trust, below). Only
+        # retryable failures accumulate toward the error threshold; a retryable
+        # failure keeps the lease alive as a RUNNING heartbeat so it can be
+        # retried until the guard trips or progress resets it. --
+        retryable = decided is LoopStatus.FAILED and bool(
+            outcome.get("retryable") or outcome.get("error")
+        )
+        heartbeat = LoopStatus.RUNNING if retryable else decided
+        self._loop_heartbeat(run, outcome, heartbeat)
+        self._loop_record_progress(run, outcome, decided, retryable)
+        self._loop_posttick(run, decided, heartbeat, retryable)
+
+        terminal_result = self._loop_dispatch_terminal(run)
+        if terminal_result is not None:
+            return terminal_result
+        # A retryable failure keeps looping (already counted); it must NOT
+        # fall into the ``done``-flag break on the same iteration.
+        run.should_break = bool(not retryable and outcome.get("done"))
+        return None
+
+    def _loop_checkpoint(self, run: _LoopRun) -> None:
+        """Fence the iteration durably BEFORE committing any lifecycle.
+
+        A crash resumes after the last committed step (one WorkItem authority).
+        """
+        from agent_utilities.orchestration import work_item as _wi
+
+        if not _wi.checkpoint_work_item(
+            self.engine,
+            run.item_id,
+            run.claim,
+            f"checkpoint:iteration:{run.it}",
+        ):
+            raise _wi.WorkItemBackendUnavailable(
+                f"Loop {run.loop_id!r} lost its native lease while checkpointing"
             )
 
-        def _finish(
-            final: LoopStatus,
-            *,
-            reason: str = "",
-            interrupted: bool = False,
-        ) -> dict[str, Any]:
-            """Guarded transition to a terminal state: commit + build the result.
+    @staticmethod
+    def _loop_measure(run: _LoopRun, outcome: dict[str, Any], step_status: Any) -> Any:
+        """exit 1 GOAL MET: measure the step, best-effort.
 
-            The ``completed`` happy path stays the bare ``{"id", "status",
-            "iterations"}`` shape internal callers assert on; every other exit
-            additionally carries an ``exit_reason`` so the abnormal/exhaustion
-            terminals are diagnosable (never a generic 'failed').
-            """
-            mark_loop_status(
-                self.engine, loop_id, final.value, iteration=it, output=reason[:2000]
-            )
-            out: dict[str, Any] = {
-                "id": loop_id,
-                "status": final.value,
-                "iterations": it,
-            }
-            if final is not LoopStatus.COMPLETED and reason:
-                out["exit_reason"] = reason
-            if interrupted:
-                out["interrupted"] = True
-            return out
+        The evaluator is the authority on completion — a callee that
+        self-declares ``completed`` is trusted ONLY when a live measurement
+        confirms it (or when no measurement is available, i.e. the
+        offline/legacy fallback).
+        """
+        from .loops import LoopStatus
 
-        def _evaluate_pretick_exits() -> dict[str, Any] | None:
-            """Human-interrupt / budget / external-event pre-tick check.
-
-            Returns a terminal _finish(...) result to return immediately, or
-            None to continue the iteration.
-            """
-            desired = desired_state() if desired_state is not None else None
-            human_signal: str | None = None
-            corrig_summary = ""
-            if desired:
-                from agent_utilities.core.corrigibility import corrigibility_decision
-
-                _corrig_status, corrig_summary = corrigibility_decision(desired)
-                human_signal = (
-                    desired
-                    if desired in ("pause", "kill", "cancel", "stop")
-                    else "pause"
-                )
-            budget_exceeded_flag = (
-                resource_optimizer is not None
-                and self._budget_exceeded(resource_optimizer)
-            )
-            external_event_fired_flag = event_probe is not None and self._event_fired(
-                event_probe
-            )
-            # Key order matters here: the engine verifies this request's MAC against
-            # a canonical re-serialization of the payload with its keys in SORTED
-            # order (it round-trips through a ``serde_json::Value`` map), while the
-            # Python client signs/packs the dict in insertion order. A payload dict
-            # whose literal key order isn't already alphabetical byte-mismatches the
-            # server's recomputed MAC and the whole call fails closed with
-            # "Authentication failed" (reproduced/confirmed empirically — a 1-key or
-            # already-alphabetical payload passes, this exact 3-key combination did
-            # not). Keep these keys alphabetical.
-            pre_result = send_loop_statechart_event(
-                self.engine,
-                loop_id,
-                "pretick",
-                payload={
-                    "budget_exceeded": bool(budget_exceeded_flag),
-                    "external_event_fired": bool(external_event_fired_flag),
-                    "human_signal": human_signal,
-                },
-            )
-            if pre_result is None:
-                raise _wi.WorkItemBackendUnavailable(
-                    f"Loop {loop_id!r} has no eg-statechart instance for its WorkItem"
-                )
-            pre_active = statechart_active_state(pre_result)
-            if pre_active in (LoopStatus.PAUSED.value, LoopStatus.CANCELLED.value):
-                return _finish(
-                    to_status(pre_active, default=LoopStatus.FAILED),
-                    reason=corrig_summary or f"human interrupt: {desired}",
-                    interrupted=True,
-                )
-            if pre_active == LoopStatus.BUDGET_EXCEEDED.value:
-                return _finish(
-                    LoopStatus.BUDGET_EXCEEDED,
-                    reason=f"resource budget exceeded: {self._budget_detail(resource_optimizer)}",
-                )
-            if pre_active == LoopStatus.EXTERNAL_EVENT_SATISFIED.value:
-                return _finish(
-                    LoopStatus.EXTERNAL_EVENT_SATISFIED,
-                    reason="external event signal fired",
-                )
+        if run.evaluator is None or not (
+            run.kind == "develop"
+            or step_status is LoopStatus.COMPLETED
+            or outcome.get("done")
+        ):
+            return None
+        try:
+            return run.evaluator(run.loop, outcome)
+        except Exception as e:  # noqa: BLE001 — a judge error never crashes the loop
+            logger.debug("run_loop goal_evaluator failed: %s", e)
             return None
 
-        def _dispatch_terminal_status() -> dict[str, Any] | None:
-            """Once `status` is terminal, pick the precise, diagnosable exit
-            reason. Returns the _finish(...) result, or None if `status` is
-            not (yet) terminal."""
-            if not is_terminal(status):
-                return None
-            if status is LoopStatus.COMPLETED:
-                if measured_pass:
-                    assert verdict is not None  # measured_pass implies this
-                    return _finish(
-                        LoopStatus.COMPLETED,
-                        reason=(
-                            f"goal met (measured score={verdict.score:.2f}): "
-                            f"{verdict.detail}"
-                        ),
-                    )
-                return _finish(LoopStatus.COMPLETED)
-            if (
-                status is LoopStatus.ERROR_THRESHOLD_EXCEEDED
-                and error_threshold_tripped
-            ):
-                return _finish(
-                    status,
-                    reason=(
-                        f"{fail_guard.count} consecutive non-terminal failures "
-                        f"(threshold {fail_guard.threshold})"
-                    ),
-                )
-            if status is LoopStatus.STALLED and stalled_flag:
-                return _finish(
-                    status,
-                    reason=(
-                        f"no progress across the last {stall_window} iterations "
-                        "(identical status/output)"
-                    ),
-                )
-            if status is LoopStatus.MAX_ITERATIONS_EXCEEDED and turn_cap_reached:
-                return _finish(
-                    status,
-                    reason=f"turn cap reached: max_iterations={max_it} without convergence",
-                )
-            if status is LoopStatus.WALL_CLOCK_EXCEEDED and deadline_flag:
-                return _finish(
-                    status,
-                    reason=(
-                        "overall wall-clock deadline exceeded after "
-                        f"{_time.monotonic() - start_monotonic:.1f}s"
-                    ),
-                )
-            return _finish(status, reason=f"callee terminal status: {status.value}")
+    @staticmethod
+    def _loop_decide(run: _LoopRun, step_status: Any) -> Any:
+        """Reconcile the callee's self-declared status with the measurement."""
+        from .loops import LoopStatus
 
+        run.measured_pass = False
+        verdict = run.verdict
+        if verdict is None or not verdict.measured:
+            return step_status
+        if verdict.passed:
+            run.measured_pass = True
+            return LoopStatus.COMPLETED
+        if step_status is LoopStatus.COMPLETED:
+            # Self-declared done but the measurement REJECTS it -> do not
+            # trust it; keep working (demote to a non-terminal heartbeat).
+            return LoopStatus.RUNNING
+        return step_status
 
-        # exit 4 is enforced in the while-condition (alongside the turn cap);
-        # the precise terminal status is decided right after the loop exits.
-        while it < max_it and not deadline_passed(deadline) and not is_terminal(status):
-            # -- exits 3/6/8 (BUDGET CAP / HUMAN INTERRUPT / EXTERNAL EVENT):
-            # compute each signal exactly as before (corrigible kill switch
-            # evaluated OUTSIDE/BEFORE the step so a risky iteration never
-            # starts once a pause/kill is desired — SAFE-1.5), then hand the
-            # DECISION to the Loop's eg-statechart ``pretick`` transition
-            # (guard declaration order mirrors today's precedence: pause,
-            # then kill/cancel/stop, then budget, then external event). --
-            pretick_result = _evaluate_pretick_exits()
-            if pretick_result is not None:
-                return pretick_result
+    def _loop_heartbeat(
+        self, run: _LoopRun, outcome: dict[str, Any], heartbeat: Any
+    ) -> None:
+        """Commit only a NON-terminal heartbeat; terminals commit at ``_loop_finish``."""
+        from .loops import is_terminal, mark_loop_status
 
-            it += 1
-
-            async def _step() -> dict[str, Any]:
-                # _iterate may block (subprocess validation / workflow run); offload
-                # to a thread so the loop never stalls the event loop.
-                return await asyncio.to_thread(self._iterate, loop)
-
-            outcome = await _step()
-            outcome = outcome if isinstance(outcome, dict) else {"status": "pending"}
-            step_status = to_status(
-                outcome.get("status", "pending"), default=LoopStatus.FAILED
-            )
-
-            # Fence the iteration durably BEFORE committing any lifecycle so a
-            # crash resumes after the last committed step (one WorkItem authority).
-            if not _wi.checkpoint_work_item(
+        if not is_terminal(heartbeat):
+            mark_loop_status(
                 self.engine,
-                item_id,
-                claim,
-                f"checkpoint:iteration:{it}",
-            ):
-                raise _wi.WorkItemBackendUnavailable(
-                    f"Loop {loop_id!r} lost its native lease while checkpointing"
-                )
-
-            # -- exit 1 GOAL MET: measure the step. The evaluator is the authority
-            # on completion — a callee that self-declares ``completed`` is trusted
-            # ONLY when a live measurement confirms it (or when no measurement is
-            # available, i.e. the offline/legacy fallback). --
-            verdict: GoalEvaluation | None = None
-            if evaluator is not None and (
-                kind == "develop"
-                or step_status is LoopStatus.COMPLETED
-                or outcome.get("done")
-            ):
-                try:
-                    verdict = evaluator(loop, outcome)
-                except Exception as e:  # noqa: BLE001 — a judge error never crashes the loop
-                    logger.debug("run_loop goal_evaluator failed: %s", e)
-                    verdict = None
-
-            decided = step_status
-            measured_pass = False
-            if verdict is not None and verdict.measured:
-                if verdict.passed:
-                    decided = LoopStatus.COMPLETED
-                    measured_pass = True
-                elif step_status is LoopStatus.COMPLETED:
-                    # Self-declared done but the measurement REJECTS it -> do not
-                    # trust it; keep working (demote to a non-terminal heartbeat).
-                    decided = LoopStatus.RUNNING
-
-            # -- exit 7 classification. A NON-TERMINAL (retryable) failure is a step
-            # that errored yet should be retried (the outcome carries ``error`` /
-            # ``retryable``) — distinct from a clean terminal ``failed`` give-up,
-            # which still stops the loop at once (legacy-trust, below). Only
-            # retryable failures accumulate toward the error threshold; a retryable
-            # failure keeps the lease alive as a RUNNING heartbeat so it can be
-            # retried until the guard trips or progress resets it. --
-            retryable_failure = decided is LoopStatus.FAILED and bool(
-                outcome.get("retryable") or outcome.get("error")
+                run.loop_id,
+                heartbeat.value,
+                iteration=run.it,
+                output=str(outcome.get("output", ""))[:2000],
             )
-            heartbeat_status = LoopStatus.RUNNING if retryable_failure else decided
+        if run.opts.on_iteration is None:
+            return
+        try:
+            run.opts.on_iteration(run.it, outcome)
+        except Exception as e:  # noqa: BLE001 — observability never blocks
+            logger.debug("run_loop on_iteration callback failed: %s", e)
 
-            # Commit only a NON-terminal heartbeat here; terminal states are
-            # committed once, at their guarded ``_finish`` transition below.
-            if not is_terminal(heartbeat_status):
-                mark_loop_status(
-                    self.engine,
-                    loop_id,
-                    heartbeat_status.value,
-                    iteration=it,
-                    output=str(outcome.get("output", ""))[:2000],
-                )
+    def _loop_record_progress(
+        self,
+        run: _LoopRun,
+        outcome: dict[str, Any],
+        decided: Any,
+        retryable: bool,
+    ) -> None:
+        """exits 5/7 signals: roll the progress window and the failure guard.
 
-            if on_iteration is not None:
-                try:
-                    on_iteration(it, outcome)
-                except Exception as e:  # noqa: BLE001 — observability never blocks
-                    logger.debug("run_loop on_iteration callback failed: %s", e)
+        The window is hashed from the substantive result and persisted on the
+        Loop node (mirroring the fanout ``_STALL_THRESHOLD`` pattern).
+        ``error_threshold_tripped`` is precomputed as a plain boolean because
+        ``eg-statechart``'s numeric ``Guard::Ge`` reads persistent machine
+        CONTEXT, never the event payload, and this chart's context is always
+        empty — the CALLER does the comparison and sends the boolean (mirrors
+        the Rust-side W2.5 correction).
+        """
+        from agent_utilities.orchestration.loop_guards import (
+            progress_signature,
+            window_is_stalled,
+        )
 
-            # -- exit 5 NO PROGRESS data: hash the substantive result and roll the
-            # window (persisted on the Loop node, mirroring the fanout
-            # _STALL_THRESHOLD pattern). --
-            sig = progress_signature(
-                decided.value,
-                str(outcome.get("output", "")),
-                str(outcome.get("checkpoint", "")),
+        sig = progress_signature(
+            decided.value,
+            str(outcome.get("output", "")),
+            str(outcome.get("checkpoint", "")),
+        )
+        progressed = (not run.progress_hashes) or sig != run.progress_hashes[-1]
+        run.progress_hashes.append(sig)
+        self._persist_progress_window(
+            run.loop_id, run.progress_hashes, run.stall_window
+        )
+
+        run.error_threshold_tripped = False
+        if retryable:
+            run.error_threshold_tripped = run.fail_guard.record_failure()
+        elif progressed:
+            run.fail_guard.record_success()
+
+        # -- exit 5 NO PROGRESS: the last N signatures identical -> stalled. --
+        run.stalled_flag = window_is_stalled(run.progress_hashes, run.stall_window)
+
+    def _loop_posttick(
+        self, run: _LoopRun, decided: Any, heartbeat: Any, retryable: bool
+    ) -> None:
+        """Hand this iteration's signals to the Loop's eg-statechart ``posttick``."""
+        from agent_utilities.orchestration import work_item as _wi
+        from agent_utilities.orchestration.loop_guards import deadline_passed
+
+        from .loops import (
+            LoopStatus,
+            is_terminal,
+            send_loop_statechart_event,
+            statechart_active_state,
+            to_status,
+        )
+
+        # -- legacy trust: a terminal status the evaluator did NOT override
+        # (offline / no measurement) — the callee's self-declared verdict. --
+        callee_terminal = decided.value if is_terminal(decided) else None
+        # -- exit 2 TURN CAP / exit 4 WALL CLOCK signals, precomputed as
+        # plain booleans for the same reason as error_threshold_tripped. --
+        run.turn_cap_reached = run.it >= run.max_it
+        run.deadline_flag = deadline_passed(run.deadline)
+        # Whichever of running/pending/validating this iteration continues
+        # as (the ordinary non-terminal heartbeat) — None once ``decided``
+        # is itself terminal (the legacy-trust/turn-cap/wall-clock guards
+        # take it from here instead).
+        heartbeat_target = heartbeat.value if not is_terminal(heartbeat) else None
+
+        # Key order matters here — see the matching comment on the "pretick"
+        # payload above: the engine's MAC verification round-trips this payload
+        # through a sorted-key re-serialization, so the literal must already be
+        # alphabetical or the call fails closed with "Authentication failed".
+        post_result = send_loop_statechart_event(
+            self.engine,
+            run.loop_id,
+            "posttick",
+            payload={
+                "callee_terminal": callee_terminal,
+                "deadline_passed": run.deadline_flag,
+                "error_threshold_tripped": run.error_threshold_tripped,
+                "heartbeat_target": heartbeat_target,
+                "measured_pass": run.measured_pass,
+                "retryable_failure": retryable,
+                "stalled": run.stalled_flag,
+                "turn_cap_reached": run.turn_cap_reached,
+            },
+        )
+        if post_result is None:
+            raise _wi.WorkItemBackendUnavailable(
+                f"Loop {run.loop_id!r} has no eg-statechart instance for its WorkItem"
             )
-            progressed = (not progress_hashes) or sig != progress_hashes[-1]
-            progress_hashes.append(sig)
-            self._persist_progress_window(loop_id, progress_hashes, stall_window)
+        run.status = to_status(
+            statechart_active_state(post_result), default=LoopStatus.FAILED
+        )
 
-            # -- exit 7 ERROR THRESHOLD signal: N consecutive retryable failures;
-            # any non-failure progress resets the run (engine-breaker semantics).
-            # ``error_threshold_tripped`` is precomputed here as a plain boolean
-            # because ``eg-statechart``'s numeric ``Guard::Ge`` reads persistent
-            # machine CONTEXT, never the event payload, and this chart's context
-            # is always empty — the CALLER does the comparison and sends the
-            # boolean (mirrors the Rust-side W2.5 correction). --
-            error_threshold_tripped = False
-            if retryable_failure:
-                error_threshold_tripped = fail_guard.record_failure()
-            elif progressed:
-                fail_guard.record_success()
+    def _loop_exhaustion_reason(self, run: _LoopRun) -> str:
+        """The diagnosable reason for whichever exhaustion terminal `status` is.
 
-            # -- exit 5 NO PROGRESS: the last N signatures identical -> stalled. --
-            stalled_flag = window_is_stalled(progress_hashes, stall_window)
+        A pure lookup: each exhaustion terminal is confirmed by the boolean this
+        iteration precomputed for it, so an unconfirmed (callee-declared)
+        terminal falls through to the empty string.
+        """
+        import time as _time
 
-            # -- legacy trust: a terminal status the evaluator did NOT override
-            # (offline / no measurement) — the callee's self-declared verdict. --
-            callee_terminal = decided.value if is_terminal(decided) else None
+        from .loops import LoopStatus
 
-            # -- exit 2 TURN CAP / exit 4 WALL CLOCK signals, precomputed as
-            # plain booleans for the same reason as error_threshold_tripped. --
-            turn_cap_reached = it >= max_it
-            deadline_flag = deadline_passed(deadline)
+        reasons: dict[Any, tuple[bool, str]] = {
+            LoopStatus.ERROR_THRESHOLD_EXCEEDED: (
+                run.error_threshold_tripped,
+                f"{run.fail_guard.count} consecutive non-terminal failures "
+                f"(threshold {run.fail_guard.threshold})",
+            ),
+            LoopStatus.STALLED: (
+                run.stalled_flag,
+                f"no progress across the last {run.stall_window} iterations "
+                "(identical status/output)",
+            ),
+            LoopStatus.MAX_ITERATIONS_EXCEEDED: (
+                run.turn_cap_reached,
+                f"turn cap reached: max_iterations={run.max_it} without convergence",
+            ),
+            LoopStatus.WALL_CLOCK_EXCEEDED: (
+                run.deadline_flag,
+                "overall wall-clock deadline exceeded after "
+                f"{_time.monotonic() - run.start_monotonic:.1f}s",
+            ),
+        }
+        confirmed, reason = reasons.get(run.status, (False, ""))
+        return reason if confirmed else ""
 
-            # Whichever of running/pending/validating this iteration continues
-            # as (the ordinary non-terminal heartbeat) — None once ``decided``
-            # is itself terminal (the legacy-trust/turn-cap/wall-clock guards
-            # above take it from here instead).
-            heartbeat_target = (
-                heartbeat_status.value if not is_terminal(heartbeat_status) else None
+    def _loop_dispatch_terminal(self, run: _LoopRun) -> dict[str, Any] | None:
+        """Once `status` is terminal, pick the precise, diagnosable exit reason.
+
+        Returns the ``_loop_finish(...)`` result, or None if `status` is not
+        (yet) terminal.
+        """
+        from .loops import LoopStatus, is_terminal
+
+        if not is_terminal(run.status):
+            return None
+        if run.status is LoopStatus.COMPLETED:
+            if not run.measured_pass:
+                return self._loop_finish(run, LoopStatus.COMPLETED)
+            verdict = run.verdict
+            assert verdict is not None  # measured_pass implies this
+            return self._loop_finish(
+                run,
+                LoopStatus.COMPLETED,
+                reason=(
+                    f"goal met (measured score={verdict.score:.2f}): {verdict.detail}"
+                ),
             )
+        reason = self._loop_exhaustion_reason(run)
+        return self._loop_finish(
+            run,
+            run.status,
+            reason=reason or f"callee terminal status: {run.status.value}",
+        )
 
-            # Key order matters here — see the matching comment on the "pretick"
-            # payload above: the engine's MAC verification round-trips this payload
-            # through a sorted-key re-serialization, so the literal must already be
-            # alphabetical or the call fails closed with "Authentication failed".
-            post_result = send_loop_statechart_event(
-                self.engine,
-                loop_id,
-                "posttick",
-                payload={
-                    "callee_terminal": callee_terminal,
-                    "deadline_passed": deadline_flag,
-                    "error_threshold_tripped": error_threshold_tripped,
-                    "heartbeat_target": heartbeat_target,
-                    "measured_pass": measured_pass,
-                    "retryable_failure": retryable_failure,
-                    "stalled": stalled_flag,
-                    "turn_cap_reached": turn_cap_reached,
-                },
-            )
-            if post_result is None:
-                raise _wi.WorkItemBackendUnavailable(
-                    f"Loop {loop_id!r} has no eg-statechart instance for its WorkItem"
-                )
-            active = statechart_active_state(post_result)
-            status = to_status(active, default=LoopStatus.FAILED)
+    def _loop_fallthrough(self, run: _LoopRun) -> dict[str, Any]:
+        """The while-condition fell through — settle on the precise terminal cause."""
+        import time as _time
 
-            terminal_result = _dispatch_terminal_status()
-            if terminal_result is not None:
-                return terminal_result
+        from agent_utilities.orchestration.loop_guards import deadline_passed
 
-            # A retryable failure keeps looping (already counted); it must NOT
-            # fall into the ``done``-flag break on the same iteration.
-            if retryable_failure:
-                if sleep_s:
-                    await asyncio.sleep(sleep_s)
-                continue
-            if outcome.get("done"):
-                break
-            if sleep_s:
-                await asyncio.sleep(sleep_s)
+        from .loops import LoopStatus, is_terminal
 
-        # -- The while-condition fell through: decide the PRECISE terminal cause
-        # so the exit is diagnosable rather than a generic 'failed'. --
-        if is_terminal(status):
-            return {"id": loop_id, "status": status.value, "iterations": it}
+        if is_terminal(run.status):
+            return {"id": run.loop_id, "status": run.status.value, "iterations": run.it}
         # exit 4 WALL CLOCK (checked in the while-condition above).
-        if deadline_passed(deadline):
-            return _finish(
+        if deadline_passed(run.deadline):
+            return self._loop_finish(
+                run,
                 LoopStatus.WALL_CLOCK_EXCEEDED,
                 reason=(
-                    f"overall wall-clock deadline exceeded after "
-                    f"{_time.monotonic() - start_monotonic:.1f}s"
+                    "overall wall-clock deadline exceeded after "
+                    f"{_time.monotonic() - run.start_monotonic:.1f}s"
                 ),
             )
         # exit 2 TURN CAP.
-        if it >= max_it:
-            return _finish(
+        if run.it >= run.max_it:
+            return self._loop_finish(
+                run,
                 LoopStatus.MAX_ITERATIONS_EXCEEDED,
-                reason=f"turn cap reached: max_iterations={max_it} without convergence",
+                reason=f"turn cap reached: max_iterations={run.max_it} without convergence",
             )
         # Any other non-terminal fall-through (e.g. a ``done`` flag on a
         # non-terminal status) settles as a plain failure.
-        return _finish(
-            LoopStatus.FAILED, reason="loop ended without reaching a terminal state"
+        return self._loop_finish(
+            run,
+            LoopStatus.FAILED,
+            reason="loop ended without reaching a terminal state",
         )
 
     @staticmethod
@@ -3241,10 +3720,8 @@ class LoopController:
         # Read a fresh AgentConfig() (not the import-time singleton) so runtime
         # root changes are honored.
         _cfg = AgentConfig()
-        libs_raw = _cfg.kg_breadth_library_roots
-        repos_raw = _cfg.kg_breadth_repo_roots
-        libs = [p.strip() for p in (libs_raw or "").split(",") if p.strip()]
-        repos = [p.strip() for p in (repos_raw or "").split(",") if p.strip()]
+        libs = self._breadth_roots(_cfg.kg_breadth_library_roots)
+        repos = self._breadth_roots(_cfg.kg_breadth_repo_roots)
         # No explicit roots ⇒ self-configure from the workspace.yml ecosystem.
         if not libs and not repos:
             repos = workspace_project_roots()
@@ -3255,10 +3732,14 @@ class LoopController:
                 run_breadth_ingest(self.engine, library_roots=libs, repo_roots=repos)
             )
 
+    @staticmethod
+    def _breadth_roots(raw: str | None) -> list[str]:
+        """Split one comma-separated ``KG_BREADTH_*_ROOTS`` override into paths."""
+        return [p.strip() for p in (raw or "").split(",") if p.strip()]
+
     def _finalize_metrics(self, report: dict[str, Any], start: float) -> None:
         """Attach cycle metrics, log a health summary, persist an EvolutionCycle node."""
         import time
-        import uuid
 
         m = report["metrics"]
         m["duration_ms"] = round((time.monotonic() - start) * 1000, 1)
@@ -3279,25 +3760,36 @@ class LoopController:
         )
         if report["errors"]:
             logger.warning("golden-loop cycle errors: %s", report["errors"])
-        # Monitoring: persist a queryable EvolutionCycle node (best-effort).
-        # One node type (``EvolutionCycle``) and id convention (``evo_cycle_<ts>``)
-        # shared with the daemon tick (``engine_tasks._tick_evolution``) so a
-        # ``MATCH (e:EvolutionCycle)`` sees both on-demand and scheduled cycles;
-        # ``triggered_by`` discriminates the source. ``errors``/``stage_ms`` are
-        # JSON-encoded: the durable (Postgres) backend cannot adapt a raw
-        # dict/list into a column value.
+        self._persist_evolution_cycle(report, m)
+        self._record_velocity(report)
+        gauge = self._record_saturation(report)
+        self._finish_beacon(m, gauge)
+
+    def _persist_evolution_cycle(
+        self, report: dict[str, Any], m: dict[str, Any]
+    ) -> None:
+        """Monitoring: persist a queryable ``EvolutionCycle`` node (best-effort).
+
+        One node type (``EvolutionCycle``) and id convention (``evo_cycle_<ts>``)
+        shared with the daemon tick (``engine_tasks._tick_evolution``) so a
+        ``MATCH (e:EvolutionCycle)`` sees both on-demand and scheduled cycles;
+        ``triggered_by`` discriminates the source. The id is shared with the live
+        beacon (CONCEPT:AU-KG.research.evolutionstate-live-surface-per) so the
+        finalized cycle and the mid-flight beacon cross-reference one cycle.
+
+        Conforms to the EvolutionCycle table schema (schema_definition.py): only
+        known columns are first-class; cycle-specific metrics go in ``metadata``
+        (a JSON STRING column) so the durable (Postgres) backend accepts them —
+        it cannot adapt a raw dict/list into a column value.
+        """
         import json
         import time as _time
+        import uuid
 
         now_iso = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())
-        # Share the id with the live beacon (CONCEPT:AU-KG.research.evolutionstate-live-surface-per) so the finalized
-        # EvolutionCycle and the mid-flight beacon cross-reference one cycle.
         cycle_id = self._cycle_id or (
             f"evo_cycle_{_time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex}"
         )
-        # Conform to the EvolutionCycle table schema (schema_definition.py): only
-        # known columns are first-class; cycle-specific metrics go in ``metadata``
-        # (a JSON STRING column) so the durable (Postgres) backend accepts them.
         try:
             self.engine.add_node(
                 cycle_id,
@@ -3322,12 +3814,16 @@ class LoopController:
         except Exception as e:  # noqa: BLE001 - monitoring persist is best-effort
             logger.debug("EvolutionCycle persist failed: %s", e)
 
-        # CONCEPT:AU-AHE.sdd.recursive-improvement-instrumentation-aggregating / SAFE-1.3 — recursive-improvement velocity. Read the
-        # loop's own audit streams (EvolutionCycle + ProposalPublication +
-        # CapabilityRatchetResult) back into one velocity reading and persist it, so
-        # the loop self-instruments: is it still improving, how fast, and is it
-        # emitting code or only prose? A stalling verdict is the research-gets-harder
-        # signal. Best-effort — never aborts the cycle.
+    def _record_velocity(self, report: dict[str, Any]) -> None:
+        """CONCEPT:AU-AHE.sdd.recursive-improvement-instrumentation-aggregating / SAFE-1.3.
+
+        Recursive-improvement velocity: read the loop's own audit streams
+        (EvolutionCycle + ProposalPublication + CapabilityRatchetResult) back into
+        one velocity reading and persist it, so the loop self-instruments — is it
+        still improving, how fast, and is it emitting code or only prose? A
+        stalling verdict is the research-gets-harder signal. Best-effort — never
+        aborts the cycle.
+        """
         try:
             from .improvement_ledger import ImprovementLedger
 
@@ -3341,10 +3837,14 @@ class LoopController:
         except Exception as e:  # noqa: BLE001 — instrumentation never blocks the loop
             logger.debug("[AHE-3.26] velocity ledger failed: %s", e)
 
-        # CONCEPT:AU-KG.research.saturation-gauge-aggregates-four — saturation gauge. Aggregate open_gaps trend + the just-
-        # recorded velocity verdict + ingestion coverage into ONE 0..1 reading and
-        # stamp it on the report + the live beacon; when saturated (and stalling),
-        # surface a request-more recommendation (NEVER auto-fetch). Best-effort.
+    def _record_saturation(self, report: dict[str, Any]) -> dict[str, Any] | None:
+        """CONCEPT:AU-KG.research.saturation-gauge-aggregates-four — saturation gauge.
+
+        Aggregate the open_gaps trend + the just-recorded velocity verdict +
+        ingestion coverage into ONE 0..1 reading and stamp it on the report; when
+        saturated (and stalling), surface a request-more recommendation (NEVER
+        auto-fetch). Best-effort — returns None when the gauge could not be read.
+        """
         try:
             from .evolution_state import (
                 _open_gaps_trend,
@@ -3368,20 +3868,23 @@ class LoopController:
                     gauge["gauge"],
                     gauge["recommendation"],
                 )
+            return gauge
         except Exception as e:  # noqa: BLE001 — gauge is observability only
             logger.debug("[KG-2.291] saturation gauge failed: %s", e)
-            gauge = None
+            return None
 
-        # Close out the live beacon (CONCEPT:AU-KG.research.evolutionstate-live-surface-per).
-        if self._beacon is not None:
-            try:
-                self._beacon.finish(
-                    open_gaps=m.get("open_gaps", 0),
-                    errors=m.get("error_count", 0),
-                    saturation=(gauge or {}).get("gauge") if gauge else None,
-                )
-            except Exception as e:  # noqa: BLE001 — beacon telemetry write AFTER the metrics dict `m` it reports has already been fully computed above; a failed beacon write loses one telemetry data point, not the loop's actual metrics
-                logger.debug("beacon.finish failed: %s", e)
+    def _finish_beacon(self, m: dict[str, Any], gauge: dict[str, Any] | None) -> None:
+        """Close out the live beacon (CONCEPT:AU-KG.research.evolutionstate-live-surface-per)."""
+        if self._beacon is None:
+            return
+        try:
+            self._beacon.finish(
+                open_gaps=m.get("open_gaps", 0),
+                errors=m.get("error_count", 0),
+                saturation=(gauge or {}).get("gauge") if gauge else None,
+            )
+        except Exception as e:  # noqa: BLE001 — beacon telemetry write AFTER the metrics dict `m` it reports has already been fully computed above; a failed beacon write loses one telemetry data point, not the loop's actual metrics
+            logger.debug("beacon.finish failed: %s", e)
 
     def _run_audit_gaps(self) -> dict[str, Any]:
         """Opt-in code-audit discovery pass (CONCEPT:AU-AHE.harness.audit-gap-detector).
@@ -3396,8 +3899,6 @@ class LoopController:
 
     def _distill_specs(self, topics: list[dict[str, Any]]) -> list[str]:
         """Distil ``SpecDraft`` markdown into ``.specify/specs/kg-distilled/``."""
-        from agent_utilities.sdd import SDDManager
-
         from ..enrichment.cards import make_lite_llm_fn
         from ..enrichment.distill import what_specs_could_we_build
         from ..enrichment.extractors.document import Concept
@@ -3413,10 +3914,27 @@ class LoopController:
         )
         if not specs:
             return []
-        # W6.2 (D2, CONCEPT:AU-AHE.sdd.loop-authored-spec): author each draft as a
-        # first-class DSTDD Spec+Tasks through the ONE writer (SDDManager) —
-        # .specify/specs/<feature>/{spec.md,tasks.md} + the :SDDArtifact node family —
-        # instead of a raw open()/write() prose file. SpecDraft is now the input adapter.
+        paths = self._author_spec_drafts(specs)
+        spec_ids = self._persist_spec_proposals(topics, specs, paths)
+        self._beacon and self._beacon.enter(
+            "distill",
+            detail=f"distilled {len(spec_ids)} spec(s): "
+            + ", ".join(s.title for s in specs[:3]),
+        )
+        self._auto_advance_specs(spec_ids)
+        return paths
+
+    def _author_spec_drafts(self, specs: list[Any]) -> list[str]:
+        """W6.2 (D2, CONCEPT:AU-AHE.sdd.loop-authored-spec) — author each draft.
+
+        Each becomes a first-class DSTDD Spec+Tasks through the ONE writer
+        (SDDManager): ``.specify/specs/<feature>/{spec.md,tasks.md}`` + the
+        ``:SDDArtifact`` node family, instead of a raw ``open()``/``write()`` prose
+        file. ``SpecDraft`` is now the input adapter. Authoring is best-effort; a
+        failed draft keeps its slot as an empty path.
+        """
+        from agent_utilities.sdd import SDDManager
+
         mgr = SDDManager(self.codebase_root)
         paths: list[str] = []
         for draft in specs:
@@ -3425,20 +3943,27 @@ class LoopController:
             except Exception as e:  # noqa: BLE001 — authoring is best-effort
                 logger.debug("[W6.2] SDDManager authoring failed: %s", e)
                 paths.append("")
+        return paths
 
-        # CONCEPT:AU-KG.research.close-distill-develop-seam — close the distill→develop seam. Persist each draft as a
-        # first-class, queryable :SpecProposal (status pending_review) linked to its
-        # source concepts, so the distilled spec is no longer a dead-end .md file but
-        # a develop-able + reviewable work item. The spec is fed into the existing
-        # promotion pipeline only AFTER the OS-5.73 spec-review checkpoint approves it.
-        from agent_utilities.core.config import config as _cfg
+    def _persist_spec_proposals(
+        self, topics: list[dict[str, Any]], specs: list[Any], paths: list[str]
+    ) -> list[str]:
+        """CONCEPT:AU-KG.research.close-distill-develop-seam — close the distill→develop seam.
 
-        from .spec_proposals import auto_advance_specs, persist_spec_proposal
+        Persist each draft as a first-class, queryable ``:SpecProposal`` (status
+        pending_review) linked to its source concepts, so the distilled spec is no
+        longer a dead-end .md file but a develop-able + reviewable work item. The
+        spec is fed into the existing promotion pipeline only AFTER the OS-5.73
+        spec-review checkpoint approves it.
 
-        # Thread the canonical origin gap (D6): a distilled spec's concept_ids are the
-        # topic ids it drew from; a failure topic now carries its canonical gap_id, so
-        # the persisted spec links (:Gap)-[:SPECIFIED_BY]->(:SpecProposal) and the gap
-        # can be closed on publish. target_file (D3) threads via the SpecDraft field.
+        Threads the canonical origin gap (D6): a distilled spec's ``concept_ids``
+        are the topic ids it drew from, and a failure topic now carries its
+        canonical ``gap_id``, so the persisted spec links
+        ``(:Gap)-[:SPECIFIED_BY]->(:SpecProposal)`` and the gap can be closed on
+        publish. ``target_file`` (D3) threads via the ``SpecDraft`` field.
+        """
+        from .spec_proposals import persist_spec_proposal
+
         gap_by_topic: dict[str, str] = {
             t["id"]: gid for t in topics if (gid := t.get("gap_id"))
         }
@@ -3457,21 +3982,26 @@ class LoopController:
             )
             if sid:
                 spec_ids.append(sid)
-        self._beacon and self._beacon.enter(
-            "distill",
-            detail=f"distilled {len(spec_ids)} spec(s): "
-            + ", ".join(s.title for s in specs[:3]),
-        )
-        # Default = review-first (propose-and-hold). Only when KG_LOOP_AUTO_DEVELOP is
-        # explicitly on does the 24/7 loop auto-advance specs through the spec_promotion
-        # gate (which itself defaults to approval_required, so it only develops where an
-        # operator relaxed the tier). Acquisition is never auto-run.
-        if getattr(_cfg, "kg_loop_auto_develop", False) and spec_ids:
-            try:
-                auto_advance_specs(self.engine)
-            except Exception as e:  # noqa: BLE001 — never blocks the cycle
-                logger.debug("[OS-5.73] auto_advance_specs failed: %s", e)
-        return paths
+        return spec_ids
+
+    def _auto_advance_specs(self, spec_ids: list[str]) -> None:
+        """Default = review-first (propose-and-hold).
+
+        Only when ``KG_LOOP_AUTO_DEVELOP`` is explicitly on does the 24/7 loop
+        auto-advance specs through the ``spec_promotion`` gate (which itself
+        defaults to approval_required, so it only develops where an operator
+        relaxed the tier). Acquisition is never auto-run.
+        """
+        from agent_utilities.core.config import config as _cfg
+
+        from .spec_proposals import auto_advance_specs
+
+        if not (getattr(_cfg, "kg_loop_auto_develop", False) and spec_ids):
+            return
+        try:
+            auto_advance_specs(self.engine)
+        except Exception as e:  # noqa: BLE001 — never blocks the cycle
+            logger.debug("[OS-5.73] auto_advance_specs failed: %s", e)
 
     def _synthesize_team(self, topics: list[dict[str, Any]]) -> dict[str, Any] | None:
         """Synthesize a team proposal addressing the open topics; persist nodes."""
@@ -3525,16 +4055,36 @@ class LoopController:
         clear, drafts a JSONL corpus under ``.specify/specs/search-tasks/`` and
         (propose-only) persists each as a ``SearchTask`` node. Returns a summary.
         """
-        import json
-        from pathlib import Path
-
-        from ..search_synthesis import synthesize
-
         reader = _EngineReader(self.engine)
+        candidates = self._search_task_candidates(reader, limit)
+        tasks = self._synthesize_task_set(reader, candidates, limit)
+        corpus_path = self._write_search_task_corpus(tasks)
+        persisted = self._persist_search_tasks(tasks)
+        return {
+            "candidates": len(candidates),
+            "tasks": len(tasks),
+            "persisted_nodes": persisted,
+            "corpus_path": corpus_path,
+        }
+
+    @staticmethod
+    def _search_task_candidates(reader: Any, limit: int) -> list[Any]:
+        """Bounded pool of candidate answer entities to synthesize tasks around."""
         rows = reader.query("MATCH (n) RETURN n LIMIT $k", {"k": limit * 4})
-        candidates = [
+        return [
             (r.get("n") or {}).get("id") for r in rows if (r.get("n") or {}).get("id")
         ]
+
+    @staticmethod
+    def _synthesize_task_set(
+        reader: Any, candidates: list[Any], limit: int
+    ) -> list[dict[str, Any]]:
+        """Synthesize up to ``limit`` tasks, keeping only shortcut-clear ones.
+
+        One candidate's synthesis failure `continue`s to the next candidate, and
+        only successfully-synthesized tasks are appended.
+        """
+        from ..search_synthesis import synthesize
 
         tasks: list[dict[str, Any]] = []
         for answer_id in candidates:
@@ -3544,46 +4094,53 @@ class LoopController:
                 continue
             try:
                 task = synthesize(reader, str(answer_id), hops=2)
-            except Exception as e:  # noqa: BLE001 — one candidate's search-task synthesis inside the per-candidate loop; `continue`s to the next candidate, and only successfully-synthesized tasks are appended to `tasks` above
+            except Exception as e:  # noqa: BLE001 — one candidate's search-task synthesis inside the per-candidate loop
                 logger.debug("search-task synthesis failed for %s: %s", answer_id, e)
                 continue
             if task.risk_report.clear and task.difficulty >= 1:
                 tasks.append(task.to_dict())
+        return tasks
 
-        corpus_path = ""
-        if tasks:
-            out_dir = Path(self.codebase_root) / ".specify" / "specs" / "search-tasks"
-            out_dir.mkdir(parents=True, exist_ok=True)
-            corpus_file = out_dir / "tasks.jsonl"
-            corpus_file.write_text(
-                "\n".join(json.dumps(t) for t in tasks) + "\n", encoding="utf-8"
-            )
-            corpus_path = str(corpus_file)
+    def _write_search_task_corpus(self, tasks: list[dict[str, Any]]) -> str:
+        """Draft the JSONL training corpus under ``.specify/specs/search-tasks/``."""
+        import json
+        from pathlib import Path
 
+        if not tasks:
+            return ""
+        out_dir = Path(self.codebase_root) / ".specify" / "specs" / "search-tasks"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        corpus_file = out_dir / "tasks.jsonl"
+        corpus_file.write_text(
+            "\n".join(json.dumps(t) for t in tasks) + "\n", encoding="utf-8"
+        )
+        return str(corpus_file)
+
+    def _persist_search_tasks(self, tasks: list[dict[str, Any]]) -> int:
+        """Propose-only persist of each task as a ``SearchTask`` node.
+
+        ``persisted`` is only incremented on the success path, so the returned
+        count already reflects exactly what landed.
+        """
+        if not self.propose_only:
+            return 0
         persisted = 0
-        if self.propose_only:
-            for t in tasks:
-                try:
-                    self.engine.add_node(
-                        f"SearchTask:{t['answer_id']}",
-                        {
-                            "type": "SearchTask",
-                            "question": t["question"],
-                            "answer_id": t["answer_id"],
-                            "difficulty": t["difficulty"],
-                            "status": "proposal",
-                        },
-                    )
-                    persisted += 1
-                except Exception as e:  # noqa: BLE001 — one task's persist inside the per-task loop; `persisted` is only incremented on the success path above, so the returned persisted_nodes count already reflects exactly what landed
-                    logger.debug("SearchTask persist failed: %s", e)
-
-        return {
-            "candidates": len(candidates),
-            "tasks": len(tasks),
-            "persisted_nodes": persisted,
-            "corpus_path": corpus_path,
-        }
+        for t in tasks:
+            try:
+                self.engine.add_node(
+                    f"SearchTask:{t['answer_id']}",
+                    {
+                        "type": "SearchTask",
+                        "question": t["question"],
+                        "answer_id": t["answer_id"],
+                        "difficulty": t["difficulty"],
+                        "status": "proposal",
+                    },
+                )
+                persisted += 1
+            except Exception as e:  # noqa: BLE001 — one task's persist inside the per-task loop
+                logger.debug("SearchTask persist failed: %s", e)
+        return persisted
 
 
 def _default_develop_runner(cmd: str, cwd: str) -> tuple[bool, str]:
@@ -3597,33 +4154,60 @@ def _default_develop_runner(cmd: str, cwd: str) -> tuple[bool, str]:
     enabled, it accepts one bounded argv command, resolves an operator-allowlisted
     executable from ``PATH``, does not invoke a shell, and passes only a minimal
     non-secret environment. Prefer an injected governed sandbox runner.
+
+    The admission checks below run in a FIXED order — host-validation gate, then
+    the command's own bounds/quoting, then the executable allowlist, then the
+    working directory — so a doubly-invalid input always reports the same reason
+    it always did.
     """
-    import os
-    import shlex
-    import shutil
-    import signal
-    import subprocess
-    import sys
-    import tempfile
-    import time
     from pathlib import Path
 
     from agent_utilities.core.config import config
 
     if not config.kg_loop_allow_host_validation:
         return False, "host validation is disabled"
+    argv, argv_error = _parse_validation_argv(cmd)
+    if argv is None:
+        return False, argv_error
+    executable, exec_error = _resolve_validation_executable(argv)
+    if executable is None:
+        return False, exec_error
+    root = Path(cwd).expanduser().resolve(strict=False)
+    if not root.is_dir():
+        return False, "validation working directory is unavailable"
+    return _run_validation_process(executable, argv, root)
+
+
+def _parse_validation_argv(cmd: str) -> tuple[list[str] | None, str]:
+    """Split one bounded validation command into argv, or ``(None, reason)``."""
+    import os
+    import shlex
+
     if not cmd or len(cmd.encode("utf-8")) > 16 * 1024:
-        return False, "validation command is empty or exceeds the configured limit"
+        return None, "validation command is empty or exceeds the configured limit"
     try:
         argv = shlex.split(cmd, posix=os.name != "nt")
     except ValueError:
-        return False, "validation command has invalid quoting"
+        return None, "validation command has invalid quoting"
     if (
         not argv
         or len(argv) > 64
         or any(len(arg) > 4096 or "\x00" in arg for arg in argv)
     ):
-        return False, "validation command arguments exceed the configured limits"
+        return None, "validation command arguments exceed the configured limits"
+    return argv, ""
+
+
+def _resolve_validation_executable(argv: list[str]) -> tuple[str | None, str]:
+    """Resolve argv[0] against the operator allowlist, or ``(None, reason)``.
+
+    The command must be a bare executable NAME (never a path), must appear in
+    ``KG_LOOP_HOST_VALIDATION_EXECUTABLES``, and may never be a shell.
+    """
+    import shutil
+    from pathlib import Path
+
+    from agent_utilities.core.config import config
 
     executable_name = Path(argv[0]).name.lower()
     if executable_name.endswith(".exe"):
@@ -3638,13 +4222,16 @@ def _default_develop_runner(cmd: str, cwd: str) -> tuple[bool, str]:
         or executable_name not in allowed
         or executable_name in {"sh", "bash", "zsh", "cmd", "powershell", "pwsh"}
     ):
-        return False, "validation executable is not operator-allowlisted"
+        return None, "validation executable is not operator-allowlisted"
     executable = shutil.which(argv[0])
     if executable is None:
-        return False, "validation executable is unavailable"
-    root = Path(cwd).expanduser().resolve(strict=False)
-    if not root.is_dir():
-        return False, "validation working directory is unavailable"
+        return None, "validation executable is unavailable"
+    return executable, ""
+
+
+def _validation_child_env() -> dict[str, str]:
+    """The minimal, non-secret environment handed to the validation child."""
+    import os
 
     env_names = {
         "PATH",
@@ -3660,15 +4247,54 @@ def _default_develop_runner(cmd: str, cwd: str) -> tuple[bool, str]:
     }
     child_env = {name: os.environ[name] for name in env_names if name in os.environ}
     child_env.update({"CI": "1", "NO_COLOR": "1", "PYTHONNOUSERSITE": "1"})
+    return child_env
+
+
+def _await_validation_exit(proc: Any, output: Any, deadline: float) -> str:
+    """Poll until exit, the output cap, or the deadline; return the stop reason."""
+    import os
+    import time
 
     output_limit = 2 * 1024 * 1024
+    while proc.poll() is None:
+        if os.fstat(output.fileno()).st_size > output_limit:
+            return "validation output limit exceeded"
+        if time.monotonic() >= deadline:
+            return "validation command timed out"
+        time.sleep(0.05)
+    return ""
+
+
+def _kill_validation_group(proc: Any) -> None:
+    """Kill the child's whole process group (POSIX) or the child (Windows)."""
+    import os
+    import signal
+
+    if os.name != "nt":
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    else:
+        proc.kill()
+
+
+def _run_validation_process(
+    executable: str, argv: list[str], root: Any
+) -> tuple[bool, str]:
+    """Run the admitted command in its own session; success = exit code 0."""
+    import subprocess
+    import sys
+    import tempfile
+    import time
+
     proc: subprocess.Popen[bytes] | None = None
     stop_reason = ""
     try:
         with tempfile.TemporaryFile(mode="w+b") as output:
             popen_kwargs: dict[str, Any] = {
                 "cwd": root,
-                "env": child_env,
+                "env": _validation_child_env(),
                 "stdin": subprocess.DEVNULL,
                 "stdout": output,
                 "stderr": subprocess.STDOUT,
@@ -3679,35 +4305,27 @@ def _default_develop_runner(cmd: str, cwd: str) -> tuple[bool, str]:
             else:
                 popen_kwargs["start_new_session"] = True
             proc = subprocess.Popen([executable, *argv[1:]], **popen_kwargs)
-            deadline = time.monotonic() + 600
-            while proc.poll() is None:
-                if os.fstat(output.fileno()).st_size > output_limit:
-                    stop_reason = "validation output limit exceeded"
-                    break
-                if time.monotonic() >= deadline:
-                    stop_reason = "validation command timed out"
-                    break
-                time.sleep(0.05)
+            stop_reason = _await_validation_exit(proc, output, time.monotonic() + 600)
             if stop_reason:
-                if os.name != "nt":
-                    try:
-                        os.killpg(proc.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                else:
-                    proc.kill()
+                _kill_validation_group(proc)
             proc.wait(timeout=5)
-            size = os.fstat(output.fileno()).st_size
-            output.seek(max(0, size - 2000))
-            tail = output.read(2000).decode("utf-8", errors="replace")
+            tail = _read_output_tail(output)
     except Exception as exc:  # noqa: BLE001 — never abort the cycle
         if proc is not None and proc.poll() is None:
             proc.kill()
         return False, f"validation command failed to run ({type(exc).__name__})"
     if stop_reason:
         return False, f"{stop_reason}\n{tail}"
-    out = f"exit={proc.returncode}\n{tail}"
-    return proc.returncode == 0, out
+    return proc.returncode == 0, f"exit={proc.returncode}\n{tail}"
+
+
+def _read_output_tail(output: Any) -> str:
+    """The last 2000 bytes of the child's captured output, decoded leniently."""
+    import os
+
+    size = os.fstat(output.fileno()).st_size
+    output.seek(max(0, size - 2000))
+    return output.read(2000).decode("utf-8", errors="replace")
 
 
 def _default_skill_runner(
