@@ -424,11 +424,27 @@ def _print_stats(doc: dict, targets: list[Path], label: str) -> None:
 
 
 def _iter_files(targets: list[Path]):
+    """Independent (no jscpd involved) file count for TRAP-J6's cross-check.
+    MUST prune the same junk it would otherwise walk into: a bare `rglob`
+    over a target that is not itself a decomposed git-repo root (e.g. the
+    single `agents` root handed to a fleet-wide census, which contains 74
+    UN-decomposed nested repos each with their own .venv/.git/node_modules)
+    is not an approximation of jscpd's real corpus, it is a multi-million-
+    file stat() storm that dwarfs jscpd's own (ignore-scoped) runtime.
+    Verified: killed after 2m37s still running on a 7-root fleet census."""
     for t in targets:
         if t.is_file():
             yield t
         elif t.is_dir():
-            yield from (p for p in t.rglob("*") if p.is_file())
+            for dirpath, dirnames, filenames in os.walk(t):
+                dirnames[:] = [
+                    d
+                    for d in dirnames
+                    if not d.startswith(".")
+                    and d not in _JUNK_DIR_NAMES
+                    and not d.endswith(".egg-info")
+                ]
+                yield from (Path(dirpath) / f for f in filenames)
 
 
 def _worst_clones(doc: dict, n: int = 15) -> list[dict]:
