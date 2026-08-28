@@ -1365,14 +1365,92 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             "partial_errors": partial_errors,
         }
 
-    def _render_document(
+    def _render_title(
+        self, record: dict[str, Any], operation: dict[str, Any], raw_id: Any
+    ) -> tuple[str, Any]:
+        raw_title = _dig(record, str(operation.get("title_path") or "title"), raw_id)
+        return self._privacy.sanitize_text(str(raw_title))
+
+    def _render_content_lines(
+        self, record: dict[str, Any], operation: dict[str, Any]
+    ) -> tuple[list[str], Any]:
+        content_path = str(operation.get("content_path") or "")
+        if not content_path:
+            return [], None
+        clean_content, content_report = self._privacy.sanitize_text(
+            str(_dig(record, content_path, "") or "")
+        )
+        lines: list[str] = []
+        if clean_content.strip():
+            lines = ["", clean_content.strip()]
+        return lines, content_report
+
+    def _render_frontmatter_lines(self, frontmatter: Any) -> tuple[list[str], Any]:
+        if frontmatter in (None, "", {}, []):
+            return [], None
+        clean_frontmatter, report = self._privacy.sanitize(frontmatter)
+        if isinstance(clean_frontmatter, str):
+            return ["", clean_frontmatter], report
+        return (
+            [
+                "",
+                json.dumps(
+                    clean_frontmatter,
+                    sort_keys=True,
+                    ensure_ascii=False,
+                    default=str,
+                ),
+            ],
+            report,
+        )
+
+    def _render_one_section(
         self,
-        record: dict[str, Any],
-        operation: dict[str, Any],
-        identity_key: str,
+        section: Any,
         *,
-        profile_digest: str = "",
-        entity_id: str | None = None,
+        title_field: str,
+        level_field: str,
+        content_field: str,
+    ) -> tuple[list[str] | None, Any]:
+        if not isinstance(section, dict):
+            return None, None
+        clean_section, report = self._privacy.sanitize(section)
+        if not isinstance(clean_section, dict):
+            return None, report
+        section_title = str(clean_section.get(title_field) or "Section")
+        try:
+            level = max(2, min(int(clean_section.get(level_field) or 2) + 1, 6))
+        except (TypeError, ValueError):
+            level = 2
+        content = str(clean_section.get(content_field) or "").strip()
+        lines = ["", f"{'#' * level} {section_title}"]
+        if content:
+            lines.extend(["", content])
+        return lines, report
+
+    def _render_sections(
+        self, sections: list[Any], operation: dict[str, Any]
+    ) -> tuple[list[str], list[Any]]:
+        title_field = str(operation.get("section_title_field") or "title")
+        level_field = str(operation.get("section_level_field") or "level")
+        content_field = str(operation.get("section_content_field") or "content")
+        lines: list[str] = []
+        reports: list[Any] = []
+        for section in sections[: self.max_sections]:
+            section_lines, report = self._render_one_section(
+                section,
+                title_field=title_field,
+                level_field=level_field,
+                content_field=content_field,
+            )
+            if report is not None:
+                reports.append(report)
+            if section_lines is not None:
+                lines.extend(section_lines)
+        return lines, reports
+
+    def _render_governance_fields(
+        self,
         governance: tuple[
             ExternalAccess,
             DataClassification,
@@ -1382,12 +1460,19 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             str,
             str,
         ]
-        | None = None,
-    ) -> SourceDocument | None:
+        | None,
+    ) -> tuple[ExternalAccess, DataClassification, str | None, bool]:
+        if governance is None:
+            return self.external_access, DataClassification.INTERNAL, None, False
+        return governance[0], governance[1], governance[2], governance[3]
+
+    def _render_body(
+        self, record: dict[str, Any], operation: dict[str, Any]
+    ) -> tuple[Any, str, str, list[Any]] | None:
+        """(raw_id, clean_title, text, reports), or None if there is no body."""
         raw_id = _dig(record, str(operation.get("id_path") or "id"))
         if raw_id in (None, ""):
             return None
-        raw_title = _dig(record, str(operation.get("title_path") or "title"), raw_id)
         frontmatter = _dig(
             record,
             str(operation.get("frontmatter_path") or "document.frontmatter"),
@@ -1401,58 +1486,40 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
         if not isinstance(sections, list):
             sections = []
 
-        clean_title, title_report = self._privacy.sanitize_text(str(raw_title))
+        clean_title, title_report = self._render_title(record, operation, raw_id)
         body: list[str] = [f"# {clean_title}"]
-        reports = [title_report]
-        content_path = str(operation.get("content_path") or "")
-        if content_path:
-            clean_content, content_report = self._privacy.sanitize_text(
-                str(_dig(record, content_path, "") or "")
-            )
-            reports.append(content_report)
-            if clean_content.strip():
-                body.extend(["", clean_content.strip()])
-        if frontmatter not in (None, "", {}, []):
-            clean_frontmatter, report = self._privacy.sanitize(frontmatter)
-            reports.append(report)
-            if isinstance(clean_frontmatter, str):
-                body.extend(["", clean_frontmatter])
-            else:
-                body.extend(
-                    [
-                        "",
-                        json.dumps(
-                            clean_frontmatter,
-                            sort_keys=True,
-                            ensure_ascii=False,
-                            default=str,
-                        ),
-                    ]
-                )
+        reports: list[Any] = [title_report]
 
-        title_field = str(operation.get("section_title_field") or "title")
-        level_field = str(operation.get("section_level_field") or "level")
-        content_field = str(operation.get("section_content_field") or "content")
-        for section in sections[: self.max_sections]:
-            if not isinstance(section, dict):
-                continue
-            clean_section, report = self._privacy.sanitize(section)
-            reports.append(report)
-            if not isinstance(clean_section, dict):
-                continue
-            section_title = str(clean_section.get(title_field) or "Section")
-            try:
-                level = max(2, min(int(clean_section.get(level_field) or 2) + 1, 6))
-            except (TypeError, ValueError):
-                level = 2
-            content = str(clean_section.get(content_field) or "").strip()
-            body.extend(["", f"{'#' * level} {section_title}"])
-            if content:
-                body.extend(["", content])
+        content_lines, content_report = self._render_content_lines(record, operation)
+        body.extend(content_lines)
+        if content_report is not None:
+            reports.append(content_report)
+
+        frontmatter_lines, frontmatter_report = self._render_frontmatter_lines(
+            frontmatter
+        )
+        body.extend(frontmatter_lines)
+        if frontmatter_report is not None:
+            reports.append(frontmatter_report)
+
+        section_lines, section_reports = self._render_sections(sections, operation)
+        body.extend(section_lines)
+        reports.extend(section_reports)
 
         text = "\n".join(body)[: self.max_content_chars].strip()
         if not text:
             return None
+        return raw_id, clean_title, text, reports
+
+    def _render_digests(
+        self,
+        record: dict[str, Any],
+        operation: dict[str, Any],
+        identity_key: str,
+        raw_id: Any,
+        text: str,
+        reports: list[Any],
+    ) -> tuple[str, str, str, list[str], int]:
         document_id = _private_digest(
             identity_key, self.source_alias, self.operation, "document", str(raw_id)
         )
@@ -1475,12 +1542,37 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             str(raw_id),
             clean_updated or content_digest,
         )
-        access = governance[0] if governance is not None else self.external_access
-        classification = (
-            governance[1] if governance is not None else DataClassification.INTERNAL
+        return document_id, content_digest, version_digest, detected, redactions
+
+    def _render_document(
+        self,
+        record: dict[str, Any],
+        operation: dict[str, Any],
+        identity_key: str,
+        *,
+        profile_digest: str = "",
+        entity_id: str | None = None,
+        governance: tuple[
+            ExternalAccess,
+            DataClassification,
+            str | None,
+            bool,
+            str,
+            str,
+            str,
+        ]
+        | None = None,
+    ) -> SourceDocument | None:
+        rendered = self._render_body(record, operation)
+        if rendered is None:
+            return None
+        raw_id, clean_title, text, reports = rendered
+        document_id, content_digest, version_digest, detected, redactions = (
+            self._render_digests(record, operation, identity_key, raw_id, text, reports)
         )
-        retention = governance[2] if governance is not None else None
-        legal_hold = governance[3] if governance is not None else False
+        access, classification, retention, legal_hold = self._render_governance_fields(
+            governance
+        )
         governed_entity_id = entity_id or (
             f"doc:graphql_document:{hashlib.sha256(document_id.encode('utf-8')).hexdigest()[:24]}"
         )
