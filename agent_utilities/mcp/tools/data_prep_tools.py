@@ -1877,28 +1877,38 @@ def register_data_prep_authority(
     _AUTHORITY_FACTORY = factory or _process_authority_factory
 
 
+def _validate_inline_field(key: Any, value: Any) -> None:
+    """Validate one inline record field's name/value shape."""
+
+    if not isinstance(key, str) or not key or len(key) > 128:
+        raise ValueError("inline record field names are invalid")
+    if value is not None and not isinstance(value, (bool, int, float, str)):
+        raise ValueError("inline records accept scalar values only")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError("inline records require finite numeric values")
+    if isinstance(value, str) and len(value.encode("utf-8")) > _MAX_INLINE_CELL_BYTES:
+        raise ValueError("inline record cell exceeds the bounded size")
+
+
+def _validate_inline_row(row_index: int, row: Any) -> set[str]:
+    """Validate one inline record row's shape/fields; return its field names."""
+
+    if not isinstance(row, Mapping):
+        raise ValueError(f"inline record {row_index} is not an object")
+    if len(row) > _MAX_INLINE_COLUMNS:
+        raise ValueError("inline records exceed the bounded column limit")
+    names = {str(key) for key in row}
+    for key, value in row.items():
+        _validate_inline_field(key, value)
+    return names
+
+
 def _validate_inline_records(records: Sequence[Mapping[str, Any]]) -> None:
     if len(records) > _MAX_INLINE_ROWS:
         raise ValueError("inline records exceed the bounded row limit")
     names: set[str] = set()
     for row_index, row in enumerate(records):
-        if not isinstance(row, Mapping):
-            raise ValueError(f"inline record {row_index} is not an object")
-        if len(row) > _MAX_INLINE_COLUMNS:
-            raise ValueError("inline records exceed the bounded column limit")
-        names.update(str(key) for key in row)
-        for key, value in row.items():
-            if not isinstance(key, str) or not key or len(key) > 128:
-                raise ValueError("inline record field names are invalid")
-            if value is not None and not isinstance(value, (bool, int, float, str)):
-                raise ValueError("inline records accept scalar values only")
-            if isinstance(value, float) and not math.isfinite(value):
-                raise ValueError("inline records require finite numeric values")
-            if (
-                isinstance(value, str)
-                and len(value.encode("utf-8")) > _MAX_INLINE_CELL_BYTES
-            ):
-                raise ValueError("inline record cell exceeds the bounded size")
+        names.update(_validate_inline_row(row_index, row))
     if len(names) > _MAX_INLINE_COLUMNS:
         raise ValueError("inline records exceed the bounded column limit")
     try:
