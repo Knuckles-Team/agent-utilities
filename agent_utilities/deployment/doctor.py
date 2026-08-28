@@ -4091,101 +4091,109 @@ def _check_native_optimizer(live: bool = False) -> dict[str, Any]:
         )
 
 
-def _check_graph_connections(live: bool = False) -> dict[str, Any]:
-    """Validate graph declarations and optionally prove their native read paths.
-
-    Every declaration, including sources declared only in ``KG_CONNECTIONS``, is
-    checked on every run. Network probes run only for an explicit live doctor.
-    Public output is aggregate metadata: aliases, endpoints, refs, identities,
-    source rows, and exception details never cross the doctor boundary.
-    """
-    try:
-        from agent_utilities.core.config import AgentConfig
-        from agent_utilities.knowledge_graph.core.connection_registry import (
-            validate_persistable_connection_spec,
+def _graph_connection_declarations(
+    cfg: Any,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """``(external, kg)`` connection declarations, normalised to plain dicts."""
+    external_declarations: list[dict[str, Any]] = []
+    for declared in cfg.external_graph_connectors or []:
+        value = (
+            declared.model_dump(exclude_none=True, exclude_defaults=True)
+            if hasattr(declared, "model_dump")
+            else dict(declared)
         )
-        from agent_utilities.mcp.kg_server import get_connection_registry
+        value["role"] = "read"
+        external_declarations.append(value)
+    kg_declarations = [dict(value) for value in (cfg.kg_connections or [])]
+    return external_declarations, kg_declarations
 
-        cfg = AgentConfig()
-        external_declarations: list[dict[str, Any]] = []
-        for declared in cfg.external_graph_connectors or []:
-            value = (
-                declared.model_dump(exclude_none=True, exclude_defaults=True)
-                if hasattr(declared, "model_dump")
-                else dict(declared)
-            )
-            value["role"] = "read"
-            external_declarations.append(value)
-        kg_declarations = [dict(value) for value in (cfg.kg_connections or [])]
-        declarations = [*external_declarations, *kg_declarations]
 
-        invalid_declaration_count = 0
-        for declaration in declarations:
-            try:
-                validate_persistable_connection_spec(declaration)
-                if not str(declaration.get("name") or "").strip():
-                    raise ValueError("connection declaration has no name")
-            except Exception:  # noqa: BLE001 - expose only aggregate counts
-                invalid_declaration_count += 1
+def _invalid_declaration_count(declarations: list[dict[str, Any]]) -> int:
+    """How many declarations fail the persistable spec or carry no usable name."""
+    from agent_utilities.knowledge_graph.core.connection_registry import (
+        validate_persistable_connection_spec,
+    )
 
-        # KG_CONNECTIONS intentionally overrides an EXTERNAL_GRAPH_CONNECTORS
-        # declaration with the same alias. Duplicates within either source are
-        # invalid and cannot be hidden by that precedence rule.
-        external_names = [
-            str(value.get("name") or "").strip()
-            for value in external_declarations
-            if str(value.get("name") or "").strip()
-        ]
-        kg_names = [
-            str(value.get("name") or "").strip()
-            for value in kg_declarations
-            if str(value.get("name") or "").strip()
-        ]
-        duplicate_declaration_count = (
+    invalid = 0
+    for declaration in declarations:
+        try:
+            validate_persistable_connection_spec(declaration)
+            if not str(declaration.get("name") or "").strip():
+                raise ValueError("connection declaration has no name")
+        except Exception:  # noqa: BLE001 - expose only aggregate counts
+            invalid += 1
+    return invalid
+
+
+def _declared_names(values: list[dict[str, Any]]) -> list[str]:
+    """Each declaration's non-empty stripped ``name``; duplicates are kept."""
+    return [
+        str(value.get("name") or "").strip()
+        for value in values
+        if str(value.get("name") or "").strip()
+    ]
+
+
+def _graph_connection_inventory(cfg: Any) -> SimpleNamespace:
+    """Reconcile the declared connections against the live registry.
+
+    ``KG_CONNECTIONS`` intentionally overrides an ``EXTERNAL_GRAPH_CONNECTORS``
+    declaration with the same alias. Duplicates within either source are invalid
+    and cannot be hidden by that precedence rule.
+    """
+    from agent_utilities.mcp.kg_server import get_connection_registry
+
+    external_declarations, kg_declarations = _graph_connection_declarations(cfg)
+    invalid_declaration_count = _invalid_declaration_count(
+        [*external_declarations, *kg_declarations]
+    )
+    external_names = _declared_names(external_declarations)
+    kg_names = _declared_names(kg_declarations)
+    effective_names = set(external_names) | set(kg_names)
+    registry = get_connection_registry()
+    conns = [
+        connection
+        for connection in registry.status().get("connections", [])
+        if connection.get("name") != "default"
+    ]
+    registered_names = set(_declared_names(conns))
+    return SimpleNamespace(
+        registry=registry,
+        conns=conns,
+        registered_names=registered_names,
+        effective_names=effective_names,
+        invalid_declaration_count=invalid_declaration_count,
+        duplicate_declaration_count=(
             len(external_names)
             - len(set(external_names))
             + len(kg_names)
             - len(set(kg_names))
-        )
-        effective_names = set(external_names) | set(kg_names)
-        registry = get_connection_registry()
-        status = registry.status()
-        conns = [
-            connection
-            for connection in status.get("connections", [])
-            if connection.get("name") != "default"
-        ]
-        registered_names = {
-            str(connection.get("name") or "").strip()
-            for connection in conns
-            if str(connection.get("name") or "").strip()
-        }
-        missing_declaration_count = len(effective_names - registered_names)
-    except Exception:  # noqa: BLE001 - never expose deployment details
-        return _result(
-            "graph_connections",
-            "fail",
-            "graph connection registry is invalid",
-            remediation=(
-                "Repair KG_CONNECTIONS and external graph declarations; keep all "
-                "transport, auth, and TLS material behind runtime references."
-            ),
-            data={"ready": False, "redacted": True, "live_probed": live},
-        )
+        ),
+        missing_declaration_count=len(effective_names - registered_names),
+    )
 
-    probe_failed_count = 0
+
+def _graph_connection_probe_counts(
+    registry: Any, registered_names: set[str], *, live: bool
+) -> tuple[int, int]:
+    """``(ready, probe_failed)``; a probe that raises counts as failed, never ready."""
+    if not live:
+        return 0, 0
     ready_count = 0
-    if live:
-        for name in sorted(registered_names):
-            try:
-                if registry.probe(name):
-                    ready_count += 1
-                else:
-                    probe_failed_count += 1
-            except Exception:  # noqa: BLE001 - never expose connector details
+    probe_failed_count = 0
+    for name in sorted(registered_names):
+        try:
+            if registry.probe(name):
+                ready_count += 1
+            else:
                 probe_failed_count += 1
+        except Exception:  # noqa: BLE001 - never expose connector details
+            probe_failed_count += 1
+    return ready_count, probe_failed_count
 
-    stalled_count = 0
+
+def _stalled_mirror_count() -> int:
+    """Stalled fan-out mirrors; best-effort, an unavailable backend reports 0."""
     try:
         from agent_utilities.knowledge_graph.backends import get_active_backend
         from agent_utilities.knowledge_graph.backends.fanout_backend import (
@@ -4194,43 +4202,63 @@ def _check_graph_connections(live: bool = False) -> dict[str, Any]:
 
         backend = get_active_backend()
         cand = getattr(backend, "inner", backend)
-        fan = cand if isinstance(cand, FanOutBackend) else None
-        if isinstance(fan, FanOutBackend):
-            mirrors = fan.durability_stats().get("mirrors") or {}
-            stalled_count = sum(
-                bool(state.get("stalled")) for state in mirrors.values()
-            )
+        if not isinstance(cand, FanOutBackend):
+            return 0
+        mirrors = cand.durability_stats().get("mirrors") or {}
+        return sum(bool(state.get("stalled")) for state in mirrors.values())
     except Exception:  # noqa: BLE001 — mirror stats are best-effort
-        pass
+        return 0
 
+
+def _graph_connections_data(
+    inventory: SimpleNamespace,
+    ready_count: int,
+    probe_failed_count: int,
+    stalled_count: int,
+    *,
+    live: bool,
+) -> dict[str, Any]:
+    """Aggregate, redacted connection metadata -- never an alias or endpoint."""
     by_role: dict[str, int] = {}
-    for connection in conns:
+    for connection in inventory.conns:
         role = str(connection.get("role") or "read")
         by_role[role] = by_role.get(role, 0) + 1
-    data = {
-        "configured_count": len(effective_names),
-        "registered_count": len(registered_names),
+    return {
+        "configured_count": len(inventory.effective_names),
+        "registered_count": len(inventory.registered_names),
         "ready_count": ready_count,
         "probe_failed_count": probe_failed_count,
-        "invalid_declaration_count": invalid_declaration_count,
-        "duplicate_declaration_count": duplicate_declaration_count,
-        "missing_declaration_count": missing_declaration_count,
+        "invalid_declaration_count": inventory.invalid_declaration_count,
+        "duplicate_declaration_count": inventory.duplicate_declaration_count,
+        "missing_declaration_count": inventory.missing_declaration_count,
         "stalled_mirror_count": stalled_count,
         "roles": by_role,
         "redacted": True,
         "live_probed": live,
     }
+
+
+def _graph_connections_verdict(
+    inventory: SimpleNamespace,
+    data: dict[str, Any],
+    probe_failed_count: int,
+    stalled_count: int,
+    *,
+    live: bool,
+) -> dict[str, Any]:
+    """Any declaration or probe failure is a fail; stalled mirrors are a warn."""
+    registered = len(inventory.registered_names)
     configuration_failures = (
-        invalid_declaration_count
-        + duplicate_declaration_count
-        + missing_declaration_count
+        inventory.invalid_declaration_count
+        + inventory.duplicate_declaration_count
+        + inventory.missing_declaration_count
     )
     if configuration_failures or probe_failed_count:
         return _result(
             "graph_connections",
             "fail",
             (
-                f"{len(registered_names)} external connection(s); "
+                f"{registered} external connection(s); "
                 f"{configuration_failures} declaration failure(s), "
                 f"{probe_failed_count} runtime probe failure(s)"
             ),
@@ -4245,21 +4273,57 @@ def _check_graph_connections(live: bool = False) -> dict[str, Any]:
         return _result(
             "graph_connections",
             "warn",
-            f"{len(registered_names)} connection(s); {stalled_count} stalled mirror(s)",
+            f"{registered} connection(s); {stalled_count} stalled mirror(s)",
             remediation="`graph_configure action=reconcile` and check the mirror backend",
             skill="database-environment-setup",
             data=data,
         )
-    if not registered_names:
+    if not inventory.registered_names:
         detail = "no external connections registered"
     elif live:
-        detail = f"{ready_count}/{len(registered_names)} external connection(s) ready"
+        detail = f"{data['ready_count']}/{registered} external connection(s) ready"
     else:
         detail = (
-            f"{len(registered_names)} external connection declaration(s) valid; "
+            f"{registered} external connection declaration(s) valid; "
             "live proof not requested"
         )
     return _result("graph_connections", "ok", detail, data=data)
+
+
+def _check_graph_connections(live: bool = False) -> dict[str, Any]:
+    """Validate graph declarations and optionally prove their native read paths.
+
+    Every declaration, including sources declared only in ``KG_CONNECTIONS``, is
+    checked on every run. Network probes run only for an explicit live doctor.
+    Public output is aggregate metadata: aliases, endpoints, refs, identities,
+    source rows, and exception details never cross the doctor boundary.
+    """
+    try:
+        from agent_utilities.core.config import AgentConfig
+
+        inventory = _graph_connection_inventory(AgentConfig())
+    except Exception:  # noqa: BLE001 - never expose deployment details
+        return _result(
+            "graph_connections",
+            "fail",
+            "graph connection registry is invalid",
+            remediation=(
+                "Repair KG_CONNECTIONS and external graph declarations; keep all "
+                "transport, auth, and TLS material behind runtime references."
+            ),
+            data={"ready": False, "redacted": True, "live_probed": live},
+        )
+
+    ready_count, probe_failed_count = _graph_connection_probe_counts(
+        inventory.registry, inventory.registered_names, live=live
+    )
+    stalled_count = _stalled_mirror_count()
+    data = _graph_connections_data(
+        inventory, ready_count, probe_failed_count, stalled_count, live=live
+    )
+    return _graph_connections_verdict(
+        inventory, data, probe_failed_count, stalled_count, live=live
+    )
 
 
 def _ingestion_freshness(backend: Any) -> dict[str, str]:
@@ -4604,6 +4668,233 @@ def _check_skills() -> dict[str, Any]:
     )
 
 
+def _unified_install_tally() -> SimpleNamespace:
+    """Zeroed counters for one unified-install sweep."""
+    return SimpleNamespace(
+        missing=0,
+        unresolved=0,
+        materialized=0,
+        stale_managed=0,
+        unmanaged_nested=0,
+        invalid_managed=0,
+    )
+
+
+def _count_generation(
+    path: Any,
+    provider: str,
+    leg: str,
+    registration: Any,
+    source_manifest: Any,
+    tally: SimpleNamespace,
+) -> None:
+    """Materialized when a managed generation resolves for this provider, else missing."""
+    from agent_utilities.core.provider_materialization import (
+        resolve_managed_generation,
+    )
+
+    resolved = resolve_managed_generation(
+        path,
+        provider=provider,
+        leg=leg,
+        registration=registration,
+        source_manifest=source_manifest,
+    )
+    if resolved is not None:
+        tally.materialized += 1
+    else:
+        tally.missing += 1
+
+
+def _count_provider_materialization(
+    registration: Any, root: Any, leg: str, tally: SimpleNamespace
+) -> None:
+    """Count one registered provider as materialized, missing, or unresolved.
+
+    A source that cannot be read is ``unresolved`` -- never silently skipped and
+    never counted as materialized.
+    """
+    from agent_utilities.core.provider_materialization import (
+        ProviderAssetError,
+        build_asset_manifest,
+    )
+
+    if registration.source_root is None:
+        tally.unresolved += 1
+        return
+    try:
+        manifest = build_asset_manifest(
+            registration.source_root,
+            leg=leg,
+            allowed_relative_paths=registration.owned_paths,
+        )
+    except (OSError, ProviderAssetError, ValueError):
+        tally.unresolved += 1
+        return
+    _count_generation(
+        root / registration.name,
+        registration.name,
+        leg,
+        registration.digest,
+        manifest,
+        tally,
+    )
+
+
+def _count_own_provider(root: Any, leg: str, tally: SimpleNamespace) -> None:
+    """Count the hub's OWN contribution for one leg."""
+    from agent_utilities.core.provider_materialization import ProviderAssetError
+    from agent_utilities.core.unified_install import OWN_PROVIDER, own_provider_asset
+
+    try:
+        _source, own_digest, own_manifest = own_provider_asset(leg)
+    except (OSError, ProviderAssetError, ValueError):
+        tally.unresolved += 1
+        return
+    _count_generation(
+        root / OWN_PROVIDER, OWN_PROVIDER, leg, own_digest, own_manifest, tally
+    )
+
+
+def _nested_child_is_plain_dir(child: Any, tally: SimpleNamespace) -> bool:
+    """A leg-root child must be a real directory; anything else is invalid_managed."""
+    try:
+        child_info = child.lstat()
+    except OSError:
+        tally.invalid_managed += 1
+        return False
+    is_junction = getattr(child, "is_junction", lambda: False)()
+    if child.is_symlink() or is_junction or not stat.S_ISDIR(child_info.st_mode):
+        tally.invalid_managed += 1
+        return False
+    return True
+
+
+def _classify_managed_marker(
+    child: Any, leg: str, names: set[str], has_marker: bool, tally: SimpleNamespace
+) -> None:
+    """Classify a nested directory from its provider-ownership marker."""
+    from agent_utilities.core.provider_materialization import (
+        read_managed_provider_marker,
+    )
+
+    marker = read_managed_provider_marker(child, provider=child.name, leg=leg)
+    if marker is None:
+        if has_marker:
+            tally.invalid_managed += 1
+        else:
+            tally.unmanaged_nested += 1
+    elif child.name not in names:
+        tally.stale_managed += 1
+
+
+def _classify_nested_child(
+    child: Any, leg: str, names: set[str], tally: SimpleNamespace
+) -> None:
+    """Classify one directory under a leg root; an unmarked skill folder is fine."""
+    from agent_utilities.core.provider_materialization import marker_path_exists
+
+    if not _nested_child_is_plain_dir(child, tally):
+        return
+    has_marker = marker_path_exists(child)
+    if leg == "skills" and not has_marker and (child / "SKILL.md").is_file():
+        return
+    _classify_managed_marker(child, leg, names, has_marker, tally)
+
+
+def _scan_nested_children(
+    root: Any, leg: str, names: set[str], tally: SimpleNamespace
+) -> None:
+    """Classify every non-dotfile child under one materialized leg root."""
+    if not root.is_dir():
+        return
+    for child in root.iterdir():
+        if child.name.startswith("."):
+            continue
+        _classify_nested_child(child, leg, names, tally)
+
+
+def _sweep_install_leg(
+    leg: str, root: Any, registrations: Any, tally: SimpleNamespace
+) -> int:
+    """Count one leg's providers and nested children; returns its expected count."""
+    from agent_utilities.core.unified_install import OWN_PROVIDER
+
+    names = {item.name for item in registrations}
+    names.add(OWN_PROVIDER)
+    for registration in registrations:
+        if registration.name == OWN_PROVIDER:
+            continue
+        _count_provider_materialization(registration, root, leg, tally)
+    _count_own_provider(root, leg, tally)
+    _scan_nested_children(root, leg, names, tally)
+    return len(names)
+
+
+def _unified_install_result(
+    legs: dict[str, tuple[Any, Any]],
+    expected_counts: dict[str, int],
+    tally: SimpleNamespace,
+) -> dict[str, Any]:
+    """The unified-install verdict; anything unreconciled is never reported ok."""
+    data = {
+        # Readiness is reportable; machine-specific XDG locations are not.  A
+        # doctor result can itself be exported as telemetry, so never place a
+        # host filesystem reference in its structured payload.
+        "roots_ready": {leg: root.is_dir() for leg, (_g, root) in legs.items()},
+        "expected_counts": expected_counts,
+        "missing": tally.missing,
+        "unresolved": tally.unresolved,
+        "materialized": tally.materialized,
+        "managed_ready": not any(
+            (
+                tally.missing,
+                tally.unresolved,
+                tally.stale_managed,
+                tally.unmanaged_nested,
+                tally.invalid_managed,
+            )
+        ),
+        "stale_managed": tally.stale_managed,
+        "unmanaged_nested": tally.unmanaged_nested,
+        "invalid_managed": tally.invalid_managed,
+        "redacted": True,
+    }
+    if tally.unresolved:
+        return _result(
+            "unified_install",
+            "fail",
+            f"current provider sources cannot be validated ({tally.unresolved} issue(s))",
+            remediation="repair provider distributions before materialization",
+            skill="agent-utilities-deployment",
+            data=data,
+        )
+    issues = (
+        tally.missing
+        + tally.stale_managed
+        + tally.unmanaged_nested
+        + tally.invalid_managed
+    )
+    if issues:
+        return _result(
+            "unified_install",
+            "warn",
+            f"unified provider materialization needs reconciliation ({issues} issue(s))",
+            remediation=(
+                "`agent-utilities install` (materializes current providers, marks "
+                "ownership, and prunes removed managed providers)"
+            ),
+            skill="agent-utilities-deployment",
+            data=data,
+        )
+    return _result(
+        "unified_install",
+        "ok",
+        f"unified XDG tree complete — {tally.materialized} provider contribution(s) materialized",
+        data=data,
+    )
+
+
 def _check_unified_install() -> dict[str, Any]:
     """Assert the unified XDG tree exists and matches installed providers (CONCEPT:AU-OS.host.doctor-unified-install).
 
@@ -4615,7 +4906,11 @@ def _check_unified_install() -> dict[str, Any]:
     """
     try:
         from agent_utilities.core.paths import ontology_dir, skills_dir
-        from agent_utilities.core.provider_materialization import (
+
+        # Import gate: the helpers below re-import these. Kept here so a partial
+        # install still reports `skip` up front, exactly as it did before the
+        # split, rather than raising out of the check later.
+        from agent_utilities.core.provider_materialization import (  # noqa: F401
             ProviderAssetError,
             build_asset_manifest,
             marker_path_exists,
@@ -4628,7 +4923,7 @@ def _check_unified_install() -> dict[str, Any]:
             SKILL_PROVIDER_GROUP,
             provider_registrations,
         )
-        from agent_utilities.core.unified_install import (
+        from agent_utilities.core.unified_install import (  # noqa: F401
             OWN_PROVIDER,
             own_provider_asset,
             unified_prompts_dir,
@@ -4645,13 +4940,8 @@ def _check_unified_install() -> dict[str, Any]:
         "prompts": (PROMPT_PROVIDER_GROUP, unified_prompts_dir()),
         "ontologies": (ONTOLOGY_PROVIDER_GROUP, ontology_dir()),
     }
+    tally = _unified_install_tally()
     expected_counts: dict[str, int] = {}
-    missing = 0
-    unresolved = 0
-    materialized = 0
-    stale_managed = 0
-    unmanaged_nested = 0
-    invalid_managed = 0
     for leg, (group, root) in legs.items():
         try:
             registrations = provider_registrations(group)
@@ -4664,130 +4954,8 @@ def _check_unified_install() -> dict[str, Any]:
                 skill="agent-utilities-deployment",
                 data={"ready": False, "redacted": True},
             )
-        names = {item.name for item in registrations}
-        names.add(OWN_PROVIDER)
-        expected_counts[leg] = len(names)
-        for registration in registrations:
-            if registration.name == OWN_PROVIDER:
-                continue
-            if registration.source_root is None:
-                unresolved += 1
-                continue
-            try:
-                manifest = build_asset_manifest(
-                    registration.source_root,
-                    leg=leg,
-                    allowed_relative_paths=registration.owned_paths,
-                )
-            except (OSError, ProviderAssetError, ValueError):
-                unresolved += 1
-                continue
-            if (
-                resolve_managed_generation(
-                    root / registration.name,
-                    provider=registration.name,
-                    leg=leg,
-                    registration=registration.digest,
-                    source_manifest=manifest,
-                )
-                is not None
-            ):
-                materialized += 1
-            else:
-                missing += 1
-        try:
-            _source, own_digest, own_manifest = own_provider_asset(leg)
-        except (OSError, ProviderAssetError, ValueError):
-            unresolved += 1
-        else:
-            if (
-                resolve_managed_generation(
-                    root / OWN_PROVIDER,
-                    provider=OWN_PROVIDER,
-                    leg=leg,
-                    registration=own_digest,
-                    source_manifest=own_manifest,
-                )
-                is not None
-            ):
-                materialized += 1
-            else:
-                missing += 1
-        if not root.is_dir():
-            continue
-        for child in root.iterdir():
-            if child.name.startswith("."):
-                continue
-            try:
-                child_info = child.lstat()
-            except OSError:
-                invalid_managed += 1
-                continue
-            is_junction = getattr(child, "is_junction", lambda: False)()
-            if (
-                child.is_symlink()
-                or is_junction
-                or not stat.S_ISDIR(child_info.st_mode)
-            ):
-                invalid_managed += 1
-                continue
-            has_marker = marker_path_exists(child)
-            if leg == "skills" and not has_marker and (child / "SKILL.md").is_file():
-                continue
-            marker = read_managed_provider_marker(child, provider=child.name, leg=leg)
-            if marker is None:
-                if has_marker:
-                    invalid_managed += 1
-                else:
-                    unmanaged_nested += 1
-            elif child.name not in names:
-                stale_managed += 1
-
-    data = {
-        # Readiness is reportable; machine-specific XDG locations are not.  A
-        # doctor result can itself be exported as telemetry, so never place a
-        # host filesystem reference in its structured payload.
-        "roots_ready": {leg: root.is_dir() for leg, (_g, root) in legs.items()},
-        "expected_counts": expected_counts,
-        "missing": missing,
-        "unresolved": unresolved,
-        "materialized": materialized,
-        "managed_ready": not any(
-            (missing, unresolved, stale_managed, unmanaged_nested, invalid_managed)
-        ),
-        "stale_managed": stale_managed,
-        "unmanaged_nested": unmanaged_nested,
-        "invalid_managed": invalid_managed,
-        "redacted": True,
-    }
-    if unresolved:
-        return _result(
-            "unified_install",
-            "fail",
-            f"current provider sources cannot be validated ({unresolved} issue(s))",
-            remediation="repair provider distributions before materialization",
-            skill="agent-utilities-deployment",
-            data=data,
-        )
-    if missing or stale_managed or unmanaged_nested or invalid_managed:
-        issues = missing + stale_managed + unmanaged_nested + invalid_managed
-        return _result(
-            "unified_install",
-            "warn",
-            f"unified provider materialization needs reconciliation ({issues} issue(s))",
-            remediation=(
-                "`agent-utilities install` (materializes current providers, marks "
-                "ownership, and prunes removed managed providers)"
-            ),
-            skill="agent-utilities-deployment",
-            data=data,
-        )
-    return _result(
-        "unified_install",
-        "ok",
-        f"unified XDG tree complete — {materialized} provider contribution(s) materialized",
-        data=data,
-    )
+        expected_counts[leg] = _sweep_install_leg(leg, root, registrations, tally)
+    return _unified_install_result(legs, expected_counts, tally)
 
 
 def _check_venv_drift() -> dict[str, Any]:
