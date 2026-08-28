@@ -361,70 +361,101 @@ def _build_candidates(*, force: bool = False) -> list[CapabilityCandidate]:
     actions_by_tool = _actions_by_tool()
     cpds = _load_cpds_required()
     live_tools = sorted(set(kg_server.REGISTERED_TOOLS) - set(INTENT_VERBS))
+    _require_cpd_coverage(live_tools, cpds)
+    _require_verb_authority_coverage(live_tools)
+
+    # Intent verbs have CPDs because they are first-class MCP/REST entry points,
+    # but they can never be resolver targets: selecting ``ask`` from inside
+    # ``ask`` would recursively dispatch intent routing instead of a capability.
+    out = [
+        _build_candidate_for_tool(tool, cpds[tool], actions_by_tool)
+        for tool in live_tools
+    ]
+    _CANDIDATES_CACHE = out
+    _CANDIDATES_GENERATION += 1
+    return out
+
+
+def _require_cpd_coverage(
+    live_tools: list[str], cpds: dict[str, dict[str, Any]]
+) -> None:
+    """Helper for `_build_candidates`: fail closed on a registered tool without a CPD."""
     missing_cpds = sorted(set(live_tools) - set(cpds))
     if missing_cpds:
         raise RuntimeError(
             "GraphOS capability descriptors are missing for registered tools: "
             + ", ".join(missing_cpds)
         )
+
+
+def _require_verb_authority_coverage(live_tools: list[str]) -> None:
+    """Helper for `_build_candidates`: fail closed on a tool without verb authority."""
     missing_authority = sorted(set(live_tools) - set(TOOL_VERBS))
     if missing_authority:
         raise RuntimeError(
             "GraphOS intent-verb authority is missing registered tools: "
             + ", ".join(missing_authority)
         )
-    out: list[CapabilityCandidate] = []
-    # Intent verbs have CPDs because they are first-class MCP/REST entry points,
-    # but they can never be resolver targets: selecting ``ask`` from inside
-    # ``ask`` would recursively dispatch intent routing instead of a capability.
-    for tool in live_tools:
-        authority_verbs = TOOL_VERBS[tool]
-        if (
-            not authority_verbs
-            or len(set(authority_verbs)) != len(authority_verbs)
-            or not set(authority_verbs) <= set(INTENT_VERBS)
-        ):
-            raise RuntimeError(
-                f"GraphOS intent-verb authority is invalid for {tool}: "
-                f"{authority_verbs!r}"
-            )
-        cpd = cpds[tool]
-        packaged_verbs = cpd.get("intent_verbs")
-        if not isinstance(packaged_verbs, list) or not all(
-            isinstance(verb, str) for verb in packaged_verbs
-        ):
-            raise RuntimeError(
-                "GraphOS capability descriptor has an invalid intent_verbs "
-                f"field for {tool}"
-            )
-        if tuple(packaged_verbs) != authority_verbs:
-            raise RuntimeError(
-                "GraphOS capability descriptor intent-verb drift for "
-                f"{tool}: expected {list(authority_verbs)!r}, "
-                f"packaged {packaged_verbs!r}"
-            )
-        examples_text = " ".join(str(e) for e in (cpd.get("examples") or ()))
-        does_text = " ".join(str(d.get("action", "")) for d in (cpd.get("does") or ()))
-        doc = (
-            f"{tool} {' '.join(actions_by_tool.get(tool, []))} "
-            f"{cpd.get('one_line', '')} {examples_text} {does_text}"
+
+
+def _validate_tool_authority_verbs(tool: str, authority_verbs: tuple[str, ...]) -> None:
+    """Helper for `_build_candidates`: authority_verbs must be a non-empty, unique subset of INTENT_VERBS."""
+    if (
+        not authority_verbs
+        or len(set(authority_verbs)) != len(authority_verbs)
+        or not set(authority_verbs) <= set(INTENT_VERBS)
+    ):
+        raise RuntimeError(
+            f"GraphOS intent-verb authority is invalid for {tool}: {authority_verbs!r}"
         )
-        input_params = (cpd.get("typed_io") or {}).get("input_params") or ()
-        accepts_skill_name = any(
-            isinstance(p, dict) and p.get("name") == "skill_name" for p in input_params
+
+
+def _validate_packaged_verbs(
+    tool: str, cpd: dict[str, Any], authority_verbs: tuple[str, ...]
+) -> None:
+    """Helper for `_build_candidates`: packaged CPD intent_verbs must match TOOL_VERBS exactly."""
+    packaged_verbs = cpd.get("intent_verbs")
+    if not isinstance(packaged_verbs, list) or not all(
+        isinstance(verb, str) for verb in packaged_verbs
+    ):
+        raise RuntimeError(
+            "GraphOS capability descriptor has an invalid intent_verbs "
+            f"field for {tool}"
         )
-        out.append(
-            CapabilityCandidate(
-                tool=tool,
-                action=None,
-                verbs=authority_verbs,
-                doc=doc,
-                accepts_skill_name=accepts_skill_name,
-            )
+    if tuple(packaged_verbs) != authority_verbs:
+        raise RuntimeError(
+            "GraphOS capability descriptor intent-verb drift for "
+            f"{tool}: expected {list(authority_verbs)!r}, packaged {packaged_verbs!r}"
         )
-    _CANDIDATES_CACHE = out
-    _CANDIDATES_GENERATION += 1
-    return out
+
+
+def _build_candidate_for_tool(
+    tool: str,
+    cpd: dict[str, Any],
+    actions_by_tool: dict[str, list[str]],
+) -> CapabilityCandidate:
+    """Helper for `_build_candidates`: validate one tool's CPD and build its candidate."""
+    authority_verbs = TOOL_VERBS[tool]
+    _validate_tool_authority_verbs(tool, authority_verbs)
+    _validate_packaged_verbs(tool, cpd, authority_verbs)
+
+    examples_text = " ".join(str(e) for e in (cpd.get("examples") or ()))
+    does_text = " ".join(str(d.get("action", "")) for d in (cpd.get("does") or ()))
+    doc = (
+        f"{tool} {' '.join(actions_by_tool.get(tool, []))} "
+        f"{cpd.get('one_line', '')} {examples_text} {does_text}"
+    )
+    input_params = (cpd.get("typed_io") or {}).get("input_params") or ()
+    accepts_skill_name = any(
+        isinstance(p, dict) and p.get("name") == "skill_name" for p in input_params
+    )
+    return CapabilityCandidate(
+        tool=tool,
+        action=None,
+        verbs=authority_verbs,
+        doc=doc,
+        accepts_skill_name=accepts_skill_name,
+    )
 
 
 def _score(
@@ -543,19 +574,7 @@ def resolve_intent(
     pinned = hints.get("tool") or hints.get("_tool")
     candidates = _build_candidates()
     if pinned:
-        for c in candidates:
-            if c.tool == pinned and (verb is None or verb in c.verbs):
-                return [
-                    CapabilityCandidate(
-                        tool=c.tool,
-                        action=hints.get("action") or c.action,
-                        verbs=c.verbs,
-                        doc=c.doc,
-                        score=1.0,
-                        matched_terms=["explicit tool hint"],
-                    )
-                ]
-        return []
+        return _pinned_resolution(candidates, verb, pinned, hints)
 
     outcome_scope_ref = _outcome_scope_ref()
     cache_key = _cache_key(verb, intent, hints, top_k, outcome_scope_ref)
@@ -565,63 +584,133 @@ def resolve_intent(
         return list(cached)
 
     intent_tokens = _tokenize(intent)
-    pool = candidates if verb is None else [c for c in candidates if verb in c.verbs]
     explicit_action = hints.get("action")
-    if not pinned and explicit_action is not None:
+    pool = _resolution_pool(candidates, verb, explicit_action)
+    router = _outcome_router() if outcome_scope_ref is not None else None
+    cpds = _load_cpds_required() if explicit_action is not None else {}
+    ctx = _RankingContext(
+        intent=intent,
+        intent_tokens=intent_tokens,
+        verb=verb,
+        explicit_action=explicit_action,
+        cpds=cpds,
+        router=router,
+        outcome_scope_ref=outcome_scope_ref,
+    )
+    ranked = [_rank_candidate(c, ctx) for c in pool]
+    ranked.sort(key=lambda c: (c.score, c.tool), reverse=True)
+    result = ranked[:top_k]
+
+    _cache_resolution(cache_key, result)
+    return list(result)
+
+
+def _cache_resolution(
+    cache_key: tuple[Any, ...], result: list[CapabilityCandidate]
+) -> None:
+    """Helper for `resolve_intent`: store `result`, evicting the LRU entry over capacity."""
+    _RESOLUTION_CACHE[cache_key] = result
+    _RESOLUTION_CACHE.move_to_end(cache_key)
+    while len(_RESOLUTION_CACHE) > _RESOLUTION_CACHE_MAX:
+        _RESOLUTION_CACHE.popitem(last=False)
+
+
+def _pinned_resolution(
+    candidates: list[CapabilityCandidate],
+    verb: str | None,
+    pinned: str,
+    hints: dict[str, Any],
+) -> list[CapabilityCandidate]:
+    """Helper for `resolve_intent`: resolve a hints["tool"]-pinned request.
+
+    Empty list if `pinned` names no candidate authorized for `verb`.
+    """
+    for c in candidates:
+        if c.tool == pinned and (verb is None or verb in c.verbs):
+            return [
+                CapabilityCandidate(
+                    tool=c.tool,
+                    action=hints.get("action") or c.action,
+                    verbs=c.verbs,
+                    doc=c.doc,
+                    score=1.0,
+                    matched_terms=["explicit tool hint"],
+                )
+            ]
+    return []
+
+
+def _resolution_pool(
+    candidates: list[CapabilityCandidate],
+    verb: str | None,
+    explicit_action: Any,
+) -> list[CapabilityCandidate]:
+    """Helper for `resolve_intent`: filter candidates by verb, then by explicit action."""
+    pool = candidates if verb is None else [c for c in candidates if verb in c.verbs]
+    if explicit_action is not None:
         actions_by_tool = _actions_by_tool()
         pool = [
             candidate
             for candidate in pool
             if explicit_action in actions_by_tool.get(candidate.tool, ())
         ]
-    router = _outcome_router() if outcome_scope_ref is not None else None
-    cpds = _load_cpds_required() if explicit_action is not None else {}
-    ranked: list[CapabilityCandidate] = []
-    for c in pool:
-        scoring_candidate = c
-        if explicit_action is not None:
-            cpd = cpds[c.tool]
-            scoring_candidate = CapabilityCandidate(
-                tool=c.tool,
-                action=str(explicit_action),
-                verbs=c.verbs,
-                doc=f"{c.tool} {explicit_action} {cpd.get('one_line', '')}",
-            )
-        score, matched = _score(intent_tokens, scoring_candidate)
-        if explicit_action is None:
-            score += _declared_action_phrase_bonus(intent, c.tool)
-        score += _skill_delegation_bonus(intent, c)
-        task_verb = verb if verb is not None else c.verbs[0]
-        reward = (
-            router.reward_of(
-                _reward_task_class(task_verb, outcome_scope_ref), c.capability_id
-            )
-            if router is not None and outcome_scope_ref is not None
-            else 0.5
-        )
-        if reward != 0.5:
-            score += _LEARNED_REWARD_WEIGHT * (reward - 0.5)
-        ranked.append(
-            CapabilityCandidate(
-                tool=c.tool,
-                action=(
-                    str(explicit_action) if explicit_action is not None else c.action
-                ),
-                verbs=c.verbs,
-                doc=c.doc,
-                score=score,
-                matched_terms=matched,
-                accepts_skill_name=c.accepts_skill_name,
-            )
-        )
-    ranked.sort(key=lambda c: (c.score, c.tool), reverse=True)
-    result = ranked[:top_k]
+    return pool
 
-    _RESOLUTION_CACHE[cache_key] = result
-    _RESOLUTION_CACHE.move_to_end(cache_key)
-    while len(_RESOLUTION_CACHE) > _RESOLUTION_CACHE_MAX:
-        _RESOLUTION_CACHE.popitem(last=False)
-    return list(result)
+
+@dataclass
+class _RankingContext:
+    """Helper for `resolve_intent`/`_rank_candidate`: bundles the per-call scoring
+
+    context so `_rank_candidate` stays within the 7-parameter cap.
+    """
+
+    intent: str
+    intent_tokens: Counter
+    verb: str | None
+    explicit_action: Any
+    cpds: dict[str, dict[str, Any]]
+    router: Any
+    outcome_scope_ref: str | None
+
+
+def _rank_candidate(
+    c: CapabilityCandidate, ctx: _RankingContext
+) -> CapabilityCandidate:
+    """Helper for `resolve_intent`: score + build the ranked candidate for one pool entry."""
+    scoring_candidate = c
+    if ctx.explicit_action is not None:
+        cpd = ctx.cpds[c.tool]
+        scoring_candidate = CapabilityCandidate(
+            tool=c.tool,
+            action=str(ctx.explicit_action),
+            verbs=c.verbs,
+            doc=f"{c.tool} {ctx.explicit_action} {cpd.get('one_line', '')}",
+        )
+    score, matched = _score(ctx.intent_tokens, scoring_candidate)
+    if ctx.explicit_action is None:
+        score += _declared_action_phrase_bonus(ctx.intent, c.tool)
+    score += _skill_delegation_bonus(ctx.intent, c)
+    task_verb = ctx.verb if ctx.verb is not None else c.verbs[0]
+    reward = (
+        ctx.router.reward_of(
+            _reward_task_class(task_verb, ctx.outcome_scope_ref), c.capability_id
+        )
+        if ctx.router is not None and ctx.outcome_scope_ref is not None
+        else 0.5
+    )
+    if reward != 0.5:
+        score += _LEARNED_REWARD_WEIGHT * (reward - 0.5)
+    return CapabilityCandidate(
+        tool=c.tool,
+        action=(
+            str(ctx.explicit_action) if ctx.explicit_action is not None else c.action
+        ),
+        verbs=c.verbs,
+        doc=c.doc,
+        score=score,
+        matched_terms=matched,
+        accepts_skill_name=c.accepts_skill_name,
+    )
 
 
 def _rank_actions(tool: str, intent: str) -> list[tuple[str, float]]:
