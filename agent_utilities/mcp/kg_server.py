@@ -5005,6 +5005,212 @@ def bundled_skill_readiness() -> dict[str, Any]:
     return dict(_BUNDLED_SKILL_READINESS)
 
 
+def _resolve_materialization_handles(engine: Any) -> tuple[Any, Any, str]:
+    """Resolve the engine's native ``(query_cypher, list_graphs, graph_name)``.
+
+    ``query_cypher``/``list_graphs`` come back ``None`` when the engine
+    doesn't participate in native lifecycle (lightweight test engines and
+    non-native backends have neither ``client`` nor ``graph_name``) or has
+    no graph name at all — the caller treats either as "not_applicable".
+
+    GraphOS owns the high-level IntelligenceGraphEngine; the lifecycle
+    manifest belongs to its native GraphComputeEngine authority. Test tools
+    and lower-level callers may pass that authority directly.
+    """
+    native_engine = getattr(engine, "graph_compute", None) or engine
+    client = getattr(native_engine, "client", None)
+    graph_name = str(getattr(native_engine, "graph_name", "") or "")
+    query_cypher = getattr(native_engine, "query_cypher", None)
+    tenants = getattr(client, "tenants", None)
+    list_graphs = getattr(tenants, "list", None)
+    if not graph_name or not callable(query_cypher) or not callable(list_graphs):
+        return None, None, graph_name
+    return query_cypher, list_graphs, graph_name
+
+
+def _engine_read_probe_status(query_cypher: Any) -> str:
+    """Run the one bounded read that both triggers and probes materialization.
+
+    Returns ``"complete"`` (the read succeeded), ``"partial"`` (the read hit
+    ``PARTIAL_MATERIALIZATION`` — the caller should keep polling the
+    manifest), or ``"absent"`` (the graph does not exist). Any other
+    exception propagates unchanged.
+    """
+    try:
+        query_cypher("MATCH (n) RETURN n.id AS id LIMIT 1")
+    except Exception as exc:
+        # Control-flow only: this text never reaches a log or a caller, so it
+        # is read via `exc.args` (never `str(exc)`/`repr(exc)`) to stay clear
+        # of the served-boundary exception-surface policy on principle.
+        detail = str(exc.args[0]) if exc.args else ""
+        if "PARTIAL_MATERIALIZATION" in detail:
+            return "partial"
+        if "not found" in detail.lower():
+            return "absent"
+        raise
+    return "complete"
+
+
+def _resolve_manifest_entry(
+    list_graphs: Any, graph_name: str, manifest_visible: bool | None
+) -> tuple[dict[str, Any] | None, bool | None]:
+    """Resolve this graph's manifest entry from ``list_graphs()``.
+
+    Respects the "already known hidden" cache — once a poll has found the
+    graph absent from the catalog (RLS-filtered), later polls skip
+    re-querying the whole catalog and go straight to the read-probe
+    fallback. Returns ``(entry, manifest_visible)``.
+    """
+    if manifest_visible is False:
+        return None, manifest_visible
+    entries = list_graphs() or []
+    entry = next(
+        (
+            value
+            for value in entries
+            if (value.get("name") if isinstance(value, dict) else None) == graph_name
+        ),
+        None,
+    )
+    return entry, isinstance(entry, dict)
+
+
+def _handle_materialized_manifest_entry(
+    entry: dict[str, Any],
+    graph_name: str,
+    last_progress: tuple[str, int | None, int | None] | None,
+) -> tuple[dict[str, Any] | None, tuple[str, int | None, int | None] | None]:
+    """Interpret one polled, catalog-visible manifest entry.
+
+    Returns ``(result, updated_last_progress)`` where ``result`` is the
+    barrier's terminal return value once materialization is complete, or
+    ``None`` to keep polling. Raises on a ``failed`` materialization phase.
+    """
+    phase = str(entry.get("materialization") or "unknown")
+    valid = entry.get("valid") is True
+    cursor = entry.get("completeness_cursor")
+    node_offset = cursor.get("node_offset") if isinstance(cursor, dict) else None
+    edge_offset = cursor.get("edge_offset") if isinstance(cursor, dict) else None
+    progress = (phase, node_offset, edge_offset)
+    if progress != last_progress:
+        logger.info(
+            "Epistemic graph materialization progress "
+            "(graph=%s phase=%s node_offset=%s edge_offset=%s)",
+            graph_name,
+            phase,
+            node_offset,
+            edge_offset,
+        )
+        last_progress = progress
+    if phase == "complete" and valid:
+        logger.info(
+            "Epistemic graph materialization ready "
+            "(graph=%s node_offset=%s edge_offset=%s)",
+            graph_name,
+            node_offset,
+            edge_offset,
+        )
+        return dict(entry), last_progress
+    if phase == "failed":
+        raise RuntimeError(
+            "epistemic graph materialization failed "
+            f"(graph={graph_name!r}, cursor={cursor!r})"
+        )
+    return None, last_progress
+
+
+def _handle_hidden_manifest_entry(
+    query_cypher: Any, graph_name: str
+) -> dict[str, Any] | None:
+    """Handle a poll where the graph's manifest entry is not catalog-visible.
+
+    RLS may intentionally hide a protected graph (for example
+    ``__secrets__``) from the catalog while still authorizing this
+    process-scoped graph view. In that case the same bounded read that
+    triggered materialization is the authoritative completion probe. Do not
+    weaken catalog RLS merely to make boot observable. Returns a terminal
+    result dict, or ``None`` to keep polling.
+    """
+    status = _engine_read_probe_status(query_cypher)
+    if status == "absent":
+        return {"graph": graph_name, "materialization": "absent"}
+    if status == "complete":
+        logger.info(
+            "Epistemic graph materialization ready via authorized "
+            "read probe (graph=%s; catalog manifest hidden)",
+            graph_name,
+        )
+        return {
+            "graph": graph_name,
+            "materialization": "complete",
+            "valid": True,
+            "manifest_visible": False,
+        }
+    return None
+
+
+def _initial_materialization_probe(
+    engine: Any,
+) -> tuple[dict[str, Any] | None, Any, Any, str]:
+    """Resolve native handles, then run the initial bounded-read probe.
+
+    Returns ``(early_result, query_cypher, list_graphs, graph_name)``.
+    ``early_result`` is non-``None`` when the caller should return it
+    immediately (``not_applicable`` / ``absent`` / ``complete``) rather than
+    entering the manifest poll loop.
+    """
+    query_cypher, list_graphs, graph_name = _resolve_materialization_handles(engine)
+    if query_cypher is None or list_graphs is None:
+        early = {"graph": graph_name or None, "materialization": "not_applicable"}
+        return early, query_cypher, list_graphs, graph_name
+
+    status = _engine_read_probe_status(query_cypher)
+    if status == "absent":
+        return (
+            {"graph": graph_name, "materialization": "absent"},
+            query_cypher,
+            list_graphs,
+            graph_name,
+        )
+    if status == "complete":
+        return (
+            {"graph": graph_name, "materialization": "complete", "valid": True},
+            query_cypher,
+            list_graphs,
+            graph_name,
+        )
+    return None, query_cypher, list_graphs, graph_name
+
+
+def _poll_materialization_step(
+    list_graphs: Any,
+    query_cypher: Any,
+    graph_name: str,
+    last_progress: tuple[str, int | None, int | None] | None,
+    manifest_visible: bool | None,
+) -> tuple[
+    dict[str, Any] | None,
+    tuple[str, int | None, int | None] | None,
+    bool | None,
+]:
+    """Run one manifest-poll iteration of :func:`_wait_for_engine_materialization`.
+
+    Returns ``(result, last_progress, manifest_visible)``; ``result`` is the
+    barrier's terminal return value once resolved, or ``None`` to keep
+    polling.
+    """
+    entry, manifest_visible = _resolve_manifest_entry(
+        list_graphs, graph_name, manifest_visible
+    )
+    if isinstance(entry, dict):
+        result, last_progress = _handle_materialized_manifest_entry(
+            entry, graph_name, last_progress
+        )
+        return result, last_progress, manifest_visible
+    result = _handle_hidden_manifest_entry(query_cypher, graph_name)
+    return result, last_progress, manifest_visible
+
+
 def _wait_for_engine_materialization(
     engine: Any,
     *,
@@ -5027,35 +5233,11 @@ def _wait_for_engine_materialization(
     ``graph_name`` and therefore do not participate in this native lifecycle.
     A graph absent from a new empty engine is likewise left for normal creation.
     """
-    # GraphOS owns the high-level IntelligenceGraphEngine; the lifecycle
-    # manifest belongs to its native GraphComputeEngine authority.  Test tools
-    # and lower-level callers may pass that authority directly.
-    native_engine = getattr(engine, "graph_compute", None) or engine
-    client = getattr(native_engine, "client", None)
-    graph_name = str(getattr(native_engine, "graph_name", "") or "")
-    query_cypher = getattr(native_engine, "query_cypher", None)
-    tenants = getattr(client, "tenants", None)
-    list_graphs = getattr(tenants, "list", None)
-    if not graph_name or not callable(query_cypher) or not callable(list_graphs):
-        return {"graph": graph_name or None, "materialization": "not_applicable"}
-
-    try:
-        query_cypher("MATCH (n) RETURN n.id AS id LIMIT 1")
-    except Exception as exc:
-        # Control-flow only: this text never reaches a log or a caller, so it
-        # is read via `exc.args` (never `str(exc)`/`repr(exc)`) to stay clear
-        # of the served-boundary exception-surface policy on principle.
-        detail = str(exc.args[0]) if exc.args else ""
-        if "PARTIAL_MATERIALIZATION" not in detail:
-            if "not found" in detail.lower():
-                return {"graph": graph_name, "materialization": "absent"}
-            raise
-    else:
-        return {
-            "graph": graph_name,
-            "materialization": "complete",
-            "valid": True,
-        }
+    early_result, query_cypher, list_graphs, graph_name = (
+        _initial_materialization_probe(engine)
+    )
+    if early_result is not None:
+        return early_result
 
     logger.info(
         "GraphOS waiting for epistemic graph materialization before hydration "
@@ -5068,84 +5250,11 @@ def _wait_for_engine_materialization(
     last_progress: tuple[str, int | None, int | None] | None = None
     manifest_visible: bool | None = None
     while True:
-        entry = None
-        if manifest_visible is not False:
-            entries = list_graphs() or []
-            entry = next(
-                (
-                    value
-                    for value in entries
-                    if (value.get("name") if isinstance(value, dict) else None)
-                    == graph_name
-                ),
-                None,
-            )
-            manifest_visible = isinstance(entry, dict)
-        if isinstance(entry, dict):
-            phase = str(entry.get("materialization") or "unknown")
-            valid = entry.get("valid") is True
-            cursor = entry.get("completeness_cursor")
-            node_offset = (
-                cursor.get("node_offset") if isinstance(cursor, dict) else None
-            )
-            edge_offset = (
-                cursor.get("edge_offset") if isinstance(cursor, dict) else None
-            )
-            progress = (phase, node_offset, edge_offset)
-            if progress != last_progress:
-                logger.info(
-                    "Epistemic graph materialization progress "
-                    "(graph=%s phase=%s node_offset=%s edge_offset=%s)",
-                    graph_name,
-                    phase,
-                    node_offset,
-                    edge_offset,
-                )
-                last_progress = progress
-            if phase == "complete" and valid:
-                logger.info(
-                    "Epistemic graph materialization ready "
-                    "(graph=%s node_offset=%s edge_offset=%s)",
-                    graph_name,
-                    node_offset,
-                    edge_offset,
-                )
-                return dict(entry)
-            if phase == "failed":
-                raise RuntimeError(
-                    "epistemic graph materialization failed "
-                    f"(graph={graph_name!r}, cursor={cursor!r})"
-                )
-        else:
-            # RLS may intentionally hide a protected graph (for example
-            # ``__secrets__``) from the catalog while still authorizing this
-            # process-scoped graph view.  In that case the same bounded read
-            # that triggered materialization is the authoritative completion
-            # probe.  Do not weaken catalog RLS merely to make boot observable.
-            try:
-                query_cypher("MATCH (n) RETURN n.id AS id LIMIT 1")
-            except Exception as exc:
-                # Control-flow only: see the comment on the identical branch above.
-                detail = str(exc.args[0]) if exc.args else ""
-                if "PARTIAL_MATERIALIZATION" not in detail:
-                    if "not found" in detail.lower():
-                        return {
-                            "graph": graph_name,
-                            "materialization": "absent",
-                        }
-                    raise
-            else:
-                logger.info(
-                    "Epistemic graph materialization ready via authorized "
-                    "read probe (graph=%s; catalog manifest hidden)",
-                    graph_name,
-                )
-                return {
-                    "graph": graph_name,
-                    "materialization": "complete",
-                    "valid": True,
-                    "manifest_visible": False,
-                }
+        result, last_progress, manifest_visible = _poll_materialization_step(
+            list_graphs, query_cypher, graph_name, last_progress, manifest_visible
+        )
+        if result is not None:
+            return result
         if time.monotonic() >= deadline:
             raise TimeoutError(
                 "epistemic graph did not become completely materialized before "
