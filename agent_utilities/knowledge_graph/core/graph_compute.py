@@ -74,6 +74,19 @@ _MAX_LEDGER_ENTRY_BYTES = 8 * 1024 * 1024
 # correct universal value an operator would set differently per deployment.
 _MAX_ROUTE_RECONNECT_ATTEMPTS = 3
 _ROUTE_RECONNECT_BASE_DELAY_S = 0.2
+# Service-level operations are connection-scoped, not graph-routed.
+_UNROUTED_METHODS = frozenset(
+    {
+        "Ping",
+        "Health",
+        "PlacementRoute",
+        "ClusterMembers",
+        "Shutdown",
+        "Checkpoint",
+        "ResourceStats",
+        "CancelRequest",
+    }
+)
 _OPAQUE_PROGRAM_REF = re.compile(
     r"^eg:[a-z0-9_-]{1,32}(?::[a-z0-9_-]{1,32}){0,3}:[0-9a-f]{16,128}$"
 )
@@ -570,6 +583,159 @@ def _traced_rpc(func: Any) -> Any:
     return _send_traced
 
 
+def _parse_semantic_hits(raw_hits: Any) -> list[tuple[str, float]]:
+    """Normalize the native ANN's ``(id, score)`` pairs, skipping malformed rows."""
+    hits: list[tuple[str, float]] = []
+    for item in raw_hits:
+        if not isinstance(item, list | tuple) or len(item) < 2:
+            continue
+        node_id = str(item[0])
+        if node_id:
+            hits.append((node_id, float(item[1])))
+    return hits
+
+
+def _embedding_candidate_is_current(node_properties: Mapping[str, Any]) -> bool:
+    """Whether a node's durable vector is still valid for an ANN candidate.
+
+    A node whose ``embedding`` property is present but falsy had it explicitly
+    cleared by a concurrent text update (see ``compare_and_set_node_embedding``)
+    — that ANN entry is stale until the vector is rebuilt/replaced. A node that
+    never mirrors its vector into a property at all (the simple
+    ``add_embedding`` path, which is intentionally distinct from the property
+    write — see its docstring) has no such key and is not stale by this signal;
+    it must not be penalized for a property it never had.
+    """
+    from ..enrichment.semantic import EMBEDDING_INDEX_READY_FIELD
+
+    if node_properties.get(EMBEDDING_INDEX_READY_FIELD) is False:
+        return False
+    return not ("embedding" in node_properties and not node_properties.get("embedding"))
+
+
+def _plan_ranks_rows(plan: list[dict[str, Any]]) -> bool:
+    """Whether a unified plan carries a ``Rank`` op (so rows need the fence)."""
+    return any(
+        isinstance(operation, dict) and "Rank" in operation for operation in plan
+    )
+
+
+def _ledger_backend_write(backend: Any, query: str, parameters: dict[str, Any]) -> None:
+    """Apply one ledger-replayed write, replacing raw driver detail on failure."""
+    try:
+        backend.execute_write(query, parameters=parameters)
+    except Exception as exc:
+        raise RuntimeError(
+            f"mutation ledger backend write failed ({type(exc).__name__})"
+        ) from exc
+
+
+def _ledger_payload(props_str: str, kind: str) -> dict[str, Any]:
+    """Decode and shape-check one ledger entry's JSON payload."""
+    try:
+        props = json.loads(props_str)
+    except Exception as exc:
+        raise ValueError(f"invalid {kind} payload in mutation ledger") from exc
+    if not isinstance(props, dict):
+        raise ValueError(f"{kind} payload in mutation ledger must be an object")
+    return props
+
+
+def _ledger_symbol_write(backend: Any, node_id: str, props: dict[str, Any]) -> None:
+    """Replay a SYMBOL node into the backend's typed ``:Symbol`` shape."""
+    query = (
+        "MERGE (n:Symbol {id: $id}) "
+        "SET n.node_type = 'SYMBOL', n.name = $name, "
+        "n.symbol_type = $sym_type, n.file_path = $fp, "
+        "n.ast_hash = $ast_hash, n.metadata = $meta"
+    )
+    _ledger_backend_write(
+        backend,
+        query,
+        {
+            "id": node_id,
+            "name": props.get("name", node_id),
+            "sym_type": props.get("symbol_type", "Unknown"),
+            "fp": props.get("file_path", ""),
+            "ast_hash": props.get("ast_hash", ""),
+            "meta": json.dumps(props),
+        },
+    )
+
+
+def _replay_ledger_node(backend: Any, args: list[str]) -> None:
+    """Replay one ``AddNode`` ledger entry, validating its Cypher identifiers."""
+    if len(args) < 2:
+        raise ValueError("incomplete node mutation in ledger")
+    node_id = args[0]
+    props_str = args[1]
+    props = _ledger_payload(props_str, "node")
+    node_type = props.get("node_type", "Entity")
+    if not isinstance(node_type, str) or not CYPHER_IDENTIFIER_RE.fullmatch(node_type):
+        raise ValueError("unsafe node type in mutation ledger")
+    if node_type == "SYMBOL":
+        _ledger_symbol_write(backend, node_id, props)
+        return
+    # Generic node fallback
+    _ledger_backend_write(
+        backend,
+        f"MERGE (n:{node_type} {{id: $id}}) SET n.metadata = $meta",
+        {"id": node_id, "meta": props_str},
+    )
+
+
+def _ledger_edge_type(props: dict[str, Any]) -> str:
+    """Validate and canonicalize a ledger edge's relationship identifier."""
+    edge_type = props.get("relationship") or "RELATED_TO"
+    if not isinstance(edge_type, str):
+        raise ValueError("edge type in mutation ledger must be a string")
+    edge_type = edge_type.replace(" ", "_").upper()
+    if not CYPHER_IDENTIFIER_RE.fullmatch(edge_type):
+        raise ValueError("unsafe edge type in mutation ledger")
+    return edge_type
+
+
+def _replay_ledger_edge(backend: Any, args: list[str]) -> None:
+    """Replay one ``AddEdge`` ledger entry, validating its Cypher identifiers."""
+    if len(args) < 3:
+        raise ValueError("incomplete edge mutation in ledger")
+    src = args[0]
+    tgt = args[1]
+    props_str = args[2]
+    props = _ledger_payload(props_str, "edge")
+    edge_type = _ledger_edge_type(props)
+    # cypher-write-subset-allow: flush_ledger_to_backend's sole caller
+    # (agent_utilities/workflows/epistemic_sync.py) always passes a
+    # LadybugBackend, which hands the query to Kuzu's full openCypher engine,
+    # not the native subset parser.
+    _ledger_backend_write(
+        backend,
+        f"MATCH (a {{id: $src}}), (b {{id: $tgt}}) "
+        f"MERGE (a)-[r:{edge_type}]->(b) "
+        "SET r.metadata = $meta",
+        {"src": src, "tgt": tgt, "meta": props_str},
+    )
+
+
+_LEDGER_REPLAY_OPS: dict[str, Any] = {
+    "AddNode": _replay_ledger_node,
+    "AddEdge": _replay_ledger_edge,
+}
+
+
+def _session_with_route(session: Any, route: Any) -> Any:
+    """Project one resolved placement route onto the verified session."""
+    return session.with_route(
+        endpoint=route.endpoint,
+        placement_group=(int(route.group) if int(route.group or 0) > 0 else None),
+        catalog_epoch=int(route.epoch),
+        topology_cluster_id=getattr(route, "cluster_id", None),
+        membership_epoch=getattr(route, "membership_epoch", None),
+        certificate_rotation_epoch=getattr(route, "certificate_rotation_epoch", None),
+        continuity_expires_at=getattr(route, "discovery_expires_at", None),
+    )
+
+
 class _SessionRoutedAsyncClient:
     """A zero-connection view over one async engine transport.
 
@@ -720,45 +886,13 @@ class _SessionRoutedAsyncClient:
         *,
         idempotency_key: str | None = None,
     ) -> Any:
-        from .session import SessionRequiredError, current_session, resolve_session
-
-        session = current_session()
-        # The socket was opened with a fixed, zero-authority transport context.
-        # It is never a request identity. Every operation must inherit the
-        # authentication boundary's task-local GraphSession and replace that
-        # context before the native client signs or writes a frame.
-        if session is None or not getattr(session.actor, "authenticated", False):
-            raise SessionRequiredError(
-                "A task-local verified GraphSession is required for every engine operation"
-            )
-        session = resolve_session(session)
-
-        target = graph or self._fixed_graph
-        if self._fixed_graph and session.graph != self._fixed_graph:
-            raise PermissionError(
-                "A graph-scoped view cannot retarget the verified GraphSession"
-            )
-        if graph and session.graph and graph != session.graph:
-            raise PermissionError(
-                "An explicit graph cannot retarget the verified GraphSession"
-            )
-        target = target or session.graph
-
-        target = target or self._graph_name
+        session = self._verified_request_session()
+        self._reject_graph_retarget(graph, session)
+        target = graph or self._fixed_graph or session.graph or self._graph_name
 
         # Service-level operations are connection-scoped, not graph-routed.
-        unrouted = {
-            "Ping",
-            "Health",
-            "PlacementRoute",
-            "ClusterMembers",
-            "Shutdown",
-            "Checkpoint",
-            "ResourceStats",
-            "CancelRequest",
-        }
         if (
-            method in unrouted
+            method in _UNROUTED_METHODS
             or self._route_config is None
             or not self._route_endpoints
         ):
@@ -770,43 +904,80 @@ class _SessionRoutedAsyncClient:
                 idempotency_key,
                 session,
             )
+        return await self._send_placement_routed(
+            method, params, target, idempotency_key, session
+        )
 
+    @staticmethod
+    def _verified_request_session() -> Any:
+        """Resolve the task-local verified GraphSession this operation runs under.
+
+        The socket was opened with a fixed, zero-authority transport context. It
+        is never a request identity. Every operation must inherit the
+        authentication boundary's task-local GraphSession and replace that
+        context before the native client signs or writes a frame.
+        """
+        from .session import SessionRequiredError, current_session, resolve_session
+
+        session = current_session()
+        if session is None or not getattr(session.actor, "authenticated", False):
+            raise SessionRequiredError(
+                "A task-local verified GraphSession is required for every engine operation"
+            )
+        return resolve_session(session)
+
+    def _reject_graph_retarget(self, graph: str | None, session: Any) -> None:
+        """Refuse any attempt to point this call at another graph than the session's."""
+        if self._fixed_graph and session.graph != self._fixed_graph:
+            raise PermissionError(
+                "A graph-scoped view cannot retarget the verified GraphSession"
+            )
+        if graph and session.graph and graph != session.graph:
+            raise PermissionError(
+                "An explicit graph cannot retarget the verified GraphSession"
+            )
+
+    async def _resolve_route(self, target: str | None, *, force_refresh: bool) -> Any:
+        """Resolve ``target``'s placement through the authoritative catalog."""
         import asyncio
-        import random
 
-        from epistemic_graph.client import StaleRouteError
+        from .placement_catalog import resolve_placement
 
-        from .placement_catalog import invalidate, resolve_placement
-
-        route = await asyncio.to_thread(
+        return await asyncio.to_thread(
             resolve_placement,
             target,
             self._route_endpoints,
             self._route_config,
+            force_refresh=force_refresh,
             client_factory=self._placement_client_factory,
         )
-        routed_session = session.with_route(
-            endpoint=route.endpoint,
-            placement_group=(int(route.group) if int(route.group or 0) > 0 else None),
-            catalog_epoch=int(route.epoch),
-            topology_cluster_id=getattr(route, "cluster_id", None),
-            membership_epoch=getattr(route, "membership_epoch", None),
-            certificate_rotation_epoch=getattr(
-                route, "certificate_rotation_epoch", None
-            ),
-            continuity_expires_at=getattr(route, "discovery_expires_at", None),
-        )
+
+    async def _send_placement_routed(
+        self,
+        method: str,
+        params: dict[str, Any] | None,
+        target: str | None,
+        idempotency_key: str | None,
+        session: Any,
+    ) -> Any:
+        """Invoke ``method`` at ``target``'s placed endpoint, healing stale routes.
+
+        ADR-1 / W1.1 bounded reconnect (`reports/wave1/ADR-scale-trio.md`
+        §ADR-1 decision 3): a cached/returned route can point at a node that just
+        died (the exact "kill the leader" failover case) -- a raw connect failure
+        to ``route.endpoint`` is NOT a ``StaleRouteError`` (the engine never got
+        to answer), so it needs its OWN retry leg: invalidate the stale cache
+        entry, re-resolve via ANY configured contact (``resolve_placement``'s
+        ``_query_catalog`` already tries every one in order, so a live coordinator
+        is found even when the ORIGINAL endpoint is the one that died), and retry
+        with jittered backoff, bounded so a genuinely dead cluster still surfaces
+        an error.
+        """
+        from epistemic_graph.client import StaleRouteError
+
+        route = await self._resolve_route(target, force_refresh=False)
+        routed_session = _session_with_route(session, route)
         routed_params = self._route_bound_params(method, params, route)
-        # ADR-1 / W1.1 bounded reconnect (`reports/wave1/ADR-scale-trio.md`
-        # §ADR-1 decision 3): a cached/returned route can point at a node that
-        # just died (the exact "kill the leader" failover case) -- a raw
-        # connect failure to `route.endpoint` is NOT a `StaleRouteError` (the
-        # engine never got to answer), so it needs its OWN retry leg:
-        # invalidate the stale cache entry, re-resolve via ANY configured
-        # contact (`resolve_placement`'s `_query_catalog` already tries every
-        # one in order, so a live coordinator is found even when the ORIGINAL
-        # endpoint is the one that died), and retry with jittered backoff,
-        # bounded so a genuinely dead cluster still surfaces an error.
         connect_attempt = 0
         while True:
             try:
@@ -820,38 +991,8 @@ class _SessionRoutedAsyncClient:
                     force_new=bool(getattr(route, "reconnect_required", False)),
                 )
             except StaleRouteError:
-                # A stale response is guaranteed to be pre-commit. Refresh the
-                # authoritative catalog and retry exactly once with the same
-                # idempotency key and the new placement fence.
-                fresh = await asyncio.to_thread(
-                    resolve_placement,
-                    target,
-                    self._route_endpoints,
-                    self._route_config,
-                    force_refresh=True,
-                    client_factory=self._placement_client_factory,
-                )
-                fresh_session = session.with_route(
-                    endpoint=fresh.endpoint,
-                    placement_group=(
-                        int(fresh.group) if int(fresh.group or 0) > 0 else None
-                    ),
-                    catalog_epoch=int(fresh.epoch),
-                    topology_cluster_id=getattr(fresh, "cluster_id", None),
-                    membership_epoch=getattr(fresh, "membership_epoch", None),
-                    certificate_rotation_epoch=getattr(
-                        fresh, "certificate_rotation_epoch", None
-                    ),
-                    continuity_expires_at=getattr(fresh, "discovery_expires_at", None),
-                )
-                return await self._invoke_at(
-                    fresh.endpoint,
-                    method,
-                    self._route_bound_params(method, params, fresh),
-                    target,
-                    idempotency_key,
-                    fresh_session,
-                    force_new=bool(getattr(fresh, "reconnect_required", False)),
+                return await self._retry_after_stale_route(
+                    method, params, target, idempotency_key, session
                 )
             except (ConnectionError, OSError) as exc:
                 connect_attempt += 1
@@ -864,41 +1005,58 @@ class _SessionRoutedAsyncClient:
                         type(exc).__name__,
                     )
                     raise
-                logger.warning(
-                    "placement-routed endpoint %s unreachable (%s: %s); "
-                    "invalidating the cached route and re-resolving via any "
-                    "healthy seed (attempt %d/%d)",
-                    redact_for_log(route.endpoint),
-                    type(exc).__name__,
-                    exc,
-                    connect_attempt,
-                    _MAX_ROUTE_RECONNECT_ATTEMPTS,
-                )
-                invalidate(target)
-                backoff = _ROUTE_RECONNECT_BASE_DELAY_S * (2 ** (connect_attempt - 1))
-                await asyncio.sleep(backoff + random.uniform(0, backoff))  # nosec B311 - jitter, not crypto
-                route = await asyncio.to_thread(
-                    resolve_placement,
-                    target,
-                    self._route_endpoints,
-                    self._route_config,
-                    force_refresh=True,
-                    client_factory=self._placement_client_factory,
-                )
-                routed_session = session.with_route(
-                    endpoint=route.endpoint,
-                    placement_group=(
-                        int(route.group) if int(route.group or 0) > 0 else None
-                    ),
-                    catalog_epoch=int(route.epoch),
-                    topology_cluster_id=getattr(route, "cluster_id", None),
-                    membership_epoch=getattr(route, "membership_epoch", None),
-                    certificate_rotation_epoch=getattr(
-                        route, "certificate_rotation_epoch", None
-                    ),
-                    continuity_expires_at=getattr(route, "discovery_expires_at", None),
-                )
+                await self._invalidate_and_back_off(route, exc, target, connect_attempt)
+                route = await self._resolve_route(target, force_refresh=True)
+                routed_session = _session_with_route(session, route)
                 routed_params = self._route_bound_params(method, params, route)
+
+    async def _retry_after_stale_route(
+        self,
+        method: str,
+        params: dict[str, Any] | None,
+        target: str | None,
+        idempotency_key: str | None,
+        session: Any,
+    ) -> Any:
+        """Refresh the catalog and retry once with the new placement fence.
+
+        A stale response is guaranteed to be pre-commit, so the retry reuses the
+        same idempotency key.
+        """
+        fresh = await self._resolve_route(target, force_refresh=True)
+        return await self._invoke_at(
+            fresh.endpoint,
+            method,
+            self._route_bound_params(method, params, fresh),
+            target,
+            idempotency_key,
+            _session_with_route(session, fresh),
+            force_new=bool(getattr(fresh, "reconnect_required", False)),
+        )
+
+    @staticmethod
+    async def _invalidate_and_back_off(
+        route: Any, exc: BaseException, target: str | None, connect_attempt: int
+    ) -> None:
+        """Drop the dead cached route and sleep a jittered exponential backoff."""
+        import asyncio
+        import random
+
+        from .placement_catalog import invalidate
+
+        logger.warning(
+            "placement-routed endpoint %s unreachable (%s: %s); "
+            "invalidating the cached route and re-resolving via any "
+            "healthy seed (attempt %d/%d)",
+            redact_for_log(route.endpoint),
+            type(exc).__name__,
+            exc,
+            connect_attempt,
+            _MAX_ROUTE_RECONNECT_ATTEMPTS,
+        )
+        invalidate(target)
+        backoff = _ROUTE_RECONNECT_BASE_DELAY_S * (2 ** (connect_attempt - 1))
+        await asyncio.sleep(backoff + random.uniform(0, backoff))  # nosec B311 - jitter, not crypto
 
     def _verified_tenant(self) -> str:
         """Return the tenant from the current verified graph authority.
@@ -3428,31 +3586,12 @@ class GraphComputeEngine:
             )
             or []
         )
-        hits: list[tuple[str, float]] = []
-        for item in raw_hits:
-            if not isinstance(item, list | tuple) or len(item) < 2:
-                continue
-            node_id = str(item[0])
-            if node_id:
-                hits.append((node_id, float(item[1])))
-
-        from ..enrichment.semantic import EMBEDDING_INDEX_READY_FIELD
-
+        hits = _parse_semantic_hits(raw_hits)
+        # ONE batched property round-trip for the whole candidate set.
         properties = self._get_node_properties_batch([node_id for node_id, _ in hits])
         current: list[tuple[str, float]] = []
         for node_id, score in hits:
-            node_properties = properties.get(node_id, {})
-            if node_properties.get(EMBEDDING_INDEX_READY_FIELD) is False:
-                continue
-            # A node whose ``embedding`` property is present but falsy had it
-            # explicitly cleared by a concurrent text update (see
-            # ``compare_and_set_node_embedding``) — that ANN entry is stale
-            # until the vector is rebuilt/replaced. A node that never mirrors
-            # its vector into a property at all (the simple ``add_embedding``
-            # path, which is intentionally distinct from the property write —
-            # see its docstring) has no such key and is not stale by this
-            # signal; it must not be penalized for a property it never had.
-            if "embedding" in node_properties and not node_properties.get("embedding"):
+            if not _embedding_candidate_is_current(properties.get(node_id, {})):
                 continue
             current.append((node_id, score))
             if len(current) >= n_results:
@@ -3496,66 +3635,76 @@ class GraphComputeEngine:
                 policy labels — never fabricated, resolved server-side. See
                 ``docs/architecture/epistemic-columns-currency.md``.
         """
-        # D-W2X-4: the installed epistemic_graph client's query.unified() may
-        # predate reorder_filter_selectivity (a version skew under the
-        # au 2.0.0/eg 2.23.1 freeze) -- only pass it when the client's own
-        # signature accepts it, rather than assuming the newest wire contract.
+        rows = self._invoke_unified_plan(plan, reorder_filter_selectivity)
+        if rows and _plan_ranks_rows(plan):
+            rows = self._fence_ranked_rows(rows)
+        return self._attach_epistemic_currency(
+            rows, include_epistemic=include_epistemic
+        )
+
+    def _invoke_unified_plan(
+        self, plan: list[dict[str, Any]], reorder_filter_selectivity: float | None
+    ) -> list[dict[str, Any]]:
+        """Call ``query.unified`` with only the kwargs this client understands.
+
+        D-W2X-4: the installed epistemic_graph client's ``query.unified()`` may
+        predate ``reorder_filter_selectivity`` (a version skew under the
+        au 2.0.0/eg 2.23.1 freeze) -- only pass it when the client's own
+        signature accepts it, rather than assuming the newest wire contract.
+        """
         unified_fn = self._client.query.unified
         if _query_unified_accepts_reorder_kwarg(unified_fn):
-            rows = (
+            return (
                 unified_fn(plan, reorder_filter_selectivity=reorder_filter_selectivity)
                 or []
             )
-        else:
-            if reorder_filter_selectivity is not None:
-                logger.warning(
-                    "query_unified: installed epistemic_graph client's "
-                    "query.unified() does not accept reorder_filter_selectivity "
-                    "(version skew under the au/eg freeze) -- calling without it "
-                    "instead of raising; the caller's requested reordering hint "
-                    "is dropped, not silently honored."
-                )
-            rows = unified_fn(plan) or []
-        if rows and any(
-            isinstance(operation, dict) and "Rank" in operation for operation in plan
-        ):
-            # The engine currently publishes GraphCore fields before its
-            # SemanticStore projection inside a cross-modal transaction.  Rank
-            # rows therefore require the same bounded durable-property fence as
-            # semantic_search: a literal not-ready marker or missing vector
-            # cannot escape through the unified surface preferred by hybrid and
-            # capability retrieval.
-            from ..enrichment.semantic import EMBEDDING_INDEX_READY_FIELD
+        if reorder_filter_selectivity is not None:
+            logger.warning(
+                "query_unified: installed epistemic_graph client's "
+                "query.unified() does not accept reorder_filter_selectivity "
+                "(version skew under the au/eg freeze) -- calling without it "
+                "instead of raising; the caller's requested reordering hint "
+                "is dropped, not silently honored."
+            )
+        return unified_fn(plan) or []
 
-            ranked_ids = [
-                str(row["id"])
-                for row in rows
-                if isinstance(row, dict) and row.get("id") is not None
-            ]
-            properties = self._get_node_properties_batch(ranked_ids)
-            current_rows: list[dict[str, Any]] = []
-            for row in rows:
-                if not isinstance(row, dict) or row.get("id") is None:
-                    continue
-                node_properties = properties.get(str(row["id"]), {})
-                if node_properties.get(EMBEDDING_INDEX_READY_FIELD) is False:
-                    continue
-                # See the identical fence in semantic_search: only an
-                # explicitly-cleared ``embedding`` property signals staleness;
-                # a node that never mirrors its vector into a property (the
-                # simple add_embedding() path) has no such key and is current.
-                if "embedding" in node_properties and not node_properties.get(
-                    "embedding"
-                ):
-                    continue
-                current_rows.append(row)
-            rows = current_rows
+    def _fence_ranked_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Drop rows whose durable vector is not-ready or explicitly cleared.
+
+        The engine currently publishes GraphCore fields before its SemanticStore
+        projection inside a cross-modal transaction. Rank rows therefore require
+        the same bounded durable-property fence as ``semantic_search``: a literal
+        not-ready marker or missing vector cannot escape through the unified
+        surface preferred by hybrid and capability retrieval.
+        """
+        ranked_ids = [
+            str(row["id"])
+            for row in rows
+            if isinstance(row, dict) and row.get("id") is not None
+        ]
+        # ONE batched property round-trip for the whole ranked set.
+        properties = self._get_node_properties_batch(ranked_ids)
+        current_rows: list[dict[str, Any]] = []
+        for row in rows:
+            if not isinstance(row, dict) or row.get("id") is None:
+                continue
+            if not _embedding_candidate_is_current(properties.get(str(row["id"]), {})):
+                continue
+            current_rows.append(row)
+        return current_rows
+
+    def _attach_epistemic_currency(
+        self, rows: list[dict[str, Any]], *, include_epistemic: bool
+    ) -> list[dict[str, Any]]:
+        """Currency-upgrade ``rows`` server-side, opt-in or by light default.
+
+        The light epistemic layer (CONCEPT:AU-KB-CURRENCY, Native by default) —
+        see ``KnowledgeGraph.query``'s identical wiring for the full rationale.
+        """
         if include_epistemic:
             from .epistemic_row import attach_epistemic_rows
 
             return attach_epistemic_rows(rows, self.explain_provenance_by_ids)  # type: ignore[return-value]
-        # Light epistemic layer (CONCEPT:AU-KB-CURRENCY, Native by default) —
-        # see `KnowledgeGraph.query`'s identical wiring for the full rationale.
         from agent_utilities.core.config import config as _app_config
 
         from .epistemic_row import (
@@ -3566,7 +3715,7 @@ class GraphComputeEngine:
         if should_attach_epistemic_columns(
             rows, default=_app_config.epistemic_light_default
         ):
-            rows = attach_epistemic_columns(rows, self.explain_provenance_by_ids)
+            return attach_epistemic_columns(rows, self.explain_provenance_by_ids)
         return rows
 
     def query_cypher(self, query: str) -> list[dict[str, Any]]:
@@ -4217,118 +4366,11 @@ class GraphComputeEngine:
         count = 0
         for tx in txs:
             op, args = self._parse_ledger_entry(tx)
-            if op == "AddNode":
-                if len(args) < 2:
-                    raise ValueError("incomplete node mutation in ledger")
-                node_id = args[0]
-                props_str = args[1]
-                try:
-                    props = json.loads(props_str)
-                except Exception as exc:
-                    raise ValueError("invalid node payload in mutation ledger") from exc
-                if not isinstance(props, dict):
-                    raise ValueError(
-                        "node payload in mutation ledger must be an object"
-                    )
-
-                node_type = props.get("node_type", "Entity")
-                if not isinstance(node_type, str) or not CYPHER_IDENTIFIER_RE.fullmatch(
-                    node_type
-                ):
-                    raise ValueError("unsafe node type in mutation ledger")
-                if node_type == "SYMBOL":
-                    symbol_type = props.get("symbol_type", "Unknown")
-                    file_path = props.get("file_path", "")
-                    ast_hash = props.get("ast_hash", "")
-                    name = props.get("name", node_id)
-                    metadata_str = json.dumps(props)
-
-                    query = (
-                        "MERGE (n:Symbol {id: $id}) "
-                        "SET n.node_type = 'SYMBOL', n.name = $name, "
-                        "n.symbol_type = $sym_type, n.file_path = $fp, "
-                        "n.ast_hash = $ast_hash, n.metadata = $meta"
-                    )
-                    try:
-                        backend.execute_write(
-                            query,
-                            parameters={
-                                "id": node_id,
-                                "name": name,
-                                "sym_type": symbol_type,
-                                "fp": file_path,
-                                "ast_hash": ast_hash,
-                                "meta": metadata_str,
-                            },
-                        )
-                    except Exception as exc:
-                        raise RuntimeError(
-                            "mutation ledger backend write failed "
-                            f"({type(exc).__name__})"
-                        ) from exc
-                else:
-                    # Generic node fallback
-                    query = f"MERGE (n:{node_type} {{id: $id}}) SET n.metadata = $meta"
-                    try:
-                        backend.execute_write(
-                            query,
-                            parameters={
-                                "id": node_id,
-                                "meta": props_str,
-                            },
-                        )
-                    except Exception as exc:
-                        raise RuntimeError(
-                            "mutation ledger backend write failed "
-                            f"({type(exc).__name__})"
-                        ) from exc
-                count += 1
-            elif op == "AddEdge":
-                if len(args) < 3:
-                    raise ValueError("incomplete edge mutation in ledger")
-                src = args[0]
-                tgt = args[1]
-                props_str = args[2]
-                try:
-                    props = json.loads(props_str)
-                except Exception as exc:
-                    raise ValueError("invalid edge payload in mutation ledger") from exc
-                if not isinstance(props, dict):
-                    raise ValueError(
-                        "edge payload in mutation ledger must be an object"
-                    )
-
-                edge_type = props.get("relationship") or "RELATED_TO"
-                if not isinstance(edge_type, str):
-                    raise ValueError("edge type in mutation ledger must be a string")
-                edge_type = edge_type.replace(" ", "_").upper()
-                if not CYPHER_IDENTIFIER_RE.fullmatch(edge_type):
-                    raise ValueError("unsafe edge type in mutation ledger")
-                query = (
-                    f"MATCH (a {{id: $src}}), (b {{id: $tgt}}) "
-                    f"MERGE (a)-[r:{edge_type}]->(b) "
-                    "SET r.metadata = $meta"
-                )
-                try:
-                    # cypher-write-subset-allow: flush_ledger_to_backend's sole
-                    # caller (agent_utilities/workflows/epistemic_sync.py) always
-                    # passes a LadybugBackend, which hands the query to Kuzu's
-                    # full openCypher engine, not the native subset parser.
-                    backend.execute_write(
-                        query,
-                        parameters={
-                            "src": src,
-                            "tgt": tgt,
-                            "meta": props_str,
-                        },
-                    )
-                except Exception as exc:
-                    raise RuntimeError(
-                        f"mutation ledger backend write failed ({type(exc).__name__})"
-                    ) from exc
-                count += 1
-            else:
+            replay = _LEDGER_REPLAY_OPS.get(op)
+            if replay is None:
                 raise ValueError("unsupported mutation operation in ledger")
+            replay(backend, args)
+            count += 1
 
         self.clear_ledger()
         return count
