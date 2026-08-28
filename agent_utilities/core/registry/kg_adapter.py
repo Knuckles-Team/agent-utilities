@@ -80,6 +80,62 @@ class FocusedSubgraph:
 class RegistryMixin(_Base):
     """Registry and CRUD capabilities for the KG engine."""
 
+    def _expand_subgraph_neighbors(
+        self, seed_ids: set[str], min_centrality: float
+    ) -> set[str]:
+        """Expand a seed node set to include neighbors of high-centrality seeds."""
+        expanded_ids = set(seed_ids)
+        for node_id in list(seed_ids):
+            props = self.graph._get_node_properties(node_id)
+            if props.get("centrality", 0) < min_centrality:
+                continue
+            for successor in self.graph.get_successors(node_id):
+                expanded_ids.add(successor)
+            for predecessor in self.graph.get_predecessors(node_id):
+                expanded_ids.add(predecessor)
+        return expanded_ids
+
+    def _prune_subgraph_by_pagerank(
+        self, expanded_ids: set[str], max_nodes: int
+    ) -> set[str]:
+        """Keep only the top ``max_nodes`` ids by PageRank when over the cap."""
+        if len(expanded_ids) <= max_nodes:
+            return expanded_ids
+        all_pr = dict(self.graph.pagerank())
+        scored = [(nid, all_pr.get(nid, 0.0)) for nid in expanded_ids]
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return {nid for nid, _ in scored[:max_nodes]}
+
+    def _subgraph_node_dicts(self, expanded_ids: set[str]) -> list[dict[str, Any]]:
+        nodes = []
+        for node_id in expanded_ids:
+            data = self.graph._get_node_properties(node_id)
+            nodes.append(
+                {
+                    "id": node_id,
+                    "label": data.get("name") or str(node_id).split(":")[-1],
+                    "node_type": data.get("node_type", "symbol"),
+                    "file": data.get("file", ""),
+                    "line": data.get("line"),
+                    "centrality": data.get("centrality", 0.0),
+                }
+            )
+        return nodes
+
+    def _subgraph_edge_dicts(self, expanded_ids: set[str]) -> list[dict[str, Any]]:
+        edges = []
+        for src, tgt in self.graph._get_all_edges():
+            if src in expanded_ids and tgt in expanded_ids:
+                edges.append(
+                    {
+                        "source": src,
+                        "target": tgt,
+                        "relationship": "calls",
+                        "weight": 1.0,
+                    }
+                )
+        return edges
+
     async def extract_focused_subgraph(
         self,
         query: str,
@@ -111,48 +167,14 @@ class RegistryMixin(_Base):
         logger.info(f"Initial subgraph has {len(seed_ids)} nodes")
 
         # 3. Expand to include neighbors with high centrality
-        expanded_ids = set(seed_ids)
-        for node_id in list(seed_ids):
-            props = self.graph._get_node_properties(node_id)
-            if props.get("centrality", 0) >= min_centrality:
-                for successor in self.graph.get_successors(node_id):
-                    expanded_ids.add(successor)
-                for predecessor in self.graph.get_predecessors(node_id):
-                    expanded_ids.add(predecessor)
+        expanded_ids = self._expand_subgraph_neighbors(seed_ids, min_centrality)
 
         # 4. Prune if still too large using PageRank
-        if len(expanded_ids) > max_nodes:
-            all_pr = dict(self.graph.pagerank())
-            scored = [(nid, all_pr.get(nid, 0.0)) for nid in expanded_ids]
-            scored.sort(key=lambda x: x[1], reverse=True)
-            expanded_ids = {nid for nid, _ in scored[:max_nodes]}
+        expanded_ids = self._prune_subgraph_by_pagerank(expanded_ids, max_nodes)
 
         # 5. Convert to clean list of dicts
-        nodes = []
-        edges = []
-        for node_id in expanded_ids:
-            data = self.graph._get_node_properties(node_id)
-            nodes.append(
-                {
-                    "id": node_id,
-                    "label": data.get("name") or str(node_id).split(":")[-1],
-                    "node_type": data.get("node_type", "symbol"),
-                    "file": data.get("file", ""),
-                    "line": data.get("line"),
-                    "centrality": data.get("centrality", 0.0),
-                }
-            )
-
-        for src, tgt in self.graph._get_all_edges():
-            if src in expanded_ids and tgt in expanded_ids:
-                edges.append(
-                    {
-                        "source": src,
-                        "target": tgt,
-                        "relationship": "calls",
-                        "weight": 1.0,
-                    }
-                )
+        nodes = self._subgraph_node_dicts(expanded_ids)
+        edges = self._subgraph_edge_dicts(expanded_ids)
 
         summary = f"Subgraph for '{query}' with {len(nodes)} nodes focused on relevant execution paths."
 
@@ -162,6 +184,16 @@ class RegistryMixin(_Base):
             summary=summary,
             query=query,
         )
+
+    def _normalize_codemap_json_fields(self, data: dict[str, Any]) -> dict[str, Any]:
+        """JSON-string fields can come back serialized; parse them to native types."""
+        import json
+
+        for k in ["hierarchy", "nodes", "edges", "evidence_refs"]:
+            if k in data and isinstance(data[k], str):
+                with contextlib.suppress(Exception):
+                    data[k] = json.loads(data[k])
+        return data
 
     async def get_codemap_by_id(self, codemap_id: str) -> Any | None:
         """Retrieve a codemap artifact by its ID."""
@@ -180,33 +212,24 @@ class RegistryMixin(_Base):
             # lists on every backend). This branch was previously unreachable
             # (the "codemap:"-prefixed lookup key never matched what
             # store_codemap actually wrote), so this gap was latent.
-            import json
-
             from ...models.codemap import CodemapArtifact
 
-            for k in ["hierarchy", "nodes", "edges", "evidence_refs"]:
-                if k in data and isinstance(data[k], str):
-                    with contextlib.suppress(Exception):
-                        data[k] = json.loads(data[k])
-
-            return CodemapArtifact.model_validate(data)
+            return CodemapArtifact.model_validate(
+                self._normalize_codemap_json_fields(data)
+            )
 
         if self.backend:
             res = self.backend.execute(
                 "MATCH (c:Codemap {id: $id}) RETURN c", {"id": codemap_id}
             )
             if res:
-                import json
-
                 from ...models.codemap import CodemapArtifact
 
                 c_data = res[0]["c"]
                 # Handle JSON serialization of complex fields if stored as strings
-                for k in ["hierarchy", "nodes", "edges", "evidence_refs"]:
-                    if k in c_data and isinstance(c_data[k], str):
-                        with contextlib.suppress(Exception):
-                            c_data[k] = json.loads(c_data[k])
-                return CodemapArtifact.model_validate(c_data)
+                return CodemapArtifact.model_validate(
+                    self._normalize_codemap_json_fields(c_data)
+                )
         return None
 
     async def store_codemap(self, artifact: Any):
@@ -563,6 +586,58 @@ class RegistryMixin(_Base):
             "timestamp": ts,
         }
 
+    def _prompt_versions_from_backend(
+        self, prompt_id: str, limit: int
+    ) -> list[dict[str, Any]]:
+        # Find all prompts in the SUPERSEDES chain
+        assert self.backend is not None  # guaranteed by the caller's `if self.backend:`
+        rows = self.backend.execute(
+            "MATCH path = (latest:Prompt)-[:SUPERSEDES*0..]->(root:Prompt) "
+            "WHERE root.id = $id OR latest.id = $id "
+            "RETURN latest.id, latest.name, latest.system_prompt, "
+            "latest.author, latest.version_number, latest.timestamp, latest.parent_id "
+            "ORDER BY latest.version_number DESC "
+            "LIMIT $limit",
+            {"id": prompt_id, "limit": limit},
+        )
+        versions: list[dict[str, Any]] = []
+        seen = set()
+        for row in rows:
+            vid = row.get("latest.id", "")
+            if not vid or vid in seen:
+                continue
+            seen.add(vid)
+            versions.append(
+                {
+                    "id": vid,
+                    "name": row.get("latest.name", ""),
+                    "content": row.get("latest.system_prompt", ""),
+                    "author": row.get("latest.author", ""),
+                    "version_number": row.get("latest.version_number", 1),
+                    "timestamp": row.get("latest.timestamp", ""),
+                    "parent_id": row.get("latest.parent_id", ""),
+                }
+            )
+        return versions
+
+    def _prompt_versions_from_memory(
+        self, prompt_id: str, limit: int
+    ) -> list[dict[str, Any]]:
+        versions: list[dict[str, Any]] = []
+        current = prompt_id
+        visited = set()
+        while current and current not in visited and len(versions) < limit:
+            visited.add(current)
+            if self.graph.has_node(current):
+                data = dict(self.graph._get_node_properties(current))
+                versions.append({"id": current, **data})
+            # Follow SUPERSEDES edges via successors
+            successors = list(self.graph.get_successors(current))
+            if not successors:
+                break
+            current = successors[0]
+        return versions
+
     def get_prompt_versions(
         self, prompt_id: str, limit: int = 20
     ) -> list[dict[str, Any]]:
@@ -572,57 +647,15 @@ class RegistryMixin(_Base):
 
         Returns versions ordered newest-first.
         """
-        versions: list[dict[str, Any]] = []
-
         if self.backend:
-            # Find all prompts in the SUPERSEDES chain
-            rows = self.backend.execute(
-                "MATCH path = (latest:Prompt)-[:SUPERSEDES*0..]->(root:Prompt) "
-                "WHERE root.id = $id OR latest.id = $id "
-                "RETURN latest.id, latest.name, latest.system_prompt, "
-                "latest.author, latest.version_number, latest.timestamp, latest.parent_id "
-                "ORDER BY latest.version_number DESC "
-                "LIMIT $limit",
-                {"id": prompt_id, "limit": limit},
-            )
-            seen = set()
-            for row in rows:
-                vid = row.get("latest.id", "")
-                if vid and vid not in seen:
-                    seen.add(vid)
-                    versions.append(
-                        {
-                            "id": vid,
-                            "name": row.get("latest.name", ""),
-                            "content": row.get("latest.system_prompt", ""),
-                            "author": row.get("latest.author", ""),
-                            "version_number": row.get("latest.version_number", 1),
-                            "timestamp": row.get("latest.timestamp", ""),
-                            "parent_id": row.get("latest.parent_id", ""),
-                        }
-                    )
+            versions = self._prompt_versions_from_backend(prompt_id, limit)
             if versions:
                 return versions
             # Backends without variable-length path support yield nothing here;
             # fall through to walking the SUPERSEDES edges resident in the graph.
 
         # In-memory traversal
-        current = prompt_id
-        visited = set()
-        while current and current not in visited and len(versions) < limit:
-            visited.add(current)
-            if self.graph.has_node(current):
-                data = dict(self.graph._get_node_properties(current))
-                versions.append({"id": current, **data})
-            # Follow SUPERSEDES edges via successors
-            found_next = False
-            for successor in self.graph.get_successors(current):
-                found_next = True
-                current = successor
-                break
-            if not found_next:
-                break
-        return versions
+        return self._prompt_versions_from_memory(prompt_id, limit)
 
     def rollback_prompt(self, prompt_id: str, target_version_id: str) -> dict[str, Any]:
         """Rollback a prompt to a previous version.
@@ -834,6 +867,40 @@ class RegistryMixin(_Base):
         logger.info(f"Workspace reload summary: {changes}")
         return changes
 
+    def _mermaid_node_ids(self, query: str | None, max_nodes: int) -> list[str]:
+        if query:
+            # Simple heuristic for subgraph if query provided
+            results = self.search_hybrid(query, top_k=max_nodes)
+            return [r["id"] for r in results]
+        # Just take the first N nodes
+        return self.graph.node_ids()[:max_nodes]
+
+    _MERMAID_NODE_SHAPES: dict[str, str] = {
+        "episode": "round",
+        "memory": "cylinder",
+        "agent": "circle",
+    }
+
+    def _add_mermaid_nodes(self, builder: Any, node_ids: list[str]) -> None:
+        for n in node_ids:
+            data = self.graph._get_node_properties(n)
+            n_type = data.get("node_type", "unknown")
+            shape = self._MERMAID_NODE_SHAPES.get(n_type, "box")
+            builder.add_node(
+                n,
+                label=f"{data.get('name', n)}\n({n_type})",
+                shape=shape,
+                css_class=n_type.lower(),
+            )
+
+    def _add_mermaid_edges(self, builder: Any, node_ids: list[str]) -> None:
+        node_id_set = set(node_ids)
+        for u, v in self.graph._get_all_edges():
+            if u in node_id_set and v in node_id_set:
+                props = self.graph._get_edge_properties(u, v)
+                rel_type = props.get("relationship") or ""
+                builder.add_edge(u, v, label=rel_type)
+
     def generate_mermaid_graph(
         self,
         query: str | None = None,
@@ -843,41 +910,10 @@ class RegistryMixin(_Base):
         """Generate a Mermaid visualization for a portion of the graph."""
         from agent_utilities.observability.mermaid import FlowchartBuilder
 
-        if query:
-            # Simple heuristic for subgraph if query provided
-            results = self.search_hybrid(query, top_k=max_nodes)
-            node_ids = [r["id"] for r in results]
-            # Subgraph built from node_ids - no NX subgraph needed
-        else:
-            # Just take the first N nodes
-            node_ids = self.graph.node_ids()[:max_nodes]
-            # Subgraph built from node_ids - no NX subgraph needed
-
+        node_ids = self._mermaid_node_ids(query, max_nodes)
         builder = FlowchartBuilder(title=title)
-
-        for n in node_ids:
-            data = self.graph._get_node_properties(n)
-            n_type = data.get("node_type", "unknown")
-            shape = "box"
-            if n_type == "episode":
-                shape = "round"
-            elif n_type == "memory":
-                shape = "cylinder"
-            elif n_type == "agent":
-                shape = "circle"
-
-            builder.add_node(
-                n,
-                label=f"{data.get('name', n)}\n({n_type})",
-                shape=shape,
-                css_class=n_type.lower(),
-            )
-
-        for u, v in self.graph._get_all_edges():
-            if u in set(node_ids) and v in set(node_ids):
-                props = self.graph._get_edge_properties(u, v)
-                rel_type = props.get("relationship") or ""
-                builder.add_edge(u, v, label=rel_type)
+        self._add_mermaid_nodes(builder, node_ids)
+        self._add_mermaid_edges(builder, node_ids)
 
         # Add some default styling for KG types
         builder.lines.append(
@@ -891,6 +927,41 @@ class RegistryMixin(_Base):
     # ─────────────────────────────────────────────────────────────────────
     #  TeamConfig: Proven Team Reuse (CONCEPT:AU-AHE.harness.proven-team-reuse)
     # ─────────────────────────────────────────────────────────────────────
+
+    def _team_configs_from_backend(self, query: str) -> list[Any]:
+        # Simple keyword matching (cosine similarity can be added later)
+        from ...models.knowledge_graph import TeamConfigNode
+
+        assert self.backend is not None  # guaranteed by the caller's `if self.backend`
+        results: list[TeamConfigNode] = []
+        rows = self.backend.execute("MATCH (tc:TeamConfig) RETURN tc", {})
+        query_lower = query.lower()
+        for row in rows:
+            data = row.get("tc", row)
+            try:
+                node = TeamConfigNode.model_validate(data)
+            except Exception as e:  # noqa: BLE001 — per-row defensive skip: a malformed TeamConfig row is excluded from results (not counted as a match), so downstream ranking/return only ever sees successfully-parsed nodes
+                logger.debug(f"Failed to parse TeamConfig: {e}")
+                continue
+            pattern_lower = node.task_pattern.lower()
+            overlap = len(set(query_lower.split()) & set(pattern_lower.split()))
+            if overlap > 0:
+                results.append(node)
+        return results
+
+    def _team_configs_from_memory(self, results: list[Any]) -> None:
+        from ...models.knowledge_graph import TeamConfigNode
+
+        for nid in self.graph.node_ids():
+            data = self.graph._get_node_properties(nid)
+            if str(data.get("node_type", "")).lower() != "team_config":
+                continue
+            try:
+                node = TeamConfigNode.model_validate({"id": nid, **data})
+            except Exception:  # nosec B110
+                continue  # Defensive: skip malformed in-memory nodes
+            if node not in results:
+                results.append(node)
 
     def find_matching_team_config(
         self,
@@ -911,39 +982,11 @@ class RegistryMixin(_Base):
         Returns:
             A list of ``TeamConfigNode`` instances, sorted by success_rate.
         """
-        from ...models.knowledge_graph import TeamConfigNode
-
-        results: list[TeamConfigNode] = []
-
-        if self.backend:
-            rows = self.backend.execute(
-                "MATCH (tc:TeamConfig) RETURN tc",
-                {},
-            )
-            for row in rows:
-                data = row.get("tc", row)
-                try:
-                    node = TeamConfigNode.model_validate(data)
-                    # Simple keyword matching (cosine similarity can be added later)
-                    query_lower = query.lower()
-                    pattern_lower = node.task_pattern.lower()
-                    overlap = len(set(query_lower.split()) & set(pattern_lower.split()))
-                    if overlap > 0:
-                        results.append(node)
-                except Exception as e:  # noqa: BLE001 — per-row defensive skip: a malformed TeamConfig row is excluded from results (not counted as a match), so downstream ranking/return only ever sees successfully-parsed nodes
-                    logger.debug(f"Failed to parse TeamConfig: {e}")
-
+        results: list[Any] = (
+            self._team_configs_from_backend(query) if self.backend else []
+        )
         # Also check in-memory
-        for nid in self.graph.node_ids():
-            data = self.graph._get_node_properties(nid)
-            if str(data.get("node_type", "")).lower() == "team_config":
-                try:
-                    node = TeamConfigNode.model_validate({"id": nid, **data})
-                    if node not in results:
-                        results.append(node)
-                except Exception:  # nosec B110
-                    pass  # Defensive: skip malformed in-memory nodes
-
+        self._team_configs_from_memory(results)
         # Sort by success_rate descending
         results.sort(key=lambda t: t.success_rate, reverse=True)
         return results[:top_k]
@@ -1236,6 +1279,28 @@ class RegistryMixin(_Base):
             return True
         return False
 
+    def _matches_function_filters(
+        self,
+        data: dict[str, Any],
+        resource_type: str | None,
+        trigger_type: str | None,
+    ) -> bool:
+        # Apply resource_type filter
+        if (
+            resource_type
+            and data.get("resource_type", "").upper() != resource_type.upper()
+        ):
+            return False
+        # Apply trigger_type filter
+        if trigger_type:
+            triggers = data.get("trigger_bindings", [])
+            if not any(
+                t.get("trigger_type") == trigger_type
+                for t in (triggers if isinstance(triggers, list) else [])
+            ):
+                return False
+        return True
+
     def discover_functions(
         self,
         resource_type: str | None = None,
@@ -1262,23 +1327,8 @@ class RegistryMixin(_Base):
             data = self.graph._get_node_properties(nid)
             if str(data.get("node_type", "")).lower() != "callable_resource":
                 continue
-
-            # Apply resource_type filter
-            if (
-                resource_type
-                and data.get("resource_type", "").upper() != resource_type.upper()
-            ):
+            if not self._matches_function_filters(data, resource_type, trigger_type):
                 continue
-
-            # Apply trigger_type filter
-            if trigger_type:
-                triggers = data.get("trigger_bindings", [])
-                if not any(
-                    t.get("trigger_type") == trigger_type
-                    for t in (triggers if isinstance(triggers, list) else [])
-                ):
-                    continue
-
             functions.append({"id": nid, **data})
 
         return sorted(functions, key=lambda x: x.get("name", "").lower())
@@ -1380,6 +1430,67 @@ class RegistryMixin(_Base):
         )
         return new_id
 
+    def _team_config_summaries_from_backend(
+        self, min_success_rate: float
+    ) -> list[dict[str, Any]]:
+        assert (
+            self.backend is not None
+        )  # guaranteed by the caller's `if ... self.backend:`
+        configs: list[dict[str, Any]] = []
+        try:
+            results = self.backend.execute(
+                "MATCH (t:TeamConfig) "
+                "WHERE t.success_rate >= $min_rate "
+                "RETURN t.id AS id, t.name AS name, "
+                "t.success_rate AS success_rate, "
+                "t.usage_count AS usage_count, "
+                "t.origin AS origin "
+                "ORDER BY t.success_rate DESC",
+                {"min_rate": min_success_rate},
+            )
+        except Exception:
+            return configs  # nosec
+        for r in results:
+            # Filter client-side: some backends (in-memory
+            # EpistemicGraph) do not evaluate the WHERE clause, so apply
+            # the success-rate threshold here as well.
+            rate = r.get("success_rate", 0) or 0
+            if rate < min_success_rate:
+                continue
+            configs.append(
+                {
+                    "id": r.get("id", ""),
+                    "name": r.get("name", ""),
+                    "success_rate": rate,
+                    "usage_count": r.get("usage_count", 0),
+                    "origin": r.get("origin", ""),
+                }
+            )
+        return configs
+
+    def _add_memory_team_config_summaries(
+        self, configs: list[dict[str, Any]], min_success_rate: float
+    ) -> None:
+        # Also include NX graph entries
+        for nid in self.graph.node_ids():
+            data = self.graph._get_node_properties(nid)
+            if data.get("node_type") != "team_config":
+                continue
+            rate = data.get("success_rate", 0)
+            if rate < min_success_rate:
+                continue
+            if any(c["id"] == nid for c in configs):
+                continue
+            configs.append(
+                {
+                    "id": nid,
+                    "name": data.get("name", ""),
+                    "success_rate": rate,
+                    "usage_count": data.get("usage_count", 0),
+                    "origin": data.get("origin", "local"),
+                }
+            )
+
     def list_team_configs(self, min_success_rate: float = 0.0) -> list[dict[str, Any]]:
         """List all team configurations, optionally filtered by success rate.
 
@@ -1390,60 +1501,94 @@ class RegistryMixin(_Base):
             List of team config summaries.
         """
         configs: list[dict[str, Any]] = []
-
         if hasattr(self, "backend") and self.backend:
-            try:
-                results = self.backend.execute(
-                    "MATCH (t:TeamConfig) "
-                    "WHERE t.success_rate >= $min_rate "
-                    "RETURN t.id AS id, t.name AS name, "
-                    "t.success_rate AS success_rate, "
-                    "t.usage_count AS usage_count, "
-                    "t.origin AS origin "
-                    "ORDER BY t.success_rate DESC",
-                    {"min_rate": min_success_rate},
-                )
-                for r in results:
-                    # Filter client-side: some backends (in-memory
-                    # EpistemicGraph) do not evaluate the WHERE clause, so apply
-                    # the success-rate threshold here as well.
-                    rate = r.get("success_rate", 0) or 0
-                    if rate < min_success_rate:
-                        continue
-                    configs.append(
-                        {
-                            "id": r.get("id", ""),
-                            "name": r.get("name", ""),
-                            "success_rate": rate,
-                            "usage_count": r.get("usage_count", 0),
-                            "origin": r.get("origin", ""),
-                        }
-                    )
-            except Exception:
-                pass  # nosec
-
-        # Also include NX graph entries
-        for nid in self.graph.node_ids():
-            data = self.graph._get_node_properties(nid)
-            if data.get("node_type") == "team_config":
-                rate = data.get("success_rate", 0)
-                if rate >= min_success_rate:
-                    if not any(c["id"] == nid for c in configs):
-                        configs.append(
-                            {
-                                "id": nid,
-                                "name": data.get("name", ""),
-                                "success_rate": rate,
-                                "usage_count": data.get("usage_count", 0),
-                                "origin": data.get("origin", "local"),
-                            }
-                        )
-
+            configs = self._team_config_summaries_from_backend(min_success_rate)
+        self._add_memory_team_config_summaries(configs, min_success_rate)
         return configs
 
     # ------------------------------------------------------------------
     # AgentTemplate CRUD (CONCEPT:AU-ORCH.adapter.kg-graph-materialization)
     # ------------------------------------------------------------------
+
+    def _templates_from_search_results(
+        self, results: list[Any]
+    ) -> list[dict[str, Any]]:
+        templates: list[dict[str, Any]] = []
+        for r in results:
+            if isinstance(r, dict):
+                templates.append(r)
+            elif hasattr(r, "model_dump"):
+                templates.append(r.model_dump())
+        return templates
+
+    def _agent_templates_from_search(
+        self, query: str, top_k: int
+    ) -> list[dict[str, Any]] | None:
+        """Try hybrid search for AgentTemplate nodes. ``None`` means fall through."""
+        if not (query and hasattr(self, "search")):
+            return None
+        try:
+            results = self.search(
+                query=query, top_k=top_k, node_types=["AgentTemplate"]
+            )
+        except Exception as e:  # noqa: BLE001 — layered fallback: on hybrid-search failure the function proceeds to the cypher-scan fallback below, and then to the NX-graph scan; no state is mutated on this read path
+            logger.debug("Hybrid search for AgentTemplate failed: %s", e)
+            return None
+        if not results:
+            return None
+        templates = self._templates_from_search_results(results)
+        return templates[:top_k] if templates else None
+
+    def _agent_templates_from_backend(self, top_k: int) -> list[dict[str, Any]]:
+        templates: list[dict[str, Any]] = []
+        if not (hasattr(self, "backend") and self.backend):
+            return templates
+        try:
+            results = self.backend.execute(
+                "MATCH (at:AgentTemplate) "
+                "RETURN at.id AS id, at.name AS name, at.role AS role, "
+                "at.system_prompt_id AS system_prompt_id, "
+                "at.toolset_ids AS toolset_ids, "
+                "at.model_preference AS model_preference, "
+                "at.execution_tier AS execution_tier, "
+                "at.step_order AS step_order, "
+                "at.parallel AS is_parallel, "
+                "at.max_retries AS max_retries, "
+                "at.description AS descriptionription "
+                "ORDER BY at.step_order ASC "
+                f"LIMIT {top_k}",
+                {},
+            )
+        except Exception as e:  # noqa: BLE001 — layered fallback: on cypher-scan failure the function still executes the NX-graph scan below and returns whatever agent_template nodes are found there; read-only
+            logger.debug("AgentTemplate scan failed: %s", e)
+            return templates
+        for row in results:
+            templates.append(dict(row))
+        return templates
+
+    def _add_memory_agent_templates(self, templates: list[dict[str, Any]]) -> None:
+        # Also include NX graph entries
+        for nid in self.graph.node_ids():
+            data = self.graph._get_node_properties(nid)
+            if data.get("node_type") != "agent_template":
+                continue
+            if any(t.get("id") == nid for t in templates):
+                continue
+            templates.append(
+                {
+                    "id": nid,
+                    "name": data.get("name", ""),
+                    "role": data.get("role", ""),
+                    "system_prompt_id": data.get("system_prompt_id", ""),
+                    "toolset_ids": data.get("toolset_ids", []),
+                    "model_preference": data.get("model_preference", ""),
+                    "execution_tier": data.get("execution_tier", "standard"),
+                    "step_order": data.get("step_order", 0),
+                    "is_parallel": data.get("is_parallel", False),
+                    "max_retries": data.get("max_retries", 2),
+                    "description": data.get("description", ""),
+                }
+            )
 
     def get_agent_templates(
         self,
@@ -1464,70 +1609,15 @@ class RegistryMixin(_Base):
         Returns:
             List of template dicts.
         """
-        templates: list[dict[str, Any]] = []
-
         # Try hybrid search if query is provided
-        if query and hasattr(self, "search"):
-            try:
-                results = self.search(
-                    query=query,
-                    top_k=top_k,
-                    node_types=["AgentTemplate"],
-                )
-                if results:
-                    for r in results:
-                        if isinstance(r, dict):
-                            templates.append(r)
-                        elif hasattr(r, "model_dump"):
-                            templates.append(r.model_dump())
-                    if templates:
-                        return templates[:top_k]
-            except Exception as e:  # noqa: BLE001 — layered fallback: on hybrid-search failure the function proceeds to the cypher-scan fallback below, and then to the NX-graph scan; no state is mutated on this read path
-                logger.debug("Hybrid search for AgentTemplate failed: %s", e)
+        templates = self._agent_templates_from_search(query, top_k)
+        if templates is not None:
+            return templates
 
         # Fallback: cypher scan
-        if hasattr(self, "backend") and self.backend:
-            try:
-                results = self.backend.execute(
-                    "MATCH (at:AgentTemplate) "
-                    "RETURN at.id AS id, at.name AS name, at.role AS role, "
-                    "at.system_prompt_id AS system_prompt_id, "
-                    "at.toolset_ids AS toolset_ids, "
-                    "at.model_preference AS model_preference, "
-                    "at.execution_tier AS execution_tier, "
-                    "at.step_order AS step_order, "
-                    "at.parallel AS is_parallel, "
-                    "at.max_retries AS max_retries, "
-                    "at.description AS descriptionription "
-                    "ORDER BY at.step_order ASC "
-                    f"LIMIT {top_k}",
-                    {},
-                )
-                for row in results:
-                    templates.append(dict(row))
-            except Exception as e:  # noqa: BLE001 — layered fallback: on cypher-scan failure the function still executes the NX-graph scan below and returns whatever agent_template nodes are found there; read-only
-                logger.debug("AgentTemplate scan failed: %s", e)
-
+        templates = self._agent_templates_from_backend(top_k)
         # Also include NX graph entries
-        for nid in self.graph.node_ids():
-            data = self.graph._get_node_properties(nid)
-            if data.get("node_type") == "agent_template":
-                if not any(t.get("id") == nid for t in templates):
-                    templates.append(
-                        {
-                            "id": nid,
-                            "name": data.get("name", ""),
-                            "role": data.get("role", ""),
-                            "system_prompt_id": data.get("system_prompt_id", ""),
-                            "toolset_ids": data.get("toolset_ids", []),
-                            "model_preference": data.get("model_preference", ""),
-                            "execution_tier": data.get("execution_tier", "standard"),
-                            "step_order": data.get("step_order", 0),
-                            "is_parallel": data.get("is_parallel", False),
-                            "max_retries": data.get("max_retries", 2),
-                            "description": data.get("description", ""),
-                        }
-                    )
+        self._add_memory_agent_templates(templates)
 
         return sorted(templates, key=lambda t: t.get("step_order", 0))[:top_k]
 
@@ -1617,6 +1707,77 @@ class RegistryMixin(_Base):
 
         return node_id
 
+    def _is_depends_on_pair(
+        self, src_id: str, tgt_id: str, node_ids: list[str]
+    ) -> bool:
+        return (
+            src_id != tgt_id
+            and src_id in node_ids
+            and tgt_id in self.graph.get_successors(src_id)
+        )
+
+    def _add_graph_depends_on_edge(
+        self,
+        edges: list[dict[str, Any]],
+        src_id: str,
+        tgt_id: str,
+        node_ids: list[str],
+    ) -> None:
+        if not self._is_depends_on_pair(src_id, tgt_id, node_ids):
+            return
+        # NOTE (decomposition-surfaced, not fixed — out of this lane's scope):
+        # edge_data is always {} here — no lookup ever populates it from the
+        # actual graph edge properties — so `edge_data.get("relationship")` is
+        # always None and this branch can never append an edge. Preserved
+        # as-is; see lane report.
+        edge_data: dict[str, Any] = {}
+        if edge_data.get("relationship") not in (
+            "depends_on",
+            RegistryEdgeType.DEPENDS_ON.value,
+        ):
+            return
+        edges.append(
+            {
+                "source": src_id,
+                "target": tgt_id,
+                "type": "depends_on",
+                "weight": edge_data.get("weight", 1.0),
+            }
+        )
+
+    def _workflow_edges_from_graph(
+        self, template_ids: list[str]
+    ) -> list[dict[str, Any]]:
+        edges: list[dict[str, Any]] = []
+        node_ids = self.graph.node_ids()
+        for src_id in template_ids:
+            for tgt_id in template_ids:
+                self._add_graph_depends_on_edge(edges, src_id, tgt_id, node_ids)
+        return edges
+
+    def _add_backend_depends_on_edges(
+        self, edges: list[dict[str, Any]], template_ids: list[str]
+    ) -> None:
+        if not (hasattr(self, "backend") and self.backend):
+            return
+        try:
+            results = self.backend.execute(
+                "MATCH (a:AgentTemplate)-[r:DEPENDS_ON]->(b:AgentTemplate) "
+                "WHERE a.id IN $ids AND b.id IN $ids "
+                "RETURN a.id AS source, b.id AS target",
+                {"ids": template_ids},
+            )
+        except Exception:
+            return  # nosec
+        for row in results:
+            src = row.get("source", "")
+            tgt = row.get("target", "")
+            if any(e["source"] == src and e["target"] == tgt for e in edges):
+                continue
+            edges.append(
+                {"source": src, "target": tgt, "type": "depends_on", "weight": 1.0}
+            )
+
     def get_workflow_topology(
         self,
         template_ids: list[str],
@@ -1631,57 +1792,11 @@ class RegistryMixin(_Base):
         Returns:
             List of edge dicts with source, target, and metadata.
         """
-        edges: list[dict[str, Any]] = []
-
         if not template_ids or len(template_ids) < 2:
-            return edges
+            return []
 
         # Check graph edges
-        for src_id in template_ids:
-            for tgt_id in template_ids:
-                if (
-                    src_id != tgt_id
-                    and src_id in self.graph.node_ids()
-                    and tgt_id in self.graph.get_successors(src_id)
-                ):
-                    edge_data: dict[str, Any] = {}
-                    if edge_data.get("relationship") in (
-                        "depends_on",
-                        RegistryEdgeType.DEPENDS_ON.value,
-                    ):
-                        edges.append(
-                            {
-                                "source": src_id,
-                                "target": tgt_id,
-                                "type": "depends_on",
-                                "weight": edge_data.get("weight", 1.0),
-                            }
-                        )
-
+        edges = self._workflow_edges_from_graph(template_ids)
         # Also check backend
-        if hasattr(self, "backend") and self.backend:
-            try:
-                results = self.backend.execute(
-                    "MATCH (a:AgentTemplate)-[r:DEPENDS_ON]->(b:AgentTemplate) "
-                    "WHERE a.id IN $ids AND b.id IN $ids "
-                    "RETURN a.id AS source, b.id AS target",
-                    {"ids": template_ids},
-                )
-                for row in results:
-                    src = row.get("source", "")
-                    tgt = row.get("target", "")
-                    if not any(
-                        e["source"] == src and e["target"] == tgt for e in edges
-                    ):
-                        edges.append(
-                            {
-                                "source": src,
-                                "target": tgt,
-                                "type": "depends_on",
-                                "weight": 1.0,
-                            }
-                        )
-            except Exception:
-                pass  # nosec
-
+        self._add_backend_depends_on_edges(edges, template_ids)
         return edges
