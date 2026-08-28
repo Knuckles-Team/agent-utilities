@@ -75,6 +75,13 @@ def _flatten(matrix: list[list[float]]) -> list[float]:
     return [value for row in matrix for value in row]
 
 
+def _normalize_vector(vec: list[float]) -> list[float]:
+    norm = xp.linalg.norm(vec)
+    if norm > 0:
+        return [value / norm for value in vec]
+    return vec
+
+
 # ---------------------------------------------------------------------------
 # Data models
 # ---------------------------------------------------------------------------
@@ -193,6 +200,42 @@ def compute_fisher_diagonal_proxy(
     return fisher_proxy
 
 
+def _validate_ewc_vectors(
+    old_embedding: list[float], new_embedding: list[float], fisher_diag: list[float]
+) -> tuple[list[float], list[float], list[float]] | None:
+    """Convert the three EWC inputs to float vectors of equal length.
+
+    Returns ``None`` (bypass EWC) when any input is empty or the lengths
+    disagree.
+    """
+
+    if not old_embedding or not new_embedding or not fisher_diag:
+        return None
+    old_vec = [float(value) for value in old_embedding]
+    new_vec = [float(value) for value in new_embedding]
+    fisher_vec = [float(value) for value in fisher_diag]
+    if len(old_vec) != len(new_vec) or len(old_vec) != len(fisher_vec):
+        logger.warning("Dimension mismatch in EWC consolidation. Bypassing EWC.")
+        return None
+    return old_vec, new_vec, fisher_vec
+
+
+def _consolidate_ewc_vector(
+    old_vec: list[float],
+    new_vec: list[float],
+    fisher_vec: list[float],
+    lambda_param: float,
+) -> list[float]:
+    consolidated_vec = [
+        old + (new - old) * min(1.0, max(0.0, 1.0 - (lambda_param * fisher)))
+        for old, new, fisher in zip(old_vec, new_vec, fisher_vec, strict=False)
+    ]
+    norm = xp.linalg.norm(consolidated_vec)
+    if norm > 0:
+        consolidated_vec = [value / norm for value in consolidated_vec]
+    return consolidated_vec
+
+
 def apply_ewc_synthesis(
     old_embedding: list[float],
     new_embedding: list[float],
@@ -213,26 +256,11 @@ def apply_ewc_synthesis(
     Returns:
         The consolidated new embedding.
     """
-    if not old_embedding or not new_embedding or not fisher_diag:
+    vectors = _validate_ewc_vectors(old_embedding, new_embedding, fisher_diag)
+    if vectors is None:
         return new_embedding
-
-    old_vec = [float(value) for value in old_embedding]
-    new_vec = [float(value) for value in new_embedding]
-    fisher_vec = [float(value) for value in fisher_diag]
-
-    if len(old_vec) != len(new_vec) or len(old_vec) != len(fisher_vec):
-        logger.warning("Dimension mismatch in EWC consolidation. Bypassing EWC.")
-        return new_embedding
-
-    consolidated_vec = [
-        old + (new - old) * min(1.0, max(0.0, 1.0 - (lambda_param * fisher)))
-        for old, new, fisher in zip(old_vec, new_vec, fisher_vec, strict=False)
-    ]
-
-    norm = xp.linalg.norm(consolidated_vec)
-    if norm > 0:
-        consolidated_vec = [value / norm for value in consolidated_vec]
-    return consolidated_vec
+    old_vec, new_vec, fisher_vec = vectors
+    return _consolidate_ewc_vector(old_vec, new_vec, fisher_vec, lambda_param)
 
 
 # ---------------------------------------------------------------------------
@@ -302,6 +330,206 @@ def check_knowledge_drift(
     return DriftReport(node_id, cv, float(cosine_shift), has_drifted)
 
 
+def _svd_singular_values(centered: list[list[float]]) -> list[float] | None:
+    """Return the SVD singular values of ``centered``, or ``None`` on failure."""
+
+    try:
+        _, s, _ = xp.linalg.svd(centered)
+    except xp.LinAlgError:
+        return None
+    return [float(value) for value in s]
+
+
+def _normalized_singular_values(singular_values: list[float]) -> list[float]:
+    scale = singular_values[0] if singular_values and singular_values[0] > 0 else 1.0
+    return [value / scale for value in singular_values]
+
+
+def _recommend_collapse_action(
+    collapsed: bool, collapse_ratio: float, collapse_threshold: float
+) -> str:
+    if collapsed:
+        return "re-diversify_embeddings"
+    if collapse_ratio < collapse_threshold * 2:
+        return "monitor_closely"
+    return "healthy"
+
+
+def _effective_dimensionality(centered: list[list[float]], d: int) -> int:
+    """Effective dimensionality via SVD; falls back to ``d`` on SVD failure."""
+
+    try:
+        _, s, _ = xp.linalg.svd(centered)
+    except xp.LinAlgError:
+        return d
+    singular_values = [float(value) for value in s]
+    scale = singular_values[0] if singular_values and singular_values[0] > 0 else 1.0
+    return sum(value / scale > 0.01 for value in singular_values)
+
+
+def _recommend_health_action(collapse: bool, drift: str) -> str:
+    if collapse:
+        return "re-diversify_embeddings"
+    if drift == "severe":
+        return "re-embed_all_nodes"
+    if drift == "mild":
+        return "monitor_closely"
+    return "healthy"
+
+
+def _prepare_fusion_arrays(
+    embedding_layers: list[list[list[float]]],
+) -> tuple[list[list[list[float]]], int, int, int]:
+    """Validate layers and truncate every layer to the shared min dimension.
+
+    Returns ``(arrays, n_layers, n_samples, min_dim)``.
+    """
+
+    arrays = [_matrix(layer) for layer in embedding_layers]
+    n_layers = len(arrays)
+    n_samples = len(arrays[0])
+    min_dim = min(len(a[0]) for a in arrays)
+    arrays = [[row[:min_dim] for row in array] for array in arrays]
+    return arrays, n_layers, n_samples, min_dim
+
+
+def _fusion_layer_weights(
+    performance_scores: list[float] | None, n_layers: int
+) -> list[float]:
+    if performance_scores and len(performance_scores) == n_layers:
+        total = sum(performance_scores) or 1.0
+        return [s / total for s in performance_scores]
+    return [1.0 / n_layers] * n_layers
+
+
+def _dimension_variances(arr: list[list[float]], min_dim: int) -> list[float]:
+    variances = []
+    for dimension in range(min_dim):
+        values = [row[dimension] for row in arr]
+        mean = sum(values) / len(values)
+        variances.append(sum((value - mean) ** 2 for value in values) / len(values))
+    return variances
+
+
+def _mask_layer_by_variance(
+    arr: list[list[float]], min_dim: int, sparsity_target: float
+) -> tuple[list[list[float]], int]:
+    """Zero out the low-variance dimensions of one layer; keep the
+    highest-variance ``(1 - sparsity_target)`` fraction active.
+
+    Returns ``(masked_array, active_dimension_count)``.
+    """
+
+    variances = _dimension_variances(arr, min_dim)
+    threshold_idx = max(1, int(min_dim * (1 - sparsity_target)))
+    top_indices = sorted(range(min_dim), key=lambda index: variances[index])[
+        -threshold_idx:
+    ]
+    active = set(top_indices)
+    masked = [
+        [value if dimension in active else 0.0 for dimension, value in enumerate(row)]
+        for row in arr
+    ]
+    return masked, len(active)
+
+
+def _fuse_masked_layers(
+    masked_arrays: list[list[list[float]]],
+    weights: list[float],
+    n_samples: int,
+    min_dim: int,
+) -> list[list[float]]:
+    """Weighted-sum the masked layers per sample row, then L2-normalize."""
+
+    fused = [[0.0 for _ in range(min_dim)] for _ in range(n_samples)]
+    for arr, w in zip(masked_arrays, weights, strict=False):
+        for row in range(n_samples):
+            fused[row] = [
+                current + w * value
+                for current, value in zip(fused[row], arr[row], strict=False)
+            ]
+    for row in range(n_samples):
+        norm = float(xp.linalg.norm(fused[row]))
+        if norm:
+            fused[row] = [value / norm for value in fused[row]]
+    return fused
+
+
+def _sample_indices(n: int, sample_size: int, rng: Any) -> list[Any]:
+    indices = (
+        rng.choice(n, size=sample_size, replace=False)
+        if n > sample_size
+        else list(range(n))
+    )
+    return indices if isinstance(indices, list) else [int(indices)]
+
+
+def _pairwise_distances(sample: list[list[float]]) -> list[float]:
+    return [
+        float(
+            xp.linalg.norm(
+                [
+                    left - right
+                    for left, right in zip(sample[left], sample[right], strict=False)
+                ]
+            )
+        )
+        for left in range(len(sample))
+        for right in range(left + 1, len(sample))
+    ]
+
+
+def _isotropy_score(singular_values: list[float]) -> float:
+    if singular_values and singular_values[0] > 0 and len(singular_values) > 1:
+        return float(singular_values[-1] / singular_values[0])
+    return 0.0
+
+
+def _participation_and_entropy(singular_values: list[float]) -> tuple[float, float]:
+    lambdas = [value**2 for value in singular_values]
+    sum_l = sum(lambdas)
+    sum_l2 = sum(value**2 for value in lambdas)
+    pr = float((sum_l**2) / sum_l2) if sum_l2 > 0 else 0.0
+    p = [value / (sum_l if sum_l > 0 else 1.0) for value in lambdas if value > 0]
+    entropy = float(-sum(value * math.log2(value) for value in p)) if p else 0.0
+    return pr, entropy
+
+
+def _diversity_from_singular_values(
+    singular_values: list[float],
+) -> tuple[float, float, float]:
+    """Return ``(isotropy_score, participation_ratio, entropy)``."""
+
+    isotropy = _isotropy_score(singular_values)
+    pr, entropy = _participation_and_entropy(singular_values)
+    return isotropy, pr, entropy
+
+
+def _compute_raw_ewc_result(
+    old_embedding: list[float],
+    new_embedding: list[float],
+    fisher_diag: list[float],
+    lambda_param: float,
+) -> list[float] | None:
+    """Vector-prep + the EWC blend formula, unnormalized.
+
+    ``None`` on a length mismatch (caller bypasses EWC, same as
+    ``apply_ewc_synthesis``'s guard).
+    """
+
+    old = [float(value) for value in old_embedding]
+    new = [float(value) for value in new_embedding]
+    fisher = [float(value) for value in fisher_diag]
+    if len(old) != len(new) or len(old) != len(fisher):
+        return None
+    return [
+        old_value
+        + (new_value - old_value)
+        * min(1.0, max(0.0, 1.0 - (lambda_param * fisher_value)))
+        for old_value, new_value, fisher_value in zip(old, new, fisher, strict=False)
+    ]
+
+
 # ---------------------------------------------------------------------------
 # MemoryOptimizationEngine (consolidated from latent_space_regularizer.py
 # and embedding_diagnostics.py)
@@ -367,18 +595,13 @@ class MemoryOptimizationEngine:
         d = len(arr[0])
         centered = _center(arr)
 
-        try:
-            _, s, _ = xp.linalg.svd(centered)
-        except xp.LinAlgError:
+        singular_values = _svd_singular_values(centered)
+        if singular_values is None:
             return CollapseReport(recommendation="svd_failed")
 
-        singular_values = [float(value) for value in s]
-        scale = (
-            singular_values[0] if singular_values and singular_values[0] > 0 else 1.0
-        )
-        s_normalized = [value / scale for value in singular_values]
+        s_normalized = _normalized_singular_values(singular_values)
         effective_dim = sum(value > 0.01 for value in s_normalized)
-        top_k = min(10, len(s))
+        top_k = min(10, len(singular_values))
         top_svs = s_normalized[:top_k]
         collapse_ratio = effective_dim / d if d > 0 else 1.0
         collapsed_svd = collapse_ratio < self._collapse_threshold
@@ -387,13 +610,6 @@ class MemoryOptimizationEngine:
         collapsed_normality = p_value < self._significance_level
         collapsed = collapsed_svd or collapsed_normality
 
-        if collapsed:
-            rec = "re-diversify_embeddings"
-        elif collapse_ratio < self._collapse_threshold * 2:
-            rec = "monitor_closely"
-        else:
-            rec = "healthy"
-
         return CollapseReport(
             collapsed=collapsed,
             effective_dim=effective_dim,
@@ -401,7 +617,9 @@ class MemoryOptimizationEngine:
             collapse_ratio=collapse_ratio,
             top_singular_values=top_svs,
             normality_p_value=p_value,
-            recommendation=rec,
+            recommendation=_recommend_collapse_action(
+                collapsed, collapse_ratio, self._collapse_threshold
+            ),
         )
 
     def _sigreg_normality_test(self, centered: list[list[float]]) -> float:
@@ -455,46 +673,16 @@ class MemoryOptimizationEngine:
 
         sample_size = min(n, 100)
         rng = xp.random.default_rng(42)
-        indices = (
-            rng.choice(n, size=sample_size, replace=False)
-            if n > sample_size
-            else list(range(n))
-        )
-        index_values = indices if isinstance(indices, list) else [int(indices)]
+        index_values = _sample_indices(n, sample_size, rng)
         sample = [arr[int(index)] for index in index_values]
-        dists = [
-            float(
-                xp.linalg.norm(
-                    [
-                        left - right
-                        for left, right in zip(
-                            sample[left], sample[right], strict=False
-                        )
-                    ]
-                )
-            )
-            for left in range(len(sample))
-            for right in range(left + 1, len(sample))
-        ]
+        dists = _pairwise_distances(sample)
         mean_dist = float(xp.mean(dists)) if dists else 0.0
 
-        try:
-            _, s, _ = xp.linalg.svd(centered)
-        except xp.LinAlgError:
+        singular_values = _svd_singular_values(centered)
+        if singular_values is None:
             return DiversityMetrics(mean_pairwise_distance=mean_dist)
 
-        singular_values = [float(value) for value in s]
-        isotropy = (
-            float(singular_values[-1] / singular_values[0])
-            if singular_values and singular_values[0] > 0 and len(singular_values) > 1
-            else 0.0
-        )
-        lambdas = [value**2 for value in singular_values]
-        sum_l = sum(lambdas)
-        sum_l2 = sum(value**2 for value in lambdas)
-        pr = float((sum_l**2) / sum_l2) if sum_l2 > 0 else 0.0
-        p = [value / (sum_l if sum_l > 0 else 1.0) for value in lambdas if value > 0]
-        entropy = float(-sum(value * math.log2(value) for value in p)) if p else 0.0
+        isotropy, pr, entropy = _diversity_from_singular_values(singular_values)
 
         return DiversityMetrics(
             mean_pairwise_distance=mean_dist,
@@ -524,28 +712,33 @@ class MemoryOptimizationEngine:
                 old_embedding, new_embedding, fisher_diag, lambda_param
             )
 
-        old = [float(value) for value in old_embedding]
-        new = [float(value) for value in new_embedding]
-        fisher = [float(value) for value in fisher_diag]
-
-        if len(old) != len(new) or len(old) != len(fisher):
+        ewc_result = _compute_raw_ewc_result(
+            old_embedding, new_embedding, fisher_diag, lambda_param
+        )
+        if ewc_result is None:
             return new_embedding
-
-        ewc_result = [
-            old_value
-            + (new_value - old_value)
-            * min(1.0, max(0.0, 1.0 - (lambda_param * fisher_value)))
-            for old_value, new_value, fisher_value in zip(
-                old, new, fisher, strict=False
-            )
-        ]
 
         all_arr = _matrix(all_embeddings)
         if len(all_arr) < 3:
-            norm = xp.linalg.norm(ewc_result)
-            if norm > 0:
-                ewc_result = [value / norm for value in ewc_result]
-            return ewc_result
+            return _normalize_vector(ewc_result)
+
+        old = [float(value) for value in old_embedding]
+        ewc_result = self._apply_diversity_dampening(
+            all_arr, old, ewc_result, diversity_weight
+        )
+        return _normalize_vector(ewc_result)
+
+    def _apply_diversity_dampening(
+        self,
+        all_arr: list[list[float]],
+        old: list[float],
+        ewc_result: list[float],
+        diversity_weight: float,
+    ) -> list[float]:
+        """Simulate the update; dampen toward ``old`` if the participation
+        ratio would drop by more than 10%. Returns the (possibly dampened)
+        ``ewc_result``.
+        """
 
         current_metrics = self.compute_diversity(all_arr)
         simulated = [row[:] for row in all_arr]
@@ -564,22 +757,20 @@ class MemoryOptimizationEngine:
         simulated[closest_idx] = ewc_result
         new_metrics = self.compute_diversity(simulated)
 
-        if new_metrics.participation_ratio < current_metrics.participation_ratio * 0.9:
-            diversity_dampening = 1.0 - diversity_weight
-            ewc_result = [
-                old_value + (new_value - old_value) * diversity_dampening
-                for old_value, new_value in zip(old, ewc_result, strict=False)
-            ]
-            logger.info(
-                "Diversity-preserving dampening applied: PR %.2f → %.2f",
-                current_metrics.participation_ratio,
-                new_metrics.participation_ratio,
-            )
+        if new_metrics.participation_ratio >= current_metrics.participation_ratio * 0.9:
+            return ewc_result
 
-        norm = xp.linalg.norm(ewc_result)
-        if norm > 0:
-            ewc_result = [value / norm for value in ewc_result]
-        return ewc_result
+        diversity_dampening = 1.0 - diversity_weight
+        dampened = [
+            old_value + (new_value - old_value) * diversity_dampening
+            for old_value, new_value in zip(old, ewc_result, strict=False)
+        ]
+        logger.info(
+            "Diversity-preserving dampening applied: PR %.2f → %.2f",
+            current_metrics.participation_ratio,
+            new_metrics.participation_ratio,
+        )
+        return dampened
 
     # --- CKA diagnostics (from embedding_diagnostics.py) ---
 
@@ -652,55 +843,19 @@ class MemoryOptimizationEngine:
         if not embedding_layers:
             return FusionResult()
 
-        arrays = [_matrix(layer) for layer in embedding_layers]
-        n_layers = len(arrays)
-        n_samples = len(arrays[0])
-        min_dim = min(len(a[0]) for a in arrays)
-        arrays = [[row[:min_dim] for row in array] for array in arrays]
-
-        if performance_scores and len(performance_scores) == n_layers:
-            total = sum(performance_scores) or 1.0
-            weights = [s / total for s in performance_scores]
-        else:
-            weights = [1.0 / n_layers] * n_layers
+        arrays, n_layers, n_samples, min_dim = _prepare_fusion_arrays(embedding_layers)
+        weights = _fusion_layer_weights(performance_scores, n_layers)
 
         active_dims: list[int] = []
         masked_arrays: list[list[list[float]]] = []
         for arr in arrays:
-            variances = []
-            for dimension in range(min_dim):
-                values = [row[dimension] for row in arr]
-                mean = sum(values) / len(values)
-                variances.append(
-                    sum((value - mean) ** 2 for value in values) / len(values)
-                )
-            threshold_idx = max(1, int(min_dim * (1 - sparsity_target)))
-            top_indices = sorted(range(min_dim), key=lambda index: variances[index])[
-                -threshold_idx:
-            ]
-            active = set(top_indices)
-            masked_arrays.append(
-                [
-                    [
-                        value if dimension in active else 0.0
-                        for dimension, value in enumerate(row)
-                    ]
-                    for row in arr
-                ]
+            masked, active_count = _mask_layer_by_variance(
+                arr, min_dim, sparsity_target
             )
-            active_dims.append(len(active))
+            masked_arrays.append(masked)
+            active_dims.append(active_count)
 
-        fused = [[0.0 for _ in range(min_dim)] for _ in range(n_samples)]
-        for arr, w in zip(masked_arrays, weights, strict=False):
-            for row in range(n_samples):
-                fused[row] = [
-                    current + w * value
-                    for current, value in zip(fused[row], arr[row], strict=False)
-                ]
-        for row in range(n_samples):
-            norm = float(xp.linalg.norm(fused[row]))
-            if norm:
-                fused[row] = [value / norm for value in fused[row]]
+        fused = _fuse_masked_layers(masked_arrays, weights, n_samples, min_dim)
 
         total_possible = n_layers * min_dim
         total_active = sum(active_dims)
@@ -730,39 +885,12 @@ class MemoryOptimizationEngine:
 
         d = len(arr[0])
         centered = _center(arr)
-
-        try:
-            _, s, _ = xp.linalg.svd(centered)
-            singular_values = [float(value) for value in s]
-            scale = (
-                singular_values[0]
-                if singular_values and singular_values[0] > 0
-                else 1.0
-            )
-            effective_dim = sum(value / scale > 0.01 for value in singular_values)
-        except xp.LinAlgError:
-            effective_dim = d
-
+        effective_dim = _effective_dimensionality(centered, d)
         collapse = effective_dim / d < self._collapse_threshold if d > 0 else False
 
-        cka_baseline = 1.0
-        drift = "none"
-        if baseline_embeddings is not None:
-            cka_result = self.compute_cka(arr, baseline_embeddings)
-            cka_baseline = cka_result.cka_score
-            if cka_baseline < drift_threshold * 0.5:
-                drift = "severe"
-            elif cka_baseline < drift_threshold:
-                drift = "mild"
-
-        if collapse:
-            rec = "re-diversify_embeddings"
-        elif drift == "severe":
-            rec = "re-embed_all_nodes"
-        elif drift == "mild":
-            rec = "monitor_closely"
-        else:
-            rec = "healthy"
+        cka_baseline, drift = self._drift_from_baseline(
+            arr, baseline_embeddings, drift_threshold
+        )
 
         return EmbeddingHealthReport(
             effective_dimensionality=effective_dim,
@@ -770,8 +898,27 @@ class MemoryOptimizationEngine:
             collapse_detected=collapse,
             cka_vs_baseline=cka_baseline,
             drift_severity=drift,
-            recommendation=rec,
+            recommendation=_recommend_health_action(collapse, drift),
         )
+
+    def _drift_from_baseline(
+        self,
+        arr: list[list[float]],
+        baseline_embeddings: list[list[float]] | None,
+        drift_threshold: float,
+    ) -> tuple[float, str]:
+        """Return ``(cka_vs_baseline, drift_severity)`` against an optional
+        baseline embedding space."""
+
+        if baseline_embeddings is None:
+            return 1.0, "none"
+        cka_result = self.compute_cka(arr, baseline_embeddings)
+        cka_baseline = cka_result.cka_score
+        if cka_baseline < drift_threshold * 0.5:
+            return cka_baseline, "severe"
+        if cka_baseline < drift_threshold:
+            return cka_baseline, "mild"
+        return cka_baseline, "none"
 
     # --- Predictive consistency ---
 
@@ -1175,6 +1322,62 @@ class EvalReplayResult(BaseModel):
     regressions: list[dict[str, Any]] = Field(default_factory=list)
 
 
+def _jaccard_at_k(original_set: set[str], current_set: set[str]) -> float:
+    if original_set or current_set:
+        intersection = original_set & current_set
+        union = original_set | current_set
+        return len(intersection) / len(union) if union else 1.0
+    return 1.0
+
+
+def _replay_one_record(
+    record: Any,
+    search_fn: Callable[[str], list[dict[str, Any]]],
+    k: int,
+    regression_threshold: float,
+) -> tuple[float, bool, float | None, dict[str, Any] | None] | None:
+    """Replay one evaluation record against ``search_fn``.
+
+    Returns ``(jaccard, top_1_match, latency_delta_or_None,
+    regression_or_None)``, or ``None`` if the record has no query/results to
+    replay.
+    """
+
+    if not record.query or not record.result_node_ids:
+        return None
+
+    query = record.query
+    original_ids = record.result_node_ids[:k]
+    original_latency = record.latency_ms
+    original_set = set(original_ids)
+
+    start = time.perf_counter()
+    current_results = search_fn(query)
+    current_latency = (time.perf_counter() - start) * 1000
+
+    current_ids = [r.get("id", "") for r in current_results[:k]]
+    current_set = set(current_ids)
+
+    jaccard = _jaccard_at_k(original_set, current_set)
+    top_1_match = (
+        bool(original_ids) and bool(current_ids) and original_ids[0] == current_ids[0]
+    )
+    latency_delta = (
+        current_latency - original_latency if original_latency is not None else None
+    )
+    regression = (
+        {
+            "query": query,
+            "jaccard_at_k": round(jaccard, 4),
+            "original_ids": original_ids,
+            "current_ids": current_ids,
+        }
+        if jaccard < regression_threshold
+        else None
+    )
+    return jaccard, top_1_match, latency_delta, regression
+
+
 class EvaluationCapture:
     """Lightweight eval harness for Knowledge Graph retrieval regression testing.
 
@@ -1239,50 +1442,16 @@ class EvaluationCapture:
         regressions: list[dict[str, Any]] = []
 
         for record in records:
-            if not record.query or not record.result_node_ids:
+            outcome = _replay_one_record(record, search_fn, k, regression_threshold)
+            if outcome is None:
                 continue
-
-            query = record.query
-            original_ids = record.result_node_ids[:k]
-            original_latency = record.latency_ms
-
-            original_set = set(original_ids)
-
-            start = time.perf_counter()
-            current_results = search_fn(query)
-            current_latency = (time.perf_counter() - start) * 1000
-
-            current_ids = [r.get("id", "") for r in current_results[:k]]
-            current_set = set(current_ids)
-
-            if original_set or current_set:
-                intersection = original_set & current_set
-                union = original_set | current_set
-                jaccard = len(intersection) / len(union) if union else 1.0
-            else:
-                jaccard = 1.0
-
+            jaccard, top_1_match, latency_delta, regression = outcome
             jaccard_scores.append(jaccard)
-
-            top_1_match = (
-                bool(original_ids)
-                and bool(current_ids)
-                and original_ids[0] == current_ids[0]
-            )
             top_1_matches.append(top_1_match)
-
-            if original_latency is not None:
-                latency_deltas.append(current_latency - original_latency)
-
-            if jaccard < regression_threshold:
-                regressions.append(
-                    {
-                        "query": query,
-                        "jaccard_at_k": round(jaccard, 4),
-                        "original_ids": original_ids,
-                        "current_ids": current_ids,
-                    }
-                )
+            if latency_delta is not None:
+                latency_deltas.append(latency_delta)
+            if regression is not None:
+                regressions.append(regression)
 
         total = len(jaccard_scores)
         return EvalReplayResult(
@@ -1665,6 +1834,77 @@ class SynthesisRule(Protocol):
 # ---------------------------------------------------------------------------
 
 
+def _trace_outcome_and_tools(
+    trace_id: str, graph: Any
+) -> tuple[float | None, set[str]]:
+    """Canonical outgoing edges: RunTrace -> outcome and tool call."""
+
+    outcome_reward: float | None = None
+    tool_names: set[str] = set()
+    for _src, tgt, edge_attrs in graph.out_edges(trace_id, data=True):
+        edge_type = str(edge_attrs.get("relationship", "")).lower()
+        if edge_type == "produced_outcome":
+            outcome_attrs = graph.nodes.get(tgt, {})
+            reward = outcome_attrs.get("reward")
+            if reward is not None:
+                outcome_reward = float(reward)
+        elif edge_type in {"used_tool", "used_resource"}:
+            tgt_attrs = graph.nodes.get(tgt, {})
+            # Canonical ToolCall.tool_name, or fall back to the node name.
+            tool_name = tgt_attrs.get("tool_name") or tgt_attrs.get("name")
+            if tool_name:
+                tool_names.add(tool_name)
+    return outcome_reward, tool_names
+
+
+def _successful_trace_tools(
+    graph: Any, reward_threshold: float
+) -> dict[str, list[str]]:
+    """Map each tool name to the successful canonical traces that used it."""
+
+    tool_to_trace_ids: dict[str, list[str]] = {}
+    for trace_id, attrs in graph.nodes(data=True):
+        if attrs.get("node_type") not in {"run_trace", "RunTrace"}:
+            continue
+        outcome_reward, tool_names = _trace_outcome_and_tools(trace_id, graph)
+        if outcome_reward is None or outcome_reward < reward_threshold:
+            continue
+        for tool_name in tool_names:
+            tool_to_trace_ids.setdefault(tool_name, []).append(trace_id)
+    return tool_to_trace_ids
+
+
+def _tool_preference_proposal(
+    rule_name: str,
+    tool_name: str,
+    trace_ids: list[str],
+    min_confidence: float,
+    now: str,
+) -> SynthesisProposal:
+    # Simple confidence model: more evidence → higher confidence.
+    confidence = min(1.0, min_confidence + 0.05 * len(trace_ids))
+    payload = {
+        "category": "tool",
+        "value": tool_name,
+        "statement": (
+            f"Agent repeatedly succeeded using '{tool_name}' "
+            f"(across {len(trace_ids)} successful traces)."
+        ),
+    }
+    proposal = SynthesisProposal(
+        proposal_id=hashlib.sha256(f"{rule_name}:{tool_name}".encode()).hexdigest()[:8],
+        rule_name=rule_name,
+        proposed_node_type="PreferenceNode",
+        proposed_payload=payload,
+        evidence_node_ids=sorted(trace_ids),
+        confidence=confidence,
+        created_at=now,
+        status="pending",
+    )
+    proposal.signature = proposal.compute_signature()
+    return proposal
+
+
 @dataclass
 class EpisodeToPreferenceRule:
     """Rule 1 (§4.3) — canonical execution trace → Preference abstraction.
@@ -1690,69 +1930,22 @@ class EpisodeToPreferenceRule:
     reward_threshold: float = 0.8
 
     def detect(self, engine: IntelligenceGraphEngine) -> list[SynthesisProposal]:
-        proposals: list[SynthesisProposal] = []
         graph = engine.graph
 
         # Count per-tool co-occurrence of successful canonical traces.
-        tool_to_trace_ids: dict[str, list[str]] = {}
-
-        for trace_id, attrs in graph.nodes(data=True):
-            if attrs.get("node_type") not in {"run_trace", "RunTrace"}:
-                continue
-
-            # Canonical outgoing edges: RunTrace -> outcome and tool call.
-            outcome_reward: float | None = None
-            tool_names: set[str] = set()
-
-            for _src, tgt, edge_attrs in graph.out_edges(trace_id, data=True):
-                edge_type = str(edge_attrs.get("relationship", "")).lower()
-                if edge_type == "produced_outcome":
-                    outcome_attrs = graph.nodes.get(tgt, {})
-                    reward = outcome_attrs.get("reward")
-                    if reward is not None:
-                        outcome_reward = float(reward)
-                elif edge_type in {"used_tool", "used_resource"}:
-                    tgt_attrs = graph.nodes.get(tgt, {})
-                    # Canonical ToolCall.tool_name, or fall back to the node name.
-                    tool_name = tgt_attrs.get("tool_name") or tgt_attrs.get("name")
-                    if tool_name:
-                        tool_names.add(tool_name)
-
-            if outcome_reward is None or outcome_reward < self.reward_threshold:
-                continue
-
-            for tool_name in tool_names:
-                tool_to_trace_ids.setdefault(tool_name, []).append(trace_id)
+        tool_to_trace_ids = _successful_trace_tools(graph, self.reward_threshold)
 
         # Emit one proposal per tool with enough evidence.
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        proposals: list[SynthesisProposal] = []
         for tool_name, trace_ids in tool_to_trace_ids.items():
             if len(trace_ids) < self.min_evidence_count:
                 continue
-            # Simple confidence model: more evidence → higher confidence.
-            confidence = min(1.0, self.min_confidence + 0.05 * len(trace_ids))
-            payload = {
-                "category": "tool",
-                "value": tool_name,
-                "statement": (
-                    f"Agent repeatedly succeeded using '{tool_name}' "
-                    f"(across {len(trace_ids)} successful traces)."
-                ),
-            }
-            proposal = SynthesisProposal(
-                proposal_id=hashlib.sha256(
-                    f"{self.name}:{tool_name}".encode()
-                ).hexdigest()[:8],
-                rule_name=self.name,
-                proposed_node_type="PreferenceNode",
-                proposed_payload=payload,
-                evidence_node_ids=sorted(trace_ids),
-                confidence=confidence,
-                created_at=now,
-                status="pending",
+            proposals.append(
+                _tool_preference_proposal(
+                    self.name, tool_name, trace_ids, self.min_confidence, now
+                )
             )
-            proposal.signature = proposal.compute_signature()
-            proposals.append(proposal)
 
         return proposals
 
