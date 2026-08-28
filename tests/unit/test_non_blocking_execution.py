@@ -1273,20 +1273,75 @@ def test_cancelled_run_trace_write_survives_a_repeated_cancel() -> None:
 
     # The live branch uses the cancellation-resistant off-loop wrapper, and records
     # the cheap timeout signal before its only suspension point.
+    #
+    # BUG-CX-026: this used to slice ``run_agent``'s own SOURCE TEXT between two
+    # literal markers and grep the slice for literal call text. It broke the
+    # moment the whole CancelledError branch was legitimately extracted into
+    # ``_handle_dispatch_cancellation`` (a pure extract-method, no behaviour
+    # change) -- the slice no longer contains the calls at all, regardless of
+    # whether the wiring still holds. Reconstruct the effective call sequence
+    # from the real AST instead: walk the CancelledError branch, and for any
+    # call to a same-module helper, inline that helper's own body IN PLACE (the
+    # way an interpreter's call stack would), so extraction is invisible and
+    # only an actual removal/reordering trips this. Mirrors the pattern in
+    # ``tests/unit/agent/test_orch_1_92_warm_skills.py::
+    # test_factory_used_in_create_agent``.
+    import ast
     import inspect
 
     from agent_utilities.orchestration import agent_runner
 
-    src = inspect.getsource(agent_runner.run_agent)
-    branch = src.split("if isinstance(e, asyncio.CancelledError):", 1)[1]
-    branch = branch.split("if isinstance(e, KeyboardInterrupt", 1)[0]
-    # Comments in this branch legitimately NAME the helper to explain why it is not
-    # used here, so compare against code lines only.
-    code = "\n".join(
-        line for line in branch.splitlines() if not line.lstrip().startswith("#")
+    module = ast.parse(inspect.getsource(agent_runner))
+    defs = {
+        n.name: n
+        for n in module.body
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    run_agent_def = defs["run_agent"]
+
+    def _is_cancelled_error_check(node: ast.AST) -> bool:
+        return (
+            isinstance(node, ast.If)
+            and isinstance(node.test, ast.Call)
+            and isinstance(node.test.func, ast.Name)
+            and node.test.func.id == "isinstance"
+            and len(node.test.args) == 2
+            and isinstance(node.test.args[1], ast.Attribute)
+            and node.test.args[1].attr == "CancelledError"
+        )
+
+    branch_node = next(n for n in ast.walk(run_agent_def) if _is_cancelled_error_check(n))
+
+    _TARGETS = {"_record_execution_trace_ordered", "_record_delegation_over_budget"}
+
+    def _call_sequence(stmts: list[ast.stmt], depth: int = 0) -> list[str]:
+        """In-order call names in ``stmts``, inlining a same-module helper's
+        body the first time it is called (bounded depth) so a call one frame
+        deeper is still found in its real relative order."""
+        seq: list[str] = []
+        for stmt in stmts:
+            for sub in ast.walk(stmt):
+                if not isinstance(sub, ast.Call):
+                    continue
+                fn = sub.func
+                name = fn.id if isinstance(fn, ast.Name) else getattr(fn, "attr", None)
+                if name is None:
+                    continue
+                seq.append(name)
+                if depth < 3 and name in defs and name not in _TARGETS:
+                    seq.extend(_call_sequence(defs[name].body, depth + 1))
+        return seq
+
+    sequence = _call_sequence(branch_node.body)
+
+    assert "_record_execution_trace_ordered" in sequence, (
+        "the cancellation branch no longer reaches the cancellation-resistant "
+        f"ordered trace helper; observed call sequence was {sequence}"
     )
-    assert "await _record_execution_trace_ordered(" in code
-    assert "await asyncio.to_thread(" not in code
-    assert code.index("_record_delegation_over_budget(") < code.index(
-        "await _record_execution_trace_ordered("
+    assert "to_thread" not in sequence, (
+        "the cancellation branch calls asyncio.to_thread directly instead of "
+        f"going through the ordered helper; observed call sequence was {sequence}"
+    )
+    assert sequence.index("_record_delegation_over_budget") < sequence.index(
+        "_record_execution_trace_ordered"
     )
