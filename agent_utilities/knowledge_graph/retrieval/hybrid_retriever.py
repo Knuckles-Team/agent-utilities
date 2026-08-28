@@ -356,20 +356,59 @@ class HybridRetriever:
         if not ids:
             return []
         props = self._batch_node_properties(ids)
-
-        results: list[dict[str, Any]] = []
         score_by_id = dict(ranked)
+
+        return self._engine_vector_search_results(
+            ids,
+            props,
+            score_by_id,
+            top_k,
+            corpus_doc_ids=corpus_doc_ids,
+            target_paths=target_paths,
+        )
+
+    def _engine_vector_search_one(
+        self,
+        nid: str,
+        props: dict[str, Any],
+        score_by_id: dict[str, float],
+        *,
+        corpus_doc_ids: set[str] | None,
+        target_paths: list[str] | None,
+    ) -> dict[str, Any] | None:
+        data = props.get(nid)
+        data = dict(data) if isinstance(data, dict) else {}
+        if corpus_doc_ids is not None and nid not in corpus_doc_ids:
+            return None
+        if target_paths:
+            path = str(data.get("target_path", ""))
+            if not path or not any(tp in path for tp in target_paths):
+                return None
+        data["id"] = nid
+        data["_score"] = score_by_id.get(nid, 0.0)
+        return data
+
+    def _engine_vector_search_results(
+        self,
+        ids: list[str],
+        props: dict[str, Any],
+        score_by_id: dict[str, float],
+        top_k: int,
+        *,
+        corpus_doc_ids: set[str] | None,
+        target_paths: list[str] | None,
+    ) -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
         for nid in ids:
-            data = props.get(nid)
-            data = dict(data) if isinstance(data, dict) else {}
-            if corpus_doc_ids is not None and nid not in corpus_doc_ids:
+            data = self._engine_vector_search_one(
+                nid,
+                props,
+                score_by_id,
+                corpus_doc_ids=corpus_doc_ids,
+                target_paths=target_paths,
+            )
+            if data is None:
                 continue
-            if target_paths:
-                path = str(data.get("target_path", ""))
-                if not path or not any(tp in path for tp in target_paths):
-                    continue
-            data["id"] = nid
-            data["_score"] = score_by_id.get(nid, 0.0)
             results.append(data)
             if len(results) >= top_k:
                 break
