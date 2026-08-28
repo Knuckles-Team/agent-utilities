@@ -372,33 +372,45 @@ def _validate_runtime_secret_metadata(metadata: Any) -> None:
         raise PermissionError("runtime secret source posture is unsupported")
 
 
-def _read_runtime_secret_source(
-    path: "os.PathLike[str] | str",
-    *,
-    targets: frozenset[str],
-    update_status: bool = True,
-) -> tuple[bool, dict[str, str]]:
-    """Read and filter the implicit XDG runtime-secret document.
+def _reject_duplicate_secret_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """``object_pairs_hook`` that refuses a document with duplicate keys."""
+    result: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in result:
+            raise ValueError("runtime secret source has duplicate keys")
+        result[key] = item
+    return result
 
-    The path and all document data remain inside this boundary.  A missing file
-    is an optional, valid state; any present file that fails validation is
-    rejected with category-only diagnostics.
-    """
-    import json
-    import stat
 
-    descriptor = -1
-    observed = False
+def _runtime_secret_open_flags() -> int:
+    """Read-only open flags, hardened where the platform supports it."""
+    flags = os.O_RDONLY
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    flags |= getattr(os, "O_BINARY", 0)
+    return flags
+
+
+def _assert_runtime_secret_unchanged(before, after, payload_len: int) -> None:
+    """Reject a document swapped or rewritten between the two ``fstat`` calls."""
+    if payload_len != before.st_size or (
+        before.st_dev,
+        before.st_ino,
+        before.st_size,
+        before.st_mtime_ns,
+    ) != (
+        after.st_dev,
+        after.st_ino,
+        after.st_size,
+        after.st_mtime_ns,
+    ):
+        raise PermissionError("runtime secret source changed during read")
+
+
+def _read_runtime_secret_payload(path: "os.PathLike[str] | str", before_open) -> bytes:
+    """Read the document bytes, guarding against a TOCTOU swap of the file."""
+    descriptor = os.open(path, _runtime_secret_open_flags())
     try:
-        before_open = os.lstat(path)
-        observed = True
-        if stat.S_ISLNK(before_open.st_mode):
-            raise PermissionError("runtime secret source link is not accepted")
-        flags = os.O_RDONLY
-        flags |= getattr(os, "O_CLOEXEC", 0)
-        flags |= getattr(os, "O_NOFOLLOW", 0)
-        flags |= getattr(os, "O_BINARY", 0)
-        descriptor = os.open(path, flags)
         before_read = os.fstat(descriptor)
         _validate_runtime_secret_metadata(before_read)
         if (
@@ -413,60 +425,82 @@ def _read_runtime_secret_source(
             descriptor = -1
             payload = handle.read(_MAX_RUNTIME_SECRET_SOURCE_BYTES + 1)
             after_read = os.fstat(handle.fileno())
-        _validate_runtime_secret_metadata(after_read)
-        if len(payload) > _MAX_RUNTIME_SECRET_SOURCE_BYTES:
-            raise ValueError("runtime secret source exceeds the size limit")
-        if len(payload) != before_read.st_size or (
-            before_read.st_dev,
-            before_read.st_ino,
-            before_read.st_size,
-            before_read.st_mtime_ns,
-        ) != (
-            after_read.st_dev,
-            after_read.st_ino,
-            after_read.st_size,
-            after_read.st_mtime_ns,
-        ):
-            raise PermissionError("runtime secret source changed during read")
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    _validate_runtime_secret_metadata(after_read)
+    if len(payload) > _MAX_RUNTIME_SECRET_SOURCE_BYTES:
+        raise ValueError("runtime secret source exceeds the size limit")
+    _assert_runtime_secret_unchanged(before_read, after_read, len(payload))
+    return payload
 
-        def reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-            result: dict[str, Any] = {}
-            for key, item in pairs:
-                if key in result:
-                    raise ValueError("runtime secret source has duplicate keys")
-                result[key] = item
-            return result
 
-        document = json.loads(
-            payload.decode("utf-8"),
-            object_pairs_hook=reject_duplicates,
-        )
-        if not isinstance(document, dict):
-            raise TypeError("runtime secret source must contain a JSON object")
-        if len(document) > _MAX_RUNTIME_SECRET_ENTRIES:
-            raise ValueError("runtime secret source has too many entries")
+def _parse_runtime_secret_document(payload: bytes) -> dict[str, Any]:
+    """Decode the document, rejecting non-objects, duplicates and oversized maps."""
+    import json
 
-        selected: dict[str, str] = {}
-        casefolded_names: set[str] = set()
-        for key, value in document.items():
-            if _RUNTIME_SECRET_ENV_NAME_RE.fullmatch(key) is None:
-                raise ValueError("runtime secret source contains an invalid key")
-            folded = key.casefold()
-            if folded in casefolded_names:
-                raise ValueError("runtime secret source has ambiguous keys")
-            casefolded_names.add(folded)
-            if not isinstance(value, str):
-                raise TypeError("runtime secret source values must be strings")
-            encoded = value.encode("utf-8")
-            if (
-                not encoded
-                or len(encoded) > _MAX_RUNTIME_SECRET_VALUE_BYTES
-                or "\x00" in value
-            ):
-                raise ValueError("runtime secret source contains an invalid value")
-            if key in targets:
-                selected[key] = value
-        return True, selected
+    document = json.loads(
+        payload.decode("utf-8"),
+        object_pairs_hook=_reject_duplicate_secret_keys,
+    )
+    if not isinstance(document, dict):
+        raise TypeError("runtime secret source must contain a JSON object")
+    if len(document) > _MAX_RUNTIME_SECRET_ENTRIES:
+        raise ValueError("runtime secret source has too many entries")
+    return document
+
+
+def _validate_runtime_secret_value(value: Any) -> None:
+    """A runtime secret must be a non-empty, bounded, NUL-free UTF-8 string."""
+    if not isinstance(value, str):
+        raise TypeError("runtime secret source values must be strings")
+    encoded = value.encode("utf-8")
+    if not encoded or len(encoded) > _MAX_RUNTIME_SECRET_VALUE_BYTES or "\x00" in value:
+        raise ValueError("runtime secret source contains an invalid value")
+
+
+def _selected_runtime_secrets(
+    document: Mapping[str, Any], targets: frozenset[str]
+) -> dict[str, str]:
+    """Validate every entry, then keep only the referenced targets."""
+    selected: dict[str, str] = {}
+    casefolded_names: set[str] = set()
+    for key, value in document.items():
+        if _RUNTIME_SECRET_ENV_NAME_RE.fullmatch(key) is None:
+            raise ValueError("runtime secret source contains an invalid key")
+        folded = key.casefold()
+        if folded in casefolded_names:
+            raise ValueError("runtime secret source has ambiguous keys")
+        casefolded_names.add(folded)
+        _validate_runtime_secret_value(value)
+        if key in targets:
+            selected[key] = value
+    return selected
+
+
+def _read_runtime_secret_source(
+    path: "os.PathLike[str] | str",
+    *,
+    targets: frozenset[str],
+    update_status: bool = True,
+) -> tuple[bool, dict[str, str]]:
+    """Read and filter the implicit XDG runtime-secret document.
+
+    The path and all document data remain inside this boundary.  A missing file
+    is an optional, valid state; any present file that fails validation is
+    rejected with category-only diagnostics.
+    """
+    import stat
+
+    observed = False
+    try:
+        before_open = os.lstat(path)
+        observed = True
+        if stat.S_ISLNK(before_open.st_mode):
+            raise PermissionError("runtime secret source link is not accepted")
+        payload = _read_runtime_secret_payload(path, before_open)
+        document = _parse_runtime_secret_document(payload)
+        return True, _selected_runtime_secrets(document, targets)
     except FileNotFoundError as exc:
         if not observed:
             return False, {}
@@ -481,9 +515,6 @@ def _read_runtime_secret_source(
                 state="invalid", present=observed, valid=False
             )
         raise ConfigurationSourceError("runtime-secrets", type(exc).__name__) from None
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
 
 
 def _production_configuration_is_strict() -> bool:
@@ -826,6 +857,66 @@ def _is_oauth2_block(parent: str) -> bool:
     return parent == "OAUTH2" or parent.endswith("_OAUTH2")
 
 
+_DURABLE_SECRET_REF_CONTAINERS = frozenset(
+    {"MCP_FLEET_SECRET_REFS", "CREDENTIAL_REFS", "SELECTOR_REFS"}
+)
+
+
+def _is_runtime_secret_ref(value: Any) -> bool:
+    """True when ``value`` is a well-formed runtime secret reference string."""
+    return bool(
+        isinstance(value, str) and _RUNTIME_SECRET_REF_RE.fullmatch(value.strip())
+    )
+
+
+def _is_durable_credential_key(key: str) -> bool:
+    """A sensitive mapping key, or a credential suffix that is not a ``_REF``."""
+    return key in _DURABLE_SENSITIVE_MAPPING_KEYS or (
+        key.endswith(_DURABLE_CREDENTIAL_SUFFIXES) and not key.endswith("_REF")
+    )
+
+
+def _durable_secret_policy_verdict(
+    key: str, child: Any, parent: str
+) -> tuple[bool, bool]:
+    """Classify one durable entry as ``(is_offending, should_recurse)``."""
+    if parent in _DURABLE_SECRET_REF_CONTAINERS:
+        # A ``*_REFS`` container holds reference strings and nothing else, so a
+        # verdict here is terminal either way.
+        return not _is_runtime_secret_ref(child), False
+    if key in _DURABLE_HEADER_CONTAINER_KEYS:
+        return True, True
+    if key == "CLIENT_SECRET" and _is_oauth2_block(parent):
+        # The strict OAuth2 submodel validates the URI. This is the one
+        # intentionally nested reference form in model config.
+        return not _is_runtime_secret_ref(child), True
+    return _is_durable_credential_key(key), True
+
+
+def _walk_durable_secret_policy(value: Any, parent: str, on_offense: Any) -> None:
+    """Walk durable config, calling ``on_offense(key)`` for each policy breach.
+
+    ``on_offense`` either raises (the load-time validator) or records (the
+    doctor's reporter); the walk continues exactly where the original policy
+    continued.
+    """
+    if isinstance(value, list):
+        for child in value:
+            _walk_durable_secret_policy(child, parent, on_offense)
+        return
+    if not isinstance(value, Mapping):
+        return
+    for raw_key, child in value.items():
+        key = str(raw_key).strip().upper().replace("-", "_")
+        if _durable_value_is_empty(child):
+            continue
+        offending, recurse = _durable_secret_policy_verdict(key, child, parent)
+        if offending:
+            on_offense(key)
+        if recurse:
+            _walk_durable_secret_policy(child, key, on_offense)
+
+
 def _validate_durable_xdg_secret_policy(data: Mapping[str, Any]) -> None:
     """Reject credential and header material from durable XDG configuration.
 
@@ -840,50 +931,17 @@ def _validate_durable_xdg_secret_policy(data: Mapping[str, Any]) -> None:
     details and must not cross the doctor/MCP boundary.
     """
 
-    def visit(value: Any, *, parent: str = "") -> None:
-        if isinstance(value, Mapping):
-            for raw_key, child in value.items():
-                key = str(raw_key).strip().upper().replace("-", "_")
-                if _durable_value_is_empty(child):
-                    continue
-                if parent in {
-                    "MCP_FLEET_SECRET_REFS",
-                    "CREDENTIAL_REFS",
-                    "SELECTOR_REFS",
-                }:
-                    if not (
-                        isinstance(child, str)
-                        and _RUNTIME_SECRET_REF_RE.fullmatch(child.strip())
-                    ):
-                        raise ConfigurationSourceError("xdg", "DurableSecretError")
-                    continue
-                if key in _DURABLE_HEADER_CONTAINER_KEYS:
-                    raise ConfigurationSourceError("xdg", "DurableSecretError")
-                if key == "CLIENT_SECRET" and _is_oauth2_block(parent):
-                    # The strict OAuth2 submodel validates the URI. This is the
-                    # one intentionally nested reference form in model config.
-                    if not (
-                        isinstance(child, str)
-                        and _RUNTIME_SECRET_REF_RE.fullmatch(child.strip())
-                    ):
-                        raise ConfigurationSourceError("xdg", "DurableSecretError")
-                elif key in _DURABLE_SENSITIVE_MAPPING_KEYS or (
-                    key.endswith(_DURABLE_CREDENTIAL_SUFFIXES)
-                    and not key.endswith("_REF")
-                ):
-                    raise ConfigurationSourceError("xdg", "DurableSecretError")
-                visit(child, parent=key)
-        elif isinstance(value, list):
-            for child in value:
-                visit(child, parent=parent)
+    def reject(_key: str) -> None:
+        raise ConfigurationSourceError("xdg", "DurableSecretError")
 
-    visit(data)
+    _walk_durable_secret_policy(data, "", reject)
 
 
 def plaintext_secret_keys(data: Mapping[str, Any]) -> list[str]:
     """Return the config key *names* that hold an inline plaintext secret.
 
-    Mirrors :func:`_validate_durable_xdg_secret_policy` exactly, but collects the
+    Mirrors :func:`_validate_durable_xdg_secret_policy` exactly — both walk the
+    document through :func:`_walk_durable_secret_policy` — but collects the
     offending key names instead of raising a value-free ``DurableSecretError``, so
     the doctor and migration reporter can tell an operator *which* keys to relocate
     to a durable reference (``<KEY>_REF`` → OpenBao/Vault). Only key names cross
@@ -895,45 +953,8 @@ def plaintext_secret_keys(data: Mapping[str, Any]) -> list[str]:
     non-reference value; or when it is an inline header container — the exact
     conditions the durable-secret policy rejects at load.
     """
-
     offenders: list[str] = []
-
-    def visit(value: Any, *, parent: str = "") -> None:
-        if isinstance(value, Mapping):
-            for raw_key, child in value.items():
-                key = str(raw_key).strip().upper().replace("-", "_")
-                if _durable_value_is_empty(child):
-                    continue
-                if parent in {
-                    "MCP_FLEET_SECRET_REFS",
-                    "CREDENTIAL_REFS",
-                    "SELECTOR_REFS",
-                }:
-                    if not (
-                        isinstance(child, str)
-                        and _RUNTIME_SECRET_REF_RE.fullmatch(child.strip())
-                    ):
-                        offenders.append(key)
-                    continue
-                if key in _DURABLE_HEADER_CONTAINER_KEYS:
-                    offenders.append(key)
-                elif key == "CLIENT_SECRET" and _is_oauth2_block(parent):
-                    if not (
-                        isinstance(child, str)
-                        and _RUNTIME_SECRET_REF_RE.fullmatch(child.strip())
-                    ):
-                        offenders.append(key)
-                elif key in _DURABLE_SENSITIVE_MAPPING_KEYS or (
-                    key.endswith(_DURABLE_CREDENTIAL_SUFFIXES)
-                    and not key.endswith("_REF")
-                ):
-                    offenders.append(key)
-                visit(child, parent=key)
-        elif isinstance(value, list):
-            for child in value:
-                visit(child, parent=parent)
-
-    visit(data)
+    _walk_durable_secret_policy(data, "", offenders.append)
     return sorted(set(offenders))
 
 
@@ -1012,97 +1033,121 @@ def _mapping_selects_production(data: Mapping[str, Any]) -> bool:
     return False
 
 
-def _load_xdg_json_config_locked() -> None:
-    import json
-    from pathlib import Path
+def _hermetic_xdg_projection_applies() -> bool:
+    """Apply and report the hermetic (test-suite) XDG projection.
 
-    import platformdirs
+    Hermetic tests never read the developer's XDG-default deployment
+    ``config.json``. Config loading injects those into ``os.environ`` and would
+    override the unit suite's defaults — making tests fail on a dev box while
+    staying green in CI (which has no such file). An explicit config root used
+    by integration fixtures is still honored.
 
-    from agent_utilities.core.paths import runtime_secrets_path
-
-    APP_NAME = "agent-utilities"
-    APP_AUTHOR = "knuckles-team"
-
-    override = os.environ.get("AGENT_UTILITIES_CONFIG_DIR")
-    # Hermetic tests never read the developer's XDG-default deployment
-    # ``config.json``. Config loading injects those into ``os.environ`` and would
-    # override the unit suite's defaults — making tests fail on a dev box while
-    # staying green in CI (which has no such file). An explicit config root used
-    # by integration fixtures is still honored.
-    if not override and (
+    Returns True when the hermetic projection was committed and the caller is
+    done.
+    """
+    if os.environ.get("AGENT_UTILITIES_CONFIG_DIR"):
+        return False
+    if not (
         _under_pytest()
         or to_boolean(os.environ.get("AGENT_UTILITIES_TESTING", "false"))
     ):
-        _commit_xdg_environment_projection({}, {})
-        _set_runtime_secret_source_status(state="hermetic", present=False, valid=True)
-        return
-    if override:
-        cfg_dir = Path(override).expanduser()
-    else:
-        cfg_dir = Path(platformdirs.user_config_path(APP_NAME, APP_AUTHOR))
+        return False
+    _commit_xdg_environment_projection({}, {})
+    _set_runtime_secret_source_status(state="hermetic", present=False, valid=True)
+    return True
 
-    cfg_file = cfg_dir / "config.json"
-    strict = _production_configuration_is_strict()
+
+def _staged_xdg_document(cfg_file, strict: bool) -> dict[str, Any]:
+    """Read and canonicalize the staged XDG document under the given posture."""
     data: dict[str, Any] = {}
     if not cfg_file.exists():
-        if strict and override:
+        if strict and os.environ.get("AGENT_UTILITIES_CONFIG_DIR"):
             raise ConfigurationSourceError("xdg", "FileNotFoundError")
     else:
-        data = _read_configuration_mapping(
-            cfg_file,
-            source_type="xdg",
-            strict=strict,
-        )
+        data = _read_configuration_mapping(cfg_file, source_type="xdg", strict=strict)
     _require_current_configuration_keys(data)
-    data = _canonicalize_xdg_configuration(data)
+    return _canonicalize_xdg_configuration(data)
+
+
+def _resolved_xdg_document(cfg_file, strict: bool) -> dict[str, Any]:
+    """The validated XDG document, re-read strictly when it selects production."""
+    data = _staged_xdg_document(cfg_file, strict)
     if not strict and _mapping_selects_production(data):
         # Re-open through the production posture after the staged document has
         # selected it. The second bounded, stable read is the one projected.
-        data = _read_configuration_mapping(
-            cfg_file,
-            source_type="xdg",
-            strict=True,
-        )
+        data = _read_configuration_mapping(cfg_file, source_type="xdg", strict=True)
         _require_current_configuration_keys(data)
         data = _canonicalize_xdg_configuration(data)
     _validate_xdg_configuration_schema(data)
-    targets = _collect_env_reference_targets(data)
+    return data
+
+
+def _assert_no_secret_target_collision(
+    data: Mapping[str, Any], targets: frozenset[str]
+) -> None:
+    """A durable key may not shadow the environment name a secret ref targets."""
     durable_env_keys = {str(key).upper() for key in data}
     if any(target.upper() in durable_env_keys for target in targets):
         raise ConfigurationSourceError("xdg", "SecretTargetCollisionError")
+
+
+def _render_xdg_projection_value(value: Any) -> str:
+    """Render one durable JSON value as the environment string it projects to."""
+    import json
+
+    if isinstance(value, list | dict):
+        return json.dumps(value)
+    if isinstance(value, bool):
+        # Keep JSON booleans in the canonical form accepted by strict boolean
+        # settings instead of Python's ``True``/``False``.
+        return "true" if value else "false"
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _validated_xdg_projection_entry(env_key: str, value: Any) -> str:
+    """Render one entry and reject anything unsafe to place in the environment."""
+    rendered = _render_xdg_projection_value(value)
+    try:
+        rendered.encode("utf-8")
+    except UnicodeError:
+        raise ConfigurationSourceError("xdg", "EnvironmentProjectionError") from None
+    if _RUNTIME_SECRET_ENV_NAME_RE.fullmatch(env_key) is None or "\x00" in rendered:
+        raise ConfigurationSourceError("xdg", "EnvironmentProjectionError")
+    return rendered
+
+
+def _build_xdg_config_projection(
+    data: Mapping[str, Any], explicit_environment: Mapping[str, str]
+) -> dict[str, str]:
+    """The durable-config half of the projection, minus explicitly set names."""
+    projection: dict[str, str] = {}
+    for key, value in data.items():
+        env_key = key.upper()
+        if env_key in explicit_environment:
+            continue
+        projection[env_key] = _validated_xdg_projection_entry(env_key, value)
+    return projection
+
+
+def _load_xdg_json_config_locked() -> None:
+    from agent_utilities.core.paths import runtime_secrets_path
+
+    if _hermetic_xdg_projection_applies():
+        return
+
+    strict = _production_configuration_is_strict()
+    data = _resolved_xdg_document(_xdg_config_file(), strict)
+    targets = _collect_env_reference_targets(data)
+    _assert_no_secret_target_collision(data, targets)
 
     present, available = _read_runtime_secret_source(
         runtime_secrets_path(),
         targets=targets,
     )
     explicit_environment = _environment_without_xdg_projections()
-    config_projection: dict[str, str] = {}
-    for k, v in data.items():
-        env_key = k.upper()
-        if env_key not in explicit_environment:
-            if isinstance(v, list | dict):
-                rendered = json.dumps(v)
-            elif isinstance(v, bool):
-                # Keep JSON booleans in the canonical form accepted by strict
-                # boolean settings instead of Python's ``True``/``False``.
-                rendered = "true" if v else "false"
-            elif v is None:
-                rendered = ""
-            else:
-                rendered = str(v)
-            try:
-                rendered.encode("utf-8")
-            except UnicodeError:
-                raise ConfigurationSourceError(
-                    "xdg", "EnvironmentProjectionError"
-                ) from None
-            if (
-                _RUNTIME_SECRET_ENV_NAME_RE.fullmatch(env_key) is None
-                or "\x00" in rendered
-            ):
-                raise ConfigurationSourceError("xdg", "EnvironmentProjectionError")
-            config_projection[env_key] = rendered
-
+    config_projection = _build_xdg_config_projection(data, explicit_environment)
     runtime_projection = {
         key: value
         for key, value in available.items()
@@ -1505,12 +1550,8 @@ _MCP_FLEET_SECRET_ALIAS_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
 _NEUTRAL_ALIAS_RE = re.compile(r"^[a-z][a-z0-9-]{1,62}$")
 
 
-def _validated_runtime_http_url(
-    value: Any,
-    *,
-    require_server_placeholder: bool = False,
-) -> str | None:
-    """Normalize one runtime-only HTTP base URL without resolving or fetching it."""
+def _rendered_runtime_http_url(value: Any) -> str | None:
+    """The trimmed URL text, or None when unset. Rejects unbounded/whitespace."""
     if value in (None, ""):
         return None
     rendered = str(value).strip()
@@ -1520,41 +1561,75 @@ def _validated_runtime_http_url(
         raise ValueError(
             "runtime HTTP endpoints must be bounded URLs without whitespace"
         )
+    return rendered
 
+
+def _validate_server_placeholder_template(rendered: str) -> None:
+    """``FLEET_MCP_URL_TEMPLATE`` may carry only the ``{server}`` placeholder."""
     placeholders = re.findall(r"\{([^{}]+)\}", rendered)
+    if not placeholders or any(item != "server" for item in placeholders):
+        raise ValueError(
+            "FLEET_MCP_URL_TEMPLATE must contain only the '{server}' placeholder"
+        )
+    stripped = rendered.replace("{server}", "")
+    if "{" in stripped or "}" in stripped:
+        raise ValueError("FLEET_MCP_URL_TEMPLATE placeholders are malformed")
+
+
+def _validate_runtime_url_placeholders(
+    rendered: str, require_server_placeholder: bool
+) -> None:
+    """Placeholder policy: only the fleet template may carry ``{server}``."""
     if require_server_placeholder:
-        if not placeholders or any(item != "server" for item in placeholders):
-            raise ValueError(
-                "FLEET_MCP_URL_TEMPLATE must contain only the '{server}' placeholder"
-            )
-        if "{" in rendered.replace("{server}", "") or "}" in rendered.replace(
-            "{server}", ""
-        ):
-            raise ValueError("FLEET_MCP_URL_TEMPLATE placeholders are malformed")
+        _validate_server_placeholder_template(rendered)
     elif "{" in rendered or "}" in rendered:
         raise ValueError("runtime HTTP endpoints cannot contain placeholders")
     if rendered.count("{") != rendered.count("}"):
         raise ValueError("runtime HTTP endpoint placeholders are malformed")
 
+
+def _split_runtime_http_url(rendered: str) -> tuple[Any, str, Any, Any]:
+    """Split the URL, mapping any parse failure to one bounded error."""
     from urllib.parse import urlsplit
 
     try:
         parsed = urlsplit(rendered)
-        scheme = parsed.scheme.lower()
-        hostname = parsed.hostname
-        port = parsed.port
+        return parsed, parsed.scheme.lower(), parsed.hostname, parsed.port
     except ValueError as exc:
         raise ValueError("runtime HTTP endpoint is malformed") from exc
+
+
+def _assert_runtime_http_authority(parsed: Any, scheme: str, hostname: Any) -> None:
+    """Scheme and authority policy: http/https, a real host, no inline creds."""
     if scheme not in {"http", "https"} or not parsed.netloc or not hostname:
         raise ValueError("runtime HTTP endpoints must use http:// or https://")
     if parsed.username is not None or parsed.password is not None:
         raise ValueError("runtime HTTP endpoints cannot contain inline credentials")
+
+
+def _assert_runtime_http_locator(parsed: Any, port: Any) -> None:
+    """A base URL carries no query/fragment and an in-range port."""
     if parsed.query or parsed.fragment:
         raise ValueError(
             "runtime HTTP base URLs cannot contain query strings or fragments"
         )
     if port is not None and not 1 <= port <= 65_535:
         raise ValueError("runtime HTTP endpoint port is out of range")
+
+
+def _validated_runtime_http_url(
+    value: Any,
+    *,
+    require_server_placeholder: bool = False,
+) -> str | None:
+    """Normalize one runtime-only HTTP base URL without resolving or fetching it."""
+    rendered = _rendered_runtime_http_url(value)
+    if rendered is None:
+        return None
+    _validate_runtime_url_placeholders(rendered, require_server_placeholder)
+    parsed, scheme, hostname, port = _split_runtime_http_url(rendered)
+    _assert_runtime_http_authority(parsed, scheme, hostname)
+    _assert_runtime_http_locator(parsed, port)
     return f"{scheme}{rendered[len(parsed.scheme) :]}".rstrip("/")
 
 
