@@ -504,7 +504,9 @@ def _request_conflicts_with_policy(
             and request.range_start != policy.range_start
         )
         or (request.range_end is not None and request.range_end != policy.range_end)
-        or (request.policy_version and request.policy_version != policy.policy_version)
+        or bool(
+            request.policy_version and request.policy_version != policy.policy_version
+        )
     )
 
 
@@ -1583,13 +1585,18 @@ class NativeConceptReservationAuthority:
         _check_transition_allowed(current, target)
         now = max(current.transitioned_at, datetime.now(UTC))
         next_visibility = _visibility_for_target(target, requested_visibility)
+        lifecycle_times = _next_lifecycle_times(target, now, current)
         next_record = replace(
             current,
             state=target,
             visibility=next_visibility,
             fence=current.fence + 1,
             transitioned_at=now,
-            **_next_lifecycle_times(target, now, current),
+            materialized_at=lifecycle_times["materialized_at"],
+            landed_at=lifecycle_times["landed_at"],
+            released_at=lifecycle_times["released_at"],
+            expired_at=lifecycle_times["expired_at"],
+            tombstoned_at=lifecycle_times["tombstoned_at"],
         )
         if self._cas_transition(node_id, owner, current, expected_fence, next_record):
             return next_record
@@ -1761,13 +1768,18 @@ class FixtureConceptReservationAuthority:
             _check_transition_allowed(record, target)
             now = max(record.transitioned_at, datetime.now(UTC))
             next_visibility = _visibility_for_target(target, requested_visibility)
+            lifecycle_times = _next_lifecycle_times(target, now, record)
             return self._replace(
                 record,
                 state=target,
                 visibility=next_visibility,
                 fence=record.fence + 1,
                 transitioned_at=now,
-                **_next_lifecycle_times(target, now, record),
+                materialized_at=lifecycle_times["materialized_at"],
+                landed_at=lifecycle_times["landed_at"],
+                released_at=lifecycle_times["released_at"],
+                expired_at=lifecycle_times["expired_at"],
+                tombstoned_at=lifecycle_times["tombstoned_at"],
             )
 
     def _replace(
