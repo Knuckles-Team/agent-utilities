@@ -255,23 +255,32 @@ def euler_tour(graph: rx.PyGraph) -> list[Any]:
     # Check Eulerian: every vertex must have even degree
     is_eulerian = all(graph.degree(n) % 2 == 0 for n in graph.node_indices())
     if is_eulerian:
-        # Hierholzer's algorithm
-        adj: dict[int, list[int]] = {n: [] for n in graph.node_indices()}
-        for src, tgt, _ in graph.weighted_edge_list():
-            adj[int(src)].append(int(tgt))
-            adj[int(tgt)].append(int(src))
-        stack = [next(iter(graph.node_indices()))]
-        circuit: list[int] = []
-        while stack:
-            v = stack[-1]
-            if adj[v]:
-                u = adj[v].pop()
-                adj[u].remove(v)
-                stack.append(u)
-            else:
-                circuit.append(stack.pop())
-        return [graph[i] for i in circuit]
+        return _euler_hierholzer_circuit(graph)
     logger.info("Graph is not Eulerian — falling back to DFS traversal.")
+    return _euler_dfs_fallback(graph)
+
+
+def _euler_hierholzer_circuit(graph: rx.PyGraph) -> list[Any]:
+    """Helper: Hierholzer's algorithm for an Euler circuit on an Eulerian graph."""
+    adj: dict[int, list[int]] = {n: [] for n in graph.node_indices()}
+    for src, tgt, _ in graph.weighted_edge_list():
+        adj[int(src)].append(int(tgt))
+        adj[int(tgt)].append(int(src))
+    stack = [next(iter(graph.node_indices()))]
+    circuit: list[int] = []
+    while stack:
+        v = stack[-1]
+        if adj[v]:
+            u = adj[v].pop()
+            adj[u].remove(v)
+            stack.append(u)
+        else:
+            circuit.append(stack.pop())
+    return [graph[i] for i in circuit]
+
+
+def _euler_dfs_fallback(graph: rx.PyGraph) -> list[Any]:
+    """Helper: DFS traversal order fallback when the graph is not Eulerian."""
     start = next(iter(graph.node_indices()))
     dfs_nodes = rx.dfs_search(graph, [start])
     # Extract unique node visit order from DFS events
@@ -1623,23 +1632,39 @@ class RandomWalkExplorer:
         if start_node not in self._node_map:
             return []
 
-        # Aggregate frequencies across walks
+        normalized = self._discover_unexpected_frequencies(
+            start_node, n_walks, walk_length, restart_prob
+        )
+        distances = self._discover_unexpected_distances(start_node)
+        results = self._discover_unexpected_surprise_results(
+            start_node, normalized, distances
+        )
+        results.sort(key=lambda x: x["surprise_score"], reverse=True)
+        return results
+
+    def _discover_unexpected_frequencies(
+        self,
+        start_node: str,
+        n_walks: int,
+        walk_length: int,
+        restart_prob: float,
+    ) -> dict[str, float]:
+        """Helper: aggregate + normalize visit frequencies across `n_walks` random walks."""
         total_freq: dict[str, float] = defaultdict(float)
         for _ in range(n_walks):
             freq_dict = self.explore(start_node, walk_length, restart_prob)
             for node, f in freq_dict.items():
                 total_freq[node] += f
-
-        # Normalize
         total = sum(total_freq.values()) or 1.0
-        normalized = {node: f / total for node, f in total_freq.items()}
+        return {node: f / total for node, f in total_freq.items()}
 
-        # Compute graph distances from start via BFS
-        distances: dict[str, int] = {}
+    def _discover_unexpected_distances(self, start_node: str) -> dict[str, int]:
+        """Helper: BFS graph distances from `start_node`, by node id."""
         try:
             si = self._node_map[start_node]
             queue = collections.deque([(si, 0)])
             visited: set[int] = {si}
+            distances: dict[str, int] = {}
             while queue:
                 cur, depth = queue.popleft()
                 cur_data = self._graph[cur]
@@ -1653,10 +1678,17 @@ class RandomWalkExplorer:
                     if succ not in visited:
                         visited.add(succ)
                         queue.append((succ, depth + 1))
+            return distances
         except Exception:
-            distances = {start_node: 0}
+            return {start_node: 0}
 
-        # Surprise = frequency × distance (unexpected if visited often but far away)
+    def _discover_unexpected_surprise_results(
+        self,
+        start_node: str,
+        normalized: dict[str, float],
+        distances: dict[str, int],
+    ) -> list[dict[str, Any]]:
+        """Helper: surprise = frequency × distance (visited often but far away)."""
         results: list[dict[str, Any]] = []
         for node, freq in normalized.items():
             if node == start_node:
@@ -1664,17 +1696,14 @@ class RandomWalkExplorer:
             dist = distances.get(node, float("inf"))
             if dist == float("inf"):
                 dist = 10  # Cap for unreachable nodes
-            surprise = freq * dist
             results.append(
                 {
                     "node_id": node,
                     "frequency": freq,
                     "distance": dist,
-                    "surprise_score": surprise,
+                    "surprise_score": freq * dist,
                 }
             )
-
-        results.sort(key=lambda x: x["surprise_score"], reverse=True)
         return results
 
 
@@ -1773,13 +1802,7 @@ def conditional_independence_test(
         Dict with independence result and explanation.
     """
     z = conditioning_set or set()
-
-    # Build node map
-    node_map: dict[str, int] = {}
-    for idx in graph.node_indices():
-        data = graph[idx]
-        nid = data["id"] if isinstance(data, dict) and "id" in data else str(data)
-        node_map[nid] = idx
+    node_map = _rx_node_map(graph)
 
     if x not in node_map or y not in node_map:
         return {
@@ -1790,32 +1813,7 @@ def conditional_independence_test(
             "reason": "One or both nodes not in graph.",
         }
 
-    try:
-        # Use BFS on moralized ancestor graph for d-separation check
-        # Simplified: check if a path exists from x to y in the graph
-        # after removing conditioning set nodes
-        xi = node_map[x]
-        yi = node_map[y]
-        blocked = {node_map[n] for n in z if n in node_map}
-        # BFS ignoring blocked nodes (bidirectional for undirected path)
-        visited: set[int] = {xi} | blocked
-        queue = collections.deque([xi])
-        found = False
-        while queue:
-            cur = queue.popleft()
-            if cur == yi:
-                found = True
-                break
-            # Follow both successor and predecessor edges (undirected)
-            for neighbor in list(graph.successor_indices(cur)) + list(
-                graph.predecessor_indices(cur)
-            ):
-                if neighbor not in visited:
-                    visited.add(neighbor)
-                    queue.append(neighbor)
-        is_independent = not found
-    except Exception:
-        is_independent = True
+    is_independent = not _cit_bfs_active_path(graph, node_map, x, y, z)
 
     return {
         "x": x,
@@ -1824,6 +1822,41 @@ def conditional_independence_test(
         "independent": is_independent,
         "reason": "d-separated" if is_independent else "active path exists",
     }
+
+
+def _cit_bfs_active_path(
+    graph: rx.PyDiGraph,
+    node_map: dict[str, int],
+    x: str,
+    y: str,
+    z: set[str],
+) -> bool:
+    """Helper for `conditional_independence_test`.
+
+    Simplified d-separation check: BFS for a path from x to y in the graph
+    (following edges bidirectionally), ignoring nodes in the conditioning
+    set Z. Returns True if an active (unblocked) path exists.
+    """
+    try:
+        xi = node_map[x]
+        yi = node_map[y]
+        blocked = {node_map[n] for n in z if n in node_map}
+        visited: set[int] = {xi} | blocked
+        queue = collections.deque([xi])
+        while queue:
+            cur = queue.popleft()
+            if cur == yi:
+                return True
+            # Follow both successor and predecessor edges (undirected)
+            for neighbor in list(graph.successor_indices(cur)) + list(
+                graph.predecessor_indices(cur)
+            ):
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append(neighbor)
+        return False
+    except Exception:
+        return False
 
 
 logger = logging.getLogger(__name__)
