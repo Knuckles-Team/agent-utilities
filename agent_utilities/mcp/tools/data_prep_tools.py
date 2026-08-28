@@ -1240,6 +1240,57 @@ def _metadata_digest_refs(props: Mapping[str, Any]) -> None:
         _native_ref(props["shape_ref"], fallback="shape:unused")
 
 
+def _inline_records_table(
+    records: list[dict[str, Any]], *, budget: PrepBudget
+) -> tuple[Any, bytes]:
+    """Convert inline records to Arrow and enforce every inline size budget."""
+
+    try:
+        import pyarrow as pa
+
+        table = pa.Table.from_pylist(records)
+    except Exception as exc:  # noqa: BLE001 - normalize Arrow dependency errors
+        raise DataPrepToolError("inline records cannot be converted to Arrow") from exc
+    if table.num_rows > budget.max_rows or table.num_columns > budget.max_columns:
+        raise DataPrepToolError("inline records exceed the request budget")
+    output_bytes = _canonical_arrow_bytes(table)
+    if len(output_bytes) > budget.max_compressed_bytes:
+        raise DataPrepToolError("inline records exceed the compressed byte budget")
+    if table.nbytes > budget.max_decoded_bytes:
+        raise DataPrepToolError("inline records exceed the decoded byte budget")
+    return table, output_bytes
+
+
+def _inline_policy_identity(
+    policy: Mapping[str, Any], *, session: GraphSession
+) -> tuple[str, str]:
+    """Resolve tenant/policy identity from the inline policy, bound to the session."""
+
+    tenant_id = str(policy.get("tenant_id") or "")
+    policy_version = str(policy.get("policy_version") or "")
+    if tenant_id != session.tenant or policy_version != str(
+        session.policy_version or ""
+    ):
+        raise PermissionError("inline records policy is not bound to the session")
+    return tenant_id, policy_version
+
+
+def _inline_policy_governance(
+    policy: Mapping[str, Any],
+) -> tuple[DataClassification, ArtifactACL]:
+    """Resolve the classification and ACL the server-owned policy asserts."""
+
+    classification_raw = policy.get("classification")
+    try:
+        classification = DataClassification(str(classification_raw))
+        acl = ArtifactACL.from_value(policy.get("acl"))
+    except (DataPrepToolError, ValueError) as exc:
+        raise ArtifactAuthorityUnavailable(
+            "server-owned inline records governance policy is invalid"
+        ) from exc
+    return classification, acl
+
+
 class _GraphNativeDataPrepProvider:
     """Concrete provider over the authoritative graph node/blob substrate.
 
@@ -1630,35 +1681,9 @@ class _GraphNativeDataPrepProvider:
             raise ArtifactAuthorityUnavailable(
                 "server-owned inline records governance policy is unavailable"
             )
-        try:
-            import pyarrow as pa
-
-            table = pa.Table.from_pylist(records)
-        except Exception as exc:  # noqa: BLE001 - normalize Arrow dependency errors
-            raise DataPrepToolError(
-                "inline records cannot be converted to Arrow"
-            ) from exc
-        if table.num_rows > budget.max_rows or table.num_columns > budget.max_columns:
-            raise DataPrepToolError("inline records exceed the request budget")
-        output_bytes = _canonical_arrow_bytes(table)
-        if len(output_bytes) > budget.max_compressed_bytes:
-            raise DataPrepToolError("inline records exceed the compressed byte budget")
-        if table.nbytes > budget.max_decoded_bytes:
-            raise DataPrepToolError("inline records exceed the decoded byte budget")
-        tenant_id = str(policy.get("tenant_id") or "")
-        policy_version = str(policy.get("policy_version") or "")
-        if tenant_id != session.tenant or policy_version != str(
-            session.policy_version or ""
-        ):
-            raise PermissionError("inline records policy is not bound to the session")
-        classification_raw = policy.get("classification")
-        try:
-            classification = DataClassification(str(classification_raw))
-            acl = ArtifactACL.from_value(policy.get("acl"))
-        except (DataPrepToolError, ValueError) as exc:
-            raise ArtifactAuthorityUnavailable(
-                "server-owned inline records governance policy is invalid"
-            ) from exc
+        table, output_bytes = _inline_records_table(records, budget=budget)
+        tenant_id, policy_version = _inline_policy_identity(policy, session=session)
+        classification, acl = _inline_policy_governance(policy)
         output_digest = _sha256_bytes(output_bytes)
         schema_value = schema_digest(table)
         shape_value = _shape_digest(table)
