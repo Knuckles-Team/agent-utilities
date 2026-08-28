@@ -213,6 +213,57 @@ def _split_columns(body: str) -> list[str]:
     return parts
 
 
+def _find_ddl_body_end(sql: str, body_start: int) -> int:
+    """Return the index just past a CREATE TABLE body's matching close-paren.
+
+    Returns ``-1`` if the body is unterminated (depth never returns to 0
+    before the string ends).
+    """
+
+    depth = 1
+    quote: str | None = None
+    body_end = body_start
+    while body_end < len(sql) and depth:
+        char = sql[body_end]
+        if quote:
+            if char == quote:
+                quote = None
+        elif char in {"'", '"', "`"}:
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        body_end += 1
+    return body_end if depth == 0 else -1
+
+
+def _parse_ddl_columns(body: str, table: str) -> list[str]:
+    """Parse column identifiers out of one CREATE TABLE body fragment."""
+
+    columns: list[str] = []
+    for fragment in _split_columns(body):
+        fragment = re.sub(r"--[^\n]*", "", fragment).strip()
+        if not fragment:
+            continue
+        first = fragment.split(None, 1)[0].strip('"`')
+        if first.upper() in {
+            "PRIMARY",
+            "FOREIGN",
+            "UNIQUE",
+            "CHECK",
+            "CONSTRAINT",
+            "EXCLUDE",
+        }:
+            continue
+        if _IDENTIFIER.fullmatch(first) is None:
+            raise AuthorityMapError(
+                f"unsupported column declaration in {table}: {first!r}"
+            )
+        columns.append(first)
+    return columns
+
+
 def declared_tables(sql: str) -> dict[str, frozenset[str]]:
     """Extract table columns from a SQL DDL string without executing it.
 
@@ -225,43 +276,10 @@ def declared_tables(sql: str) -> dict[str, frozenset[str]]:
     for match in _CREATE_TABLE.finditer(sql):
         table = match.group(1)
         body_start = match.end()
-        depth = 1
-        quote: str | None = None
-        body_end = body_start
-        while body_end < len(sql) and depth:
-            char = sql[body_end]
-            if quote:
-                if char == quote:
-                    quote = None
-            elif char in {"'", '"', "`"}:
-                quote = char
-            elif char == "(":
-                depth += 1
-            elif char == ")":
-                depth -= 1
-            body_end += 1
-        if depth:
+        body_end = _find_ddl_body_end(sql, body_start)
+        if body_end == -1:
             raise AuthorityMapError(f"unterminated DDL for table {table}")
-        columns: list[str] = []
-        for fragment in _split_columns(sql[body_start : body_end - 1]):
-            fragment = re.sub(r"--[^\n]*", "", fragment).strip()
-            if not fragment:
-                continue
-            first = fragment.split(None, 1)[0].strip('"`')
-            if first.upper() in {
-                "PRIMARY",
-                "FOREIGN",
-                "UNIQUE",
-                "CHECK",
-                "CONSTRAINT",
-                "EXCLUDE",
-            }:
-                continue
-            if _IDENTIFIER.fullmatch(first) is None:
-                raise AuthorityMapError(
-                    f"unsupported column declaration in {table}: {first!r}"
-                )
-            columns.append(first)
+        columns = _parse_ddl_columns(sql[body_start : body_end - 1], table)
         if table in result:
             raise AuthorityMapError(f"duplicate declared table: {table}")
         result[table] = frozenset(columns)
@@ -335,6 +353,93 @@ def _validate_placement_contract(data: Mapping[str, Any], errors: list[str]) -> 
     _validate_placement_events(raw_contract, errors)
 
 
+def _validate_store_kind_authority(
+    store_id: str,
+    raw_store: Mapping[str, Any],
+    expected: Mapping[str, Any],
+    errors: list[str],
+) -> None:
+    if raw_store.get("kind") != expected["kind"]:
+        errors.append(f"placement store kind conflicts: {store_id}")
+    if raw_store.get("authority") != expected["authority"]:
+        errors.append(f"placement store authority conflicts: {store_id}")
+
+
+def _validate_store_classes(
+    store_id: str,
+    raw_store: Mapping[str, Any],
+    path: str,
+    expected: Mapping[str, Any],
+    all_expected_classes: set[str],
+    errors: list[str],
+) -> list[str]:
+    """Validate authoritative/prohibited classes; returns the parsed classes."""
+
+    classes = _string_list(
+        raw_store.get("authoritative_classes"),
+        path=f"{path}.authoritative_classes",
+        errors=errors,
+    )
+    prohibited = _string_list(
+        raw_store.get("prohibited_classes"),
+        path=f"{path}.prohibited_classes",
+        errors=errors,
+    )
+    if len(classes) != len(set(classes)):
+        errors.append(f"duplicate placement classes: {store_id}")
+    if set(classes) & set(prohibited):
+        errors.append(f"conflicting placement classes: {store_id}")
+    expected_classes = set(expected["classes"])
+    if set(classes) != expected_classes:
+        errors.append(
+            f"placement class drift: {store_id} "
+            f"map={sorted(classes)} expected={sorted(expected_classes)}"
+        )
+    expected_prohibited = all_expected_classes - expected_classes
+    if set(prohibited) != expected_prohibited:
+        errors.append(
+            f"placement prohibition drift: {store_id} "
+            f"map={sorted(prohibited)} expected={sorted(expected_prohibited)}"
+        )
+    return classes
+
+
+def _validate_one_placement_store(
+    index: int,
+    raw_store: Any,
+    *,
+    errors: list[str],
+    stores: dict[str, dict[str, Any]],
+    seen_store_classes: dict[str, str],
+    all_expected_classes: set[str],
+) -> None:
+    path = f"authority_placement.stores[{index}]"
+    if not isinstance(raw_store, dict):
+        errors.append(f"{path} must be an object")
+        return
+    store_id = raw_store.get("id")
+    if not isinstance(store_id, str) or store_id not in _PLACEMENT_STORE_CONTRACT:
+        errors.append(f"{path}.id is not a supported placement store")
+        return
+    if store_id in stores:
+        errors.append(f"duplicate placement store: {store_id}")
+    stores[store_id] = raw_store
+    expected = _PLACEMENT_STORE_CONTRACT[store_id]
+    _validate_store_kind_authority(store_id, raw_store, expected, errors)
+    classes = _validate_store_classes(
+        store_id, raw_store, path, expected, all_expected_classes, errors
+    )
+    for class_name in classes:
+        previous = seen_store_classes.get(class_name)
+        if previous is not None:
+            errors.append(
+                f"duplicate placement authority class: {class_name} "
+                f"({previous}, {store_id})"
+            )
+        else:
+            seen_store_classes[class_name] = store_id
+
+
 def _validate_placement_stores(
     raw_contract: Mapping[str, Any], errors: list[str]
 ) -> bool:
@@ -350,63 +455,83 @@ def _validate_placement_stores(
         *(set(contract["classes"]) for contract in _PLACEMENT_STORE_CONTRACT.values())
     )
     for index, raw_store in enumerate(raw_stores):
-        path = f"authority_placement.stores[{index}]"
-        if not isinstance(raw_store, dict):
-            errors.append(f"{path} must be an object")
-            continue
-        store_id = raw_store.get("id")
-        if not isinstance(store_id, str) or store_id not in _PLACEMENT_STORE_CONTRACT:
-            errors.append(f"{path}.id is not a supported placement store")
-            continue
-        if store_id in stores:
-            errors.append(f"duplicate placement store: {store_id}")
-        stores[store_id] = raw_store
-        expected = _PLACEMENT_STORE_CONTRACT[store_id]
-        if raw_store.get("kind") != expected["kind"]:
-            errors.append(f"placement store kind conflicts: {store_id}")
-        if raw_store.get("authority") != expected["authority"]:
-            errors.append(f"placement store authority conflicts: {store_id}")
-        classes = _string_list(
-            raw_store.get("authoritative_classes"),
-            path=f"{path}.authoritative_classes",
+        _validate_one_placement_store(
+            index,
+            raw_store,
             errors=errors,
+            stores=stores,
+            seen_store_classes=seen_store_classes,
+            all_expected_classes=all_expected_classes,
         )
-        prohibited = _string_list(
-            raw_store.get("prohibited_classes"),
-            path=f"{path}.prohibited_classes",
-            errors=errors,
-        )
-        if len(classes) != len(set(classes)):
-            errors.append(f"duplicate placement classes: {store_id}")
-        if set(classes) & set(prohibited):
-            errors.append(f"conflicting placement classes: {store_id}")
-        expected_classes = set(expected["classes"])
-        if set(classes) != expected_classes:
-            errors.append(
-                f"placement class drift: {store_id} "
-                f"map={sorted(classes)} expected={sorted(expected_classes)}"
-            )
-        expected_prohibited = all_expected_classes - expected_classes
-        if set(prohibited) != expected_prohibited:
-            errors.append(
-                f"placement prohibition drift: {store_id} "
-                f"map={sorted(prohibited)} expected={sorted(expected_prohibited)}"
-            )
-        for class_name in classes:
-            previous = seen_store_classes.get(class_name)
-            if previous is not None:
-                errors.append(
-                    f"duplicate placement authority class: {class_name} "
-                    f"({previous}, {store_id})"
-                )
-            else:
-                seen_store_classes[class_name] = store_id
 
     missing_stores = set(_PLACEMENT_STORE_CONTRACT) - set(stores)
     errors.extend(
         f"missing placement store: {store_id}" for store_id in sorted(missing_stores)
     )
     return True
+
+
+def _validate_record_field_owners(
+    fields: list[str],
+    store_id: Any,
+    record_id: Any,
+    *,
+    errors: list[str],
+    seen_fields: dict[str, str],
+) -> None:
+    for field in fields:
+        expected_store = _PLACEMENT_FIELD_OWNERS.get(field)
+        if expected_store is None:
+            errors.append(f"unknown placement authority field: {field}")
+        elif store_id != expected_store:
+            errors.append(
+                f"conflicting placement authority: {field} "
+                f"({store_id}, expected {expected_store})"
+            )
+        previous = seen_fields.get(field)
+        if previous is not None:
+            errors.append(
+                f"duplicate placement field authority: {field} "
+                f"({previous}, {record_id})"
+            )
+        else:
+            seen_fields[field] = str(record_id)
+
+
+def _validate_one_placement_record(
+    index: int,
+    raw_record: Any,
+    *,
+    errors: list[str],
+    seen_records: set[str],
+    seen_fields: dict[str, str],
+) -> None:
+    path = f"authority_placement.records[{index}]"
+    if not isinstance(raw_record, dict):
+        errors.append(f"{path} must be an object")
+        return
+    record_id = raw_record.get("id")
+    if not isinstance(record_id, str) or not record_id:
+        errors.append(f"{path}.id is missing")
+    elif record_id in seen_records:
+        errors.append(f"duplicate placement record: {record_id}")
+    else:
+        seen_records.add(record_id)
+    store_id = raw_record.get("store")
+    if store_id not in _PLACEMENT_STORE_CONTRACT:
+        errors.append(f"{path}.store is invalid")
+    fields = _string_list(
+        raw_record.get("authority_fields"),
+        path=f"{path}.authority_fields",
+        errors=errors,
+    )
+    if not fields:
+        errors.append(f"{path}.authority_fields must not be empty")
+    if len(fields) != len(set(fields)):
+        errors.append(f"duplicate authority fields: {record_id!r}")
+    _validate_record_field_owners(
+        fields, store_id, record_id, errors=errors, seen_fields=seen_fields
+    )
 
 
 def _validate_placement_records(
@@ -419,46 +544,13 @@ def _validate_placement_records(
     seen_records: set[str] = set()
     seen_fields: dict[str, str] = {}
     for index, raw_record in enumerate(raw_records):
-        path = f"authority_placement.records[{index}]"
-        if not isinstance(raw_record, dict):
-            errors.append(f"{path} must be an object")
-            continue
-        record_id = raw_record.get("id")
-        if not isinstance(record_id, str) or not record_id:
-            errors.append(f"{path}.id is missing")
-        elif record_id in seen_records:
-            errors.append(f"duplicate placement record: {record_id}")
-        else:
-            seen_records.add(record_id)
-        store_id = raw_record.get("store")
-        if store_id not in _PLACEMENT_STORE_CONTRACT:
-            errors.append(f"{path}.store is invalid")
-        fields = _string_list(
-            raw_record.get("authority_fields"),
-            path=f"{path}.authority_fields",
+        _validate_one_placement_record(
+            index,
+            raw_record,
             errors=errors,
+            seen_records=seen_records,
+            seen_fields=seen_fields,
         )
-        if not fields:
-            errors.append(f"{path}.authority_fields must not be empty")
-        if len(fields) != len(set(fields)):
-            errors.append(f"duplicate authority fields: {record_id!r}")
-        for field in fields:
-            expected_store = _PLACEMENT_FIELD_OWNERS.get(field)
-            if expected_store is None:
-                errors.append(f"unknown placement authority field: {field}")
-            elif store_id != expected_store:
-                errors.append(
-                    f"conflicting placement authority: {field} "
-                    f"({store_id}, expected {expected_store})"
-                )
-            previous = seen_fields.get(field)
-            if previous is not None:
-                errors.append(
-                    f"duplicate placement field authority: {field} "
-                    f"({previous}, {record_id})"
-                )
-            else:
-                seen_fields[field] = str(record_id)
 
     missing_fields = set(_PLACEMENT_FIELD_OWNERS) - set(seen_fields)
     errors.extend(
@@ -472,6 +564,94 @@ def _validate_placement_records(
     )
 
 
+def _validate_event_authority_fields(
+    authority_fields: list[str],
+    store_id: Any,
+    event_id: Any,
+    *,
+    errors: list[str],
+    event_field_owners: dict[str, str],
+) -> None:
+    for field in authority_fields:
+        expected_field_store = _PLACEMENT_FIELD_OWNERS.get(field)
+        if expected_field_store is None:
+            errors.append(f"unknown event authority field: {field}")
+        elif store_id != expected_field_store:
+            errors.append(
+                f"conflicting event writer: {field} "
+                f"({store_id}, expected {expected_field_store})"
+            )
+        previous = event_field_owners.get(field)
+        if previous is not None and previous != str(store_id):
+            errors.append(
+                f"duplicate event authority: {field} ({previous}, {store_id})"
+            )
+        else:
+            event_field_owners[field] = str(store_id)
+
+
+def _validate_event_payload_fields(
+    payload_fields: list[str], event_id: Any, errors: list[str]
+) -> None:
+    if len(payload_fields) != len(set(payload_fields)):
+        errors.append(f"duplicate event payload fields: {event_id!r}")
+    for field in payload_fields:
+        if _is_sensitive_field(field):
+            errors.append(f"secret-bearing event field: {event_id}.{field}")
+
+
+def _validate_one_placement_event(
+    index: int,
+    raw_event: Any,
+    *,
+    errors: list[str],
+    seen_events: set[str],
+    event_field_owners: dict[str, str],
+) -> None:
+    path = f"authority_placement.events[{index}]"
+    if not isinstance(raw_event, dict):
+        errors.append(f"{path} must be an object")
+        return
+    event_id = raw_event.get("id")
+    if not isinstance(event_id, str) or event_id not in _PLACEMENT_EVENT_OWNERS:
+        errors.append(f"{path}.id is not a supported placement event")
+    elif event_id in seen_events:
+        errors.append(f"duplicate placement event: {event_id}")
+    else:
+        seen_events.add(event_id)
+    store_id = raw_event.get("store")
+    if store_id not in _PLACEMENT_STORE_CONTRACT:
+        errors.append(f"{path}.store is invalid")
+    expected_event_store = _PLACEMENT_EVENT_OWNERS.get(str(event_id))
+    if expected_event_store is not None and store_id != expected_event_store:
+        errors.append(
+            f"placement event authority conflicts: {event_id} "
+            f"({store_id}, expected {expected_event_store})"
+        )
+    authority_fields = _string_list(
+        raw_event.get("authority_fields"),
+        path=f"{path}.authority_fields",
+        errors=errors,
+    )
+    if not authority_fields:
+        errors.append(f"{path}.authority_fields must not be empty")
+    if len(authority_fields) != len(set(authority_fields)):
+        errors.append(f"duplicate event authority fields: {event_id!r}")
+    _validate_event_authority_fields(
+        authority_fields,
+        store_id,
+        event_id,
+        errors=errors,
+        event_field_owners=event_field_owners,
+    )
+    payload_fields = _string_list(
+        raw_event.get("payload_fields"),
+        path=f"{path}.payload_fields",
+        errors=errors,
+    )
+    _validate_event_payload_fields(payload_fields, event_id, errors)
+
+
 def _validate_placement_events(
     raw_contract: Mapping[str, Any], errors: list[str]
 ) -> None:
@@ -482,61 +662,13 @@ def _validate_placement_events(
     seen_events: set[str] = set()
     event_field_owners: dict[str, str] = {}
     for index, raw_event in enumerate(raw_events):
-        path = f"authority_placement.events[{index}]"
-        if not isinstance(raw_event, dict):
-            errors.append(f"{path} must be an object")
-            continue
-        event_id = raw_event.get("id")
-        if not isinstance(event_id, str) or event_id not in _PLACEMENT_EVENT_OWNERS:
-            errors.append(f"{path}.id is not a supported placement event")
-        elif event_id in seen_events:
-            errors.append(f"duplicate placement event: {event_id}")
-        else:
-            seen_events.add(event_id)
-        store_id = raw_event.get("store")
-        if store_id not in _PLACEMENT_STORE_CONTRACT:
-            errors.append(f"{path}.store is invalid")
-        expected_event_store = _PLACEMENT_EVENT_OWNERS.get(str(event_id))
-        if expected_event_store is not None and store_id != expected_event_store:
-            errors.append(
-                f"placement event authority conflicts: {event_id} "
-                f"({store_id}, expected {expected_event_store})"
-            )
-        authority_fields = _string_list(
-            raw_event.get("authority_fields"),
-            path=f"{path}.authority_fields",
+        _validate_one_placement_event(
+            index,
+            raw_event,
             errors=errors,
+            seen_events=seen_events,
+            event_field_owners=event_field_owners,
         )
-        if not authority_fields:
-            errors.append(f"{path}.authority_fields must not be empty")
-        if len(authority_fields) != len(set(authority_fields)):
-            errors.append(f"duplicate event authority fields: {event_id!r}")
-        for field in authority_fields:
-            expected_field_store = _PLACEMENT_FIELD_OWNERS.get(field)
-            if expected_field_store is None:
-                errors.append(f"unknown event authority field: {field}")
-            elif store_id != expected_field_store:
-                errors.append(
-                    f"conflicting event writer: {field} "
-                    f"({store_id}, expected {expected_field_store})"
-                )
-            previous = event_field_owners.get(field)
-            if previous is not None and previous != str(store_id):
-                errors.append(
-                    f"duplicate event authority: {field} ({previous}, {store_id})"
-                )
-            else:
-                event_field_owners[field] = str(store_id)
-        payload_fields = _string_list(
-            raw_event.get("payload_fields"),
-            path=f"{path}.payload_fields",
-            errors=errors,
-        )
-        if len(payload_fields) != len(set(payload_fields)):
-            errors.append(f"duplicate event payload fields: {event_id!r}")
-        for field in payload_fields:
-            if _is_sensitive_field(field):
-                errors.append(f"secret-bearing event field: {event_id}.{field}")
     missing_event_fields = set(_PLACEMENT_FIELD_OWNERS) - set(event_field_owners)
     errors.extend(
         f"missing event authority field: {field}"
@@ -546,6 +678,78 @@ def _validate_placement_events(
     errors.extend(
         f"missing placement event: {event_id}" for event_id in sorted(missing_events)
     )
+
+
+def _register_table_field(
+    field: str,
+    role: str,
+    *,
+    domain_name: str,
+    table: str,
+    errors: list[str],
+    authority_fields: dict[tuple[str, str, str], str],
+) -> None:
+    if _is_sensitive_field(field):
+        errors.append(f"secret-bearing declared column: {domain_name}.{table}.{field}")
+    key = (domain_name, table, field)
+    if key in authority_fields:
+        errors.append(f"duplicate field authority: {'.'.join(key)}")
+    authority_fields[key] = role
+
+
+def _validate_table_field_roles(
+    table_path: str,
+    raw_table: Mapping[str, Any],
+    *,
+    errors: list[str],
+) -> tuple[list[str], list[str]]:
+    authoritative = _string_list(
+        raw_table.get("authoritative_fields"),
+        path=f"{table_path}.authoritative_fields",
+        errors=errors,
+    )
+    derived = _string_list(
+        raw_table.get("derived_fields"),
+        path=f"{table_path}.derived_fields",
+        errors=errors,
+    )
+    return authoritative, derived
+
+
+def _check_table_field_role_conflicts(
+    domain_name: str,
+    table: str,
+    authoritative: list[str],
+    derived: list[str],
+    errors: list[str],
+) -> None:
+    if set(authoritative) & set(derived):
+        errors.append(f"conflicting field roles: {domain_name}.{table}")
+    if len(authoritative) != len(set(authoritative)):
+        errors.append(f"duplicate authoritative fields: {domain_name}.{table}")
+    if len(derived) != len(set(derived)):
+        errors.append(f"duplicate derived fields: {domain_name}.{table}")
+
+
+def _check_table_prohibited_domains(
+    table_path: str,
+    raw_table: Mapping[str, Any],
+    domain_name: str,
+    table: str,
+    errors: list[str],
+) -> None:
+    prohibited = set(
+        _string_list(
+            raw_table.get("prohibited_dual_write_domains"),
+            path=f"{table_path}.prohibited_dual_write_domains",
+            errors=errors,
+        )
+    )
+    expected_prohibited = _DOMAIN_NAMES - {domain_name}
+    if prohibited != expected_prohibited:
+        errors.append(
+            f"{domain_name}.{table} does not prohibit every other write domain"
+        )
 
 
 def _validate_table_entry(
@@ -567,52 +771,69 @@ def _validate_table_entry(
     if table in table_names:
         errors.append(f"duplicate authority table: {domain_name}.{table}")
     table_names.add(table)
-    authoritative = _string_list(
-        raw_table.get("authoritative_fields"),
-        path=f"{table_path}.authoritative_fields",
-        errors=errors,
+    authoritative, derived = _validate_table_field_roles(
+        table_path, raw_table, errors=errors
     )
-    derived = _string_list(
-        raw_table.get("derived_fields"),
-        path=f"{table_path}.derived_fields",
-        errors=errors,
+    _check_table_field_role_conflicts(
+        domain_name, table, authoritative, derived, errors
     )
-    if set(authoritative) & set(derived):
-        errors.append(f"conflicting field roles: {domain_name}.{table}")
-    if len(authoritative) != len(set(authoritative)):
-        errors.append(f"duplicate authoritative fields: {domain_name}.{table}")
-    if len(derived) != len(set(derived)):
-        errors.append(f"duplicate derived fields: {domain_name}.{table}")
-    prohibited = set(
-        _string_list(
-            raw_table.get("prohibited_dual_write_domains"),
-            path=f"{table_path}.prohibited_dual_write_domains",
-            errors=errors,
-        )
-    )
-    expected_prohibited = _DOMAIN_NAMES - {domain_name}
-    if prohibited != expected_prohibited:
-        errors.append(
-            f"{domain_name}.{table} does not prohibit every other write domain"
-        )
+    _check_table_prohibited_domains(table_path, raw_table, domain_name, table, errors)
     for field in authoritative:
-        if _is_sensitive_field(field):
-            errors.append(
-                f"secret-bearing declared column: {domain_name}.{table}.{field}"
-            )
-        key = (domain_name, table, field)
-        if key in authority_fields:
-            errors.append(f"duplicate field authority: {'.'.join(key)}")
-        authority_fields[key] = "authoritative"
+        _register_table_field(
+            field,
+            "authoritative",
+            domain_name=domain_name,
+            table=table,
+            errors=errors,
+            authority_fields=authority_fields,
+        )
     for field in derived:
-        if _is_sensitive_field(field):
-            errors.append(
-                f"secret-bearing declared column: {domain_name}.{table}.{field}"
-            )
-        key = (domain_name, table, field)
-        if key in authority_fields:
-            errors.append(f"duplicate field authority: {'.'.join(key)}")
-        authority_fields[key] = "derived"
+        _register_table_field(
+            field,
+            "derived",
+            domain_name=domain_name,
+            table=table,
+            errors=errors,
+            authority_fields=authority_fields,
+        )
+
+
+def _validate_domain_authority(
+    raw_domain: Mapping[str, Any],
+    path: str,
+    name: str,
+    *,
+    errors: list[str],
+    seen_authorities: set[str],
+) -> None:
+    if not isinstance(raw_domain.get("authority"), str) or not raw_domain.get(
+        "authority"
+    ):
+        errors.append(f"{path}.authority is missing")
+    elif raw_domain["authority"] != _EXPECTED_AUTHORITIES.get(name):
+        errors.append(f"{path}.authority conflicts with the owning domain")
+    elif raw_domain["authority"] in seen_authorities:
+        errors.append(f"duplicate authority owner: {raw_domain['authority']}")
+    else:
+        seen_authorities.add(raw_domain["authority"])
+
+
+def _validate_domain_schema_source(
+    raw_domain: Mapping[str, Any],
+    path: str,
+    name: str,
+    *,
+    errors: list[str],
+    seen_schema_sources: set[str],
+) -> None:
+    if not isinstance(raw_domain.get("schema_source"), str):
+        errors.append(f"{path}.schema_source is missing")
+    elif raw_domain["schema_source"] != _EXPECTED_SCHEMA_SOURCES.get(name):
+        errors.append(f"{path}.schema_source conflicts with the owning module")
+    elif raw_domain["schema_source"] in seen_schema_sources:
+        errors.append(f"duplicate schema source: {raw_domain['schema_source']}")
+    else:
+        seen_schema_sources.add(raw_domain["schema_source"])
 
 
 def _validate_domain_entry(
@@ -636,24 +857,16 @@ def _validate_domain_entry(
     if name in seen_domains:
         errors.append(f"duplicate authority domain: {name}")
     seen_domains.add(name)
-    if not isinstance(raw_domain.get("authority"), str) or not raw_domain.get(
-        "authority"
-    ):
-        errors.append(f"{path}.authority is missing")
-    elif raw_domain["authority"] != _EXPECTED_AUTHORITIES.get(name):
-        errors.append(f"{path}.authority conflicts with the owning domain")
-    elif raw_domain["authority"] in seen_authorities:
-        errors.append(f"duplicate authority owner: {raw_domain['authority']}")
-    else:
-        seen_authorities.add(raw_domain["authority"])
-    if not isinstance(raw_domain.get("schema_source"), str):
-        errors.append(f"{path}.schema_source is missing")
-    elif raw_domain["schema_source"] != _EXPECTED_SCHEMA_SOURCES.get(name):
-        errors.append(f"{path}.schema_source conflicts with the owning module")
-    elif raw_domain["schema_source"] in seen_schema_sources:
-        errors.append(f"duplicate schema source: {raw_domain['schema_source']}")
-    else:
-        seen_schema_sources.add(raw_domain["schema_source"])
+    _validate_domain_authority(
+        raw_domain, path, name, errors=errors, seen_authorities=seen_authorities
+    )
+    _validate_domain_schema_source(
+        raw_domain,
+        path,
+        name,
+        errors=errors,
+        seen_schema_sources=seen_schema_sources,
+    )
     tables = raw_domain.get("tables")
     if not isinstance(tables, list) or not tables:
         errors.append(f"{path}.tables must be a non-empty list")
@@ -695,51 +908,115 @@ def _validate_domains(
     return seen_domains, domain_tables
 
 
+def _resolve_schema_drift_schemas(
+    schemas: Mapping[str, Mapping[str, frozenset[str]]] | None,
+    errors: list[str],
+) -> Mapping[str, Mapping[str, frozenset[str]]]:
+    if schemas is not None:
+        return schemas
+    try:
+        return declared_schemas()
+    except Exception as exc:  # noqa: BLE001 - gate must fail closed
+        errors.append(f"declared schema unavailable: {type(exc).__name__}")
+        return {}
+
+
+def _mapped_tables_by_name(
+    raw_domains: list[Any], domain: str
+) -> dict[str, dict[str, Any]]:
+    return {
+        table["name"]: table
+        for raw_domain in raw_domains
+        if isinstance(raw_domain, dict) and raw_domain.get("name") == domain
+        for table in raw_domain.get("tables", [])
+        if isinstance(table, dict) and isinstance(table.get("name"), str)
+    }
+
+
+def _check_one_schema_table_drift(
+    domain: str,
+    table: str,
+    columns: frozenset[str],
+    mapped_by_name: Mapping[str, dict[str, Any]],
+    errors: list[str],
+) -> None:
+    for column in columns:
+        if _is_sensitive_field(column):
+            errors.append(f"secret-bearing schema column: {domain}.{table}.{column}")
+    entry = mapped_by_name.get(table)
+    if entry is None:
+        return
+    mapped_columns = set(entry.get("authoritative_fields", [])) | set(
+        entry.get("derived_fields", [])
+    )
+    if mapped_columns != set(columns):
+        errors.append(
+            f"schema drift: {domain}.{table} map={sorted(mapped_columns)} "
+            f"declared={sorted(columns)}"
+        )
+
+
+def _check_one_domain_schema_drift(
+    domain: str,
+    raw_domains: list[Any],
+    domain_tables: dict[str, set[str]],
+    declared: Mapping[str, frozenset[str]],
+    errors: list[str],
+) -> None:
+    mapped_tables = domain_tables[domain]
+    for table in sorted(set(declared) - mapped_tables):
+        errors.append(f"undeclared table drift: {domain}.{table}")
+    for table in sorted(mapped_tables - set(declared)):
+        errors.append(f"missing declared table: {domain}.{table}")
+    mapped_by_name = _mapped_tables_by_name(raw_domains, domain)
+    for table, columns in declared.items():
+        _check_one_schema_table_drift(domain, table, columns, mapped_by_name, errors)
+
+
 def _validate_schema_drift(
     raw_domains: list[Any],
     domain_tables: dict[str, set[str]],
     schemas: Mapping[str, Mapping[str, frozenset[str]]] | None,
     errors: list[str],
 ) -> None:
-    if schemas is None:
-        try:
-            schemas = declared_schemas()
-        except Exception as exc:  # noqa: BLE001 - gate must fail closed
-            errors.append(f"declared schema unavailable: {type(exc).__name__}")
-            schemas = {}
+    schemas = _resolve_schema_drift_schemas(schemas, errors)
     for domain in _DOMAIN_NAMES:
-        declared = dict(schemas.get(domain, {}))
         if domain not in domain_tables:
             continue
-        mapped_tables = domain_tables[domain]
-        for table in sorted(set(declared) - mapped_tables):
-            errors.append(f"undeclared table drift: {domain}.{table}")
-        for table in sorted(mapped_tables - set(declared)):
-            errors.append(f"missing declared table: {domain}.{table}")
-        mapped_by_name = {
-            table["name"]: table
-            for raw_domain in raw_domains
-            if isinstance(raw_domain, dict) and raw_domain.get("name") == domain
-            for table in raw_domain.get("tables", [])
-            if isinstance(table, dict) and isinstance(table.get("name"), str)
-        }
-        for table, columns in declared.items():
-            for column in columns:
-                if _is_sensitive_field(column):
-                    errors.append(
-                        f"secret-bearing schema column: {domain}.{table}.{column}"
-                    )
-            entry = mapped_by_name.get(table)
-            if entry is None:
-                continue
-            mapped_columns = set(entry.get("authoritative_fields", [])) | set(
-                entry.get("derived_fields", [])
-            )
-            if mapped_columns != set(columns):
-                errors.append(
-                    f"schema drift: {domain}.{table} map={sorted(mapped_columns)} "
-                    f"declared={sorted(columns)}"
-                )
+        declared = dict(schemas.get(domain, {}))
+        _check_one_domain_schema_drift(
+            domain, raw_domains, domain_tables, declared, errors
+        )
+
+
+def _check_discovery_binding_fields(
+    engine_tables: Mapping[str, Any], errors: list[str]
+) -> None:
+    for table_name in sorted(_DISCOVERY_BOUND_TABLES):
+        table = engine_tables.get(table_name)
+        if table is None:
+            continue
+        bound_fields = set(table.get("authoritative_fields", [])) | set(
+            table.get("derived_fields", [])
+        )
+        missing_binding = _DISCOVERY_BOUND_FIELDS - bound_fields
+        errors.extend(
+            f"missing discovery binding field: engine_fleet_catalog.{table_name}.{field}"
+            for field in sorted(missing_binding)
+        )
+
+
+def _check_desired_mcp_servers_binding(
+    engine_tables: Mapping[str, Any], errors: list[str]
+) -> None:
+    desired = engine_tables.get("mcp_servers")
+    if desired is None:
+        return
+    desired_fields = set(desired.get("authoritative_fields", [])) | set(
+        desired.get("derived_fields", [])
+    )
+    if desired_fields & _DISCOVERY_BOUND_FIELDS:
+        errors.append("desired mcp_servers must not carry discovery binding fields")
 
 
 def _validate_engine_discovery_bindings(
@@ -754,33 +1031,73 @@ def _validate_engine_discovery_bindings(
         ),
         None,
     )
-    if isinstance(engine_domain, dict):
-        engine_tables = {
-            table.get("name"): table
-            for table in engine_domain.get("tables", [])
-            if isinstance(table, dict) and isinstance(table.get("name"), str)
-        }
-        for table_name in sorted(_DISCOVERY_BOUND_TABLES):
-            table = engine_tables.get(table_name)
-            if table is None:
-                continue
-            bound_fields = set(table.get("authoritative_fields", [])) | set(
-                table.get("derived_fields", [])
-            )
-            missing_binding = _DISCOVERY_BOUND_FIELDS - bound_fields
-            errors.extend(
-                f"missing discovery binding field: engine_fleet_catalog.{table_name}.{field}"
-                for field in sorted(missing_binding)
-            )
-        desired = engine_tables.get("mcp_servers")
-        if desired is not None:
-            desired_fields = set(desired.get("authoritative_fields", [])) | set(
-                desired.get("derived_fields", [])
-            )
-            if desired_fields & _DISCOVERY_BOUND_FIELDS:
-                errors.append(
-                    "desired mcp_servers must not carry discovery binding fields"
-                )
+    if not isinstance(engine_domain, dict):
+        return
+    engine_tables = {
+        name: table
+        for table in engine_domain.get("tables", [])
+        if isinstance(table, dict) and isinstance(name := table.get("name"), str)
+    }
+    _check_discovery_binding_fields(engine_tables, errors)
+    _check_desired_mcp_servers_binding(engine_tables, errors)
+
+
+def _validate_read_model_fields(
+    path: str, model: Mapping[str, Any], name: Any, errors: list[str]
+) -> list[str]:
+    fields = _string_list(model.get("fields"), path=f"{path}.fields", errors=errors)
+    if len(fields) != len(set(fields)):
+        errors.append(f"duplicate read-model fields: {path}")
+    if isinstance(name, str) and set(fields) != _EXPECTED_READ_MODEL_FIELDS.get(
+        name, set()
+    ):
+        errors.append(f"read-model field drift: {name}")
+    return fields
+
+
+def _validate_read_model_sources(
+    path: str,
+    model: Mapping[str, Any],
+    owner: Any,
+    domain_tables: dict[str, set[str]],
+    errors: list[str],
+) -> None:
+    sources = _string_list(
+        model.get("source_tables"),
+        path=f"{path}.source_tables",
+        errors=errors,
+    )
+    if not sources:
+        errors.append(f"{path}.source_tables must not be empty")
+    if owner in domain_tables and any(
+        source not in domain_tables[owner] for source in sources
+    ):
+        errors.append(f"{path} references a table outside its owner domain")
+
+
+def _validate_one_read_model(
+    index: int,
+    model: Any,
+    domain_tables: dict[str, set[str]],
+    *,
+    errors: list[str],
+    seen_models: set[str],
+) -> None:
+    path = f"read_models[{index}]"
+    if not isinstance(model, dict):
+        errors.append(f"{path} must be an object")
+        return
+    name = model.get("name")
+    if not isinstance(name, str) or not name or name in seen_models:
+        errors.append(f"duplicate or missing read model: {name!r}")
+    seen_models.add(str(name))
+    owner = model.get("owner_domain")
+    if owner not in _DOMAIN_NAMES:
+        errors.append(f"{path}.owner_domain is invalid")
+    if model.get("write_forbidden") is not True:
+        errors.append(f"{path}.write_forbidden must be true")
+    _validate_read_model_fields(path, model, name, errors)
+    _validate_read_model_sources(path, model, owner, domain_tables, errors)
 
 
 def _validate_read_models(
@@ -794,37 +1111,9 @@ def _validate_read_models(
         return
     seen_models: set[str] = set()
     for index, model in enumerate(read_models):
-        path = f"read_models[{index}]"
-        if not isinstance(model, dict):
-            errors.append(f"{path} must be an object")
-            continue
-        name = model.get("name")
-        if not isinstance(name, str) or not name or name in seen_models:
-            errors.append(f"duplicate or missing read model: {name!r}")
-        seen_models.add(str(name))
-        owner = model.get("owner_domain")
-        if owner not in _DOMAIN_NAMES:
-            errors.append(f"{path}.owner_domain is invalid")
-        if model.get("write_forbidden") is not True:
-            errors.append(f"{path}.write_forbidden must be true")
-        fields = _string_list(model.get("fields"), path=f"{path}.fields", errors=errors)
-        if len(fields) != len(set(fields)):
-            errors.append(f"duplicate read-model fields: {path}")
-        if isinstance(name, str) and set(fields) != _EXPECTED_READ_MODEL_FIELDS.get(
-            name, set()
-        ):
-            errors.append(f"read-model field drift: {name}")
-        sources = _string_list(
-            model.get("source_tables"),
-            path=f"{path}.source_tables",
-            errors=errors,
+        _validate_one_read_model(
+            index, model, domain_tables, errors=errors, seen_models=seen_models
         )
-        if not sources:
-            errors.append(f"{path}.source_tables must not be empty")
-        if owner in domain_tables and any(
-            source not in domain_tables[owner] for source in sources
-        ):
-            errors.append(f"{path} references a table outside its owner domain")
     missing_models = _EXPECTED_READ_MODEL_NAMES - seen_models
     extra_models = seen_models - _EXPECTED_READ_MODEL_NAMES
     errors.extend(f"missing read model: {name}" for name in sorted(missing_models))
