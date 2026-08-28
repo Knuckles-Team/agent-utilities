@@ -478,27 +478,10 @@ class ArtifactACL:
     def from_value(cls, value: Any) -> ArtifactACL:
         if not isinstance(value, Mapping):
             raise DataPrepToolError("artifact ACL proof is unavailable")
-        is_public = value.get("is_public")
-        principal_ids = value.get(
-            "principal_ids", value.get("user_ids", value.get("principals", ()))
+        is_public, principal_ids, principal_emails, group_ids, roles, markings = (
+            _acl_raw_fields(value)
         )
-        principal_emails = value.get("principal_emails", value.get("user_emails", ()))
-        group_ids = value.get("group_ids", ())
-        roles = value.get("roles", value.get("read_roles", ()))
-        markings = value.get("markings", ())
-        if not isinstance(is_public, bool):
-            raise DataPrepToolError("artifact ACL proof is unavailable")
-        fields = (principal_ids, principal_emails, group_ids, roles, markings)
-        if not all(
-            isinstance(items, (list, tuple))
-            and all(isinstance(item, str) and item.strip() for item in items)
-            for items in fields
-        ):
-            raise DataPrepToolError("artifact ACL proof is unavailable")
-        if any("@" in item for item in principal_ids):
-            raise DataPrepToolError("principal IDs must not be supplied as emails")
-        if any("@" not in item for item in principal_emails):
-            raise DataPrepToolError("artifact user email ACL proof is unavailable")
+        _check_acl_principal_shape(principal_ids, principal_emails)
         return cls(
             is_public=is_public,
             principal_ids=tuple(sorted(set(principal_ids))),
@@ -507,6 +490,49 @@ class ArtifactACL:
             roles=tuple(sorted(set(roles))),
             markings=tuple(sorted(set(markings))),
         )
+
+
+def _acl_raw_fields(
+    value: Mapping[str, Any],
+) -> tuple[
+    Any,
+    tuple[Any, ...],
+    tuple[Any, ...],
+    tuple[Any, ...],
+    tuple[Any, ...],
+    tuple[Any, ...],
+]:
+    """Extract and shape-validate the raw ACL fields from a value mapping."""
+
+    is_public = value.get("is_public")
+    principal_ids = value.get(
+        "principal_ids", value.get("user_ids", value.get("principals", ()))
+    )
+    principal_emails = value.get("principal_emails", value.get("user_emails", ()))
+    group_ids = value.get("group_ids", ())
+    roles = value.get("roles", value.get("read_roles", ()))
+    markings = value.get("markings", ())
+    if not isinstance(is_public, bool):
+        raise DataPrepToolError("artifact ACL proof is unavailable")
+    fields = (principal_ids, principal_emails, group_ids, roles, markings)
+    if not all(
+        isinstance(items, (list, tuple))
+        and all(isinstance(item, str) and item.strip() for item in items)
+        for items in fields
+    ):
+        raise DataPrepToolError("artifact ACL proof is unavailable")
+    return is_public, principal_ids, principal_emails, group_ids, roles, markings
+
+
+def _check_acl_principal_shape(
+    principal_ids: tuple[Any, ...], principal_emails: tuple[Any, ...]
+) -> None:
+    """Principal IDs must not look like emails, and vice versa."""
+
+    if any("@" in item for item in principal_ids):
+        raise DataPrepToolError("principal IDs must not be supplied as emails")
+    if any("@" not in item for item in principal_emails):
+        raise DataPrepToolError("artifact user email ACL proof is unavailable")
 
 
 @dataclass(frozen=True, slots=True)
