@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from typing import Any
 
 from pydantic import Field
@@ -104,6 +105,62 @@ def _chunk_batch_mutations(
     return chunks
 
 
+def _is_bulk_ingest_edge(item: dict[str, Any]) -> bool:
+    kind = item.get("kind")
+    return kind == "edge" or (
+        kind is None and "source_id" in item and "target_id" in item
+    )
+
+
+def _parse_bulk_ingest_edge(index: int, item: dict[str, Any]) -> dict[str, Any] | str:
+    """One edge mutation, or an error STRING (see :func:`_parse_bulk_ingest_elements`)."""
+    source = str(item.get("source_id") or "").strip()
+    target = str(item.get("target_id") or "").strip()
+    rel_type = str(item.get("rel_type") or "").strip()
+    if not source or not target or not rel_type:
+        return public_error_json(
+            ValueError(
+                f"bulk_ingest edge[{index}] requires source_id, target_id, and rel_type"
+            ),
+            code="invalid_request",
+        )
+    properties = item.get("properties") or {}
+    if not isinstance(properties, dict):
+        return public_error_json(
+            ValueError(f"bulk_ingest edge[{index}] 'properties' must be an object"),
+            code="invalid_request",
+        )
+    return {
+        "kind": "edge",
+        "source": source,
+        "target": target,
+        "rel_type": rel_type,
+        "properties": properties,
+    }
+
+
+def _parse_bulk_ingest_node(index: int, item: dict[str, Any]) -> dict[str, Any] | str:
+    """One node mutation, or an error STRING (see :func:`_parse_bulk_ingest_elements`)."""
+    elem_id = str(item.get("id") or "").strip()
+    if not elem_id:
+        return public_error_json(
+            ValueError(f"bulk_ingest node[{index}] requires 'id'"),
+            code="invalid_request",
+        )
+    properties = item.get("properties") or {}
+    if not isinstance(properties, dict):
+        return public_error_json(
+            ValueError(f"bulk_ingest node[{index}] 'properties' must be an object"),
+            code="invalid_request",
+        )
+    return {
+        "kind": "node",
+        "id": elem_id,
+        "node_type": str(item.get("type") or item.get("node_type") or "Node"),
+        "properties": properties,
+    }
+
+
 def _parse_bulk_ingest_elements(
     raw_nodes: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]] | str:
@@ -133,154 +190,85 @@ def _parse_bulk_ingest_elements(
                 ValueError(f"bulk_ingest element[{index}] must be a JSON object"),
                 code="invalid_request",
             )
-        kind = item.get("kind")
-        is_edge = kind == "edge" or (
-            kind is None and "source_id" in item and "target_id" in item
-        )
-        if is_edge:
-            source = str(item.get("source_id") or "").strip()
-            target = str(item.get("target_id") or "").strip()
-            rel_type = str(item.get("rel_type") or "").strip()
-            if not source or not target or not rel_type:
-                return public_error_json(
-                    ValueError(
-                        f"bulk_ingest edge[{index}] requires source_id, "
-                        "target_id, and rel_type"
-                    ),
-                    code="invalid_request",
-                )
-            properties = item.get("properties") or {}
-            if not isinstance(properties, dict):
-                return public_error_json(
-                    ValueError(
-                        f"bulk_ingest edge[{index}] 'properties' must be an object"
-                    ),
-                    code="invalid_request",
-                )
-            edge_mutations.append(
-                {
-                    "kind": "edge",
-                    "source": source,
-                    "target": target,
-                    "rel_type": rel_type,
-                    "properties": properties,
-                }
-            )
+        if _is_bulk_ingest_edge(item):
+            parsed_edge = _parse_bulk_ingest_edge(index, item)
+            if isinstance(parsed_edge, str):
+                return parsed_edge
+            edge_mutations.append(parsed_edge)
         else:
-            elem_id = str(item.get("id") or "").strip()
-            if not elem_id:
-                return public_error_json(
-                    ValueError(f"bulk_ingest node[{index}] requires 'id'"),
-                    code="invalid_request",
-                )
-            properties = item.get("properties") or {}
-            if not isinstance(properties, dict):
-                return public_error_json(
-                    ValueError(
-                        f"bulk_ingest node[{index}] 'properties' must be an object"
-                    ),
-                    code="invalid_request",
-                )
-            node_mutations.append(
-                {
-                    "kind": "node",
-                    "id": elem_id,
-                    "node_type": str(
-                        item.get("type") or item.get("node_type") or "Node"
-                    ),
-                    "properties": properties,
-                }
-            )
+            parsed_node = _parse_bulk_ingest_node(index, item)
+            if isinstance(parsed_node, str):
+                return parsed_node
+            node_mutations.append(parsed_node)
     return node_mutations, edge_mutations
 
 
-def _run_bulk_ingest(
+def _bulk_ingest_change_envelope(
     engine: Any,
-    raw_nodes: str,
-    *,
+    node_mutations: list[dict[str, Any]],
+    edge_mutations: list[dict[str, Any]],
+    evidence_records: list[Any],
     idempotency_key: str,
-    evidence: str,
+) -> str:
+    """The heavy path — only ApplyChangeEnvelope(s) carries evidence/lineage/
+    policy and a genuinely durable per-call idempotency key; BatchUpdate has
+    neither at the wire level. One atomic transaction either way."""
+    from agent_utilities.knowledge_graph.ingestion import envelope_ingest
+
+    entities = [
+        {"id": m["id"], "node_type": m["node_type"], **m["properties"]}
+        for m in node_mutations
+    ]
+    relationships = [
+        {
+            "source": m["source"],
+            "target": m["target"],
+            "relationship": m["rel_type"],
+            **m["properties"],
+        }
+        for m in edge_mutations
+    ]
+    if entities and evidence_records:
+        # ChangeEnvelope attaches per-row evidence only on the envelope's
+        # PRIMARY object (`envelope_ingest._prepare_node_rows`'s `_evidence`
+        # pop) — the first node in the batch, matching `ingest_graph_slice`'s
+        # own "first entity is primary" contract.
+        entities[0] = {**entities[0], "_evidence": evidence_records}
+    try:
+        result = envelope_ingest.ingest_graph_slice(
+            engine,
+            "bulk_ingest",
+            entities,
+            relationships,
+            idempotency_key=idempotency_key,
+        )
+    except Exception as e:  # noqa: BLE001 — surface as data, not a 500
+        return public_error_json(e, context={"action": "bulk_ingest"})
+    # Surface the engine's own replay outcome honestly — `status` is
+    # "success" (applied) / "skipped" (idempotent replay) / "rejected" /
+    # "failed", never collapsed to a single "ok".
+    return json.dumps(
+        {
+            "action": "bulk_ingest",
+            "mode": "change_envelope",
+            "nodes_ingested": len(node_mutations),
+            "edges_ingested": len(edge_mutations),
+            **result,
+        },
+        default=str,
+    )
+
+
+def _bulk_ingest_batch_update(
+    engine: Any,
+    node_mutations: list[dict[str, Any]],
+    edge_mutations: list[dict[str, Any]],
     upsert: bool,
 ) -> str:
-    """``graph_write(action="bulk_ingest")`` — see the module comment above."""
-    parsed = _parse_bulk_ingest_elements(raw_nodes)
-    if isinstance(parsed, str):
-        return parsed
-    node_mutations, edge_mutations = parsed
-
-    try:
-        evidence_records = json.loads(evidence) if evidence else []
-    except (TypeError, ValueError) as e:
-        return public_error_json(e, code="invalid_request")
-    if not isinstance(evidence_records, list):
-        return public_error_json(
-            ValueError("'evidence' must be a JSON list for bulk_ingest"),
-            code="invalid_request",
-        )
-
-    if not node_mutations and not edge_mutations:
-        return json.dumps(
-            {
-                "action": "bulk_ingest",
-                "mode": "noop",
-                "nodes_ingested": 0,
-                "edges_ingested": 0,
-                "chunks": 0,
-            }
-        )
-
-    # ── heavy path — only ApplyChangeEnvelope(s) carries evidence/lineage/
-    # policy and a genuinely durable per-call idempotency key; BatchUpdate has
-    # neither at the wire level. One atomic transaction either way. ──
-    if evidence_records or idempotency_key:
-        from agent_utilities.knowledge_graph.ingestion import envelope_ingest
-
-        entities = [
-            {"id": m["id"], "node_type": m["node_type"], **m["properties"]}
-            for m in node_mutations
-        ]
-        relationships = [
-            {
-                "source": m["source"],
-                "target": m["target"],
-                "relationship": m["rel_type"],
-                **m["properties"],
-            }
-            for m in edge_mutations
-        ]
-        if entities and evidence_records:
-            # ChangeEnvelope attaches per-row evidence only on the envelope's
-            # PRIMARY object (`envelope_ingest._prepare_node_rows`'s `_evidence`
-            # pop) — the first node in the batch, matching `ingest_graph_slice`'s
-            # own "first entity is primary" contract.
-            entities[0] = {**entities[0], "_evidence": evidence_records}
-        try:
-            result = envelope_ingest.ingest_graph_slice(
-                engine,
-                "bulk_ingest",
-                entities,
-                relationships,
-                idempotency_key=idempotency_key,
-            )
-        except Exception as e:  # noqa: BLE001 — surface as data, not a 500
-            return public_error_json(e, context={"action": "bulk_ingest"})
-        # Surface the engine's own replay outcome honestly — `status` is
-        # "success" (applied) / "skipped" (idempotent replay) / "rejected" /
-        # "failed", never collapsed to a single "ok".
-        return json.dumps(
-            {
-                "action": "bulk_ingest",
-                "mode": "change_envelope",
-                "nodes_ingested": len(node_mutations),
-                "edges_ingested": len(edge_mutations),
-                **result,
-            },
-            default=str,
-        )
-
-    # ── light path — the engine's real BatchUpdate insert-or-merge primitive,
-    # chunked deterministically at its documented bounds. Nodes precede edges
-    # so a chunked edge always finds its node already committed. ──
+    """The light path — the engine's real BatchUpdate insert-or-merge
+    primitive, chunked deterministically at its documented bounds. Nodes
+    precede edges so a chunked edge always finds its node already
+    committed."""
     mutations = [*node_mutations, *edge_mutations]
     # Named module-level lookups (not the helper's own default args) so a test
     # can tighten the bounds via monkeypatch to exercise multi-chunk behavior.
@@ -338,6 +326,49 @@ def _run_bulk_ingest(
             "applied_ops": applied_ops,
         }
     )
+
+
+def _run_bulk_ingest(
+    engine: Any,
+    raw_nodes: str,
+    *,
+    idempotency_key: str,
+    evidence: str,
+    upsert: bool,
+) -> str:
+    """``graph_write(action="bulk_ingest")`` — see the module comment above."""
+    parsed = _parse_bulk_ingest_elements(raw_nodes)
+    if isinstance(parsed, str):
+        return parsed
+    node_mutations, edge_mutations = parsed
+
+    try:
+        evidence_records = json.loads(evidence) if evidence else []
+    except (TypeError, ValueError) as e:
+        return public_error_json(e, code="invalid_request")
+    if not isinstance(evidence_records, list):
+        return public_error_json(
+            ValueError("'evidence' must be a JSON list for bulk_ingest"),
+            code="invalid_request",
+        )
+
+    if not node_mutations and not edge_mutations:
+        return json.dumps(
+            {
+                "action": "bulk_ingest",
+                "mode": "noop",
+                "nodes_ingested": 0,
+                "edges_ingested": 0,
+                "chunks": 0,
+            }
+        )
+
+    if evidence_records or idempotency_key:
+        return _bulk_ingest_change_envelope(
+            engine, node_mutations, edge_mutations, evidence_records, idempotency_key
+        )
+
+    return _bulk_ingest_batch_update(engine, node_mutations, edge_mutations, upsert)
 
 
 # CX-AU-03: graph_ingest's if/elif action-dispatch chain (CCN 215)
@@ -2143,223 +2174,251 @@ def register_write_ingest_tools(mcp):
             def _write_with_engine(engine: Any) -> str:
                 if not engine:
                     return "Error: IntelligenceGraphEngine not active."
-                try:
-                    # ``properties`` carries a JSON dict for node/edge writes, but a
-                    # RAW content string for the memory/chat/sdd actions
-                    # (store_memory, recall_memory, log_chat, submit_sdd) which read it
-                    # directly. Parse it ONLY where it is consumed as a dict — parsing
-                    # eagerly for every action raised "Expecting value: line 1 column 1"
-                    # on plain content text and broke graph_memory store/recall.
-                    def _props() -> dict:
-                        return json.loads(properties) if properties else {}
 
-                    if action == "add_node":
-                        if not node_id or not node_type:
-                            return "Error: node_id and node_type required"
-                        engine.add_node(node_id, node_type, _props())
-                        return f"Node {node_id} added."
-                    elif action == "add_edge":
-                        if not source_id or not target_id or not rel_type:
-                            return "Error: source_id, target_id, and rel_type required"
-                        engine.link_nodes(source_id, target_id, rel_type, _props())
-                        return f"Edge {source_id} -> {target_id} added."
-                    elif action == "delete_node":
-                        # BUG-049: this used to be `engine.delete_node(node_id)`
-                        # followed by an UNCONDITIONAL f"Node {node_id} deleted."
-                        # `node_id` defaults to "", was never validated, and
-                        # `node_type` was ignored entirely -- so a predicate delete
-                        # returned "Node  deleted." having removed nothing. A
-                        # destructive action must never report success it did not
-                        # perform. Note add_node/add_edge/register_external_graph
-                        # directly above and below all validated their required
-                        # args; only the two destructive branches did not.
-                        if not node_id and not node_type:
-                            return (
-                                "Error: delete_node requires node_id, or node_type "
-                                "for a predicate delete"
-                            )
-                        if node_id:
-                            engine.delete_node(node_id)
-                            return f"Node {node_id} deleted."
-                        # Predicate delete. Enumerate engine-side by label rather
-                        # than through Cypher: the query path applies RLS row
-                        # filtering (unowned rows are invisible), so a Cypher
-                        # enumeration would silently under-delete.
-                        #
-                        # The label index is reached under different names
-                        # depending on which object `_resolve_target_engines`
-                        # handed us: an IntelligenceGraphEngine exposes it on its
-                        # backend as `nodes_by_label`, while a GraphComputeEngine
-                        # (what incident_tools holds) has `get_nodes_by_label`
-                        # directly. Try each, and if none exists FAIL LOUDLY naming
-                        # what was tried — never fall back to a Cypher scan, which
-                        # would under-delete, and never return a success string.
-                        _backend = getattr(engine, "backend", None)
-                        _lookup = (
-                            getattr(engine, "get_nodes_by_label", None)
-                            or getattr(_backend, "nodes_by_label", None)
-                            or getattr(_backend, "get_nodes_by_label", None)
-                        )
-                        if _lookup is None:
-                            return (
-                                "Error: no label index accessor on this engine "
-                                "(tried engine.get_nodes_by_label, "
-                                "engine.backend.nodes_by_label, "
-                                "engine.backend.get_nodes_by_label); refusing to "
-                                "fall back to a Cypher scan, which RLS row "
-                                "filtering would make under-delete"
-                            )
-                        matched = _lookup(node_type, 0) or []
-                        deleted = 0
-                        for matched_row in matched:
-                            matched_id = (
-                                matched_row[0]
-                                if isinstance(matched_row, (tuple, list))
-                                else matched_row
-                            )
-                            engine.delete_node(matched_id)
-                            deleted += 1
-                        return f"Deleted {deleted} node(s) of type {node_type}."
-                    elif action == "delete_edge":
-                        # BUG-049, same class: validate before mutating.
-                        if not source_id or not target_id or not rel_type:
-                            return "Error: source_id, target_id, and rel_type required"
-                        engine.delete_edge(source_id, target_id, rel_type)
-                        return f"Edge {source_id} -> {target_id} deleted."
-                    elif action == "register_external_graph":
-                        if not endpoint_url:
-                            return "Error: endpoint_url required"
-                        engine.add_node(
-                            endpoint_url,
-                            "ExternalGraphReference",
-                            {"graph_type": graph_type},
-                        )
-                        return f"Registered external graph at {endpoint_url}"
-                    elif action == "bulk_ingest":
-                        return _run_bulk_ingest(
-                            engine,
-                            nodes,
-                            idempotency_key=idempotency_key,
-                            evidence=evidence,
-                            upsert=upsert,
-                        )
-                    elif action == "compare_and_set":
-                        # CONCEPT:AU-KG.ingest.atomic-compare-and-set — atomic compare-and-set as a first-class
-                        # agent capability. Applies ``updates`` to the node
-                        # ONLY if every field in ``conditions`` still equals its current
-                        # value (missing field ≡ null), under the engine's write lock —
-                        # the optimistic-concurrency primitive that lets concurrent
-                        # agents shape the same node without lost updates. Returns a
-                        # clear applied/not-applied result; a ``False`` (lost the race /
-                        # precondition failed) is surfaced, never swallowed.
-                        if not node_id:
-                            return "Error: node_id required"
+                # ``properties`` carries a JSON dict for node/edge writes, but a
+                # RAW content string for the memory/chat/sdd actions
+                # (store_memory, recall_memory, log_chat, submit_sdd) which read it
+                # directly. Parse it ONLY where it is consumed as a dict — parsing
+                # eagerly for every action raised "Expecting value: line 1 column 1"
+                # on plain content text and broke graph_memory store/recall.
+                def _props() -> dict:
+                    return json.loads(properties) if properties else {}
 
-                        # Omitted dict params arrive as the unresolved FastMCP
-                        # ``FieldInfo`` (default_factory is not resolved by the
-                        # internal/REST dispatcher); coerce anything non-dict — and a
-                        # JSON-string some MCP clients send — to a plain dict.
-                        def _as_dict(v: Any) -> dict:
-                            if isinstance(v, dict):
-                                return v
-                            if isinstance(v, str) and v.strip():
-                                try:
-                                    parsed = json.loads(v)
-                                    return parsed if isinstance(parsed, dict) else {}
-                                except (ValueError, TypeError):
-                                    return {}
-                            return {}
+                def _do_add_node() -> str:
+                    if not node_id or not node_type:
+                        return "Error: node_id and node_type required"
+                    engine.add_node(node_id, node_type, _props())
+                    return f"Node {node_id} added."
 
-                        applied = bool(
-                            engine.backend.compare_and_set_node_fields(
-                                node_id, _as_dict(conditions), _as_dict(updates)
+                def _do_add_edge() -> str:
+                    if not source_id or not target_id or not rel_type:
+                        return "Error: source_id, target_id, and rel_type required"
+                    engine.link_nodes(source_id, target_id, rel_type, _props())
+                    return f"Edge {source_id} -> {target_id} added."
+
+                def _do_delete_node() -> str:
+                    # BUG-049: this used to be `engine.delete_node(node_id)`
+                    # followed by an UNCONDITIONAL f"Node {node_id} deleted."
+                    # `node_id` defaults to "", was never validated, and
+                    # `node_type` was ignored entirely -- so a predicate delete
+                    # returned "Node  deleted." having removed nothing. A
+                    # destructive action must never report success it did not
+                    # perform. Note add_node/add_edge/register_external_graph
+                    # directly above and below all validated their required
+                    # args; only the two destructive branches did not.
+                    if not node_id and not node_type:
+                        return (
+                            "Error: delete_node requires node_id, or node_type "
+                            "for a predicate delete"
+                        )
+                    if node_id:
+                        engine.delete_node(node_id)
+                        return f"Node {node_id} deleted."
+                    # Predicate delete. Enumerate engine-side by label rather
+                    # than through Cypher: the query path applies RLS row
+                    # filtering (unowned rows are invisible), so a Cypher
+                    # enumeration would silently under-delete.
+                    #
+                    # The label index is reached under different names
+                    # depending on which object `_resolve_target_engines`
+                    # handed us: an IntelligenceGraphEngine exposes it on its
+                    # backend as `nodes_by_label`, while a GraphComputeEngine
+                    # (what incident_tools holds) has `get_nodes_by_label`
+                    # directly. Try each, and if none exists FAIL LOUDLY naming
+                    # what was tried — never fall back to a Cypher scan, which
+                    # would under-delete, and never return a success string.
+                    _backend = getattr(engine, "backend", None)
+                    _lookup = (
+                        getattr(engine, "get_nodes_by_label", None)
+                        or getattr(_backend, "nodes_by_label", None)
+                        or getattr(_backend, "get_nodes_by_label", None)
+                    )
+                    if _lookup is None:
+                        return (
+                            "Error: no label index accessor on this engine "
+                            "(tried engine.get_nodes_by_label, "
+                            "engine.backend.nodes_by_label, "
+                            "engine.backend.get_nodes_by_label); refusing to "
+                            "fall back to a Cypher scan, which RLS row "
+                            "filtering would make under-delete"
+                        )
+                    matched = _lookup(node_type, 0) or []
+                    deleted = 0
+                    for matched_row in matched:
+                        matched_id = (
+                            matched_row[0]
+                            if isinstance(matched_row, (tuple, list))
+                            else matched_row
+                        )
+                        engine.delete_node(matched_id)
+                        deleted += 1
+                    return f"Deleted {deleted} node(s) of type {node_type}."
+
+                def _do_delete_edge() -> str:
+                    # BUG-049, same class: validate before mutating.
+                    if not source_id or not target_id or not rel_type:
+                        return "Error: source_id, target_id, and rel_type required"
+                    engine.delete_edge(source_id, target_id, rel_type)
+                    return f"Edge {source_id} -> {target_id} deleted."
+
+                def _do_register_external_graph() -> str:
+                    if not endpoint_url:
+                        return "Error: endpoint_url required"
+                    engine.add_node(
+                        endpoint_url,
+                        "ExternalGraphReference",
+                        {"graph_type": graph_type},
+                    )
+                    return f"Registered external graph at {endpoint_url}"
+
+                def _do_bulk_ingest() -> str:
+                    return _run_bulk_ingest(
+                        engine,
+                        nodes,
+                        idempotency_key=idempotency_key,
+                        evidence=evidence,
+                        upsert=upsert,
+                    )
+
+                def _do_compare_and_set() -> str:
+                    # CONCEPT:AU-KG.ingest.atomic-compare-and-set — atomic compare-and-set as a first-class
+                    # agent capability. Applies ``updates`` to the node
+                    # ONLY if every field in ``conditions`` still equals its current
+                    # value (missing field ≡ null), under the engine's write lock —
+                    # the optimistic-concurrency primitive that lets concurrent
+                    # agents shape the same node without lost updates. Returns a
+                    # clear applied/not-applied result; a ``False`` (lost the race /
+                    # precondition failed) is surfaced, never swallowed.
+                    if not node_id:
+                        return "Error: node_id required"
+
+                    # Omitted dict params arrive as the unresolved FastMCP
+                    # ``FieldInfo`` (default_factory is not resolved by the
+                    # internal/REST dispatcher); coerce anything non-dict — and a
+                    # JSON-string some MCP clients send — to a plain dict.
+                    def _as_dict(v: Any) -> dict:
+                        if isinstance(v, dict):
+                            return v
+                        if isinstance(v, str) and v.strip():
+                            try:
+                                parsed = json.loads(v)
+                                return parsed if isinstance(parsed, dict) else {}
+                            except (ValueError, TypeError):
+                                return {}
+                        return {}
+
+                    applied = bool(
+                        engine.backend.compare_and_set_node_fields(
+                            node_id, _as_dict(conditions), _as_dict(updates)
+                        )
+                    )
+                    return json.dumps(
+                        {
+                            "action": "compare_and_set",
+                            "node_id": node_id,
+                            "applied": applied,
+                        }
+                    )
+
+                def _do_memory(action_name: str) -> str:
+                    # The canonical memory store is the engine facade's MemoryMixin
+                    # (engine.store_memory / engine.recall_memory) — the same path
+                    # messaging/kg_ingest and the kg-memory task worker use. The old
+                    # ``agent_utilities.memory.manager.MemoryManager`` indirection
+                    # never existed as a module, so this branch always fell into
+                    # "memory module not available"; wire it to the real method.
+                    if action_name == "store_memory":
+                        engine.store_memory(
+                            content=properties,
+                            memory_type=node_type or "episodic",
+                            tags=json.loads(nodes) if nodes else [],
+                            agent_id=agent_id,
+                        )
+                        return "Memory stored."
+                    res = engine.recall_memory(
+                        query=properties, memory_type=node_type, top_k=5
+                    )
+                    return "\n".join(str(r) for r in res)
+
+                def _do_recall_media() -> str:
+                    # CONCEPT:AU-KG.identity.asset-occurrence — list durable media
+                    # occurrence records only. Content identity remains a property;
+                    # it is never reused as occurrence identity.
+                    # Returns metadata (occurrence_id + content_digest + media_type), NOT
+                    # raw bytes (those are fetched by digest via
+                    # MediaStore.fetch_bytes).
+                    # Optional filter: node_id=<message memory id> for a turn's media.
+                    where = "n.node_type = 'AssetOccurrence'"
+                    if node_id:
+                        if not _OPAQUE_NODE_ID.fullmatch(node_id):
+                            return public_error_json(
+                                ValueError("invalid node identifier"),
+                                code="invalid_request",
                             )
+                        where += f" AND n.message_id = '{node_id}'"
+                    try:
+                        rows = engine.query_cypher(
+                            f"MATCH (n) WHERE {where} RETURN "
+                            "n.id AS occurrence_id, n.content_digest AS digest, "
+                            "n.media_type AS media_type, n.mime_type AS mime_type, "
+                            "n.created_at AS created_at LIMIT 50"
                         )
                         return json.dumps(
-                            {
-                                "action": "compare_and_set",
-                                "node_id": node_id,
-                                "applied": applied,
-                            }
+                            {"action": "recall_media", "occurrences": rows},
+                            default=str,
                         )
-                    elif action in ("store_memory", "recall_memory"):
-                        # The canonical memory store is the engine facade's MemoryMixin
-                        # (engine.store_memory / engine.recall_memory) — the same path
-                        # messaging/kg_ingest and the kg-memory task worker use. The old
-                        # ``agent_utilities.memory.manager.MemoryManager`` indirection
-                        # never existed as a module, so this branch always fell into
-                        # "memory module not available"; wire it to the real method.
-                        if action == "store_memory":
-                            engine.store_memory(
-                                content=properties,
-                                memory_type=node_type or "episodic",
-                                tags=json.loads(nodes) if nodes else [],
-                                agent_id=agent_id,
-                            )
-                            return "Memory stored."
-                        res = engine.recall_memory(
-                            query=properties, memory_type=node_type, top_k=5
+                    except Exception as e:  # noqa: BLE001
+                        return public_error_json(e)
+
+                def _do_workflow_action(action_name: str) -> str:
+                    if action_name == "log_chat":
+                        engine.add_node(
+                            f"chat_{agent_id}_{hash(properties)}",
+                            "ChatLog",
+                            {"content": properties, "agent_id": agent_id},
                         )
-                        return "\n".join(str(r) for r in res)
-                    elif action == "recall_media":
-                        # CONCEPT:AU-KG.identity.asset-occurrence — list durable media
-                        # occurrence records only. Content identity remains a property;
-                        # it is never reused as occurrence identity.
-                        # Returns metadata (occurrence_id + content_digest + media_type), NOT
-                        # raw bytes (those are fetched by digest via
-                        # MediaStore.fetch_bytes).
-                        # Optional filter: node_id=<message memory id> for a turn's media.
-                        where = "n.node_type = 'AssetOccurrence'"
-                        if node_id:
-                            if not _OPAQUE_NODE_ID.fullmatch(node_id):
-                                return public_error_json(
-                                    ValueError("invalid node identifier"),
-                                    code="invalid_request",
-                                )
-                            where += f" AND n.message_id = '{node_id}'"
-                        try:
-                            rows = engine.query_cypher(
-                                f"MATCH (n) WHERE {where} RETURN "
-                                "n.id AS occurrence_id, n.content_digest AS digest, "
-                                "n.media_type AS media_type, n.mime_type AS mime_type, "
-                                "n.created_at AS created_at LIMIT 50"
-                            )
-                            return json.dumps(
-                                {"action": "recall_media", "occurrences": rows},
-                                default=str,
-                            )
-                        except Exception as e:  # noqa: BLE001
-                            return public_error_json(e)
-                    elif action in (
-                        "log_chat",
-                        "submit_sdd",
-                        "register_execution",
-                        "check_loop",
-                    ):
-                        if action == "log_chat":
-                            engine.add_node(
-                                f"chat_{agent_id}_{hash(properties)}",
-                                "ChatLog",
-                                {"content": properties, "agent_id": agent_id},
-                            )
-                            return "Chat logged."
-                        elif action == "submit_sdd":
-                            engine.add_node(
-                                f"sdd_{agent_id}_{hash(properties)}",
-                                "SDD",
-                                {"content": properties, "agent_id": agent_id},
-                            )
-                            return "SDD submitted."
-                        elif action == "register_execution":
-                            engine.add_node(
-                                f"exec_{agent_id}", "Execution", {"status": "running"}
-                            )
-                            return "Execution registered."
-                        elif action == "check_loop":
-                            return "Loop status: OK"
-                        return f"Error: Action '{action}' not implemented."
-                    else:
-                        return f"Error: Unknown write action '{action}'"
+                        return "Chat logged."
+                    if action_name == "submit_sdd":
+                        engine.add_node(
+                            f"sdd_{agent_id}_{hash(properties)}",
+                            "SDD",
+                            {"content": properties, "agent_id": agent_id},
+                        )
+                        return "SDD submitted."
+                    if action_name == "register_execution":
+                        engine.add_node(
+                            f"exec_{agent_id}", "Execution", {"status": "running"}
+                        )
+                        return "Execution registered."
+                    if action_name == "check_loop":
+                        return "Loop status: OK"
+                    return f"Error: Action '{action_name}' not implemented."
+
+                # Dict dispatch over the write action — every handler is a
+                # zero-arg closure over this call's Field-bound arguments.
+                handlers: dict[str, Callable[[], str]] = {
+                    "add_node": _do_add_node,
+                    "add_edge": _do_add_edge,
+                    "delete_node": _do_delete_node,
+                    "delete_edge": _do_delete_edge,
+                    "register_external_graph": _do_register_external_graph,
+                    "bulk_ingest": _do_bulk_ingest,
+                    "compare_and_set": _do_compare_and_set,
+                    "store_memory": lambda: _do_memory("store_memory"),
+                    "recall_memory": lambda: _do_memory("recall_memory"),
+                    "recall_media": _do_recall_media,
+                    "log_chat": lambda: _do_workflow_action("log_chat"),
+                    "submit_sdd": lambda: _do_workflow_action("submit_sdd"),
+                    "register_execution": lambda: _do_workflow_action(
+                        "register_execution"
+                    ),
+                    "check_loop": lambda: _do_workflow_action("check_loop"),
+                }
+                handler = handlers.get(action)
+                if handler is None:
+                    return f"Error: Unknown write action '{action}'"
+                try:
+                    return handler()
                 except Exception as e:
                     return public_error_text(e)
 
@@ -2779,82 +2838,115 @@ def register_write_ingest_tools(mcp):
             }.items()
             if v
         }
+
+        # Each handler returns ``(is_error, payload)``: an error payload is a
+        # plain string returned to the caller AS-IS (never JSON-encoded,
+        # matching the original direct `return "Error: ..."` branches); a
+        # non-error payload is JSON-encoded uniformly below.
+        def _action_summary() -> tuple[bool, Any]:
+            return False, svc.summary(**f).model_dump()
+
+        def _action_by_model() -> tuple[bool, Any]:
+            return False, [e.model_dump() for e in svc.by_model(**f)]
+
+        def _action_by_project() -> tuple[bool, Any]:
+            return False, [e.model_dump() for e in svc.by_project(**f)]
+
+        def _action_by_agent() -> tuple[bool, Any]:
+            return False, [e.model_dump() for e in svc.by_agent(**f)]
+
+        def _action_tools() -> tuple[bool, Any]:
+            return False, [e.model_dump() for e in svc.tools(**f)]
+
+        def _action_activity() -> tuple[bool, Any]:
+            return False, [e.model_dump() for e in svc.activity(**f)]
+
+        def _action_sessions() -> tuple[bool, Any]:
+            return False, [e.model_dump() for e in svc.sessions(limit=limit, **f)]
+
+        def _action_top_sessions() -> tuple[bool, Any]:
+            return False, [e.model_dump() for e in svc.top_sessions(limit=limit, **f)]
+
+        def _action_session_detail() -> tuple[bool, Any]:
+            if not session_id:
+                return True, "Error: session_id required for session_detail"
+            detail = svc.session_detail(session_id, **f)
+            return False, (detail.model_dump() if detail else None)
+
+        def _action_search() -> tuple[bool, Any]:
+            if not query:
+                return True, "Error: query required for search"
+            return False, [e.model_dump() for e in svc.search(query, limit=limit, **f)]
+
+        def _action_traces() -> tuple[bool, Any]:
+            from agent_utilities.observability.langfuse_exporter import (
+                get_langfuse_exporter,
+            )
+
+            exporter = get_langfuse_exporter()
+            enabled = bool(getattr(exporter, "enabled", False))
+            trace_filters = {**f, "origin": "runtime"}
+            rows = svc.sessions(limit=min(max(limit, 1), 500), **trace_filters)
+            return False, {
+                "enabled": enabled,
+                "trace_count": len(rows) if enabled else 0,
+                "traces": (
+                    [
+                        {
+                            "trace_ref": persistence_reference("trace", row.id),
+                            "project": row.project,
+                        }
+                        for row in rows
+                    ]
+                    if enabled
+                    else []
+                ),
+            }
+
+        def _action_series() -> tuple[bool, Any]:
+            # CONCEPT:AU-KG.ingest.per-agent-token-usage — per-agent token usage over time from the engine
+            # tsdb (native range/window), not a Python re-scan. ``from_date``/
+            # ``to_date`` are epoch seconds; ``model`` carries the bucket field
+            # (default total_tokens); ``limit`` carries the window size in seconds
+            # (0 = raw points). agent= the series key.
+            from agent_utilities.observability.token_tracker import query_token_series
+
+            try:
+                start = float(from_date) if from_date else 0.0
+                end = float(to_date) if to_date else 4.0e18
+            except ValueError:
+                return True, "Error: series from_date/to_date must be epoch seconds"
+            pts = query_token_series(
+                agent,
+                start,
+                end,
+                field=model or "total_tokens",
+                window_s=float(limit) if limit else None,
+                agg=origin or "sum",
+            )
+            return False, [{"ts": t, "value": v} for t, v in pts]
+
+        handlers: dict[str, Callable[[], tuple[bool, Any]]] = {
+            "summary": _action_summary,
+            "by_model": _action_by_model,
+            "by_project": _action_by_project,
+            "by_agent": _action_by_agent,
+            "tools": _action_tools,
+            "activity": _action_activity,
+            "sessions": _action_sessions,
+            "top_sessions": _action_top_sessions,
+            "session_detail": _action_session_detail,
+            "search": _action_search,
+            "traces": _action_traces,
+            "series": _action_series,
+        }
+        handler = handlers.get(action)
+        if handler is None:
+            return f"Error: unknown usage_query action '{action}'"
         try:
-            if action == "summary":
-                out: Any = svc.summary(**f).model_dump()
-            elif action == "by_model":
-                out = [e.model_dump() for e in svc.by_model(**f)]
-            elif action == "by_project":
-                out = [e.model_dump() for e in svc.by_project(**f)]
-            elif action == "by_agent":
-                out = [e.model_dump() for e in svc.by_agent(**f)]
-            elif action == "tools":
-                out = [e.model_dump() for e in svc.tools(**f)]
-            elif action == "activity":
-                out = [e.model_dump() for e in svc.activity(**f)]
-            elif action == "sessions":
-                out = [e.model_dump() for e in svc.sessions(limit=limit, **f)]
-            elif action == "top_sessions":
-                out = [e.model_dump() for e in svc.top_sessions(limit=limit, **f)]
-            elif action == "session_detail":
-                if not session_id:
-                    return "Error: session_id required for session_detail"
-                detail = svc.session_detail(session_id, **f)
-                out = detail.model_dump() if detail else None
-            elif action == "search":
-                if not query:
-                    return "Error: query required for search"
-                out = [e.model_dump() for e in svc.search(query, limit=limit, **f)]
-            elif action == "traces":
-                from agent_utilities.observability.langfuse_exporter import (
-                    get_langfuse_exporter,
-                )
-
-                exporter = get_langfuse_exporter()
-                enabled = bool(getattr(exporter, "enabled", False))
-                trace_filters = {**f, "origin": "runtime"}
-                rows = svc.sessions(limit=min(max(limit, 1), 500), **trace_filters)
-                out = {
-                    "enabled": enabled,
-                    "trace_count": len(rows) if enabled else 0,
-                    "traces": (
-                        [
-                            {
-                                "trace_ref": persistence_reference("trace", row.id),
-                                "project": row.project,
-                            }
-                            for row in rows
-                        ]
-                        if enabled
-                        else []
-                    ),
-                }
-            elif action == "series":
-                # CONCEPT:AU-KG.ingest.per-agent-token-usage — per-agent token usage over time from the engine
-                # tsdb (native range/window), not a Python re-scan. ``from_date``/
-                # ``to_date`` are epoch seconds; ``model`` carries the bucket field
-                # (default total_tokens); ``limit`` carries the window size in seconds
-                # (0 = raw points). agent= the series key.
-                from agent_utilities.observability.token_tracker import (
-                    query_token_series,
-                )
-
-                try:
-                    start = float(from_date) if from_date else 0.0
-                    end = float(to_date) if to_date else 4.0e18
-                except ValueError:
-                    return "Error: series from_date/to_date must be epoch seconds"
-                pts = query_token_series(
-                    agent,
-                    start,
-                    end,
-                    field=model or "total_tokens",
-                    window_s=float(limit) if limit else None,
-                    agg=origin or "sum",
-                )
-                out = [{"ts": t, "value": v} for t, v in pts]
-            else:
-                return f"Error: unknown usage_query action '{action}'"
+            is_error, out = handler()
+            if is_error:
+                return out
             return _json.dumps(out, default=str)
         except Exception as exc:  # noqa: BLE001
             return f"usage_query error_type={type(exc).__name__}"
@@ -2895,100 +2987,109 @@ def register_write_ingest_tools(mcp):
             resolve_usage_tenant,
         )
 
+        def _handle_collect(authoritative_tenant: str | None) -> str:
+            from agent_utilities.ingestion.collector import collect_local_sessions
+
+            require_usage_admin()
+            return _json.dumps(
+                collect_local_sessions(tenant_id=authoritative_tenant or ""),
+                default=str,
+            )
+
+        async def _handle_upload(authoritative_tenant: str | None) -> str:
+            # CONCEPT:AU-KG.ingest.drain-session-bundle — NON-BLOCKING upload. Each uploaded session
+            # expands to many usage-store rows (sessions + events + tool
+            # calls + FTS index), so the old synchronous ``record_bundle``
+            # loop blew past the 60s MCP client window under load even at
+            # batch=10. Mirror ``source_sync``/``graph_ingest``: ENQUEUE the
+            # bundles as a durable ``session_upload`` background task and
+            # return a ``job_id`` immediately — the host daemon's task worker
+            # drains it (parse → usage store) off the call path. A tiny batch
+            # is cheap, so it still runs inline (auto-sized, no user knob).
+            from agent_utilities.usage.models import ParsedSessionBundle
+            from agent_utilities.usage.privacy import normalize_bundle
+            from agent_utilities.usage.recorder import get_usage_recorder
+
+            raw = _json.loads(bundles_json) if bundles_json else []
+            if not isinstance(raw, list):
+                return "Error: bundles_json must contain a JSON array"
+            normalized_items: list[dict] = []
+            for item in raw:
+                bundle = ParsedSessionBundle.model_validate(item)
+                if authoritative_tenant:
+                    bundle.session.tenant_id = authoritative_tenant
+                normalized_items.append(normalize_bundle(bundle).model_dump())
+            # Inline fast path only for a handful of bundles — well under the
+            # call ceiling; anything larger enqueues.
+            _UPLOAD_INLINE_MAX = 3
+            if len(normalized_items) <= _UPLOAD_INLINE_MAX:
+                recorder = get_usage_recorder()
+                ok = 0
+                for item in normalized_items:
+                    bundle = ParsedSessionBundle.model_validate(item)
+                    if recorder.record_bundle(bundle):
+                        ok += 1
+                return _json.dumps(
+                    {
+                        "received": len(normalized_items),
+                        "ingested": ok,
+                        "status": "ingested",
+                    }
+                )
+
+            # Large upload → enqueue and return. Carry the bundles in the
+            # WorkItem metadata payload (same shape as ``kg_memory``,
+            # CONCEPT:AU-KG.compute.offloaded-memory-write); the host worker reads it back, parses and
+            # records. ``skip_dedupe`` because each batch is a distinct,
+            # idempotent (record_bundle replaces rows) payload — never collapse
+            # two real uploads into one. A unique target keeps job ids distinct.
+            engine = kg_server._get_engine()
+            target = f"session-upload:{_uuid.uuid4().hex}"
+            jid = await run_blocking_ordered(
+                engine.submit_task,
+                target_path=target,
+                is_codebase=False,
+                provenance={"agent_id": "ingest_sessions"},
+                task_type="session_upload",
+                skip_dedupe=True,
+                extra_meta={"payload": {"bundles": normalized_items}},
+            )
+            return _json.dumps(
+                {
+                    "status": "enqueued",
+                    "job_id": jid,
+                    "received": len(normalized_items),
+                    "message": (
+                        f"{len(normalized_items)} session bundles enqueued as background job "
+                        f"{jid}; poll with graph_ingest action=job_status "
+                        f"job_id={jid}."
+                    ),
+                }
+            )
+
+        def _handle_paths(authoritative_tenant: str | None) -> str:
+            from agent_utilities.ingestion.collector import collect_paths
+
+            require_usage_admin()
+            raw = target_path.strip()
+            paths = (
+                _json.loads(raw)
+                if raw.startswith("[")
+                else [p.strip() for p in raw.split(",") if p.strip()]
+            )
+            return _json.dumps(
+                collect_paths(paths, tenant_id=authoritative_tenant or ""),
+                default=str,
+            )
+
         try:
             authoritative_tenant = resolve_usage_tenant(tenant_id or None)
             if action == "collect":
-                from agent_utilities.ingestion.collector import collect_local_sessions
-
-                require_usage_admin()
-                return _json.dumps(
-                    collect_local_sessions(tenant_id=authoritative_tenant or ""),
-                    default=str,
-                )
+                return _handle_collect(authoritative_tenant)
             if action == "upload":
-                # CONCEPT:AU-KG.ingest.drain-session-bundle — NON-BLOCKING upload. Each uploaded session
-                # expands to many usage-store rows (sessions + events + tool
-                # calls + FTS index), so the old synchronous ``record_bundle``
-                # loop blew past the 60s MCP client window under load even at
-                # batch=10. Mirror ``source_sync``/``graph_ingest``: ENQUEUE the
-                # bundles as a durable ``session_upload`` background task and
-                # return a ``job_id`` immediately — the host daemon's task worker
-                # drains it (parse → usage store) off the call path. A tiny batch
-                # is cheap, so it still runs inline (auto-sized, no user knob).
-                from agent_utilities.usage.models import ParsedSessionBundle
-                from agent_utilities.usage.privacy import normalize_bundle
-                from agent_utilities.usage.recorder import get_usage_recorder
-
-                raw = _json.loads(bundles_json) if bundles_json else []
-                if not isinstance(raw, list):
-                    return "Error: bundles_json must contain a JSON array"
-                normalized_items: list[dict] = []
-                for item in raw:
-                    bundle = ParsedSessionBundle.model_validate(item)
-                    if authoritative_tenant:
-                        bundle.session.tenant_id = authoritative_tenant
-                    normalized_items.append(normalize_bundle(bundle).model_dump())
-                # Inline fast path only for a handful of bundles — well under the
-                # call ceiling; anything larger enqueues.
-                _UPLOAD_INLINE_MAX = 3
-                if len(normalized_items) <= _UPLOAD_INLINE_MAX:
-                    recorder = get_usage_recorder()
-                    ok = 0
-                    for item in normalized_items:
-                        bundle = ParsedSessionBundle.model_validate(item)
-                        if recorder.record_bundle(bundle):
-                            ok += 1
-                    return _json.dumps(
-                        {
-                            "received": len(normalized_items),
-                            "ingested": ok,
-                            "status": "ingested",
-                        }
-                    )
-
-                # Large upload → enqueue and return. Carry the bundles in the
-                # WorkItem metadata payload (same shape as ``kg_memory``,
-                # CONCEPT:AU-KG.compute.offloaded-memory-write); the host worker reads it back, parses and
-                # records. ``skip_dedupe`` because each batch is a distinct,
-                # idempotent (record_bundle replaces rows) payload — never collapse
-                # two real uploads into one. A unique target keeps job ids distinct.
-                engine = kg_server._get_engine()
-                target = f"session-upload:{_uuid.uuid4().hex}"
-                jid = await run_blocking_ordered(
-                    engine.submit_task,
-                    target_path=target,
-                    is_codebase=False,
-                    provenance={"agent_id": "ingest_sessions"},
-                    task_type="session_upload",
-                    skip_dedupe=True,
-                    extra_meta={"payload": {"bundles": normalized_items}},
-                )
-                return _json.dumps(
-                    {
-                        "status": "enqueued",
-                        "job_id": jid,
-                        "received": len(normalized_items),
-                        "message": (
-                            f"{len(normalized_items)} session bundles enqueued as background job "
-                            f"{jid}; poll with graph_ingest action=job_status "
-                            f"job_id={jid}."
-                        ),
-                    }
-                )
+                return await _handle_upload(authoritative_tenant)
             if action == "paths":
-                from agent_utilities.ingestion.collector import collect_paths
-
-                require_usage_admin()
-                raw = target_path.strip()
-                paths = (
-                    _json.loads(raw)
-                    if raw.startswith("[")
-                    else [p.strip() for p in raw.split(",") if p.strip()]
-                )
-                return _json.dumps(
-                    collect_paths(paths, tenant_id=authoritative_tenant or ""),
-                    default=str,
-                )
+                return _handle_paths(authoritative_tenant)
             return f"Error: unknown ingest_sessions action '{action}'"
         except UsageAuthorizationError as exc:
             return f"ingest_sessions authorization error: {exc.detail}"
