@@ -2598,7 +2598,6 @@ def _check_approvals(
         raise DataPrepToolError("output schema and shape approvals must be complete")
     _require_approvals_match_receipt(request, receipt, approvals)
     return approvals
-    return approvals
 
 
 @dataclass(slots=True)
