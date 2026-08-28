@@ -1584,27 +1584,36 @@ class HybridRetriever:
         nodes: list[dict[str, Any]] = []
         if self.engine.backend:
             for raw_label in labels:
-                try:
-                    label = validate_identifier(raw_label, kind="label")
-                    rows = (
-                        self.engine.backend.execute(
-                            f"MATCH (n:{label}) RETURN n.id as id, n as data "
-                            f"LIMIT {int(limit_per_label)}"
-                        )
-                        or []
-                    )
-                except Exception as e:  # noqa: BLE001 — one label's query inside direct_search's per-label loop; `continue`s to the next label so a single bad label doesn't stop the scan of the rest
-                    logger.debug("direct_search label %s failed: %s", raw_label, e)
-                    continue
-                for r in rows:
-                    if not isinstance(r, dict):
-                        continue
-                    _d = r.get("data")
-                    data = dict(_d) if isinstance(_d, dict) else {}
-                    data["id"] = r.get("id", data.get("id", ""))
-                    nodes.append(data)
+                nodes.extend(
+                    self._direct_search_label_nodes(raw_label, limit_per_label)
+                )
 
         return searcher_from_nodes(nodes).search(query, top_k=top_k)
+
+    def _direct_search_label_nodes(
+        self, raw_label: str, limit_per_label: int
+    ) -> list[dict[str, Any]]:
+        try:
+            label = validate_identifier(raw_label, kind="label")
+            rows = (
+                self.engine.backend.execute(
+                    f"MATCH (n:{label}) RETURN n.id as id, n as data "
+                    f"LIMIT {int(limit_per_label)}"
+                )
+                or []
+            )
+        except Exception as e:  # noqa: BLE001 — one label's query inside direct_search's per-label loop; `continue`s to the next label so a single bad label doesn't stop the scan of the rest
+            logger.debug("direct_search label %s failed: %s", raw_label, e)
+            return []
+        nodes: list[dict[str, Any]] = []
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            _d = r.get("data")
+            data = dict(_d) if isinstance(_d, dict) else {}
+            data["id"] = r.get("id", data.get("id", ""))
+            nodes.append(data)
+        return nodes
 
     def retrieve_hybrid_budgeted(
         self,
