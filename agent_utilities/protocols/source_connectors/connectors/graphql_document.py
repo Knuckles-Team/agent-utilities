@@ -188,6 +188,14 @@ def _bounded_int(value: Any, *, default: int, minimum: int, maximum: int) -> int
     return max(minimum, min(parsed, maximum))
 
 
+def _cfg_int(config: Mapping[str, Any], key: str, default: int) -> int:
+    return int(config.get(key) or default)
+
+
+def _cfg_float(config: Mapping[str, Any], key: str, default: float) -> float:
+    return float(config.get(key) or default)
+
+
 def _classification(value: Any) -> DataClassification:
     try:
         return DataClassification(str(value or DataClassification.INTERNAL.value))
@@ -195,6 +203,19 @@ def _classification(value: Any) -> DataClassification:
         raise GraphQLDocumentError(
             "GraphQL governance classification is invalid"
         ) from None
+
+
+def _validate_governance_classification(
+    classification: DataClassification, access: ExternalAccess
+) -> None:
+    if classification == DataClassification.PUBLIC and not access.is_public:
+        raise GraphQLDocumentError(
+            "GraphQL public classification requires public source access"
+        )
+    if classification != DataClassification.PUBLIC and access.is_public:
+        raise GraphQLDocumentError(
+            "GraphQL non-public classification cannot use public source access"
+        )
 
 
 def _policy_values(
@@ -338,6 +359,26 @@ def _validate_query_document(value: Any, *, allow_introspection: bool = False) -
     return query
 
 
+def _is_row_bound_argument(node: Node, variable: str) -> bool:
+    return (
+        isinstance(node, ArgumentNode)
+        and node.name.value in {"first", "limit"}
+        and isinstance(node.value, VariableNode)
+        and node.value.name.value == variable
+    )
+
+
+def _node_children(node: Node) -> list[Node]:
+    children: list[Node] = []
+    for key in node.keys:
+        child = getattr(node, key, None)
+        if isinstance(child, tuple):
+            children.extend(item for item in child if isinstance(item, Node))
+        elif isinstance(child, Node):
+            children.append(child)
+    return children
+
+
 def _query_binds_row_bound(query: str, variable: str) -> bool:
     """Prove the variable is used by a conventional row-bound argument."""
 
@@ -357,20 +398,54 @@ def _query_binds_row_bound(query: str, variable: str) -> bool:
     ]
     while stack:
         node = stack.pop()
-        if (
-            isinstance(node, ArgumentNode)
-            and node.name.value in {"first", "limit"}
-            and isinstance(node.value, VariableNode)
-            and node.value.name.value == variable
-        ):
+        if _is_row_bound_argument(node, variable):
             return True
-        for key in node.keys:
-            child = getattr(node, key, None)
-            if isinstance(child, tuple):
-                stack.extend(item for item in child if isinstance(item, Node))
-            elif isinstance(child, Node):
-                stack.append(child)
+        stack.extend(_node_children(node))
     return False
+
+
+def _collect_bounded_iterator_bytes(iterator: Any, limit: int) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    try:
+        for chunk in iterator():
+            if not isinstance(chunk, bytes):
+                raise TypeError("response chunk is not bytes")
+            total += len(chunk)
+            if total > limit:
+                raise GraphQLDocumentError(
+                    "GraphQL response exceeds the configured bound"
+                )
+            chunks.append(chunk)
+    except GraphQLDocumentError:
+        raise
+    except Exception:
+        raise GraphQLDocumentError("GraphQL transport byte stream is invalid") from None
+    return b"".join(chunks)
+
+
+def _response_raw_bytes(response: Any, limit: int) -> bytes:
+    content = getattr(response, "content", None)
+    if isinstance(content, bytes):
+        return content
+    if isinstance(content, bytearray):
+        return bytes(content)
+    iterator = getattr(response, "iter_bytes", None)
+    if not callable(iterator):
+        raise GraphQLDocumentError(
+            "GraphQL transport must expose a bounded byte response"
+        )
+    return _collect_bounded_iterator_bytes(iterator, limit)
+
+
+def _decode_bounded_json(raw: bytes) -> dict[str, Any]:
+    try:
+        payload = json.loads(raw, parse_constant=_reject_json_constant)
+    except (TypeError, ValueError, RecursionError, UnicodeDecodeError):
+        raise GraphQLDocumentError("GraphQL response is not valid JSON") from None
+    if not isinstance(payload, dict):
+        raise GraphQLDocumentError("GraphQL response is not an object")
+    return payload
 
 
 def _bounded_transport_payload(response: Any, limit: int) -> tuple[dict[str, Any], int]:
@@ -382,45 +457,10 @@ def _bounded_transport_payload(response: Any, limit: int) -> tuple[dict[str, Any
     configured response limit.
     """
 
-    raw: bytes
-    content = getattr(response, "content", None)
-    if isinstance(content, bytes):
-        raw = content
-    elif isinstance(content, bytearray):
-        raw = bytes(content)
-    else:
-        iterator = getattr(response, "iter_bytes", None)
-        if not callable(iterator):
-            raise GraphQLDocumentError(
-                "GraphQL transport must expose a bounded byte response"
-            )
-        chunks: list[bytes] = []
-        total = 0
-        try:
-            for chunk in iterator():
-                if not isinstance(chunk, bytes):
-                    raise TypeError("response chunk is not bytes")
-                total += len(chunk)
-                if total > limit:
-                    raise GraphQLDocumentError(
-                        "GraphQL response exceeds the configured bound"
-                    )
-                chunks.append(chunk)
-        except GraphQLDocumentError:
-            raise
-        except Exception:
-            raise GraphQLDocumentError(
-                "GraphQL transport byte stream is invalid"
-            ) from None
-        raw = b"".join(chunks)
+    raw = _response_raw_bytes(response, limit)
     if len(raw) > limit:
         raise GraphQLDocumentError("GraphQL response exceeds the configured bound")
-    try:
-        payload = json.loads(raw, parse_constant=_reject_json_constant)
-    except (TypeError, ValueError, RecursionError, UnicodeDecodeError):
-        raise GraphQLDocumentError("GraphQL response is not valid JSON") from None
-    if not isinstance(payload, dict):
-        raise GraphQLDocumentError("GraphQL response is not an object")
+    payload = _decode_bounded_json(raw)
     return payload, len(raw)
 
 
@@ -442,6 +482,41 @@ def _access_from_config(value: Any) -> ExternalAccess:
     if not access.is_public and not (access.group_ids or access.markings):
         return ExternalAccess.quarantined()
     return access
+
+
+@dataclass(frozen=True)
+class _GraphQLDocumentLimits:
+    """Bounded numeric limits parsed from ``configure(**config)``."""
+
+    max_documents: int
+    max_sections: int
+    max_content_chars: int
+    max_response_bytes: int
+    max_total_response_bytes: int
+    max_entities: int
+    max_pages: int
+    page_size: int
+    max_hierarchy_depth: int
+    max_fallbacks: int
+    timeout_seconds: float
+
+    @classmethod
+    def from_config(cls, config: Mapping[str, Any]) -> _GraphQLDocumentLimits:
+        return cls(
+            max_documents=_cfg_int(config, "max_documents", 100),
+            max_sections=_cfg_int(config, "max_sections", 500),
+            max_content_chars=_cfg_int(config, "max_content_chars", 2_000_000),
+            max_response_bytes=_cfg_int(config, "max_response_bytes", 10_000_000),
+            max_total_response_bytes=_cfg_int(
+                config, "max_total_response_bytes", 25_000_000
+            ),
+            max_entities=_cfg_int(config, "max_entities", 2_000),
+            max_pages=_cfg_int(config, "max_pages", 25),
+            page_size=_cfg_int(config, "page_size", 100),
+            max_hierarchy_depth=_cfg_int(config, "max_hierarchy_depth", 12),
+            max_fallbacks=_cfg_int(config, "max_fallbacks", 2),
+            timeout_seconds=_cfg_float(config, "timeout_seconds", 30.0),
+        )
 
 
 @register_source("graphql_document")
@@ -474,25 +549,34 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
         variables = config.get("variables")
         profile_ref = str(config.get("profile_ref") or "")
         access = config.get("access")
-        max_documents = int(config.get("max_documents") or 100)
-        max_sections = int(config.get("max_sections") or 500)
-        max_content_chars = int(config.get("max_content_chars") or 2_000_000)
-        max_response_bytes = int(config.get("max_response_bytes") or 10_000_000)
-        max_total_response_bytes = int(
-            config.get("max_total_response_bytes") or 25_000_000
-        )
-        max_entities = int(config.get("max_entities") or 2_000)
-        max_pages = int(config.get("max_pages") or 25)
-        page_size = int(config.get("page_size") or 100)
-        max_hierarchy_depth = int(config.get("max_hierarchy_depth") or 12)
-        max_fallbacks = int(config.get("max_fallbacks") or 2)
-        timeout_seconds = float(config.get("timeout_seconds") or 30.0)
+        limits = _GraphQLDocumentLimits.from_config(config)
         dry_run = bool(config.get("dry_run", False))
         profile = config.get("profile")
         profile_resolver = config.get("profile_resolver")
         transport = config.get("transport")
         privacy_guard = config.get("privacy_guard")
 
+        self._configure_identity(
+            source_alias, operation, profile_ref, profile, transport
+        )
+        self._configure_variables_and_access(variables, access)
+        self._configure_limits(limits)
+        self._configure_runtime(
+            dry_run=dry_run,
+            profile=profile,
+            profile_resolver=profile_resolver,
+            transport=transport,
+            privacy_guard=privacy_guard,
+        )
+
+    def _configure_identity(
+        self,
+        source_alias: str,
+        operation: str,
+        profile_ref: str,
+        profile: Any,
+        transport: Any,
+    ) -> None:
         self.source_alias = _safe_alias(source_alias, label="source_alias")
         self.operation = str(operation or "").strip().lower()
         if not _OPERATION_RE.fullmatch(self.operation):
@@ -509,6 +593,8 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             raise ValueError(
                 "profile_ref must use a supported runtime secret-reference scheme"
             )
+
+    def _configure_variables_and_access(self, variables: Any, access: Any) -> None:
         self.variables = dict(variables or {})
         try:
             variables_size = len(
@@ -524,20 +610,32 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
         if variables_size > 1_000_000:
             raise ValueError("GraphQL variables exceed the configured bound")
         self.external_access = _access_from_config(access)
-        self.max_documents = max(1, min(int(max_documents), 10_000))
-        self.max_sections = max(1, min(int(max_sections), 10_000))
-        self.max_content_chars = max(1_024, min(int(max_content_chars), 20_000_000))
-        self.max_response_bytes = max(1_024, min(int(max_response_bytes), 50_000_000))
+
+    def _configure_limits(self, limits: _GraphQLDocumentLimits) -> None:
+        self.max_documents = max(1, min(limits.max_documents, 10_000))
+        self.max_sections = max(1, min(limits.max_sections, 10_000))
+        self.max_content_chars = max(1_024, min(limits.max_content_chars, 20_000_000))
+        self.max_response_bytes = max(1_024, min(limits.max_response_bytes, 50_000_000))
         self.max_total_response_bytes = max(
             self.max_response_bytes,
-            min(int(max_total_response_bytes), 100_000_000),
+            min(limits.max_total_response_bytes, 100_000_000),
         )
-        self.max_entities = max(1, min(int(max_entities), 10_000))
-        self.max_pages = max(1, min(int(max_pages), 100))
-        self.page_size = max(1, min(int(page_size), 1_000))
-        self.max_hierarchy_depth = max(1, min(int(max_hierarchy_depth), 32))
-        self.max_fallbacks = max(0, min(int(max_fallbacks), 3))
-        self.timeout_seconds = max(1.0, min(float(timeout_seconds), 120.0))
+        self.max_entities = max(1, min(limits.max_entities, 10_000))
+        self.max_pages = max(1, min(limits.max_pages, 100))
+        self.page_size = max(1, min(limits.page_size, 1_000))
+        self.max_hierarchy_depth = max(1, min(limits.max_hierarchy_depth, 32))
+        self.max_fallbacks = max(0, min(limits.max_fallbacks, 3))
+        self.timeout_seconds = max(1.0, min(limits.timeout_seconds, 120.0))
+
+    def _configure_runtime(
+        self,
+        *,
+        dry_run: bool,
+        profile: Any,
+        profile_resolver: Any,
+        transport: Any,
+        privacy_guard: Any,
+    ) -> None:
         self.dry_run = dry_run
         self._inline_profile = dict(profile) if isinstance(profile, dict) else None
         self._profile_resolver = profile_resolver
@@ -951,22 +1049,21 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
         )
         return min(configured, profile_value)
 
+    def _resolve_governance_access(
+        self, value: dict[str, Any], profile: dict[str, Any]
+    ) -> ExternalAccess:
+        access = _access_from_config(value.get("access", profile.get("access")))
+        if value.get("access") is None and profile.get("access") is None:
+            return self.external_access
+        return access
+
     def _governance(
         self, profile: dict[str, Any]
     ) -> tuple[ExternalAccess, DataClassification, str | None, bool, str, str, str]:
         value = profile.get("governance") or {}
-        access = _access_from_config(value.get("access", profile.get("access")))
-        if value.get("access") is None and profile.get("access") is None:
-            access = self.external_access
+        access = self._resolve_governance_access(value, profile)
         classification = _classification(value.get("classification"))
-        if classification == DataClassification.PUBLIC and not access.is_public:
-            raise GraphQLDocumentError(
-                "GraphQL public classification requires public source access"
-            )
-        if classification != DataClassification.PUBLIC and access.is_public:
-            raise GraphQLDocumentError(
-                "GraphQL non-public classification cannot use public source access"
-            )
+        _validate_governance_classification(classification, access)
         retention = str(value.get("retention") or "").strip() or None
         legal_hold = value.get("legal_hold", False)
         tenant = str(value.get("tenant") or "").strip().lower()
