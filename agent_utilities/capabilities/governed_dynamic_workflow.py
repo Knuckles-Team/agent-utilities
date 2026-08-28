@@ -82,17 +82,29 @@ class DelegationStep(BaseModel):
 
     @model_validator(mode="after")
     def validate_contract(self) -> DelegationStep:
+        self._check_model_id_in_menu()
+        self._check_required_tools_allowed()
+        self._check_tool_server_requires_skill()
+        self._check_target_name_not_blank()
+        return self
+
+    def _check_model_id_in_menu(self) -> None:
         if self.model_id and self.model_menu and self.model_id not in self.model_menu:
             raise ValueError("model_id must be one of model_menu")
+
+    def _check_required_tools_allowed(self) -> None:
         if self.required_tools and self.allowed_tools:
             missing = set(self.required_tools) - set(self.allowed_tools)
             if missing:
                 raise ValueError(f"required_tools must be allowed: {sorted(missing)}")
+
+    def _check_tool_server_requires_skill(self) -> None:
         if self.tool_server and self.kind != "skill":
             raise ValueError("tool_server requires kind='skill'")
+
+    def _check_target_name_not_blank(self) -> None:
         if self.target_name is not None and not self.target_name.strip():
             raise ValueError("target_name must not be blank")
-        return self
 
 
 class WorkflowScriptEvidence(BaseModel):
@@ -394,6 +406,75 @@ def _delegation_target(
     return None
 
 
+def _check_no_gate_steps(plan: GraphPlan) -> None:
+    """Refuse a stored plan with gate/approval steps: upstream DynamicWorkflow
+    cannot suspend or resume them."""
+    unsupported = [
+        step.id
+        for step in plan.steps
+        if str(getattr(step, "kind", "task")).lower() in {"gate", "approval"}
+    ]
+    if unsupported:
+        raise DynamicWorkflowUnavailableError(
+            "upstream DynamicWorkflow cannot suspend or resume approval gates; "
+            "use the stored-DAG runner for this workflow"
+        )
+
+
+def _check_no_exact_model_steps(plan: GraphPlan) -> None:
+    """Refuse a stored plan with an exact per-step ``model_id``: the upstream
+    GraphOS catalog boundary only supports governed economy/standard
+    model-class routing."""
+    exact_model_steps = [
+        step.id for step in plan.steps if getattr(step, "model_id", None)
+    ]
+    if exact_model_steps:
+        raise DynamicWorkflowUnavailableError(
+            "upstream GraphOS catalog calls support governed economy/standard "
+            "model-class routing, not exact per-step model_id overrides; use "
+            "the stored-DAG runner for this workflow"
+        )
+
+
+def _delegation_step_from_task(step: Any, max_steps: int) -> DelegationStep:
+    """Materialize one stored ``Task`` as a ``DelegationStep`` for the
+    upstream catalog."""
+    metadata = step.metadata if isinstance(step.metadata, dict) else {}
+    kind = _delegation_kind(metadata, step.assigned_to)
+    return DelegationStep(
+        id=step.id,
+        description=str(
+            step.refined_subtask
+            or step.description
+            or f"Execute stored workflow step {step.id}"
+        ),
+        depends_on=list(step.depends_on),
+        kind=kind,
+        target_name=_delegation_target(
+            metadata,
+            kind=kind,
+            assigned_to=step.assigned_to,
+        ),
+        allowed_tools=_string_list(metadata.get("allowed_tools")),
+        required_tools=_string_list(metadata.get("required_tools")),
+        tool_server=_optional_string(metadata.get("tool_server")),
+        model_class=(
+            "economy"
+            if str(getattr(step, "model_tier", "")).lower() in {"small", "cheap"}
+            else "standard"
+        ),
+        reasoning_effort=(
+            metadata.get("reasoning_effort")
+            if metadata.get("reasoning_effort") in {"low", "medium", "high"}
+            else None
+        ),
+        model_id=getattr(step, "model_id", None),
+        model_menu=list(getattr(step, "delegation_model_menu", ()) or ()),
+        timeout_secs=float(getattr(step, "timeout", 300.0) or 300.0),
+        max_steps=max_steps,
+    )
+
+
 def _result_payload(raw: Any) -> tuple[Any, str]:
     """Return the child output and its truthful GraphOS terminal outcome."""
 
@@ -464,41 +545,14 @@ def _graphos_agent_class() -> type[Any]:
             user_prompt: Any = None,
             **_kwargs: Any,
         ) -> AgentRunResult[str]:
-            if not isinstance(user_prompt, str):
-                raise TypeError("DynamicWorkflow catalog tasks must be strings")
-            missing = set(self._step.depends_on) - self._runtime.completed
-            if missing:
-                raise RuntimeError("GraphOS dependency gate refused this catalog call")
-            if self._step.model_id:
-                raise RuntimeError(
-                    "exact model_id selection is not supported on the GraphOS "
-                    "DynamicWorkflow boundary; use governed model_class routing"
-                )
+            self._validate_dispatch(user_prompt)
 
             from agent_utilities.observability.correlation import bind_carrier
             from agent_utilities.observability.trace_ontology import trace_id
 
-            # Resume short-circuit: a catalog call already completed for this
-            # EXACT (step, task) pair in a prior halted attempt of the SAME
-            # ``workflow_run_id`` returns its persisted output directly --
-            # GraphOS's ``execute_agent`` is never re-entered, so this never
-            # produces a duplicate ``:ToolCall``. Reported outcome is the
-            # honest "replayed" (never "ok"), so a resumed run is never
-            # indistinguishable from a clean single-shot success.
-            cached = self._runtime.resume_cache.get((self._step.id, user_prompt))
-            if cached is not None:
-                cached_run_id = str(cached.get("run_id") or new_run_id())
-                self._runtime.completed.add(self._step.id)
-                self._runtime.child_runs.append(
-                    ChildRunEvidence(
-                        step_id=self._step.id,
-                        agent_name=self._step.target_name or self._step.id,
-                        run_id=cached_run_id,
-                        trace_ref=trace_id(cached_run_id),
-                        outcome="replayed",
-                    )
-                )
-                return AgentRunResult(output=str(cached.get("output", "")))
+            cached_result = self._resume_cached_result(user_prompt, trace_id)
+            if cached_result is not None:
+                return cached_result
 
             child_run_id = new_run_id()
 
@@ -539,21 +593,7 @@ def _graphos_agent_class() -> type[Any]:
                     raise RuntimeError(
                         "GraphOS catalog delegation did not produce a successful outcome"
                     )
-                self._runtime.completed.add(self._step.id)
-                entry = {
-                    "step_id": self._step.id,
-                    "task": user_prompt,
-                    "output": str(output),
-                    "outcome": outcome,
-                    "run_id": child_run_id,
-                }
-                self._runtime.persisted_entries.append(entry)
-                self._runtime.resume_cache[(self._step.id, user_prompt)] = entry
-                _save_resume_cache(
-                    self._runtime.engine,
-                    self._runtime.workflow_run_id,
-                    self._runtime.persisted_entries,
-                )
+                self._record_success(child_run_id, user_prompt, output, outcome)
                 return AgentRunResult(output=str(output))
             except TimeoutError:
                 outcome = "timeout"
@@ -571,6 +611,63 @@ def _graphos_agent_class() -> type[Any]:
                         outcome=outcome,
                     )
                 )
+
+        def _validate_dispatch(self, user_prompt: Any) -> None:
+            if not isinstance(user_prompt, str):
+                raise TypeError("DynamicWorkflow catalog tasks must be strings")
+            missing = set(self._step.depends_on) - self._runtime.completed
+            if missing:
+                raise RuntimeError("GraphOS dependency gate refused this catalog call")
+            if self._step.model_id:
+                raise RuntimeError(
+                    "exact model_id selection is not supported on the GraphOS "
+                    "DynamicWorkflow boundary; use governed model_class routing"
+                )
+
+        def _resume_cached_result(
+            self, user_prompt: str, trace_id: Any
+        ) -> AgentRunResult[str] | None:
+            """Resume short-circuit: a catalog call already completed for this
+            EXACT (step, task) pair in a prior halted attempt of the SAME
+            ``workflow_run_id`` returns its persisted output directly --
+            GraphOS's ``execute_agent`` is never re-entered, so this never
+            produces a duplicate ``:ToolCall``. Reported outcome is the
+            honest "replayed" (never "ok"), so a resumed run is never
+            indistinguishable from a clean single-shot success."""
+            cached = self._runtime.resume_cache.get((self._step.id, user_prompt))
+            if cached is None:
+                return None
+            cached_run_id = str(cached.get("run_id") or new_run_id())
+            self._runtime.completed.add(self._step.id)
+            self._runtime.child_runs.append(
+                ChildRunEvidence(
+                    step_id=self._step.id,
+                    agent_name=self._step.target_name or self._step.id,
+                    run_id=cached_run_id,
+                    trace_ref=trace_id(cached_run_id),
+                    outcome="replayed",
+                )
+            )
+            return AgentRunResult(output=str(cached.get("output", "")))
+
+        def _record_success(
+            self, child_run_id: str, user_prompt: str, output: Any, outcome: str
+        ) -> None:
+            self._runtime.completed.add(self._step.id)
+            entry = {
+                "step_id": self._step.id,
+                "task": user_prompt,
+                "output": str(output),
+                "outcome": outcome,
+                "run_id": child_run_id,
+            }
+            self._runtime.persisted_entries.append(entry)
+            self._runtime.resume_cache[(self._step.id, user_prompt)] = entry
+            _save_resume_cache(
+                self._runtime.engine,
+                self._runtime.workflow_run_id,
+                self._runtime.persisted_entries,
+            )
 
     _GRAPHOS_AGENT_CLASS = GraphOSWorkflowAgent
     return GraphOSWorkflowAgent
@@ -592,18 +689,32 @@ class GovernedDynamicWorkflow(BaseModel):
 
     @model_validator(mode="after")
     def validate_budget_and_dag(self) -> GovernedDynamicWorkflow:
+        self._check_step_count()
+        ids = self._check_unique_step_ids()
+        self._check_known_dependencies(ids)
+        self._check_dag_acyclic()
+        return self
+
+    def _check_step_count(self) -> None:
         if not self.steps:
             raise ValueError("dynamic workflow requires at least one catalog step")
         if len(self.steps) > self.max_agent_calls:
             raise ValueError("steps exceed max_agent_calls")
+
+    def _check_unique_step_ids(self) -> list[str]:
         ids = [step.id for step in self.steps]
         if len(ids) != len(set(ids)):
             raise ValueError("dynamic workflow step ids must be unique")
+        return ids
+
+    def _check_known_dependencies(self, ids: list[str]) -> None:
         unknown = {dep for step in self.steps for dep in step.depends_on} - set(ids)
         if unknown:
             raise ValueError(
                 f"dynamic workflow has unknown dependencies: {sorted(unknown)}"
             )
+
+    def _check_dag_acyclic(self) -> None:
         remaining = {step.id: set(step.depends_on) for step in self.steps}
         while remaining:
             ready = {step_id for step_id, deps in remaining.items() if not deps}
@@ -614,7 +725,6 @@ class GovernedDynamicWorkflow(BaseModel):
                 for step_id, deps in remaining.items()
                 if step_id not in ready
             }
-        return self
 
     @classmethod
     def from_graph_plan(
@@ -630,66 +740,11 @@ class GovernedDynamicWorkflow(BaseModel):
     ) -> GovernedDynamicWorkflow:
         """Materialize a reviewed stored DAG as an upstream agent catalog."""
 
-        unsupported = [
-            step.id
-            for step in plan.steps
-            if str(getattr(step, "kind", "task")).lower() in {"gate", "approval"}
-        ]
-        if unsupported:
-            raise DynamicWorkflowUnavailableError(
-                "upstream DynamicWorkflow cannot suspend or resume approval gates; "
-                "use the stored-DAG runner for this workflow"
-            )
-        exact_model_steps = [
-            step.id for step in plan.steps if getattr(step, "model_id", None)
-        ]
-        if exact_model_steps:
-            raise DynamicWorkflowUnavailableError(
-                "upstream GraphOS catalog calls support governed economy/standard "
-                "model-class routing, not exact per-step model_id overrides; use "
-                "the stored-DAG runner for this workflow"
-            )
+        _check_no_gate_steps(plan)
+        _check_no_exact_model_steps(plan)
         if len(plan.steps) > max_agent_calls:
             raise ValueError("stored workflow steps exceed max_agent_calls")
-        steps: list[DelegationStep] = []
-        for step in plan.steps:
-            metadata = step.metadata if isinstance(step.metadata, dict) else {}
-            kind = _delegation_kind(metadata, step.assigned_to)
-            steps.append(
-                DelegationStep(
-                    id=step.id,
-                    description=str(
-                        step.refined_subtask
-                        or step.description
-                        or f"Execute stored workflow step {step.id}"
-                    ),
-                    depends_on=list(step.depends_on),
-                    kind=kind,
-                    target_name=_delegation_target(
-                        metadata,
-                        kind=kind,
-                        assigned_to=step.assigned_to,
-                    ),
-                    allowed_tools=_string_list(metadata.get("allowed_tools")),
-                    required_tools=_string_list(metadata.get("required_tools")),
-                    tool_server=_optional_string(metadata.get("tool_server")),
-                    model_class=(
-                        "economy"
-                        if str(getattr(step, "model_tier", "")).lower()
-                        in {"small", "cheap"}
-                        else "standard"
-                    ),
-                    reasoning_effort=(
-                        metadata.get("reasoning_effort")
-                        if metadata.get("reasoning_effort") in {"low", "medium", "high"}
-                        else None
-                    ),
-                    model_id=getattr(step, "model_id", None),
-                    model_menu=list(getattr(step, "delegation_model_menu", ()) or ()),
-                    timeout_secs=float(getattr(step, "timeout", 300.0) or 300.0),
-                    max_steps=max_steps,
-                )
-            )
+        steps = [_delegation_step_from_task(step, max_steps) for step in plan.steps]
         return cls(
             name=name,
             query=query,
@@ -905,7 +960,6 @@ class GovernedDynamicWorkflow(BaseModel):
         active_runtime: _WorkflowRuntime | None = None
         active_checkpoint_store: _CapturingCheckpointStore | None = None
 
-        from pydantic_ai.messages import ToolCallPart
         from pydantic_ai.usage import UsageLimits
 
         from agent_utilities.capabilities.checkpointing import (
@@ -998,84 +1052,17 @@ class GovernedDynamicWorkflow(BaseModel):
                 timeout=self.resource_limits.max_duration_secs,
             )
         except BaseException as exc:
-            # A halted attempt's evidence is still real: every completed
-            # dispatch in ``active_runtime.child_runs`` is already persisted to
-            # the resume cache (CONCEPT:AU-ORCH.execution.dynamic-workflow-resume),
-            # so the NEXT call with the SAME ``workflow_run_id`` (a genuine
-            # "budget halt then restart") will not re-dispatch them.
-            failure_evidence = self._build_graph_execution_evidence(
-                harness_version=_safe_harness_version(),
-                runtime=active_runtime,
-                checkpoint_ids=(
-                    list(active_checkpoint_store.ids)
-                    if active_checkpoint_store is not None
-                    else []
-                ),
-            )
-            # ``_persist_parent_trace`` performs synchronous native graph writes
-            # (RunTrace/Session nodes, PARENT_RUN edges). Run it on a worker so
-            # a foreground DynamicWorkflow completion/failure never blocks the
-            # shared GraphOS event loop, and keep it ordered so the trace is
-            # guaranteed to land before this exception (including
-            # cancellation) is re-raised to the caller.
-            await run_blocking_ordered(
-                self._persist_parent_trace,
-                orchestrator,
+            await self._handle_execute_upstream_failure(
+                exc,
+                orchestrator=orchestrator,
                 workflow_run_id=workflow_run_id,
-                status=(
-                    "cancelled"
-                    if isinstance(exc, asyncio.CancelledError)
-                    else "timeout"
-                    if isinstance(exc, TimeoutError)
-                    else "failed"
-                ),
-                duration_ms=(time.monotonic() - started) * 1000,
-                result_preview="",
-                child_runs=(
-                    list(active_runtime.child_runs)
-                    if active_runtime is not None
-                    else []
-                ),
-                error=type(exc).__name__,
-                graph_execution_evidence=failure_evidence,
+                started=started,
+                active_runtime=active_runtime,
+                active_checkpoint_store=active_checkpoint_store,
             )
             raise
 
-        script_evidence: list[WorkflowScriptEvidence] = []
-        script_artifacts: list[dict[str, Any]] = []
-        for message in run_result.all_messages():
-            for part in getattr(message, "parts", ()) or ():
-                if (
-                    not isinstance(part, ToolCallPart)
-                    or part.tool_name != "run_workflow"
-                ):
-                    continue
-                args = part.args_as_dict()
-                code = str(args.get("code") or "")
-                sha256 = hashlib.sha256(code.encode()).hexdigest()
-                byte_count = len(code.encode())
-                line_count = len(code.splitlines())
-                script_evidence.append(
-                    WorkflowScriptEvidence(
-                        tool_call_id=part.tool_call_id,
-                        sha256=sha256,
-                        byte_count=byte_count,
-                        line_count=line_count,
-                    )
-                )
-                # The FULL generated script is stored as a trace artifact (see
-                # ``_persist_parent_trace``'s ``script_artifacts``) -- the
-                # ``script_evidence`` above stays the privacy-safe digest form
-                # returned to every caller.
-                script_artifacts.append(
-                    {
-                        "tool_call_id": part.tool_call_id,
-                        "sha256": sha256,
-                        "byte_count": byte_count,
-                        "line_count": line_count,
-                        "code": code,
-                    }
-                )
+        script_evidence, script_artifacts = self._extract_script_evidence(run_result)
 
         usage = run_result.usage
         usage_data = {
@@ -1124,6 +1111,100 @@ class GovernedDynamicWorkflow(BaseModel):
             replayed_step_ids=replayed_step_ids,
             checkpoint_ids=checkpoint_ids,
         )
+
+    async def _handle_execute_upstream_failure(
+        self,
+        exc: BaseException,
+        *,
+        orchestrator: Any,
+        workflow_run_id: str,
+        started: float,
+        active_runtime: _WorkflowRuntime | None,
+        active_checkpoint_store: _CapturingCheckpointStore | None,
+    ) -> None:
+        """A halted attempt's evidence is still real: every completed dispatch
+        in ``active_runtime.child_runs`` is already persisted to the resume
+        cache (CONCEPT:AU-ORCH.execution.dynamic-workflow-resume), so the NEXT
+        call with the SAME ``workflow_run_id`` (a genuine "budget halt then
+        restart") will not re-dispatch them. Does not re-raise; the caller
+        re-raises ``exc`` itself."""
+        failure_evidence = self._build_graph_execution_evidence(
+            harness_version=_safe_harness_version(),
+            runtime=active_runtime,
+            checkpoint_ids=(
+                list(active_checkpoint_store.ids)
+                if active_checkpoint_store is not None
+                else []
+            ),
+        )
+        # ``_persist_parent_trace`` performs synchronous native graph writes
+        # (RunTrace/Session nodes, PARENT_RUN edges). Run it on a worker so
+        # a foreground DynamicWorkflow completion/failure never blocks the
+        # shared GraphOS event loop, and keep it ordered so the trace is
+        # guaranteed to land before this exception (including
+        # cancellation) is re-raised to the caller.
+        await run_blocking_ordered(
+            self._persist_parent_trace,
+            orchestrator,
+            workflow_run_id=workflow_run_id,
+            status=(
+                "cancelled"
+                if isinstance(exc, asyncio.CancelledError)
+                else "timeout"
+                if isinstance(exc, TimeoutError)
+                else "failed"
+            ),
+            duration_ms=(time.monotonic() - started) * 1000,
+            result_preview="",
+            child_runs=(
+                list(active_runtime.child_runs) if active_runtime is not None else []
+            ),
+            error=type(exc).__name__,
+            graph_execution_evidence=failure_evidence,
+        )
+
+    @staticmethod
+    def _extract_script_evidence(
+        run_result: Any,
+    ) -> tuple[list[WorkflowScriptEvidence], list[dict[str, Any]]]:
+        """Pull every ``run_workflow`` tool call's generated script out of the
+        conductor's message history: a privacy-safe digest (returned to every
+        caller, in ``script_evidence``) plus the full code as a trace artifact
+        (``script_artifacts``, consumed by ``_persist_parent_trace``)."""
+        from pydantic_ai.messages import ToolCallPart
+
+        script_evidence: list[WorkflowScriptEvidence] = []
+        script_artifacts: list[dict[str, Any]] = []
+        for message in run_result.all_messages():
+            for part in getattr(message, "parts", ()) or ():
+                if (
+                    not isinstance(part, ToolCallPart)
+                    or part.tool_name != "run_workflow"
+                ):
+                    continue
+                args = part.args_as_dict()
+                code = str(args.get("code") or "")
+                sha256 = hashlib.sha256(code.encode()).hexdigest()
+                byte_count = len(code.encode())
+                line_count = len(code.splitlines())
+                script_evidence.append(
+                    WorkflowScriptEvidence(
+                        tool_call_id=part.tool_call_id,
+                        sha256=sha256,
+                        byte_count=byte_count,
+                        line_count=line_count,
+                    )
+                )
+                script_artifacts.append(
+                    {
+                        "tool_call_id": part.tool_call_id,
+                        "sha256": sha256,
+                        "byte_count": byte_count,
+                        "line_count": line_count,
+                        "code": code,
+                    }
+                )
+        return script_evidence, script_artifacts
 
     async def execute(
         self,
