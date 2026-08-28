@@ -139,6 +139,183 @@ def _parse_frontmatter(text: str) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def _validate_sidecar_top_level_keys(raw: dict[str, Any]) -> list[str]:
+    """``schema_version``/``tier``/``claims`` — no more, no less."""
+    errors: list[str] = []
+    extra = sorted(set(raw) - _SIDECAR_KEYS)
+    missing = sorted(_SIDECAR_KEYS - set(raw))
+    if extra:
+        errors.append(f"unsupported keys: {extra}")
+    if missing:
+        errors.append(f"missing keys: {missing}")
+    return errors
+
+
+def _validate_schema_version(raw: dict[str, Any]) -> list[str]:
+    version = raw.get("schema_version")
+    if version != GRAPH_OS_SCHEMA_VERSION:
+        return [f"schema_version must be {GRAPH_OS_SCHEMA_VERSION}, got {version!r}"]
+    return []
+
+
+def _resolve_tier(raw: dict[str, Any]) -> tuple[str, list[str]]:
+    tier = raw.get("tier")
+    if not isinstance(tier, str) or tier not in VALID_TIERS:
+        return str(tier or ""), [
+            f"tier must be one of {sorted(VALID_TIERS)}, got {tier!r}"
+        ]
+    return tier, []
+
+
+def _validate_core_tool_shape(core_claims: tuple[str, ...]) -> list[str]:
+    errors: list[str] = []
+    if len(core_claims) != len(set(core_claims)):
+        errors.append("claims.core must not contain duplicates")
+    if list(core_claims) != sorted(core_claims):
+        errors.append("claims.core must be sorted")
+    return errors
+
+
+def _validate_core_tool_specs(core_claims: tuple[str, ...]) -> list[str]:
+    errors: list[str] = []
+    for tool in core_claims:
+        spec = TOOL_SPECS_BY_NAME.get(tool)
+        if spec is None:
+            errors.append(f"claims.core contains unknown tool {tool!r}")
+        elif spec.feature is not None:
+            errors.append(f"claims.core tool {tool!r} requires feature {spec.feature!r}")
+    return errors
+
+
+def _parse_core_claims(claims_raw: dict[str, Any]) -> tuple[tuple[str, ...], list[str]]:
+    """``claims.core``: sorted, unique, feature-free ToolSpec names."""
+    core_raw = claims_raw.get("core")
+    if not isinstance(core_raw, list) or not all(
+        isinstance(item, str) and item for item in core_raw
+    ):
+        return (), ["claims.core must be a list of non-empty strings"]
+
+    core_claims = tuple(core_raw)
+    errors = [
+        *_validate_core_tool_shape(core_claims),
+        *_validate_core_tool_specs(core_claims),
+    ]
+    return core_claims, errors
+
+
+def _validate_feature_tool_specs(feature: str, tools: tuple[str, ...]) -> list[str]:
+    """Each tool in a feature's claim list must exist and belong to that feature."""
+    errors: list[str] = []
+    for tool in tools:
+        spec = TOOL_SPECS_BY_NAME.get(tool)
+        if spec is None:
+            errors.append(f"claims.features.{feature} contains unknown tool {tool!r}")
+        elif spec.feature != feature:
+            errors.append(
+                f"claims.features.{feature} tool {tool!r} belongs to feature {spec.feature!r}"
+            )
+    return errors
+
+
+def _validate_feature_tool_shape(feature: str, tools: tuple[str, ...]) -> list[str]:
+    """Sortedness + uniqueness of one feature's claim list."""
+    errors: list[str] = []
+    if len(tools) != len(set(tools)):
+        errors.append(f"claims.features.{feature} must not contain duplicates")
+    if list(tools) != sorted(tools):
+        errors.append(f"claims.features.{feature} must be sorted")
+    return errors
+
+
+def _parse_one_feature_claim(
+    feature: str, tools_raw: object
+) -> tuple[tuple[str, ...] | None, list[str]]:
+    """One ``claims.features.<feature>`` entry. ``None`` tools means "drop it"."""
+    if not isinstance(feature, str) or feature not in SUPPORTED_FEATURES:
+        return None, [f"claims.features contains unsupported feature {feature!r}"]
+    if not isinstance(tools_raw, list) or not all(
+        isinstance(item, str) and item for item in tools_raw
+    ):
+        return None, [f"claims.features.{feature} must be a list of non-empty strings"]
+
+    tools = tuple(tools_raw)
+    errors = [
+        *_validate_feature_tool_shape(feature, tools),
+        *_validate_feature_tool_specs(feature, tools),
+    ]
+    return tools, errors
+
+
+def _parse_feature_claims(
+    claims_raw: dict[str, Any],
+) -> tuple[tuple[tuple[str, tuple[str, ...]], ...], list[str]]:
+    features_raw = claims_raw.get("features")
+    if not isinstance(features_raw, dict):
+        return (), ["claims.features must be a mapping"]
+
+    errors: list[str] = []
+    if list(features_raw) != sorted(features_raw):
+        errors.append("claims.features keys must be sorted")
+    parsed: list[tuple[str, tuple[str, ...]]] = []
+    for feature, tools_raw in features_raw.items():
+        tools, feature_errors = _parse_one_feature_claim(feature, tools_raw)
+        errors.extend(feature_errors)
+        if tools is not None:
+            parsed.append((feature, tools))
+    return tuple(parsed), errors
+
+
+def _parse_claims(
+    raw: dict[str, Any],
+) -> tuple[tuple[str, ...], tuple[tuple[str, tuple[str, ...]], ...], list[str]]:
+    """``claims.core`` + ``claims.features``, or empty with an error if malformed."""
+    claims_raw = raw.get("claims")
+    if not isinstance(claims_raw, dict):
+        return (), (), ["claims must be a mapping"]
+
+    errors = list(_validate_claims_keys(claims_raw))
+    core_claims, core_errors = _parse_core_claims(claims_raw)
+    feature_claims, feature_errors = _parse_feature_claims(claims_raw)
+    errors.extend(core_errors)
+    errors.extend(feature_errors)
+    return core_claims, feature_claims, errors
+
+
+def _validate_claims_keys(claims_raw: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    claim_extra = sorted(set(claims_raw) - _CLAIMS_KEYS)
+    claim_missing = sorted(_CLAIMS_KEYS - set(claims_raw))
+    if claim_extra:
+        errors.append(f"claims has unsupported keys: {claim_extra}")
+    if claim_missing:
+        errors.append(f"claims is missing keys: {claim_missing}")
+    return errors
+
+
+def _validate_tier_claims_consistency(
+    tier: str,
+    core_claims: tuple[str, ...],
+    feature_claims: tuple[tuple[str, tuple[str, ...]], ...],
+) -> list[str]:
+    has_claims = bool(core_claims) or any(tools for _feature, tools in feature_claims)
+    if tier == "domain" and not has_claims:
+        return ["domain skills must claim at least one verb"]
+    if tier == "platform" and has_claims:
+        return ["platform skills must use empty core and feature claims"]
+    return []
+
+
+def _load_sidecar_yaml(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+    """Read + parse the sidecar; the second element is a top-level error, if any."""
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        return None, f"sidecar is unreadable: {type(exc).__name__}"
+    if not isinstance(raw, dict):
+        return None, "sidecar must be a mapping"
+    return raw, None
+
+
 def parse_graph_os_sidecar(path: Path, *, skill_name: str) -> SkillMeta:
     """Load and validate one Graph-OS coverage sidecar.
 
@@ -153,119 +330,19 @@ def parse_graph_os_sidecar(path: Path, *, skill_name: str) -> SkillMeta:
     ``claims.features.<feature>: [verb, ...]``
         Sorted, unique optional ToolSpec names enabled by that feature.
     """
-    errors: list[str] = []
-    try:
-        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError) as exc:
-        return SkillMeta(
-            skill_name,
-            "",
-            (),
-            (),
-            path,
-            (f"sidecar is unreadable: {type(exc).__name__}",),
-        )
+    raw, load_error = _load_sidecar_yaml(path)
+    if raw is None:
+        return SkillMeta(skill_name, "", (), (), path, (load_error or "",))
 
-    if not isinstance(raw, dict):
-        return SkillMeta(skill_name, "", (), (), path, ("sidecar must be a mapping",))
-
-    extra = sorted(set(raw) - _SIDECAR_KEYS)
-    missing = sorted(_SIDECAR_KEYS - set(raw))
-    if extra:
-        errors.append(f"unsupported keys: {extra}")
-    if missing:
-        errors.append(f"missing keys: {missing}")
-
-    version = raw.get("schema_version")
-    if version != GRAPH_OS_SCHEMA_VERSION:
-        errors.append(
-            f"schema_version must be {GRAPH_OS_SCHEMA_VERSION}, got {version!r}"
-        )
-
-    tier = raw.get("tier")
-    if not isinstance(tier, str) or tier not in VALID_TIERS:
-        errors.append(f"tier must be one of {sorted(VALID_TIERS)}, got {tier!r}")
-        tier = str(tier or "")
-
-    claims_raw = raw.get("claims")
-    core_claims: tuple[str, ...] = ()
-    feature_claims: tuple[tuple[str, tuple[str, ...]], ...] = ()
-    if not isinstance(claims_raw, dict):
-        errors.append("claims must be a mapping")
-    else:
-        claim_extra = sorted(set(claims_raw) - _CLAIMS_KEYS)
-        claim_missing = sorted(_CLAIMS_KEYS - set(claims_raw))
-        if claim_extra:
-            errors.append(f"claims has unsupported keys: {claim_extra}")
-        if claim_missing:
-            errors.append(f"claims is missing keys: {claim_missing}")
-
-        core_raw = claims_raw.get("core")
-        if not isinstance(core_raw, list) or not all(
-            isinstance(item, str) and item for item in core_raw
-        ):
-            errors.append("claims.core must be a list of non-empty strings")
-        else:
-            core_claims = tuple(core_raw)
-            if len(core_claims) != len(set(core_claims)):
-                errors.append("claims.core must not contain duplicates")
-            if list(core_claims) != sorted(core_claims):
-                errors.append("claims.core must be sorted")
-            for tool in core_claims:
-                spec = TOOL_SPECS_BY_NAME.get(tool)
-                if spec is None:
-                    errors.append(f"claims.core contains unknown tool {tool!r}")
-                elif spec.feature is not None:
-                    errors.append(
-                        f"claims.core tool {tool!r} requires feature {spec.feature!r}"
-                    )
-
-        features_raw = claims_raw.get("features")
-        parsed_features: list[tuple[str, tuple[str, ...]]] = []
-        if not isinstance(features_raw, dict):
-            errors.append("claims.features must be a mapping")
-        else:
-            if list(features_raw) != sorted(features_raw):
-                errors.append("claims.features keys must be sorted")
-            for feature, tools_raw in features_raw.items():
-                if not isinstance(feature, str) or feature not in SUPPORTED_FEATURES:
-                    errors.append(
-                        f"claims.features contains unsupported feature {feature!r}"
-                    )
-                    continue
-                if not isinstance(tools_raw, list) or not all(
-                    isinstance(item, str) and item for item in tools_raw
-                ):
-                    errors.append(
-                        f"claims.features.{feature} must be a list of non-empty strings"
-                    )
-                    continue
-                tools = tuple(tools_raw)
-                if len(tools) != len(set(tools)):
-                    errors.append(
-                        f"claims.features.{feature} must not contain duplicates"
-                    )
-                if list(tools) != sorted(tools):
-                    errors.append(f"claims.features.{feature} must be sorted")
-                for tool in tools:
-                    spec = TOOL_SPECS_BY_NAME.get(tool)
-                    if spec is None:
-                        errors.append(
-                            f"claims.features.{feature} contains unknown tool {tool!r}"
-                        )
-                    elif spec.feature != feature:
-                        errors.append(
-                            f"claims.features.{feature} tool {tool!r} belongs to "
-                            f"feature {spec.feature!r}"
-                        )
-                parsed_features.append((feature, tools))
-        feature_claims = tuple(parsed_features)
-
-    has_claims = bool(core_claims) or any(tools for _feature, tools in feature_claims)
-    if tier == "domain" and not has_claims:
-        errors.append("domain skills must claim at least one verb")
-    if tier == "platform" and has_claims:
-        errors.append("platform skills must use empty core and feature claims")
+    tier, tier_errors = _resolve_tier(raw)
+    core_claims, feature_claims, claims_errors = _parse_claims(raw)
+    errors = [
+        *_validate_sidecar_top_level_keys(raw),
+        *_validate_schema_version(raw),
+        *tier_errors,
+        *claims_errors,
+        *_validate_tier_claims_consistency(tier, core_claims, feature_claims),
+    ]
 
     return SkillMeta(
         skill_name,
@@ -319,6 +396,41 @@ def discover_skills(roots: list[Path] | None = None) -> list[SkillMeta]:
     return discovered
 
 
+def _apply_skill_claims(
+    skill: SkillMeta,
+    *,
+    features: frozenset[str],
+    universe: set[str],
+    report: CoverageReport,
+    covered: dict[str, list[str]],
+) -> None:
+    """Fold one skill's errors + claims into the running report/covered map."""
+    for error in skill.errors:
+        report.invalid_sidecars.append((skill.name, error))
+    if skill.errors or skill.tier != "domain":
+        return
+    for verb in skill.claims_for(features):
+        if verb not in universe:
+            report.orphans.append((skill.name, verb))
+        else:
+            covered.setdefault(verb, []).append(skill.name)
+
+
+def _finalize_coverage_report(
+    report: CoverageReport, covered: dict[str, list[str]], universe: set[str]
+) -> CoverageReport:
+    report.covered = {verb: sorted(skills) for verb, skills in sorted(covered.items())}
+    report.duplicates = [
+        (verb, tuple(skills))
+        for verb, skills in report.covered.items()
+        if len(skills) > 1
+    ]
+    report.uncovered = sorted(universe - set(covered))
+    report.orphans.sort()
+    report.invalid_sidecars.sort()
+    return report
+
+
 def compute_coverage(
     roots: list[Path] | None = None,
     *,
@@ -336,26 +448,15 @@ def compute_coverage(
     covered: dict[str, list[str]] = {}
 
     for skill in discover_skills(roots):
-        for error in skill.errors:
-            report.invalid_sidecars.append((skill.name, error))
-        if skill.errors or skill.tier != "domain":
-            continue
-        for verb in skill.claims_for(selected_features):
-            if verb not in universe:
-                report.orphans.append((skill.name, verb))
-            else:
-                covered.setdefault(verb, []).append(skill.name)
+        _apply_skill_claims(
+            skill,
+            features=selected_features,
+            universe=universe,
+            report=report,
+            covered=covered,
+        )
 
-    report.covered = {verb: sorted(skills) for verb, skills in sorted(covered.items())}
-    report.duplicates = [
-        (verb, tuple(skills))
-        for verb, skills in report.covered.items()
-        if len(skills) > 1
-    ]
-    report.uncovered = sorted(universe - set(covered))
-    report.orphans.sort()
-    report.invalid_sidecars.sort()
-    return report
+    return _finalize_coverage_report(report, covered, universe)
 
 
 def main() -> int:
