@@ -164,6 +164,23 @@ def _validate_tool_kwargs_against_signature(
         )
 
 
+def _resolve_verified_scope_actor(session):
+    """Resolve the ambient actor for `verified_tool_session_scope`, if any.
+
+    Returns ``None`` when no actor is bound. Raises when a bound,
+    authenticated actor disagrees with the session's own actor.
+    """
+    from ..security.brain_context import IdentityRequiredError, current_actor
+
+    try:
+        actor = current_actor()
+    except IdentityRequiredError:
+        return None
+    if actor is not None and actor.authenticated and actor != session.actor:
+        raise PermissionError("Verified actor and GraphSession authority differ")
+    return actor
+
+
 @contextlib.contextmanager
 def verified_tool_session_scope():
     """Scope one served tool call to middleware/process-minted authority.
@@ -173,11 +190,7 @@ def verified_tool_session_scope():
     endpoint, and policy values.
     """
     from ..knowledge_graph.core.session import current_session, use_session
-    from ..security.brain_context import (
-        IdentityRequiredError,
-        current_actor,
-        use_actor,
-    )
+    from ..security.brain_context import use_actor
 
     ambient = current_session()
     session = ambient or _PROCESS_SESSION
@@ -188,12 +201,7 @@ def verified_tool_session_scope():
     except PermissionError:
         raise PermissionError("Verified GraphSession authority is incomplete") from None
 
-    try:
-        actor = current_actor()
-    except IdentityRequiredError:
-        actor = None
-    if actor is not None and actor.authenticated and actor != session.actor:
-        raise PermissionError("Verified actor and GraphSession authority differ")
+    actor = _resolve_verified_scope_actor(session)
 
     with contextlib.ExitStack() as stack:
         if ambient is None:
