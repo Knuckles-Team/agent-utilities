@@ -181,6 +181,80 @@ class _RetrievalPassArgs:
     session: Any | None
 
 
+def _trivial_query_result(
+    query: str, with_ledger: bool
+) -> dict[str, Any] | list[dict[str, Any]] | None:
+    """``None`` if not trivial; otherwise the short-circuit result.
+
+    Module-level (not a method): ``plan_and_retrieve`` is cherry-picked as an
+    unbound function by several tests' lightweight fake retrievers (e.g.
+    ``plan_and_retrieve = HybridRetriever.plan_and_retrieve`` on a plain class
+    that does not inherit ``HybridRetriever``), so any helper it calls via
+    ``self.<name>`` must actually exist on that fake. A bare module-level call
+    resolves through this module's globals instead, regardless of the
+    concrete type of ``self`` — the same reasoning as ``_bfs_next_frontier``.
+    """
+    from .hyde_planner import HydePlan, build_evidence_ledger, is_trivial_query
+
+    # CONCEPT:AU-KG.retrieval.triviality-gate — social-closer gate: trivial turns skip the planner + retrieval entirely.
+    if not is_trivial_query(query):
+        return None
+    empty: list[dict[str, Any]] = []
+    if with_ledger:
+        return {
+            "nodes": empty,
+            "ledger": build_evidence_ledger(query, empty),
+            "plan": HydePlan(vector_queries=[query]).model_dump(),
+            "trivial": True,
+        }
+    return empty
+
+
+def _resolve_hyde_plan(retriever: Any, query: str, mode: str) -> Any:
+    from .hyde_planner import HydePlan
+
+    if mode in ("standard", "deep"):
+        return HydePlan(vector_queries=[query], search_mode=mode)  # type: ignore[arg-type]
+    return retriever._generate_hyde_plan(query)
+
+
+def _run_retrieval_pass(
+    retriever: Any, queries: list[str], threshold: float, args: _RetrievalPassArgs
+) -> list[list[dict[str, Any]]]:
+    return [
+        retriever.retrieve_hybrid(
+            q,
+            context_window=args.sub_window,
+            corpus_id=args.corpus_id,
+            hard_negatives=args.hard_negatives,
+            relevance_threshold=threshold,
+            active_task=args.active_task,
+            session=args.session,  # GOC-83-W04: thread through, no-op when None
+        )
+        for q in queries
+    ]
+
+
+def _maybe_self_correct(
+    retriever: Any,
+    nodes: list[dict[str, Any]],
+    queries: list[str],
+    args: _RetrievalPassArgs,
+    context_window: int,
+    self_correct: bool,
+) -> list[dict[str, Any]]:
+    # Self-correcting second pass — fire only when the quality gate measured a failure.
+    from .hyde_planner import merge_retrievals, threshold_for_mode
+
+    report = retriever.last_quality_report
+    gate_failed = report is not None and not getattr(report, "gate_passed", True)
+    if not (self_correct and gate_failed):
+        return nodes
+    deep_threshold = threshold_for_mode("deep")
+    second_lists = _run_retrieval_pass(retriever, queries, deep_threshold, args)
+    return merge_retrievals([nodes, *second_lists], context_window)
+
+
 def _bfs_next_frontier(
     frontier: set[str],
     visited: set[str],
@@ -198,6 +272,80 @@ def _bfs_next_frontier(
             if n not in visited and n not in all_discovered:
                 next_frontier.add(n)
     return next_frontier
+
+
+def _lexical_wrap(data: dict[str, Any], nid: Any) -> dict[str, Any]:
+    data = dict(data)
+    data["id"] = nid
+    data.setdefault("_score", 0.2)  # low confidence — it's a lexical fallback
+    data["_fallback"] = "lexical"
+    return data
+
+
+def _lexical_fallback_engine_discover(
+    retriever: Any, tokens: list[str], context_window: int
+) -> list[dict[str, Any]]:
+    """Tier 3 of ``_lexical_fallback``'s cascade.
+
+    Module-level (not a method) for the same reason as ``_trivial_query_result``:
+    ``_lexical_fallback`` is cherry-picked as an unbound function by lightweight
+    fake retrievers in tests, so a helper it calls via ``self.<name>`` must exist
+    on the fake; a bare module-level call resolves through this module's globals
+    instead, regardless of the concrete type of ``self``.
+
+    Engine-scalable keyword leg: `discover` ranks keyword overlap
+    (name/description/type) server-side in ONE round-trip, then hydrate the top-k
+    in ONE batch call. This replaces the O(N) `MATCH (n) WHERE ... CONTAINS ...
+    LIMIT k` scan below, which the engine does not filter server-side (it returns
+    arbitrary unfiltered nodes up to LIMIT — both slow and wrong on the engine).
+    """
+    graph = getattr(retriever.engine, "graph", None)
+    disc = getattr(graph, "discover", None)
+    if not callable(disc):
+        return []
+    try:
+        hits = disc(tokens, [], max(1, context_window)) or []
+        ids = [
+            str(h.get("id", "")) for h in hits if isinstance(h, dict) and h.get("id")
+        ]
+        if not ids:
+            return []
+        props = retriever._batch_node_properties(ids)
+        return [_lexical_wrap(props.get(nid) or {}, nid) for nid in ids]
+    except Exception as e:  # noqa: BLE001 — degrade to the backend scan
+        logger.debug("engine discover lexical fallback unavailable: %s", e)
+        return []
+
+
+def _lexical_fallback_backend_scan(
+    retriever: Any, tokens: list[str], context_window: int
+) -> list[dict[str, Any]]:
+    # Tier 4 — a backend that DOES evaluate the Cypher WHERE (pg-age/neo4j mirror).
+    backend = getattr(retriever.engine, "backend", None)
+    if backend is None:
+        return []
+    where = " OR ".join(
+        f"toLower(n.content) CONTAINS $t{i} OR toLower(n.name) CONTAINS $t{i}"
+        for i in range(len(tokens))
+    )
+    params = {f"t{i}": tok.lower() for i, tok in enumerate(tokens)}
+    try:
+        rows = backend.execute(
+            f"MATCH (n) WHERE {where} "
+            f"RETURN n.id as id, n as data LIMIT {max(1, context_window)}",
+            params,
+        )
+    except Exception as e:  # pragma: no cover - backend dialect variance  # noqa: BLE001 — returns [] (the documented empty-results case) on a backend dialect failure — the lexical fallback is itself already the last-resort path, so an empty list here degrades to 'no lexical matches', not a lost primary result
+        logger.debug("Lexical fallback query failed: %s", e)
+        return []
+    out = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        _d = row.get("data")
+        data = dict(_d) if isinstance(_d, dict) else {}
+        out.append(_lexical_wrap(data, row.get("id")))
+    return out
 
 
 class HybridRetriever:
@@ -1542,6 +1690,38 @@ class HybridRetriever:
                     all_discovered.append(f_node)
         return all_discovered
 
+    def _fetch_hydrated_properties(
+        self, hydrate_ids: set[str]
+    ) -> dict[str, dict[str, Any]]:
+        try:
+            return self._batch_node_properties(sorted(hydrate_ids))
+        except Exception as e:  # noqa: BLE001 — a hydration failure must never drop the already-discovered nodes, only their enrichment (mirrors the per-node fallback this replaces)
+            logger.debug(f"Batched hydration failed: {e}")
+            return {}
+
+    def _hydrate_one_discovered_node(
+        self,
+        nid: str,
+        node_id: str,
+        base_node: dict[str, Any],
+        hydrated_all: dict[str, dict[str, Any]],
+    ) -> dict[str, Any]:
+        if nid == node_id:
+            # Preserve the vector-scored base node — it carries
+            # _score, the active-task attention boost and its
+            # embedding. Enrich (don't overwrite) with any graph
+            # properties (e.g. type) it lacks rather than
+            # refetching a bare graph projection.
+            d = dict(base_node)
+            for k, v in hydrated_all.get(nid, {}).items():
+                d.setdefault(k, v)
+        else:
+            d = dict(hydrated_all.get(nid, {}))
+        d["id"] = nid
+        if self._boost_strategy == "context_only":
+            d["_context_boost"] = self._backlink_boost(nid)
+        return d
+
     def _hydrate_pending_nodes(
         self,
         pending_hydrate: list[tuple[str, list[str]]],
@@ -1549,30 +1729,16 @@ class HybridRetriever:
         base_nodes: list[dict[str, Any]],
         assembled_subgraph: list[dict[str, Any]],
     ) -> None:
-        try:
-            hydrated_all = self._batch_node_properties(sorted(hydrate_ids))
-        except Exception as e:  # noqa: BLE001 — a hydration failure must never drop the already-discovered nodes, only their enrichment (mirrors the per-node fallback this replaces)
-            logger.debug(f"Batched hydration failed: {e}")
-            hydrated_all = {}
+        hydrated_all = self._fetch_hydrated_properties(hydrate_ids)
         _node_by_id = {str(n.get("id")): n for n in base_nodes if isinstance(n, dict)}
         for node_id, all_discovered in pending_hydrate:
             base_node = _node_by_id.get(node_id) or {"id": node_id}
             for nid in all_discovered:
-                if nid == node_id:
-                    # Preserve the vector-scored base node — it carries
-                    # _score, the active-task attention boost and its
-                    # embedding. Enrich (don't overwrite) with any graph
-                    # properties (e.g. type) it lacks rather than
-                    # refetching a bare graph projection.
-                    d = dict(base_node)
-                    for k, v in hydrated_all.get(nid, {}).items():
-                        d.setdefault(k, v)
-                else:
-                    d = dict(hydrated_all.get(nid, {}))
-                d["id"] = nid
-                if self._boost_strategy == "context_only":
-                    d["_context_boost"] = self._backlink_boost(nid)
-                assembled_subgraph.append(d)
+                assembled_subgraph.append(
+                    self._hydrate_one_discovered_node(
+                        nid, node_id, base_node, hydrated_all
+                    )
+                )
 
     def _finalize_retrieval(
         self,
@@ -1956,67 +2122,6 @@ class HybridRetriever:
             raw = ""
         return parse_hyde_plan(raw, original_query=query, mode_hint=mode_hint)
 
-    def _trivial_query_result(
-        self, query: str, with_ledger: bool
-    ) -> dict[str, Any] | list[dict[str, Any]] | None:
-        """``None`` if not trivial; otherwise the short-circuit result."""
-        from .hyde_planner import HydePlan, build_evidence_ledger, is_trivial_query
-
-        # CONCEPT:AU-KG.retrieval.triviality-gate — social-closer gate: trivial turns skip the planner + retrieval entirely.
-        if not is_trivial_query(query):
-            return None
-        empty: list[dict[str, Any]] = []
-        if with_ledger:
-            return {
-                "nodes": empty,
-                "ledger": build_evidence_ledger(query, empty),
-                "plan": HydePlan(vector_queries=[query]).model_dump(),
-                "trivial": True,
-            }
-        return empty
-
-    def _resolve_hyde_plan(self, query: str, mode: str) -> Any:
-        from .hyde_planner import HydePlan
-
-        if mode in ("standard", "deep"):
-            return HydePlan(vector_queries=[query], search_mode=mode)  # type: ignore[arg-type]
-        return self._generate_hyde_plan(query)
-
-    def _run_retrieval_pass(
-        self, queries: list[str], threshold: float, args: _RetrievalPassArgs
-    ) -> list[list[dict[str, Any]]]:
-        return [
-            self.retrieve_hybrid(
-                q,
-                context_window=args.sub_window,
-                corpus_id=args.corpus_id,
-                hard_negatives=args.hard_negatives,
-                relevance_threshold=threshold,
-                active_task=args.active_task,
-                session=args.session,  # GOC-83-W04: thread through, no-op when None
-            )
-            for q in queries
-        ]
-
-    def _maybe_self_correct(
-        self,
-        nodes: list[dict[str, Any]],
-        queries: list[str],
-        args: _RetrievalPassArgs,
-        context_window: int,
-        self_correct: bool,
-    ) -> list[dict[str, Any]]:
-        # Self-correcting second pass — fire only when the quality gate measured a failure.
-        from .hyde_planner import merge_retrievals, threshold_for_mode
-
-        report = self.last_quality_report
-        gate_failed = report is not None and not getattr(report, "gate_passed", True)
-        if not (self_correct and gate_failed):
-            return nodes
-        deep_threshold = threshold_for_mode("deep")
-        second_lists = self._run_retrieval_pass(queries, deep_threshold, args)
-        return merge_retrievals([nodes, *second_lists], context_window)
-
     def plan_and_retrieve(
         self,
         query: str,
@@ -2052,11 +2157,11 @@ class HybridRetriever:
             threshold_for_mode,
         )
 
-        trivial = self._trivial_query_result(query, with_ledger)
+        trivial = _trivial_query_result(query, with_ledger)
         if trivial is not None:
             return trivial
 
-        plan = self._resolve_hyde_plan(query, mode)
+        plan = _resolve_hyde_plan(self, query, mode)
         threshold = threshold_for_mode(plan.search_mode)
         queries = plan.effective_queries(query)
         sub_window = max(2, context_window)
@@ -2068,11 +2173,11 @@ class HybridRetriever:
             session=session,
         )
 
-        first_lists = self._run_retrieval_pass(queries, threshold, args)
+        first_lists = _run_retrieval_pass(self, queries, threshold, args)
         nodes = merge_retrievals(first_lists, context_window)
 
-        nodes = self._maybe_self_correct(
-            nodes, queries, args, context_window, self_correct
+        nodes = _maybe_self_correct(
+            self, nodes, queries, args, context_window, self_correct
         )
 
         # CONCEPT:AU-KG.retrieval.triviality-gate — 4-level fallback cascade: hybrid (above) → dense-only is already
@@ -2124,71 +2229,6 @@ class HybridRetriever:
             query, list(self.usage_telemetry._recalled), used_ids=used_ids
         ).model_dump()
 
-    @staticmethod
-    def _lexical_wrap(data: dict[str, Any], nid: Any) -> dict[str, Any]:
-        data = dict(data)
-        data["id"] = nid
-        data.setdefault("_score", 0.2)  # low confidence — it's a lexical fallback
-        data["_fallback"] = "lexical"
-        return data
-
-    def _lexical_fallback_engine_discover(
-        self, tokens: list[str], context_window: int
-    ) -> list[dict[str, Any]]:
-        # Tier 3 — engine-scalable keyword leg: `discover` ranks keyword overlap
-        # (name/description/type) server-side in ONE round-trip, then hydrate the top-k
-        # in ONE batch call. This replaces the O(N) `MATCH (n) WHERE ... CONTAINS ...
-        # LIMIT k` scan below, which the engine does not filter server-side (it returns
-        # arbitrary unfiltered nodes up to LIMIT — both slow and wrong on the engine).
-        graph = getattr(self.engine, "graph", None)
-        disc = getattr(graph, "discover", None)
-        if not callable(disc):
-            return []
-        try:
-            hits = disc(tokens, [], max(1, context_window)) or []
-            ids = [
-                str(h.get("id", ""))
-                for h in hits
-                if isinstance(h, dict) and h.get("id")
-            ]
-            if not ids:
-                return []
-            props = self._batch_node_properties(ids)
-            return [self._lexical_wrap(props.get(nid) or {}, nid) for nid in ids]
-        except Exception as e:  # noqa: BLE001 — degrade to the backend scan
-            logger.debug("engine discover lexical fallback unavailable: %s", e)
-            return []
-
-    def _lexical_fallback_backend_scan(
-        self, tokens: list[str], context_window: int
-    ) -> list[dict[str, Any]]:
-        # Tier 4 — a backend that DOES evaluate the Cypher WHERE (pg-age/neo4j mirror).
-        backend = getattr(self.engine, "backend", None)
-        if backend is None:
-            return []
-        where = " OR ".join(
-            f"toLower(n.content) CONTAINS $t{i} OR toLower(n.name) CONTAINS $t{i}"
-            for i in range(len(tokens))
-        )
-        params = {f"t{i}": tok.lower() for i, tok in enumerate(tokens)}
-        try:
-            rows = backend.execute(
-                f"MATCH (n) WHERE {where} "
-                f"RETURN n.id as id, n as data LIMIT {max(1, context_window)}",
-                params,
-            )
-        except Exception as e:  # pragma: no cover - backend dialect variance  # noqa: BLE001 — returns [] (the documented empty-results case) on a backend dialect failure — the lexical fallback is itself already the last-resort path, so an empty list here degrades to 'no lexical matches', not a lost primary result
-            logger.debug("Lexical fallback query failed: %s", e)
-            return []
-        out = []
-        for row in rows or []:
-            if not isinstance(row, dict):
-                continue
-            _d = row.get("data")
-            data = dict(_d) if isinstance(_d, dict) else {}
-            out.append(self._lexical_wrap(data, row.get("id")))
-        return out
-
     def _lexical_fallback(
         self, query: str, context_window: int, *, corpus_id: str | None = None
     ) -> list[dict[str, Any]]:
@@ -2205,8 +2245,8 @@ class HybridRetriever:
         if not tokens:
             return []
 
-        engine_hits = self._lexical_fallback_engine_discover(tokens, context_window)
+        engine_hits = _lexical_fallback_engine_discover(self, tokens, context_window)
         if engine_hits:
             return engine_hits
 
-        return self._lexical_fallback_backend_scan(tokens, context_window)
+        return _lexical_fallback_backend_scan(self, tokens, context_window)
