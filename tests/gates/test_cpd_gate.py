@@ -72,36 +72,113 @@ def test_check_cpd_passes_on_the_checked_in_set():
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def _gen_capability_power_module():
+    """The one ``gen_capability_power`` module object every test in this file
+    *and* ``check_cpd.py`` itself resolve to.
+
+    Python caches an ``import <name>`` by name in ``sys.modules`` for the
+    life of the interpreter, so ``check_cpd.py``'s own ``import
+    gen_capability_power as gcp`` (see ``scripts/check_cpd.py``) resolves to
+    this SAME object once it has been imported once, anywhere. Monkeypatching
+    ``MD_PATH`` / ``JSON_PATH`` / ``PACKAGE_JSON_PATH`` on the object this
+    returns is therefore visible inside ``check_cpd.main()`` too, in-process
+    — no subprocess (which would re-import an unpatched copy in a fresh
+    interpreter and silently check the real tracked files instead).
+    """
+    sys.path.insert(0, str(SCRIPTS))
+    import gen_capability_power as gcp
+
+    return gcp
+
+
+def _check_cpd_module():
+    sys.path.insert(0, str(SCRIPTS))
+    import check_cpd
+
+    return check_cpd
+
+
+def _run_check_cpd_inprocess(
+    capsys: pytest.CaptureFixture[str],
+) -> subprocess.CompletedProcess:
+    """Run the exact ``check_cpd.main()`` the ``guardrail-cpd-drift`` hook
+    invokes, in-process, honoring whatever ``gen_capability_power.MD_PATH`` /
+    ``JSON_PATH`` / ``PACKAGE_JSON_PATH`` the ``_isolated_*`` fixtures below
+    have monkeypatched. Returns a real ``subprocess.CompletedProcess`` (built
+    directly, no process spawned) purely so callers keep the familiar
+    ``.returncode`` / ``.stdout`` / ``.stderr`` shape ``_run_check_cpd``'s
+    subprocess-based callers already use.
+    """
+    check_cpd = _check_cpd_module()
+    returncode = check_cpd.main()
+    captured = capsys.readouterr()
+    return subprocess.CompletedProcess(
+        args=["check_cpd.main() (in-process)"],
+        returncode=returncode,
+        stdout=captured.out,
+        stderr=captured.err,
+    )
+
+
 @pytest.fixture
-def _restore_md():
-    original = MD_PATH.read_text(encoding="utf-8")
-    try:
-        yield
-    finally:
-        MD_PATH.write_text(original, encoding="utf-8")
+def _isolated_md(tmp_path, monkeypatch, capsys):
+    """Point every consumer of ``MD_PATH`` — this test module's own module-
+    level name AND ``gen_capability_power``'s (which ``check_cpd.py`` reads
+    via ``gcp.MD_PATH``) — at a throwaway copy under ``tmp_path``, and hand
+    the test a zero-argument ``run_check_cpd`` callable (bundling ``capsys``
+    internally) so the calling test's own signature stays a single fixture
+    parameter, unchanged from the old ``_restore_md``.
+
+    Replaces a ``try/finally`` that wrote-then-restored the REAL tracked
+    ``docs/capabilities-power.md`` in place: a ``finally`` does not run under
+    SIGKILL (this host's ``systemd-oomd`` kills whole process groups at
+    once), so an interrupted old-style run left the corrupted artifact on
+    disk for some later, unrelated commit's ``guardrail-cpd-drift`` /
+    ``guardrail-docs-contract`` / ``check-json`` run to trip over
+    (BUG-CX-085). Nothing here ever needs restoring because nothing real is
+    ever written — ``monkeypatch``'s own teardown (which DOES survive
+    anything short of SIGKILL, and matters not at all here since it is only
+    unwinding pointers to a copy) is enough.
+    """
+    copy_path = tmp_path / MD_PATH.name
+    copy_path.write_bytes(MD_PATH.read_bytes())
+    gcp = _gen_capability_power_module()
+    monkeypatch.setattr(gcp, "MD_PATH", copy_path)
+    monkeypatch.setattr(sys.modules[__name__], "MD_PATH", copy_path)
+
+    def _run() -> subprocess.CompletedProcess:
+        return _run_check_cpd_inprocess(capsys)
+
+    return _run
 
 
 @_needs_server_stack
-def test_check_cpd_trips_when_the_checked_in_doc_is_stale(_restore_md):
+def test_check_cpd_trips_when_the_checked_in_doc_is_stale(_isolated_md):
     """Appending content the live generator would never produce must fail the gate."""
     with MD_PATH.open("a", encoding="utf-8") as fh:
         fh.write("\n<!-- hand-edited, never regenerated -->\n")
-    result = _run_check_cpd()
+    result = _isolated_md()
     assert result.returncode == 1
     assert "DRIFT" in result.stdout or "stale" in result.stdout
 
 
 @pytest.fixture
-def _restore_json():
-    original = JSON_PATH.read_text(encoding="utf-8")
-    try:
-        yield
-    finally:
-        JSON_PATH.write_text(original, encoding="utf-8")
+def _isolated_json(tmp_path, monkeypatch, capsys):
+    """Same throwaway-copy-plus-runner pattern as ``_isolated_md``, for ``JSON_PATH``."""
+    copy_path = tmp_path / JSON_PATH.name
+    copy_path.write_bytes(JSON_PATH.read_bytes())
+    gcp = _gen_capability_power_module()
+    monkeypatch.setattr(gcp, "JSON_PATH", copy_path)
+    monkeypatch.setattr(sys.modules[__name__], "JSON_PATH", copy_path)
+
+    def _run() -> subprocess.CompletedProcess:
+        return _run_check_cpd_inprocess(capsys)
+
+    return _run
 
 
 @_needs_server_stack
-def test_check_cpd_trips_when_a_cpd_is_deleted_from_the_json(_restore_json):
+def test_check_cpd_trips_when_a_cpd_is_deleted_from_the_json(_isolated_json):
     """Removing one capability from the checked-in JSON must fail coverage/drift."""
     import json
 
@@ -110,25 +187,32 @@ def test_check_cpd_trips_when_a_cpd_is_deleted_from_the_json(_restore_json):
     data["capabilities"].pop()
     data["count"] = len(data["capabilities"])
     JSON_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    result = _run_check_cpd()
+    result = _isolated_json()
     assert result.returncode == 1
 
 
 @pytest.fixture
-def _restore_package_json():
-    original = PACKAGE_JSON_PATH.read_text(encoding="utf-8")
-    try:
-        yield
-    finally:
-        PACKAGE_JSON_PATH.write_text(original, encoding="utf-8")
+def _isolated_package_json(tmp_path, monkeypatch, capsys):
+    """Same throwaway-copy-plus-runner pattern as ``_isolated_md``, for
+    ``PACKAGE_JSON_PATH``."""
+    copy_path = tmp_path / PACKAGE_JSON_PATH.name
+    copy_path.write_bytes(PACKAGE_JSON_PATH.read_bytes())
+    gcp = _gen_capability_power_module()
+    monkeypatch.setattr(gcp, "PACKAGE_JSON_PATH", copy_path)
+    monkeypatch.setattr(sys.modules[__name__], "PACKAGE_JSON_PATH", copy_path)
+
+    def _run() -> subprocess.CompletedProcess:
+        return _run_check_cpd_inprocess(capsys)
+
+    return _run
 
 
 @_needs_server_stack
-def test_check_cpd_trips_when_the_packaged_catalog_diverges(_restore_package_json):
+def test_check_cpd_trips_when_the_packaged_catalog_diverges(_isolated_package_json):
     """The runtime catalog is a generated mirror, never an independent copy."""
     with PACKAGE_JSON_PATH.open("a", encoding="utf-8") as fh:
         fh.write("\n")
-    result = _run_check_cpd()
+    result = _isolated_package_json()
     assert result.returncode == 1
     assert "byte-identical" in result.stdout or "stale" in result.stdout
 
