@@ -561,6 +561,43 @@ class _GraphQLDocumentLimits:
         )
 
 
+@dataclass
+class _HierarchyPrepContext:
+    """Per-``kind`` context shared while preparing hierarchy-batch entities."""
+
+    kind: str
+    mapping: dict[str, Any]
+    identity_key: str
+    profile_digest: str
+    governance_digest: str
+    governance: tuple[
+        ExternalAccess,
+        DataClassification,
+        str | None,
+        bool,
+        str,
+        str,
+        str,
+    ]
+
+
+@dataclass
+class _EnvelopeContext:
+    """Fields shared while turning prepared entities into ``ChangeEnvelope``s."""
+
+    identity_key: str
+    known_node_ids: set[str]
+    profile_digest: str
+    fetch_diagnostics: dict[str, int]
+    tenant: str
+    schema: str
+    mapping_version: str
+    access: ExternalAccess
+    classification: DataClassification
+    retention: str | None
+    legal_hold: bool
+
+
 @register_source("graphql_document")
 class GraphQLDocumentConnector(LoadConnector, PollConnector):
     """Ingest mapped GraphQL responses as governed ``SourceDocument`` objects.
@@ -2422,15 +2459,25 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             allow_empty_snapshot=bool(operation.get("allow_empty_snapshot", False)),
         )
 
-    def _hierarchy_batch(
-        self,
-        *,
-        profile: dict[str, Any],
-        operation: dict[str, Any],
-        roots: list[Any],
-        fetch_diagnostics: dict[str, int],
-        checkpoint: ConnectorCheckpoint | None,
-    ) -> GraphQLHierarchyBatch:
+    def _hierarchy_batch_context(
+        self, profile: dict[str, Any], operation: dict[str, Any]
+    ) -> tuple[
+        str,
+        tuple[
+            ExternalAccess,
+            DataClassification,
+            str | None,
+            bool,
+            str,
+            str,
+            str,
+        ],
+        str,
+        str,
+        int,
+        int,
+        int,
+    ]:
         identity_key = str(profile["identity_hmac_key"])
         governance = self._governance(profile)
         profile_digest = _digest(operation)
@@ -2460,6 +2507,118 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             minimum=1,
             maximum=32,
         )
+        return (
+            identity_key,
+            governance,
+            profile_digest,
+            governance_digest,
+            max_entities,
+            max_documents,
+            max_depth,
+        )
+
+    def _prepare_one_entity(
+        self,
+        record: dict[str, Any],
+        parent_raw: Any,
+        depth: int,
+        ctx: _HierarchyPrepContext,
+        known_node_ids: set[str],
+    ) -> tuple[dict[str, Any] | None, int, int, set[str]]:
+        """Returns (prepared item or None, invalid-delta, redactions-delta, detected types)."""
+        kind = ctx.kind
+        mapping = ctx.mapping
+        identity_key = ctx.identity_key
+        raw_id = _dig(record, str(mapping.get("id_path") or "id"))
+        if raw_id in (None, ""):
+            return None, 1, 0, set()
+        opaque, node_id = self._entity_node_id(identity_key, kind=kind, raw_id=raw_id)
+        if node_id in known_node_ids:
+            return None, 0, 0, set()
+        properties, redactions, detected = self._selected_properties(record, mapping)
+        entity_type = _safe_entity_type(
+            mapping.get("entity_type"), fallback=_DEFAULT_ENTITY_TYPES[kind]
+        )
+        payload: dict[str, Any] = {
+            "id": node_id,
+            "type": entity_type,
+            "source_alias": self.source_alias,
+            "source_kind": "graphql",
+            "entity_kind": kind,
+            **properties,
+        }
+        document: SourceDocument | None = None
+        if kind == "document":
+            document = self._render_document(
+                record,
+                mapping,
+                identity_key,
+                profile_digest=ctx.profile_digest,
+                entity_id=node_id,
+                governance=ctx.governance,
+            )
+            if document is None:
+                return None, 1, redactions, set(detected)
+            payload.update(
+                {
+                    "title": document.title,
+                    "doc_type": document.doc_type,
+                    "content_digest": document.metadata["content_digest"],
+                    "embedding_handoff": True,
+                }
+            )
+        version_path = str(mapping.get("version_path") or "")
+        raw_version = _dig(record, version_path) if version_path else None
+        version = _private_digest(
+            identity_key,
+            self.source_alias,
+            self.operation,
+            kind,
+            str(raw_id),
+            str(raw_version or ""),
+            _digest(payload),
+            ctx.profile_digest,
+            ctx.governance_digest,
+        )
+        if document is not None:
+            document.updated_at = version
+        item = {
+            "kind": kind,
+            "raw_id": raw_id,
+            "opaque": opaque,
+            "node_id": node_id,
+            "version": version,
+            "record": record,
+            "mapping": mapping,
+            "parent_raw": parent_raw,
+            "depth": depth,
+            "payload": payload,
+            "document": document,
+        }
+        return item, 0, redactions, set(detected)
+
+    def _prepare_entities(
+        self,
+        roots: list[Any],
+        operation: dict[str, Any],
+        identity_key: str,
+        profile_digest: str,
+        governance_digest: str,
+        governance: tuple[
+            ExternalAccess,
+            DataClassification,
+            str | None,
+            bool,
+            str,
+            str,
+            str,
+        ],
+        max_entities: int,
+        max_documents: int,
+        max_depth: int,
+    ) -> tuple[list[dict[str, Any]], set[str], set[str], int, int, int]:
+        """Returns (prepared, known_node_ids, privacy_types, privacy_redactions,
+        truncated, invalid_records)."""
         prepared: list[dict[str, Any]] = []
         known_node_ids: set[str] = set()
         privacy_types: set[str] = set()
@@ -2485,88 +2644,127 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
                 max_depth=max_depth,
             )
             truncated += mapping_truncated
+            ctx = _HierarchyPrepContext(
+                kind=kind,
+                mapping=mapping,
+                identity_key=identity_key,
+                profile_digest=profile_digest,
+                governance_digest=governance_digest,
+                governance=governance,
+            )
             for record, parent_raw, depth in records:
-                raw_id = _dig(record, str(mapping.get("id_path") or "id"))
-                if raw_id in (None, ""):
-                    invalid_records += 1
-                    continue
-                opaque, node_id = self._entity_node_id(
-                    identity_key, kind=kind, raw_id=raw_id
+                item, invalid_delta, redactions_delta, detected = (
+                    self._prepare_one_entity(
+                        record, parent_raw, depth, ctx, known_node_ids
+                    )
                 )
-                if node_id in known_node_ids:
-                    continue
-                properties, redactions, detected = self._selected_properties(
-                    record, mapping
-                )
-                privacy_redactions += redactions
+                invalid_records += invalid_delta
+                privacy_redactions += redactions_delta
                 privacy_types.update(detected)
-                entity_type = _safe_entity_type(
-                    mapping.get("entity_type"), fallback=_DEFAULT_ENTITY_TYPES[kind]
-                )
-                payload: dict[str, Any] = {
-                    "id": node_id,
-                    "type": entity_type,
-                    "source_alias": self.source_alias,
-                    "source_kind": "graphql",
-                    "entity_kind": kind,
-                    **properties,
-                }
-                document: SourceDocument | None = None
-                if kind == "document":
-                    document = self._render_document(
-                        record,
-                        mapping,
-                        identity_key,
-                        profile_digest=profile_digest,
-                        entity_id=node_id,
-                        governance=governance,
-                    )
-                    if document is None:
-                        invalid_records += 1
-                        continue
-                    payload.update(
-                        {
-                            "title": document.title,
-                            "doc_type": document.doc_type,
-                            "content_digest": document.metadata["content_digest"],
-                            "embedding_handoff": True,
-                        }
-                    )
-                version_path = str(mapping.get("version_path") or "")
-                raw_version = _dig(record, version_path) if version_path else None
-                version = _private_digest(
-                    identity_key,
-                    self.source_alias,
-                    self.operation,
-                    kind,
-                    str(raw_id),
-                    str(raw_version or ""),
-                    _digest(payload),
-                    profile_digest,
-                    governance_digest,
-                )
-                if document is not None:
-                    document.updated_at = version
-                known_node_ids.add(node_id)
-                prepared.append(
-                    {
-                        "kind": kind,
-                        "raw_id": raw_id,
-                        "opaque": opaque,
-                        "node_id": node_id,
-                        "version": version,
-                        "record": record,
-                        "mapping": mapping,
-                        "parent_raw": parent_raw,
-                        "depth": depth,
-                        "payload": payload,
-                        "document": document,
-                    }
-                )
+                if item is not None:
+                    known_node_ids.add(str(item["node_id"]))
+                    prepared.append(item)
 
-        documents: list[SourceDocument] = []
+        return (
+            prepared,
+            known_node_ids,
+            privacy_types,
+            privacy_redactions,
+            truncated,
+            invalid_records,
+        )
+
+    def _build_envelope(
+        self, item: dict[str, Any], ctx: _EnvelopeContext
+    ) -> tuple[ChangeEnvelope, SourceDocument | None]:
+        links = self._entity_links(
+            identity_key=ctx.identity_key, item=item, known_ids=ctx.known_node_ids
+        )
+        payload = dict(item["payload"])
+        if links:
+            payload["_links"] = links
+        node_id = str(item["node_id"])
+        version = str(item["version"])
+        document = item.get("document")
+        envelope = ChangeEnvelope(
+            connector="graphql_document",
+            tenant=ctx.tenant,
+            source_instance=self.source_alias,
+            source_object_id=node_id,
+            source_version=version,
+            schema_version=ctx.schema,
+            ontology_mapping_version=ctx.mapping_version,
+            typed_payload=payload,
+            source_acl=ctx.access,
+            classification=ctx.classification,
+            retention=ctx.retention,
+            legal_hold=ctx.legal_hold,
+            provenance={
+                "profile_digest": ctx.profile_digest,
+                "privacy_gate": True,
+                "identity_scheme": "hmac-sha256",
+                "pages": ctx.fetch_diagnostics.get("pages", 0),
+                "fallbacks": ctx.fetch_diagnostics.get("fallbacks", 0),
+                "partial_errors": ctx.fetch_diagnostics.get("partial_errors", 0),
+            },
+            checkpoint=version,
+        )
+        returned_document = document if isinstance(document, SourceDocument) else None
+        return envelope, returned_document
+
+    def _build_envelopes(
+        self, prepared: list[dict[str, Any]], ctx: _EnvelopeContext
+    ) -> tuple[list[ChangeEnvelope], list[SourceDocument], dict[str, str]]:
         envelopes: list[ChangeEnvelope] = []
+        documents: list[SourceDocument] = []
         versions: dict[str, str] = {}
+        for item in prepared:
+            envelope, document = self._build_envelope(item, ctx)
+            node_id = str(item["node_id"])
+            versions[node_id] = str(item["version"])
+            if document is not None:
+                documents.append(document)
+            envelopes.append(envelope)
+        return envelopes, documents, versions
+
+    def _hierarchy_batch(
+        self,
+        *,
+        profile: dict[str, Any],
+        operation: dict[str, Any],
+        roots: list[Any],
+        fetch_diagnostics: dict[str, int],
+        checkpoint: ConnectorCheckpoint | None,
+    ) -> GraphQLHierarchyBatch:
+        (
+            identity_key,
+            governance,
+            profile_digest,
+            governance_digest,
+            max_entities,
+            max_documents,
+            max_depth,
+        ) = self._hierarchy_batch_context(profile, operation)
+
+        (
+            prepared,
+            known_node_ids,
+            privacy_types,
+            privacy_redactions,
+            truncated,
+            invalid_records,
+        ) = self._prepare_entities(
+            roots,
+            operation,
+            identity_key,
+            profile_digest,
+            governance_digest,
+            governance,
+            max_entities,
+            max_documents,
+            max_depth,
+        )
+
         (
             access,
             classification,
@@ -2576,44 +2774,21 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             schema,
             mapping_version,
         ) = governance
-        for item in prepared:
-            links = self._entity_links(
-                identity_key=identity_key, item=item, known_ids=known_node_ids
-            )
-            payload = dict(item["payload"])
-            if links:
-                payload["_links"] = links
-            node_id = str(item["node_id"])
-            version = str(item["version"])
-            versions[node_id] = version
-            document = item.get("document")
-            if isinstance(document, SourceDocument):
-                documents.append(document)
-            envelopes.append(
-                ChangeEnvelope(
-                    connector="graphql_document",
-                    tenant=tenant,
-                    source_instance=self.source_alias,
-                    source_object_id=node_id,
-                    source_version=version,
-                    schema_version=schema,
-                    ontology_mapping_version=mapping_version,
-                    typed_payload=payload,
-                    source_acl=access,
-                    classification=classification,
-                    retention=retention,
-                    legal_hold=legal_hold,
-                    provenance={
-                        "profile_digest": profile_digest,
-                        "privacy_gate": True,
-                        "identity_scheme": "hmac-sha256",
-                        "pages": fetch_diagnostics.get("pages", 0),
-                        "fallbacks": fetch_diagnostics.get("fallbacks", 0),
-                        "partial_errors": fetch_diagnostics.get("partial_errors", 0),
-                    },
-                    checkpoint=version,
-                )
-            )
+        envelope_ctx = _EnvelopeContext(
+            identity_key=identity_key,
+            known_node_ids=known_node_ids,
+            profile_digest=profile_digest,
+            fetch_diagnostics=fetch_diagnostics,
+            tenant=tenant,
+            schema=schema,
+            mapping_version=mapping_version,
+            access=access,
+            classification=classification,
+            retention=retention,
+            legal_hold=legal_hold,
+        )
+        envelopes, documents, versions = self._build_envelopes(prepared, envelope_ctx)
+
         return self._checkpoint_batch(
             documents=documents,
             envelopes=envelopes,
