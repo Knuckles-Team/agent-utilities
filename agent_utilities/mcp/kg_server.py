@@ -164,6 +164,23 @@ def _validate_tool_kwargs_against_signature(
         )
 
 
+def _resolve_verified_scope_actor(session):
+    """Resolve the ambient actor for `verified_tool_session_scope`, if any.
+
+    Returns ``None`` when no actor is bound. Raises when a bound,
+    authenticated actor disagrees with the session's own actor.
+    """
+    from ..security.brain_context import IdentityRequiredError, current_actor
+
+    try:
+        actor = current_actor()
+    except IdentityRequiredError:
+        return None
+    if actor is not None and actor.authenticated and actor != session.actor:
+        raise PermissionError("Verified actor and GraphSession authority differ")
+    return actor
+
+
 @contextlib.contextmanager
 def verified_tool_session_scope():
     """Scope one served tool call to middleware/process-minted authority.
@@ -173,11 +190,7 @@ def verified_tool_session_scope():
     endpoint, and policy values.
     """
     from ..knowledge_graph.core.session import current_session, use_session
-    from ..security.brain_context import (
-        IdentityRequiredError,
-        current_actor,
-        use_actor,
-    )
+    from ..security.brain_context import use_actor
 
     ambient = current_session()
     session = ambient or _PROCESS_SESSION
@@ -188,12 +201,7 @@ def verified_tool_session_scope():
     except PermissionError:
         raise PermissionError("Verified GraphSession authority is incomplete") from None
 
-    try:
-        actor = current_actor()
-    except IdentityRequiredError:
-        actor = None
-    if actor is not None and actor.authenticated and actor != session.actor:
-        raise PermissionError("Verified actor and GraphSession authority differ")
+    actor = _resolve_verified_scope_actor(session)
 
     with contextlib.ExitStack() as stack:
         if ambient is None:
@@ -423,33 +431,59 @@ def get_existing_disabled_batch(
     remaining = list(dict.fromkeys(node_ids))  # de-dupe, preserve order
     if not remaining:
         return result
+    remaining = _disabled_batch_cache_lookup(engine, remaining, result)
+    if not remaining:
+        return result
+    _disabled_batch_engine_lookup(engine, safe_label, remaining, result)
+    return result
+
+
+def _disabled_batch_cache_lookup(
+    engine, node_ids: list[str], result: dict[str, bool]
+) -> list[str]:
+    """Resolve as many ids as possible from the in-memory graph-compute cache.
+
+    Mutates ``result`` in place for ids found in the cache. Returns the ids
+    still unresolved (for the caller to fall through to the engine query).
+    Fails closed: on any lookup error, marks every id passed in as disabled
+    in ``result`` and returns an empty list.
+    """
     try:
         if hasattr(engine, "graph_compute") and hasattr(engine.graph_compute, "graph"):
             graph = engine.graph_compute.graph
             still_remaining = []
-            for node_id in remaining:
+            for node_id in node_ids:
                 if node_id in graph:
                     result[node_id] = bool(graph.nodes[node_id].get("disabled", False))
                 else:
                     still_remaining.append(node_id)
-            remaining = still_remaining
+            return still_remaining
     except Exception as exc:  # noqa: BLE001 — surfaced as fail-closed below
         logger.error(
             "get_existing_disabled_batch: in-memory cache lookup failed — "
             "failing closed for %d id(s): %s",
-            len(remaining),
+            len(node_ids),
             type(exc).__name__,
         )
-        for node_id in remaining:
+        for node_id in node_ids:
             result[node_id] = True
-        return result
-    if not remaining:
-        return result
+        return []
+    return node_ids
+
+
+def _disabled_batch_engine_lookup(
+    engine, safe_label: str, node_ids: list[str], result: dict[str, bool]
+) -> None:
+    """Resolve the remaining ids via one ``query_cypher`` round trip.
+
+    Mutates ``result`` in place. Fails closed: on any query error, marks
+    every id passed in as disabled in ``result``.
+    """
     try:
         res = engine.query_cypher(
             f"MATCH (n:{safe_label}) WHERE n.id IN $node_ids "
             "RETURN n.id AS id, n.disabled AS disabled",
-            {"node_ids": remaining},
+            {"node_ids": node_ids},
         )
         if not isinstance(res, list):
             raise TypeError(f"expected a list of rows, got {type(res).__name__}")
@@ -457,16 +491,15 @@ def get_existing_disabled_batch(
         logger.error(
             "get_existing_disabled_batch(%d ids) lookup failed — failing "
             "closed (treating every unresolved id as disabled): %s",
-            len(remaining),
+            len(node_ids),
             type(exc).__name__,
         )
-        for node_id in remaining:
+        for node_id in node_ids:
             result[node_id] = True
-        return result
+        return
     for row in res:
         if isinstance(row, dict) and row.get("id"):
             result[str(row["id"])] = bool(row.get("disabled", False))
-    return result
 
 
 def safe_json_load(s: Any) -> Any:
@@ -483,45 +516,63 @@ def safe_json_load(s: Any) -> Any:
     return s
 
 
-def _parse_skill_md(path: Any) -> dict[str, Any]:
-    """Parse YAML frontmatter from a SKILL.md file."""
+def _parse_skill_md_frontmatter(content: str) -> dict[str, Any]:
+    """Extract the YAML frontmatter block from a SKILL.md's raw content.
+
+    Falls back to a line-by-line ``key: value`` scan when the block is not
+    valid YAML. Returns ``{}`` when there is no frontmatter block at all.
+    """
     import re
-    from pathlib import Path
 
     import yaml
+
+    match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
+    if not match:
+        return {}
+    try:
+        return yaml.safe_load(match.group(1)) or {}
+    except Exception:
+        metadata: dict[str, Any] = {}
+        for line in match.group(1).splitlines():
+            if ":" in line:
+                k, v = line.split(":", 1)
+                metadata[k.strip()] = v.strip()
+        return metadata
+
+
+def _skill_record_from_metadata(
+    metadata: dict[str, Any], path_obj: Any
+) -> dict[str, Any]:
+    """Build the skill-registration record from parsed frontmatter metadata."""
+    name = metadata.get("name") or path_obj.parent.name
+    description = metadata.get("description") or ""
+    domain = metadata.get("domain") or (
+        path_obj.parent.parent.name if len(path_obj.parts) > 2 else ""
+    )
+    tags = metadata.get("tags") or []
+    if isinstance(tags, str):
+        tags = [t.strip() for t in tags.split(",") if t.strip()]
+
+    return {
+        "id": name,
+        "name": name,
+        "description": description,
+        "domain": domain,
+        "tags": tags,
+        "enabled": True,
+        "file_path": f"skill://{name}",
+    }
+
+
+def _parse_skill_md(path: Any) -> dict[str, Any]:
+    """Parse YAML frontmatter from a SKILL.md file."""
+    from pathlib import Path
 
     path_obj = Path(path)
     try:
         content = path_obj.read_text(encoding="utf-8", errors="ignore")
-        match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
-        metadata: dict[str, Any] = {}
-        if match:
-            try:
-                metadata = yaml.safe_load(match.group(1)) or {}
-            except Exception:
-                for line in match.group(1).splitlines():
-                    if ":" in line:
-                        k, v = line.split(":", 1)
-                        metadata[k.strip()] = v.strip()
-
-        name = metadata.get("name") or path_obj.parent.name
-        description = metadata.get("description") or ""
-        domain = metadata.get("domain") or (
-            path_obj.parent.parent.name if len(path_obj.parts) > 2 else ""
-        )
-        tags = metadata.get("tags") or []
-        if isinstance(tags, str):
-            tags = [t.strip() for t in tags.split(",") if t.strip()]
-
-        return {
-            "id": name,
-            "name": name,
-            "description": description,
-            "domain": domain,
-            "tags": tags,
-            "enabled": True,
-            "file_path": f"skill://{name}",
-        }
+        metadata = _parse_skill_md_frontmatter(content)
+        return _skill_record_from_metadata(metadata, path_obj)
     except Exception as e:
         logger.error("Failed to parse SKILL.md: %s", e)
         name = path_obj.parent.name
@@ -574,6 +625,30 @@ def get_toggle_states_batch(
 
     pref_id_by_key = {key: f"preference:toggle:{key[0]}:{key[1]}" for key in seen}
     pref_ids = list(pref_id_by_key.values())
+    res = _toggle_batch_query(engine, pref_ids, seen)
+    if res is None:
+        return dict.fromkeys(seen, True)
+
+    value_by_pref_id: dict[str, Any] = {}
+    for row in res:
+        if isinstance(row, dict) and row.get("id"):
+            value_by_pref_id[str(row["id"])] = row.get("value")
+
+    result: dict[tuple[str, str], bool] = {}
+    for key in seen:
+        value = value_by_pref_id.get(pref_id_by_key[key])
+        result[key] = True if value is None else value == "enabled"
+    return result
+
+
+def _toggle_batch_query(
+    engine: Any, pref_ids: list[str], seen: list[tuple[str, str]]
+) -> list[Any] | None:
+    """Run the batched ``Preference`` lookup for :func:`get_toggle_states_batch`.
+
+    Fail-open: returns ``None`` on any query error, so the caller defaults
+    every requested item to ``enabled=True``.
+    """
     try:
         res = engine.query_cypher(
             "MATCH (p:Preference) WHERE p.id IN $pref_ids "
@@ -589,18 +664,33 @@ def get_toggle_states_batch(
             len(seen),
             exc,
         )
-        return dict.fromkeys(seen, True)
+        return None
+    return res
 
-    value_by_pref_id: dict[str, Any] = {}
-    for row in res:
-        if isinstance(row, dict) and row.get("id"):
-            value_by_pref_id[str(row["id"])] = row.get("value")
 
-    result: dict[tuple[str, str], bool] = {}
-    for key in seen:
-        value = value_by_pref_id.get(pref_id_by_key[key])
-        result[key] = True if value is None else value == "enabled"
-    return result
+_TOGGLE_NODE_ID_PREFIX: dict[str, str] = {
+    "mcp_server": "mcp_server_",
+    "builtin_tool": "native_tool_",
+    "skill": "skill_",
+    "skill_workflow": "skill_workflow_",
+    "skill_graph": "skill_graph_",
+}
+
+
+def _sync_toggle_node_state(engine, node_id: str, enabled: bool) -> None:
+    """Mirror a toggle's new state onto the node itself (engine + cache)."""
+    engine.query_cypher(
+        "MATCH (n) WHERE n.id = $node_id SET n.disabled = $disabled",
+        {"node_id": node_id, "disabled": not enabled},
+    )
+    # Also update in-memory graph cache if active
+    if (
+        hasattr(engine, "graph_compute")
+        and engine.graph_compute
+        and hasattr(engine.graph_compute, "graph")
+        and node_id in engine.graph_compute.graph.nodes
+    ):
+        engine.graph_compute.graph.nodes[node_id]["disabled"] = not enabled
 
 
 def set_toggle_state(engine, item_type: str, item_id: str, enabled: bool):
@@ -622,31 +712,10 @@ def set_toggle_state(engine, item_type: str, item_id: str, enabled: bool):
             },
         )
         # Also update the actual node in the graph for real-time sync
-        node_id = ""
-        if item_type == "mcp_server":
-            node_id = f"mcp_server_{item_id}"
-        elif item_type == "builtin_tool":
-            node_id = f"native_tool_{item_id}"
-        elif item_type == "skill":
-            node_id = f"skill_{item_id}"
-        elif item_type == "skill_workflow":
-            node_id = f"skill_workflow_{item_id}"
-        elif item_type == "skill_graph":
-            node_id = f"skill_graph_{item_id}"
-
+        prefix = _TOGGLE_NODE_ID_PREFIX.get(item_type, "")
+        node_id = f"{prefix}{item_id}" if prefix else ""
         if node_id:
-            engine.query_cypher(
-                "MATCH (n) WHERE n.id = $node_id SET n.disabled = $disabled",
-                {"node_id": node_id, "disabled": not enabled},
-            )
-            # Also update in-memory graph cache if active
-            if (
-                hasattr(engine, "graph_compute")
-                and engine.graph_compute
-                and hasattr(engine.graph_compute, "graph")
-            ):
-                if node_id in engine.graph_compute.graph.nodes:
-                    engine.graph_compute.graph.nodes[node_id]["disabled"] = not enabled
+            _sync_toggle_node_state(engine, node_id, enabled)
     except Exception as exc:
         logger.error("Failed to save toggle state: %s", exc)
 
@@ -779,6 +848,159 @@ def _read_catalog_kind_sync(
     return rows
 
 
+def _gather_mcp_catalog_entries() -> tuple[list[tuple[str, dict[str, Any]]], str]:
+    """Gather (name, catalog_row) pairs for the fleet catalog's ``servers`` kind.
+
+    Section 1 of :func:`_build_tools_payload_sync` — see that function's
+    docstring for why ``mcp_tools`` reads the SQL fleet catalog now.
+    """
+    try:
+        server_rows = _read_catalog_kind_sync(
+            "servers", require_discovery_binding=False
+        )
+        mcp_entries = [
+            (str(row.get("name") or ""), row) for row in server_rows if row.get("name")
+        ]
+        return mcp_entries, "ok"
+    except Exception as e:
+        logger.error("Failed to read the fleet-catalog 'servers' kind: %s", e)
+        return [], "unavailable"
+
+
+def _gather_builtin_tool_stems() -> tuple[list[str], str]:
+    """Gather built-in agent tool file stems. No catalog equivalent exists."""
+    try:
+        tools_dir = Path(__file__).resolve().parents[1] / "tools"
+        builtin_stems: list[str] = []
+        if tools_dir.exists() and tools_dir.is_dir():
+            for f in tools_dir.glob("*.py"):
+                if f.name.startswith("_"):
+                    continue
+                builtin_stems.append(f.stem)
+        return builtin_stems, "ok"
+    except Exception as e:
+        logger.error("Failed to scan built-in tools directory: %s", e)
+        return [], "unavailable"
+
+
+def _gather_skill_and_workflow_entries(
+    workspace_root: Path | None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str]:
+    """Gather Skill / Skill-Workflow entries by parsing SKILL.md files.
+
+    Stays filesystem-sourced (not the fleet catalog) — see
+    :func:`_build_tools_payload_sync`'s docstring for the domain/tags and
+    freshness gap that rules the catalog out for this section.
+    """
+    skill_entries: list[dict[str, Any]] = []
+    workflow_entries: list[dict[str, Any]] = []
+    try:
+        univ_skills_dir = (
+            workspace_root
+            / "agent-packages"
+            / "skills"
+            / "universal-skills"
+            / "universal_skills"
+            if workspace_root is not None
+            else None
+        )
+        if univ_skills_dir is not None and univ_skills_dir.exists():
+            for p in univ_skills_dir.glob("**/SKILL.md"):
+                skill_info = _parse_skill_md(p)
+                if "workflows" in p.parts:
+                    skill_info["type"] = "Skill Workflow"
+                    workflow_entries.append(skill_info)
+                else:
+                    skill_info["type"] = "Agent Skill"
+                    skill_entries.append(skill_info)
+        return skill_entries, workflow_entries, "ok"
+    except Exception as e:
+        logger.error("Failed to scan the universal-skills corpus: %s", e)
+        return [], [], "unavailable"
+
+
+def _gather_skill_graph_entries(
+    workspace_root: Path | None,
+) -> tuple[list[dict[str, Any]], str]:
+    """Gather Skill-Graph entries by parsing SKILL.md files.
+
+    Stays filesystem-sourced — see :func:`_build_tools_payload_sync`'s
+    docstring for why (no reliable ingestion sync for this package).
+    """
+    graph_entries: list[dict[str, Any]] = []
+    try:
+        graphs_dir = (
+            workspace_root
+            / "agent-packages"
+            / "skills"
+            / "skill-graphs"
+            / "skill_graphs"
+            if workspace_root is not None
+            else None
+        )
+        if graphs_dir is not None and graphs_dir.exists():
+            for p in graphs_dir.glob("**/SKILL.md"):
+                skill_info = _parse_skill_md(p)
+                skill_info["type"] = "Skill Graph"
+                graph_entries.append(skill_info)
+        return graph_entries, "ok"
+    except Exception as e:
+        logger.error("Failed to scan the skill-graphs corpus: %s", e)
+        return [], "unavailable"
+
+
+def _resolve_tool_payload_toggle_states(
+    engine: Any,
+    mcp_entries: list[tuple[str, dict[str, Any]]],
+    builtin_stems: list[str],
+    workflow_entries: list[dict[str, Any]],
+    skill_entries: list[dict[str, Any]],
+    graph_entries: list[dict[str, Any]],
+) -> dict[tuple[str, str], bool]:
+    """One batched toggle-state round trip for every item about to render.
+
+    See :func:`_build_tools_payload_sync`'s docstring for why ``mcp_tools``
+    reads this Preference-node store even though it is catalog-sourced now.
+    """
+    toggle_keys: list[tuple[str, str]] = (
+        [("mcp_server", name) for name, _row in mcp_entries]
+        + [("builtin_tool", stem) for stem in builtin_stems]
+        + [("skill_workflow", info["id"]) for info in workflow_entries]
+        + [("skill", info["id"]) for info in skill_entries]
+        + [("skill_graph", info["id"]) for info in graph_entries]
+    )
+    return get_toggle_states_batch(engine, toggle_keys)
+
+
+def _mcp_tools_section(
+    mcp_entries: list[tuple[str, dict[str, Any]]],
+    toggle_states: dict[tuple[str, str], bool],
+) -> list[dict[str, Any]]:
+    """Build the ``mcp_tools`` payload rows from catalog entries + toggle state."""
+    mcp_tools: list[dict[str, Any]] = []
+    for name, row in mcp_entries:
+        mcp_enabled = toggle_states[("mcp_server", name)]
+        if not row.get("enabled", True):
+            mcp_enabled = False
+        transport = str(row.get("transport") or "")
+        is_stdio = transport == "stdio"
+        mcp_tools.append(
+            {
+                "name": name,
+                "type": "MCP Server",
+                "launch_mode": "subprocess" if is_stdio else "remote",
+                # The catalog never stores the raw command/args (privacy —
+                # see fleet_catalog_tables' module docstring); these stayed
+                # opaque presence markers even before this migration.
+                "command": "[configured]" if is_stdio else "",
+                "args": ["[configured]"] if is_stdio else [],
+                "status": "active" if mcp_enabled else "disabled",
+                "enabled": mcp_enabled,
+            }
+        )
+    return mcp_tools
+
+
 def _build_tools_payload_sync(
     engine: Any, workspace_root: Path | None
 ) -> _ToolsPayload:
@@ -857,94 +1079,20 @@ def _build_tools_payload_sync(
           on-disk corpus is real and current, so it also stays
           filesystem-sourced.
     """
-    section_status: dict[str, str] = {}
 
-    # 1. MCP Tools — now the SQL fleet catalog's ``servers`` kind (see
-    #    docstring above), not a fresh ``mcp_config.json`` parse.
-    mcp_tools: list[dict[str, Any]] = []
-    mcp_entries: list[tuple[str, dict[str, Any]]] = []  # (name, catalog_row)
-    try:
-        server_rows = _read_catalog_kind_sync(
-            "servers", require_discovery_binding=False
-        )
-        mcp_entries = [
-            (str(row.get("name") or ""), row) for row in server_rows if row.get("name")
-        ]
-        section_status["mcp_tools"] = "ok"
-    except Exception as e:
-        logger.error("Failed to read the fleet-catalog 'servers' kind: %s", e)
-        section_status["mcp_tools"] = "unavailable"
-
-    # 2. Built-in Agent Tools — gather raw file stems first. No catalog
-    #    equivalent exists (see docstring) — filesystem-sourced as before.
-    builtin_stems: list[str] = []
-    try:
-        tools_dir = Path(__file__).resolve().parents[1] / "tools"
-        if tools_dir.exists() and tools_dir.is_dir():
-            for f in tools_dir.glob("*.py"):
-                if f.name.startswith("_"):
-                    continue
-                builtin_stems.append(f.stem)
-        section_status["builtin_tools"] = "ok"
-    except Exception as e:
-        logger.error("Failed to scan built-in tools directory: %s", e)
-        section_status["builtin_tools"] = "unavailable"
-
-    # 3. Skills & Workflows — parse SKILL.md files first, defer toggle state.
-    #    No catalog migration (see docstring: domain/tags + freshness gap).
-    skill_entries: list[dict[str, Any]] = []  # bucket="skill"
-    workflow_entries: list[dict[str, Any]] = []  # bucket="skill_workflow"
-    try:
-        univ_skills_dir = (
-            workspace_root
-            / "agent-packages"
-            / "skills"
-            / "universal-skills"
-            / "universal_skills"
-            if workspace_root is not None
-            else None
-        )
-        if univ_skills_dir is not None and univ_skills_dir.exists():
-            for p in univ_skills_dir.glob("**/SKILL.md"):
-                skill_info = _parse_skill_md(p)
-                if "workflows" in p.parts:
-                    skill_info["type"] = "Skill Workflow"
-                    workflow_entries.append(skill_info)
-                else:
-                    skill_info["type"] = "Agent Skill"
-                    skill_entries.append(skill_info)
-        section_status["skills"] = "ok"
-        section_status["skill_workflows"] = "ok"
-    except Exception as e:
-        logger.error("Failed to scan the universal-skills corpus: %s", e)
-        section_status["skills"] = "unavailable"
-        section_status["skill_workflows"] = "unavailable"
-        skill_entries = []
-        workflow_entries = []
-
-    # 4. Skill Graphs — parse SKILL.md files first, defer toggle state.
-    #    No catalog migration (see docstring: no reliable ingestion sync).
-    graph_entries: list[dict[str, Any]] = []
-    try:
-        graphs_dir = (
-            workspace_root
-            / "agent-packages"
-            / "skills"
-            / "skill-graphs"
-            / "skill_graphs"
-            if workspace_root is not None
-            else None
-        )
-        if graphs_dir is not None and graphs_dir.exists():
-            for p in graphs_dir.glob("**/SKILL.md"):
-                skill_info = _parse_skill_md(p)
-                skill_info["type"] = "Skill Graph"
-                graph_entries.append(skill_info)
-        section_status["skill_graphs"] = "ok"
-    except Exception as e:
-        logger.error("Failed to scan the skill-graphs corpus: %s", e)
-        section_status["skill_graphs"] = "unavailable"
-        graph_entries = []
+    mcp_entries, mcp_status = _gather_mcp_catalog_entries()
+    builtin_stems, builtin_status = _gather_builtin_tool_stems()
+    skill_entries, workflow_entries, skills_status = _gather_skill_and_workflow_entries(
+        workspace_root
+    )
+    graph_entries, graphs_status = _gather_skill_graph_entries(workspace_root)
+    section_status: dict[str, str] = {
+        "mcp_tools": mcp_status,
+        "builtin_tools": builtin_status,
+        "skills": skills_status,
+        "skill_workflows": skills_status,
+        "skill_graphs": graphs_status,
+    }
 
     # ── ONE batched engine round trip for every toggle state ───────────────
     # Still the Preference-node toggle store, for EVERY section including the
@@ -959,35 +1107,16 @@ def _build_tools_payload_sync(
     # an additional AND term below (a server force-disabled in config stays
     # disabled even if the toggle preference says otherwise), preserving the
     # original ``cfg.get("disabled")`` override semantics.
-    toggle_keys: list[tuple[str, str]] = (
-        [("mcp_server", name) for name, _row in mcp_entries]
-        + [("builtin_tool", stem) for stem in builtin_stems]
-        + [("skill_workflow", info["id"]) for info in workflow_entries]
-        + [("skill", info["id"]) for info in skill_entries]
-        + [("skill_graph", info["id"]) for info in graph_entries]
+    toggle_states = _resolve_tool_payload_toggle_states(
+        engine,
+        mcp_entries,
+        builtin_stems,
+        workflow_entries,
+        skill_entries,
+        graph_entries,
     )
-    toggle_states = get_toggle_states_batch(engine, toggle_keys)
 
-    for name, row in mcp_entries:
-        mcp_enabled = toggle_states[("mcp_server", name)]
-        if not row.get("enabled", True):
-            mcp_enabled = False
-        transport = str(row.get("transport") or "")
-        is_stdio = transport == "stdio"
-        mcp_tools.append(
-            {
-                "name": name,
-                "type": "MCP Server",
-                "launch_mode": "subprocess" if is_stdio else "remote",
-                # The catalog never stores the raw command/args (privacy —
-                # see fleet_catalog_tables' module docstring); these stayed
-                # opaque presence markers even before this migration.
-                "command": "[configured]" if is_stdio else "",
-                "args": ["[configured]"] if is_stdio else [],
-                "status": "active" if mcp_enabled else "disabled",
-                "enabled": mcp_enabled,
-            }
-        )
+    mcp_tools = _mcp_tools_section(mcp_entries, toggle_states)
 
     builtin_tools = [
         {
@@ -1320,33 +1449,10 @@ async def graph_query_endpoint(request: Request) -> JSONResponse:
             status_code=400,
         )
 
-    query_val = body.get("query")
-    cypher_val = body.get("cypher")
-    if query_val is not None and cypher_val is not None and query_val != cypher_val:
-        return JSONResponse(
-            {
-                "status": "error",
-                "message": (
-                    "both 'query' and 'cypher' were supplied with different "
-                    "values; send exactly one (or identical values in both)."
-                ),
-            },
-            status_code=400,
-        )
-
-    unknown = sorted(set(body) - _GRAPH_QUERY_TOOL_FIELDS - {"query"})
-    if unknown:
-        return JSONResponse(
-            {
-                "status": "error",
-                "message": f"Unsupported field(s): {', '.join(unknown)}.",
-            },
-            status_code=400,
-        )
-
-    kwargs = {k: v for k, v in body.items() if k in _GRAPH_QUERY_TOOL_FIELDS}
-    if "cypher" not in kwargs and query_val is not None:
-        kwargs["cypher"] = query_val
+    kwargs, error = _graph_query_request_kwargs(body)
+    if error is not None:
+        payload, status_code = error
+        return JSONResponse(payload, status_code=status_code)
 
     try:
         res = await _execute_tool("graph_query", **kwargs)
@@ -1359,6 +1465,46 @@ async def graph_query_endpoint(request: Request) -> JSONResponse:
         return _external_error_response(e, status_code=400, code="invalid_request")
     except Exception as e:
         return _external_error_response(e)
+
+
+def _graph_query_request_kwargs(
+    body: dict[str, Any],
+) -> tuple[dict[str, Any] | None, tuple[dict[str, Any], int] | None]:
+    """Validate + normalize a ``graph_query`` REST body into tool kwargs.
+
+    Handles the ``query``/``cypher`` aliasing documented on
+    :func:`graph_query_endpoint`. Returns ``(kwargs, None)`` on success, or
+    ``(None, (payload, status_code))`` for a 4xx the caller should return
+    verbatim.
+    """
+    query_val = body.get("query")
+    cypher_val = body.get("cypher")
+    if query_val is not None and cypher_val is not None and query_val != cypher_val:
+        return None, (
+            {
+                "status": "error",
+                "message": (
+                    "both 'query' and 'cypher' were supplied with different "
+                    "values; send exactly one (or identical values in both)."
+                ),
+            },
+            400,
+        )
+
+    unknown = sorted(set(body) - _GRAPH_QUERY_TOOL_FIELDS - {"query"})
+    if unknown:
+        return None, (
+            {
+                "status": "error",
+                "message": f"Unsupported field(s): {', '.join(unknown)}.",
+            },
+            400,
+        )
+
+    kwargs = {k: v for k, v in body.items() if k in _GRAPH_QUERY_TOOL_FIELDS}
+    if "cypher" not in kwargs and query_val is not None:
+        kwargs["cypher"] = query_val
+    return kwargs, None
 
 
 async def graph_search_endpoint(request: Request) -> JSONResponse:
@@ -3106,45 +3252,65 @@ def get_connection_registry():
         registry = ConnectionRegistry()
         # Seed reference-only external sources first, then let an explicit
         # KG_CONNECTIONS declaration with the same alias take precedence.
-        try:
-            from agent_utilities.core.config import config as _cfg
-
-            for declared in _cfg.external_graph_connectors or []:
-                value = (
-                    declared.model_dump()
-                    if hasattr(declared, "model_dump")
-                    else dict(declared)
-                )
-                name = str(value.pop("name", "") or "")
-                if not name:
-                    continue
-                value["role"] = "read"
-                try:
-                    registry.register(name, value)
-                except Exception as exc:  # noqa: BLE001 — one bad declaration never blocks the rest
-                    logger.warning(
-                        "Skipping invalid external source declaration: %s",
-                        type(exc).__name__,
-                    )
-
-            for spec in _cfg.kg_connections or []:
-                spec = dict(spec)
-                name = spec.pop("name", "")
-                if name:
-                    try:
-                        registry.register(name, spec)
-                    except Exception as e:  # noqa: BLE001 — one bad declaration never blocks the rest
-                        logger.warning(
-                            "Skipping invalid graph connection declaration: %s",
-                            type(e).__name__,
-                        )
-        except Exception as exc:  # noqa: BLE001 — config-less environments
-            logger.debug(
-                "Graph connection declarations were not seeded (%s)",
-                type(exc).__name__,
-            )
+        _seed_connection_registry(registry)
         _CONNECTION_REGISTRY = registry
         return _CONNECTION_REGISTRY
+
+
+def _seed_external_graph_connectors(registry: Any) -> None:
+    """Register reference-only external sources from config, best-effort per item."""
+    from agent_utilities.core.config import config as _cfg
+
+    for declared in _cfg.external_graph_connectors or []:
+        value = (
+            declared.model_dump() if hasattr(declared, "model_dump") else dict(declared)
+        )
+        name = str(value.pop("name", "") or "")
+        if not name:
+            continue
+        value["role"] = "read"
+        try:
+            registry.register(name, value)
+        except Exception as exc:  # noqa: BLE001 — one bad declaration never blocks the rest
+            logger.warning(
+                "Skipping invalid external source declaration: %s",
+                type(exc).__name__,
+            )
+
+
+def _seed_kg_connections(registry: Any) -> None:
+    """Register explicit KG_CONNECTIONS declarations from config, best-effort per item."""
+    from agent_utilities.core.config import config as _cfg
+
+    for spec in _cfg.kg_connections or []:
+        spec = dict(spec)
+        name = spec.pop("name", "")
+        if name:
+            try:
+                registry.register(name, spec)
+            except Exception as e:  # noqa: BLE001 — one bad declaration never blocks the rest
+                logger.warning(
+                    "Skipping invalid graph connection declaration: %s",
+                    type(e).__name__,
+                )
+
+
+def _seed_connection_registry(registry: Any) -> None:
+    """Seed a fresh :class:`ConnectionRegistry` from config, best-effort.
+
+    An explicit ``KG_CONNECTIONS`` declaration takes precedence over a
+    reference-only external source registered under the same alias, since
+    external sources are seeded first. Config-less environments (the whole
+    seeding step raises) leave the registry with nothing seeded.
+    """
+    try:
+        _seed_external_graph_connectors(registry)
+        _seed_kg_connections(registry)
+    except Exception as exc:  # noqa: BLE001 — config-less environments
+        logger.debug(
+            "Graph connection declarations were not seeded (%s)",
+            type(exc).__name__,
+        )
 
 
 def _resolve_target_engines(
@@ -3302,32 +3468,37 @@ def resolve_explicit_graph(
             f"connection {name!r} has no physical-graph concept; explicit "
             "graph selection is supported only on the default connection"
         )
+    _validate_graph_exists_in_catalog(engine, graph)
+    return entries
+
+
+def _validate_graph_exists_in_catalog(engine: Any, graph: str) -> None:
+    """Best-effort existence check for ``graph`` against the engine's catalog.
+
+    A degraded/unavailable catalog probe must never itself deny or (worse)
+    silently permit — the engine's own RBAC/RLS is the real authorization
+    boundary either way, so this just skips the check in that case and lets
+    the actual call surface whatever the engine decides.
+    """
     tenants = getattr(
         getattr(getattr(engine, "graph_compute", None), "client", None),
         "tenants",
         None,
     )
     list_graphs = getattr(tenants, "list", None)
-    if callable(list_graphs):
-        try:
-            catalog = list_graphs() or []
-        except Exception:  # noqa: BLE001 — best-effort probe; the engine's own
-            # RBAC/RLS is the real authorization boundary either way, so a
-            # degraded/unavailable catalog probe must never itself deny or
-            # (worse) silently permit — it just skips the early check and lets
-            # the actual call surface whatever the engine decides.
-            catalog = None
-        if catalog is not None:
-            names = {
-                row.get("name")
-                for row in catalog
-                if isinstance(row, dict) and row.get("name")
-            }
-            if graph not in names:
-                raise GraphNotFoundError(
-                    f"graph {graph!r} is not present in the engine catalog"
-                )
-    return entries
+    if not callable(list_graphs):
+        return
+    try:
+        catalog = list_graphs() or []
+    except Exception:  # noqa: BLE001 — best-effort probe; see docstring
+        return
+    names = {
+        row.get("name") for row in catalog if isinstance(row, dict) and row.get("name")
+    }
+    if graph not in names:
+        raise GraphNotFoundError(
+            f"graph {graph!r} is not present in the engine catalog"
+        )
 
 
 @contextlib.contextmanager
@@ -3557,13 +3728,31 @@ def _read_skill_capability(skill_md) -> tuple[str, str, str, str | None]:
     a stored column rather than a value dropped on the floor at read time
     (CONCEPT:AU-KG.ingest.fleet-catalog-relational-tables).
     """
-    import yaml
-
     path = Path(skill_md)
     payload = path.read_bytes()
     if not payload or len(payload) > 512 * 1024:
         raise ValueError("skill declaration size is invalid")
     content = payload.decode("utf-8")
+    frontmatter, instructions = _parse_skill_capability_frontmatter(content)
+    fallback_name = path.parent.name
+    name = str(frontmatter.get("name") or fallback_name).strip()
+    description = str(frontmatter.get("description") or "").strip()
+    raw_skill_type = frontmatter.get("skill_type")
+    skill_type = str(raw_skill_type).strip().lower() or None if raw_skill_type else None
+    if not name or not instructions.strip():
+        raise ValueError("skill declaration is incomplete")
+    return name, description, instructions, skill_type
+
+
+def _parse_skill_capability_frontmatter(content: str) -> tuple[dict, str]:
+    """Split a skill declaration's YAML frontmatter from its instructions body.
+
+    Returns ``(frontmatter, instructions)``. When there is no ``---``-delimited
+    frontmatter block, ``frontmatter`` is empty and ``instructions`` is the
+    whole content, unchanged.
+    """
+    import yaml
+
     frontmatter: dict = {}
     instructions = content
     if content.startswith("---"):
@@ -3574,14 +3763,7 @@ def _read_skill_capability(skill_md) -> tuple[str, str, str, str | None]:
                 raise ValueError("skill frontmatter must be an object")
             frontmatter = parsed
             instructions = parts[2].strip()
-    fallback_name = path.parent.name
-    name = str(frontmatter.get("name") or fallback_name).strip()
-    description = str(frontmatter.get("description") or "").strip()
-    raw_skill_type = frontmatter.get("skill_type")
-    skill_type = str(raw_skill_type).strip().lower() or None if raw_skill_type else None
-    if not name or not instructions.strip():
-        raise ValueError("skill declaration is incomplete")
-    return name, description, instructions, skill_type
+    return frontmatter, instructions
 
 
 def _ingest_skill_capabilities(
@@ -3609,11 +3791,6 @@ def _ingest_skill_capabilities(
     ONE :func:`get_existing_disabled_batch` call before any per-skill write.
     """
     from agent_utilities.core.providers import is_skill_graph_reference_path
-    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
-        ingest_runnable_skill,
-        skill_reference,
-    )
-    from agent_utilities.security.persistence_privacy import persistence_reference
 
     root = Path(skills_path)
     if not root.is_dir():
@@ -3628,6 +3805,52 @@ def _ingest_skill_capabilities(
             if not is_skill_graph_reference_path(skill_md, root)
         )
     )
+
+    declarations = _collect_skill_declarations(
+        skill_files, include_names=include_names, skip_names=skip_names
+    )
+    if not declarations:
+        return 0
+
+    disabled_by_resource = get_existing_disabled_batch(
+        engine, [declaration[4] for declaration in declarations]
+    )
+
+    total = len(declarations)
+    # Make an in-progress boot pass observable: this loop was previously
+    # indistinguishable, in the container logs, from a hung process — an
+    # operator saw only individual engine-op trace lines with no running
+    # count or total, exactly the ambiguity that turned the 2026-08-16
+    # cold-start incident into an 11-minute unattributed stall before the
+    # startup probe killed the container. A bounded item count up front plus
+    # a periodic "N/total" line lets "still working" be told apart from
+    # "stuck" without reading engine wire traces.
+    logger.info("GraphOS ingesting %d %s skill(s) from %s", total, provider, root)
+    return _write_skill_declarations(
+        engine,
+        declarations,
+        provider=provider,
+        disabled_by_resource=disabled_by_resource,
+    )
+
+
+def _collect_skill_declarations(
+    skill_files: list[Path],
+    *,
+    include_names: frozenset[str] | None,
+    skip_names: frozenset[str],
+) -> list[tuple[Path, str, str, str, str, str | None]]:
+    """Parse candidate ``SKILL.md`` files into declarations, skipping bad ones.
+
+    A malformed skill's parse failure is logged (stage="declaration") and
+    that skill excluded — never blocks the batch (see
+    :func:`_ingest_skill_capabilities`'s docstring for why this is a
+    separate pass from the write loop).
+    """
+    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+        skill_reference,
+    )
+    from agent_utilities.security.persistence_privacy import persistence_reference
 
     declarations: list[tuple[Path, str, str, str, str, str | None]] = []
     for skill_md in skill_files:
@@ -3663,24 +3886,29 @@ def _ingest_skill_capabilities(
                 type(exc).__name__,
                 exc.args[0] if exc.args else "",
             )
+    return declarations
 
-    if not declarations:
-        return 0
 
-    disabled_by_resource = get_existing_disabled_batch(
-        engine, [declaration[4] for declaration in declarations]
+def _write_skill_declarations(
+    engine,
+    declarations: list[tuple[Path, str, str, str, str, str | None]],
+    *,
+    provider: str,
+    disabled_by_resource: dict[str, bool],
+) -> int:
+    """Write each parsed skill declaration as a runnable resource.
+
+    Logs an "N/total" progress line periodically (see
+    :func:`_ingest_skill_capabilities`'s docstring for why). A malformed or
+    failing write is logged (stage="write") and skipped — never blocks the
+    batch.
+    """
+    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+        ingest_runnable_skill,
     )
+    from agent_utilities.security.persistence_privacy import persistence_reference
 
     total = len(declarations)
-    # Make an in-progress boot pass observable: this loop was previously
-    # indistinguishable, in the container logs, from a hung process — an
-    # operator saw only individual engine-op trace lines with no running
-    # count or total, exactly the ambiguity that turned the 2026-08-16
-    # cold-start incident into an 11-minute unattributed stall before the
-    # startup probe killed the container. A bounded item count up front plus
-    # a periodic "N/total" line lets "still working" be told apart from
-    # "stuck" without reading engine wire traces.
-    logger.info("GraphOS ingesting %d %s skill(s) from %s", total, provider, root)
     ingested = 0
     for index, (
         skill_md,
@@ -3758,20 +3986,25 @@ def _bundled_skill_contract() -> tuple[Path, dict[str, str]]:
     return root, expected
 
 
-def _ready_bundled_skill_names(
+def _query_bundled_skill_rows(
     engine: Any, expected_digests: dict[str, str]
-) -> frozenset[str]:
-    """Return exact packaged skills already ready for delegated execution."""
-    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
-        runnable_skill_digest,
-        skill_reference,
-    )
+) -> list[dict[str, Any]] | None:
+    """Run the bundled-skill readiness probe query.
 
+    Returns ``None`` (never raises) when the probe cannot run at all, or on
+    a graph that does not exist yet — a first boot, or the first boot after
+    a tenant claim starts scoping this process to a new tenant graph, where
+    the engine answers "Graph '<name>' not found" rather than an empty
+    result. That is the correct answer to "nothing is ready", not a
+    failure, and treating it as fatal makes the server unable to perform
+    the very ingestion that would create the graph. A genuine engine fault
+    still surfaces from the caller's own use of the (empty) result.
+    """
     query = getattr(engine, "query_cypher", None)
     if not callable(query):
-        return frozenset()
+        return None
     try:
-        rows = query(
+        return query(
             "MATCH (n:CallableResource) WHERE n.name IN $names "
             "RETURN n.id AS id, n.name AS name, n.resource_type AS rtype, "
             "n.system_prompt AS system_prompt, "
@@ -3780,20 +4013,18 @@ def _ready_bundled_skill_names(
             {"names": sorted(expected_digests)},
         )
     except Exception as exc:
-        # This is a READINESS PROBE: "which bundled skills are already ingested".
-        # On a graph that does not exist yet — a first boot, or the first boot
-        # after a tenant claim starts scoping this process to a new tenant graph
-        # — the engine answers "Graph '<name>' not found" rather than an empty
-        # result. That is the correct answer to "nothing is ready", not a
-        # failure, and treating it as fatal makes the server unable to perform
-        # the very ingestion that would create the graph. Report none-ready and
-        # let the caller ingest; a genuine engine fault still surfaces there.
         logger.info(
             "bundled-skill readiness probe found no existing skill graph "
             "(%s); treating every bundled skill as not yet ingested",
             exc,
         )
-        return frozenset()
+        return None
+
+
+def _group_bundled_skill_candidates(
+    rows: list[dict[str, Any]] | None, expected_digests: dict[str, str]
+) -> dict[str, list[dict[str, Any]]]:
+    """Bucket readiness-probe rows by skill name, ignoring unrequested names."""
     candidates: dict[str, list[dict[str, Any]]] = {}
     for row in rows or []:
         if not isinstance(row, dict):
@@ -3801,40 +4032,71 @@ def _ready_bundled_skill_names(
         name = str(row.get("name") or "")
         if name in expected_digests:
             candidates.setdefault(name, []).append(row)
+    return candidates
 
-    ready: set[str] = set()
-    for name, expected_digest in expected_digests.items():
-        matches = candidates.get(name, [])
-        if len(matches) > 1:
-            # Readiness asks "is a correct node present", and every check below
-            # pins the exact node id `resource:skill:<name>`, so a second row can
-            # never sneak past them. Requiring exactly ONE row instead conflated
-            # "more than one row came back" with "not ready", which left a skill
-            # permanently unready and — because this is a HARD startup gate —
-            # kept graph-os from serving at all. Log the duplication as the
-            # hygiene problem it is, then evaluate the rows on their merits.
-            logger.warning(
-                "bundled skill %r resolved to %d nodes; readiness is decided by "
-                "the exact id resource:skill:%s",
-                name,
-                len(matches),
-                name,
-            )
-        expected_ref = skill_reference(name)
-        for row in matches:
-            body = str(row.get("system_prompt") or "").strip()
-            digest = str(row.get("instruction_digest") or "")
-            if (
-                row.get("id") == f"resource:skill:{name}"
-                and row.get("rtype") == "AGENT_SKILL"
-                and row.get("runnable_bound") is True
-                and row.get("source_ref") == expected_ref
-                and body
-                and digest == expected_digest
-                and runnable_skill_digest(body) == digest
-            ):
-                ready.add(name)
-                break
+
+def _bundled_skill_row_matches_contract(
+    row: dict[str, Any], name: str, expected_digest: str, expected_ref: str
+) -> bool:
+    """Does this one candidate row satisfy the exact ready contract for ``name``?"""
+    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+        runnable_skill_digest,
+    )
+
+    body = str(row.get("system_prompt") or "").strip()
+    digest = str(row.get("instruction_digest") or "")
+    return (
+        row.get("id") == f"resource:skill:{name}"
+        and row.get("rtype") == "AGENT_SKILL"
+        and row.get("runnable_bound") is True
+        and row.get("source_ref") == expected_ref
+        and bool(body)
+        and digest == expected_digest
+        and runnable_skill_digest(body) == digest
+    )
+
+
+def _is_bundled_skill_ready(
+    name: str, expected_digest: str, matches: list[dict[str, Any]]
+) -> bool:
+    """Is any candidate row for ``name`` exactly the expected ready contract?"""
+    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+        skill_reference,
+    )
+
+    if len(matches) > 1:
+        # Readiness asks "is a correct node present", and every check below
+        # pins the exact node id `resource:skill:<name>`, so a second row can
+        # never sneak past them. Requiring exactly ONE row instead conflated
+        # "more than one row came back" with "not ready", which left a skill
+        # permanently unready and — because this is a HARD startup gate —
+        # kept graph-os from serving at all. Log the duplication as the
+        # hygiene problem it is, then evaluate the rows on their merits.
+        logger.warning(
+            "bundled skill %r resolved to %d nodes; readiness is decided by "
+            "the exact id resource:skill:%s",
+            name,
+            len(matches),
+            name,
+        )
+    expected_ref = skill_reference(name)
+    return any(
+        _bundled_skill_row_matches_contract(row, name, expected_digest, expected_ref)
+        for row in matches
+    )
+
+
+def _ready_bundled_skill_names(
+    engine: Any, expected_digests: dict[str, str]
+) -> frozenset[str]:
+    """Return exact packaged skills already ready for delegated execution."""
+    rows = _query_bundled_skill_rows(engine, expected_digests)
+    candidates = _group_bundled_skill_candidates(rows, expected_digests)
+    ready = {
+        name
+        for name, expected_digest in expected_digests.items()
+        if _is_bundled_skill_ready(name, expected_digest, candidates.get(name, []))
+    }
     return frozenset(ready)
 
 
@@ -3907,94 +4169,147 @@ def _ensure_bundled_skills_ready(engine: Any) -> dict[str, Any]:
 
 def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset()):
     """Natively ingest MCP configurations, Native Tools, and Skills into the KG on startup."""
-    import importlib
-    import inspect
+    _ingest_mcp_config_capabilities(engine)
+    _ingest_native_tool_capabilities(engine)
+    _ingest_skill_provider_capabilities(engine, skip_skill_names)
+
+    # Fleet tool schemas stay lazy.  Startup has already materialized each MCP
+    # server declaration above; probing every child here would launch the whole
+    # fleet and contend with an operator's targeted ``list_catalog`` call.
+    # Explicit ``source_sync(source="fleet")`` remains the governed full-scan
+    # path when an operator wants every live tool schema elevated into the KG.
+
+
+def _load_mcp_config_servers() -> dict[str, Any] | None:
+    """Read + parse ``mcp_config.json``'s ``mcpServers`` map, or ``None`` if absent.
+
+    Raises on a config file that exists but fails validation (oversized, not
+    JSON, or not the expected shape) — the caller's boot-time try/except logs
+    and skips this whole ingestion step on any of those.
+    """
     import json
-    import pkgutil
-    from pathlib import Path
 
     import platformdirs
 
-    from agent_utilities.security.persistence_privacy import (
-        sanitize_for_persistence,
+    APP_NAME = "agent-utilities"
+    APP_AUTHOR = "knuckles-team"
+    cfg_dir = Path(platformdirs.user_config_path(APP_NAME, APP_AUTHOR))
+    mcp_config_path = cfg_dir / "mcp_config.json"
+    if not mcp_config_path.is_file() or mcp_config_path.is_symlink():
+        return None
+    payload = mcp_config_path.read_bytes()
+    if len(payload) > 4 * 1024 * 1024:
+        raise ValueError("MCP configuration exceeds its ingestion bound")
+    data = json.loads(payload)
+    mcp_servers = data.get("mcpServers", {})
+    if not isinstance(mcp_servers, dict):
+        raise ValueError("MCP server registry must be an object")
+    return mcp_servers
+
+
+def _build_mcp_server_declarations(
+    mcp_servers: dict[str, Any],
+) -> list[tuple[str, dict[str, Any]]]:
+    """Build ``(node_id, declaration)`` pairs for every valid server entry."""
+    declarations: list[tuple[str, dict[str, Any]]] = []
+    for server_name, server_details in mcp_servers.items():
+        if not isinstance(server_details, dict):
+            continue
+        node_id, declaration = _mcp_capability_declaration(server_name, server_details)
+        declarations.append((node_id, declaration))
+    return declarations
+
+
+def _ingest_mcp_server_declarations(
+    engine: Any, declarations: list[tuple[str, dict[str, Any]]]
+) -> int:
+    """Batch-resolve prior ``disabled`` state, then write every server node.
+
+    One batched round trip for every server's prior ``disabled`` flag
+    instead of one query per server (was the dominant source of the "slow
+    engine call" warnings at boot).
+    """
+    disabled_by_id = get_existing_disabled_batch(
+        engine,
+        [node_id for node_id, _declaration in declarations],
+        label="MCPServer",
     )
+    ingested = 0
+    for node_id, declaration in declarations:
+        engine.add_node(
+            node_id,
+            "MCPServer",
+            {**declaration, "disabled": disabled_by_id.get(node_id, False)},
+        )
+        ingested += 1
+    return ingested
 
-    # 1. mcp_config.json
+
+def _ingest_mcp_config_capabilities(engine: Any) -> None:
+    """Section 1 of :func:`_ingest_capabilities`: ``mcp_config.json`` -> ``MCPServer`` nodes."""
     try:
-        APP_NAME = "agent-utilities"
-        APP_AUTHOR = "knuckles-team"
-        cfg_dir = Path(platformdirs.user_config_path(APP_NAME, APP_AUTHOR))
-        mcp_config_path = cfg_dir / "mcp_config.json"
-
-        if mcp_config_path.is_file() and not mcp_config_path.is_symlink():
-            payload = mcp_config_path.read_bytes()
-            if len(payload) > 4 * 1024 * 1024:
-                raise ValueError("MCP configuration exceeds its ingestion bound")
-            data = json.loads(payload)
-            mcp_servers = data.get("mcpServers", {})
-            if not isinstance(mcp_servers, dict):
-                raise ValueError("MCP server registry must be an object")
-            declarations = []
-            for server_name, server_details in mcp_servers.items():
-                if not isinstance(server_details, dict):
-                    continue
-                node_id, declaration = _mcp_capability_declaration(
-                    server_name, server_details
-                )
-                declarations.append((node_id, declaration))
-            # One batched round trip for every server's prior ``disabled``
-            # flag instead of one query per server (was the dominant source
-            # of the "slow engine call" warnings at boot).
-            disabled_by_id = get_existing_disabled_batch(
-                engine,
-                [node_id for node_id, _declaration in declarations],
-                label="MCPServer",
-            )
-            ingested = 0
-            for node_id, declaration in declarations:
-                engine.add_node(
-                    node_id,
-                    "MCPServer",
-                    {**declaration, "disabled": disabled_by_id.get(node_id, False)},
-                )
-                ingested += 1
-            logger.info("Ingested %d MCP capability declarations", ingested)
+        mcp_servers = _load_mcp_config_servers()
+        if mcp_servers is None:
+            return
+        declarations = _build_mcp_server_declarations(mcp_servers)
+        ingested = _ingest_mcp_server_declarations(engine, declarations)
+        logger.info("Ingested %d MCP capability declarations", ingested)
     except Exception as exc:
         logger.error("Failed to ingest MCP configuration: %s", exc)
 
-    # 2. Native Tools
+
+def _discover_native_tool_entries(
+    tools_package: Any,
+) -> list[tuple[str, dict[str, Any]]]:
+    """Import every non-package module under ``tools_package`` and collect its
+    agentic-versioned functions as ``(node_id, properties)`` pairs.
+    """
+    import importlib
+    import inspect
+    import pkgutil
+
+    from agent_utilities.security.persistence_privacy import sanitize_for_persistence
+
+    prefix = tools_package.__name__ + "."
+    tool_entries: list[tuple[str, dict[str, Any]]] = []
+    for _importer, modname, ispkg in pkgutil.iter_modules(
+        tools_package.__path__, prefix
+    ):
+        if ispkg:
+            continue
+        try:
+            module = importlib.import_module(modname)
+            for name, obj in inspect.getmembers(module, inspect.isfunction):
+                if not hasattr(obj, "__agentic_version__"):
+                    continue
+                node_id = f"native_tool_{name}"
+                description, _privacy = sanitize_for_persistence(
+                    (obj.__doc__ or "")[:8192]
+                )
+                tool_entries.append(
+                    (
+                        node_id,
+                        {
+                            "name": name,
+                            "description": str(description),
+                            "version": obj.__agentic_version__,
+                            "module": modname,
+                        },
+                    )
+                )
+        except Exception as exc:  # noqa: BLE001 — per-module best-effort skip; the outer scan already logs failures
+            logger.debug(
+                "Failed to ingest a native-tool module: %s", type(exc).__name__
+            )
+    return tool_entries
+
+
+def _ingest_native_tool_capabilities(engine: Any) -> None:
+    """Section 2 of :func:`_ingest_capabilities`: scan ``agent_utilities.tools`` -> ``NativeTool`` nodes."""
     try:
         import agent_utilities.tools
 
-        prefix = agent_utilities.tools.__name__ + "."
-        tool_entries: list[tuple[str, dict[str, Any]]] = []
-        for importer, modname, ispkg in pkgutil.iter_modules(
-            agent_utilities.tools.__path__, prefix
-        ):
-            if not ispkg:
-                try:
-                    module = importlib.import_module(modname)
-                    for name, obj in inspect.getmembers(module, inspect.isfunction):
-                        if hasattr(obj, "__agentic_version__"):
-                            node_id = f"native_tool_{name}"
-                            description, _privacy = sanitize_for_persistence(
-                                (obj.__doc__ or "")[:8192]
-                            )
-                            tool_entries.append(
-                                (
-                                    node_id,
-                                    {
-                                        "name": name,
-                                        "description": str(description),
-                                        "version": obj.__agentic_version__,
-                                        "module": modname,
-                                    },
-                                )
-                            )
-                except Exception as exc:  # noqa: BLE001 — per-module best-effort skip; the outer scan already logs failures
-                    logger.debug(
-                        "Failed to ingest a native-tool module: %s", type(exc).__name__
-                    )
+        tool_entries = _discover_native_tool_entries(agent_utilities.tools)
         # One batched round trip for every native tool's prior ``disabled``
         # flag instead of one query per tool.
         disabled_by_id = get_existing_disabled_batch(
@@ -4012,7 +4327,11 @@ def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset
     except Exception as exc:
         logger.error("Failed to scan native tools: %s", exc)
 
-    # 3. Skills
+
+def _ingest_skill_provider_capabilities(
+    engine: Any, skip_skill_names: frozenset[str]
+) -> None:
+    """Section 3 of :func:`_ingest_capabilities`: every skill provider's ``SKILL.md`` files."""
     try:
         from agent_utilities.core.config import config
         from agent_utilities.core.providers import resolve_skill_provider_dirs
@@ -4033,12 +4352,6 @@ def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset
             logger.info("Ingested %d runnable skills", ingested)
     except Exception as e:
         logger.error("Failed to ingest skills: %s", e)
-
-    # Fleet tool schemas stay lazy.  Startup has already materialized each MCP
-    # server declaration above; probing every child here would launch the whole
-    # fleet and contend with an operator's targeted ``list_catalog`` call.
-    # Explicit ``source_sync(source="fleet")`` remains the governed full-scan
-    # path when an operator wants every live tool schema elevated into the KG.
 
 
 # ── Boot hydration plan (ingestion-hydration-program.md §3) ─────────────────
@@ -4692,6 +5005,212 @@ def bundled_skill_readiness() -> dict[str, Any]:
     return dict(_BUNDLED_SKILL_READINESS)
 
 
+def _resolve_materialization_handles(engine: Any) -> tuple[Any, Any, str]:
+    """Resolve the engine's native ``(query_cypher, list_graphs, graph_name)``.
+
+    ``query_cypher``/``list_graphs`` come back ``None`` when the engine
+    doesn't participate in native lifecycle (lightweight test engines and
+    non-native backends have neither ``client`` nor ``graph_name``) or has
+    no graph name at all — the caller treats either as "not_applicable".
+
+    GraphOS owns the high-level IntelligenceGraphEngine; the lifecycle
+    manifest belongs to its native GraphComputeEngine authority. Test tools
+    and lower-level callers may pass that authority directly.
+    """
+    native_engine = getattr(engine, "graph_compute", None) or engine
+    client = getattr(native_engine, "client", None)
+    graph_name = str(getattr(native_engine, "graph_name", "") or "")
+    query_cypher = getattr(native_engine, "query_cypher", None)
+    tenants = getattr(client, "tenants", None)
+    list_graphs = getattr(tenants, "list", None)
+    if not graph_name or not callable(query_cypher) or not callable(list_graphs):
+        return None, None, graph_name
+    return query_cypher, list_graphs, graph_name
+
+
+def _engine_read_probe_status(query_cypher: Any) -> str:
+    """Run the one bounded read that both triggers and probes materialization.
+
+    Returns ``"complete"`` (the read succeeded), ``"partial"`` (the read hit
+    ``PARTIAL_MATERIALIZATION`` — the caller should keep polling the
+    manifest), or ``"absent"`` (the graph does not exist). Any other
+    exception propagates unchanged.
+    """
+    try:
+        query_cypher("MATCH (n) RETURN n.id AS id LIMIT 1")
+    except Exception as exc:
+        # Control-flow only: this text never reaches a log or a caller, so it
+        # is read via `exc.args` (never `str(exc)`/`repr(exc)`) to stay clear
+        # of the served-boundary exception-surface policy on principle.
+        detail = str(exc.args[0]) if exc.args else ""
+        if "PARTIAL_MATERIALIZATION" in detail:
+            return "partial"
+        if "not found" in detail.lower():
+            return "absent"
+        raise
+    return "complete"
+
+
+def _resolve_manifest_entry(
+    list_graphs: Any, graph_name: str, manifest_visible: bool | None
+) -> tuple[dict[str, Any] | None, bool | None]:
+    """Resolve this graph's manifest entry from ``list_graphs()``.
+
+    Respects the "already known hidden" cache — once a poll has found the
+    graph absent from the catalog (RLS-filtered), later polls skip
+    re-querying the whole catalog and go straight to the read-probe
+    fallback. Returns ``(entry, manifest_visible)``.
+    """
+    if manifest_visible is False:
+        return None, manifest_visible
+    entries = list_graphs() or []
+    entry = next(
+        (
+            value
+            for value in entries
+            if (value.get("name") if isinstance(value, dict) else None) == graph_name
+        ),
+        None,
+    )
+    return entry, isinstance(entry, dict)
+
+
+def _handle_materialized_manifest_entry(
+    entry: dict[str, Any],
+    graph_name: str,
+    last_progress: tuple[str, int | None, int | None] | None,
+) -> tuple[dict[str, Any] | None, tuple[str, int | None, int | None] | None]:
+    """Interpret one polled, catalog-visible manifest entry.
+
+    Returns ``(result, updated_last_progress)`` where ``result`` is the
+    barrier's terminal return value once materialization is complete, or
+    ``None`` to keep polling. Raises on a ``failed`` materialization phase.
+    """
+    phase = str(entry.get("materialization") or "unknown")
+    valid = entry.get("valid") is True
+    cursor = entry.get("completeness_cursor")
+    node_offset = cursor.get("node_offset") if isinstance(cursor, dict) else None
+    edge_offset = cursor.get("edge_offset") if isinstance(cursor, dict) else None
+    progress = (phase, node_offset, edge_offset)
+    if progress != last_progress:
+        logger.info(
+            "Epistemic graph materialization progress "
+            "(graph=%s phase=%s node_offset=%s edge_offset=%s)",
+            graph_name,
+            phase,
+            node_offset,
+            edge_offset,
+        )
+        last_progress = progress
+    if phase == "complete" and valid:
+        logger.info(
+            "Epistemic graph materialization ready "
+            "(graph=%s node_offset=%s edge_offset=%s)",
+            graph_name,
+            node_offset,
+            edge_offset,
+        )
+        return dict(entry), last_progress
+    if phase == "failed":
+        raise RuntimeError(
+            "epistemic graph materialization failed "
+            f"(graph={graph_name!r}, cursor={cursor!r})"
+        )
+    return None, last_progress
+
+
+def _handle_hidden_manifest_entry(
+    query_cypher: Any, graph_name: str
+) -> dict[str, Any] | None:
+    """Handle a poll where the graph's manifest entry is not catalog-visible.
+
+    RLS may intentionally hide a protected graph (for example
+    ``__secrets__``) from the catalog while still authorizing this
+    process-scoped graph view. In that case the same bounded read that
+    triggered materialization is the authoritative completion probe. Do not
+    weaken catalog RLS merely to make boot observable. Returns a terminal
+    result dict, or ``None`` to keep polling.
+    """
+    status = _engine_read_probe_status(query_cypher)
+    if status == "absent":
+        return {"graph": graph_name, "materialization": "absent"}
+    if status == "complete":
+        logger.info(
+            "Epistemic graph materialization ready via authorized "
+            "read probe (graph=%s; catalog manifest hidden)",
+            graph_name,
+        )
+        return {
+            "graph": graph_name,
+            "materialization": "complete",
+            "valid": True,
+            "manifest_visible": False,
+        }
+    return None
+
+
+def _initial_materialization_probe(
+    engine: Any,
+) -> tuple[dict[str, Any] | None, Any, Any, str]:
+    """Resolve native handles, then run the initial bounded-read probe.
+
+    Returns ``(early_result, query_cypher, list_graphs, graph_name)``.
+    ``early_result`` is non-``None`` when the caller should return it
+    immediately (``not_applicable`` / ``absent`` / ``complete``) rather than
+    entering the manifest poll loop.
+    """
+    query_cypher, list_graphs, graph_name = _resolve_materialization_handles(engine)
+    if query_cypher is None or list_graphs is None:
+        early = {"graph": graph_name or None, "materialization": "not_applicable"}
+        return early, query_cypher, list_graphs, graph_name
+
+    status = _engine_read_probe_status(query_cypher)
+    if status == "absent":
+        return (
+            {"graph": graph_name, "materialization": "absent"},
+            query_cypher,
+            list_graphs,
+            graph_name,
+        )
+    if status == "complete":
+        return (
+            {"graph": graph_name, "materialization": "complete", "valid": True},
+            query_cypher,
+            list_graphs,
+            graph_name,
+        )
+    return None, query_cypher, list_graphs, graph_name
+
+
+def _poll_materialization_step(
+    list_graphs: Any,
+    query_cypher: Any,
+    graph_name: str,
+    last_progress: tuple[str, int | None, int | None] | None,
+    manifest_visible: bool | None,
+) -> tuple[
+    dict[str, Any] | None,
+    tuple[str, int | None, int | None] | None,
+    bool | None,
+]:
+    """Run one manifest-poll iteration of :func:`_wait_for_engine_materialization`.
+
+    Returns ``(result, last_progress, manifest_visible)``; ``result`` is the
+    barrier's terminal return value once resolved, or ``None`` to keep
+    polling.
+    """
+    entry, manifest_visible = _resolve_manifest_entry(
+        list_graphs, graph_name, manifest_visible
+    )
+    if isinstance(entry, dict):
+        result, last_progress = _handle_materialized_manifest_entry(
+            entry, graph_name, last_progress
+        )
+        return result, last_progress, manifest_visible
+    result = _handle_hidden_manifest_entry(query_cypher, graph_name)
+    return result, last_progress, manifest_visible
+
+
 def _wait_for_engine_materialization(
     engine: Any,
     *,
@@ -4714,35 +5233,11 @@ def _wait_for_engine_materialization(
     ``graph_name`` and therefore do not participate in this native lifecycle.
     A graph absent from a new empty engine is likewise left for normal creation.
     """
-    # GraphOS owns the high-level IntelligenceGraphEngine; the lifecycle
-    # manifest belongs to its native GraphComputeEngine authority.  Test tools
-    # and lower-level callers may pass that authority directly.
-    native_engine = getattr(engine, "graph_compute", None) or engine
-    client = getattr(native_engine, "client", None)
-    graph_name = str(getattr(native_engine, "graph_name", "") or "")
-    query_cypher = getattr(native_engine, "query_cypher", None)
-    tenants = getattr(client, "tenants", None)
-    list_graphs = getattr(tenants, "list", None)
-    if not graph_name or not callable(query_cypher) or not callable(list_graphs):
-        return {"graph": graph_name or None, "materialization": "not_applicable"}
-
-    try:
-        query_cypher("MATCH (n) RETURN n.id AS id LIMIT 1")
-    except Exception as exc:
-        # Control-flow only: this text never reaches a log or a caller, so it
-        # is read via `exc.args` (never `str(exc)`/`repr(exc)`) to stay clear
-        # of the served-boundary exception-surface policy on principle.
-        detail = str(exc.args[0]) if exc.args else ""
-        if "PARTIAL_MATERIALIZATION" not in detail:
-            if "not found" in detail.lower():
-                return {"graph": graph_name, "materialization": "absent"}
-            raise
-    else:
-        return {
-            "graph": graph_name,
-            "materialization": "complete",
-            "valid": True,
-        }
+    early_result, query_cypher, list_graphs, graph_name = (
+        _initial_materialization_probe(engine)
+    )
+    if early_result is not None:
+        return early_result
 
     logger.info(
         "GraphOS waiting for epistemic graph materialization before hydration "
@@ -4755,84 +5250,11 @@ def _wait_for_engine_materialization(
     last_progress: tuple[str, int | None, int | None] | None = None
     manifest_visible: bool | None = None
     while True:
-        entry = None
-        if manifest_visible is not False:
-            entries = list_graphs() or []
-            entry = next(
-                (
-                    value
-                    for value in entries
-                    if (value.get("name") if isinstance(value, dict) else None)
-                    == graph_name
-                ),
-                None,
-            )
-            manifest_visible = isinstance(entry, dict)
-        if isinstance(entry, dict):
-            phase = str(entry.get("materialization") or "unknown")
-            valid = entry.get("valid") is True
-            cursor = entry.get("completeness_cursor")
-            node_offset = (
-                cursor.get("node_offset") if isinstance(cursor, dict) else None
-            )
-            edge_offset = (
-                cursor.get("edge_offset") if isinstance(cursor, dict) else None
-            )
-            progress = (phase, node_offset, edge_offset)
-            if progress != last_progress:
-                logger.info(
-                    "Epistemic graph materialization progress "
-                    "(graph=%s phase=%s node_offset=%s edge_offset=%s)",
-                    graph_name,
-                    phase,
-                    node_offset,
-                    edge_offset,
-                )
-                last_progress = progress
-            if phase == "complete" and valid:
-                logger.info(
-                    "Epistemic graph materialization ready "
-                    "(graph=%s node_offset=%s edge_offset=%s)",
-                    graph_name,
-                    node_offset,
-                    edge_offset,
-                )
-                return dict(entry)
-            if phase == "failed":
-                raise RuntimeError(
-                    "epistemic graph materialization failed "
-                    f"(graph={graph_name!r}, cursor={cursor!r})"
-                )
-        else:
-            # RLS may intentionally hide a protected graph (for example
-            # ``__secrets__``) from the catalog while still authorizing this
-            # process-scoped graph view.  In that case the same bounded read
-            # that triggered materialization is the authoritative completion
-            # probe.  Do not weaken catalog RLS merely to make boot observable.
-            try:
-                query_cypher("MATCH (n) RETURN n.id AS id LIMIT 1")
-            except Exception as exc:
-                # Control-flow only: see the comment on the identical branch above.
-                detail = str(exc.args[0]) if exc.args else ""
-                if "PARTIAL_MATERIALIZATION" not in detail:
-                    if "not found" in detail.lower():
-                        return {
-                            "graph": graph_name,
-                            "materialization": "absent",
-                        }
-                    raise
-            else:
-                logger.info(
-                    "Epistemic graph materialization ready via authorized "
-                    "read probe (graph=%s; catalog manifest hidden)",
-                    graph_name,
-                )
-                return {
-                    "graph": graph_name,
-                    "materialization": "complete",
-                    "valid": True,
-                    "manifest_visible": False,
-                }
+        result, last_progress, manifest_visible = _poll_materialization_step(
+            list_graphs, query_cypher, graph_name, last_progress, manifest_visible
+        )
+        if result is not None:
+            return result
         if time.monotonic() >= deadline:
             raise TimeoutError(
                 "epistemic graph did not become completely materialized before "
