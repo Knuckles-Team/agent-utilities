@@ -1222,78 +1222,71 @@ def _xdg_config_file():
     return cfg_dir / "config.json"
 
 
-def save_config_item(key: str, value) -> str:
-    """Persist one config item to ``config.json`` AND live ``os.environ``, then reload.
+def _validate_persistable_kg_connections(value: Any) -> None:
+    """Durable connection declarations are reportable configuration, not secrets.
 
-    CONCEPT:AU-KG.storage.config-writeback — the write-back companion to the read-only XDG loader, so a
-    config change made via the MCP/REST surfaces survives restart and applies live
-    for settings read at call time (``config.setting`` / re-parsed fields). Returns
-    the resolved env key. Engine-rebuild settings update the value but need a
-    restart to take effect — see the restart classifier.
+    Fails before touching disk or the process environment if endpoint, identity,
+    credential, database, or local-path material is present as a literal.
     """
-    from pathlib import Path
+    if not isinstance(value, list):
+        raise ValueError("kg_connections must be a list")
+    from agent_utilities.knowledge_graph.core.connection_registry import (
+        validate_persistable_connection_spec,
+    )
 
-    _require_current_configuration_keys((key,))
+    for entry in value:
+        if not isinstance(entry, dict):
+            raise ValueError("kg_connections entries must be objects")
+        validate_persistable_connection_spec(entry)
 
-    if key.lower() == "kg_connections":
-        if not isinstance(value, list):
-            raise ValueError("kg_connections must be a list")
-        # Durable connection declarations are reportable configuration, not a
-        # secret store. Fail before touching disk or the process environment if
-        # endpoint, identity, credential, database, or local-path material is
-        # present as a literal.
-        from agent_utilities.knowledge_graph.core.connection_registry import (
-            validate_persistable_connection_spec,
-        )
 
-        for entry in value:
-            if not isinstance(entry, dict):
-                raise ValueError("kg_connections entries must be objects")
-            validate_persistable_connection_spec(entry)
+def _staged_configuration_for_save(
+    prior_data: Mapping[str, Any], env_key: str, value: Any
+) -> dict[str, Any]:
+    """The fully validated document that results from setting one key."""
+    from agent_utilities.core.paths import runtime_secrets_path
 
-    env_key = key.upper()
-    with _xdg_projection_lock:
-        from agent_utilities.core.paths import runtime_secrets_path
+    staged = _canonicalize_xdg_configuration(prior_data)
+    # A dynamic ``config.setting()`` key (connector/service config) is a valid
+    # thing to persist into config.json — only retired keys are rejected, by
+    # ``_require_current_configuration_keys`` below.
+    staged[env_key] = value
+    _require_current_configuration_keys(staged)
+    staged = _canonicalize_xdg_configuration(staged)
+    _validate_xdg_configuration_schema(staged)
+    targets = _collect_env_reference_targets(staged)
+    if any(target.upper() in staged for target in targets):
+        raise ConfigurationSourceError("xdg", "SecretTargetCollisionError")
+    _read_runtime_secret_source(
+        runtime_secrets_path(), targets=targets, update_status=False
+    )
+    return staged
 
-        cfg_file = _xdg_config_file()
-        Path(cfg_file).parent.mkdir(parents=True, exist_ok=True)
-        existed = cfg_file.exists()
-        prior_data: dict[str, Any] = {}
+
+def _commit_saved_configuration(
+    cfg_file: Any,
+    staged: Mapping[str, Any],
+    prior_data: Mapping[str, Any],
+    existed: bool,
+) -> None:
+    """Write the document and reload, restoring the previous file on failure."""
+    _write_private_configuration_mapping(cfg_file, staged)
+
+    # The file write, environment projection, typed singleton, and derived
+    # cache transition share one lock, so a parallel loader cannot observe
+    # an in-progress save.
+    try:
+        load_config(reload=True)
+    except Exception:
         if existed:
-            prior_data = _read_configuration_mapping(
-                cfg_file,
-                source_type="xdg",
-                strict=_production_configuration_is_strict(),
-            )
-        staged = _canonicalize_xdg_configuration(prior_data)
-        # A dynamic ``config.setting()`` key (connector/service config) is a valid
-        # thing to persist into config.json — only retired keys are rejected, by
-        # ``_require_current_configuration_keys`` below.
-        staged[env_key] = value
-        _require_current_configuration_keys(staged)
-        staged = _canonicalize_xdg_configuration(staged)
-        _validate_xdg_configuration_schema(staged)
-        targets = _collect_env_reference_targets(staged)
-        if any(target.upper() in staged for target in targets):
-            raise ConfigurationSourceError("xdg", "SecretTargetCollisionError")
-        _read_runtime_secret_source(
-            runtime_secrets_path(), targets=targets, update_status=False
-        )
+            _write_private_configuration_mapping(cfg_file, prior_data)
+        else:
+            cfg_file.unlink(missing_ok=True)
+        raise
 
-        _write_private_configuration_mapping(cfg_file, staged)
 
-        # The file write, environment projection, typed singleton, and derived
-        # cache transition share one lock, so a parallel loader cannot observe
-        # an in-progress save.
-        try:
-            load_config(reload=True)
-        except Exception:
-            if existed:
-                _write_private_configuration_mapping(cfg_file, prior_data)
-            else:
-                cfg_file.unlink(missing_ok=True)
-            raise
-
+def _refresh_after_configuration_save(env_key: str) -> None:
+    """Drop the in-process caches whose contents depend on the saved setting."""
     if env_key.startswith(("LANGFUSE_", "TRACE_EXPORT_", "TLS_")):
         from agent_utilities.observability.langfuse_exporter import (
             reset_langfuse_exporter,
@@ -1309,6 +1302,40 @@ def save_config_item(key: str, value) -> str:
     multiplexer_module = sys.modules.get("agent_utilities.mcp.multiplexer")
     if multiplexer_module is not None:
         multiplexer_module.invalidate_live_catalogs()
+
+
+def save_config_item(key: str, value) -> str:
+    """Persist one config item to ``config.json`` AND live ``os.environ``, then reload.
+
+    CONCEPT:AU-KG.storage.config-writeback — the write-back companion to the read-only XDG loader, so a
+    config change made via the MCP/REST surfaces survives restart and applies live
+    for settings read at call time (``config.setting`` / re-parsed fields). Returns
+    the resolved env key. Engine-rebuild settings update the value but need a
+    restart to take effect — see the restart classifier.
+    """
+    from pathlib import Path
+
+    _require_current_configuration_keys((key,))
+
+    if key.lower() == "kg_connections":
+        _validate_persistable_kg_connections(value)
+
+    env_key = key.upper()
+    with _xdg_projection_lock:
+        cfg_file = _xdg_config_file()
+        Path(cfg_file).parent.mkdir(parents=True, exist_ok=True)
+        existed = cfg_file.exists()
+        prior_data: dict[str, Any] = {}
+        if existed:
+            prior_data = _read_configuration_mapping(
+                cfg_file,
+                source_type="xdg",
+                strict=_production_configuration_is_strict(),
+            )
+        staged = _staged_configuration_for_save(prior_data, env_key, value)
+        _commit_saved_configuration(cfg_file, staged, prior_data, existed)
+
+    _refresh_after_configuration_save(env_key)
     return env_key
 
 
@@ -1955,6 +1982,98 @@ DEFAULT_MCP_ALWAYS_LOAD_TOOLS: tuple[str, ...] = (
 )
 
 
+def _skill_certification_host_is_loopback(host: str) -> bool:
+    """A literal loopback IP, or one of the two accepted loopback names."""
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return host in {"localhost", "localhost.localdomain"}
+
+
+def _assert_skill_certification_text(rendered: str) -> None:
+    """The endpoint text must be non-empty, bounded and control-character free."""
+    if (
+        not rendered
+        or len(rendered.encode("utf-8")) > 4_096
+        or any(character in rendered for character in "\x00\r\n")
+    ):
+        raise ValueError("skill certification endpoint is invalid")
+
+
+def _split_skill_certification_endpoint(rendered: str) -> tuple[Any, str, Any]:
+    """Split the endpoint into ``(parsed, host, port)`` under one bounded error."""
+    try:
+        parsed = urlsplit(rendered)
+        return parsed, str(parsed.hostname or "").casefold().rstrip("."), parsed.port
+    except ValueError as exc:
+        raise ValueError("skill certification endpoint is invalid") from exc
+
+
+def _assert_skill_certification_loopback(parsed: Any, host: str, port: Any) -> None:
+    """The certification endpoint must be plain loopback HTTP(S), no credentials."""
+    if (
+        parsed.scheme.casefold() not in {"http", "https"}
+        or not _skill_certification_host_is_loopback(host)
+        or (port is not None and not 1 <= port <= 65_535)
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("skill certification endpoint must be loopback HTTP(S)")
+
+
+def _parsed_raft_group_endpoints(v: Any) -> dict[Any, Any]:
+    """Decode ``GRAPH_RAFT_GROUP_ENDPOINTS`` from a mapping or a JSON object."""
+    if isinstance(v, dict):
+        parsed = v
+    elif isinstance(v, str):
+        import json
+
+        try:
+            parsed = json.loads(v)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "GRAPH_RAFT_GROUP_ENDPOINTS must be a JSON object"
+            ) from exc
+    else:
+        raise ValueError("GRAPH_RAFT_GROUP_ENDPOINTS must be a mapping")
+    if not isinstance(parsed, dict):
+        raise ValueError("GRAPH_RAFT_GROUP_ENDPOINTS must be a JSON object")
+    return parsed
+
+
+def _validated_raft_group_endpoint(group: Any, endpoint: Any) -> tuple[str, str]:
+    """Normalize one Raft ``group -> endpoint`` pair, rejecting invalid shapes."""
+    group_text = str(group).strip()
+    if not group_text.isdigit():
+        raise ValueError("Raft group identifiers must be non-negative integers")
+    endpoint_text = str(endpoint).strip()
+    if not endpoint_text.startswith(("unix://", "tcp://", "tls://")):
+        raise ValueError(
+            "Raft group endpoints require unix://, tcp://, or tls:// schemes"
+        )
+    if endpoint_text in {"unix://", "tcp://", "tls://"}:
+        raise ValueError("Raft group endpoints must include an address")
+    return str(int(group_text)), endpoint_text
+
+
+def _coerce_mirror_targets_text(text: str) -> Any:
+    """Parse the string form of ``GRAPH_MIRROR_TARGETS``: JSON list or CSV."""
+    stripped = text.strip()
+    if not stripped:
+        return None
+    if not stripped.startswith("["):
+        return [x.strip() for x in stripped.split(",") if x.strip()]
+    import json
+
+    try:
+        parsed = json.loads(stripped)
+    except Exception:
+        return None
+    return parsed if isinstance(parsed, list) else None
+
+
 def _parse_mcp_fleet_secret_refs(value: str) -> Any:
     """Decode the JSON string form of ``MCP_FLEET_SECRET_REFS``."""
     import json as _json
@@ -2189,32 +2308,9 @@ class AgentConfig(BaseSettings):
         if not isinstance(value, str):
             raise ValueError("skill certification endpoint must be a string")
         rendered = value.strip()
-        if (
-            not rendered
-            or len(rendered.encode("utf-8")) > 4_096
-            or any(character in rendered for character in "\x00\r\n")
-        ):
-            raise ValueError("skill certification endpoint is invalid")
-        try:
-            parsed = urlsplit(rendered)
-            host = str(parsed.hostname or "").casefold().rstrip(".")
-            port = parsed.port
-        except ValueError as exc:
-            raise ValueError("skill certification endpoint is invalid") from exc
-        try:
-            loopback = ipaddress.ip_address(host).is_loopback
-        except ValueError:
-            loopback = host in {"localhost", "localhost.localdomain"}
-        if (
-            parsed.scheme.casefold() not in {"http", "https"}
-            or not loopback
-            or (port is not None and not 1 <= port <= 65_535)
-            or parsed.username is not None
-            or parsed.password is not None
-            or parsed.query
-            or parsed.fragment
-        ):
-            raise ValueError("skill certification endpoint must be loopback HTTP(S)")
+        _assert_skill_certification_text(rendered)
+        parsed, host, port = _split_skill_certification_endpoint(rendered)
+        _assert_skill_certification_loopback(parsed, host, port)
         return rendered
 
     @field_validator(
@@ -4443,34 +4539,10 @@ class AgentConfig(BaseSettings):
     def _coerce_group_endpoint_map(cls, v: Any) -> Any:
         if v is None or (isinstance(v, str) and not v.strip()):
             return None
-        if isinstance(v, dict):
-            parsed = v
-        elif isinstance(v, str):
-            import json
-
-            try:
-                parsed = json.loads(v)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(
-                    "GRAPH_RAFT_GROUP_ENDPOINTS must be a JSON object"
-                ) from exc
-        else:
-            raise ValueError("GRAPH_RAFT_GROUP_ENDPOINTS must be a mapping")
-        if not isinstance(parsed, dict):
-            raise ValueError("GRAPH_RAFT_GROUP_ENDPOINTS must be a JSON object")
         result: dict[str, str] = {}
-        for group, endpoint in parsed.items():
-            group_text = str(group).strip()
-            if not group_text.isdigit():
-                raise ValueError("Raft group identifiers must be non-negative integers")
-            endpoint_text = str(endpoint).strip()
-            if not endpoint_text.startswith(("unix://", "tcp://", "tls://")):
-                raise ValueError(
-                    "Raft group endpoints require unix://, tcp://, or tls:// schemes"
-                )
-            if endpoint_text in {"unix://", "tcp://", "tls://"}:
-                raise ValueError("Raft group endpoints must include an address")
-            result[str(int(group_text))] = endpoint_text
+        for group, endpoint in _parsed_raft_group_endpoints(v).items():
+            group_key, endpoint_text = _validated_raft_group_endpoint(group, endpoint)
+            result[group_key] = endpoint_text
         return result or None
 
     kg_connections: list[dict[str, Any]] | None = Field(
@@ -4568,18 +4640,7 @@ class AgentConfig(BaseSettings):
         if v is None or isinstance(v, list):
             return v
         if isinstance(v, str):
-            s = v.strip()
-            if not s:
-                return None
-            if s.startswith("["):
-                import json
-
-                try:
-                    parsed = json.loads(s)
-                except Exception:
-                    return None
-                return parsed if isinstance(parsed, list) else None
-            return [x.strip() for x in s.split(",") if x.strip()]
+            return _coerce_mirror_targets_text(v)
         return v
 
     @field_validator("kg_connections", mode="before")
