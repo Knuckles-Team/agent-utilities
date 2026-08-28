@@ -1090,6 +1090,48 @@ def _backfill_legacy_rows(gc: Any, table: str, added_columns: list[str]) -> None
         )
 
 
+def _add_missing_columns(
+    gc: Any, table: str, columns: set[str], existing: set[str]
+) -> list[str]:
+    newly_added: list[str] = []
+    for column in columns:
+        if column in existing:
+            continue
+        col_type = "BIGINT" if column == "revision" else "TEXT"
+        gc.sql_exec(
+            f"ALTER TABLE {_safe_ident(table)} ADD COLUMN "
+            f"{_safe_ident(column)} {col_type}"
+        )
+        existing.add(column)
+        newly_added.append(column)
+    return newly_added
+
+
+def _apply_step_for_table(
+    gc: Any,
+    migration_id: str,
+    table: str,
+    columns: set[str],
+    current_columns: dict[str, set[str]],
+) -> None:
+    existing = current_columns.setdefault(table, set())
+    newly_added = _add_missing_columns(gc, table, columns, existing)
+    if not newly_added:
+        return
+    # Discovery-binding columns are deliberately left NULL/unbound for
+    # legacy rows (see module docstring / _DISCOVERY_BINDING_MIGRATION)
+    # -- every OTHER step's newly-added columns get a real backfill.
+    # (Step 4's ``acl_classification``/``acl_owner_id``/``acl_shared_scope``
+    # are the SAME kind of deliberately-left-NULL case -- there is no
+    # verified actor context to recover for a pre-existing row, so
+    # :func:`_backfill_legacy_rows` only reconstructs that step's
+    # ``kg_node_id`` and leaves the ACL columns unset; a NULL
+    # ``acl_classification`` is exactly what tells a reader "SQL has no
+    # opinion for this row", never "unrestricted".)
+    if migration_id != "0003_discovery_binding_columns":
+        _backfill_legacy_rows(gc, table, newly_added)
+
+
 def _apply_step(
     gc: Any, migration_id: str, current_columns: dict[str, set[str]]
 ) -> None:
@@ -1097,32 +1139,7 @@ def _apply_step(
         cols for mid, cols in _MIGRATION_COLUMN_STEPS if mid == migration_id
     )
     for table, columns in table_columns.items():
-        existing = current_columns.setdefault(table, set())
-        newly_added: list[str] = []
-        for column in columns:
-            if column in existing:
-                continue
-            col_type = "BIGINT" if column == "revision" else "TEXT"
-            gc.sql_exec(
-                f"ALTER TABLE {_safe_ident(table)} ADD COLUMN "
-                f"{_safe_ident(column)} {col_type}"
-            )
-            existing.add(column)
-            newly_added.append(column)
-        if not newly_added:
-            continue
-        # Discovery-binding columns are deliberately left NULL/unbound for
-        # legacy rows (see module docstring / _DISCOVERY_BINDING_MIGRATION)
-        # -- every OTHER step's newly-added columns get a real backfill.
-        # (Step 4's ``acl_classification``/``acl_owner_id``/``acl_shared_scope``
-        # are the SAME kind of deliberately-left-NULL case -- there is no
-        # verified actor context to recover for a pre-existing row, so
-        # :func:`_backfill_legacy_rows` only reconstructs that step's
-        # ``kg_node_id`` and leaves the ACL columns unset; a NULL
-        # ``acl_classification`` is exactly what tells a reader "SQL has no
-        # opinion for this row", never "unrestricted".)
-        if migration_id != "0003_discovery_binding_columns":
-            _backfill_legacy_rows(gc, table, newly_added)
+        _apply_step_for_table(gc, migration_id, table, columns, current_columns)
     checksum = _step_checksum(migration_id, table_columns)
     _ledger_put(
         gc,
@@ -1447,24 +1464,38 @@ def _select_existing(
     gc = _graph_compute(engine)
     if gc is None or not hasattr(gc, "sql_exec") or not ids:
         return {}
-    tbl = _safe_ident(table)
-    col = _safe_ident(id_col)
     existing: dict[str, dict[str, Any]] = {}
     for chunk in _chunks(ids):
-        id_list = ", ".join(_sql_literal(row_id) for row_id in chunk)
-        stmt = (
-            f"SELECT * FROM {tbl} WHERE tenant_id = {_sql_literal(tenant_id)} "
-            f"AND {col} IN ({id_list})"
-        )
-        try:
-            rows = gc.sql_exec(stmt)
-        except Exception:  # noqa: BLE001 — CAS read is best-effort
-            logger.debug("fleet catalog CAS read failed for %s", table)
+        chunk_rows = _select_existing_chunk(gc, table, id_col, tenant_id, chunk)
+        if chunk_rows is None:
             return {}
-        for row in rows or []:
-            if isinstance(row, dict) and row.get(id_col) is not None:
-                existing[str(row[id_col])] = row
+        existing.update(chunk_rows)
     return existing
+
+
+def _select_existing_chunk(
+    gc: Any, table: str, id_col: str, tenant_id: str, chunk: list[str]
+) -> dict[str, dict[str, Any]] | None:
+    """Rows for one id-chunk, or ``None`` on a query failure -- the caller
+    degrades to "nothing exists yet" for the WHOLE batch on any chunk
+    failure, matching the original single-return-point behavior."""
+    tbl = _safe_ident(table)
+    col = _safe_ident(id_col)
+    id_list = ", ".join(_sql_literal(row_id) for row_id in chunk)
+    stmt = (
+        f"SELECT * FROM {tbl} WHERE tenant_id = {_sql_literal(tenant_id)} "
+        f"AND {col} IN ({id_list})"
+    )
+    try:
+        rows = gc.sql_exec(stmt)
+    except Exception:  # noqa: BLE001 — CAS read is best-effort
+        logger.debug("fleet catalog CAS read failed for %s", table)
+        return None
+    chunk_rows: dict[str, dict[str, Any]] = {}
+    for row in rows or []:
+        if isinstance(row, dict) and row.get(id_col) is not None:
+            chunk_rows[str(row[id_col])] = row
+    return chunk_rows
 
 
 def _as_int(value: Any) -> int:
@@ -1563,7 +1594,7 @@ def catalog_acl_rows(
     unaffected. Never raises.
     """
     gc = _graph_compute(engine)
-    if gc is None or not hasattr(gc, "sql_exec") or not node_ids or not tenant_id:
+    if _acl_lookup_unusable(gc, node_ids, tenant_id):
         return {}
     try:
         if not ensure_fleet_catalog_tables(engine):
@@ -1573,11 +1604,34 @@ def catalog_acl_rows(
         # from either -- identical fail-closed posture to the write side.
         return {}
 
-    ids = list(dict.fromkeys(str(node_id) for node_id in node_ids if node_id))
+    ids = _resolve_acl_query_ids(node_ids)
     if not ids:
         return {}
-    id_list = ", ".join(_sql_literal(node_id) for node_id in ids)
 
+    result = _collect_catalog_acl_query_results(gc, ids, tenant_id)
+    if result is None:
+        return {}
+
+    # Defence-in-depth: only ever answer for an id actually asked about, and
+    # never let a duplicate/short-circuited id sneak in even if a future
+    # change to the SELECTs above widened the WHERE clause.
+    return {node_id: row for node_id, row in result.items() if node_id in ids}
+
+
+def _acl_lookup_unusable(gc: Any, node_ids: list[str], tenant_id: str) -> bool:
+    return gc is None or not hasattr(gc, "sql_exec") or not node_ids or not tenant_id
+
+
+def _resolve_acl_query_ids(node_ids: list[str]) -> list[str]:
+    return list(dict.fromkeys(str(node_id) for node_id in node_ids if node_id))
+
+
+def _collect_catalog_acl_query_results(
+    gc: Any, ids: list[str], tenant_id: str
+) -> dict[str, dict[str, Any]] | None:
+    """Query mcp_servers/mcp_tools/skills and fold into one ACL-row dict, or
+    ``None`` on any query failure (caller degrades to ``{}``)."""
+    id_list = ", ".join(_sql_literal(node_id) for node_id in ids)
     result: dict[str, dict[str, Any]] = {}
     try:
         # ``SELECT *`` -- the exact query shape :func:`_select_existing`
@@ -1599,12 +1653,8 @@ def catalog_acl_rows(
             _collect_acl_rows(rows, "kg_node_id", tenant_id, result, {})
     except Exception:  # noqa: BLE001 — SQL ACL lookup is a best-effort fast path
         logger.debug("fleet catalog ACL SQL lookup failed; caller falls back to Cypher")
-        return {}
-
-    # Defence-in-depth: only ever answer for an id actually asked about, and
-    # never let a duplicate/short-circuited id sneak in even if a future
-    # change to the SELECTs above widened the WHERE clause.
-    return {node_id: row for node_id, row in result.items() if node_id in ids}
+        return None
+    return result
 
 
 def _cas_batch_upsert(
