@@ -6734,14 +6734,23 @@ class TaskManagerMixin(GraphEngineProtocol):
         """
         deferred = self._relevance_sweep_defer_check()
         if deferred is not None:
+            # BUG-CX-062: job_id was accepted by this function and never
+            # forwarded anywhere -- not into a single log line, not into any
+            # returned result. That breaks job correlation for anything that
+            # only sees the result payload (e.g. a persisted task-history
+            # record). Stamp it onto every exit path.
+            deferred["job_id"] = job_id
             return deferred
 
-        logger.info(f"RelevanceSweep: starting sweep against '{target_codebase}'")
+        logger.info(
+            f"RelevanceSweep[{job_id}]: starting sweep against '{target_codebase}'"
+        )
 
         centroid = self._relevance_sweep_target_centroid(target_codebase)
         if centroid is None:
             return {
                 "status": "no_target_data",
+                "job_id": job_id,
                 "target": target_codebase,
                 "message": f"No embeddings found for target '{target_codebase}'",
             }
@@ -6750,7 +6759,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         repo_set = self._relevance_sweep_repo_set(target_codebase)
 
         logger.info(
-            f"RelevanceSweep: scoring {len(unique_papers)} papers + {len(repo_set)} repos"
+            f"RelevanceSweep[{job_id}]: scoring {len(unique_papers)} papers + {len(repo_set)} repos"
         )
 
         scored_items = []
@@ -6774,11 +6783,12 @@ class TaskManagerMixin(GraphEngineProtocol):
         scored_items.sort(key=lambda x: x["score"], reverse=True)
 
         logger.info(
-            f"RelevanceSweep: completed — {len(scored_items)} items scored against '{target_codebase}'"
+            f"RelevanceSweep[{job_id}]: completed — {len(scored_items)} items scored against '{target_codebase}'"
         )
 
         return {
             "status": "completed",
+            "job_id": job_id,
             "target_codebase": target_codebase,
             "items_scored": len(scored_items),
             "top_10": scored_items[:10],
