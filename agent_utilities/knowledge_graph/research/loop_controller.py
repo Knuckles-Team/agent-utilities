@@ -882,23 +882,35 @@ class LoopController:
         double with no Cypher support at all).
         """
         q = getattr(self.engine, "query_cypher", None)
-        if callable(q):
-            try:
-                rows = q(
-                    "MATCH (n) WHERE n.id = $id RETURN n.id AS id, n.hash AS hash LIMIT 1",
-                    {"id": _WATERMARK_NODE},
-                )
-            except Exception:  # noqa: BLE001 - fall back to the full scan
-                rows = None
-            else:
-                if not rows:
-                    return None
-                row = rows[0]
-                if isinstance(row, dict):
-                    return row.get("hash")
-                if isinstance(row, list | tuple) and row:
-                    return row[0]
-                return None
+        if not callable(q):
+            return self._watermark_from_scan()
+        try:
+            rows = q(
+                "MATCH (n) WHERE n.id = $id RETURN n.id AS id, n.hash AS hash LIMIT 1",
+                {"id": _WATERMARK_NODE},
+            )
+        except Exception:  # noqa: BLE001 - fall back to the full scan
+            return self._watermark_from_scan()
+        return self._watermark_from_row(rows)
+
+    @staticmethod
+    def _watermark_from_row(rows: Any) -> str | None:
+        """Read the hash out of the bounded id-match's single row, if any."""
+        if not rows:
+            return None
+        row = rows[0]
+        if isinstance(row, dict):
+            return row.get("hash")
+        if isinstance(row, list | tuple) and row:
+            return row[0]
+        return None
+
+    def _watermark_from_scan(self) -> str | None:
+        """Last-resort ``graph.nodes()`` scan — only when Cypher is unavailable.
+
+        See :meth:`_load_watermark` for why this must never run against a live
+        engine at ecosystem scale.
+        """
         graph = getattr(self.engine, "graph", None)
         if graph is None:
             return None
@@ -929,11 +941,9 @@ class LoopController:
         O(cohort), and the matrix is materialized to ``matrix_node_id`` (a cohort
         gets its own node instead of overwriting the ecosystem-wide one).
         """
-        pre = self._state_watermark()
-        # The watermark guards the WHOLE-graph cycle; a scoped (cohort) pass always
-        # runs — its delta isn't reflected in the global watermark.
-        if not force and restrict_to is None and pre and pre == self._load_watermark():
-            return {"skipped": True, "reason": "unchanged", "watermark": pre}
+        unchanged = self._assimilate_watermark_skip(force, restrict_to)
+        if unchanged is not None:
+            return unchanged
 
         from agent_utilities.core.resource_priority import (
             PriorityClass,
@@ -988,37 +998,9 @@ class LoopController:
                 feature_ids=(list(restrict_to) if restrict_to is not None else None),
             )
 
-        # Materialize the comparative feature/innovation matrix from the now-
-        # assimilated graph (CONCEPT:AU-KG.research.default-so-every-cycle) — default-ON so every cycle emits the
-        # deliverable: coverage rows, leverage-ranked novel gaps, and the cross-source
-        # synergy bundles (the combine-to-surpass candidates).
-        matrix_summary: dict[str, Any] = {}
-        try:
-            from datetime import UTC, datetime
-
-            from ..assimilation.feature_matrix import build_feature_matrix, materialize
-
-            with _pstage("matrix"):
-                matrix = build_feature_matrix(
-                    self.engine,
-                    generated_at=datetime.now(UTC).isoformat(),
-                    restrict_to=restrict_to,
-                )
-                matrix_summary = materialize(
-                    self.engine, matrix, node_id=matrix_node_id
-                )
-        except Exception as e:  # noqa: BLE001 — best-effort, never fails the cycle
-            logger.debug("feature matrix materialize failed: %s", e)
-
+        matrix_summary = self._assimilate_matrix(restrict_to, matrix_node_id)
         watermark = self._state_watermark()
-        try:
-            self.engine.add_node(
-                _WATERMARK_NODE,
-                "assimilation_watermark",
-                properties={"hash": watermark},
-            )
-        except Exception as e:  # noqa: BLE001 - watermark persistence is best-effort
-            logger.debug("watermark persist failed: %s", e)
+        self._persist_watermark(watermark)
 
         return {
             "skipped": False,
@@ -1040,6 +1022,58 @@ class LoopController:
             "feature_matrix": matrix_summary,
             "watermark": watermark,
         }
+
+    def _assimilate_watermark_skip(
+        self, force: bool, restrict_to: set[str] | None
+    ) -> dict[str, Any] | None:
+        """The idempotence gate: an unchanged input watermark skips the whole pass.
+
+        The watermark guards the WHOLE-graph cycle; a scoped (cohort) pass always
+        runs — its delta isn't reflected in the global watermark.
+        """
+        pre = self._state_watermark()
+        if not force and restrict_to is None and pre and pre == self._load_watermark():
+            return {"skipped": True, "reason": "unchanged", "watermark": pre}
+        return None
+
+    def _assimilate_matrix(
+        self, restrict_to: set[str] | None, matrix_node_id: str
+    ) -> dict[str, Any]:
+        """Materialize the comparative feature/innovation matrix (best-effort).
+
+        CONCEPT:AU-KG.research.default-so-every-cycle — default-ON so every cycle
+        emits the deliverable: coverage rows, leverage-ranked novel gaps, and the
+        cross-source synergy bundles (the combine-to-surpass candidates). Never
+        fails the cycle.
+        """
+        from ..core.ingest_profile import stage as _pstage
+
+        try:
+            from datetime import UTC, datetime
+
+            from ..assimilation.feature_matrix import build_feature_matrix, materialize
+
+            with _pstage("matrix"):
+                matrix = build_feature_matrix(
+                    self.engine,
+                    generated_at=datetime.now(UTC).isoformat(),
+                    restrict_to=restrict_to,
+                )
+                return materialize(self.engine, matrix, node_id=matrix_node_id)
+        except Exception as e:  # noqa: BLE001 — best-effort, never fails the cycle
+            logger.debug("feature matrix materialize failed: %s", e)
+            return {}
+
+    def _persist_watermark(self, watermark: str) -> None:
+        """Stamp the post-pass input watermark so the next cycle can skip."""
+        try:
+            self.engine.add_node(
+                _WATERMARK_NODE,
+                "assimilation_watermark",
+                properties={"hash": watermark},
+            )
+        except Exception as e:  # noqa: BLE001 - watermark persistence is best-effort
+            logger.debug("watermark persist failed: %s", e)
 
     def _run_intake_papers(self, papers: list[dict[str, Any]] | None) -> dict[str, Any]:
         """Discover + ingest research papers as the cycle's front stage.
@@ -1245,10 +1279,38 @@ class LoopController:
 
     def _mine_capability_anomalies(self, errors: list[str]) -> dict[str, Any]:
         """Coverage-divergence anomaly pass over ``Capability`` nodes (see class docstring)."""
-        import json as _json
+        empty: dict[str, Any] = {"count": 0, "examples": []}
+        coverage = self._capability_coverage(errors)
+        if coverage is None:
+            return empty
+        ids, values = coverage
+        if len(values) < 3:
+            # Not enough population for a meaningful outlier pass — empty, not an error.
+            return empty
+        payload = self._invoke_mining(
+            errors,
+            ("mine_anomaly:invoke", "mine_anomaly"),
+            "mining",
+            "anomaly",
+            {"values": values, "algorithm": "zscore", "writeback": True},
+        )
+        if payload is None:
+            return empty
+        result = payload.get("result") or {}
+        examples = self._anomaly_examples(result.get("rows") or [], ids, values)
+        return {
+            "count": int(result.get("n_anomalies") or len(examples)),
+            "examples": examples,
+        }
 
-        from agent_utilities.mcp.tools.engine_surface_tools import _invoke
+    def _capability_coverage(
+        self, errors: list[str]
+    ) -> tuple[list[Any], list[float]] | None:
+        """Bounded ``(capability id, covered-concept count)`` population for the pass.
 
+        Returns None when the query itself failed (a query failure degrades, never
+        raises).
+        """
         try:
             rows = (
                 self.engine.query_cypher(
@@ -1261,33 +1323,15 @@ class LoopController:
             )
         except Exception as e:  # noqa: BLE001 — a query failure degrades, never raises
             errors.append(f"mine_anomaly:query: {e}")
-            return {"count": 0, "examples": []}
-        ids = [r["id"] for r in rows if isinstance(r, dict) and r.get("id")]
-        values = [
-            float(r.get("covered") or 0)
-            for r in rows
-            if isinstance(r, dict) and r.get("id")
-        ]
-        if len(values) < 3:
-            # Not enough population for a meaningful outlier pass — empty, not an error.
-            return {"count": 0, "examples": []}
-        try:
-            raw = _invoke(
-                surface="mining",
-                action="anomaly",
-                graph="",
-                candidates=(("mining", "anomaly"),),
-                params={"values": values, "algorithm": "zscore", "writeback": True},
-            )
-            payload = _json.loads(raw)
-        except Exception as e:  # noqa: BLE001
-            errors.append(f"mine_anomaly:invoke: {e}")
-            return {"count": 0, "examples": []}
-        if not self._mining_ok(payload):
-            errors.append(f"mine_anomaly: {payload.get('error') or payload}")
-            return {"count": 0, "examples": []}
-        result = payload.get("result") or {}
-        rows_out = result.get("rows") or []
+            return None
+        valid = [r for r in rows if isinstance(r, dict) and r.get("id")]
+        return [r["id"] for r in valid], [float(r.get("covered") or 0) for r in valid]
+
+    @staticmethod
+    def _anomaly_examples(
+        rows_out: list[Any], ids: list[Any], values: list[float]
+    ) -> list[dict[str, Any]]:
+        """At most five flagged rows, re-joined to the capability they came from."""
         examples: list[dict[str, Any]] = []
         for idx, row in enumerate(rows_out):
             if not (isinstance(row, dict) and row.get("is_anomaly")):
@@ -1301,65 +1345,80 @@ class LoopController:
             )
             if len(examples) >= 5:
                 break
-        return {
-            "count": int(result.get("n_anomalies") or len(examples)),
-            "examples": examples,
-        }
+        return examples
 
-    def _mine_predicted_edges(self, errors: list[str]) -> dict[str, Any]:
-        """``graph_learn`` fit→predict link prediction over ``Concept`` nodes (see class docstring)."""
+    def _invoke_mining(
+        self,
+        errors: list[str],
+        labels: tuple[str, str],
+        surface: str,
+        action: str,
+        params: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """One engine-surface mining call, decoded and success-checked.
+
+        ``labels`` is the ``(invoke-failure, unsuccessful-payload)`` error-message
+        prefix pair for this call site. Returns None on either failure — every
+        mining sub-step degrades to a no-op rather than raising.
+        """
         import json as _json
 
         from agent_utilities.mcp.tools.engine_surface_tools import _invoke
 
+        invoke_label, fail_label = labels
         try:
-            raw = _invoke(
-                surface="graphlearn",
-                action="fit",
-                graph="",
-                candidates=(("graphlearn", "fit"),),
-                params={
-                    "node_label": "Concept",
-                    "direction": "any",
-                    "epochs": 50,
-                    "writeback": False,
-                },
+            payload = _json.loads(
+                _invoke(
+                    surface=surface,
+                    action=action,
+                    graph="",
+                    candidates=((surface, action),),
+                    params=params,
+                )
             )
-            fit_payload = _json.loads(raw)
         except Exception as e:  # noqa: BLE001
-            errors.append(f"mine_predict:fit: {e}")
-            return {"count": 0, "examples": []}
-        if not self._mining_ok(fit_payload):
-            errors.append(
-                f"mine_predict:fit: {fit_payload.get('error') or fit_payload}"
-            )
-            return {"count": 0, "examples": []}
+            errors.append(f"{invoke_label}: {e}")
+            return None
+        if not self._mining_ok(payload):
+            errors.append(f"{fail_label}: {payload.get('error') or payload}")
+            return None
+        return payload
+
+    def _mine_predicted_edges(self, errors: list[str]) -> dict[str, Any]:
+        """``graph_learn`` fit→predict link prediction over ``Concept`` nodes (see class docstring)."""
+        empty: dict[str, Any] = {"count": 0, "examples": []}
+        fit_payload = self._invoke_mining(
+            errors,
+            ("mine_predict:fit", "mine_predict:fit"),
+            "graphlearn",
+            "fit",
+            {
+                "node_label": "Concept",
+                "direction": "any",
+                "epochs": 50,
+                "writeback": False,
+            },
+        )
+        if fit_payload is None:
+            return empty
         model = (fit_payload.get("result") or {}).get("model")
         if not model:
             errors.append("mine_predict:fit: no model returned")
-            return {"count": 0, "examples": []}
-        try:
-            raw = _invoke(
-                surface="graphlearn",
-                action="predict",
-                graph="",
-                candidates=(("graphlearn", "predict"),),
-                params={
-                    "model": model,
-                    "node_label": "Concept",
-                    "top_k": 10,
-                    "writeback": True,
-                },
-            )
-            predict_payload = _json.loads(raw)
-        except Exception as e:  # noqa: BLE001
-            errors.append(f"mine_predict:predict: {e}")
-            return {"count": 0, "examples": []}
-        if not self._mining_ok(predict_payload):
-            errors.append(
-                f"mine_predict:predict: {predict_payload.get('error') or predict_payload}"
-            )
-            return {"count": 0, "examples": []}
+            return empty
+        predict_payload = self._invoke_mining(
+            errors,
+            ("mine_predict:predict", "mine_predict:predict"),
+            "graphlearn",
+            "predict",
+            {
+                "model": model,
+                "node_label": "Concept",
+                "top_k": 10,
+                "writeback": True,
+            },
+        )
+        if predict_payload is None:
+            return empty
         result = predict_payload.get("result") or {}
         predicted = result.get("predicted") or []
         semantic_events = self._emit_predicted_edges_as_semantic_events(
@@ -1402,63 +1461,16 @@ class LoopController:
         raises, and emits nothing (``{"emitted": 0}``) when there are no
         above-floor predictions or no reachable engine.
         """
-        above_floor = [
-            row
-            for row in predicted
-            if isinstance(row, dict) and row.get("src") and row.get("dst")
-        ]
+        above_floor = self._predictable_rows(predicted)
         if not above_floor or self.engine is None:
             return {"emitted": 0}
 
         from ..ingestion.envelope_ingest import ingest_graph_slice
-        from ..ingestion.semantic_event_model import (
-            BusinessObject,
-            NeuralRelationPrediction,
-            ObjectCentricGraphSlice,
-            OcelObjectType,
-            SemanticEntityRef,
-        )
 
         try:
-            from agent_utilities.security.brain_context import current_actor
-
-            tenant = current_actor().tenant_id or "kg-mining"
-        except Exception:  # noqa: BLE001 — no ambient actor outside a request context
-            tenant = "kg-mining"
-
-        object_ids = sorted(
-            {str(row["src"]) for row in above_floor}
-            | {str(row["dst"]) for row in above_floor}
-        )
-        predictions = [
-            NeuralRelationPrediction(
-                prediction_id=f"{row['src']}->{row['dst']}",
-                subject=SemanticEntityRef(kind="object", source_id=str(row["src"])),
-                predicate="predicted_related_to",
-                object=SemanticEntityRef(kind="object", source_id=str(row["dst"])),
-                score=(score := max(0.0, min(1.0, float(row.get("score") or 0.0)))),
-                uncertainty=round(1.0 - score, 6),
-                model_ref="graphlearn:kan-link-predictor",
-                candidate_set_ref=f"graphlearn:{node_label}",
-                evidence_refs=(str(row["src"]), str(row["dst"])),
-            )
-            for row in above_floor
-        ]
-
-        try:
-            slice_ = ObjectCentricGraphSlice(
-                log_id=f"neural-relation-predictions:{node_label}",
-                source_ref="loop_controller:mine_predicted_edges",
-                mapping_version="neural-relation-prediction-1.0",
-                object_types=(OcelObjectType(name=node_label),),
-                objects=tuple(
-                    BusinessObject(object_id=object_id, object_type=node_label)
-                    for object_id in object_ids
-                ),
-                neural_predictions=tuple(predictions),
-            )
+            slice_, predictions = self._prediction_slice(above_floor, node_label)
             envelope = slice_.to_change_envelope(
-                tenant=tenant,
+                tenant=self._mining_tenant(),
                 provenance={
                     "source": "loop_controller._mine_predicted_edges",
                     "predictor": "graphlearn:kan-link-predictor",
@@ -1488,6 +1500,69 @@ class LoopController:
             "status": applied.get("status"),
             "envelope_id": applied.get("envelope_id"),
         }
+
+    @staticmethod
+    def _predictable_rows(predicted: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Only predictions carrying BOTH endpoints can become a semantic event."""
+        return [
+            row
+            for row in predicted
+            if isinstance(row, dict) and row.get("src") and row.get("dst")
+        ]
+
+    @staticmethod
+    def _mining_tenant() -> str:
+        """The ambient actor's tenant, or the mining default outside a request."""
+        try:
+            from agent_utilities.security.brain_context import current_actor
+
+            return current_actor().tenant_id or "kg-mining"
+        except Exception:  # noqa: BLE001 — no ambient actor outside a request context
+            return "kg-mining"
+
+    @staticmethod
+    def _prediction_slice(
+        above_floor: list[dict[str, Any]], node_label: str
+    ) -> tuple[Any, list[Any]]:
+        """Build the one validated ``ObjectCentricGraphSlice`` for these predictions."""
+        from ..ingestion.semantic_event_model import (
+            BusinessObject,
+            NeuralRelationPrediction,
+            ObjectCentricGraphSlice,
+            OcelObjectType,
+            SemanticEntityRef,
+        )
+
+        object_ids = sorted(
+            {str(row["src"]) for row in above_floor}
+            | {str(row["dst"]) for row in above_floor}
+        )
+        predictions = [
+            NeuralRelationPrediction(
+                prediction_id=f"{row['src']}->{row['dst']}",
+                subject=SemanticEntityRef(kind="object", source_id=str(row["src"])),
+                predicate="predicted_related_to",
+                object=SemanticEntityRef(kind="object", source_id=str(row["dst"])),
+                score=(score := max(0.0, min(1.0, float(row.get("score") or 0.0)))),
+                uncertainty=round(1.0 - score, 6),
+                model_ref="graphlearn:kan-link-predictor",
+                candidate_set_ref=f"graphlearn:{node_label}",
+                evidence_refs=(str(row["src"]), str(row["dst"])),
+            )
+            for row in above_floor
+        ]
+        slice_ = ObjectCentricGraphSlice(
+            log_id=f"neural-relation-predictions:{node_label}",
+            source_ref="loop_controller:mine_predicted_edges",
+            mapping_version="neural-relation-prediction-1.0",
+            object_types=(OcelObjectType(name=node_label),),
+            objects=tuple(
+                BusinessObject(object_id=object_id, object_type=node_label)
+                for object_id in object_ids
+            ),
+            neural_predictions=tuple(predictions),
+        )
+        return slice_, predictions
 
     # -- X-6 / Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance) -- #
     def _register_derived_claim(
@@ -2369,39 +2444,37 @@ class LoopController:
         A single malformed row (bad confidence, missing id) is recorded and
         skipped rather than aborting the whole pass.
         """
-        from agent_utilities.models.knowledge_graph import (
-            BeliefNode,
-            RegistryNodeType,
-        )
-
         beliefs = []
         for row in rows:
             if not isinstance(row, dict) or not row.get("id"):
                 continue
             try:
-                raw_confidence = row.get("confidence")
-                confidence = 0.5 if raw_confidence is None else float(raw_confidence)
-                confidence = max(0.0, min(1.0, confidence))
-                beliefs.append(
-                    BeliefNode(
-                        id=row["id"],
-                        type=RegistryNodeType.BELIEF,
-                        name=str(row["id"]),
-                        statement=row.get("statement") or "",
-                        confidence=confidence,
-                        evidence_node_ids=list(row.get("evidence_node_ids") or []),
-                        supported_by_node_ids=list(
-                            row.get("supported_by_node_ids") or []
-                        ),
-                        contradicted_by_node_ids=list(
-                            row.get("contradicted_by_node_ids") or []
-                        ),
-                        last_reviewed=row.get("last_reviewed") or "",
-                    )
-                )
+                beliefs.append(LoopController._belief_from_row(row))
             except Exception as e:  # noqa: BLE001 — one bad row never blocks the rest
                 errors.append(f"belief_revision:parse {row.get('id')}: {e}")
         return beliefs
+
+    @staticmethod
+    def _belief_from_row(row: dict[str, Any]) -> Any:
+        """One well-formed ``Belief`` row as a ``BeliefNode``, confidence clamped."""
+        from agent_utilities.models.knowledge_graph import (
+            BeliefNode,
+            RegistryNodeType,
+        )
+
+        raw_confidence = row.get("confidence")
+        confidence = 0.5 if raw_confidence is None else float(raw_confidence)
+        return BeliefNode(
+            id=row["id"],
+            type=RegistryNodeType.BELIEF,
+            name=str(row["id"]),
+            statement=row.get("statement") or "",
+            confidence=max(0.0, min(1.0, confidence)),
+            evidence_node_ids=list(row.get("evidence_node_ids") or []),
+            supported_by_node_ids=list(row.get("supported_by_node_ids") or []),
+            contradicted_by_node_ids=list(row.get("contradicted_by_node_ids") or []),
+            last_reviewed=row.get("last_reviewed") or "",
+        )
 
     def _distill_skills(self) -> dict[str, Any]:
         """Distil connector processes into propose-only skill candidates.
@@ -2663,44 +2736,14 @@ class LoopController:
         """
         spec_id = (loop.get("spec_id") or "").strip()
         if spec_id:
-            from .spec_proposals import develop_spec
-
-            res = develop_spec(self.engine, spec_id)
-            status = str(res.get("status", ""))
-            # D5 — close the loop: on publish, walk this develop-Loop's RESOLVES edge
-            # back to the origin gap and flip it to resolved (the graph-native seam,
-            # idempotent with develop_spec's property-based close). The chain gets its
-            # visible END.
-            if status == "published":
-                from .gaps import resolve_gaps_for_loop
-
-                resolve_gaps_for_loop(self.engine, loop["id"])
-            # 'published'/'approval_queued' = the governed pipeline ran + queued a
-            # reviewable branch → the develop step did its job (complete). Hard
-            # failures stop the loop rather than retrying a broken synthesis forever.
-            done = status in ("published", "approval_queued", "approved")
-            import json as _json
-
-            return {
-                "status": "completed" if done else "failed",
-                "output": _json.dumps(res, default=str)[:2000],
-                "done": done,
-            }
+            return self._advance_spec_develop(loop, spec_id)
         cmd = (loop.get("validation_cmd") or "").strip()
         if not cmd:
             # no command to validate → nothing to advance; leave it active
             return {"status": loop.get("status", "pending"), "output": ""}
-        if self._develop_runner is None:
-            from agent_utilities.core.config import config
-
-            if not config.kg_loop_allow_host_validation:
-                return {
-                    "status": "pending",
-                    "output": (
-                        "host validation is disabled; configure a governed "
-                        "develop runner or explicitly enable the dangerous host runner"
-                    ),
-                }
+        blocked = self._host_validation_blocked()
+        if blocked is not None:
+            return blocked
         runner = self._develop_runner or _default_develop_runner
         ok, output = runner(cmd, self.codebase_root)
         from agent_utilities.httpsupport.redaction import redact_text
@@ -2714,6 +2757,57 @@ class LoopController:
         return {
             "status": "completed" if ok else "pending",
             "output": safe_output,
+        }
+
+    def _advance_spec_develop(
+        self, loop: dict[str, Any], spec_id: str
+    ) -> dict[str, Any]:
+        """Feed an approved spec into the EXISTING governed promotion pipeline.
+
+        D5 — close the loop: on publish, walk this develop-Loop's RESOLVES edge
+        back to the origin gap and flip it to resolved (the graph-native seam,
+        idempotent with ``develop_spec``'s property-based close). The chain gets
+        its visible END. 'published'/'approval_queued' = the governed pipeline ran
+        + queued a reviewable branch → the develop step did its job (complete).
+        Hard failures stop the loop rather than retrying a broken synthesis
+        forever.
+        """
+        import json as _json
+
+        from .spec_proposals import develop_spec
+
+        res = develop_spec(self.engine, spec_id)
+        status = str(res.get("status", ""))
+        if status == "published":
+            from .gaps import resolve_gaps_for_loop
+
+            resolve_gaps_for_loop(self.engine, loop["id"])
+        done = status in ("published", "approval_queued", "approved")
+        return {
+            "status": "completed" if done else "failed",
+            "output": _json.dumps(res, default=str)[:2000],
+            "done": done,
+        }
+
+    def _host_validation_blocked(self) -> dict[str, Any] | None:
+        """The dangerous host runner is opt-in; refuse to fall back to it silently.
+
+        Returns the pending result to return instead, or None when a runner is
+        available (an injected governed one, or the host runner explicitly
+        enabled).
+        """
+        if self._develop_runner is not None:
+            return None
+        from agent_utilities.core.config import config
+
+        if config.kg_loop_allow_host_validation:
+            return None
+        return {
+            "status": "pending",
+            "output": (
+                "host validation is disabled; configure a governed "
+                "develop runner or explicitly enable the dangerous host runner"
+            ),
         }
 
     def _advance_skill(self, loop: dict[str, Any]) -> dict[str, Any]:
@@ -3626,10 +3720,8 @@ class LoopController:
         # Read a fresh AgentConfig() (not the import-time singleton) so runtime
         # root changes are honored.
         _cfg = AgentConfig()
-        libs_raw = _cfg.kg_breadth_library_roots
-        repos_raw = _cfg.kg_breadth_repo_roots
-        libs = [p.strip() for p in (libs_raw or "").split(",") if p.strip()]
-        repos = [p.strip() for p in (repos_raw or "").split(",") if p.strip()]
+        libs = self._breadth_roots(_cfg.kg_breadth_library_roots)
+        repos = self._breadth_roots(_cfg.kg_breadth_repo_roots)
         # No explicit roots ⇒ self-configure from the workspace.yml ecosystem.
         if not libs and not repos:
             repos = workspace_project_roots()
@@ -3640,10 +3732,14 @@ class LoopController:
                 run_breadth_ingest(self.engine, library_roots=libs, repo_roots=repos)
             )
 
+    @staticmethod
+    def _breadth_roots(raw: str | None) -> list[str]:
+        """Split one comma-separated ``KG_BREADTH_*_ROOTS`` override into paths."""
+        return [p.strip() for p in (raw or "").split(",") if p.strip()]
+
     def _finalize_metrics(self, report: dict[str, Any], start: float) -> None:
         """Attach cycle metrics, log a health summary, persist an EvolutionCycle node."""
         import time
-        import uuid
 
         m = report["metrics"]
         m["duration_ms"] = round((time.monotonic() - start) * 1000, 1)
@@ -3664,25 +3760,36 @@ class LoopController:
         )
         if report["errors"]:
             logger.warning("golden-loop cycle errors: %s", report["errors"])
-        # Monitoring: persist a queryable EvolutionCycle node (best-effort).
-        # One node type (``EvolutionCycle``) and id convention (``evo_cycle_<ts>``)
-        # shared with the daemon tick (``engine_tasks._tick_evolution``) so a
-        # ``MATCH (e:EvolutionCycle)`` sees both on-demand and scheduled cycles;
-        # ``triggered_by`` discriminates the source. ``errors``/``stage_ms`` are
-        # JSON-encoded: the durable (Postgres) backend cannot adapt a raw
-        # dict/list into a column value.
+        self._persist_evolution_cycle(report, m)
+        self._record_velocity(report)
+        gauge = self._record_saturation(report)
+        self._finish_beacon(m, gauge)
+
+    def _persist_evolution_cycle(
+        self, report: dict[str, Any], m: dict[str, Any]
+    ) -> None:
+        """Monitoring: persist a queryable ``EvolutionCycle`` node (best-effort).
+
+        One node type (``EvolutionCycle``) and id convention (``evo_cycle_<ts>``)
+        shared with the daemon tick (``engine_tasks._tick_evolution``) so a
+        ``MATCH (e:EvolutionCycle)`` sees both on-demand and scheduled cycles;
+        ``triggered_by`` discriminates the source. The id is shared with the live
+        beacon (CONCEPT:AU-KG.research.evolutionstate-live-surface-per) so the
+        finalized cycle and the mid-flight beacon cross-reference one cycle.
+
+        Conforms to the EvolutionCycle table schema (schema_definition.py): only
+        known columns are first-class; cycle-specific metrics go in ``metadata``
+        (a JSON STRING column) so the durable (Postgres) backend accepts them —
+        it cannot adapt a raw dict/list into a column value.
+        """
         import json
         import time as _time
+        import uuid
 
         now_iso = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())
-        # Share the id with the live beacon (CONCEPT:AU-KG.research.evolutionstate-live-surface-per) so the finalized
-        # EvolutionCycle and the mid-flight beacon cross-reference one cycle.
         cycle_id = self._cycle_id or (
             f"evo_cycle_{_time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex}"
         )
-        # Conform to the EvolutionCycle table schema (schema_definition.py): only
-        # known columns are first-class; cycle-specific metrics go in ``metadata``
-        # (a JSON STRING column) so the durable (Postgres) backend accepts them.
         try:
             self.engine.add_node(
                 cycle_id,
@@ -3707,12 +3814,16 @@ class LoopController:
         except Exception as e:  # noqa: BLE001 - monitoring persist is best-effort
             logger.debug("EvolutionCycle persist failed: %s", e)
 
-        # CONCEPT:AU-AHE.sdd.recursive-improvement-instrumentation-aggregating / SAFE-1.3 — recursive-improvement velocity. Read the
-        # loop's own audit streams (EvolutionCycle + ProposalPublication +
-        # CapabilityRatchetResult) back into one velocity reading and persist it, so
-        # the loop self-instruments: is it still improving, how fast, and is it
-        # emitting code or only prose? A stalling verdict is the research-gets-harder
-        # signal. Best-effort — never aborts the cycle.
+    def _record_velocity(self, report: dict[str, Any]) -> None:
+        """CONCEPT:AU-AHE.sdd.recursive-improvement-instrumentation-aggregating / SAFE-1.3.
+
+        Recursive-improvement velocity: read the loop's own audit streams
+        (EvolutionCycle + ProposalPublication + CapabilityRatchetResult) back into
+        one velocity reading and persist it, so the loop self-instruments — is it
+        still improving, how fast, and is it emitting code or only prose? A
+        stalling verdict is the research-gets-harder signal. Best-effort — never
+        aborts the cycle.
+        """
         try:
             from .improvement_ledger import ImprovementLedger
 
@@ -3726,10 +3837,14 @@ class LoopController:
         except Exception as e:  # noqa: BLE001 — instrumentation never blocks the loop
             logger.debug("[AHE-3.26] velocity ledger failed: %s", e)
 
-        # CONCEPT:AU-KG.research.saturation-gauge-aggregates-four — saturation gauge. Aggregate open_gaps trend + the just-
-        # recorded velocity verdict + ingestion coverage into ONE 0..1 reading and
-        # stamp it on the report + the live beacon; when saturated (and stalling),
-        # surface a request-more recommendation (NEVER auto-fetch). Best-effort.
+    def _record_saturation(self, report: dict[str, Any]) -> dict[str, Any] | None:
+        """CONCEPT:AU-KG.research.saturation-gauge-aggregates-four — saturation gauge.
+
+        Aggregate the open_gaps trend + the just-recorded velocity verdict +
+        ingestion coverage into ONE 0..1 reading and stamp it on the report; when
+        saturated (and stalling), surface a request-more recommendation (NEVER
+        auto-fetch). Best-effort — returns None when the gauge could not be read.
+        """
         try:
             from .evolution_state import (
                 _open_gaps_trend,
@@ -3753,20 +3868,23 @@ class LoopController:
                     gauge["gauge"],
                     gauge["recommendation"],
                 )
+            return gauge
         except Exception as e:  # noqa: BLE001 — gauge is observability only
             logger.debug("[KG-2.291] saturation gauge failed: %s", e)
-            gauge = None
+            return None
 
-        # Close out the live beacon (CONCEPT:AU-KG.research.evolutionstate-live-surface-per).
-        if self._beacon is not None:
-            try:
-                self._beacon.finish(
-                    open_gaps=m.get("open_gaps", 0),
-                    errors=m.get("error_count", 0),
-                    saturation=(gauge or {}).get("gauge") if gauge else None,
-                )
-            except Exception as e:  # noqa: BLE001 — beacon telemetry write AFTER the metrics dict `m` it reports has already been fully computed above; a failed beacon write loses one telemetry data point, not the loop's actual metrics
-                logger.debug("beacon.finish failed: %s", e)
+    def _finish_beacon(self, m: dict[str, Any], gauge: dict[str, Any] | None) -> None:
+        """Close out the live beacon (CONCEPT:AU-KG.research.evolutionstate-live-surface-per)."""
+        if self._beacon is None:
+            return
+        try:
+            self._beacon.finish(
+                open_gaps=m.get("open_gaps", 0),
+                errors=m.get("error_count", 0),
+                saturation=(gauge or {}).get("gauge") if gauge else None,
+            )
+        except Exception as e:  # noqa: BLE001 — beacon telemetry write AFTER the metrics dict `m` it reports has already been fully computed above; a failed beacon write loses one telemetry data point, not the loop's actual metrics
+            logger.debug("beacon.finish failed: %s", e)
 
     def _run_audit_gaps(self) -> dict[str, Any]:
         """Opt-in code-audit discovery pass (CONCEPT:AU-AHE.harness.audit-gap-detector).
@@ -3781,8 +3899,6 @@ class LoopController:
 
     def _distill_specs(self, topics: list[dict[str, Any]]) -> list[str]:
         """Distil ``SpecDraft`` markdown into ``.specify/specs/kg-distilled/``."""
-        from agent_utilities.sdd import SDDManager
-
         from ..enrichment.cards import make_lite_llm_fn
         from ..enrichment.distill import what_specs_could_we_build
         from ..enrichment.extractors.document import Concept
@@ -3798,10 +3914,27 @@ class LoopController:
         )
         if not specs:
             return []
-        # W6.2 (D2, CONCEPT:AU-AHE.sdd.loop-authored-spec): author each draft as a
-        # first-class DSTDD Spec+Tasks through the ONE writer (SDDManager) —
-        # .specify/specs/<feature>/{spec.md,tasks.md} + the :SDDArtifact node family —
-        # instead of a raw open()/write() prose file. SpecDraft is now the input adapter.
+        paths = self._author_spec_drafts(specs)
+        spec_ids = self._persist_spec_proposals(topics, specs, paths)
+        self._beacon and self._beacon.enter(
+            "distill",
+            detail=f"distilled {len(spec_ids)} spec(s): "
+            + ", ".join(s.title for s in specs[:3]),
+        )
+        self._auto_advance_specs(spec_ids)
+        return paths
+
+    def _author_spec_drafts(self, specs: list[Any]) -> list[str]:
+        """W6.2 (D2, CONCEPT:AU-AHE.sdd.loop-authored-spec) — author each draft.
+
+        Each becomes a first-class DSTDD Spec+Tasks through the ONE writer
+        (SDDManager): ``.specify/specs/<feature>/{spec.md,tasks.md}`` + the
+        ``:SDDArtifact`` node family, instead of a raw ``open()``/``write()`` prose
+        file. ``SpecDraft`` is now the input adapter. Authoring is best-effort; a
+        failed draft keeps its slot as an empty path.
+        """
+        from agent_utilities.sdd import SDDManager
+
         mgr = SDDManager(self.codebase_root)
         paths: list[str] = []
         for draft in specs:
@@ -3810,20 +3943,27 @@ class LoopController:
             except Exception as e:  # noqa: BLE001 — authoring is best-effort
                 logger.debug("[W6.2] SDDManager authoring failed: %s", e)
                 paths.append("")
+        return paths
 
-        # CONCEPT:AU-KG.research.close-distill-develop-seam — close the distill→develop seam. Persist each draft as a
-        # first-class, queryable :SpecProposal (status pending_review) linked to its
-        # source concepts, so the distilled spec is no longer a dead-end .md file but
-        # a develop-able + reviewable work item. The spec is fed into the existing
-        # promotion pipeline only AFTER the OS-5.73 spec-review checkpoint approves it.
-        from agent_utilities.core.config import config as _cfg
+    def _persist_spec_proposals(
+        self, topics: list[dict[str, Any]], specs: list[Any], paths: list[str]
+    ) -> list[str]:
+        """CONCEPT:AU-KG.research.close-distill-develop-seam — close the distill→develop seam.
 
-        from .spec_proposals import auto_advance_specs, persist_spec_proposal
+        Persist each draft as a first-class, queryable ``:SpecProposal`` (status
+        pending_review) linked to its source concepts, so the distilled spec is no
+        longer a dead-end .md file but a develop-able + reviewable work item. The
+        spec is fed into the existing promotion pipeline only AFTER the OS-5.73
+        spec-review checkpoint approves it.
 
-        # Thread the canonical origin gap (D6): a distilled spec's concept_ids are the
-        # topic ids it drew from; a failure topic now carries its canonical gap_id, so
-        # the persisted spec links (:Gap)-[:SPECIFIED_BY]->(:SpecProposal) and the gap
-        # can be closed on publish. target_file (D3) threads via the SpecDraft field.
+        Threads the canonical origin gap (D6): a distilled spec's ``concept_ids``
+        are the topic ids it drew from, and a failure topic now carries its
+        canonical ``gap_id``, so the persisted spec links
+        ``(:Gap)-[:SPECIFIED_BY]->(:SpecProposal)`` and the gap can be closed on
+        publish. ``target_file`` (D3) threads via the ``SpecDraft`` field.
+        """
+        from .spec_proposals import persist_spec_proposal
+
         gap_by_topic: dict[str, str] = {
             t["id"]: gid for t in topics if (gid := t.get("gap_id"))
         }
@@ -3842,21 +3982,26 @@ class LoopController:
             )
             if sid:
                 spec_ids.append(sid)
-        self._beacon and self._beacon.enter(
-            "distill",
-            detail=f"distilled {len(spec_ids)} spec(s): "
-            + ", ".join(s.title for s in specs[:3]),
-        )
-        # Default = review-first (propose-and-hold). Only when KG_LOOP_AUTO_DEVELOP is
-        # explicitly on does the 24/7 loop auto-advance specs through the spec_promotion
-        # gate (which itself defaults to approval_required, so it only develops where an
-        # operator relaxed the tier). Acquisition is never auto-run.
-        if getattr(_cfg, "kg_loop_auto_develop", False) and spec_ids:
-            try:
-                auto_advance_specs(self.engine)
-            except Exception as e:  # noqa: BLE001 — never blocks the cycle
-                logger.debug("[OS-5.73] auto_advance_specs failed: %s", e)
-        return paths
+        return spec_ids
+
+    def _auto_advance_specs(self, spec_ids: list[str]) -> None:
+        """Default = review-first (propose-and-hold).
+
+        Only when ``KG_LOOP_AUTO_DEVELOP`` is explicitly on does the 24/7 loop
+        auto-advance specs through the ``spec_promotion`` gate (which itself
+        defaults to approval_required, so it only develops where an operator
+        relaxed the tier). Acquisition is never auto-run.
+        """
+        from agent_utilities.core.config import config as _cfg
+
+        from .spec_proposals import auto_advance_specs
+
+        if not (getattr(_cfg, "kg_loop_auto_develop", False) and spec_ids):
+            return
+        try:
+            auto_advance_specs(self.engine)
+        except Exception as e:  # noqa: BLE001 — never blocks the cycle
+            logger.debug("[OS-5.73] auto_advance_specs failed: %s", e)
 
     def _synthesize_team(self, topics: list[dict[str, Any]]) -> dict[str, Any] | None:
         """Synthesize a team proposal addressing the open topics; persist nodes."""
@@ -3910,16 +4055,36 @@ class LoopController:
         clear, drafts a JSONL corpus under ``.specify/specs/search-tasks/`` and
         (propose-only) persists each as a ``SearchTask`` node. Returns a summary.
         """
-        import json
-        from pathlib import Path
-
-        from ..search_synthesis import synthesize
-
         reader = _EngineReader(self.engine)
+        candidates = self._search_task_candidates(reader, limit)
+        tasks = self._synthesize_task_set(reader, candidates, limit)
+        corpus_path = self._write_search_task_corpus(tasks)
+        persisted = self._persist_search_tasks(tasks)
+        return {
+            "candidates": len(candidates),
+            "tasks": len(tasks),
+            "persisted_nodes": persisted,
+            "corpus_path": corpus_path,
+        }
+
+    @staticmethod
+    def _search_task_candidates(reader: Any, limit: int) -> list[Any]:
+        """Bounded pool of candidate answer entities to synthesize tasks around."""
         rows = reader.query("MATCH (n) RETURN n LIMIT $k", {"k": limit * 4})
-        candidates = [
+        return [
             (r.get("n") or {}).get("id") for r in rows if (r.get("n") or {}).get("id")
         ]
+
+    @staticmethod
+    def _synthesize_task_set(
+        reader: Any, candidates: list[Any], limit: int
+    ) -> list[dict[str, Any]]:
+        """Synthesize up to ``limit`` tasks, keeping only shortcut-clear ones.
+
+        One candidate's synthesis failure `continue`s to the next candidate, and
+        only successfully-synthesized tasks are appended.
+        """
+        from ..search_synthesis import synthesize
 
         tasks: list[dict[str, Any]] = []
         for answer_id in candidates:
@@ -3929,46 +4094,53 @@ class LoopController:
                 continue
             try:
                 task = synthesize(reader, str(answer_id), hops=2)
-            except Exception as e:  # noqa: BLE001 — one candidate's search-task synthesis inside the per-candidate loop; `continue`s to the next candidate, and only successfully-synthesized tasks are appended to `tasks` above
+            except Exception as e:  # noqa: BLE001 — one candidate's search-task synthesis inside the per-candidate loop
                 logger.debug("search-task synthesis failed for %s: %s", answer_id, e)
                 continue
             if task.risk_report.clear and task.difficulty >= 1:
                 tasks.append(task.to_dict())
+        return tasks
 
-        corpus_path = ""
-        if tasks:
-            out_dir = Path(self.codebase_root) / ".specify" / "specs" / "search-tasks"
-            out_dir.mkdir(parents=True, exist_ok=True)
-            corpus_file = out_dir / "tasks.jsonl"
-            corpus_file.write_text(
-                "\n".join(json.dumps(t) for t in tasks) + "\n", encoding="utf-8"
-            )
-            corpus_path = str(corpus_file)
+    def _write_search_task_corpus(self, tasks: list[dict[str, Any]]) -> str:
+        """Draft the JSONL training corpus under ``.specify/specs/search-tasks/``."""
+        import json
+        from pathlib import Path
 
+        if not tasks:
+            return ""
+        out_dir = Path(self.codebase_root) / ".specify" / "specs" / "search-tasks"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        corpus_file = out_dir / "tasks.jsonl"
+        corpus_file.write_text(
+            "\n".join(json.dumps(t) for t in tasks) + "\n", encoding="utf-8"
+        )
+        return str(corpus_file)
+
+    def _persist_search_tasks(self, tasks: list[dict[str, Any]]) -> int:
+        """Propose-only persist of each task as a ``SearchTask`` node.
+
+        ``persisted`` is only incremented on the success path, so the returned
+        count already reflects exactly what landed.
+        """
+        if not self.propose_only:
+            return 0
         persisted = 0
-        if self.propose_only:
-            for t in tasks:
-                try:
-                    self.engine.add_node(
-                        f"SearchTask:{t['answer_id']}",
-                        {
-                            "type": "SearchTask",
-                            "question": t["question"],
-                            "answer_id": t["answer_id"],
-                            "difficulty": t["difficulty"],
-                            "status": "proposal",
-                        },
-                    )
-                    persisted += 1
-                except Exception as e:  # noqa: BLE001 — one task's persist inside the per-task loop; `persisted` is only incremented on the success path above, so the returned persisted_nodes count already reflects exactly what landed
-                    logger.debug("SearchTask persist failed: %s", e)
-
-        return {
-            "candidates": len(candidates),
-            "tasks": len(tasks),
-            "persisted_nodes": persisted,
-            "corpus_path": corpus_path,
-        }
+        for t in tasks:
+            try:
+                self.engine.add_node(
+                    f"SearchTask:{t['answer_id']}",
+                    {
+                        "type": "SearchTask",
+                        "question": t["question"],
+                        "answer_id": t["answer_id"],
+                        "difficulty": t["difficulty"],
+                        "status": "proposal",
+                    },
+                )
+                persisted += 1
+            except Exception as e:  # noqa: BLE001 — one task's persist inside the per-task loop
+                logger.debug("SearchTask persist failed: %s", e)
+        return persisted
 
 
 def _default_develop_runner(cmd: str, cwd: str) -> tuple[bool, str]:
@@ -3982,33 +4154,60 @@ def _default_develop_runner(cmd: str, cwd: str) -> tuple[bool, str]:
     enabled, it accepts one bounded argv command, resolves an operator-allowlisted
     executable from ``PATH``, does not invoke a shell, and passes only a minimal
     non-secret environment. Prefer an injected governed sandbox runner.
+
+    The admission checks below run in a FIXED order — host-validation gate, then
+    the command's own bounds/quoting, then the executable allowlist, then the
+    working directory — so a doubly-invalid input always reports the same reason
+    it always did.
     """
-    import os
-    import shlex
-    import shutil
-    import signal
-    import subprocess
-    import sys
-    import tempfile
-    import time
     from pathlib import Path
 
     from agent_utilities.core.config import config
 
     if not config.kg_loop_allow_host_validation:
         return False, "host validation is disabled"
+    argv, argv_error = _parse_validation_argv(cmd)
+    if argv is None:
+        return False, argv_error
+    executable, exec_error = _resolve_validation_executable(argv)
+    if executable is None:
+        return False, exec_error
+    root = Path(cwd).expanduser().resolve(strict=False)
+    if not root.is_dir():
+        return False, "validation working directory is unavailable"
+    return _run_validation_process(executable, argv, root)
+
+
+def _parse_validation_argv(cmd: str) -> tuple[list[str] | None, str]:
+    """Split one bounded validation command into argv, or ``(None, reason)``."""
+    import os
+    import shlex
+
     if not cmd or len(cmd.encode("utf-8")) > 16 * 1024:
-        return False, "validation command is empty or exceeds the configured limit"
+        return None, "validation command is empty or exceeds the configured limit"
     try:
         argv = shlex.split(cmd, posix=os.name != "nt")
     except ValueError:
-        return False, "validation command has invalid quoting"
+        return None, "validation command has invalid quoting"
     if (
         not argv
         or len(argv) > 64
         or any(len(arg) > 4096 or "\x00" in arg for arg in argv)
     ):
-        return False, "validation command arguments exceed the configured limits"
+        return None, "validation command arguments exceed the configured limits"
+    return argv, ""
+
+
+def _resolve_validation_executable(argv: list[str]) -> tuple[str | None, str]:
+    """Resolve argv[0] against the operator allowlist, or ``(None, reason)``.
+
+    The command must be a bare executable NAME (never a path), must appear in
+    ``KG_LOOP_HOST_VALIDATION_EXECUTABLES``, and may never be a shell.
+    """
+    import shutil
+    from pathlib import Path
+
+    from agent_utilities.core.config import config
 
     executable_name = Path(argv[0]).name.lower()
     if executable_name.endswith(".exe"):
@@ -4023,13 +4222,16 @@ def _default_develop_runner(cmd: str, cwd: str) -> tuple[bool, str]:
         or executable_name not in allowed
         or executable_name in {"sh", "bash", "zsh", "cmd", "powershell", "pwsh"}
     ):
-        return False, "validation executable is not operator-allowlisted"
+        return None, "validation executable is not operator-allowlisted"
     executable = shutil.which(argv[0])
     if executable is None:
-        return False, "validation executable is unavailable"
-    root = Path(cwd).expanduser().resolve(strict=False)
-    if not root.is_dir():
-        return False, "validation working directory is unavailable"
+        return None, "validation executable is unavailable"
+    return executable, ""
+
+
+def _validation_child_env() -> dict[str, str]:
+    """The minimal, non-secret environment handed to the validation child."""
+    import os
 
     env_names = {
         "PATH",
@@ -4045,15 +4247,54 @@ def _default_develop_runner(cmd: str, cwd: str) -> tuple[bool, str]:
     }
     child_env = {name: os.environ[name] for name in env_names if name in os.environ}
     child_env.update({"CI": "1", "NO_COLOR": "1", "PYTHONNOUSERSITE": "1"})
+    return child_env
+
+
+def _await_validation_exit(proc: Any, output: Any, deadline: float) -> str:
+    """Poll until exit, the output cap, or the deadline; return the stop reason."""
+    import os
+    import time
 
     output_limit = 2 * 1024 * 1024
+    while proc.poll() is None:
+        if os.fstat(output.fileno()).st_size > output_limit:
+            return "validation output limit exceeded"
+        if time.monotonic() >= deadline:
+            return "validation command timed out"
+        time.sleep(0.05)
+    return ""
+
+
+def _kill_validation_group(proc: Any) -> None:
+    """Kill the child's whole process group (POSIX) or the child (Windows)."""
+    import os
+    import signal
+
+    if os.name != "nt":
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    else:
+        proc.kill()
+
+
+def _run_validation_process(
+    executable: str, argv: list[str], root: Any
+) -> tuple[bool, str]:
+    """Run the admitted command in its own session; success = exit code 0."""
+    import subprocess
+    import sys
+    import tempfile
+    import time
+
     proc: subprocess.Popen[bytes] | None = None
     stop_reason = ""
     try:
         with tempfile.TemporaryFile(mode="w+b") as output:
             popen_kwargs: dict[str, Any] = {
                 "cwd": root,
-                "env": child_env,
+                "env": _validation_child_env(),
                 "stdin": subprocess.DEVNULL,
                 "stdout": output,
                 "stderr": subprocess.STDOUT,
@@ -4064,35 +4305,27 @@ def _default_develop_runner(cmd: str, cwd: str) -> tuple[bool, str]:
             else:
                 popen_kwargs["start_new_session"] = True
             proc = subprocess.Popen([executable, *argv[1:]], **popen_kwargs)
-            deadline = time.monotonic() + 600
-            while proc.poll() is None:
-                if os.fstat(output.fileno()).st_size > output_limit:
-                    stop_reason = "validation output limit exceeded"
-                    break
-                if time.monotonic() >= deadline:
-                    stop_reason = "validation command timed out"
-                    break
-                time.sleep(0.05)
+            stop_reason = _await_validation_exit(proc, output, time.monotonic() + 600)
             if stop_reason:
-                if os.name != "nt":
-                    try:
-                        os.killpg(proc.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                else:
-                    proc.kill()
+                _kill_validation_group(proc)
             proc.wait(timeout=5)
-            size = os.fstat(output.fileno()).st_size
-            output.seek(max(0, size - 2000))
-            tail = output.read(2000).decode("utf-8", errors="replace")
+            tail = _read_output_tail(output)
     except Exception as exc:  # noqa: BLE001 — never abort the cycle
         if proc is not None and proc.poll() is None:
             proc.kill()
         return False, f"validation command failed to run ({type(exc).__name__})"
     if stop_reason:
         return False, f"{stop_reason}\n{tail}"
-    out = f"exit={proc.returncode}\n{tail}"
-    return proc.returncode == 0, out
+    return proc.returncode == 0, f"exit={proc.returncode}\n{tail}"
+
+
+def _read_output_tail(output: Any) -> str:
+    """The last 2000 bytes of the child's captured output, decoded leniently."""
+    import os
+
+    size = os.fstat(output.fileno()).st_size
+    output.seek(max(0, size - 2000))
+    return output.read(2000).decode("utf-8", errors="replace")
 
 
 def _default_skill_runner(
