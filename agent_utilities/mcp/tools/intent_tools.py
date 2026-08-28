@@ -1136,48 +1136,23 @@ def _restore_preview_hints(
     return deepcopy(preview.hints)
 
 
-def _ambiguity_evidence(
-    candidates: list[CapabilityCandidate], *, explicit: bool
+def _margin_ambiguity_fields(
+    top_score: float,
+    second_score: float | None,
+    *,
+    explicit: bool,
+    extra_ambiguous_gate: bool = True,
 ) -> dict[str, Any]:
-    top_score = candidates[0].score if candidates else 0.0
-    second_score = candidates[1].score if len(candidates) > 1 else None
-    margin = top_score - second_score if second_score is not None else None
-    ambiguous = not explicit and (
-        top_score <= 0.0
-        or (
-            second_score is not None
-            and second_score > 0.0
-            and margin is not None
-            and margin < _AMBIGUITY_MARGIN
-        )
-    )
-    return {
-        "ambiguous": ambiguous,
-        "explicit": explicit,
-        "top_score": round(top_score, 4),
-        "runner_up_score": (
-            round(second_score, 4) if second_score is not None else None
-        ),
-        "margin": round(margin, 4) if margin is not None else None,
-        "required_margin": _AMBIGUITY_MARGIN,
-    }
+    """Shared score-margin ambiguity computation.
 
-
-def _action_ambiguity_evidence(
-    ranked_actions: list[tuple[str, float]], *, explicit: bool
-) -> dict[str, Any]:
-    if not ranked_actions:
-        return {
-            "ambiguous": False,
-            "explicit": explicit,
-            "candidates": [],
-        }
-    top_score = ranked_actions[0][1]
-    second_score = ranked_actions[1][1] if len(ranked_actions) > 1 else None
+    Used by both `_ambiguity_evidence` and `_action_ambiguity_evidence`;
+    `extra_ambiguous_gate` carries the latter's extra ``len(ranked_actions) >
+    1`` condition (always True — a no-op AND — for the former).
+    """
     margin = top_score - second_score if second_score is not None else None
     ambiguous = (
         not explicit
-        and len(ranked_actions) > 1
+        and extra_ambiguous_gate
         and (
             top_score <= 0.0
             or (
@@ -1197,11 +1172,39 @@ def _action_ambiguity_evidence(
         ),
         "margin": round(margin, 4) if margin is not None else None,
         "required_margin": _AMBIGUITY_MARGIN,
-        "candidates": [
-            {"action": action, "score": round(score, 4)}
-            for action, score in ranked_actions[:5]
-        ],
     }
+
+
+def _ambiguity_evidence(
+    candidates: list[CapabilityCandidate], *, explicit: bool
+) -> dict[str, Any]:
+    top_score = candidates[0].score if candidates else 0.0
+    second_score = candidates[1].score if len(candidates) > 1 else None
+    return _margin_ambiguity_fields(top_score, second_score, explicit=explicit)
+
+
+def _action_ambiguity_evidence(
+    ranked_actions: list[tuple[str, float]], *, explicit: bool
+) -> dict[str, Any]:
+    if not ranked_actions:
+        return {
+            "ambiguous": False,
+            "explicit": explicit,
+            "candidates": [],
+        }
+    top_score = ranked_actions[0][1]
+    second_score = ranked_actions[1][1] if len(ranked_actions) > 1 else None
+    fields = _margin_ambiguity_fields(
+        top_score,
+        second_score,
+        explicit=explicit,
+        extra_ambiguous_gate=len(ranked_actions) > 1,
+    )
+    fields["candidates"] = [
+        {"action": action, "score": round(score, 4)}
+        for action, score in ranked_actions[:5]
+    ]
+    return fields
 
 
 def _intent_security_failure(
@@ -1253,30 +1256,40 @@ def _execution_succeeded(result: Any) -> bool:
     if isinstance(result, BaseModel):
         return _execution_succeeded(result.model_dump())
     if isinstance(result, dict):
-        if result.get("error") or result.get("ok") is False:
-            return False
-        if result.get("success") is False or result.get("executed") is False:
-            return False
-        if str(result.get("status") or "").strip().lower() in {
-            "cancelled",
-            "denied",
-            "error",
-            "failed",
-            "forbidden",
-        }:
-            return False
-        return True
+        return _execution_succeeded_dict(result)
     if isinstance(result, str):
-        stripped = result.strip()
-        if not stripped:
-            return False
-        try:
-            decoded = json.loads(stripped)
-        except (TypeError, ValueError):
-            lowered = stripped.lower()
-            return not lowered.startswith(("error", "failed", "forbidden", "denied"))
-        return _execution_succeeded(decoded)
+        return _execution_succeeded_str(result)
     return result is not None
+
+
+def _execution_succeeded_dict(result: dict[str, Any]) -> bool:
+    """Helper for `_execution_succeeded`: classify a dict-shaped result."""
+    if result.get("error") or result.get("ok") is False:
+        return False
+    if result.get("success") is False or result.get("executed") is False:
+        return False
+    if str(result.get("status") or "").strip().lower() in {
+        "cancelled",
+        "denied",
+        "error",
+        "failed",
+        "forbidden",
+    }:
+        return False
+    return True
+
+
+def _execution_succeeded_str(result: str) -> bool:
+    """Helper for `_execution_succeeded`: classify a str-shaped result."""
+    stripped = result.strip()
+    if not stripped:
+        return False
+    try:
+        decoded = json.loads(stripped)
+    except (TypeError, ValueError):
+        lowered = stripped.lower()
+        return not lowered.startswith(("error", "failed", "forbidden", "denied"))
+    return _execution_succeeded(decoded)
 
 
 def _require_candidate(candidate: CapabilityCandidate | None) -> CapabilityCandidate:
