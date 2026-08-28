@@ -7,7 +7,7 @@ CONCEPT:AU-KG.query.object-graph-mapper
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, NamedTuple
 
 from agent_utilities.core.config import (
     DEFAULT_EMBEDDING_BASE_URL,
@@ -31,6 +31,14 @@ EMBEDDING_MODEL = str(DEFAULT_EMBEDDING_MODEL_ID or "").strip()
 _TRACE_RETENTION_BATCH_SIZE = 1_000
 _TRACE_RETENTION_MAX_BATCHES_PER_LABEL = 1_000
 _TRACE_RETENTION_MAX_DAYS = 3_650
+
+#: A page-wide circuit breaker that never recovers (engine genuinely down, not
+#: just a burst) must not turn a bounded ``backfill_entity_embeddings`` page
+#: into an N * (cooldown + retry) fully-serial stall: bail out of the rest of
+#: the page once dispatch contention persists across this many consecutive
+#: rows even after the per-row retry, leaving the remainder untouched (still
+#: eligible) for a later bounded run.
+_MAX_CONSECUTIVE_CONTENTION_ABORT = 3
 
 #: Conversational node types confirmed to have NO reingest/backfill path once deleted
 #: (CONCEPT:AU-ECO.messaging.conversational-retention-guard, BUG-041 investigation):
@@ -79,6 +87,78 @@ def generate_embedding(text: str) -> list[float] | None:
     except Exception as e:
         logger.error("Failed to generate embedding: %s", type(e).__name__)
     return None
+
+
+class _ContentionTracker:
+    """Mutable dispatch-contention counter shared across the deferred-marker
+    pass and the embedding-commit pass of
+    :meth:`GraphMaintainer.backfill_entity_embeddings`.
+
+    Contention observed in EITHER pass counts toward the SAME
+    consecutive-failure budget — this mirrors the original single-function
+    implementation, where both loops shared one ``_consecutive_contention_failures``
+    closure variable, so splitting the loops into two methods must not reset
+    the count between them.
+    """
+
+    __slots__ = ("consecutive_failures", "aborted_early")
+
+    def __init__(self) -> None:
+        self.consecutive_failures = 0
+        self.aborted_early = False
+
+    def note_contention(self, max_consecutive: int) -> None:
+        self.consecutive_failures += 1
+        if self.consecutive_failures >= max_consecutive:
+            self.aborted_early = True
+
+    def reset(self) -> None:
+        self.consecutive_failures = 0
+
+
+class _EmbeddingBackfillCommitContext(NamedTuple):
+    """Bundles the CAS callables + shared retry policy for
+    :meth:`GraphMaintainer._apply_deferred_no_text_markers` and
+    :meth:`GraphMaintainer._apply_backfill_embeddings` under one parameter
+    (clippy/cccc's 7-parameter cap) instead of four separate ones.
+    """
+
+    compare_and_set: Callable
+    compare_and_set_embedding: Callable
+    commit_policy: Any
+    dispatch_contention_errors: tuple[type[BaseException], ...]
+
+
+class _TraceRetentionBatchResult(NamedTuple):
+    """One batch's outcome from :meth:`GraphMaintainer._run_one_trace_retention_batch`.
+
+    ``selected_count == 0`` means the READ found nothing left to delete for
+    this label (the loop should stop); ``deleted_count`` is ``None`` when the
+    backend's write result carried no parseable affected-row count.
+    """
+
+    selected_count: int
+    deleted_count: int | None
+
+
+class _TraceRetentionLabelResult(NamedTuple):
+    """One label's accumulated outcome from
+    :meth:`GraphMaintainer._prune_expired_trace_label`.
+    """
+
+    deleted_rows: int
+    deleted_rows_known: bool
+    truncated: bool
+
+
+class _TopicLinkingCandidates(NamedTuple):
+    """Fetched inputs for :meth:`GraphMaintainer.link_topics_to_policies_and_processes`."""
+
+    topics: list
+    grounded_ids: set
+    referenced_ids: set
+    policies: list
+    flows: list
 
 
 class GraphMaintainer:
@@ -208,6 +288,59 @@ class GraphMaintainer:
         if not self.engine.backend:
             return result
 
+        rows = self._select_embedding_backfill_candidate_rows(limit, node_types, result)
+        if not rows:
+            return result
+        node_ids = [str(row["id"]) for row in rows if row.get("id")]
+
+        properties_by_id, compare_and_set, compare_and_set_embedding = (
+            self._resolve_embedding_backfill_capabilities(node_ids)
+        )
+        commit_policy, dispatch_contention_errors = (
+            self._make_embedding_backfill_commit_policy()
+        )
+
+        items, deferred = self._split_embedding_backfill_candidates(
+            node_ids, properties_by_id, result
+        )
+        vectors = self._embed_backfill_items(items, batch_size)
+
+        ctx = _EmbeddingBackfillCommitContext(
+            compare_and_set=compare_and_set,
+            compare_and_set_embedding=compare_and_set_embedding,
+            commit_policy=commit_policy,
+            dispatch_contention_errors=dispatch_contention_errors,
+        )
+        tracker = _ContentionTracker()
+        self._apply_deferred_no_text_markers(deferred, ctx, tracker, result)
+        self._apply_backfill_embeddings(items, vectors, ctx, tracker, result)
+        result["aborted_early"] = tracker.aborted_early
+
+        logger.info(
+            "Entity embedding backfill: scanned=%d embedded=%d indexed=%d "
+            "skipped_no_text=%d deferred_no_text=%d conflicted=%d errored=%d "
+            "aborted_early=%s",
+            result["scanned"],
+            result["embedded"],
+            result["indexed"],
+            result["skipped_no_text"],
+            result["deferred_no_text"],
+            result["conflicted"],
+            result["errored"],
+            tracker.aborted_early,
+        )
+        return result
+
+    def _select_embedding_backfill_candidate_rows(
+        self,
+        limit: int,
+        node_types: tuple[str, ...] | list[str] | None,
+        result: dict[str, int],
+    ) -> list[dict[str, Any]]:
+        """Run the bounded ``embedding IS NULL`` sweep query for
+        :meth:`backfill_entity_embeddings`; records the scanned row count into
+        ``result`` before returning the raw rows.
+        """
         from ..enrichment.semantic import (
             embedding_backfill_eligibility_clause,
             embedding_backfill_type_scope_clause,
@@ -232,10 +365,15 @@ class GraphMaintainer:
             or []
         )
         result["scanned"] = len(rows)
-        if not rows:
-            return result
+        return rows
 
-        node_ids = [str(row["id"]) for row in rows if row.get("id")]
+    def _resolve_embedding_backfill_capabilities(
+        self, node_ids: list[str]
+    ) -> tuple[dict[str, Any], Callable, Callable]:
+        """Resolve batched node-property hydration plus the two atomic
+        compare-and-set callables :meth:`backfill_entity_embeddings` needs;
+        raises ``RuntimeError`` if the backend doesn't expose one of them.
+        """
         graph = getattr(self.engine.backend, "_graph", self.engine.backend)
         batch_properties = getattr(graph, "_get_node_properties_batch", None)
         if not callable(batch_properties):
@@ -260,22 +398,30 @@ class GraphMaintainer:
             raise RuntimeError(
                 "embedding backfill requires atomic field+ANN transactions"
             )
+        return properties_by_id, compare_and_set, compare_and_set_embedding
 
-        # D-EIMG-2: the live engine is a single-writer authority shared with
-        # ordinary request traffic and the D-BFR-5 hydrator; a bounded page of
-        # sequential per-node OCC commits can burst past
-        # ``ENGINE_BREAKER_THRESHOLD`` consecutive connect/timeout failures
-        # (default 5) and trip the shared :class:`~.engine_breaker.CircuitBreaker`.
-        # Once open, EVERY call fails FAST with ``EngineCircuitOpenError`` for the
-        # rest of ``ENGINE_BREAKER_COOLDOWN`` (default 15s) — and this loop used
-        # to just keep hammering it, burning the entire remaining ``--limit``
-        # budget as instant, zero-value ``errored`` rows (the measured
-        # 193-of-200 failure). A verified-authority session lease
-        # (``SessionExpiredError``) can expire mid-run the same way. Both are
-        # RETRYABLE dispatch-contention signals, not application errors: back
-        # off past the breaker's own cooldown (with jitter, via the shared
-        # :mod:`~agent_utilities.orchestration.resilience` policy primitive) and
-        # retry once before counting the row as durably failed.
+    def _make_embedding_backfill_commit_policy(
+        self,
+    ) -> tuple[Any, tuple[type[BaseException], ...]]:
+        """Build the shared per-row CAS retry policy for
+        :meth:`backfill_entity_embeddings`.
+
+        D-EIMG-2: the live engine is a single-writer authority shared with
+        ordinary request traffic and the D-BFR-5 hydrator; a bounded page of
+        sequential per-node OCC commits can burst past
+        ``ENGINE_BREAKER_THRESHOLD`` consecutive connect/timeout failures
+        (default 5) and trip the shared :class:`~.engine_breaker.CircuitBreaker`.
+        Once open, EVERY call fails FAST with ``EngineCircuitOpenError`` for the
+        rest of ``ENGINE_BREAKER_COOLDOWN`` (default 15s) — hammering an
+        already-open breaker burns the entire remaining ``--limit`` budget as
+        instant, zero-value ``errored`` rows (the measured 193-of-200 failure).
+        A verified-authority session lease (``SessionExpiredError``) can expire
+        mid-run the same way. Both are RETRYABLE dispatch-contention signals,
+        not application errors: back off past the breaker's own cooldown (with
+        jitter, via the shared :mod:`~agent_utilities.orchestration.resilience`
+        policy primitive) and retry once before counting the row as durably
+        failed.
+        """
         from agent_utilities.core.config import config as _agent_config
         from agent_utilities.knowledge_graph.core.engine_breaker import (
             EngineCircuitOpenError,
@@ -283,18 +429,15 @@ class GraphMaintainer:
         from agent_utilities.knowledge_graph.core.session import (
             SessionExpiredError,
         )
-        from agent_utilities.orchestration.resilience import (
-            ResiliencePolicy,
-            run_with_resilience_sync,
-        )
+        from agent_utilities.orchestration.resilience import ResiliencePolicy
 
-        _DISPATCH_CONTENTION_ERRORS: tuple[type[BaseException], ...] = (
+        dispatch_contention_errors: tuple[type[BaseException], ...] = (
             EngineCircuitOpenError,
             SessionExpiredError,
             ConnectionError,
             TimeoutError,
         )
-        _cooldown_s = max(1.0, float(_agent_config.engine_breaker_cooldown))
+        cooldown_s = max(1.0, float(_agent_config.engine_breaker_cooldown))
 
         def _is_dispatch_contention(exc: BaseException) -> bool:
             # ``retry_on`` MUST be a predicate, not the bare tuple above:
@@ -309,50 +452,31 @@ class GraphMaintainer:
             # deliberate exception this predicate carves out. A callable
             # ``retry_on`` bypasses the tuple veto entirely (see
             # ``resilience.ResiliencePolicy.should_retry``).
-            return isinstance(exc, _DISPATCH_CONTENTION_ERRORS)
+            return isinstance(exc, dispatch_contention_errors)
 
-        _commit_policy = ResiliencePolicy(
+        commit_policy = ResiliencePolicy(
             max_attempts=2,
-            backoff_base_s=_cooldown_s,
+            backoff_base_s=cooldown_s,
             backoff_factor=1.0,
-            max_backoff_s=_cooldown_s * 1.5,
+            max_backoff_s=cooldown_s * 1.5,
             jitter=True,
             jitter_strategy="proportional",
             retry_on=_is_dispatch_contention,
             name="embedding_backfill_commit",
         )
-        # A page-wide circuit breaker that never recovers (engine genuinely
-        # down, not just a burst) must not turn a 200-node page into an
-        # N * (cooldown + retry) fully-serial stall: bail out of the REST of
-        # this page once contention persists across several consecutive rows
-        # even after the retry, leaving them untouched (still eligible) for a
-        # later bounded run instead of exhausting the whole budget on
-        # certain-to-fail rows one at a time.
-        _MAX_CONSECUTIVE_CONTENTION_ABORT = 3
-        _consecutive_contention_failures = 0
-        _aborted_early = False
+        return commit_policy, dispatch_contention_errors
 
-        def _compare(
-            node_id: str,
-            conditions: dict[str, Any],
-            updates: dict[str, Any],
-        ) -> bool:
-            try:
-                return bool(
-                    run_with_resilience_sync(
-                        compare_and_set, _commit_policy, node_id, conditions, updates
-                    )
-                )
-            except NotImplementedError as exc:
-                raise RuntimeError(
-                    "embedding backfill requires backend compare-and-set support"
-                ) from exc
-
-        from ..enrichment.semantic import (
-            derive_entity_text_snapshot,
-            make_embed_fn,
-            validate_embedding_vectors,
-        )
+    def _split_embedding_backfill_candidates(
+        self,
+        node_ids: list[str],
+        properties_by_id: dict[str, Any],
+        result: dict[str, int],
+    ) -> tuple[list[tuple[str, str, dict[str, Any]]], list[tuple[str, dict[str, Any]]]]:
+        """Split candidate node ids into embeddable ``items`` (derivable text)
+        and ``deferred`` (no text — gets a no-text marker CAS instead),
+        recording ``skipped_no_text`` into ``result`` as it goes.
+        """
+        from ..enrichment.semantic import derive_entity_text_snapshot
 
         items: list[tuple[str, str, dict[str, Any]]] = []
         deferred: list[tuple[str, dict[str, Any]]] = []
@@ -369,63 +493,178 @@ class GraphMaintainer:
                 deferred.append((node_id, conditions))
                 continue
             items.append((str(node_id), text, conditions))
+        return items, deferred
 
-        vectors: list[list[float]] = []
-        if items:
-            embed_fn = make_embed_fn(batch_size=batch_size)
-            vectors = validate_embedding_vectors(
-                embed_fn([text for _, text, _ in items]),
-                expected_count=len(items),
+    @staticmethod
+    def _embed_backfill_items(
+        items: list[tuple[str, str, dict[str, Any]]], batch_size: int
+    ) -> list[list[float]]:
+        """Batch-embed the derived text for each item; ``[]`` when there are none."""
+        if not items:
+            return []
+        from ..enrichment.semantic import make_embed_fn, validate_embedding_vectors
+
+        embed_fn = make_embed_fn(batch_size=batch_size)
+        return validate_embedding_vectors(
+            embed_fn([text for _, text, _ in items]),
+            expected_count=len(items),
+        )
+
+    @staticmethod
+    def _compare_and_set_backfill_field(
+        compare_and_set: Callable,
+        commit_policy: Any,
+        node_id: str,
+        conditions: dict[str, Any],
+        updates: dict[str, Any],
+    ) -> bool:
+        """Run one resilient compare-and-set, translating an unsupported
+        backend into the same ``RuntimeError`` raised for the other
+        missing-capability cases in :meth:`_resolve_embedding_backfill_capabilities`.
+        """
+        from agent_utilities.orchestration.resilience import run_with_resilience_sync
+
+        try:
+            return bool(
+                run_with_resilience_sync(
+                    compare_and_set, commit_policy, node_id, conditions, updates
+                )
             )
+        except NotImplementedError as exc:
+            raise RuntimeError(
+                "embedding backfill requires backend compare-and-set support"
+            ) from exc
 
+    def _apply_deferred_no_text_markers(
+        self,
+        deferred: list[tuple[str, dict[str, Any]]],
+        ctx: _EmbeddingBackfillCommitContext,
+        tracker: _ContentionTracker,
+        result: dict[str, int],
+    ) -> None:
+        """CAS a ``no_text`` marker onto every deferred (textless) node.
+
+        Same row-isolation contract as :meth:`_apply_backfill_embeddings`: one
+        contended node must never abort the rest of an already in-flight page.
+        A retry-exhausted contention failure here is bucketed under
+        ``conflicted`` rather than ``errored`` (D-CDX-101 keeps backend/infra
+        failures distinct from an ordinary lost OCC race, but a no-text
+        marker CAS carries no vector — nothing was ever computed for this row
+        — so this is left eligible for the next bounded run exactly like a
+        lost race, not reported as a generated-then-lost embedding).
+        """
         for node_id, conditions in deferred:
-            if _aborted_early:
+            if tracker.aborted_early:
                 break
             try:
-                applied = _compare(
+                applied = self._compare_and_set_backfill_field(
+                    ctx.compare_and_set,
+                    ctx.commit_policy,
                     node_id,
                     conditions,
                     {EMBEDDING_BACKFILL_STATE_FIELD: EMBEDDING_BACKFILL_NO_TEXT},
                 )
-            except _DISPATCH_CONTENTION_ERRORS as exc:
-                # Same row-isolation contract as the embedding loop below: one
-                # contended node must never abort the rest of an already
-                # in-flight page. See the long comment on that loop for why
-                # this is bucketed under ``conflicted`` (D-CDX-101 keeps
-                # backend/infra ``errored`` distinct from an ordinary lost OCC
-                # race, but a no-text marker CAS carries no vector — nothing
-                # was ever computed for this row — so a retry-exhausted
-                # contention failure here is left eligible for the next
-                # bounded run exactly like a lost race, not reported as a
-                # generated-then-lost embedding).
+            except ctx.dispatch_contention_errors as exc:
                 result["conflicted"] += 1
-                _consecutive_contention_failures += 1
                 logger.warning(
                     "Deferred no-text marker CAS failed for %s after retry "
                     "(dispatch contention): %s",
                     node_id,
                     exc,
                 )
-                if (
-                    _consecutive_contention_failures
-                    >= _MAX_CONSECUTIVE_CONTENTION_ABORT
-                ):
-                    _aborted_early = True
+                tracker.note_contention(_MAX_CONSECUTIVE_CONTENTION_ABORT)
                 continue
-            _consecutive_contention_failures = 0
+            tracker.reset()
             if applied:
                 result["deferred_no_text"] += 1
             else:
                 result["conflicted"] += 1
 
+    def _note_backfill_embedding_contention(
+        self,
+        node_id: str,
+        exc: BaseException,
+        tracker: _ContentionTracker,
+        result: dict[str, int],
+        total_items: int,
+    ) -> None:
+        """Handle a dispatch-contention failure from the embedding-commit CAS
+        inside :meth:`_apply_backfill_embeddings`.
+        """
+        result["errored"] += 1
+        logger.warning(
+            "Atomic embedding commit failed for %s after retry "
+            "(dispatch contention — engine breaker/session): %s",
+            node_id,
+            exc,
+        )
+        tracker.note_contention(_MAX_CONSECUTIVE_CONTENTION_ABORT)
+        if tracker.aborted_early:
+            logger.warning(
+                "Entity embedding backfill: aborting remainder of "
+                "this page early — %d consecutive node(s) exhausted "
+                "retry against a still-contended engine; %d node(s) "
+                "left unattempted and still eligible for a later run.",
+                tracker.consecutive_failures,
+                total_items - result["embedded"] - result["errored"],
+            )
+
+    def _note_backfill_embedding_error(
+        self,
+        node_id: str,
+        exc: Exception,
+        tracker: _ContentionTracker,
+        result: dict[str, int],
+    ) -> None:
+        """Handle a non-contention exception from the embedding-commit CAS
+        inside :meth:`_apply_backfill_embeddings`.
+
+        D-CDX-101: this ISOLATES one node's atomic commit failure so it
+        cannot abort the other rows already staged in this batch (the
+        documented per-node retry design — a later bounded run revisits this
+        node since neither side committed). ``errored`` is a backend/infra
+        failure, never merged into ``conflicted`` (an ordinary lost OCC
+        race). ``exc``/``cause`` are passed as logging ARGS (never
+        pre-flattened into the message string) so agent_utilities'
+        process-wide log-privacy factory (``core/log_privacy.py``) renders
+        each as its own ``"Type: sanitized message"``.
+        """
+        result["errored"] += 1
+        cause = exc.__cause__
+        if cause is not None:
+            logger.warning(
+                "Atomic embedding commit failed for %s: %s (caused by %s)",
+                node_id,
+                exc,
+                cause,
+            )
+        else:
+            logger.warning(
+                "Atomic embedding commit failed for %s: %s",
+                node_id,
+                exc,
+            )
+        tracker.reset()
+
+    def _apply_backfill_embeddings(
+        self,
+        items: list[tuple[str, str, dict[str, Any]]],
+        vectors: list[list[float]],
+        ctx: _EmbeddingBackfillCommitContext,
+        tracker: _ContentionTracker,
+        result: dict[str, int],
+    ) -> None:
+        """CAS the generated embedding onto every item with a computed vector."""
+        from agent_utilities.orchestration.resilience import run_with_resilience_sync
+
         for (node_id, _, conditions), vector in zip(items, vectors, strict=True):
-            if _aborted_early:
+            if tracker.aborted_early:
                 break
             try:
                 applied = bool(
                     run_with_resilience_sync(
-                        compare_and_set_embedding,
-                        _commit_policy,
+                        ctx.compare_and_set_embedding,
+                        ctx.commit_policy,
                         node_id,
                         conditions,
                         {
@@ -435,92 +674,20 @@ class GraphMaintainer:
                         vector,
                     )
                 )
-            except _DISPATCH_CONTENTION_ERRORS as exc:
-                result["errored"] += 1
-                _consecutive_contention_failures += 1
-                logger.warning(
-                    "Atomic embedding commit failed for %s after retry "
-                    "(dispatch contention — engine breaker/session): %s",
-                    node_id,
-                    exc,
+            except ctx.dispatch_contention_errors as exc:
+                self._note_backfill_embedding_contention(
+                    node_id, exc, tracker, result, len(items)
                 )
-                if (
-                    _consecutive_contention_failures
-                    >= _MAX_CONSECUTIVE_CONTENTION_ABORT
-                ):
-                    logger.warning(
-                        "Entity embedding backfill: aborting remainder of "
-                        "this page early — %d consecutive node(s) exhausted "
-                        "retry against a still-contended engine; %d node(s) "
-                        "left unattempted and still eligible for a later run.",
-                        _consecutive_contention_failures,
-                        len(items) - result["embedded"] - result["errored"],
-                    )
-                    _aborted_early = True
                 continue
             except Exception as exc:
-                # D-CDX-101: this ISOLATES one node's atomic commit failure so
-                # it cannot abort the other N-1 rows already staged in this
-                # batch (the documented per-node retry design — a later
-                # bounded run revisits this node since neither side
-                # committed). What must NEVER happen again is discarding the
-                # cause: the prior version logged only ``type(exc).__name__``
-                # ("RuntimeError") and dropped the message, so an operator
-                # saw scanned=200 embedded=0 with no actionable detail. Count
-                # it under its OWN bucket — ``errored`` is a backend/infra
-                # failure, never merged into ``conflicted`` (an ordinary lost
-                # OCC race), so "every row raised the same RuntimeError" stays
-                # visibly distinct from "every row lost a race to another
-                # writer". The caller (``scripts/backfill_embeddings.py``)
-                # turns a nonzero ``errored`` count with zero durable
-                # ``embedded`` progress into a NONZERO process exit — this
-                # method itself stays row-isolating and never raises.
-                #
-                # Pass ``exc``/``cause`` as logging ARGS (never pre-flattened
-                # into the message string) so agent_utilities' process-wide
-                # log-privacy factory (``core/log_privacy.py``) renders each
-                # as its own ``"Type: sanitized message"`` — that factory
-                # already exists precisely to stop this exact "collapsed to
-                # class name" regression; duplicating its "Type: " prefix
-                # here would only double it.
-                result["errored"] += 1
-                cause = exc.__cause__
-                if cause is not None:
-                    logger.warning(
-                        "Atomic embedding commit failed for %s: %s (caused by %s)",
-                        node_id,
-                        exc,
-                        cause,
-                    )
-                else:
-                    logger.warning(
-                        "Atomic embedding commit failed for %s: %s",
-                        node_id,
-                        exc,
-                    )
-                _consecutive_contention_failures = 0
+                self._note_backfill_embedding_error(node_id, exc, tracker, result)
                 continue
-            _consecutive_contention_failures = 0
+            tracker.reset()
             if not applied:
                 result["conflicted"] += 1
                 continue
             result["embedded"] += 1
             result["indexed"] += 1
-        result["aborted_early"] = _aborted_early
-        logger.info(
-            "Entity embedding backfill: scanned=%d embedded=%d indexed=%d "
-            "skipped_no_text=%d deferred_no_text=%d conflicted=%d errored=%d "
-            "aborted_early=%s",
-            result["scanned"],
-            result["embedded"],
-            result["indexed"],
-            result["skipped_no_text"],
-            result["deferred_no_text"],
-            result["conflicted"],
-            result["errored"],
-            _aborted_early,
-        )
-        return result
 
     def prune_cron_logs(self, keep_days: int = 30) -> int:
         """Delete successful cron logs older than keep_days."""
@@ -870,84 +1037,11 @@ class GraphMaintainer:
             # so the interpolation below is guarded the same way every other
             # label-scoped query in this codebase is (agent_utilities.security.identifiers).
             label = validate_identifier(raw_label, kind="label")
-            # Split into a READ that selects one batch and a WRITE that deletes
-            # exactly those ids. The single-statement form this replaced --
-            # `MATCH ... WITH n LIMIT $batch_size DETACH DELETE n` -- is outside
-            # the engine's native Cypher WRITE subset: a write statement has no
-            # read-pipeline stage, so `WITH` between a MATCH and a write clause
-            # is rejected at the wire boundary (`CypherEngineError`), not
-            # silently degraded. Retention therefore did not run at all against
-            # a native backend.
-            #
-            # `LIMIT` is unrestricted in a plain READ, so batching moves there,
-            # where it belongs: the read is also what actually knows whether
-            # more rows remain, which makes the loop's termination condition a
-            # fact rather than an inference from a delete count.
-            select_query = f"""
-            MATCH (n:{label})
-            WHERE n.timestamp < $cutoff
-            AND (n.is_permanent IS NULL OR n.is_permanent = False)
-            RETURN n.id AS id
-            LIMIT $batch_size
-            """
-            delete_query = f"""
-            MATCH (n:{label})
-            WHERE n.id IN $ids
-            DETACH DELETE n
-            RETURN count(n) AS deleted_count
-            """
-            for _batch in range(_TRACE_RETENTION_MAX_BATCHES_PER_LABEL):
-                selected = self.engine.backend.execute(
-                    select_query,
-                    {
-                        "cutoff": cutoff,
-                        "batch_size": _TRACE_RETENTION_BATCH_SIZE,
-                    },
-                )
-                selected_rows = selected if isinstance(selected, list) else [selected]
-                ids = [
-                    row["id"]
-                    for row in selected_rows
-                    if isinstance(row, dict) and row.get("id") is not None
-                ]
-                if not ids:
-                    break
-                result = self.engine.backend.execute(delete_query, {"ids": ids})
-                count: int | None = None
-                rows = result if isinstance(result, list) else [result]
-                for row in rows:
-                    if not isinstance(row, dict):
-                        continue
-                    for key in (
-                        "deleted_count",
-                        "deleted",
-                        "nodes_deleted",
-                        "rows_affected",
-                        "count",
-                        "count(n)",
-                    ):
-                        if key not in row:
-                            continue
-                        try:
-                            parsed = int(row[key])
-                        except (TypeError, ValueError, OverflowError):
-                            parsed = -1
-                        count = parsed if parsed >= 0 else None
-                        break
-                    if count is not None:
-                        break
-                if count is None:
-                    deleted_rows_known = False
-                else:
-                    deleted_rows += count
-                # Termination is decided by what the READ found, not by the
-                # delete's reported count: a short read is direct evidence that
-                # nothing older than the cutoff remains for this label, and it
-                # stays correct on a backend whose delete returns no count at
-                # all (the case that previously abandoned the whole label).
-                if len(ids) < _TRACE_RETENTION_BATCH_SIZE:
-                    break
-            else:
+            label_result = self._prune_expired_trace_label(label, cutoff)
+            deleted_rows += label_result.deleted_rows
+            if not label_result.deleted_rows_known:
+                deleted_rows_known = False
+            if label_result.truncated:
                 truncated = True
             swept += 1
 
@@ -964,6 +1058,135 @@ class GraphMaintainer:
             retention_days,
         )
         return swept
+
+    def _prune_expired_trace_label(
+        self, label: str, cutoff: str
+    ) -> _TraceRetentionLabelResult:
+        """Run the batched delete-until-exhausted loop for one canonical
+        trace label, for :meth:`prune_expired_traces`.
+
+        Termination of the inner batch loop is decided by what the READ
+        found, not by the delete's reported count: a short read is direct
+        evidence that nothing older than the cutoff remains for this label,
+        and it stays correct on a backend whose delete returns no count at
+        all (the case that previously abandoned the whole label). Hitting
+        :data:`_TRACE_RETENTION_MAX_BATCHES_PER_LABEL` without exhausting the
+        label (the loop's ``else`` clause) is reported as ``truncated``.
+        """
+        deleted_rows = 0
+        deleted_rows_known = True
+        for _batch in range(_TRACE_RETENTION_MAX_BATCHES_PER_LABEL):
+            batch = self._run_one_trace_retention_batch(label, cutoff)
+            if batch.selected_count == 0:
+                break
+            if batch.deleted_count is None:
+                deleted_rows_known = False
+            else:
+                deleted_rows += batch.deleted_count
+            if batch.selected_count < _TRACE_RETENTION_BATCH_SIZE:
+                break
+        else:
+            return _TraceRetentionLabelResult(
+                deleted_rows=deleted_rows,
+                deleted_rows_known=deleted_rows_known,
+                truncated=True,
+            )
+        return _TraceRetentionLabelResult(
+            deleted_rows=deleted_rows,
+            deleted_rows_known=deleted_rows_known,
+            truncated=False,
+        )
+
+    def _run_one_trace_retention_batch(
+        self, label: str, cutoff: str
+    ) -> _TraceRetentionBatchResult:
+        """Select up to one batch of expired ``label`` nodes and delete
+        exactly those ids.
+
+        Split into a READ that selects one batch and a WRITE that deletes
+        exactly those ids. The single-statement form this replaced --
+        `MATCH ... WITH n LIMIT $batch_size DETACH DELETE n` -- is outside
+        the engine's native Cypher WRITE subset: a write statement has no
+        read-pipeline stage, so `WITH` between a MATCH and a write clause
+        is rejected at the wire boundary (`CypherEngineError`), not
+        silently degraded. Retention therefore did not run at all against
+        a native backend.
+
+        `LIMIT` is unrestricted in a plain READ, so batching moves there,
+        where it belongs: the read is also what actually knows whether
+        more rows remain, which makes the loop's termination condition a
+        fact rather than an inference from a delete count.
+        """
+        select_query = f"""
+        MATCH (n:{label})
+        WHERE n.timestamp < $cutoff
+        AND (n.is_permanent IS NULL OR n.is_permanent = False)
+        RETURN n.id AS id
+        LIMIT $batch_size
+        """
+        delete_query = f"""
+        MATCH (n:{label})
+        WHERE n.id IN $ids
+        DETACH DELETE n
+        RETURN count(n) AS deleted_count
+        """
+        selected = self.engine.backend.execute(
+            select_query,
+            {"cutoff": cutoff, "batch_size": _TRACE_RETENTION_BATCH_SIZE},
+        )
+        selected_rows = selected if isinstance(selected, list) else [selected]
+        ids = [
+            row["id"]
+            for row in selected_rows
+            if isinstance(row, dict) and row.get("id") is not None
+        ]
+        if not ids:
+            return _TraceRetentionBatchResult(selected_count=0, deleted_count=None)
+
+        result = self.engine.backend.execute(delete_query, {"ids": ids})
+        return _TraceRetentionBatchResult(
+            selected_count=len(ids),
+            deleted_count=self._extract_deleted_count(result),
+        )
+
+    @staticmethod
+    def _extract_deleted_count(result: Any) -> int | None:
+        """Parse the affected-row count out of a DETACH DELETE write result.
+
+        Tries each row in turn; within a row, only the FIRST key present
+        from the priority list below is consulted (matching every backend
+        variant this codebase has observed) — a present-but-unparseable or
+        negative value falls through to the next row rather than the next
+        key. Returns ``None`` when no row yields a usable count.
+        """
+        rows = result if isinstance(result, list) else [result]
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            parsed = GraphMaintainer._first_row_delete_count(row)
+            if parsed is not None:
+                return parsed
+        return None
+
+    @staticmethod
+    def _first_row_delete_count(row: dict) -> int | None:
+        """Parse the first present count-like key in one write-result row."""
+        for key in (
+            "deleted_count",
+            "deleted",
+            "nodes_deleted",
+            "rows_affected",
+            "count",
+            "count(n)",
+        ):
+            if key not in row:
+                continue
+            try:
+                parsed = int(row[key])
+            except (TypeError, ValueError, OverflowError):
+                parsed = -1
+            return parsed if parsed >= 0 else None
+        return None
 
     def _count_protected_conversational_nodes(
         self, threshold: float, protect_types: tuple[str, ...]
@@ -1216,6 +1439,58 @@ class GraphMaintainer:
 
         return merged_count
 
+    @staticmethod
+    def _numpy_similarity_pairs(
+        concepts: list, threshold: float
+    ) -> list[tuple[str, str, float]]:
+        """In-process numpy O(n²) cosine-similarity pass over already-fetched
+        concept embeddings — the fallback path for :meth:`_similar_concept_pairs`.
+        """
+        from .engine import cosine_similarity
+
+        out: list[tuple[str, str, float]] = []
+        for i, c1 in enumerate(concepts):
+            for c2 in concepts[i + 1 :]:
+                sim = cosine_similarity(c1["embedding"], c2["embedding"])
+                if sim > threshold:
+                    out.append((c1["id"], c2["id"], sim))
+        return out
+
+    def _native_similarity_pairs(
+        self, concepts: list, threshold: float, cids: set[str]
+    ) -> list[tuple[str, str, float]] | None:
+        """Try the native ``compute_similarity_edges`` path; returns ``None``
+        (never an empty list) to mean "fall back to numpy" — an empty native
+        result is disambiguated the same way an unavailable compute core is,
+        since the Rust engine's resident graph may not hold these
+        engine-fetched concepts at all.
+        """
+        compute = getattr(self.engine, "graph_compute", None)
+        if compute is None or not hasattr(compute, "compute_similarity_edges"):
+            return None
+        try:
+            triples = compute.compute_similarity_edges(threshold) or []
+            pairs = [
+                (str(s), str(d), float(sim))
+                for (s, d, sim) in triples
+                if str(s) in cids and str(d) in cids and float(sim) > threshold
+            ]
+        except Exception as e:  # noqa: BLE001 - Rust core unavailable → numpy fallback
+            logger.debug(
+                "Native compute_similarity_edges unavailable (%s); numpy fallback",
+                e,
+            )
+            return None
+        if not pairs:
+            # Empty native result: the engine likely doesn't hold these concepts —
+            # fall through to numpy over the in-hand embeddings.
+            return None
+        logger.info(
+            "[KG-2.3] %d concept similarity pairs via native compute_similarity_edges",
+            len(pairs),
+        )
+        return pairs
+
     def _similar_concept_pairs(
         self, concepts: list, threshold: float
     ) -> list[tuple[str, str, float]]:
@@ -1230,42 +1505,10 @@ class GraphMaintainer:
         Pairs are filtered to the supplied Concept id set.
         """
         cids = {c["id"] for c in concepts}
-
-        def _numpy_pairs() -> list[tuple[str, str, float]]:
-            from .engine import cosine_similarity
-
-            out: list[tuple[str, str, float]] = []
-            for i, c1 in enumerate(concepts):
-                for c2 in concepts[i + 1 :]:
-                    sim = cosine_similarity(c1["embedding"], c2["embedding"])
-                    if sim > threshold:
-                        out.append((c1["id"], c2["id"], sim))
-            return out
-
-        compute = getattr(self.engine, "graph_compute", None)
-        if compute is not None and hasattr(compute, "compute_similarity_edges"):
-            try:
-                triples = compute.compute_similarity_edges(threshold) or []
-                pairs = [
-                    (str(s), str(d), float(sim))
-                    for (s, d, sim) in triples
-                    if str(s) in cids and str(d) in cids and float(sim) > threshold
-                ]
-                if pairs:
-                    logger.info(
-                        "[KG-2.3] %d concept similarity pairs via native compute_similarity_edges",
-                        len(pairs),
-                    )
-                    return pairs
-                # Empty native result: the engine likely doesn't hold these concepts —
-                # fall through to numpy over the in-hand embeddings.
-            except Exception as e:  # noqa: BLE001 - Rust core unavailable → numpy fallback
-                logger.debug(
-                    "Native compute_similarity_edges unavailable (%s); numpy fallback",
-                    e,
-                )
-
-        return _numpy_pairs()
+        pairs = self._native_similarity_pairs(concepts, threshold, cids)
+        if pairs is not None:
+            return pairs
+        return self._numpy_similarity_pairs(concepts, threshold)
 
     @staticmethod
     def _safe_rel_type(rtype: str) -> str:
@@ -1352,6 +1595,40 @@ class GraphMaintainer:
             {"old_id": old_id},
         )
 
+    @staticmethod
+    def _as_property_list(v: Any) -> list:
+        """Normalize a property value into a list for set-union merging."""
+        if v is None:
+            return []
+        return list(v) if isinstance(v, list | tuple | set) else [v]
+
+    @classmethod
+    def _merge_property_value(
+        cls, key: str, old_val: Any, new_val: Any
+    ) -> tuple[bool, Any]:
+        """Compute the merged value for one non-protected property ``key``.
+
+        Returns ``(keep, value)`` — ``keep=False`` means this key contributes
+        nothing to the merge (the survivor's own value, or its absence,
+        stands as-is).
+        """
+        if key in ("aliases", "provenance", "sources"):
+            return True, sorted(
+                set(cls._as_property_list(new_val))
+                | set(cls._as_property_list(old_val))
+            )
+        if key in ("importance", "confidence") and isinstance(old_val, int | float):
+            return True, max(
+                old_val, new_val if isinstance(new_val, int | float) else old_val
+            )
+        if key in ("updated_at", "last_seen"):
+            return True, (
+                max(str(old_val), str(new_val)) if new_val is not None else old_val
+            )
+        if new_val is None:
+            return True, old_val
+        return False, None
+
     def _merge_node_properties(self, *, old_id: str, new_id: str) -> dict:
         """Compute a non-destructive property union for the surviving node.
 
@@ -1378,30 +1655,12 @@ class GraphMaintainer:
 
         protected = {"id", "name", "embedding"}
         merged: dict = {}
-
-        def as_list(v) -> list:
-            if v is None:
-                return []
-            return list(v) if isinstance(v, list | tuple | set) else [v]
-
         for key, old_val in old_props.items():
             if key in protected:
                 continue
-            new_val = new_props.get(key)
-            if key in ("aliases", "provenance", "sources"):
-                merged[key] = sorted(set(as_list(new_val)) | set(as_list(old_val)))
-            elif key in ("importance", "confidence") and isinstance(
-                old_val, int | float
-            ):
-                merged[key] = max(
-                    old_val, new_val if isinstance(new_val, int | float) else old_val
-                )
-            elif key in ("updated_at", "last_seen"):
-                merged[key] = (
-                    max(str(old_val), str(new_val)) if new_val is not None else old_val
-                )
-            elif new_val is None:
-                merged[key] = old_val
+            keep, value = self._merge_property_value(key, old_val, new_props.get(key))
+            if keep:
+                merged[key] = value
         return merged
 
     def validate_all_graph_models(self) -> int:
@@ -1433,6 +1692,95 @@ class GraphMaintainer:
         logger.info(f"Validated {validated} graph nodes against Pydantic models.")
         return validated
 
+    def _fetch_topic_linking_candidates(self) -> _TopicLinkingCandidates | None:
+        """Fetch the embedded topics/policies/flows plus already-linked topic
+        ids used by :meth:`link_topics_to_policies_and_processes`. Returns
+        ``None`` when there are no embedded topics to consider at all.
+        """
+        topics = (
+            self.engine.backend.execute(
+                "MATCH (t:KnowledgeBaseTopic) WHERE t.embedding IS NOT NULL "
+                "RETURN t.id AS id, t.embedding AS embedding"
+            )
+            or []
+        )
+        if not topics:
+            return None
+
+        grounded_ids = {
+            row["tid"]
+            for row in (
+                self.engine.backend.execute(
+                    "MATCH (t:KnowledgeBaseTopic)-[:GROUNDED_IN]->(p:Policy) "
+                    "RETURN t.id AS tid"
+                )
+                or []
+            )
+        }
+        referenced_ids = {
+            row["tid"]
+            for row in (
+                self.engine.backend.execute(
+                    "MATCH (t:KnowledgeBaseTopic)-[:REFERENCES]->(f:ProcessFlow) "
+                    "RETURN t.id AS tid"
+                )
+                or []
+            )
+        }
+        policies = (
+            self.engine.backend.execute(
+                "MATCH (p:Policy) WHERE p.embedding IS NOT NULL "
+                "RETURN p.id AS id, p.embedding AS embedding"
+            )
+            or []
+        )
+        flows = (
+            self.engine.backend.execute(
+                "MATCH (f:ProcessFlow) WHERE f.embedding IS NOT NULL "
+                "RETURN f.id AS id, f.embedding AS embedding"
+            )
+            or []
+        )
+        return _TopicLinkingCandidates(
+            topics=topics,
+            grounded_ids=grounded_ids,
+            referenced_ids=referenced_ids,
+            policies=policies,
+            flows=flows,
+        )
+
+    def _link_one_topic(
+        self,
+        topic: dict,
+        grounded_ids: set,
+        referenced_ids: set,
+        policies: list,
+        flows: list,
+    ) -> int:
+        """Link one KnowledgeBaseTopic to its similar Policies/ProcessFlows
+        (cosine similarity > 0.75); returns the number of edges created.
+        """
+        from .engine import cosine_similarity
+
+        t_emb = topic.get("embedding")
+        if not t_emb:
+            return 0
+
+        linked = 0
+        if topic["id"] not in grounded_ids:
+            for policy in policies:
+                p_emb = policy.get("embedding")
+                if p_emb and cosine_similarity(t_emb, p_emb) > 0.75:
+                    self.engine.link_nodes(topic["id"], policy["id"], "GROUNDED_IN")
+                    linked += 1
+        if topic["id"] not in referenced_ids:
+            for flow in flows:
+                f_emb = flow.get("embedding")
+                if f_emb and cosine_similarity(t_emb, f_emb) > 0.75:
+                    self.engine.link_nodes(topic["id"], flow["id"], "REFERENCES")
+                    linked += 1
+        return linked
+
     def link_topics_to_policies_and_processes(self) -> int:
         """Auto-link new KnowledgeBaseTopic nodes to Policies/Processes via semantic similarity.
 
@@ -1449,75 +1797,21 @@ class GraphMaintainer:
         if not self.engine.backend:
             return 0
 
-        from .engine import cosine_similarity
-
         try:
-            topics = (
-                self.engine.backend.execute(
-                    "MATCH (t:KnowledgeBaseTopic) WHERE t.embedding IS NOT NULL "
-                    "RETURN t.id AS id, t.embedding AS embedding"
-                )
-                or []
-            )
-            if not topics:
+            candidates = self._fetch_topic_linking_candidates()
+            if candidates is None:
                 return 0
 
-            grounded_ids = {
-                row["tid"]
-                for row in (
-                    self.engine.backend.execute(
-                        "MATCH (t:KnowledgeBaseTopic)-[:GROUNDED_IN]->(p:Policy) "
-                        "RETURN t.id AS tid"
-                    )
-                    or []
+            linked = sum(
+                self._link_one_topic(
+                    topic,
+                    candidates.grounded_ids,
+                    candidates.referenced_ids,
+                    candidates.policies,
+                    candidates.flows,
                 )
-            }
-            referenced_ids = {
-                row["tid"]
-                for row in (
-                    self.engine.backend.execute(
-                        "MATCH (t:KnowledgeBaseTopic)-[:REFERENCES]->(f:ProcessFlow) "
-                        "RETURN t.id AS tid"
-                    )
-                    or []
-                )
-            }
-            policies = (
-                self.engine.backend.execute(
-                    "MATCH (p:Policy) WHERE p.embedding IS NOT NULL "
-                    "RETURN p.id AS id, p.embedding AS embedding"
-                )
-                or []
+                for topic in candidates.topics
             )
-            flows = (
-                self.engine.backend.execute(
-                    "MATCH (f:ProcessFlow) WHERE f.embedding IS NOT NULL "
-                    "RETURN f.id AS id, f.embedding AS embedding"
-                )
-                or []
-            )
-
-            linked = 0
-            for topic in topics:
-                t_emb = topic.get("embedding")
-                if not t_emb:
-                    continue
-                if topic["id"] not in grounded_ids:
-                    for policy in policies:
-                        p_emb = policy.get("embedding")
-                        if p_emb and cosine_similarity(t_emb, p_emb) > 0.75:
-                            self.engine.link_nodes(
-                                topic["id"], policy["id"], "GROUNDED_IN"
-                            )
-                            linked += 1
-                if topic["id"] not in referenced_ids:
-                    for flow in flows:
-                        f_emb = flow.get("embedding")
-                        if f_emb and cosine_similarity(t_emb, f_emb) > 0.75:
-                            self.engine.link_nodes(
-                                topic["id"], flow["id"], "REFERENCES"
-                            )
-                            linked += 1
 
             logger.info(
                 "✅ Topic linking complete (%d Policy/ProcessFlow links created)",

@@ -9,6 +9,7 @@ the event eligible for retry. Keyset cursors are per aggregate and bounded.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
@@ -92,6 +93,32 @@ _DRIFT_CODES = Literal[
     "rebuild_failed",
     "reverse_sync_rejected",
 ]
+
+
+@dataclass(frozen=True)
+class _EventStep:
+    """Outcome of applying one outbox event to the in-flight batch state."""
+
+    outcome: ProjectionOutcome | None
+    stop: bool
+    current: ProjectionCheckpoint
+    persisted: ProjectionCheckpoint | None
+
+
+class _BatchAborted(Exception):
+    """Internal signal: a batch must return this result without applying events."""
+
+    def __init__(self, result: ProjectionBatchResult) -> None:
+        super().__init__(result.status)
+        self.result = result
+
+
+class _CleanupAborted(Exception):
+    """Internal signal: a cleanup pass must return this result immediately."""
+
+    def __init__(self, result: ProjectionCleanupResult) -> None:
+        super().__init__(result.scope.key)
+        self.result = result
 
 
 class ProjectionService:
@@ -252,14 +279,50 @@ class ProjectionService:
 
         self._check_limit(limit)
         try:
+            current, persisted, events = self._open_batch(scope, fence_token, limit)
+        except _BatchAborted as aborted:
+            return aborted.result
+
+        outcomes: list[ProjectionOutcome] = []
+        for event in events:
+            step = self._step_event(scope, event, current, persisted, fence_token)
+            if step.outcome is not None:
+                outcomes.append(step.outcome)
+            current, persisted = step.current, step.persisted
+            if step.stop:
+                break
+
+        typed_outcomes = tuple(outcomes)
+        status = self._status(typed_outcomes)
+        return ProjectionBatchResult(
+            scope=scope,
+            status=status,
+            outcomes=typed_outcomes,
+            checkpoint=current,
+            has_more=len(events) == limit
+            and status in {"complete", "applied", "replayed"},
+        )
+
+    def _open_batch(
+        self,
+        scope: ProjectionScope,
+        fence_token: int,
+        limit: int,
+    ) -> tuple[
+        ProjectionCheckpoint, ProjectionCheckpoint | None, tuple[OutboxEnvelope, ...]
+    ]:
+        """Read the checkpoint and the next event page, or abort the batch."""
+
+        try:
             current = self._read_checkpoint(scope, fence_token)
         except CheckpointConflict:
-            return self._failure_result(
-                scope,
-                reason_code="checkpoint_fence_lost",
-            )
+            raise _BatchAborted(
+                self._failure_result(scope, reason_code="checkpoint_fence_lost")
+            ) from None
         except Exception:
-            return self._failure_result(scope, reason_code="checkpoint_conflict")
+            raise _BatchAborted(
+                self._failure_result(scope, reason_code="checkpoint_conflict")
+            ) from None
 
         # ``current`` may be a synthetic, never-persisted starting point
         # (``ProjectionCheckpoint.initial``) when the store has nothing for
@@ -272,121 +335,176 @@ class ProjectionService:
         try:
             events = tuple(self._outbox.read_after(scope, current.last_sequence, limit))
         except Exception:
-            return self._failure_result(
-                scope,
-                reason_code="graph_apply_failed",
-                checkpoint=current,
-                sequence=current.last_sequence + 1,
-            )
-        if len(events) > limit:
-            return self._failure_result(
-                scope,
-                reason_code="sequence_gap",
-                checkpoint=current,
-                sequence=current.last_sequence + 1,
-            )
-
-        outcomes: list[ProjectionOutcome] = []
-        for event in events:
-            if not isinstance(event, OutboxEnvelope):
-                self._record_drift(
-                    reason_code="identity_conflict",
-                    scope=scope,
+            raise _BatchAborted(
+                self._failure_result(
+                    scope,
+                    reason_code="graph_apply_failed",
+                    checkpoint=current,
                     sequence=current.last_sequence + 1,
                 )
-                break
-            if (
-                event.aggregate_type != scope.aggregate_type
-                or event.aggregate_id != scope.aggregate_id
-            ):
-                outcomes.append(self._outcome("rejected", event, "scope_mismatch"))
-                self._record_drift(
-                    reason_code="scope_mismatch",
-                    scope=scope,
-                    sequence=event.sequence,
-                    event=event,
-                )
-                break
-
-            if event.sequence <= current.last_sequence:
-                if (
-                    event.sequence == current.last_sequence
-                    and event.event_id == current.last_event_id
-                    and event.event_digest == current.last_event_digest
-                ):
-                    outcomes.append(self._outcome("replayed", event))
-                else:
-                    outcomes.append(
-                        self._outcome("conflict", event, "out_of_order_event")
-                    )
-                    self._record_drift(
-                        reason_code="identity_conflict",
-                        scope=scope,
-                        sequence=event.sequence,
-                        event=event,
-                        expected_digest=current.last_event_digest,
-                        observed_digest=event.event_digest,
-                    )
-                    break
-                continue
-
-            expected_sequence = current.last_sequence + 1
-            if event.sequence != expected_sequence:
-                outcomes.append(self._outcome("gap", event, "sequence_gap"))
-                self._record_drift(
+            ) from None
+        if len(events) > limit:
+            raise _BatchAborted(
+                self._failure_result(
+                    scope,
                     reason_code="sequence_gap",
-                    scope=scope,
-                    sequence=event.sequence,
-                    event=event,
+                    checkpoint=current,
+                    sequence=current.last_sequence + 1,
                 )
-                break
+            )
+        return current, persisted, events
 
-            try:
-                receipt = self._graph.apply_event(event, fence_token)
-                if not isinstance(receipt, GraphProjectionReceipt):
-                    raise ProjectionContractError("graph_projection_receipt_invalid")
-                if receipt.event_id != event.event_id or not (
-                    receipt.applied or receipt.replayed
-                ):
-                    raise ProjectionContractError("graph_projection_receipt_mismatch")
-                next_checkpoint = ProjectionCheckpoint.after_event(
-                    prior=current,
-                    event=event,
-                    fence_token=fence_token,
-                )
-                self._checkpoints.save_checkpoint(scope, persisted, next_checkpoint)
-            except CheckpointConflict:
-                outcomes.append(self._outcome("drift", event, "checkpoint_conflict"))
-                self._record_drift(
-                    reason_code="checkpoint_conflict",
-                    scope=scope,
-                    sequence=event.sequence,
-                    event=event,
-                )
-                break
-            except Exception:
-                outcomes.append(self._outcome("failed", event, "graph_apply_failed"))
-                self._record_drift(
-                    reason_code="graph_apply_failed",
-                    scope=scope,
-                    sequence=event.sequence,
-                    event=event,
-                )
-                break
+    def _step_event(
+        self,
+        scope: ProjectionScope,
+        event: OutboxEnvelope,
+        current: ProjectionCheckpoint,
+        persisted: ProjectionCheckpoint | None,
+        fence_token: int,
+    ) -> _EventStep:
+        """Advance the batch by exactly one event, or signal why it must stop."""
 
-            current = next_checkpoint
-            persisted = next_checkpoint
-            outcomes.append(self._outcome("applied", event))
+        step = self._validate_event_identity(scope, event, current, persisted)
+        if step is not None:
+            return step
+        step = self._classify_event_sequence(scope, event, current, persisted)
+        if step is not None:
+            return step
+        return self._apply_event(scope, event, current, persisted, fence_token)
 
-        typed_outcomes = tuple(outcomes)
-        status = self._status(typed_outcomes)
-        return ProjectionBatchResult(
-            scope=scope,
-            status=status,
-            outcomes=typed_outcomes,
-            checkpoint=current,
-            has_more=len(events) == limit
-            and status in {"complete", "applied", "replayed"},
+    def _validate_event_identity(
+        self,
+        scope: ProjectionScope,
+        event: OutboxEnvelope,
+        current: ProjectionCheckpoint,
+        persisted: ProjectionCheckpoint | None,
+    ) -> _EventStep | None:
+        """Reject a malformed envelope or one outside this scope; else None."""
+
+        if not isinstance(event, OutboxEnvelope):
+            self._record_drift(
+                reason_code="identity_conflict",
+                scope=scope,
+                sequence=current.last_sequence + 1,
+            )
+            return _EventStep(
+                outcome=None, stop=True, current=current, persisted=persisted
+            )
+        if (
+            event.aggregate_type != scope.aggregate_type
+            or event.aggregate_id != scope.aggregate_id
+        ):
+            outcome = self._outcome("rejected", event, "scope_mismatch")
+            self._record_drift(
+                reason_code="scope_mismatch",
+                scope=scope,
+                sequence=event.sequence,
+                event=event,
+            )
+            return _EventStep(
+                outcome=outcome, stop=True, current=current, persisted=persisted
+            )
+        return None
+
+    def _classify_event_sequence(
+        self,
+        scope: ProjectionScope,
+        event: OutboxEnvelope,
+        current: ProjectionCheckpoint,
+        persisted: ProjectionCheckpoint | None,
+    ) -> _EventStep | None:
+        """Handle a replayed, conflicting, or gapped event; else None to apply it."""
+
+        if event.sequence <= current.last_sequence:
+            if (
+                event.sequence == current.last_sequence
+                and event.event_id == current.last_event_id
+                and event.event_digest == current.last_event_digest
+            ):
+                outcome = self._outcome("replayed", event)
+                return _EventStep(
+                    outcome=outcome, stop=False, current=current, persisted=persisted
+                )
+            outcome = self._outcome("conflict", event, "out_of_order_event")
+            self._record_drift(
+                reason_code="identity_conflict",
+                scope=scope,
+                sequence=event.sequence,
+                event=event,
+                expected_digest=current.last_event_digest,
+                observed_digest=event.event_digest,
+            )
+            return _EventStep(
+                outcome=outcome, stop=True, current=current, persisted=persisted
+            )
+
+        expected_sequence = current.last_sequence + 1
+        if event.sequence != expected_sequence:
+            outcome = self._outcome("gap", event, "sequence_gap")
+            self._record_drift(
+                reason_code="sequence_gap",
+                scope=scope,
+                sequence=event.sequence,
+                event=event,
+            )
+            return _EventStep(
+                outcome=outcome, stop=True, current=current, persisted=persisted
+            )
+        return None
+
+    def _apply_event(
+        self,
+        scope: ProjectionScope,
+        event: OutboxEnvelope,
+        current: ProjectionCheckpoint,
+        persisted: ProjectionCheckpoint | None,
+        fence_token: int,
+    ) -> _EventStep:
+        """Apply the next expected event to GraphOS and advance the checkpoint."""
+
+        try:
+            receipt = self._graph.apply_event(event, fence_token)
+            if not isinstance(receipt, GraphProjectionReceipt):
+                raise ProjectionContractError("graph_projection_receipt_invalid")
+            if receipt.event_id != event.event_id or not (
+                receipt.applied or receipt.replayed
+            ):
+                raise ProjectionContractError("graph_projection_receipt_mismatch")
+            next_checkpoint = ProjectionCheckpoint.after_event(
+                prior=current,
+                event=event,
+                fence_token=fence_token,
+            )
+            self._checkpoints.save_checkpoint(scope, persisted, next_checkpoint)
+        except CheckpointConflict:
+            outcome = self._outcome("drift", event, "checkpoint_conflict")
+            self._record_drift(
+                reason_code="checkpoint_conflict",
+                scope=scope,
+                sequence=event.sequence,
+                event=event,
+            )
+            return _EventStep(
+                outcome=outcome, stop=True, current=current, persisted=persisted
+            )
+        except Exception:
+            outcome = self._outcome("failed", event, "graph_apply_failed")
+            self._record_drift(
+                reason_code="graph_apply_failed",
+                scope=scope,
+                sequence=event.sequence,
+                event=event,
+            )
+            return _EventStep(
+                outcome=outcome, stop=True, current=current, persisted=persisted
+            )
+
+        outcome = self._outcome("applied", event)
+        return _EventStep(
+            outcome=outcome,
+            stop=False,
+            current=next_checkpoint,
+            persisted=next_checkpoint,
         )
 
     def project(
@@ -446,9 +564,38 @@ class ProjectionService:
         if self._tombstones is None:
             raise ProjectionContractError("tombstone_reader_required")
         try:
+            checkpoint, events = self._open_cleanup_batch(
+                scope, self._tombstones, fence_token, before_sequence, limit
+            )
+        except _CleanupAborted as aborted:
+            return aborted.result
+
+        outcomes: list[ProjectionOutcome] = []
+        for event in events:
+            outcome = self._step_tombstone_event(scope, event, checkpoint, fence_token)
+            if outcome is not None:
+                outcomes.append(outcome)
+        return ProjectionCleanupResult(
+            scope=scope,
+            outcomes=tuple(outcomes),
+            checkpoint=checkpoint,
+            has_more=len(events) == limit,
+        )
+
+    def _open_cleanup_batch(
+        self,
+        scope: ProjectionScope,
+        tombstones: TombstoneReader,
+        fence_token: int,
+        before_sequence: int,
+        limit: int,
+    ) -> tuple[ProjectionCheckpoint, tuple[OutboxEnvelope, ...]]:
+        """Read the checkpoint and due tombstones, or abort the cleanup pass."""
+
+        try:
             checkpoint = self._read_checkpoint(scope, fence_token)
             events = tuple(
-                self._tombstones.read_tombstones_before(scope, before_sequence, limit)
+                tombstones.read_tombstones_before(scope, before_sequence, limit)
             )
         except CheckpointConflict:
             self._record_drift(
@@ -456,60 +603,101 @@ class ProjectionService:
                 scope=scope,
                 sequence=0,
             )
-            return ProjectionCleanupResult(scope=scope, checkpoint=None)
+            raise _CleanupAborted(
+                ProjectionCleanupResult(scope=scope, checkpoint=None)
+            ) from None
         except Exception:
             self._record_drift(
                 reason_code="tombstone_cleanup_failed",
                 scope=scope,
                 sequence=0,
             )
-            return ProjectionCleanupResult(scope=scope, checkpoint=None)
+            raise _CleanupAborted(
+                ProjectionCleanupResult(scope=scope, checkpoint=None)
+            ) from None
         if len(events) > limit:
             raise ProjectionContractError("tombstone_reader_exceeded_limit")
+        return checkpoint, events
 
-        outcomes: list[ProjectionOutcome] = []
-        for event in events:
-            if not isinstance(event, OutboxEnvelope):
-                self._record_drift(
-                    reason_code="tombstone_cleanup_failed",
-                    scope=scope,
-                    sequence=0,
-                )
-                continue
-            if (
-                event.operation != "tombstone"
-                or event.sequence > checkpoint.last_sequence
-            ):
-                outcomes.append(
-                    self._outcome("rejected", event, "tombstone_not_durable")
-                )
-                self._record_drift(
-                    reason_code="tombstone_cleanup_failed",
-                    scope=scope,
-                    sequence=event.sequence,
-                    event=event,
-                )
-                continue
-            try:
-                self._graph.cleanup_tombstone(event, fence_token)
-            except Exception:
-                outcomes.append(
-                    self._outcome("failed", event, "tombstone_cleanup_failed")
-                )
-                self._record_drift(
-                    reason_code="tombstone_cleanup_failed",
-                    scope=scope,
-                    sequence=event.sequence,
-                    event=event,
-                )
-                continue
-            outcomes.append(self._outcome("cleaned", event))
-        return ProjectionCleanupResult(
-            scope=scope,
-            outcomes=tuple(outcomes),
-            checkpoint=checkpoint,
-            has_more=len(events) == limit,
-        )
+    def _step_tombstone_event(
+        self,
+        scope: ProjectionScope,
+        event: OutboxEnvelope,
+        checkpoint: ProjectionCheckpoint,
+        fence_token: int,
+    ) -> ProjectionOutcome | None:
+        """Clean up one due tombstone; return its outcome, or None to skip it."""
+
+        if not isinstance(event, OutboxEnvelope):
+            self._record_drift(
+                reason_code="tombstone_cleanup_failed",
+                scope=scope,
+                sequence=0,
+            )
+            return None
+        if event.operation != "tombstone" or event.sequence > checkpoint.last_sequence:
+            self._record_drift(
+                reason_code="tombstone_cleanup_failed",
+                scope=scope,
+                sequence=event.sequence,
+                event=event,
+            )
+            return self._outcome("rejected", event, "tombstone_not_durable")
+        try:
+            self._graph.cleanup_tombstone(event, fence_token)
+        except Exception:
+            self._record_drift(
+                reason_code="tombstone_cleanup_failed",
+                scope=scope,
+                sequence=event.sequence,
+                event=event,
+            )
+            return self._outcome("failed", event, "tombstone_cleanup_failed")
+        return self._outcome("cleaned", event)
+
+
+def _validate_promotion_policy(
+    observation: ObservationPromotion,
+    policy: ObservationPromotionPolicy,
+) -> None:
+    """Reject a promotion the policy does not admit at all."""
+
+    if not policy.enabled:
+        raise ProjectionContractError("observation_promotion_disabled")
+    if observation.observation_type not in policy.allowed_observation_types:
+        raise ProjectionContractError("observation_type_not_allowed")
+    if policy.require_evidence_ref and observation.evidence_ref is None:
+        raise ProjectionContractError("observation_evidence_reference_required")
+
+
+def _resolve_promotion_time(
+    observation: ObservationPromotion,
+    policy: ObservationPromotionPolicy,
+    now: datetime | None,
+) -> datetime:
+    """Resolve and validate the promotion instant against the policy's max age."""
+
+    current_time = now or datetime.now(UTC)
+    if current_time.tzinfo is None or current_time.utcoffset() is None:
+        raise ProjectionContractError("promotion_time_requires_timezone")
+    age = current_time.astimezone(UTC) - observation.observed_at.astimezone(UTC)
+    if age < timedelta(0) or age.total_seconds() > policy.max_age_seconds:
+        raise ProjectionContractError("observation_is_stale")
+    return current_time
+
+
+def _reconciled_promotion_summary(
+    observation: ObservationPromotion,
+    policy: ObservationPromotionPolicy,
+) -> dict[str, SummaryValue]:
+    """Merge the policy ref into the observation summary, rejecting a conflict."""
+
+    summary: dict[str, SummaryValue] = dict(observation.summary)
+    prior_policy = summary.get("policy_ref")
+    if prior_policy is not None and prior_policy != policy.policy_ref:
+        raise ProjectionContractError("observation_policy_reference_conflict")
+    summary["policy_ref"] = policy.policy_ref
+    return summary
 
 
 def promote_graph_observation(
@@ -524,24 +712,9 @@ def promote_graph_observation(
 ) -> AtomicCommitReceipt:
     """Promote one graph observation only through an explicit policy."""
 
-    if not policy.enabled:
-        raise ProjectionContractError("observation_promotion_disabled")
-    if observation.observation_type not in policy.allowed_observation_types:
-        raise ProjectionContractError("observation_type_not_allowed")
-    if policy.require_evidence_ref and observation.evidence_ref is None:
-        raise ProjectionContractError("observation_evidence_reference_required")
-    current_time = now or datetime.now(UTC)
-    if current_time.tzinfo is None or current_time.utcoffset() is None:
-        raise ProjectionContractError("promotion_time_requires_timezone")
-    age = current_time.astimezone(UTC) - observation.observed_at.astimezone(UTC)
-    if age < timedelta(0) or age.total_seconds() > policy.max_age_seconds:
-        raise ProjectionContractError("observation_is_stale")
-
-    summary: dict[str, SummaryValue] = dict(observation.summary)
-    prior_policy = summary.get("policy_ref")
-    if prior_policy is not None and prior_policy != policy.policy_ref:
-        raise ProjectionContractError("observation_policy_reference_conflict")
-    summary["policy_ref"] = policy.policy_ref
+    _validate_promotion_policy(observation, policy)
+    current_time = _resolve_promotion_time(observation, policy, now)
+    summary = _reconciled_promotion_summary(observation, policy)
     change_digest = sha256_digest(
         {
             "evidence_ref": observation.evidence_ref,

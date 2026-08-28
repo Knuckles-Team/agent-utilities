@@ -52,6 +52,7 @@ from pathlib import Path
 from ..adaptation.contradiction_detector import (
     Claim,
     ContradictionDetector,
+    FrictionFinding,
     lexical_similarity,
 )
 
@@ -234,9 +235,9 @@ class NightShiftSwarm:
             atoms.append(self._read_atom(path))
         return atoms
 
-    def _read_atom(self, path: Path) -> AtomNote:
-        """Parse an atom .md file (frontmatter + body) back into an AtomNote."""
-        text = path.read_text(encoding="utf-8")
+    @staticmethod
+    def _parse_frontmatter(text: str) -> tuple[dict[str, str], list[str]]:
+        """Split an atom file's raw text into its frontmatter dict + body lines."""
         fm: dict[str, str] = {}
         body_lines: list[str] = []
         in_fm = False
@@ -252,15 +253,23 @@ class NightShiftSwarm:
                     fm[m.group(1)] = m.group(2).strip()
             elif seen_fm:
                 body_lines.append(line)
-        links = [x for x in fm.get("links", "").split(",") if x.strip()]
-        frictions_raw = fm.get("frictions", "")
-        frictions = [f for f in frictions_raw.split("||") if f.strip()]
+        return fm, body_lines
+
+    @staticmethod
+    def _split_field(raw: str, sep: str) -> list[str]:
+        """Split a delimited frontmatter field into trimmed, non-empty entries."""
+        return [x.strip() for x in raw.split(sep) if x.strip()]
+
+    def _read_atom(self, path: Path) -> AtomNote:
+        """Parse an atom .md file (frontmatter + body) back into an AtomNote."""
+        text = path.read_text(encoding="utf-8")
+        fm, body_lines = self._parse_frontmatter(text)
         return AtomNote(
             atom_id=path.stem,
             claim="\n".join(body_lines).strip(),
             source_id=fm.get("source", ""),
-            links=[x.strip() for x in links],
-            frictions=[f.strip() for f in frictions],
+            links=self._split_field(fm.get("links", ""), ","),
+            frictions=self._split_field(fm.get("frictions", ""), "||"),
             retired=fm.get("retired", "false").strip().lower() == "true",
         )
 
@@ -322,6 +331,40 @@ class NightShiftSwarm:
         return candidate
 
     # -- Cartographer ------------------------------------------------------ #
+    @staticmethod
+    def _score_candidates(
+        atom: AtomNote, pool: list[AtomNote]
+    ) -> list[tuple[float, str]]:
+        """Score every OTHER atom in ``pool`` by lexical similarity to ``atom``.
+
+        Strongest links first; id as a deterministic tiebreaker.
+        """
+        scored = [
+            (lexical_similarity(atom.claim, other.claim), other.atom_id)
+            for other in pool
+            if other.atom_id != atom.atom_id
+        ]
+        scored.sort(key=lambda s: (-s[0], s[1]))
+        return scored
+
+    def _choose_links(
+        self, atom: AtomNote, scored: list[tuple[float, str]]
+    ) -> list[str]:
+        """Pick up to ``min_links`` best NEW peers, honoring the similarity floor.
+
+        Falls back to the next-best peers below the floor so the "every atom
+        links to >= ``min_links`` others" rule still holds in a sparse vault.
+        """
+        chosen: list[str] = []
+        for sim, oid in scored:
+            if oid in atom.links or oid in chosen:
+                continue
+            if sim >= self.similarity_min or len(chosen) < self.min_links:
+                chosen.append(oid)
+            if len(chosen) >= self.min_links and sim < self.similarity_min:
+                break
+        return chosen
+
     def cartograph(self, atoms: list[AtomNote]) -> int:
         """Link each given atom to its most-similar peers (>= ``min_links``).
 
@@ -340,30 +383,44 @@ class NightShiftSwarm:
         for atom in atoms:
             if atom.retired:
                 continue
-            scored: list[tuple[float, str]] = []
-            for other in pool:
-                if other.atom_id == atom.atom_id:
-                    continue
-                sim = lexical_similarity(atom.claim, other.claim)
-                scored.append((sim, other.atom_id))
-            # Strongest links first; id as a deterministic tiebreaker.
-            scored.sort(key=lambda s: (-s[0], s[1]))
-            chosen: list[str] = []
-            for sim, oid in scored:
-                if oid in atom.links or oid in chosen:
-                    continue
-                if sim >= self.similarity_min or len(chosen) < self.min_links:
-                    chosen.append(oid)
-                if len(chosen) >= self.min_links and sim < self.similarity_min:
-                    break
-            for oid in chosen:
-                atom.links.append(oid)
-                added += 1
+            scored = self._score_candidates(atom, pool)
+            chosen = self._choose_links(atom, scored)
+            atom.links.extend(chosen)
+            added += len(chosen)
             if chosen:
                 self._write_atom(atom)
         return added
 
     # -- Critic ------------------------------------------------------------ #
+    @staticmethod
+    def _friction_note(atom: AtomNote, finding: FrictionFinding) -> str:
+        """Render one FrictionFinding as the atom's human-readable note text."""
+        return (
+            f"[FRICTION] atom '{atom.atom_id}' contradicts '{finding.conflict_id}' "
+            f"(severity {finding.severity}): {finding.reason}"
+        )
+
+    def _apply_findings(
+        self, atom: AtomNote, findings: list[FrictionFinding]
+    ) -> list[str]:
+        """Attach new ``[FRICTION]`` notes to ``atom``; return the ones added."""
+        added: list[str] = []
+        for finding in findings:
+            note = self._friction_note(atom, finding)
+            if note not in atom.frictions:
+                atom.frictions.append(note)
+                added.append(note)
+        return added
+
+    def _persist_after_critique(
+        self, atom: AtomNote, existing: dict[str, AtomNote]
+    ) -> None:
+        """Re-merge links written by an earlier stage, then persist ``atom``."""
+        disk = existing.get(atom.atom_id)
+        if disk is not None:
+            atom.links = disk.links or atom.links
+        self._write_atom(atom)
+
     def critique(self, atoms: list[AtomNote]) -> list[str]:
         """Surface [FRICTION] where a new atom contradicts an existing belief.
 
@@ -390,24 +447,37 @@ class NightShiftSwarm:
             findings = self._critic.check(
                 Claim(atom.atom_id, atom.claim), belief_claims
             )
-            for f in findings:
-                note = (
-                    f"[FRICTION] atom '{atom.atom_id}' contradicts '{f.conflict_id}' "
-                    f"(severity {f.severity}): {f.reason}"
-                )
-                if note not in atom.frictions:
-                    atom.frictions.append(note)
-                    frictions.append(note)
+            frictions.extend(self._apply_findings(atom, findings))
             if findings:
-                # Re-read from disk to keep links written by an earlier stage,
-                # then re-persist with the friction notes attached.
-                disk = existing.get(atom.atom_id)
-                if disk is not None:
-                    atom.links = disk.links or atom.links
-                self._write_atom(atom)
+                self._persist_after_critique(atom, existing)
         return frictions
 
     # -- Editor ------------------------------------------------------------ #
+    @staticmethod
+    def _briefing_intake_lines(atoms: list[AtomNote]) -> list[str]:
+        """Render the "What Came In" section body."""
+        if not atoms:
+            return ["- (no new atoms)"]
+        return [f"- `{a.atom_id}` — {a.claim} (source: {a.source_id})" for a in atoms]
+
+    @staticmethod
+    def _briefing_friction_lines(frictions: list[str]) -> list[str]:
+        """Render the "Contradictions To Resolve" section body."""
+        if not frictions:
+            return ["- (none)"]
+        return [f"- {fr}" for fr in frictions]
+
+    @staticmethod
+    def _briefing_thread_lines(threads: list[set[str]]) -> list[str]:
+        """Render the "Threads That Grew" section body."""
+        if not threads:
+            return ["- (none)"]
+        lines: list[str] = []
+        for i, cluster in enumerate(threads, start=1):
+            members = ", ".join(sorted(cluster))
+            lines.append(f"- Thread {i}: {members}")
+        return lines
+
     def edit(self, atoms: list[AtomNote]) -> str:
         """Weave related atoms into threads + write the morning briefing.
 
@@ -428,28 +498,12 @@ class NightShiftSwarm:
         briefing_dir = self.vault_root / _BRIEFINGS_STAGE
         n = len(list(briefing_dir.glob("*.md"))) + 1
         briefing_path = briefing_dir / f"{n:04d}.md"
-        lines: list[str] = [
-            f"# Morning Briefing {n}",
-            "",
-            "## What Came In",
-        ]
-        if atoms:
-            for a in atoms:
-                lines.append(f"- `{a.atom_id}` — {a.claim} (source: {a.source_id})")
-        else:
-            lines.append("- (no new atoms)")
+        lines: list[str] = [f"# Morning Briefing {n}", "", "## What Came In"]
+        lines += self._briefing_intake_lines(atoms)
         lines += ["", "## Contradictions To Resolve"]
-        if frictions:
-            lines.extend(f"- {fr}" for fr in frictions)
-        else:
-            lines.append("- (none)")
+        lines += self._briefing_friction_lines(frictions)
         lines += ["", "## Threads That Grew"]
-        if threads:
-            for i, cluster in enumerate(threads, start=1):
-                members = ", ".join(sorted(cluster))
-                lines.append(f"- Thread {i}: {members}")
-        else:
-            lines.append("- (none)")
+        lines += self._briefing_thread_lines(threads)
         lines.append("")
         briefing_path.write_text("\n".join(lines), encoding="utf-8")
         return str(briefing_path)

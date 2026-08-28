@@ -9,6 +9,7 @@ compatibility throughout the formal reasoning module.
 from __future__ import annotations
 
 from collections import deque
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -67,19 +68,27 @@ class PyDiGraph(_BaseGraph):
 
     def remove_node(self, idx: int) -> None:
         # Remove all incident edges
-        edge_ids_to_remove = []
-        for eid, (src, tgt, _) in self._edges.items():
-            if src == idx or tgt == idx:
-                edge_ids_to_remove.append(eid)
-        for eid in edge_ids_to_remove:
+        for eid in self._incident_edge_ids(idx):
             src, tgt, _ = self._edges.pop(eid)
-            if src in self._out_adj:
-                self._out_adj[src] = [(t, e) for t, e in self._out_adj[src] if e != eid]
-            if tgt in self._in_adj:
-                self._in_adj[tgt] = [(s, e) for s, e in self._in_adj[tgt] if e != eid]
+            self._unlink_directed_edge(src, tgt, eid)
         self._out_adj.pop(idx, None)
         self._in_adj.pop(idx, None)
         super().remove_node(idx)
+
+    def _incident_edge_ids(self, idx: int) -> list[int]:
+        """Edge ids where idx is either endpoint."""
+        return [
+            eid
+            for eid, (src, tgt, _) in self._edges.items()
+            if src == idx or tgt == idx
+        ]
+
+    def _unlink_directed_edge(self, src: int, tgt: int, eid: int) -> None:
+        """Remove eid from the out/in adjacency lists of its endpoints."""
+        if src in self._out_adj:
+            self._out_adj[src] = [(t, e) for t, e in self._out_adj[src] if e != eid]
+        if tgt in self._in_adj:
+            self._in_adj[tgt] = [(s, e) for s, e in self._in_adj[tgt] if e != eid]
 
     def add_edge(self, src: int, tgt: int, data: Any = None) -> int:
         eid = self._next_edge_id
@@ -173,18 +182,26 @@ class PyGraph(_BaseGraph):
         return idx
 
     def remove_node(self, idx: int) -> None:
-        edge_ids_to_remove = []
-        for eid, (src, tgt, _) in self._edges.items():
-            if src == idx or tgt == idx:
-                edge_ids_to_remove.append(eid)
-        for eid in edge_ids_to_remove:
+        for eid in self._incident_edge_ids(idx):
             src, tgt, _ = self._edges.pop(eid)
-            if src in self._adj:
-                self._adj[src] = [(t, e) for t, e in self._adj[src] if e != eid]
-            if tgt in self._adj:
-                self._adj[tgt] = [(s, e) for s, e in self._adj[tgt] if e != eid]
+            self._unlink_undirected_edge(src, tgt, eid)
         self._adj.pop(idx, None)
         super().remove_node(idx)
+
+    def _incident_edge_ids(self, idx: int) -> list[int]:
+        """Edge ids where idx is either endpoint."""
+        return [
+            eid
+            for eid, (src, tgt, _) in self._edges.items()
+            if src == idx or tgt == idx
+        ]
+
+    def _unlink_undirected_edge(self, src: int, tgt: int, eid: int) -> None:
+        """Remove eid from the shared adjacency lists of its endpoints."""
+        if src in self._adj:
+            self._adj[src] = [(t, e) for t, e in self._adj[src] if e != eid]
+        if tgt in self._adj:
+            self._adj[tgt] = [(s, e) for s, e in self._adj[tgt] if e != eid]
 
     def add_edge(self, src: int, tgt: int, data: Any = None) -> int:
         eid = self._next_edge_id
@@ -229,12 +246,18 @@ class PyGraph(_BaseGraph):
 # ── Module-level functions matching rustworkx API ─────────────────────────
 
 
-def topological_sort(graph: PyDiGraph) -> list[int]:
-    """Kahn's algorithm for topological sorting."""
+def _compute_in_degrees(graph: PyDiGraph) -> dict[int, int]:
+    """Count incoming edges per node (0 for nodes with none)."""
     in_degree = {n: 0 for n in graph.node_indices()}
     for _, (_, tgt, _) in graph._edges.items():
         if tgt in in_degree:
             in_degree[tgt] += 1
+    return in_degree
+
+
+def topological_sort(graph: PyDiGraph) -> list[int]:
+    """Kahn's algorithm for topological sorting."""
+    in_degree = _compute_in_degrees(graph)
 
     queue = deque([n for n, d in in_degree.items() if d == 0])
     result = []
@@ -251,6 +274,23 @@ def topological_sort(graph: PyDiGraph) -> list[int]:
     return result
 
 
+def _next_generation(
+    graph: PyDiGraph, current_gen: list[int], in_degree: dict[int, int]
+) -> list[int]:
+    """Decrement in-degree for successors of current_gen; return newly-zero nodes.
+
+    Mutates in_degree in place, matching the caller's expectation that the
+    same dict is threaded through every generation.
+    """
+    next_gen_set: dict[int, int] = {}
+    for node in current_gen:
+        for tgt, _ in graph._out_adj.get(node, []):
+            in_degree[tgt] -= 1
+            if in_degree[tgt] == 0:
+                next_gen_set[tgt] = 1
+    return list(next_gen_set.keys())
+
+
 def topological_generations(graph: PyDiGraph) -> list[list[int]]:
     """Group nodes by topological level (parallel waves).
 
@@ -258,23 +298,13 @@ def topological_generations(graph: PyDiGraph) -> list[list[int]]:
     that can be executed in parallel (all their dependencies are in earlier
     generations).
     """
-    in_degree: dict[int, int] = {n: 0 for n in graph.node_indices()}
-    for _, (_, tgt, _) in graph._edges.items():
-        if tgt in in_degree:
-            in_degree[tgt] += 1
-
+    in_degree = _compute_in_degrees(graph)
     current_gen = [n for n, d in in_degree.items() if d == 0]
     generations: list[list[int]] = []
 
     while current_gen:
         generations.append(current_gen)
-        next_gen_set: dict[int, int] = {}
-        for node in current_gen:
-            for tgt, _ in graph._out_adj.get(node, []):
-                in_degree[tgt] -= 1
-                if in_degree[tgt] == 0:
-                    next_gen_set[tgt] = 1
-        current_gen = list(next_gen_set.keys())
+        current_gen = _next_generation(graph, current_gen, in_degree)
 
     total = sum(len(g) for g in generations)
     if total != graph.num_nodes():
@@ -362,6 +392,88 @@ def is_subgraph_isomorphic(
     return len(list(mappings)) > 0
 
 
+@dataclass
+class _VF2Context:
+    """Read-only state shared by every recursion step of the VF2 backtracker."""
+
+    graph: PyDiGraph
+    pattern: PyDiGraph
+    pattern_nodes: list[int]
+    graph_nodes: list[int]
+    node_matcher: Any = None
+
+
+def _vf2_node_compatible(ctx: _VF2Context, g_node: int, p_node: int) -> bool:
+    """True if g_node may stand in for p_node under ctx.node_matcher."""
+    if ctx.node_matcher is None:
+        return True
+    return bool(ctx.node_matcher(ctx.graph[g_node], ctx.pattern[p_node]))
+
+
+def _vf2_edges_compatible(
+    ctx: _VF2Context,
+    mapping: dict[int, int],
+    p_idx: int,
+    p_node: int,
+    g_node: int,
+) -> bool:
+    """True if every pattern edge between p_node and already-mapped pattern
+    nodes has a corresponding edge between g_node and their graph images.
+    """
+    for prev_p_idx in range(p_idx):
+        prev_p = ctx.pattern_nodes[prev_p_idx]
+        prev_g = mapping[prev_p]
+
+        if ctx.pattern.has_edge(prev_p, p_node) and not ctx.graph.has_edge(
+            prev_g, g_node
+        ):
+            return False
+        if ctx.pattern.has_edge(p_node, prev_p) and not ctx.graph.has_edge(
+            g_node, prev_g
+        ):
+            return False
+    return True
+
+
+def _vf2_candidates(
+    ctx: _VF2Context, mapping: dict[int, int], p_idx: int, remaining: list[int]
+) -> list[dict[int, int]]:
+    """Try every unused graph node as the image of pattern_nodes[p_idx],
+    recursing into _vf2_match on each compatible choice.
+    """
+    p_node = ctx.pattern_nodes[p_idx]
+    used = set(mapping.values())
+    results: list[dict[int, int]] = []
+
+    for g_node in ctx.graph_nodes:
+        if g_node in used:
+            continue
+        if not _vf2_node_compatible(ctx, g_node, p_node):
+            continue
+        if not _vf2_edges_compatible(ctx, mapping, p_idx, p_node, g_node):
+            continue
+
+        mapping[p_node] = g_node
+        results.extend(_vf2_match(ctx, mapping, p_idx + 1, remaining))
+        del mapping[p_node]
+
+    return results
+
+
+def _vf2_match(
+    ctx: _VF2Context, mapping: dict[int, int], p_idx: int, remaining: list[int]
+) -> list[dict[int, int]]:
+    """Recursive VF2 backtracking step: complete or extend mapping.
+
+    ``remaining`` is threaded through unchanged (unused by the matching
+    logic itself, same as in the original implementation) to preserve the
+    original recursion signature exactly.
+    """
+    if p_idx >= len(ctx.pattern_nodes):
+        return [dict(mapping)]
+    return _vf2_candidates(ctx, mapping, p_idx, remaining)
+
+
 def vf2_mapping(
     graph: PyDiGraph,
     pattern: PyDiGraph,
@@ -380,46 +492,5 @@ def vf2_mapping(
     if len(pattern_nodes) > len(graph_nodes):
         return []
 
-    def _match(
-        mapping: dict[int, int], p_idx: int, remaining: list[int]
-    ) -> list[dict[int, int]]:
-        if p_idx >= len(pattern_nodes):
-            return [dict(mapping)]
-
-        p_node = pattern_nodes[p_idx]
-        results: list[dict[int, int]] = []
-        used = set(mapping.values())
-
-        for g_node in graph_nodes:
-            if g_node in used:
-                continue
-
-            # Node compatibility check
-            if node_matcher is not None:
-                if not node_matcher(graph[g_node], pattern[p_node]):
-                    continue
-
-            # Edge compatibility check
-            compatible = True
-            for prev_p_idx in range(p_idx):
-                prev_p = pattern_nodes[prev_p_idx]
-                prev_g = mapping[prev_p]
-
-                # Check forward edges
-                if pattern.has_edge(prev_p, p_node):
-                    if not graph.has_edge(prev_g, g_node):
-                        compatible = False
-                        break
-                if pattern.has_edge(p_node, prev_p):
-                    if not graph.has_edge(g_node, prev_g):
-                        compatible = False
-                        break
-
-            if compatible:
-                mapping[p_node] = g_node
-                results.extend(_match(mapping, p_idx + 1, remaining))
-                del mapping[p_node]
-
-        return results
-
-    return _match({}, 0, list(graph_nodes))
+    ctx = _VF2Context(graph, pattern, pattern_nodes, graph_nodes, node_matcher)
+    return _vf2_match(ctx, {}, 0, list(graph_nodes))
