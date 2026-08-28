@@ -357,8 +357,8 @@ class LocalBranchPublisher:
         return root
 
     @staticmethod
-    def _destination(worktree: Path, raw_path: str) -> Path:
-        rendered = str(raw_path or "")
+    @staticmethod
+    def _validate_publication_path_format(rendered: str) -> None:
         if (
             not rendered
             or len(rendered.encode("utf-8")) > 1024
@@ -366,40 +366,60 @@ class LocalBranchPublisher:
             or "\\" in rendered
         ):
             raise ValueError("publication path is malformed")
-        relative = Path(rendered)
+
+    @staticmethod
+    def _validate_publication_path_confined(relative: Path) -> None:
         if relative.is_absolute() or any(
             part in {"", ".", ".."} for part in relative.parts
         ):
             raise PermissionError("publication path is not confined")
-        target = worktree / relative
+
+    @staticmethod
+    def _assert_no_symlink_components(worktree: Path, relative: Path) -> None:
         cursor = worktree
         for component in relative.parts:
             cursor = cursor / component
             if cursor.is_symlink():
                 raise PermissionError("publication path traverses a symbolic link")
+
+    @staticmethod
+    def _destination(worktree: Path, raw_path: str) -> Path:
+        rendered = str(raw_path or "")
+        LocalBranchPublisher._validate_publication_path_format(rendered)
+        relative = Path(rendered)
+        LocalBranchPublisher._validate_publication_path_confined(relative)
+        target = worktree / relative
+        LocalBranchPublisher._assert_no_symlink_components(worktree, relative)
         target.parent.mkdir(parents=True, exist_ok=True)
         resolved_parent = target.parent.resolve(strict=True)
         resolved_parent.relative_to(worktree.resolve(strict=True))
         return resolved_parent / target.name
 
     # ── the publication ─────────────────────────────────────────────
-    def publish(
-        self, change_set: ChangeSet, metadata: dict[str, Any] | None = None
+    def _fail_publish(
+        self, change_set: ChangeSet, result: PublishResult, detail: str
     ) -> PublishResult:
-        metadata = dict(metadata or {})
-        result = PublishResult(ok=False, proposal_id=change_set.proposal_id)
+        """Record ``result`` with ``detail`` and return it. Extracted from :meth:`publish`."""
+        result.detail = detail
+        self._record(change_set, result)
+        return result
 
-        if not change_set.publishable:
-            result.detail = "change set is not publishable"
-            self._record(change_set, result)
-            return result
+    def _prepare_publish_worktree(
+        self, change_set: ChangeSet, result: PublishResult
+    ) -> tuple[Path, Path, str] | None:
+        """Resolve repo/worktree-root/branch and create the git worktree.
 
+        Extracted from :meth:`publish`. ``None`` means the caller must return
+        ``result`` (already recorded with its failure detail via
+        :meth:`_fail_publish`).
+        """
         configured = self.repo_path or default_target_repo()
         repo = self._repository(configured)
         if repo is None:
-            result.detail = "configured publication repository is unavailable"
-            self._record(change_set, result)
-            return result
+            self._fail_publish(
+                change_set, result, "configured publication repository is unavailable"
+            )
+            return None
         result.repo_path = str(repo)
 
         try:
@@ -411,66 +431,102 @@ class LocalBranchPublisher:
                 "Publication worktree root rejected: error_type=%s",
                 type(exc).__name__,
             )
-            result.detail = "configured publication worktree root is unavailable"
-            self._record(change_set, result)
-            return result
+            self._fail_publish(
+                change_set,
+                result,
+                "configured publication worktree root is unavailable",
+            )
+            return None
         branch = self._branch_name(change_set)
         worktree = root / branch.replace("/", "--")
         if worktree.exists() or worktree.is_symlink():
-            result.detail = "publication worktree collision"
-            self._record(change_set, result)
-            return result
+            self._fail_publish(change_set, result, "publication worktree collision")
+            return None
         base = self._base_ref(repo)
 
         ok, out = self._git(
             "worktree", "add", "-b", branch, str(worktree), base, cwd=repo
         )
         if not ok:
-            result.detail = "git worktree creation failed"
-            self._record(change_set, result)
-            return result
+            self._fail_publish(change_set, result, "git worktree creation failed")
+            return None
         result.branch = branch
         result.worktree_path = str(worktree)
+        return repo, worktree, branch
+
+    def _materialize_change_set(self, worktree: Path, change_set: ChangeSet) -> None:
+        """Write every changed file within its size boundaries. Extracted from :meth:`publish`."""
+        if len(change_set.files) > _MAX_CHANGED_FILES:
+            raise ValueError("change set has too many files")
+        total_bytes = 0
+        for change in change_set.files:
+            content = _safe_persistent_text(
+                change.content, limit=_MAX_CHANGED_FILE_BYTES
+            )
+            total_bytes += len(content.encode("utf-8"))
+            if total_bytes > _MAX_CHANGESET_BYTES:
+                raise ValueError("change set exceeds its aggregate size boundary")
+            dest = self._destination(worktree, change.path)
+            _atomic_private_text(dest, content)
+
+    def _run_publish_checks(
+        self,
+        worktree: Path,
+        change_set: ChangeSet,
+        result: PublishResult,
+        metadata: dict[str, Any],
+    ) -> None:
+        """Run targeted tests (if configured) and the regression gate.
+
+        Extracted from :meth:`publish`.
+        """
+        if self.run_tests and change_set.tests:
+            result.test_report = self._run_targeted_tests(worktree, change_set.tests)
+            result.tests_passed = bool(result.test_report.get("passed"))
+        result.gate_result = self._run_gate(metadata.get("proposal", change_set))
+
+    def _commit_publish(
+        self, worktree: Path, change_set: ChangeSet, result: PublishResult
+    ) -> None:
+        """``git add`` + commit + capture the resulting sha. Extracted from :meth:`publish`."""
+        ok, out = self._git("add", "-A", cwd=worktree)
+        if ok:
+            ok, out = self._git(
+                "-c",
+                f"user.name={_GIT_IDENTITY[0]}",
+                "-c",
+                f"user.email={_GIT_IDENTITY[1]}",
+                "commit",
+                "--no-verify",
+                "-m",
+                self._commit_message(change_set, result),
+                cwd=worktree,
+            )
+        if not ok:
+            raise RuntimeError("git commit failed")
+        ok, sha = self._git("rev-parse", "HEAD", cwd=worktree)
+        result.commit_sha = sha if ok else ""
+
+    def publish(
+        self, change_set: ChangeSet, metadata: dict[str, Any] | None = None
+    ) -> PublishResult:
+        metadata = dict(metadata or {})
+        result = PublishResult(ok=False, proposal_id=change_set.proposal_id)
+
+        if not change_set.publishable:
+            return self._fail_publish(
+                change_set, result, "change set is not publishable"
+            )
+
+        prepared = self._prepare_publish_worktree(change_set, result)
+        if prepared is None:
+            return result
+        repo, worktree, branch = prepared
 
         try:
-            if len(change_set.files) > _MAX_CHANGED_FILES:
-                raise ValueError("change set has too many files")
-            total_bytes = 0
-            for change in change_set.files:
-                content = _safe_persistent_text(
-                    change.content, limit=_MAX_CHANGED_FILE_BYTES
-                )
-                total_bytes += len(content.encode("utf-8"))
-                if total_bytes > _MAX_CHANGESET_BYTES:
-                    raise ValueError("change set exceeds its aggregate size boundary")
-                dest = self._destination(worktree, change.path)
-                _atomic_private_text(dest, content)
-
-            if self.run_tests and change_set.tests:
-                result.test_report = self._run_targeted_tests(
-                    worktree, change_set.tests
-                )
-                result.tests_passed = bool(result.test_report.get("passed"))
-
-            result.gate_result = self._run_gate(metadata.get("proposal", change_set))
-
-            ok, out = self._git("add", "-A", cwd=worktree)
-            if ok:
-                ok, out = self._git(
-                    "-c",
-                    f"user.name={_GIT_IDENTITY[0]}",
-                    "-c",
-                    f"user.email={_GIT_IDENTITY[1]}",
-                    "commit",
-                    "--no-verify",
-                    "-m",
-                    self._commit_message(change_set, result),
-                    cwd=worktree,
-                )
-            if not ok:
-                raise RuntimeError("git commit failed")
-            ok, sha = self._git("rev-parse", "HEAD", cwd=worktree)
-            result.commit_sha = sha if ok else ""
+            self._materialize_change_set(worktree, change_set)
+            self._run_publish_checks(worktree, change_set, result, metadata)
+            self._commit_publish(worktree, change_set, result)
             result.ok = True
             result.detail = (
                 "published a local review branch; no push or merge performed"
@@ -504,28 +560,20 @@ class LocalBranchPublisher:
             "Generated by the evolution→branch bridge (CONCEPT:AU-AHE.harness.evolution-branch-bridge)."
         )
 
-    def _run_targeted_tests(self, worktree: Path, tests: list[str]) -> dict[str, Any]:
-        """Delegate bounded tests to an injected governed sandbox runner."""
-
-        if self.test_runner is None:
-            return {
-                "passed": False,
-                "status": "sandbox_runner_required",
-                "target_count": min(len(tests), 256),
-            }
-        if len(tests) > 256 or any(
+    @staticmethod
+    def _publish_targets_invalid(tests: list[str]) -> bool:
+        return len(tests) > 256 or any(
             not isinstance(target, str)
             or not target
             or len(target.encode("utf-8")) > 1024
             or target.startswith("-")
             or "\x00" in target
             for target in tests
-        ):
-            return {
-                "passed": False,
-                "status": "invalid_targets",
-                "target_count": min(len(tests), 256),
-            }
+        )
+
+    def _invoke_test_runner(self, worktree: Path, tests: list[str]) -> dict[str, Any]:
+        """Call the injected runner and normalize its result. Extracted from
+        :meth:`_run_targeted_tests`."""
         try:
             raw = self.test_runner(
                 worktree=worktree,
@@ -555,6 +603,23 @@ class LocalBranchPublisher:
                 "target_count": len(tests),
             }
 
+    def _run_targeted_tests(self, worktree: Path, tests: list[str]) -> dict[str, Any]:
+        """Delegate bounded tests to an injected governed sandbox runner."""
+
+        if self.test_runner is None:
+            return {
+                "passed": False,
+                "status": "sandbox_runner_required",
+                "target_count": min(len(tests), 256),
+            }
+        if self._publish_targets_invalid(tests):
+            return {
+                "passed": False,
+                "status": "invalid_targets",
+                "target_count": min(len(tests), 256),
+            }
+        return self._invoke_test_runner(worktree, tests)
+
     def _run_gate(self, spec: Any) -> str:
         """Run the injected regression gate; verdicts: pass | hold | not_run."""
         if self.regression_check is None:
@@ -565,49 +630,63 @@ class LocalBranchPublisher:
             logger.debug("Regression gate failed: error_type=%s", type(exc).__name__)
             return "hold"
 
-    def _record(self, change_set: ChangeSet, result: PublishResult) -> None:
-        """Persist the publication on the graph (node + edge + proposal stamp)."""
-        if self.engine is None:
-            return
-        publication_id = f"proposal_publication:{uuid.uuid4().hex}"
+    @staticmethod
+    def _publication_properties(
+        change_set: ChangeSet, result: PublishResult
+    ) -> dict[str, Any]:
+        """The ``ProposalPublication`` node's properties. Extracted from :meth:`_record`."""
+        kind = _safe_persistent_text(change_set.kind, limit=64)
+        if not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", kind):
+            kind = "proposal"
+        return {
+            "proposal_ref": _reference("proposal", change_set.proposal_id),
+            "kind": kind,
+            "ok": result.ok,
+            "branch_ref": _reference("branch", result.branch) if result.branch else "",
+            "commit_ref": _reference("commit", result.commit_sha)
+            if result.commit_sha
+            else "",
+            "repository_ref": _reference("repository", result.repo_path)
+            if result.repo_path
+            else "",
+            "worktree_ref": _reference("worktree", result.worktree_path)
+            if result.worktree_path
+            else "",
+            "gate_result": result.gate_result,
+            "tests_passed": (
+                "" if result.tests_passed is None else str(result.tests_passed)
+            ),
+            "detail": _safe_persistent_text(result.detail, limit=500),
+            "published_at": _now_iso(),
+        }
+
+    def _write_publication_node(
+        self, change_set: ChangeSet, result: PublishResult, publication_id: str
+    ) -> None:
+        """Write the ``ProposalPublication`` node + ``PUBLISHED_AS`` edge.
+
+        Extracted from :meth:`_record`.
+        """
         try:
-            kind = _safe_persistent_text(change_set.kind, limit=64)
-            if not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", kind):
-                kind = "proposal"
             self.engine.add_node(
                 publication_id,
                 "ProposalPublication",
-                properties={
-                    "proposal_ref": _reference("proposal", change_set.proposal_id),
-                    "kind": kind,
-                    "ok": result.ok,
-                    "branch_ref": _reference("branch", result.branch)
-                    if result.branch
-                    else "",
-                    "commit_ref": _reference("commit", result.commit_sha)
-                    if result.commit_sha
-                    else "",
-                    "repository_ref": _reference("repository", result.repo_path)
-                    if result.repo_path
-                    else "",
-                    "worktree_ref": _reference("worktree", result.worktree_path)
-                    if result.worktree_path
-                    else "",
-                    "gate_result": result.gate_result,
-                    "tests_passed": (
-                        "" if result.tests_passed is None else str(result.tests_passed)
-                    ),
-                    "detail": _safe_persistent_text(result.detail, limit=500),
-                    "published_at": _now_iso(),
-                },
+                properties=self._publication_properties(change_set, result),
             )
             link = getattr(self.engine, "link_nodes", None)
             if callable(link):
                 link(change_set.proposal_id, publication_id, "PUBLISHED_AS")
         except Exception as exc:  # noqa: BLE001 — recording never blocks publication
             logger.debug("Publication record failed: error_type=%s", type(exc).__name__)
-        # Stamp the proposal node itself so its branch/sha/verdict are one
-        # node-read away (best-effort; the ProposalPublication node is durable).
+
+    def _stamp_proposal_publication(
+        self, change_set: ChangeSet, result: PublishResult
+    ) -> None:
+        """Stamp the proposal node itself so its branch/sha/verdict are one
+        node-read away (best-effort; the ProposalPublication node is durable).
+
+        Extracted from :meth:`_record`.
+        """
         try:
             self.engine.backend.execute(
                 "MATCH (p) WHERE p.id = $id SET p.publish_branch_ref = $branch, "
@@ -625,6 +704,14 @@ class LocalBranchPublisher:
             )
         except Exception as exc:  # noqa: BLE001
             logger.debug("Proposal stamp failed: error_type=%s", type(exc).__name__)
+
+    def _record(self, change_set: ChangeSet, result: PublishResult) -> None:
+        """Persist the publication on the graph (node + edge + proposal stamp)."""
+        if self.engine is None:
+            return
+        publication_id = f"proposal_publication:{uuid.uuid4().hex}"
+        self._write_publication_node(change_set, result, publication_id)
+        self._stamp_proposal_publication(change_set, result)
 
 
 # ── registry (deployment injection point) ───────────────────────────
@@ -836,6 +923,171 @@ def _abandon_branch(repo_path: str, worktree_path: str, branch: str) -> None:
         _run("branch", "-D", branch)
 
 
+def _resolve_publish_approval(
+    engine: Any,
+    proposal_id: str,
+    *,
+    source: str,
+    action_policy: Any,
+    report: dict[str, Any],
+) -> str | None:
+    """Decide whether publication may proceed. Extracted from :func:`governed_publish`.
+
+    Mutates ``report`` with the decision. Returns the granted approval id (or
+    ``None`` when there was no pre-granted approval -- including when
+    ``promote_gate`` approved it fresh, matching the original: only a
+    PRE-granted id is ever passed downstream). If publication must NOT
+    proceed, this sets ``report["status"]`` -- the caller checks that and
+    returns ``report`` early.
+    """
+    granted_id = _find_granted_approval(engine, proposal_id)
+    if granted_id is not None:
+        report["decision"] = "approved"
+        report["approval_id"] = granted_id
+        return granted_id
+
+    # Wave-6 D4/WP#2 (CONCEPT:AU-AHE.harness.unified-promotion-gate): route the
+    # merge_promotion decision through the SAME generalized gate auto_merge and
+    # run_reflact_cycle use, instead of a hand-built action_policy.decide(). A
+    # publication has no candidate-vs-incumbent held-out score, so
+    # incumbent_reward=None skips the comparison leg and goes straight to
+    # action_policy.decide(kind="merge_promotion") — identical governance, same
+    # per-kind+target approval dedup — but now legible on the unified matrix.
+    # promote() already fails CLOSED (deny) on any gate failure.
+    from agent_utilities.harness.reward_signal import RewardSignal
+    from agent_utilities.orchestration.artifact_promotion import PromotionCandidate
+    from agent_utilities.orchestration.artifact_promotion import (
+        promote as promote_gate,
+    )
+
+    verdict = promote_gate(
+        engine,
+        PromotionCandidate(
+            artifact_kind="spec",
+            artifact_id=proposal_id,
+            candidate_ref=proposal_id,
+            candidate_reward=RewardSignal(value=0.0, source="governed_publish"),
+            incumbent_reward=None,  # comparison-less — governance is the gate
+            policy_kind="merge_promotion",
+            source=source,
+            reason="publish promoted evolution proposal as a reviewable branch",
+        ),
+        policy=action_policy,
+    )
+    report["decision"] = verdict.decision
+    report["approval_id"] = verdict.approval_id
+    if not verdict.approved:
+        report["status"] = "approval_queued" if verdict.approval_id else "denied"
+        report["detail"] = (
+            "approval is required" if verdict.approval_id else "publication denied"
+        )
+    return None
+
+
+def _synthesize_publish_change_set(
+    proposal: Any, code_synthesizer: Any, report: dict[str, Any]
+) -> Any | None:
+    """Code-synthesize (best-effort) then build the change set.
+
+    Extracted from :func:`governed_publish`. Mutates ``report``. ``None``
+    means synthesis failed -- the caller returns ``report`` (already
+    populated with the failure status/detail).
+    """
+    # CONCEPT:AU-AHE.harness.single-file-code-synthesis — autonomous code-synthesis stage. For an attributed
+    # proposal that carries no embedded files, generate a single-file edit so the
+    # promotion emits real code; an un-attributed proposal yields None and falls
+    # through to the prose SDD skeleton exactly as before. Generation failure is
+    # never fatal — the prose path still runs.
+    extra_files = None
+    try:
+        from .code_synthesis import synthesize_code
+
+        extra_files = synthesize_code(proposal, synthesizer=code_synthesizer)
+        if extra_files:
+            report["code_synthesis"] = {"file_count": len(extra_files)}
+    except Exception as exc:  # noqa: BLE001 — generation failure ⇒ prose fallback
+        logger.debug("Code synthesis skipped: error_type=%s", type(exc).__name__)
+
+    try:
+        return synthesize_change_set(proposal, extra_files=extra_files)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Change synthesis failed: error_type=%s", type(exc).__name__)
+        report["status"] = "synthesis_failed"
+        report["detail"] = "change synthesis failed"
+        return None
+
+
+def _annotate_change_set_report(change_set: Any, report: dict[str, Any]) -> None:
+    """Stamp ``change_kind`` + the validation summary. Extracted from :func:`governed_publish`."""
+    change_kind = str(change_set.kind or "")
+    report["change_kind"] = (
+        change_kind
+        if re.fullmatch(r"[A-Za-z0-9._-]{1,64}", change_kind)
+        else "proposal"
+    )
+    if change_set.validation is not None:
+        checks = list(change_set.validation.checks or [])
+        report["validation"] = {
+            "passed": all(check.passed for check in checks),
+            "check_count": len(checks),
+            "failed_count": sum(not check.passed for check in checks),
+        }
+
+
+def _reject_unpublishable(
+    engine: Any, change_set: Any, report: dict[str, Any], granted_id: str | None
+) -> bool:
+    """``True`` (and ``report`` populated) iff the change set failed sandbox validation.
+
+    Extracted from :func:`governed_publish`.
+    """
+    if change_set.publishable:
+        return False
+    report["status"] = "validation_failed"
+    report["detail"] = "sandbox validation rejected the change set"
+    if granted_id:
+        _stamp_approval(engine, granted_id, "failed")
+    return True
+
+
+def _apply_capability_ratchet(
+    engine: Any,
+    result: PublishResult,
+    change_set: Any,
+    proposal_id: str,
+    capability_ratchet: Any,
+    report: dict[str, Any],
+) -> None:
+    """Re-measure the published worktree; abandon the branch on a regression.
+
+    Extracted from :func:`governed_publish`.
+
+    CONCEPT:AU-AHE.harness.capability-ratchet / AHE-3.24 — verified apply→verify→rollback + capability
+    ratchet. Re-measure the published worktree against the persisted baseline; a
+    measured regression (ManifestVerifier *_revert recommendation, or any tracked
+    capability dropping below baseline) abandons the branch rather than leaving it
+    for review. A worktree with no capability probes is "not measured" → no block.
+    """
+    if not (result.ok and result.worktree_path):
+        return
+    try:
+        from .capability_ratchet import CapabilityRatchet
+
+        ratchet = capability_ratchet or CapabilityRatchet(engine)
+        ratchet_verdict = ratchet.evaluate(
+            result.worktree_path, change_set=change_set, proposal_id=proposal_id
+        )
+        report["capability_ratchet"] = {"passed": bool(ratchet_verdict.passed)}
+        if not ratchet_verdict.passed:
+            _abandon_branch(result.repo_path, result.worktree_path, result.branch)
+            result.ok = False
+            report["publish"] = result.to_dict()
+            report["status"] = "reverted"
+            report["detail"] = "capability regression detected; branch removed"
+    except Exception as exc:  # noqa: BLE001 — ratchet failure must not wedge publish
+        logger.debug("Capability ratchet skipped: error_type=%s", type(exc).__name__)
+
+
 def governed_publish(
     engine: Any,
     proposal: Any,
@@ -870,90 +1122,18 @@ def governed_publish(
         "source_ref": _reference("source", source),
     }
 
-    granted_id = _find_granted_approval(engine, proposal_id)
-    if granted_id is None:
-        # Wave-6 D4/WP#2 (CONCEPT:AU-AHE.harness.unified-promotion-gate): route the
-        # merge_promotion decision through the SAME generalized gate auto_merge and
-        # run_reflact_cycle use, instead of a hand-built action_policy.decide(). A
-        # publication has no candidate-vs-incumbent held-out score, so
-        # incumbent_reward=None skips the comparison leg and goes straight to
-        # action_policy.decide(kind="merge_promotion") — identical governance, same
-        # per-kind+target approval dedup — but now legible on the unified matrix.
-        # promote() already fails CLOSED (deny) on any gate failure.
-        from agent_utilities.harness.reward_signal import RewardSignal
-        from agent_utilities.orchestration.artifact_promotion import (
-            PromotionCandidate,
-        )
-        from agent_utilities.orchestration.artifact_promotion import (
-            promote as promote_gate,
-        )
-
-        verdict = promote_gate(
-            engine,
-            PromotionCandidate(
-                artifact_kind="spec",
-                artifact_id=proposal_id,
-                candidate_ref=proposal_id,
-                candidate_reward=RewardSignal(value=0.0, source="governed_publish"),
-                incumbent_reward=None,  # comparison-less — governance is the gate
-                policy_kind="merge_promotion",
-                source=source,
-                reason="publish promoted evolution proposal as a reviewable branch",
-            ),
-            policy=action_policy,
-        )
-        report["decision"] = verdict.decision
-        report["approval_id"] = verdict.approval_id
-        if not verdict.approved:
-            report["status"] = "approval_queued" if verdict.approval_id else "denied"
-            report["detail"] = (
-                "approval is required" if verdict.approval_id else "publication denied"
-            )
-            return report
-    else:
-        report["decision"] = "approved"
-        report["approval_id"] = granted_id
-
-    # CONCEPT:AU-AHE.harness.single-file-code-synthesis — autonomous code-synthesis stage. For an attributed
-    # proposal that carries no embedded files, generate a single-file edit so the
-    # promotion emits real code; an un-attributed proposal yields None and falls
-    # through to the prose SDD skeleton exactly as before. Generation failure is
-    # never fatal — the prose path still runs.
-    extra_files = None
-    try:
-        from .code_synthesis import synthesize_code
-
-        extra_files = synthesize_code(proposal, synthesizer=code_synthesizer)
-        if extra_files:
-            report["code_synthesis"] = {"file_count": len(extra_files)}
-    except Exception as exc:  # noqa: BLE001 — generation failure ⇒ prose fallback
-        logger.debug("Code synthesis skipped: error_type=%s", type(exc).__name__)
-
-    try:
-        change_set = synthesize_change_set(proposal, extra_files=extra_files)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Change synthesis failed: error_type=%s", type(exc).__name__)
-        report["status"] = "synthesis_failed"
-        report["detail"] = "change synthesis failed"
-        return report
-    change_kind = str(change_set.kind or "")
-    report["change_kind"] = (
-        change_kind
-        if re.fullmatch(r"[A-Za-z0-9._-]{1,64}", change_kind)
-        else "proposal"
+    granted_id = _resolve_publish_approval(
+        engine, proposal_id, source=source, action_policy=action_policy, report=report
     )
-    if change_set.validation is not None:
-        checks = list(change_set.validation.checks or [])
-        report["validation"] = {
-            "passed": all(check.passed for check in checks),
-            "check_count": len(checks),
-            "failed_count": sum(not check.passed for check in checks),
-        }
-    if not change_set.publishable:
-        report["status"] = "validation_failed"
-        report["detail"] = "sandbox validation rejected the change set"
-        if granted_id:
-            _stamp_approval(engine, granted_id, "failed")
+    if "status" in report:
+        return report
+
+    change_set = _synthesize_publish_change_set(proposal, code_synthesizer, report)
+    if change_set is None:
+        return report
+
+    _annotate_change_set_report(change_set, report)
+    if _reject_unpublishable(engine, change_set, report, granted_id):
         return report
 
     pub = publisher or get_change_publisher(engine, regression_check=regression_check)
@@ -961,30 +1141,9 @@ def governed_publish(
     report["publish"] = result.to_dict()
     report["status"] = "published" if result.ok else "publish_failed"
 
-    # CONCEPT:AU-AHE.harness.capability-ratchet / AHE-3.24 — verified apply→verify→rollback + capability
-    # ratchet. Re-measure the published worktree against the persisted baseline; a
-    # measured regression (ManifestVerifier *_revert recommendation, or any tracked
-    # capability dropping below baseline) abandons the branch rather than leaving it
-    # for review. A worktree with no capability probes is "not measured" → no block.
-    if result.ok and result.worktree_path:
-        try:
-            from .capability_ratchet import CapabilityRatchet
-
-            ratchet = capability_ratchet or CapabilityRatchet(engine)
-            ratchet_verdict = ratchet.evaluate(
-                result.worktree_path, change_set=change_set, proposal_id=proposal_id
-            )
-            report["capability_ratchet"] = {"passed": bool(ratchet_verdict.passed)}
-            if not ratchet_verdict.passed:
-                _abandon_branch(result.repo_path, result.worktree_path, result.branch)
-                result.ok = False
-                report["publish"] = result.to_dict()
-                report["status"] = "reverted"
-                report["detail"] = "capability regression detected; branch removed"
-        except Exception as exc:  # noqa: BLE001 — ratchet failure must not wedge publish
-            logger.debug(
-                "Capability ratchet skipped: error_type=%s", type(exc).__name__
-            )
+    _apply_capability_ratchet(
+        engine, result, change_set, proposal_id, capability_ratchet, report
+    )
 
     # D4: record the SDD/develop vector on the unified matrix (published ⇒ active,
     # reverted ⇒ rejected), linked (:SpecProposal)-[:IMPLEMENTED_BY]->(:spec_version).
