@@ -4169,94 +4169,147 @@ def _ensure_bundled_skills_ready(engine: Any) -> dict[str, Any]:
 
 def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset()):
     """Natively ingest MCP configurations, Native Tools, and Skills into the KG on startup."""
-    import importlib
-    import inspect
+    _ingest_mcp_config_capabilities(engine)
+    _ingest_native_tool_capabilities(engine)
+    _ingest_skill_provider_capabilities(engine, skip_skill_names)
+
+    # Fleet tool schemas stay lazy.  Startup has already materialized each MCP
+    # server declaration above; probing every child here would launch the whole
+    # fleet and contend with an operator's targeted ``list_catalog`` call.
+    # Explicit ``source_sync(source="fleet")`` remains the governed full-scan
+    # path when an operator wants every live tool schema elevated into the KG.
+
+
+def _load_mcp_config_servers() -> dict[str, Any] | None:
+    """Read + parse ``mcp_config.json``'s ``mcpServers`` map, or ``None`` if absent.
+
+    Raises on a config file that exists but fails validation (oversized, not
+    JSON, or not the expected shape) — the caller's boot-time try/except logs
+    and skips this whole ingestion step on any of those.
+    """
     import json
-    import pkgutil
-    from pathlib import Path
 
     import platformdirs
 
-    from agent_utilities.security.persistence_privacy import (
-        sanitize_for_persistence,
+    APP_NAME = "agent-utilities"
+    APP_AUTHOR = "knuckles-team"
+    cfg_dir = Path(platformdirs.user_config_path(APP_NAME, APP_AUTHOR))
+    mcp_config_path = cfg_dir / "mcp_config.json"
+    if not mcp_config_path.is_file() or mcp_config_path.is_symlink():
+        return None
+    payload = mcp_config_path.read_bytes()
+    if len(payload) > 4 * 1024 * 1024:
+        raise ValueError("MCP configuration exceeds its ingestion bound")
+    data = json.loads(payload)
+    mcp_servers = data.get("mcpServers", {})
+    if not isinstance(mcp_servers, dict):
+        raise ValueError("MCP server registry must be an object")
+    return mcp_servers
+
+
+def _build_mcp_server_declarations(
+    mcp_servers: dict[str, Any],
+) -> list[tuple[str, dict[str, Any]]]:
+    """Build ``(node_id, declaration)`` pairs for every valid server entry."""
+    declarations: list[tuple[str, dict[str, Any]]] = []
+    for server_name, server_details in mcp_servers.items():
+        if not isinstance(server_details, dict):
+            continue
+        node_id, declaration = _mcp_capability_declaration(server_name, server_details)
+        declarations.append((node_id, declaration))
+    return declarations
+
+
+def _ingest_mcp_server_declarations(
+    engine: Any, declarations: list[tuple[str, dict[str, Any]]]
+) -> int:
+    """Batch-resolve prior ``disabled`` state, then write every server node.
+
+    One batched round trip for every server's prior ``disabled`` flag
+    instead of one query per server (was the dominant source of the "slow
+    engine call" warnings at boot).
+    """
+    disabled_by_id = get_existing_disabled_batch(
+        engine,
+        [node_id for node_id, _declaration in declarations],
+        label="MCPServer",
     )
+    ingested = 0
+    for node_id, declaration in declarations:
+        engine.add_node(
+            node_id,
+            "MCPServer",
+            {**declaration, "disabled": disabled_by_id.get(node_id, False)},
+        )
+        ingested += 1
+    return ingested
 
-    # 1. mcp_config.json
+
+def _ingest_mcp_config_capabilities(engine: Any) -> None:
+    """Section 1 of :func:`_ingest_capabilities`: ``mcp_config.json`` -> ``MCPServer`` nodes."""
     try:
-        APP_NAME = "agent-utilities"
-        APP_AUTHOR = "knuckles-team"
-        cfg_dir = Path(platformdirs.user_config_path(APP_NAME, APP_AUTHOR))
-        mcp_config_path = cfg_dir / "mcp_config.json"
-
-        if mcp_config_path.is_file() and not mcp_config_path.is_symlink():
-            payload = mcp_config_path.read_bytes()
-            if len(payload) > 4 * 1024 * 1024:
-                raise ValueError("MCP configuration exceeds its ingestion bound")
-            data = json.loads(payload)
-            mcp_servers = data.get("mcpServers", {})
-            if not isinstance(mcp_servers, dict):
-                raise ValueError("MCP server registry must be an object")
-            declarations = []
-            for server_name, server_details in mcp_servers.items():
-                if not isinstance(server_details, dict):
-                    continue
-                node_id, declaration = _mcp_capability_declaration(
-                    server_name, server_details
-                )
-                declarations.append((node_id, declaration))
-            # One batched round trip for every server's prior ``disabled``
-            # flag instead of one query per server (was the dominant source
-            # of the "slow engine call" warnings at boot).
-            disabled_by_id = get_existing_disabled_batch(
-                engine,
-                [node_id for node_id, _declaration in declarations],
-                label="MCPServer",
-            )
-            ingested = 0
-            for node_id, declaration in declarations:
-                engine.add_node(
-                    node_id,
-                    "MCPServer",
-                    {**declaration, "disabled": disabled_by_id.get(node_id, False)},
-                )
-                ingested += 1
-            logger.info("Ingested %d MCP capability declarations", ingested)
+        mcp_servers = _load_mcp_config_servers()
+        if mcp_servers is None:
+            return
+        declarations = _build_mcp_server_declarations(mcp_servers)
+        ingested = _ingest_mcp_server_declarations(engine, declarations)
+        logger.info("Ingested %d MCP capability declarations", ingested)
     except Exception as exc:
         logger.error("Failed to ingest MCP configuration: %s", exc)
 
-    # 2. Native Tools
+
+def _discover_native_tool_entries(
+    tools_package: Any,
+) -> list[tuple[str, dict[str, Any]]]:
+    """Import every non-package module under ``tools_package`` and collect its
+    agentic-versioned functions as ``(node_id, properties)`` pairs.
+    """
+    import importlib
+    import inspect
+    import pkgutil
+
+    from agent_utilities.security.persistence_privacy import sanitize_for_persistence
+
+    prefix = tools_package.__name__ + "."
+    tool_entries: list[tuple[str, dict[str, Any]]] = []
+    for _importer, modname, ispkg in pkgutil.iter_modules(
+        tools_package.__path__, prefix
+    ):
+        if ispkg:
+            continue
+        try:
+            module = importlib.import_module(modname)
+            for name, obj in inspect.getmembers(module, inspect.isfunction):
+                if not hasattr(obj, "__agentic_version__"):
+                    continue
+                node_id = f"native_tool_{name}"
+                description, _privacy = sanitize_for_persistence(
+                    (obj.__doc__ or "")[:8192]
+                )
+                tool_entries.append(
+                    (
+                        node_id,
+                        {
+                            "name": name,
+                            "description": str(description),
+                            "version": obj.__agentic_version__,
+                            "module": modname,
+                        },
+                    )
+                )
+        except Exception as exc:  # noqa: BLE001 — per-module best-effort skip; the outer scan already logs failures
+            logger.debug(
+                "Failed to ingest a native-tool module: %s", type(exc).__name__
+            )
+    return tool_entries
+
+
+def _ingest_native_tool_capabilities(engine: Any) -> None:
+    """Section 2 of :func:`_ingest_capabilities`: scan ``agent_utilities.tools`` -> ``NativeTool`` nodes."""
     try:
         import agent_utilities.tools
 
-        prefix = agent_utilities.tools.__name__ + "."
-        tool_entries: list[tuple[str, dict[str, Any]]] = []
-        for importer, modname, ispkg in pkgutil.iter_modules(
-            agent_utilities.tools.__path__, prefix
-        ):
-            if not ispkg:
-                try:
-                    module = importlib.import_module(modname)
-                    for name, obj in inspect.getmembers(module, inspect.isfunction):
-                        if hasattr(obj, "__agentic_version__"):
-                            node_id = f"native_tool_{name}"
-                            description, _privacy = sanitize_for_persistence(
-                                (obj.__doc__ or "")[:8192]
-                            )
-                            tool_entries.append(
-                                (
-                                    node_id,
-                                    {
-                                        "name": name,
-                                        "description": str(description),
-                                        "version": obj.__agentic_version__,
-                                        "module": modname,
-                                    },
-                                )
-                            )
-                except Exception as exc:  # noqa: BLE001 — per-module best-effort skip; the outer scan already logs failures
-                    logger.debug(
-                        "Failed to ingest a native-tool module: %s", type(exc).__name__
-                    )
+        tool_entries = _discover_native_tool_entries(agent_utilities.tools)
         # One batched round trip for every native tool's prior ``disabled``
         # flag instead of one query per tool.
         disabled_by_id = get_existing_disabled_batch(
@@ -4274,7 +4327,11 @@ def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset
     except Exception as exc:
         logger.error("Failed to scan native tools: %s", exc)
 
-    # 3. Skills
+
+def _ingest_skill_provider_capabilities(
+    engine: Any, skip_skill_names: frozenset[str]
+) -> None:
+    """Section 3 of :func:`_ingest_capabilities`: every skill provider's ``SKILL.md`` files."""
     try:
         from agent_utilities.core.config import config
         from agent_utilities.core.providers import resolve_skill_provider_dirs
@@ -4295,12 +4352,6 @@ def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset
             logger.info("Ingested %d runnable skills", ingested)
     except Exception as e:
         logger.error("Failed to ingest skills: %s", e)
-
-    # Fleet tool schemas stay lazy.  Startup has already materialized each MCP
-    # server declaration above; probing every child here would launch the whole
-    # fleet and contend with an operator's targeted ``list_catalog`` call.
-    # Explicit ``source_sync(source="fleet")`` remains the governed full-scan
-    # path when an operator wants every live tool schema elevated into the KG.
 
 
 # ── Boot hydration plan (ingestion-hydration-program.md §3) ─────────────────
