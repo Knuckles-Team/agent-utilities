@@ -240,12 +240,42 @@ def ingest_tasks_version(
     return tasks_id
 
 
-def process_plan_file(engine: Any, file_path: Path, workspace_path: Path):
-    """Processes a single implementation plan file, checking for changes and versioning."""
-    if not file_path.exists():
-        return
+# Non-brain history subdirectory name per watched-file kind ("plan" ->
+# "plans", "tasks" -> "tasks" -- the one asymmetry between the two, kept as
+# a lookup rather than a third string-formatting rule).
+_WATCHED_HISTORY_SUBDIR_BY_KIND = {"plan": "plans", "tasks": "tasks"}
 
-    file_key = str(file_path.resolve())
+
+def _resolve_watched_feature_context(
+    file_path: Path, workspace_path: Path, *, kind: str
+) -> tuple[str, str, str, Path]:
+    """(feature_id, session_id, history-file prefix, history_dir) for a
+    watched plan/tasks file -- the brain-session vs. spec-tree layout differ
+    only in these four derived values, shared by
+    :func:`process_plan_file`/:func:`process_tasks_file`."""
+    if "brain" in file_path.parts:
+        # Path is typically /.../brain/<session_id>/implementation_plan.md
+        # (or tasks.md) -- session_id is the parent folder name.
+        session_id = file_path.parent.name
+        feature_id = f"brain_{session_id}"
+        prefix = f"brain_{kind}_{session_id}"
+        history_dir = workspace_path / ".specify" / "history" / "brain"
+        return feature_id, session_id, prefix, history_dir
+    # Path is typically /.../.specify/specs/<feature_id>/plan.md (or tasks.md)
+    session_id = "default_session"
+    feature_id = file_path.parent.name
+    prefix = f"{kind}_{feature_id}"
+    history_dir = (
+        workspace_path / ".specify" / "history" / _WATCHED_HISTORY_SUBDIR_BY_KIND[kind]
+    )
+    return feature_id, session_id, prefix, history_dir
+
+
+def _read_watched_file_if_changed(
+    file_path: Path, file_key: str
+) -> tuple[str, float] | None:
+    """(content, mtime) for a changed watched file, or ``None`` when it is
+    unreadable or its mtime matches the cached one (nothing to do)."""
     try:
         mtime = file_path.stat().st_mtime
     except Exception as e:  # noqa: BLE001 — mtime=0.0 fallback just forces a content-hash re-check on the next scan, no data lost
@@ -253,37 +283,24 @@ def process_plan_file(engine: Any, file_path: Path, workspace_path: Path):
         mtime = 0.0
 
     if _SEEN_MTIMES.get(file_key) == mtime:
-        return
+        return None
 
     try:
         content = file_path.read_text(encoding="utf-8", errors="ignore")
     except Exception as e:
         logger.error("Failed to read watched file: %s", e)
-        return
+        return None
+    return content, mtime
 
-    content_hash = _get_md5(content)
 
-    # Initialize seen hashes cache for this file if not present
+def _resolve_next_watched_version(
+    file_key: str, content_hash: str, history_dir: Path, prefix: str
+) -> int | None:
+    """Next version number to archive ``content_hash`` under, or ``None``
+    when this exact content was already archived (caller should update the
+    mtime cache and skip the write)."""
     if file_key not in _SEEN_HASHES:
         _SEEN_HASHES[file_key] = set()
-
-    # Determine type and IDs
-    is_brain = "brain" in file_path.parts
-    session_id = "default_session"
-    feature_id = "default_feature"
-
-    if is_brain:
-        # Path is typically /.../brain/<session_id>/implementation_plan.md
-        # session_id is parent folder name
-        session_id = file_path.parent.name
-        feature_id = f"brain_{session_id}"
-        prefix = f"brain_plan_{session_id}"
-        history_dir = workspace_path / ".specify" / "history" / "brain"
-    else:
-        # Path is typically /.../.specify/specs/<feature_id>/plan.md
-        feature_id = file_path.parent.name
-        prefix = f"plan_{feature_id}"
-        history_dir = workspace_path / ".specify" / "history" / "plans"
 
     # Scan history dir on first time to sync state
     if not _SEEN_HASHES[file_key]:
@@ -295,30 +312,64 @@ def process_plan_file(engine: Any, file_path: Path, workspace_path: Path):
     else:
         # Quick check: if we already saw this in memory, skip
         if content_hash in _SEEN_HASHES[file_key]:
-            _SEEN_MTIMES[file_key] = mtime
-            return
+            return None
         # Find latest version from history dir directly to be safe
         latest_v, _ = _get_latest_version_from_history(history_dir, prefix)
         version = latest_v
 
     # Check if hash was already archived
     if content_hash in _SEEN_HASHES[file_key]:
-        _SEEN_MTIMES[file_key] = mtime
-        return
+        return None
+    return version + 1
 
-    # A new unique state is detected! Increment version and save
-    version += 1
+
+def _write_watched_history(
+    history_dir: Path,
+    prefix: str,
+    version: int,
+    content: str,
+    workspace_path: Path,
+    *,
+    label: str,
+) -> Path | None:
     timestamp_str = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     history_dir.mkdir(parents=True, exist_ok=True)
     history_file = history_dir / f"{prefix}_v{version}_{timestamp_str}.md"
-
     try:
         history_file.write_text(content, encoding="utf-8")
         logger.info(
-            f"Archived plan version: {history_file.relative_to(workspace_path)}"
+            f"Archived {label} version: {history_file.relative_to(workspace_path)}"
         )
     except Exception as e:
         logger.error(f"Failed to write history archive: {e}")
+        return None
+    return history_file
+
+
+def process_plan_file(engine: Any, file_path: Path, workspace_path: Path):
+    """Processes a single implementation plan file, checking for changes and versioning."""
+    if not file_path.exists():
+        return
+
+    file_key = str(file_path.resolve())
+    read = _read_watched_file_if_changed(file_path, file_key)
+    if read is None:
+        return
+    content, mtime = read
+    content_hash = _get_md5(content)
+
+    feature_id, session_id, prefix, history_dir = _resolve_watched_feature_context(
+        file_path, workspace_path, kind="plan"
+    )
+    version = _resolve_next_watched_version(file_key, content_hash, history_dir, prefix)
+    if version is None:
+        _SEEN_MTIMES[file_key] = mtime
+        return
+
+    history_file = _write_watched_history(
+        history_dir, prefix, version, content, workspace_path, label="plan"
+    )
+    if history_file is None:
         return
 
     # Ingest into KG
@@ -348,69 +399,24 @@ def process_tasks_file(engine: Any, file_path: Path, workspace_path: Path):
         return
 
     file_key = str(file_path.resolve())
-    try:
-        mtime = file_path.stat().st_mtime
-    except Exception as e:  # noqa: BLE001 — mtime=0.0 fallback just forces a content-hash re-check on the next scan, no data lost
-        logger.debug("Failed to stat watched file: %s", e)
-        mtime = 0.0
-
-    if _SEEN_MTIMES.get(file_key) == mtime:
+    read = _read_watched_file_if_changed(file_path, file_key)
+    if read is None:
         return
-
-    try:
-        content = file_path.read_text(encoding="utf-8", errors="ignore")
-    except Exception as e:
-        logger.error("Failed to read watched file: %s", e)
-        return
-
+    content, mtime = read
     content_hash = _get_md5(content)
 
-    if file_key not in _SEEN_HASHES:
-        _SEEN_HASHES[file_key] = set()
-
-    is_brain = "brain" in file_path.parts
-    session_id = "default_session"
-    feature_id = "default_feature"
-
-    if is_brain:
-        session_id = file_path.parent.name
-        feature_id = f"brain_{session_id}"
-        prefix = f"brain_tasks_{session_id}"
-        history_dir = workspace_path / ".specify" / "history" / "brain"
-    else:
-        feature_id = file_path.parent.name
-        prefix = f"tasks_{feature_id}"
-        history_dir = workspace_path / ".specify" / "history" / "tasks"
-
-    if not _SEEN_HASHES[file_key]:
-        latest_v, historical_hashes = _get_latest_version_from_history(
-            history_dir, prefix
-        )
-        _SEEN_HASHES[file_key].update(historical_hashes)
-        version = latest_v
-    else:
-        if content_hash in _SEEN_HASHES[file_key]:
-            _SEEN_MTIMES[file_key] = mtime
-            return
-        latest_v, _ = _get_latest_version_from_history(history_dir, prefix)
-        version = latest_v
-
-    if content_hash in _SEEN_HASHES[file_key]:
+    feature_id, session_id, prefix, history_dir = _resolve_watched_feature_context(
+        file_path, workspace_path, kind="tasks"
+    )
+    version = _resolve_next_watched_version(file_key, content_hash, history_dir, prefix)
+    if version is None:
         _SEEN_MTIMES[file_key] = mtime
         return
 
-    version += 1
-    timestamp_str = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    history_dir.mkdir(parents=True, exist_ok=True)
-    history_file = history_dir / f"{prefix}_v{version}_{timestamp_str}.md"
-
-    try:
-        history_file.write_text(content, encoding="utf-8")
-        logger.info(
-            f"Archived tasks version: {history_file.relative_to(workspace_path)}"
-        )
-    except Exception as e:
-        logger.error(f"Failed to write history archive: {e}")
+    history_file = _write_watched_history(
+        history_dir, prefix, version, content, workspace_path, label="tasks"
+    )
+    if history_file is None:
         return
 
     try:
@@ -430,46 +436,62 @@ def process_tasks_file(engine: Any, file_path: Path, workspace_path: Path):
     _SEEN_MTIMES[file_key] = mtime
 
 
+#: Subdirectories skipped by :func:`_safe_walk` (large/temp/generated trees).
+_SAFE_WALK_SKIP_DIRS = {
+    ".git",
+    ".venv",
+    ".pytest_cache",
+    ".ruff_cache",
+    "node_modules",
+    "build",
+    "dist",
+    "history",
+    "cache",
+    "temp",
+    "tmp",
+    ".mypy_cache",
+}
+
+
+def _is_skippable_walk_dir(name: str, skip_dirs: set[str]) -> bool:
+    return name in skip_dirs or (name.startswith(".") and name != ".specify")
+
+
+def _walk_item(
+    item: Path, depth: int, max_depth: int, skip_dirs: set[str], target_names: set[str]
+):
+    if item.is_dir():
+        if _is_skippable_walk_dir(item.name, skip_dirs):
+            return
+        yield from _walk_dir(item, depth + 1, max_depth, skip_dirs, target_names)
+    elif item.is_file() and item.name.lower() in target_names:
+        yield item
+
+
+def _walk_dir(
+    current: Path,
+    depth: int,
+    max_depth: int,
+    skip_dirs: set[str],
+    target_names: set[str],
+):
+    if depth > max_depth:
+        return
+    try:
+        for item in current.iterdir():
+            raise_if_task_cancelled()
+            yield from _walk_item(item, depth, max_depth, skip_dirs, target_names)
+    except PermissionError:
+        pass
+    except Exception as exc:  # noqa: BLE001 — one unreadable subtree is non-fatal
+        logger.debug("Skipping unreadable watcher subtree %s: %s", current, exc)
+
+
 def _safe_walk(root: Path, target_names: set[str], max_depth: int = 5):
     """Safely walk directories to find target files, skipping large/temp folders."""
-    skip_dirs = {
-        ".git",
-        ".venv",
-        ".pytest_cache",
-        ".ruff_cache",
-        "node_modules",
-        "build",
-        "dist",
-        "history",
-        "cache",
-        "temp",
-        "tmp",
-        ".mypy_cache",
-    }
     if not root.exists():
         return
-
-    def _walk(current: Path, depth: int):
-        if depth > max_depth:
-            return
-        try:
-            for item in current.iterdir():
-                raise_if_task_cancelled()
-                if item.is_dir():
-                    if item.name in skip_dirs or (
-                        item.name.startswith(".") and item.name != ".specify"
-                    ):
-                        continue
-                    yield from _walk(item, depth + 1)
-                elif item.is_file():
-                    if item.name.lower() in target_names:
-                        yield item
-        except PermissionError:
-            pass
-        except Exception as exc:  # noqa: BLE001 — one unreadable subtree is non-fatal
-            logger.debug("Skipping unreadable watcher subtree %s: %s", current, exc)
-
-    yield from _walk(root, 1)
+    yield from _walk_dir(root, 1, max_depth, _SAFE_WALK_SKIP_DIRS, target_names)
 
 
 def get_all_skills_directories(workspace_path: Path) -> list[Path]:
