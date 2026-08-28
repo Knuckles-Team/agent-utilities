@@ -48,6 +48,23 @@ _RULE_TYPE = {
 }
 
 
+def _coerce_json_payload(payload: Any) -> dict[str, Any] | None:
+    """Best-effort JSON-string -> dict coercion for on-the-wire correction payloads.
+
+    Mirrors the on-the-wire form from ``graph_feedback``: a caller may pass a
+    JSON-encoded string or an already-parsed dict. Anything else (or a parse
+    failure) is treated as "no structured payload".
+    """
+    if isinstance(payload, str):
+        try:
+            import json as _json
+
+            payload = _json.loads(payload)
+        except Exception:
+            return None
+    return payload if isinstance(payload, dict) else None
+
+
 def _stamp_and_type(props: dict[str, Any], node_type: str) -> dict[str, Any]:
     """Stamp ownership/classification onto a node-write props dict (BUG-059).
 
@@ -212,6 +229,33 @@ class FeedbackService:
         )
 
     # ------------------------------------------------------------------
+    @staticmethod
+    def _parse_selective_erasure_ids(target_id: str, corrected_value: Any) -> list[str]:
+        """Resolve the id list for a selective-erasure call.
+
+        ``corrected_value`` may carry extra ids (a JSON list, or a comma/
+        whitespace-separated string) so a whole superseded generation is
+        forgotten in one call.
+        """
+        ids: list[str] = [target_id] if target_id else []
+        if corrected_value is None:
+            return ids
+        payload = corrected_value
+        if isinstance(payload, str):
+            text = payload.strip()
+            if text.startswith("["):
+                try:
+                    import json as _json
+
+                    payload = _json.loads(text)
+                except Exception:
+                    payload = text.replace(",", " ").split()
+            else:
+                payload = text.replace(",", " ").split()
+        if isinstance(payload, list | tuple | set):
+            ids.extend(str(p) for p in payload)
+        return ids
+
     def _apply_selective_erasure(
         self, target_id: str, corrected_value: Any, reason: str
     ) -> CorrectionResult:
@@ -232,22 +276,7 @@ class FeedbackService:
             return CorrectionResult(
                 "selective_erasure", target_id, False, "no capability_index available"
             )
-        ids: list[str] = [target_id] if target_id else []
-        if corrected_value is not None:
-            payload = corrected_value
-            if isinstance(payload, str):
-                text = payload.strip()
-                if text.startswith("["):
-                    try:
-                        import json as _json
-
-                        payload = _json.loads(text)
-                    except Exception:
-                        payload = text.replace(",", " ").split()
-                else:
-                    payload = text.replace(",", " ").split()
-            if isinstance(payload, list | tuple | set):
-                ids.extend(str(p) for p in payload)
+        ids = self._parse_selective_erasure_ids(target_id, corrected_value)
         erased = index.selective_erase_rewards(ids)
         return CorrectionResult(
             "selective_erasure",
@@ -283,52 +312,15 @@ class FeedbackService:
         ``corrected_value`` may carry a JSON/dict ``{reads_avoided, files_read,
         correct, query}`` (the on-the-wire form from ``graph_feedback``).
         """
-        ra, fr, ok, q = reads_avoided, files_read, correct, query
-        if corrected_value is not None:
-            payload = corrected_value
-            if isinstance(payload, str):
-                try:
-                    import json as _json
-
-                    payload = _json.loads(payload)
-                except Exception:
-                    payload = {}
-            if isinstance(payload, dict):
-                ra = bool(payload.get("reads_avoided", ra))
-                fr = int(payload.get("files_read", fr) or 0)
-                ok = bool(payload.get("correct", ok))
-                q = str(payload.get("query", q) or q)
-
-        if not ok:
-            reward = 0.0
-        elif ra and fr <= 0:
-            reward = 1.0  # answer fully replaced the read
-        elif ra:
-            reward = 0.7  # helped, but some files still read
-        else:
-            reward = 0.3  # read anyway despite the answer
-
+        ra, fr, ok, q = self._normalize_reads_avoided_payload(
+            corrected_value, reads_avoided, files_read, correct, query
+        )
+        reward = self._reads_avoided_reward(ok, ra, fr)
         outcome = self._apply_outcome(
             capability_id, reward, None, reason or "reads_avoided"
         )
         created = list(outcome.created_ids)
-        # Persist the graded case so the answer is regression-checked from now on.
-        if (
-            ok
-            and q
-            and self.eval_corpus is not None
-            and hasattr(self.eval_corpus, "add_case")
-        ):
-            try:
-                case_id = self.eval_corpus.add_case(
-                    query=q,
-                    expected_output=capability_id,
-                    tags=["code_context", "reads_avoided"],
-                    reason=reason or "code_context answer replaced a read",
-                )
-                created.append(case_id)
-            except Exception as exc:  # pragma: no cover - corpus optional
-                logger.debug("reads_avoided eval case failed (%s)", type(exc).__name__)
+        self._append_reads_avoided_eval_case(capability_id, ok, q, reason, created)
         return CorrectionResult(
             "reads_avoided",
             capability_id,
@@ -336,6 +328,59 @@ class FeedbackService:
             f"reward={reward:.2f} reads_avoided={ra} files_read={fr} correct={ok}",
             created,
         )
+
+    @staticmethod
+    def _normalize_reads_avoided_payload(
+        corrected_value: Any,
+        reads_avoided: bool,
+        files_read: int,
+        correct: bool,
+        query: str,
+    ) -> tuple[bool, int, bool, str]:
+        ra, fr, ok, q = reads_avoided, files_read, correct, query
+        payload = (
+            _coerce_json_payload(corrected_value)
+            if corrected_value is not None
+            else None
+        )
+        if payload is not None:
+            ra = bool(payload.get("reads_avoided", ra))
+            fr = int(payload.get("files_read", fr) or 0)
+            ok = bool(payload.get("correct", ok))
+            q = str(payload.get("query", q) or q)
+        return ra, fr, ok, q
+
+    @staticmethod
+    def _reads_avoided_reward(ok: bool, ra: bool, fr: int) -> float:
+        if not ok:
+            return 0.0  # read anyway despite the answer being wrong
+        if ra and fr <= 0:
+            return 1.0  # answer fully replaced the read
+        if ra:
+            return 0.7  # helped, but some files still read
+        return 0.3  # read anyway despite the answer
+
+    def _append_reads_avoided_eval_case(
+        self, capability_id: str, ok: bool, q: str, reason: str, created: list[str]
+    ) -> None:
+        # Persist the graded case so the answer is regression-checked from now on.
+        if not (
+            ok
+            and q
+            and self.eval_corpus is not None
+            and hasattr(self.eval_corpus, "add_case")
+        ):
+            return
+        try:
+            case_id = self.eval_corpus.add_case(
+                query=q,
+                expected_output=capability_id,
+                tags=["code_context", "reads_avoided"],
+                reason=reason or "code_context answer replaced a read",
+            )
+            created.append(case_id)
+        except Exception as exc:  # pragma: no cover - corpus optional
+            logger.debug("reads_avoided eval case failed (%s)", type(exc).__name__)
 
     # ------------------------------------------------------------------
     def record_action_outcome(
@@ -365,124 +410,16 @@ class FeedbackService:
         ``corrected_value`` may carry JSON/dict ``{success, reward, expected, observed,
         query}`` (the on-the-wire form from ``graph_feedback``).
         """
-        s, r, exp, _obs, q = success, reward, expected, observed, query
-        if corrected_value is not None:
-            payload = corrected_value
-            if isinstance(payload, str):
-                try:
-                    import json as _json
-
-                    payload = _json.loads(payload)
-                except Exception:
-                    payload = {}
-            if isinstance(payload, dict):
-                s = bool(payload.get("success", s))
-                if payload.get("reward") is not None:
-                    try:
-                        r = float(payload["reward"])
-                    except (TypeError, ValueError):
-                        r = None
-                exp = str(payload.get("expected", exp) or exp)
-                _obs = str(payload.get("observed", _obs) or _obs)
-                q = str(payload.get("query", q) or q)
-
+        s, r, exp, _obs, q = self._normalize_action_outcome_payload(
+            corrected_value, success, reward, expected, observed, query
+        )
         if r is None:
             r = 1.0 if s else 0.0
         r = max(0.0, min(1.0, r))
         outcome = self._apply_outcome(action_id, r, None, reason or "action_outcome")
         created = list(outcome.created_ids)
-        # CONCEPT:AU-ORCH.routing.route-outcome-feedback — a model-route outcome also trains the adaptive router's
-        # per-role confidence so the cheapest model that keeps working wins next time.
-        if action_id.startswith("model_route:"):
-            try:
-                from agent_utilities.core.model_router import record_model_outcome
-
-                record_model_outcome(action_id, reward=r)
-            except Exception as exc:  # pragma: no cover - defensive
-                logger.debug(
-                    "model-route outcome update failed (%s)", type(exc).__name__
-                )
-        # CONCEPT:AU-OS.governance.autonomy-change-proposer — a "trust:<actor>:<kind>" outcome trains the autonomy ramp
-        # so a consistently-correct actor earns wider governance scope for that kind.
-        elif action_id.startswith("trust:"):
-            try:
-                from agent_utilities.orchestration.autonomy_ramp import record_trust
-
-                _, actor, kind = (action_id.split(":", 2) + ["", ""])[:3]
-                record_trust(self.backend, actor, kind, success=s)
-            except Exception as exc:  # pragma: no cover - defensive
-                logger.debug("trust outcome update failed (%s)", type(exc).__name__)
-        # CONCEPT:AU-AHE.org.role-experience — a "role_experience:<role_id>" outcome
-        # accrues into the owning :Employee's experience profile (successes/
-        # partials/failures + score + seniority), so the org recruiter reuses
-        # proven staff on the next synthesis (the Self-Grown loop). The optional
-        # corrected_value carries {employee_id, domains}.
-        elif action_id.startswith("role_experience:"):
-            try:
-                from agent_utilities.orchestration.org_runtime import (
-                    record_role_experience,
-                )
-
-                role_id = action_id.split(":", 1)[1]
-                emp_id = ""
-                domains: list[str] = []
-                payload = corrected_value
-                if isinstance(payload, str):
-                    try:
-                        import json as _json
-
-                        payload = _json.loads(payload)
-                    except Exception:
-                        payload = {}
-                if isinstance(payload, dict):
-                    emp_id = str(payload.get("employee_id", "") or "")
-                    doms = payload.get("domains") or []
-                    if isinstance(doms, list):
-                        domains = [str(d) for d in doms]
-                record_role_experience(
-                    self.backend,
-                    role_id,
-                    employee_id=emp_id,
-                    success=s,
-                    reward=r,
-                    domains=domains,
-                )
-            except Exception as exc:  # pragma: no cover - defensive
-                logger.debug(
-                    "role experience outcome update failed (%s)",
-                    type(exc).__name__,
-                )
-        if (
-            q
-            and exp
-            and self.eval_corpus is not None
-            and hasattr(self.eval_corpus, "add_case")
-        ):
-            try:
-                from agent_utilities.harness.optimization_backend import (
-                    opaque_program_reference,
-                )
-
-                # CONCEPT:AU-AHE.harness.when-outcome-names-agent — when the outcome names the agent that produced it,
-                # tag the eval case with an opaque agent reference so the per-agent trainset
-                # (build_agent_trainset) can pool THIS agent's real metrics for its own
-                # native program optimization (attribution by agent, not just trace signature).
-                tags = ["action_outcome"]
-                metadata = None
-                if agent_id:
-                    agent_ref = opaque_program_reference("agent", agent_id)
-                    tags.append(f"agent_ref:{agent_ref}")
-                    metadata = {"agent_ref": agent_ref}
-                case_id = self.eval_corpus.add_case(
-                    query=q,
-                    expected_output=exp,
-                    tags=tags,
-                    reason=reason or "action outcome",
-                    metadata=metadata,
-                )
-                created.append(case_id)
-            except Exception as exc:  # pragma: no cover - corpus optional
-                logger.debug("action_outcome eval case failed (%s)", type(exc).__name__)
+        self._apply_action_outcome_side_effects(action_id, s, r, corrected_value)
+        self._append_action_outcome_eval_case(q, exp, reason, agent_id, created)
         return CorrectionResult(
             "action_outcome",
             action_id,
@@ -490,6 +427,141 @@ class FeedbackService:
             f"reward={r:.2f} success={s}",
             created,
         )
+
+    @staticmethod
+    def _normalize_action_outcome_payload(
+        corrected_value: Any,
+        success: bool,
+        reward: float | None,
+        expected: str,
+        observed: str,
+        query: str,
+    ) -> tuple[bool, float | None, str, str, str]:
+        s, r, exp, obs, q = success, reward, expected, observed, query
+        payload = (
+            _coerce_json_payload(corrected_value)
+            if corrected_value is not None
+            else None
+        )
+        if payload is not None:
+            s = bool(payload.get("success", s))
+            if payload.get("reward") is not None:
+                try:
+                    r = float(payload["reward"])
+                except (TypeError, ValueError):
+                    r = None
+            exp = str(payload.get("expected", exp) or exp)
+            obs = str(payload.get("observed", obs) or obs)
+            q = str(payload.get("query", q) or q)
+        return s, r, exp, obs, q
+
+    def _apply_action_outcome_side_effects(
+        self, action_id: str, s: bool, r: float, corrected_value: Any
+    ) -> None:
+        # CONCEPT:AU-ORCH.routing.route-outcome-feedback — a model-route outcome also trains the adaptive router's
+        # per-role confidence so the cheapest model that keeps working wins next time.
+        if action_id.startswith("model_route:"):
+            self._apply_model_route_outcome(action_id, r)
+        # CONCEPT:AU-OS.governance.autonomy-change-proposer — a "trust:<actor>:<kind>" outcome trains the autonomy ramp
+        # so a consistently-correct actor earns wider governance scope for that kind.
+        elif action_id.startswith("trust:"):
+            self._apply_trust_outcome(action_id, s)
+        # CONCEPT:AU-AHE.org.role-experience — a "role_experience:<role_id>" outcome
+        # accrues into the owning :Employee's experience profile (successes/
+        # partials/failures + score + seniority), so the org recruiter reuses
+        # proven staff on the next synthesis (the Self-Grown loop). The optional
+        # corrected_value carries {employee_id, domains}.
+        elif action_id.startswith("role_experience:"):
+            self._apply_role_experience_outcome(action_id, s, r, corrected_value)
+
+    @staticmethod
+    def _apply_model_route_outcome(action_id: str, r: float) -> None:
+        try:
+            from agent_utilities.core.model_router import record_model_outcome
+
+            record_model_outcome(action_id, reward=r)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("model-route outcome update failed (%s)", type(exc).__name__)
+
+    def _apply_trust_outcome(self, action_id: str, s: bool) -> None:
+        try:
+            from agent_utilities.orchestration.autonomy_ramp import record_trust
+
+            _, actor, kind = (action_id.split(":", 2) + ["", ""])[:3]
+            record_trust(self.backend, actor, kind, success=s)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("trust outcome update failed (%s)", type(exc).__name__)
+
+    def _apply_role_experience_outcome(
+        self, action_id: str, s: bool, r: float, corrected_value: Any
+    ) -> None:
+        try:
+            from agent_utilities.orchestration.org_runtime import (
+                record_role_experience,
+            )
+
+            role_id = action_id.split(":", 1)[1]
+            emp_id = ""
+            domains: list[str] = []
+            payload = (
+                _coerce_json_payload(corrected_value)
+                if corrected_value is not None
+                else None
+            )
+            if payload is not None:
+                emp_id = str(payload.get("employee_id", "") or "")
+                doms = payload.get("domains") or []
+                if isinstance(doms, list):
+                    domains = [str(d) for d in doms]
+            record_role_experience(
+                self.backend,
+                role_id,
+                employee_id=emp_id,
+                success=s,
+                reward=r,
+                domains=domains,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug(
+                "role experience outcome update failed (%s)",
+                type(exc).__name__,
+            )
+
+    def _append_action_outcome_eval_case(
+        self, q: str, exp: str, reason: str, agent_id: str, created: list[str]
+    ) -> None:
+        if not (
+            q
+            and exp
+            and self.eval_corpus is not None
+            and hasattr(self.eval_corpus, "add_case")
+        ):
+            return
+        try:
+            from agent_utilities.harness.optimization_backend import (
+                opaque_program_reference,
+            )
+
+            # CONCEPT:AU-AHE.harness.when-outcome-names-agent — when the outcome names the agent that produced it,
+            # tag the eval case with an opaque agent reference so the per-agent trainset
+            # (build_agent_trainset) can pool THIS agent's real metrics for its own
+            # native program optimization (attribution by agent, not just trace signature).
+            tags = ["action_outcome"]
+            metadata = None
+            if agent_id:
+                agent_ref = opaque_program_reference("agent", agent_id)
+                tags.append(f"agent_ref:{agent_ref}")
+                metadata = {"agent_ref": agent_ref}
+            case_id = self.eval_corpus.add_case(
+                query=q,
+                expected_output=exp,
+                tags=tags,
+                reason=reason or "action outcome",
+                metadata=metadata,
+            )
+            created.append(case_id)
+        except Exception as exc:  # pragma: no cover - corpus optional
+            logger.debug("action_outcome eval case failed (%s)", type(exc).__name__)
 
     # ------------------------------------------------------------------
     def agent_eval_cases(self, agent_id: str, *, limit: int = 500) -> list[Any]:
@@ -564,6 +636,12 @@ class FeedbackService:
             return []
         if self.eval_corpus is None or not hasattr(self.eval_corpus, "load_cases"):
             return []
+        resolved = self._load_program_demonstrations(requested)
+        return [resolved[reference] for reference in requested if reference in resolved]
+
+    def _load_program_demonstrations(
+        self, requested: tuple[str, ...]
+    ) -> dict[str, dict[str, str]]:
         resolved: dict[str, dict[str, str]] = {}
         try:
             for case in self.eval_corpus.load_cases():
@@ -582,8 +660,8 @@ class FeedbackService:
             logger.debug(
                 "program demonstration resolution failed (%s)", type(exc).__name__
             )
-            return []
-        return [resolved[reference] for reference in requested if reference in resolved]
+            return {}
+        return resolved
 
     # ------------------------------------------------------------------
     def record_gotcha(
