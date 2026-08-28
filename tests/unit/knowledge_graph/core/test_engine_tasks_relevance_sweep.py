@@ -79,7 +79,10 @@ async def test_relevance_sweep_reports_no_target_data_when_no_embeddings_found()
 @pytest.mark.asyncio
 async def test_relevance_sweep_scores_papers_and_repos_and_sorts_descending():
     responses = [
-        ("c.embedding AS emb LIMIT 200", [{"id": "c1", "emb": [1.0, 0.0]}]),  # target centroid
+        (
+            "c.embedding AS emb LIMIT 200",
+            [{"id": "c1", "emb": [1.0, 0.0]}],
+        ),  # target centroid
         (
             "DISTINCT a.target_path",
             [{"paper_path": "papers/one.pdf"}],
