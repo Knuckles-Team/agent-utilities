@@ -974,23 +974,26 @@ class FleetReconciler:
 
     def _resolve_valid_intent(
         self, want: DesiredService
-    ) -> tuple[dict[str, Any] | None, bool, bool]:
+    ) -> tuple[dict[str, Any] | None, bool]:
         """Read the latest intent and validate it belongs to `want`.
 
-        Returns ``(intent, read_complete, usable)``. When ``usable`` is False
-        the caller must return ``(None, None, read_complete)`` unchanged.
+        Returns ``(intent, read_complete)``. ``intent`` is non-None if and
+        only if the read completed and the intent is usable (present and
+        valid for `want`); every unusable case returns ``intent=None``. When
+        ``intent`` is None the caller must return ``(None, None,
+        read_complete)`` unchanged.
         """
         complete, intent = self.intent_store.latest(want.name)
         if not complete:
-            return None, False, False
+            return None, False
         if intent is None:
-            return None, True, False
+            return None, True
         if (
             not _intent_metadata_valid(intent)
             or str(intent.get("service")) != want.name
         ):
-            return None, True, False
-        return intent, True, True
+            return None, True
+        return intent, True
 
     def _intent_target(
         self, want: DesiredService, observed_replicas: int | None = None
@@ -1010,8 +1013,8 @@ class FleetReconciler:
             return want.replicas, None, True
         if spec.controller_mode != SCALE_CONTROLLER_NATIVE:
             return None, None, True
-        intent, complete, usable = self._resolve_valid_intent(want)
-        if not usable:
+        intent, complete = self._resolve_valid_intent(want)
+        if intent is None:
             return None, None, complete
         status = str(intent.get("status") or "")
         if status in {
