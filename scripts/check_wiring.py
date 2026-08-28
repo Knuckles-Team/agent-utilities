@@ -128,6 +128,7 @@ import argparse
 import ast
 import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -1285,6 +1286,45 @@ def _materialize_head_snapshot(root: str, dest: Path) -> bool:
     return True
 
 
+_AMBIENT_GIT_IDENTITY_VARS = ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE")
+
+
+def _scan_snapshot_for_test_only_symbols(dest: Path) -> list[dict]:
+    """``find_test_only_symbols`` over a bare ``git archive`` extraction,
+    with the ambient GIT_DIR/GIT_INDEX_FILE/GIT_WORK_TREE identity stripped
+    from the subprocess environment for the scan's duration (restored
+    immediately after, even on exception).
+
+    ``dest`` is a plain filesystem extraction, not a git repository, so
+    ``_tracked_or_walked``'s git-ls-files preference is EXPECTED to fail
+    cleanly there and fall through to its own plain-walk fallback -- which
+    is correct here, since ``git archive`` already extracted exactly the
+    tracked-at-HEAD set. Git itself sets GIT_DIR/GIT_INDEX_FILE/
+    GIT_WORK_TREE in every hook subprocess (confirmed BUG-043/BUG-180); left
+    in place, ``git -C <dest>/... ls-files`` does NOT fail the way a plain
+    invocation does -- it silently resolves against the AMBIENT (real)
+    repository instead of erroring "not a git repository", and
+    ``_tracked_or_walked``'s ``if tracked: return [filtered]`` branch trusts
+    that non-empty-but-wrong result rather than falling through to the
+    (correct) rglob fallback, so ``au_sources``/the test-file set for the
+    snapshot come back near-empty and EVERY current finding reads as new.
+    Confirmed by construction, not assumed: WD4-RAT-02's own GIT_DIR/
+    GIT_INDEX_FILE plant proof reported this exact shape -- 1 genuinely new
+    finding read as 1108 (the entire backlog) before this fix.
+    """
+    ambient = {
+        k: os.environ.pop(k) for k in _AMBIENT_GIT_IDENTITY_VARS if k in os.environ
+    }
+    try:
+        return find_test_only_symbols(
+            src_dir=dest / "agent_utilities",
+            tests_dir=dest / "tests",
+            display_root=dest,
+        )
+    finally:
+        os.environ.update(ambient)
+
+
 def _new_symbol_findings_vs_head(
     root: str, current_symbols: list[dict]
 ) -> list[dict] | None:
@@ -1299,11 +1339,7 @@ def _new_symbol_findings_vs_head(
         dest = Path(tmp)
         if not _materialize_head_snapshot(root, dest):
             return None
-        head_symbols = find_test_only_symbols(
-            src_dir=dest / "agent_utilities",
-            tests_dir=dest / "tests",
-            display_root=dest,
-        )
+        head_symbols = _scan_snapshot_for_test_only_symbols(dest)
     head_keys = {_finding_key(e) for e in head_symbols}
     return [e for e in current_symbols if _finding_key(e) not in head_keys]
 

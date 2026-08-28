@@ -487,6 +487,17 @@ def _run_gate_snapshot(snapshot_root: Path) -> dict[str, list[str]] | None:
     return {c: list(data.get(c, [])) for c in _CATEGORIES}
 
 
+def _diff_new_findings(
+    findings: dict[str, Any], head: dict[str, list[str]]
+) -> dict[str, list[str]]:
+    """Pure set-diff of the current finding sets against a HEAD finding map
+    (``{category: [...]}``, e.g. one gate run's ``--json`` output) — kept
+    separate from the git/subprocess plumbing in
+    :func:`_new_findings_vs_head` so it is directly unit-testable without a
+    real git repo (see ``tests/unit/gateway/test_openapi_coverage.py``)."""
+    return {c: sorted(findings[c] - set(head.get(c, []))) for c in _CATEGORIES}
+
+
 def _new_findings_vs_head(
     root: str, findings: dict[str, Any]
 ) -> dict[str, list[str]] | None:
@@ -505,7 +516,7 @@ def _new_findings_vs_head(
         head = _run_gate_snapshot(dest)
     if head is None:
         return None
-    return {c: sorted(findings[c] - set(head.get(c, []))) for c in _CATEGORIES}
+    return _diff_new_findings(findings, head)
 
 
 def _print_census(findings: dict[str, Any]) -> None:
