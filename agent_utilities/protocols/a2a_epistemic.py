@@ -230,6 +230,91 @@ def _bounded(value: Any, *, maximum: int, label: str) -> bytes:
     return encoded
 
 
+def _utf8_char_cost(character: str) -> int:
+    """UTF-8 byte length of one character, without allocating a second copy."""
+
+    codepoint = ord(character)
+    if codepoint < 0x80:
+        return 1
+    if codepoint < 0x800:
+        return 2
+    if codepoint < 0x10000:
+        return 3
+    return 4
+
+
+def _utf8_str_cost(value: str) -> int:
+    return sum(_utf8_char_cost(character) for character in value)
+
+
+def _mark_noncyclic(containers: set[int], current: Any, label: str) -> None:
+    """Register a container's identity, or raise if already on the stack path."""
+
+    identity = id(current)
+    if identity in containers:
+        raise ValueError(f"{label} contains a cyclic structure")
+    containers.add(identity)
+
+
+def _admit_dict_cost(
+    current: dict[Any, Any], depth: int, containers: set[int], label: str
+) -> tuple[int, list[tuple[Any, int]]]:
+    _mark_noncyclic(containers, current, label)
+    cost = 2
+    children: list[tuple[Any, int]] = []
+    for key, item in current.items():
+        if not isinstance(key, str):
+            raise ValueError(f"{label} contains a non-string object key")
+        cost += _utf8_str_cost(key) + 3
+        children.append((item, depth + 1))
+    return cost, children
+
+
+def _admit_scalar_cost(current: Any) -> int | None:
+    """Fixed budget cost for a leaf value, or ``None`` if not a scalar."""
+
+    if current is None or isinstance(current, bool):
+        return 4
+    if isinstance(current, int | float):
+        return 32
+    if isinstance(current, str):
+        return _utf8_str_cost(current) + 2
+    if isinstance(current, datetime):
+        return 40
+    return None
+
+
+def _admit_dataclass_cost(
+    current: Any, depth: int, containers: set[int], label: str
+) -> tuple[int, list[tuple[Any, int]]]:
+    _mark_noncyclic(containers, current, label)
+    children = [(getattr(current, item.name), depth + 1) for item in fields(current)]
+    return 2, children
+
+
+def _admit_structure_item(
+    current: Any, depth: int, containers: set[int], label: str
+) -> tuple[int, list[tuple[Any, int]]]:
+    """Return (budget cost, children to push) for one admitted structure item."""
+
+    scalar_cost = _admit_scalar_cost(current)
+    if scalar_cost is not None:
+        return scalar_cost, []
+    if isinstance(current, dict):
+        return _admit_dict_cost(current, depth, containers, label)
+    if isinstance(current, list | tuple):
+        _mark_noncyclic(containers, current, label)
+        return 2, [(item, depth + 1) for item in current]
+    if is_dataclass(current) and not isinstance(current, type):
+        return _admit_dataclass_cost(current, depth, containers, label)
+    # Typed model objects are projected only after the caller has bounded their
+    # containing collection. Arbitrary object reprs are never read.
+    values = getattr(current, "__dict__", None)
+    if not isinstance(values, dict):
+        raise ValueError(f"{label} contains unsupported execution material")
+    return 0, [(values, depth + 1)]
+
+
 def _admit_structure(
     value: Any,
     *,
@@ -250,74 +335,9 @@ def _admit_structure(
         items += 1
         if items > maximum_items:
             raise ValueError(f"{label} exceeds the configured collection bound")
-        if current is None or isinstance(current, bool):
-            budget -= 4
-        elif isinstance(current, int | float):
-            budget -= 32
-        elif isinstance(current, str):
-            # Count UTF-8 bytes without allocating a second copy of an attacker-
-            # controlled string.
-            budget -= (
-                sum(
-                    1
-                    if ord(character) < 0x80
-                    else 2
-                    if ord(character) < 0x800
-                    else 3
-                    if ord(character) < 0x10000
-                    else 4
-                    for character in current
-                )
-                + 2
-            )
-        elif isinstance(current, dict):
-            identity = id(current)
-            if identity in containers:
-                raise ValueError(f"{label} contains a cyclic structure")
-            containers.add(identity)
-            budget -= 2
-            for key, item in current.items():
-                if not isinstance(key, str):
-                    raise ValueError(f"{label} contains a non-string object key")
-                budget -= (
-                    sum(
-                        1
-                        if ord(character) < 0x80
-                        else 2
-                        if ord(character) < 0x800
-                        else 3
-                        if ord(character) < 0x10000
-                        else 4
-                        for character in key
-                    )
-                    + 3
-                )
-                stack.append((item, depth + 1))
-        elif isinstance(current, list | tuple):
-            identity = id(current)
-            if identity in containers:
-                raise ValueError(f"{label} contains a cyclic structure")
-            containers.add(identity)
-            budget -= 2
-            stack.extend((item, depth + 1) for item in current)
-        elif isinstance(current, datetime):
-            budget -= 40
-        elif is_dataclass(current) and not isinstance(current, type):
-            identity = id(current)
-            if identity in containers:
-                raise ValueError(f"{label} contains a cyclic structure")
-            containers.add(identity)
-            budget -= 2
-            stack.extend(
-                (getattr(current, item.name), depth + 1) for item in fields(current)
-            )
-        else:
-            # Typed model objects are projected only after the caller has bounded
-            # their containing collection. Arbitrary object reprs are never read.
-            values = getattr(current, "__dict__", None)
-            if not isinstance(values, dict):
-                raise ValueError(f"{label} contains unsupported execution material")
-            stack.append((values, depth + 1))
+        cost, children = _admit_structure_item(current, depth, containers, label)
+        budget -= cost
+        stack.extend(children)
         if budget < 0:
             raise ValueError(f"{label} exceeds the configured admission bound")
 
@@ -412,6 +432,169 @@ def _restore_governed_parts(
                 f"{label} governed reference changed during privacy validation"
             )
         file_value["uri"] = reference
+
+
+def _check_message_bounds(raw: dict[str, Any], max_history: int, *, label: str) -> None:
+    if len(raw.get("parts") or []) > max_history:
+        raise ValueError(f"{label} has too many parts")
+    for key in ("reference_task_ids", "extensions"):
+        if len(raw.get(key) or []) > max_history:
+            raise ValueError(f"{label} {key} exceeds the collection bound")
+
+
+def _digest_message_refs(
+    raw: dict[str, Any], clean: dict[str, Any], *, tenant_key: str
+) -> None:
+    if "reference_task_ids" in raw:
+        clean["reference_task_ids"] = [
+            "a2a.taskref."
+            + _digest_component("task", item, namespace=f"a2a:{tenant_key}")
+            for item in raw.get("reference_task_ids") or []
+        ]
+    if "extensions" in raw:
+        clean["extensions"] = [
+            "a2a.extension."
+            + _digest_component("extension", item, namespace=f"a2a:{tenant_key}")
+            for item in raw.get("extensions") or []
+        ]
+
+
+def _context_record_shape_ok(value: dict[str, Any], *, tenant_ref: str) -> bool:
+    return not (
+        value.get("record_kind") != _CONTEXT_RECORD_KIND
+        or value.get("node_type") != "A2AContext"
+        or value.get("tenant_ref") != tenant_ref
+        or not isinstance(value.get("revision"), int)
+        or isinstance(value.get("revision"), bool)
+        or value["revision"] < 0
+    )
+
+
+def _context_record_payload_ok(value: dict[str, Any], *, tenant_key: str) -> bool:
+    return not (
+        not isinstance(value.get("payload"), list)
+        or not _valid_payload_ref(value.get("payload_ref"))
+        or value["payload_ref"] != _payload_ref(value["payload"], tenant_key=tenant_key)
+    )
+
+
+def _task_record_shape_ok(
+    value: dict[str, Any], *, tenant_ref: str, tenant_key: str
+) -> bool:
+    return not (
+        value.get("record_kind") != _TASK_RECORD_KIND
+        or value.get("node_type") != "A2ATask"
+        or value.get("tenant_ref") != tenant_ref
+        or not isinstance(value.get("revision"), int)
+        or isinstance(value.get("revision"), bool)
+        or value["revision"] < 0
+        or not isinstance(value.get("payload"), dict)
+        or not _valid_payload_ref(value.get("payload_ref"))
+        or value["payload_ref"] != _payload_ref(value["payload"], tenant_key=tenant_key)
+    )
+
+
+def _task_record_dispatch_state_ok(value: dict[str, Any]) -> bool:
+    return not (
+        not isinstance(value.get("context_revision"), int)
+        or isinstance(value.get("context_revision"), bool)
+        or value["context_revision"] < 0
+        or not _valid_payload_ref(value.get("context_payload_ref"))
+        or value.get("run_dispatch_state") not in {"pending", "published", "suppressed"}
+        or value.get("cancel_dispatch_state") not in {"none", "pending", "published"}
+    )
+
+
+def _task_record_identity_ok(
+    task: Task, value: dict[str, Any], *, task_id: str, context_id: str
+) -> bool:
+    return not (
+        task.get("id") != task_id
+        or value.get("context_id") != context_id
+        or value.get("state") != task["status"]["state"]
+    )
+
+
+def _task_execution_fence_ok(tag: Any, consumer: Any) -> bool:
+    if (tag is None) != (consumer is None):
+        return False
+    if tag is None:
+        return True
+    return (
+        isinstance(tag, int)
+        and not isinstance(tag, bool)
+        and tag > 0
+        and isinstance(consumer, str)
+        and bool(consumer)
+    )
+
+
+def _run_dispatch_message_ok(message: Any, *, task_id: str, context_id: str) -> bool:
+    if not isinstance(message, dict):
+        return False
+    if set(message) != {"role", "parts", "kind", "message_id", "task_id", "context_id"}:
+        return False
+    if (
+        message.get("parts") != []
+        or message.get("task_id") != task_id
+        or message.get("context_id") != context_id
+    ):
+        return False
+    message_id = message.get("message_id")
+    if not isinstance(message_id, str) or not message_id.startswith("a2a.message."):
+        return False
+    return bool(_HEX_64.fullmatch(message_id.removeprefix("a2a.message.")))
+
+
+def _dispatch_result_shape_ok(result: Any) -> bool:
+    return isinstance(result, dict) and set(result) == {
+        "confirmed",
+        "duplicate",
+        "delivered",
+    }
+
+
+def _dispatch_result_valid(confirmed: Any, duplicate: Any, delivered: Any) -> bool:
+    return not (
+        not isinstance(confirmed, bool)
+        or not isinstance(duplicate, bool)
+        or not isinstance(delivered, int)
+        or isinstance(delivered, bool)
+        or not confirmed
+        or (duplicate and delivered != 0)
+        or (not duplicate and delivered != 1)
+    )
+
+
+def _decode_claim_payload(raw: Any, max_payload_bytes: int) -> Any:
+    """Decode+bound a broker claim's hex-encoded JSON payload."""
+
+    if (
+        not isinstance(raw, str)
+        or not raw
+        or len(raw) % 2
+        or len(raw) > max_payload_bytes * 2
+        or not _LOWER_HEX.fullmatch(raw)
+    ):
+        raise ValueError("native A2A broker payload is invalid")
+    try:
+        payload = bytes.fromhex(raw)
+        if not payload or len(payload) > max_payload_bytes:
+            raise ValueError
+        return json.loads(payload)
+    except (RecursionError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+        raise ValueError("native A2A broker payload is invalid") from None
+
+
+def _check_envelope_shape(envelope: Any) -> None:
+    if not isinstance(envelope, dict) or set(envelope) != {
+        "schema_version",
+        "operation",
+        "params",
+    }:
+        raise ValueError("native A2A broker envelope is invalid")
+    if envelope["schema_version"] != _SCHEMA_VERSION:
+        raise ValueError("native A2A broker schema version is unsupported")
 
 
 @dataclass
@@ -596,11 +779,7 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
             dict[str, Any],
             _validated_json(_MESSAGE_ADAPTER, value, label="A2A message"),
         )
-        if len(raw.get("parts") or []) > self.max_history:
-            raise ValueError("A2A message has too many parts")
-        for key in ("reference_task_ids", "extensions"):
-            if len(raw.get(key) or []) > self.max_history:
-                raise ValueError(f"A2A message {key} exceeds the collection bound")
+        _check_message_bounds(raw, self.max_history, label="A2A message")
         projected, restored = _prepare_governed_parts(raw, label="A2A message")
         clean = cast(dict[str, Any], _privacy_json(projected, label="A2A message"))
         _restore_governed_parts(clean, restored, label="A2A message")
@@ -611,22 +790,7 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
             raw.get("message_id"),
             namespace=f"a2a:{self.runtime.tenant_key}",
         )
-        if "reference_task_ids" in raw:
-            clean["reference_task_ids"] = [
-                "a2a.taskref."
-                + _digest_component(
-                    "task", item, namespace=f"a2a:{self.runtime.tenant_key}"
-                )
-                for item in raw.get("reference_task_ids") or []
-            ]
-        if "extensions" in raw:
-            clean["extensions"] = [
-                "a2a.extension."
-                + _digest_component(
-                    "extension", item, namespace=f"a2a:{self.runtime.tenant_key}"
-                )
-                for item in raw.get("extensions") or []
-            ]
+        _digest_message_refs(raw, clean, tenant_key=self.runtime.tenant_key)
         message = _validated_json(
             _MESSAGE_ADAPTER,
             cast(Message, clean),
@@ -675,18 +839,9 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
     def _context_record(self, value: Any) -> dict[str, Any]:
         if not isinstance(value, dict) or set(value) != _CONTEXT_RECORD_FIELDS:
             raise RuntimeError("native A2A context record is invalid")
-        if (
-            value.get("record_kind") != _CONTEXT_RECORD_KIND
-            or value.get("node_type") != "A2AContext"
-            or value.get("tenant_ref") != self.runtime.tenant_ref
-            or not isinstance(value.get("revision"), int)
-            or isinstance(value.get("revision"), bool)
-            or value["revision"] < 0
-            or not isinstance(value.get("payload"), list)
-            or not _valid_payload_ref(value.get("payload_ref"))
-            or value["payload_ref"]
-            != _payload_ref(value["payload"], tenant_key=self.runtime.tenant_key)
-        ):
+        if not _context_record_shape_ok(
+            value, tenant_ref=self.runtime.tenant_ref
+        ) or not _context_record_payload_ok(value, tenant_key=self.runtime.tenant_key):
             raise RuntimeError("native A2A context record is invalid")
         return value
 
@@ -694,48 +849,22 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
         self.runtime.require_task_id(task_id)
         if not isinstance(value, dict) or set(value) != _TASK_RECORD_FIELDS:
             raise RuntimeError("native A2A task record is invalid")
-        if (
-            value.get("record_kind") != _TASK_RECORD_KIND
-            or value.get("node_type") != "A2ATask"
-            or value.get("tenant_ref") != self.runtime.tenant_ref
-            or not isinstance(value.get("revision"), int)
-            or isinstance(value.get("revision"), bool)
-            or value["revision"] < 0
-            or not isinstance(value.get("payload"), dict)
-            or not _valid_payload_ref(value.get("payload_ref"))
-            or value["payload_ref"]
-            != _payload_ref(value["payload"], tenant_key=self.runtime.tenant_key)
-            or not isinstance(value.get("context_revision"), int)
-            or isinstance(value.get("context_revision"), bool)
-            or value["context_revision"] < 0
-            or not _valid_payload_ref(value.get("context_payload_ref"))
-            or value.get("run_dispatch_state")
-            not in {"pending", "published", "suppressed"}
-            or value.get("cancel_dispatch_state")
-            not in {"none", "pending", "published"}
-        ):
+        if not _task_record_shape_ok(
+            value,
+            tenant_ref=self.runtime.tenant_ref,
+            tenant_key=self.runtime.tenant_key,
+        ) or not _task_record_dispatch_state_ok(value):
             raise RuntimeError("native A2A task record is invalid")
         task = _validated_json(
             _TASK_ADAPTER, cast(Task, value["payload"]), label="stored A2A task"
         )
         context_id = self.runtime.context_id(str(task.get("context_id") or ""))
-        if (
-            task.get("id") != task_id
-            or value.get("context_id") != context_id
-            or value.get("state") != task["status"]["state"]
+        if not _task_record_identity_ok(
+            task, value, task_id=task_id, context_id=context_id
         ):
             raise RuntimeError("native A2A task identity does not match its record")
-        tag = value.get("execution_tag")
-        consumer = value.get("execution_consumer")
-        if (tag is None) != (consumer is None) or (
-            tag is not None
-            and (
-                not isinstance(tag, int)
-                or isinstance(tag, bool)
-                or tag <= 0
-                or not isinstance(consumer, str)
-                or not consumer
-            )
+        if not _task_execution_fence_ok(
+            value.get("execution_tag"), value.get("execution_consumer")
         ):
             raise RuntimeError("native A2A task execution fence is invalid")
         run_operation = value.get("run_operation")
@@ -759,22 +888,9 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
         if (
             params.get("id") != task_id
             or params.get("context_id") != context_id
-            or not isinstance(message, dict)
-            or set(message)
-            != {
-                "role",
-                "parts",
-                "kind",
-                "message_id",
-                "task_id",
-                "context_id",
-            }
-            or message.get("parts") != []
-            or message.get("task_id") != task_id
-            or message.get("context_id") != context_id
-            or not isinstance(message.get("message_id"), str)
-            or not message["message_id"].startswith("a2a.message.")
-            or not _HEX_64.fullmatch(message["message_id"].removeprefix("a2a.message."))
+            or not _run_dispatch_message_ok(
+                message, task_id=task_id, context_id=context_id
+            )
         ):
             raise RuntimeError("native A2A run dispatch is invalid")
         return params
@@ -944,39 +1060,41 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
             and record["context_id"] == binding.context_id
         )
 
-    async def update_task(
-        self,
-        task_id: str,
-        state: TaskState,
-        new_artifacts: list[Artifact] | None = None,
-        new_messages: list[Message] | None = None,
-    ) -> Task:
-        await self.runtime.start()
-        task_id = self.runtime.require_task_id(task_id)
-        binding = self._require_binding(task_id)
-        requested_state = _STATE_ADAPTER.validate_python(state)
+    def _check_update_bounds(
+        self, new_artifacts: list[Artifact] | None, new_messages: list[Message] | None
+    ) -> None:
         if new_artifacts is not None and len(new_artifacts) > self.max_artifacts:
             raise ValueError("A2A artifact update exceeds the collection bound")
         if new_messages is not None and len(new_messages) > self.max_history:
             raise ValueError("A2A message update exceeds the collection bound")
-        properties = await self.runtime.call("nodes", "properties", task_id)
-        if properties is None:
-            raise KeyError("A2A task does not exist")
-        record, current = self._task_record(properties, task_id)
+
+    def _check_execution_fence(
+        self,
+        binding: _ExecutionBinding,
+        record: dict[str, Any],
+        requested_state: TaskState,
+    ) -> None:
         claiming_execution = requested_state == "working" and record["state"] in {
             "submitted",
             "working",
         }
-        if not (
+        matches = (
             self._binding_base_matches(binding, record)
             if claiming_execution
             else self._binding_matches(binding, record)
-        ):
+        )
+        if not matches:
             raise A2AStorageConflict("A2A task execution fence changed")
-        self._validate_transition(current["status"]["state"], requested_state)
-        updated = cast(Task, json.loads(_json_bytes(current)))
-        updated["status"] = TaskStatus(state=requested_state, timestamp=_now_iso())
-        context_id = self.runtime.context_id(updated["context_id"])
+
+    def _merge_task_content(
+        self,
+        updated: Task,
+        *,
+        new_artifacts: list[Artifact] | None,
+        new_messages: list[Message] | None,
+        task_id: str,
+        context_id: str,
+    ) -> None:
         if new_artifacts:
             artifacts = [self._artifact(item) for item in new_artifacts]
             updated["artifacts"] = [
@@ -992,8 +1110,15 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
                 *(updated.get("history") or []),
                 *messages,
             ][-self.max_history :]
-        updated = _validated_json(_TASK_ADAPTER, updated, label="updated A2A task")
-        _bounded(updated, maximum=self.max_payload_bytes, label="updated A2A task")
+
+    def _task_update_fields(
+        self,
+        record: dict[str, Any],
+        updated: Task,
+        binding: _ExecutionBinding,
+        *,
+        requested_state: TaskState,
+    ) -> tuple[dict[str, Any], int, str]:
         revision = int(record["revision"])
         payload_ref = _payload_ref(updated, tenant_key=self.runtime.tenant_key)
         terminal = requested_state in _TERMINAL_STATES
@@ -1005,6 +1130,41 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
             "execution_tag": None if terminal else binding.delivery_tag,
             "execution_consumer": None if terminal else binding.consumer,
         }
+        return updates, revision, payload_ref
+
+    async def update_task(
+        self,
+        task_id: str,
+        state: TaskState,
+        new_artifacts: list[Artifact] | None = None,
+        new_messages: list[Message] | None = None,
+    ) -> Task:
+        await self.runtime.start()
+        task_id = self.runtime.require_task_id(task_id)
+        binding = self._require_binding(task_id)
+        requested_state = _STATE_ADAPTER.validate_python(state)
+        self._check_update_bounds(new_artifacts, new_messages)
+        properties = await self.runtime.call("nodes", "properties", task_id)
+        if properties is None:
+            raise KeyError("A2A task does not exist")
+        record, current = self._task_record(properties, task_id)
+        self._check_execution_fence(binding, record, requested_state)
+        self._validate_transition(current["status"]["state"], requested_state)
+        updated = cast(Task, json.loads(_json_bytes(current)))
+        updated["status"] = TaskStatus(state=requested_state, timestamp=_now_iso())
+        context_id = self.runtime.context_id(updated["context_id"])
+        self._merge_task_content(
+            updated,
+            new_artifacts=new_artifacts,
+            new_messages=new_messages,
+            task_id=task_id,
+            context_id=context_id,
+        )
+        updated = _validated_json(_TASK_ADAPTER, updated, label="updated A2A task")
+        _bounded(updated, maximum=self.max_payload_bytes, label="updated A2A task")
+        updates, revision, payload_ref = self._task_update_fields(
+            record, updated, binding, requested_state=requested_state
+        )
         applied = await self.runtime.call(
             "nodes",
             "compare_and_set",
@@ -1208,6 +1368,61 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
         binding.expected_context_payload_ref = context_ref
         binding.expected_task_revision = task_revision
 
+    def _check_completion_fence(
+        self,
+        context_record: dict[str, Any],
+        task_record: dict[str, Any],
+        binding: _ExecutionBinding,
+    ) -> None:
+        if (
+            context_record["revision"] != binding.expected_context_revision
+            or context_record["payload_ref"] != binding.expected_context_payload_ref
+            or not self._binding_matches(binding, task_record)
+            or task_record["state"] != "working"
+        ):
+            raise A2AStorageConflict("A2A completion lost its execution fence")
+
+    def _apply_completion_content(
+        self, updated: Task, artifacts: list[Artifact], messages: list[Message]
+    ) -> None:
+        if artifacts:
+            updated["artifacts"] = [
+                *(updated.get("artifacts") or []),
+                *artifacts,
+            ][-self.max_artifacts :]
+        if messages:
+            updated["history"] = [
+                *(updated.get("history") or []),
+                *messages,
+            ][-self.max_history :]
+
+    def _completion_updates(
+        self,
+        context_record: dict[str, Any],
+        task_record: dict[str, Any],
+        normalized: list[Any],
+        updated: Task,
+    ) -> tuple[dict[str, Any], dict[str, Any], str, str, int]:
+        context_ref = _payload_ref(normalized, tenant_key=self.runtime.tenant_key)
+        task_ref = _payload_ref(updated, tenant_key=self.runtime.tenant_key)
+        task_revision = task_record["revision"] + 1
+        context_updates = {
+            "revision": context_record["revision"] + 1,
+            "payload": normalized,
+            "payload_ref": context_ref,
+        }
+        task_updates = {
+            "revision": task_revision,
+            "state": "completed",
+            "payload": updated,
+            "payload_ref": task_ref,
+            "context_revision": context_record["revision"] + 1,
+            "context_payload_ref": context_ref,
+            "execution_tag": None,
+            "execution_consumer": None,
+        }
+        return context_updates, task_updates, context_ref, task_ref, task_revision
+
     async def complete_task(
         self,
         task_id: str,
@@ -1232,13 +1447,7 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
         context_record = self._context_record(context_properties)
         task_properties = await self.runtime.call("nodes", "properties", task_id)
         task_record, current = self._task_record(task_properties, task_id)
-        if (
-            context_record["revision"] != binding.expected_context_revision
-            or context_record["payload_ref"] != binding.expected_context_payload_ref
-            or not self._binding_matches(binding, task_record)
-            or task_record["state"] != "working"
-        ):
-            raise A2AStorageConflict("A2A completion lost its execution fence")
+        self._check_completion_fence(context_record, task_record, binding)
         normalized = self._normalize_context(context)
         artifacts = [self._artifact(item) for item in new_artifacts]
         messages = [
@@ -1247,40 +1456,18 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
         ]
         updated = cast(Task, json.loads(_json_bytes(current)))
         updated["status"] = TaskStatus(state="completed", timestamp=_now_iso())
-        if artifacts:
-            updated["artifacts"] = [
-                *(updated.get("artifacts") or []),
-                *artifacts,
-            ][-self.max_artifacts :]
-        if messages:
-            updated["history"] = [
-                *(updated.get("history") or []),
-                *messages,
-            ][-self.max_history :]
+        self._apply_completion_content(updated, artifacts, messages)
         updated = _validated_json(_TASK_ADAPTER, updated, label="completed A2A task")
         _bounded(updated, maximum=self.max_payload_bytes, label="completed A2A task")
-        context_ref = _payload_ref(normalized, tenant_key=self.runtime.tenant_key)
-        task_ref = _payload_ref(updated, tenant_key=self.runtime.tenant_key)
-        task_revision = task_record["revision"] + 1
+        context_updates, task_updates, context_ref, task_ref, task_revision = (
+            self._completion_updates(context_record, task_record, normalized, updated)
+        )
         await self._atomic_context_task_update(
             binding=binding,
             context_record=context_record,
-            context_updates={
-                "revision": context_record["revision"] + 1,
-                "payload": normalized,
-                "payload_ref": context_ref,
-            },
+            context_updates=context_updates,
             task_record=task_record,
-            task_updates={
-                "revision": task_revision,
-                "state": "completed",
-                "payload": updated,
-                "payload_ref": task_ref,
-                "context_revision": context_record["revision"] + 1,
-                "context_payload_ref": context_ref,
-                "execution_tag": None,
-                "execution_consumer": None,
-            },
+            task_updates=task_updates,
         )
         binding.expected_context_revision = context_record["revision"] + 1
         binding.expected_context_payload_ref = context_ref
@@ -1493,25 +1680,13 @@ class EpistemicGraphA2ABroker(Broker):
             producer_id=producer_id,
             seq=sequence,
         )
-        if not isinstance(result, dict) or set(result) != {
-            "confirmed",
-            "duplicate",
-            "delivered",
-        }:
+        if not _dispatch_result_shape_ok(result):
             raise RuntimeError(
                 "native A2A idempotent publish returned an invalid result"
             )
-        confirmed = result["confirmed"]
-        duplicate = result["duplicate"]
-        delivered = result["delivered"]
-        if (
-            not isinstance(confirmed, bool)
-            or not isinstance(duplicate, bool)
-            or not isinstance(delivered, int)
-            or isinstance(delivered, bool)
-            or not confirmed
-            or (duplicate and delivered != 0)
-            or (not duplicate and delivered != 1)
+        result_dict = cast(dict[str, Any], result)
+        if not _dispatch_result_valid(
+            result_dict["confirmed"], result_dict["duplicate"], result_dict["delivered"]
         ):
             raise RuntimeError("native A2A operation was not durably routed once")
         await self.storage.mark_dispatch(task_id, kind, "published")
@@ -1608,84 +1783,68 @@ class EpistemicGraphA2ABroker(Broker):
                 return
             raise
 
+    async def _decode_run_claim(
+        self, params: dict[str, Any], tag: int
+    ) -> tuple[dict[str, Any], _ExecutionBinding]:
+        validated = cast(
+            dict[str, Any],
+            _validated_json(
+                _TASK_SEND_PARAMS_ADAPTER, params, label="native A2A run parameters"
+            ),
+        )
+        task_id = self.runtime.require_task_id(str(validated["id"]))
+        context_id = self.runtime.context_id(str(validated["context_id"]))
+        record, _task = await self.storage.record_for_execution(task_id, context_id)
+        if record["run_operation"] != validated:
+            raise ValueError("native A2A run operation differs from its task record")
+        binding = _ExecutionBinding(
+            task_id=task_id,
+            context_id=context_id,
+            expected_task_revision=record["revision"],
+            expected_task_payload_ref=record["payload_ref"],
+            expected_context_revision=record["context_revision"],
+            expected_context_payload_ref=record["context_payload_ref"],
+            delivery_tag=tag,
+            consumer=self._consumer,
+        )
+        return validated, binding
+
+    def _decode_cancel_claim(self, params: dict[str, Any]) -> dict[str, Any]:
+        if set(params) != {"id"}:
+            raise ValueError("native A2A cancel parameters are invalid")
+        validated = cast(
+            dict[str, Any],
+            _validated_json(
+                _TASK_ID_PARAMS_ADAPTER, params, label="native A2A cancel parameters"
+            ),
+        )
+        validated["id"] = self.runtime.require_task_id(str(validated["id"]))
+        return validated
+
     async def _decode_claim(
         self, properties: dict[str, Any]
     ) -> tuple[TaskOperation, _ExecutionBinding | None, int]:
         tag = self._delivery_tag(properties)
         if properties.get("owner_consumer") != self._consumer:
             raise RuntimeError("native A2A broker returned another consumer's claim")
-        raw = properties.get("payload")
-        if (
-            not isinstance(raw, str)
-            or not raw
-            or len(raw) % 2
-            or len(raw) > self.max_payload_bytes * 2
-            or not _LOWER_HEX.fullmatch(raw)
-        ):
-            raise ValueError("native A2A broker payload is invalid")
-        try:
-            payload = bytes.fromhex(raw)
-            if not payload or len(payload) > self.max_payload_bytes:
-                raise ValueError
-            envelope = json.loads(payload)
-        except (RecursionError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
-            raise ValueError("native A2A broker payload is invalid") from None
+        envelope = _decode_claim_payload(
+            properties.get("payload"), self.max_payload_bytes
+        )
         _admit_structure(
             envelope,
             maximum=self.max_payload_bytes,
             label="native A2A broker envelope",
         )
-        if not isinstance(envelope, dict) or set(envelope) != {
-            "schema_version",
-            "operation",
-            "params",
-        }:
-            raise ValueError("native A2A broker envelope is invalid")
-        if envelope["schema_version"] != _SCHEMA_VERSION:
-            raise ValueError("native A2A broker schema version is unsupported")
+        _check_envelope_shape(envelope)
         operation = envelope["operation"]
         params = envelope["params"]
         if operation not in {"run", "cancel"} or not isinstance(params, dict):
             raise ValueError("native A2A broker operation is invalid")
         binding: _ExecutionBinding | None = None
         if operation == "run":
-            params = cast(
-                dict[str, Any],
-                _validated_json(
-                    _TASK_SEND_PARAMS_ADAPTER,
-                    params,
-                    label="native A2A run parameters",
-                ),
-            )
-            task_id = self.runtime.require_task_id(str(params["id"]))
-            context_id = self.runtime.context_id(str(params["context_id"]))
-            record, _task = await self.storage.record_for_execution(task_id, context_id)
-            if record["run_operation"] != params:
-                raise ValueError(
-                    "native A2A run operation differs from its task record"
-                )
-            binding = _ExecutionBinding(
-                task_id=task_id,
-                context_id=context_id,
-                expected_task_revision=record["revision"],
-                expected_task_payload_ref=record["payload_ref"],
-                expected_context_revision=record["context_revision"],
-                expected_context_payload_ref=record["context_payload_ref"],
-                delivery_tag=tag,
-                consumer=self._consumer,
-            )
+            params, binding = await self._decode_run_claim(params, tag)
         else:
-            if set(params) != {"id"}:
-                raise ValueError("native A2A cancel parameters are invalid")
-            params = cast(
-                dict[str, Any],
-                _validated_json(
-                    _TASK_ID_PARAMS_ADAPTER,
-                    params,
-                    label="native A2A cancel parameters",
-                ),
-            )
-            params["id"] = self.runtime.require_task_id(str(params["id"]))
+            params = self._decode_cancel_claim(params)
         operation_value: TaskOperation = cast(
             TaskOperation,
             {
@@ -1695,6 +1854,49 @@ class EpistemicGraphA2ABroker(Broker):
             },
         )
         return operation_value, binding, tag
+
+    async def _renew_lease(
+        self,
+        control: _DeliveryControl,
+        loop: asyncio.AbstractEventLoop,
+        renew_at: float,
+        renewal_interval: float,
+    ) -> float | None:
+        """Renew the delivery lease if due; return the next deadline, or ``None``
+        if the renewal was refused (the caller must then abort)."""
+
+        if loop.time() < renew_at:
+            return renew_at
+        renewed = await self.runtime.call(
+            "broker",
+            "renew_tag",
+            control.delivery_tag,
+            consumer=control.consumer,
+            now_ms=_now_ms(),
+            lease_ms=self.lease_ms,
+        )
+        if not isinstance(renewed, bool) or not renewed:
+            control.abort("lease_lost")
+            return None
+        return loop.time() + renewal_interval
+
+    async def _check_cancellation(
+        self, control: _DeliveryControl, binding: _ExecutionBinding | None
+    ) -> bool:
+        """Return ``True`` if the delivery was aborted by the current task state."""
+
+        if not (control.monitor_cancellation and binding is not None):
+            return False
+        state = await self.storage.execution_control_state(binding)
+        if state == "canceled":
+            control.abort("task_canceled")
+        elif state == "terminal":
+            control.abort("task_terminal")
+        elif state == "lost":
+            control.abort("lease_lost")
+        else:
+            return False
+        return True
 
     async def _maintain_lease(
         self,
@@ -1717,137 +1919,174 @@ class EpistemicGraphA2ABroker(Broker):
             except TimeoutError:
                 pass
             try:
-                if loop.time() >= renew_at:
-                    renewed = await self.runtime.call(
-                        "broker",
-                        "renew_tag",
-                        control.delivery_tag,
-                        consumer=control.consumer,
-                        now_ms=_now_ms(),
-                        lease_ms=self.lease_ms,
-                    )
-                    if not isinstance(renewed, bool) or not renewed:
-                        control.abort("lease_lost")
-                        return
-                    renew_at = loop.time() + renewal_interval
-                if control.monitor_cancellation and binding is not None:
-                    state = await self.storage.execution_control_state(binding)
-                    if state == "canceled":
-                        control.abort("task_canceled")
-                        return
-                    if state == "terminal":
-                        control.abort("task_terminal")
-                        return
-                    if state == "lost":
-                        control.abort("lease_lost")
-                        return
+                next_renew_at = await self._renew_lease(
+                    control, loop, renew_at, renewal_interval
+                )
+                if next_renew_at is None:
+                    return
+                renew_at = next_renew_at
+                if await self._check_cancellation(control, binding):
+                    return
             except Exception:
                 control.abort("lease_lost")
                 return
+
+    async def _claim_next_delivery(
+        self,
+    ) -> tuple[str, dict[str, Any], int, bool] | None:
+        """Consume the next broker delivery, or ``None`` if the queue is idle
+        (the poll sleep has already happened)."""
+
+        claimed = await self.runtime.call(
+            "broker",
+            "consume",
+            self._queue,
+            group="a2a-workers",
+            consumer=self._consumer,
+            now_ms=_now_ms(),
+            lease_ms=self.lease_ms,
+            prefetch=self.prefetch,
+        )
+        if claimed is None:
+            await anyio.sleep(self.poll_interval_ms / 1000)
+            return None
+        if (
+            not isinstance(claimed, tuple | list)
+            or len(claimed) != 2
+            or not isinstance(claimed[0], str)
+            or not isinstance(claimed[1], dict)
+        ):
+            raise RuntimeError("native A2A broker returned an invalid consume tuple")
+        node_id, properties = claimed
+        tag = self._delivery_tag(properties)
+        delivery_count = properties.get("delivery_count")
+        if (
+            not isinstance(delivery_count, int)
+            or isinstance(delivery_count, bool)
+            or delivery_count <= 0
+        ):
+            raise RuntimeError("native A2A broker delivery count is invalid")
+        exhausts_retries = delivery_count >= self.max_delivery_count
+        return node_id, properties, tag, exhausts_retries
+
+    def _start_delivery(
+        self,
+        task_operation: TaskOperation,
+        tag: int,
+        binding: _ExecutionBinding | None,
+    ) -> tuple[
+        _DeliveryControl,
+        Token[_ExecutionBinding | None] | None,
+        Token[_DeliveryControl | None],
+        asyncio.Task[None],
+    ]:
+        control = _DeliveryControl(
+            task_id=str(task_operation["params"]["id"]),
+            delivery_tag=tag,
+            consumer=self._consumer,
+            monitor_cancellation=task_operation["operation"] == "run",
+        )
+        binding_token: Token[_ExecutionBinding | None] | None = None
+        if binding is not None:
+            binding_token = _EXECUTION_BINDING.set(binding)
+        control_token = _DELIVERY_CONTROL.set(control)
+        heartbeat = asyncio.create_task(
+            self._maintain_lease(control, binding),
+            name="a2a-delivery-heartbeat",
+        )
+        return control, binding_token, control_token, heartbeat
+
+    async def _finish_delivery_failure(
+        self,
+        control: _DeliveryControl,
+        tag: int,
+        binding: _ExecutionBinding | None,
+        exhausts_retries: bool,
+    ) -> None:
+        failed = False
+        if binding is not None and exhausts_retries:
+            await self._fail_exhausted_delivery(binding)
+            failed = True
+        outcome = await self._nack_tag(
+            tag,
+            requeue=True,
+            allow_absent=control.abort_reason == "lease_lost",
+        )
+        if (
+            binding is not None
+            and not failed
+            and outcome in {"dead-lettered", "dropped"}
+        ):
+            await self._fail_exhausted_delivery(binding)
+
+    async def _finish_delivery_success(
+        self, control: _DeliveryControl, tag: int
+    ) -> None:
+        if control.abort_reason == "lease_lost":
+            await self._nack_tag(tag, requeue=True, allow_absent=True)
+            raise _A2ADeliveryRetry("A2A delivery lease was lost")
+        acknowledged = await self.runtime.call(
+            "broker", "ack_tag", tag, consumer=self._consumer
+        )
+        if not isinstance(acknowledged, bool) or not acknowledged:
+            raise RuntimeError(
+                "native A2A broker could not acknowledge its fenced delivery"
+            )
+
+    async def _cleanup_delivery(
+        self,
+        control: _DeliveryControl,
+        heartbeat: asyncio.Task[None],
+        control_token: Token[_DeliveryControl | None],
+        binding_token: Token[_ExecutionBinding | None] | None,
+    ) -> None:
+        control.stop_event.set()
+        heartbeat.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await heartbeat
+        try:
+            _DELIVERY_CONTROL.reset(control_token)
+        except ValueError:
+            # Async-generator shutdown can be driven by the event loop's
+            # finalizer context after its owning task has already ended.
+            _DELIVERY_CONTROL.set(None)
+        if binding_token is not None:
+            try:
+                _EXECUTION_BINDING.reset(binding_token)
+            except ValueError:
+                _EXECUTION_BINDING.set(None)
 
     async def receive_task_operations(self) -> AsyncGenerator[TaskOperation, None]:
         if not self._active:
             raise RuntimeError("native A2A broker is not entered")
         while self._active:
             self._raise_reconciler_failure()
-            claimed = await self.runtime.call(
-                "broker",
-                "consume",
-                self._queue,
-                group="a2a-workers",
-                consumer=self._consumer,
-                now_ms=_now_ms(),
-                lease_ms=self.lease_ms,
-                prefetch=self.prefetch,
-            )
-            if claimed is None:
-                await anyio.sleep(self.poll_interval_ms / 1000)
+            claim = await self._claim_next_delivery()
+            if claim is None:
                 continue
-            if (
-                not isinstance(claimed, tuple | list)
-                or len(claimed) != 2
-                or not isinstance(claimed[0], str)
-                or not isinstance(claimed[1], dict)
-            ):
-                raise RuntimeError(
-                    "native A2A broker returned an invalid consume tuple"
-                )
-            _node_id, properties = claimed
-            tag = self._delivery_tag(properties)
-            delivery_count = properties.get("delivery_count")
-            if (
-                not isinstance(delivery_count, int)
-                or isinstance(delivery_count, bool)
-                or delivery_count <= 0
-            ):
-                raise RuntimeError("native A2A broker delivery count is invalid")
-            exhausts_retries = delivery_count >= self.max_delivery_count
+            _node_id, properties, tag, exhausts_retries = claim
             try:
                 task_operation, binding, tag = await self._decode_claim(properties)
             except ValueError:
                 await self._nack_tag(tag, requeue=False, allow_absent=False)
                 continue
 
-            control = _DeliveryControl(
-                task_id=str(task_operation["params"]["id"]),
-                delivery_tag=tag,
-                consumer=self._consumer,
-                monitor_cancellation=task_operation["operation"] == "run",
-            )
-            binding_token: Token[_ExecutionBinding | None] | None = None
-            if binding is not None:
-                binding_token = _EXECUTION_BINDING.set(binding)
-            control_token = _DELIVERY_CONTROL.set(control)
-            heartbeat = asyncio.create_task(
-                self._maintain_lease(control, binding),
-                name="a2a-delivery-heartbeat",
+            control, binding_token, control_token, heartbeat = self._start_delivery(
+                task_operation, tag, binding
             )
             try:
                 yield task_operation
             except BaseException:
-                failed = False
-                if binding is not None and exhausts_retries:
-                    await self._fail_exhausted_delivery(binding)
-                    failed = True
-                outcome = await self._nack_tag(
-                    tag,
-                    requeue=True,
-                    allow_absent=control.abort_reason == "lease_lost",
+                await self._finish_delivery_failure(
+                    control, tag, binding, exhausts_retries
                 )
-                if (
-                    binding is not None
-                    and not failed
-                    and outcome in {"dead-lettered", "dropped"}
-                ):
-                    await self._fail_exhausted_delivery(binding)
                 raise
             else:
-                if control.abort_reason == "lease_lost":
-                    await self._nack_tag(tag, requeue=True, allow_absent=True)
-                    raise _A2ADeliveryRetry("A2A delivery lease was lost")
-                acknowledged = await self.runtime.call(
-                    "broker", "ack_tag", tag, consumer=self._consumer
-                )
-                if not isinstance(acknowledged, bool) or not acknowledged:
-                    raise RuntimeError(
-                        "native A2A broker could not acknowledge its fenced delivery"
-                    )
+                await self._finish_delivery_success(control, tag)
             finally:
-                control.stop_event.set()
-                heartbeat.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await heartbeat
-                try:
-                    _DELIVERY_CONTROL.reset(control_token)
-                except ValueError:
-                    # Async-generator shutdown can be driven by the event loop's
-                    # finalizer context after its owning task has already ended.
-                    _DELIVERY_CONTROL.set(None)
-                if binding_token is not None:
-                    try:
-                        _EXECUTION_BINDING.reset(binding_token)
-                    except ValueError:
-                        _EXECUTION_BINDING.set(None)
+                await self._cleanup_delivery(
+                    control, heartbeat, control_token, binding_token
+                )
 
 
 class EpistemicGraphAgentWorker(AgentWorker):
@@ -1865,6 +2104,45 @@ class EpistemicGraphAgentWorker(AgentWorker):
                 return
             raise
 
+    def _a2a_messages_from_agent_result(self, result: Any) -> list[Message]:
+        a2a_messages: list[Message] = []
+        for message in result.new_messages():
+            from pydantic_ai.messages import ModelRequest
+
+            if isinstance(message, ModelRequest):
+                continue
+            a2a_parts = self._response_parts_to_a2a(message.parts)
+            if a2a_parts:
+                a2a_messages.append(
+                    Message(
+                        role="agent",
+                        parts=a2a_parts,
+                        kind="message",
+                        message_id=str(uuid.uuid4()),
+                    )
+                )
+        return a2a_messages
+
+    async def _run_task_body(self, task: Task) -> None:
+        message_history = await self.storage.load_context(task["context_id"]) or []
+        message_history.extend(self.build_message_history(task.get("history", [])))
+        try:
+            result = await self.agent.run(message_history=message_history)
+        except Exception:
+            await self._mark_failed(task["id"])
+            return
+        a2a_messages = self._a2a_messages_from_agent_result(result)
+        artifacts = self.build_artifacts(result.output)
+        try:
+            await self.storage.complete_task(
+                task["id"],
+                result.all_messages(),
+                new_artifacts=artifacts,
+                new_messages=a2a_messages,
+            )
+        except ValueError:
+            await self._mark_failed(task["id"])
+
     async def run_task(self, params: TaskSendParams) -> None:
         task = await self.storage.load_task(params["id"])
         if task is None:
@@ -1875,40 +2153,7 @@ class EpistemicGraphAgentWorker(AgentWorker):
             raise A2AStorageConflict("A2A task is not executable")
         await self.storage.update_task(task["id"], state="working")
         try:
-            message_history = await self.storage.load_context(task["context_id"]) or []
-            message_history.extend(self.build_message_history(task.get("history", [])))
-            try:
-                result = await self.agent.run(message_history=message_history)
-            except Exception:
-                await self._mark_failed(task["id"])
-                return
-
-            a2a_messages: list[Message] = []
-            for message in result.new_messages():
-                from pydantic_ai.messages import ModelRequest
-
-                if isinstance(message, ModelRequest):
-                    continue
-                a2a_parts = self._response_parts_to_a2a(message.parts)
-                if a2a_parts:
-                    a2a_messages.append(
-                        Message(
-                            role="agent",
-                            parts=a2a_parts,
-                            kind="message",
-                            message_id=str(uuid.uuid4()),
-                        )
-                    )
-            artifacts = self.build_artifacts(result.output)
-            try:
-                await self.storage.complete_task(
-                    task["id"],
-                    result.all_messages(),
-                    new_artifacts=artifacts,
-                    new_messages=a2a_messages,
-                )
-            except ValueError:
-                await self._mark_failed(task["id"])
+            await self._run_task_body(task)
         except asyncio.CancelledError:
             raise
         except A2AStorageConflict:
@@ -1962,56 +2207,92 @@ class EpistemicGraphAgentWorker(AgentWorker):
                         "native A2A worker received an invalid operation"
                     )
 
+    async def _dispatch_task_operation(
+        self, iterator: AsyncGenerator[TaskOperation, None]
+    ) -> tuple[_DeliveryControl, asyncio.Task[None], asyncio.Task[bool]]:
+        """Await the next delivery and start its handler + abort-watch tasks."""
+
+        task_operation = await anext(iterator)
+        control = _DELIVERY_CONTROL.get()
+        if control is None:
+            raise RuntimeError("native A2A delivery control is unavailable")
+        active_handler = asyncio.create_task(
+            self._handle_task_operation(task_operation),
+            name="a2a-task-handler",
+        )
+        abort_wait = asyncio.create_task(
+            control.abort_event.wait(), name="a2a-delivery-abort-wait"
+        )
+        return control, active_handler, abort_wait
+
+    async def _handle_loop_abort(
+        self,
+        iterator: AsyncGenerator[TaskOperation, None],
+        control: _DeliveryControl,
+        active_handler: asyncio.Task[None],
+    ) -> AsyncGenerator[TaskOperation, None] | None:
+        """Cancel the active handler for an aborted delivery. Returns a fresh
+        delivery iterator if the abort requires resetting it, else ``None``."""
+
+        active_handler.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await active_handler
+        if control.abort_reason in {"task_canceled", "task_terminal"}:
+            return None
+        try:
+            await iterator.athrow(_A2ADeliveryRetry("A2A delivery lease was lost"))
+        except _A2ADeliveryRetry:
+            pass
+        return self.broker.receive_task_operations()
+
+    async def _handle_loop_completion(
+        self,
+        iterator: AsyncGenerator[TaskOperation, None],
+        active_handler: asyncio.Task[None],
+    ) -> AsyncGenerator[TaskOperation, None] | None:
+        """Return a fresh delivery iterator if the handler raised, else ``None``."""
+
+        if active_handler.exception() is None:
+            return None
+        try:
+            await iterator.athrow(_A2ADeliveryRetry("A2A task handler did not commit"))
+        except _A2ADeliveryRetry:
+            pass
+        return self.broker.receive_task_operations()
+
     async def _loop(self) -> None:
         iterator = self.broker.receive_task_operations()
         active_handler: asyncio.Task[None] | None = None
         abort_wait: asyncio.Task[bool] | None = None
         try:
             while True:
-                task_operation = await anext(iterator)
-                control = _DELIVERY_CONTROL.get()
-                if control is None:
-                    raise RuntimeError("native A2A delivery control is unavailable")
-                active_handler = asyncio.create_task(
-                    self._handle_task_operation(task_operation),
-                    name="a2a-task-handler",
-                )
-                abort_wait = asyncio.create_task(
-                    control.abort_event.wait(), name="a2a-delivery-abort-wait"
-                )
+                (
+                    control,
+                    active_handler,
+                    abort_wait,
+                ) = await self._dispatch_task_operation(iterator)
                 done, _pending = await asyncio.wait(
                     {active_handler, abort_wait}, return_when=asyncio.FIRST_COMPLETED
                 )
                 if abort_wait in done and control.abort_reason:
-                    active_handler.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await active_handler
+                    new_iterator = await self._handle_loop_abort(
+                        iterator, control, active_handler
+                    )
                     active_handler = None
                     abort_wait = None
-                    if control.abort_reason in {"task_canceled", "task_terminal"}:
-                        continue
-                    try:
-                        await iterator.athrow(
-                            _A2ADeliveryRetry("A2A delivery lease was lost")
-                        )
-                    except _A2ADeliveryRetry:
-                        pass
-                    iterator = self.broker.receive_task_operations()
+                    if new_iterator is not None:
+                        iterator = new_iterator
                     continue
                 abort_wait.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await abort_wait
                 abort_wait = None
-                exception = active_handler.exception()
+                new_iterator = await self._handle_loop_completion(
+                    iterator, active_handler
+                )
                 active_handler = None
-                if exception is not None:
-                    try:
-                        await iterator.athrow(
-                            _A2ADeliveryRetry("A2A task handler did not commit")
-                        )
-                    except _A2ADeliveryRetry:
-                        pass
-                    iterator = self.broker.receive_task_operations()
+                if new_iterator is not None:
+                    iterator = new_iterator
         finally:
             for task in (abort_wait, active_handler):
                 if task is not None and not task.done():
