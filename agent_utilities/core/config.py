@@ -1911,17 +1911,9 @@ class ProviderRuntimeProfile(BaseModel):
             raise ValueError("provider runtime reference mappings must be bounded")
         validated: dict[str, str] = {}
         for raw_alias, raw_reference in value.items():
-            if not isinstance(raw_alias, str) or not isinstance(raw_reference, str):
-                raise ValueError("provider runtime reference mappings are invalid")
-            alias = raw_alias.strip()
-            reference = raw_reference.strip()
-            if (
-                alias != raw_alias
-                or reference != raw_reference
-                or _MCP_FLEET_SECRET_ALIAS_RE.fullmatch(alias) is None
-                or _RUNTIME_SECRET_REF_RE.fullmatch(reference) is None
-            ):
-                raise ValueError("provider runtime reference mappings are invalid")
+            alias, reference = _validated_provider_reference_entry(
+                raw_alias, raw_reference
+            )
             validated[alias] = reference
         return validated
 
@@ -1935,12 +1927,15 @@ class ProviderRuntimeProfile(BaseModel):
             raise ValueError("provider TLS profile name is invalid")
         return rendered
 
-    @model_validator(mode="after")
-    def _validate_runtime_contract(self) -> "ProviderRuntimeProfile":
+    def _assert_tls_selectors_unambiguous(self) -> None:
+        """Exactly one TLS selector, and an endpoint always requires one."""
         if self.tls_profile and self.tls_profile_ref:
             raise ValueError("provider runtime profile has ambiguous TLS selectors")
         if self.endpoint_ref and not (self.tls_profile or self.tls_profile_ref):
             raise ValueError("provider endpoints require an explicit TLS profile")
+
+    def _assert_reference_aliases_usable(self) -> None:
+        """Credential and selector aliases are distinct, and enabled means non-empty."""
         if set(self.credential_refs).intersection(self.selector_refs):
             raise ValueError(
                 "provider credential and selector aliases must be distinct"
@@ -1949,6 +1944,11 @@ class ProviderRuntimeProfile(BaseModel):
             self.endpoint_ref or self.credential_refs or self.selector_refs
         ):
             raise ValueError("enabled provider runtime profiles cannot be empty")
+
+    @model_validator(mode="after")
+    def _validate_runtime_contract(self) -> "ProviderRuntimeProfile":
+        self._assert_tls_selectors_unambiguous()
+        self._assert_reference_aliases_usable()
         return self
 
 
@@ -1980,6 +1980,88 @@ DEFAULT_MCP_ALWAYS_LOAD_TOOLS: tuple[str, ...] = (
     "gitlab-mcp:gitlab_issues",
     "gitlab-mcp:gitlab_merge_requests",
 )
+
+
+def _validated_provider_reference_entry(
+    raw_alias: Any, raw_reference: Any
+) -> tuple[str, str]:
+    """Validate one provider ``alias -> runtime reference`` pair."""
+    if not isinstance(raw_alias, str) or not isinstance(raw_reference, str):
+        raise ValueError("provider runtime reference mappings are invalid")
+    alias = raw_alias.strip()
+    reference = raw_reference.strip()
+    if (
+        alias != raw_alias
+        or reference != raw_reference
+        or _MCP_FLEET_SECRET_ALIAS_RE.fullmatch(alias) is None
+        or _RUNTIME_SECRET_REF_RE.fullmatch(reference) is None
+    ):
+        raise ValueError("provider runtime reference mappings are invalid")
+    return alias, reference
+
+
+def _is_bounded_argv_token(item: Any) -> bool:
+    """One argv token: a 1..4096 character string with no control characters."""
+    return bool(
+        isinstance(item, str)
+        and 1 <= len(item) <= 4_096
+        and not any(character in item for character in "\x00\r\n")
+    )
+
+
+def _parsed_ingestion_thresholds(value: str) -> Any:
+    """Decode the JSON string form of ``INGESTION_CONFIDENCE_THRESHOLDS``."""
+    import json as _json
+
+    try:
+        return _json.loads(value)
+    except (TypeError, ValueError):
+        raise ValueError(
+            "INGESTION_CONFIDENCE_THRESHOLDS must be a JSON object of "
+            "domain -> threshold"
+        ) from None
+
+
+def _validated_ingestion_threshold(
+    raw_domain: Any, raw_threshold: Any
+) -> tuple[str, float]:
+    """Validate one ``domain -> threshold`` pair, preserving the check order."""
+    if not isinstance(raw_domain, str) or not raw_domain.strip():
+        raise ValueError(
+            "INGESTION_CONFIDENCE_THRESHOLDS keys must be non-empty strings"
+        )
+    try:
+        threshold = float(raw_threshold)
+    except (TypeError, ValueError):
+        raise ValueError(
+            "INGESTION_CONFIDENCE_THRESHOLDS values must be numeric"
+        ) from None
+    if not 0.0 <= threshold <= 1.0:
+        raise ValueError("INGESTION_CONFIDENCE_THRESHOLDS values must be in [0.0, 1.0]")
+    return raw_domain.strip(), threshold
+
+
+def _raw_frontend_signer_sequence(value: Any) -> list[Any]:
+    """Accept the string, list, tuple or set form of the signer allow-list."""
+    if isinstance(value, str):
+        return to_list(value)
+    if isinstance(value, (list, tuple, set)):
+        return list(value)
+    raise ValueError("frontend contribution signers must be a list")
+
+
+def _validated_frontend_signer(item: Any) -> str:
+    """One signer id: a bounded, non-empty, control-character-free string."""
+    if not isinstance(item, str):
+        raise ValueError("frontend contribution signer ids must be strings")
+    signer = item.strip()
+    if (
+        not signer
+        or len(signer.encode("utf-8")) > 256
+        or any(ord(char) < 0x20 or ord(char) == 0x7F for char in signer)
+    ):
+        raise ValueError("frontend contribution signer id is invalid")
+    return signer
 
 
 def _skill_certification_host_is_loopback(host: str) -> bool:
@@ -2325,12 +2407,7 @@ class AgentConfig(BaseSettings):
         if (
             not isinstance(value, list)
             or not 1 <= len(value) <= 32
-            or any(
-                not isinstance(item, str)
-                or not 1 <= len(item) <= 4_096
-                or any(character in item for character in "\x00\r\n")
-                for item in value
-            )
+            or not all(_is_bounded_argv_token(item) for item in value)
         ):
             raise ValueError("skill certification command must be bounded JSON argv")
         executable = pathlib.Path(value[0])
@@ -3198,36 +3275,17 @@ class AgentConfig(BaseSettings):
         if value in (None, ""):
             return {}
         if isinstance(value, str):
-            import json as _json
-
-            try:
-                value = _json.loads(value)
-            except (TypeError, ValueError):
-                raise ValueError(
-                    "INGESTION_CONFIDENCE_THRESHOLDS must be a JSON object of "
-                    "domain -> threshold"
-                ) from None
+            value = _parsed_ingestion_thresholds(value)
         if not isinstance(value, Mapping) or len(value) > 512:
             raise ValueError(
                 "INGESTION_CONFIDENCE_THRESHOLDS must be a bounded mapping"
             )
         validated: dict[str, float] = {}
         for raw_domain, raw_threshold in value.items():
-            if not isinstance(raw_domain, str) or not raw_domain.strip():
-                raise ValueError(
-                    "INGESTION_CONFIDENCE_THRESHOLDS keys must be non-empty strings"
-                )
-            try:
-                threshold = float(raw_threshold)
-            except (TypeError, ValueError):
-                raise ValueError(
-                    "INGESTION_CONFIDENCE_THRESHOLDS values must be numeric"
-                ) from None
-            if not 0.0 <= threshold <= 1.0:
-                raise ValueError(
-                    "INGESTION_CONFIDENCE_THRESHOLDS values must be in [0.0, 1.0]"
-                )
-            validated[raw_domain.strip()] = threshold
+            domain, threshold = _validated_ingestion_threshold(
+                raw_domain, raw_threshold
+            )
+            validated[domain] = threshold
         return validated
 
     mcp_tool_mode: Literal["intent", "condensed", "verbose", "both"] = Field(
@@ -3623,29 +3681,12 @@ class AgentConfig(BaseSettings):
     def _coerce_frontend_contribution_signers(cls, value: Any) -> list[str]:
         if value is None:
             return []
-        if isinstance(value, str):
-            raw = to_list(value)
-        elif isinstance(value, (list, tuple, set)):
-            raw = list(value)
-        else:
-            raise ValueError("frontend contribution signers must be a list")
+        raw = _raw_frontend_signer_sequence(value)
         if len(raw) > 64:
             raise ValueError(
                 "frontend contribution signer allowlist exceeds 64 entries"
             )
-        signers: list[str] = []
-        for item in raw:
-            if not isinstance(item, str):
-                raise ValueError("frontend contribution signer ids must be strings")
-            signer = item.strip()
-            if (
-                not signer
-                or len(signer.encode("utf-8")) > 256
-                or any(ord(char) < 0x20 or ord(char) == 0x7F for char in signer)
-            ):
-                raise ValueError("frontend contribution signer id is invalid")
-            signers.append(signer)
-        return sorted(set(signers))
+        return sorted({_validated_frontend_signer(item) for item in raw})
 
     # --- OIDC / OAuth 2.0 Delegation (CONCEPT:AU-ECO.messaging.native-backend-abstraction) ---
 
@@ -7122,6 +7163,36 @@ def get_discovery_registry() -> MCPAgentRegistryModel:
     return _RegistryCache.get_registry()
 
 
+def _hybrid_search_matched_names(results: Any) -> set[str]:
+    """Lower-cased names appearing in a hybrid-search result set."""
+    matched_names: set[str] = set()
+    for r in results:
+        name = r.get("name", "")
+        if name:
+            matched_names.add(name.lower())
+        # Also check the node type for agent/prompt matches
+        node_type = str(r.get("type", "")).lower()
+        if node_type in ("agent", "prompt"):
+            matched_names.add(name.lower())
+    return matched_names
+
+
+def _relevant_specialists_from_search(
+    engine: Any, query: str, all_agents: list[MCPAgent], top_n: int
+) -> list[MCPAgent] | None:
+    """Agents matching hybrid search, or ``None`` to fall back to the full list."""
+    try:
+        results = engine.search_hybrid(query, top_k=top_n * 3)
+        matched_names = _hybrid_search_matched_names(results)
+        # Score agents by whether they appear in search results
+        relevant = [a for a in all_agents if a.name.lower() in matched_names]
+        if relevant:
+            return relevant[:top_n]
+    except Exception as e:  # noqa: BLE001 — explicit fallback returned right below (all_agents[:top_n]); a search failure degrades relevance ranking, it does not lose any agent from consideration
+        logger.debug(f"Hybrid search for adaptive_agent_router failed: {e}")
+    return None
+
+
 def get_relevant_specialists(
     query: str,
     engine: Any | None = None,
@@ -7153,26 +7224,9 @@ def get_relevant_specialists(
     if not engine or not query:
         return all_agents[:top_n]
 
-    # Use hybrid search to find relevant nodes
-    try:
-        results = engine.search_hybrid(query, top_k=top_n * 3)
-        matched_names: set[str] = set()
-        for r in results:
-            name = r.get("name", "")
-            if name:
-                matched_names.add(name.lower())
-            # Also check the node type for agent/prompt matches
-            node_type = str(r.get("type", "")).lower()
-            if node_type in ("agent", "prompt"):
-                matched_names.add(name.lower())
-
-        # Score agents by whether they appear in search results
-        relevant = [a for a in all_agents if a.name.lower() in matched_names]
-
-        if relevant:
-            return relevant[:top_n]
-    except Exception as e:  # noqa: BLE001 — explicit fallback returned right below (all_agents[:top_n]); a search failure degrades relevance ranking, it does not lose any agent from consideration
-        logger.debug(f"Hybrid search for adaptive_agent_router failed: {e}")
+    relevant = _relevant_specialists_from_search(engine, query, all_agents, top_n)
+    if relevant is not None:
+        return relevant
 
     # Fallback: return all agents (capped)
     return all_agents[:top_n]
