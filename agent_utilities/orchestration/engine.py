@@ -2391,20 +2391,20 @@ class AgentOrchestrationEngine:
             f"Starting Dynamic Workflow '{workflow_id}' aimed at completion_state: '{completion_state}'"
         )
 
-        class _MockGraphState:
+        class MockGraphState:
             def __init__(self, q, m="execute"):
                 self.query = q
                 self.mode = m
                 self.signal_board = {}
 
-        class _MockGraphDeps:
+        class MockGraphDeps:
             def __init__(self, model):
                 self.agent_model = model
                 self.verifier_timeout = 120.0
                 self.event_queue = None
 
-        state = _MockGraphState(task)
-        deps = _MockGraphDeps("openai:gpt-4o-mini")
+        state = MockGraphState(task)
+        deps = MockGraphDeps("openai:gpt-4o-mini")
 
         iteration = 0
         convergence_reached = False
