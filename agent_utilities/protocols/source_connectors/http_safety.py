@@ -81,20 +81,16 @@ class _PinnedProxy:
     scheme: str
 
 
-def _normalize_hostname(value: str) -> str:
-    candidate = value.strip().lower().rstrip(".")
-    if not candidate or "%" in candidate:
-        raise SourceEgressError("Source hostname is not permitted by egress policy")
+def _idna_encode(candidate: str) -> str:
     try:
-        return ipaddress.ip_address(candidate).compressed
-    except ValueError:
-        pass
-    try:
-        rendered = candidate.encode("idna").decode("ascii")
+        return candidate.encode("idna").decode("ascii")
     except UnicodeError as exc:
         raise SourceEgressError(
             "Source hostname is not permitted by egress policy"
         ) from exc
+
+
+def _validate_idna_labels(rendered: str) -> None:
     labels = rendered.split(".")
     if (
         len(rendered) > 253
@@ -105,10 +101,22 @@ def _normalize_hostname(value: str) -> str:
         )
     ):
         raise SourceEgressError("Source hostname is not permitted by egress policy")
+
+
+def _normalize_hostname(value: str) -> str:
+    candidate = value.strip().lower().rstrip(".")
+    if not candidate or "%" in candidate:
+        raise SourceEgressError("Source hostname is not permitted by egress policy")
+    try:
+        return ipaddress.ip_address(candidate).compressed
+    except ValueError:
+        pass
+    rendered = _idna_encode(candidate)
+    _validate_idna_labels(rendered)
     return rendered
 
 
-def _validate_url_shape(url: str) -> SplitResult:
+def _validate_url_characters(url: str) -> None:
     if (
         not isinstance(url, str)
         or not url
@@ -117,18 +125,26 @@ def _validate_url_shape(url: str) -> SplitResult:
         or any(ord(character) < 32 or ord(character) == 127 for character in url)
     ):
         raise SourceEgressError("Source URL is not permitted by egress policy")
-    parsed = urlsplit(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.fragment:
-        raise SourceEgressError("Source URL is not permitted by egress policy")
-    _normalize_hostname(parsed.hostname)
-    if parsed.username is not None or parsed.password is not None:
-        raise SourceEgressError("Source URL is not permitted by egress policy")
+
+
+def _validate_url_port(parsed: SplitResult) -> None:
     try:
         port = parsed.port
     except ValueError as exc:
         raise SourceEgressError("Source URL is not permitted by egress policy") from exc
     if port == 0:
         raise SourceEgressError("Source URL is not permitted by egress policy")
+
+
+def _validate_url_shape(url: str) -> SplitResult:
+    _validate_url_characters(url)
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.fragment:
+        raise SourceEgressError("Source URL is not permitted by egress policy")
+    _normalize_hostname(parsed.hostname)
+    if parsed.username is not None or parsed.password is not None:
+        raise SourceEgressError("Source URL is not permitted by egress policy")
+    _validate_url_port(parsed)
     return parsed
 
 
@@ -260,6 +276,24 @@ def _logical_origin(logical_url: str) -> tuple[str, str, int]:
     )
 
 
+def _validate_header_shape(name: str, value: str) -> None:
+    lowered = name.casefold()
+    if (
+        not name
+        or lowered in _FORBIDDEN_CALLER_HEADERS
+        or any(character in name for character in "\r\n:")
+        or any(character in value for character in "\r\n")
+    ):
+        raise SourceEgressError("Source request contained a forbidden header")
+
+
+def _header_byte_length(name: str, value: str) -> int:
+    try:
+        return len(name.encode("ascii")) + len(value.encode("latin-1"))
+    except UnicodeEncodeError as exc:
+        raise SourceEgressError("Source request contained an invalid header") from exc
+
+
 def _validated_headers(headers: dict[str, str] | None) -> dict[str, str]:
     if len(headers or {}) > HARD_MAX_REQUEST_HEADERS:
         raise SourceEgressError("Source request contained too many headers")
@@ -268,20 +302,8 @@ def _validated_headers(headers: dict[str, str] | None) -> dict[str, str]:
     for raw_name, raw_value in (headers or {}).items():
         name = str(raw_name).strip()
         value = str(raw_value).strip()
-        lowered = name.casefold()
-        if (
-            not name
-            or lowered in _FORBIDDEN_CALLER_HEADERS
-            or any(character in name for character in "\r\n:")
-            or any(character in value for character in "\r\n")
-        ):
-            raise SourceEgressError("Source request contained a forbidden header")
-        try:
-            total_bytes += len(name.encode("ascii")) + len(value.encode("latin-1"))
-        except UnicodeEncodeError as exc:
-            raise SourceEgressError(
-                "Source request contained an invalid header"
-            ) from exc
+        _validate_header_shape(name, value)
+        total_bytes += _header_byte_length(name, value)
         if total_bytes > HARD_MAX_REQUEST_HEADER_BYTES:
             raise SourceEgressError(
                 "Source request headers exceeded the configured limit"
@@ -366,6 +388,17 @@ def _pin_configured_proxy(proxy_url: str | None) -> _PinnedProxy | None:
         raise SourceEgressError("Configured source proxy is not safely pinnable")
     parsed = urlsplit(proxy_url)
     host = _normalize_hostname(parsed.hostname or "")
+    _validate_proxy_shape(parsed, host)
+    _validate_proxy_port(parsed)
+    pinned_ip = _approved_private_ip(_resolve_addresses(host)[0])
+    authority = _proxy_authority(parsed, pinned_ip)
+    return _PinnedProxy(
+        url=urlunsplit((parsed.scheme, authority, "", "", "")),
+        scheme=parsed.scheme,
+    )
+
+
+def _validate_proxy_shape(parsed: SplitResult, host: str) -> None:
     if (
         parsed.scheme not in {"http", "socks5", "socks5h"}
         or not host
@@ -374,6 +407,9 @@ def _pin_configured_proxy(proxy_url: str | None) -> _PinnedProxy | None:
         or parsed.fragment
     ):
         raise SourceEgressError("Configured source proxy is not safely pinnable")
+
+
+def _validate_proxy_port(parsed: SplitResult) -> None:
     try:
         port = parsed.port
     except ValueError as exc:
@@ -382,7 +418,9 @@ def _pin_configured_proxy(proxy_url: str | None) -> _PinnedProxy | None:
         ) from exc
     if port == 0:
         raise SourceEgressError("Configured source proxy is not safely pinnable")
-    pinned_ip = _approved_private_ip(_resolve_addresses(host)[0])
+
+
+def _proxy_authority(parsed: SplitResult, pinned_ip: str) -> str:
     rendered_ip = (
         f"[{pinned_ip}]" if ipaddress.ip_address(pinned_ip).version == 6 else pinned_ip
     )
@@ -390,10 +428,7 @@ def _pin_configured_proxy(proxy_url: str | None) -> _PinnedProxy | None:
     authority = f"{userinfo}@{rendered_ip}" if userinfo else rendered_ip
     if parsed.port is not None:
         authority = f"{authority}:{parsed.port}"
-    return _PinnedProxy(
-        url=urlunsplit((parsed.scheme, authority, "", "", "")),
-        scheme=parsed.scheme,
-    )
+    return authority
 
 
 def _require_proxy_target_compatibility(
@@ -516,6 +551,145 @@ async def _read_bounded_async(response: Any, max_bytes: int) -> bytes:
     return bytes(body)
 
 
+@dataclass
+class _FetchSetup:
+    """Precomputed, policy-checked state shared by every hop of one fetch."""
+
+    timeout: float
+    headers: dict[str, str]
+    private_hosts: frozenset[str]
+    permitted_redirect_hosts: set[str]
+    initial_origin: tuple[str, str, int]
+    current_params: dict[str, Any]
+
+
+def _prepare_fetch_setup(
+    url: str,
+    params: dict[str, Any] | None,
+    headers: dict[str, str] | None,
+    timeout: float,
+    allowed_private_hosts: Iterable[str] | None,
+    allowed_redirect_hosts: Iterable[str] | None,
+) -> _FetchSetup:
+    validated_timeout = _validate_timeout(timeout)
+    request_headers = _validated_headers(headers)
+    private_hosts = normalize_allowed_hosts(allowed_private_hosts)
+    redirect_hosts = normalize_allowed_hosts(allowed_redirect_hosts)
+    initial_host = require_safe_source_url(
+        url,
+        allowed_private_hosts=private_hosts,
+        resolve_dns=False,
+    )
+    return _FetchSetup(
+        timeout=validated_timeout,
+        headers=request_headers,
+        private_hosts=private_hosts,
+        permitted_redirect_hosts={initial_host, *redirect_hosts},
+        initial_origin=_logical_origin(url),
+        current_params=_validated_params(params),
+    )
+
+
+def _prepare_client_kwargs(
+    transport: Any,
+    tls_service: str,
+    timeout: float,
+    *,
+    is_async: bool,
+) -> tuple[dict[str, Any], Any, _PinnedProxy | None, Any]:
+    """Build httpx client kwargs plus the matching client constructor.
+
+    The whole block is one try/except so a failed profile resolution or a
+    failed constructor import still releases any TLS profile it already
+    acquired -- identical to the inline shape this replaces in each caller.
+    """
+    client_kwargs: dict[str, Any] = {
+        "timeout": timeout,
+        "follow_redirects": False,
+    }
+    tls = None
+    proxy = None
+    try:
+        if transport is not None:
+            client_kwargs["transport"] = transport
+        else:
+            from agent_utilities.core.transport_security import (
+                resolve_configured_tls_profile,
+            )
+
+            tls = resolve_configured_tls_profile(tls_service)
+            proxy = _pin_configured_proxy(tls.proxy_url)
+            client_kwargs.update(_profile_httpx_kwargs(tls, proxy))
+
+        from agent_utilities.core import http_client as _http_client_module
+
+        create_client: Any = (
+            _http_client_module.create_async_http_client
+            if is_async
+            else _http_client_module.create_http_client
+        )
+    except BaseException:
+        if tls is not None:
+            tls.cleanup()
+        raise
+    return client_kwargs, tls, proxy, create_client
+
+
+def _resolve_hop(
+    transport: Any,
+    current: str,
+    private_hosts: frozenset[str],
+    proxy: _PinnedProxy | None,
+) -> tuple[ResolvedSourceURL, str, dict[str, Any]]:
+    if transport is None:
+        resolution = resolve_safe_source_url(
+            current,
+            allowed_private_hosts=private_hosts,
+        )
+        _require_proxy_target_compatibility(proxy, resolution)
+        request_url = _pinned_url(current, resolution.pinned_ip)
+        extensions = _request_extensions(resolution)
+    else:
+        parsed = _validate_url_shape(current)
+        resolution = ResolvedSourceURL(
+            url=current,
+            host=_normalize_hostname(parsed.hostname or ""),
+            scheme=parsed.scheme,
+            resolved_ips=((parsed.hostname or ""),),
+        )
+        request_url = current
+        extensions = {}
+    return resolution, request_url, extensions
+
+
+def _next_redirect_url(
+    response: Any,
+    hop: int,
+    max_redirects: int,
+    logical_request_url: str,
+    private_hosts: frozenset[str],
+    permitted_redirect_hosts: set[str],
+    resolution: ResolvedSourceURL,
+) -> str:
+    if hop >= max_redirects:
+        raise SourceEgressError("Source redirect limit exceeded")
+    location = response.headers.get("location")
+    if not location:
+        raise SourceEgressError("Source redirect omitted its destination")
+    destination = urljoin(logical_request_url, location)
+    next_url = _validate_url_shape(destination)
+    next_host = require_safe_source_url(
+        destination,
+        allowed_private_hosts=private_hosts,
+        resolve_dns=False,
+    )
+    if next_host not in permitted_redirect_hosts:
+        raise SourceEgressError("Cross-host source redirect is not permitted")
+    if resolution.scheme == "https" and next_url.scheme == "http":
+        raise SourceEgressError("HTTPS source redirect downgrade is forbidden")
+    return destination
+
+
 def safe_get_bytes(
     url: str,
     *,
@@ -539,65 +713,21 @@ def safe_get_bytes(
     except ImportError as exc:  # pragma: no cover - declared runtime dependency
         raise RuntimeError("Native HTTP source connectors require 'httpx'") from exc
 
-    timeout = _validate_timeout(timeout)
-    request_headers = _validated_headers(headers)
-    private_hosts = normalize_allowed_hosts(allowed_private_hosts)
-    redirect_hosts = normalize_allowed_hosts(allowed_redirect_hosts)
-    initial_host = require_safe_source_url(
-        url,
-        allowed_private_hosts=private_hosts,
-        resolve_dns=False,
+    setup = _prepare_fetch_setup(
+        url, params, headers, timeout, allowed_private_hosts, allowed_redirect_hosts
     )
-    initial_origin = _logical_origin(url)
-    permitted_redirect_hosts = {initial_host, *redirect_hosts}
+    client_kwargs, tls, proxy, create_client = _prepare_client_kwargs(
+        transport, tls_service, setup.timeout, is_async=False
+    )
     current = url
-    current_params = _validated_params(params)
-    client_kwargs: dict[str, Any] = {
-        "timeout": timeout,
-        "follow_redirects": False,
-    }
-    tls = None
-    proxy = None
+    current_params = setup.current_params
     try:
-        if transport is not None:
-            client_kwargs["transport"] = transport
-        else:
-            from agent_utilities.core.transport_security import (
-                resolve_configured_tls_profile,
-            )
-
-            tls = resolve_configured_tls_profile(tls_service)
-            proxy = _pin_configured_proxy(tls.proxy_url)
-            client_kwargs.update(_profile_httpx_kwargs(tls, proxy))
-
-        from agent_utilities.core.http_client import create_http_client
-    except BaseException:
-        if tls is not None:
-            tls.cleanup()
-        raise
-
-    try:
-        with create_http_client(**client_kwargs) as client:
+        with create_client(**client_kwargs) as client:
             for hop in range(max_redirects + 1):
-                if transport is None:
-                    resolution = resolve_safe_source_url(
-                        current,
-                        allowed_private_hosts=private_hosts,
-                    )
-                    _require_proxy_target_compatibility(proxy, resolution)
-                    request_url = _pinned_url(current, resolution.pinned_ip)
-                    extensions = _request_extensions(resolution)
-                else:
-                    parsed = _validate_url_shape(current)
-                    resolution = ResolvedSourceURL(
-                        url=current,
-                        host=_normalize_hostname(parsed.hostname or ""),
-                        scheme=parsed.scheme,
-                        resolved_ips=((parsed.hostname or ""),),
-                    )
-                    request_url = current
-                    extensions = {}
-                if resolution.host not in permitted_redirect_hosts:
+                resolution, request_url, extensions = _resolve_hop(
+                    transport, current, setup.private_hosts, proxy
+                )
+                if resolution.host not in setup.permitted_redirect_hosts:
                     raise SourceEgressError(
                         "Cross-host source redirect is not permitted"
                     )
@@ -605,8 +735,8 @@ def safe_get_bytes(
                 _validate_url_shape(logical_request_url)
                 hop_headers = _headers_for_hop(
                     current,
-                    request_headers,
-                    initial_origin=initial_origin,
+                    setup.headers,
+                    initial_origin=setup.initial_origin,
                 )
                 with client.stream(
                     "GET",
@@ -618,29 +748,15 @@ def safe_get_bytes(
                     if transport is None:
                         _require_direct_peer(response, resolution, proxy)
                     if response.status_code in _REDIRECT_STATUS_CODES:
-                        if hop >= max_redirects:
-                            raise SourceEgressError("Source redirect limit exceeded")
-                        location = response.headers.get("location")
-                        if not location:
-                            raise SourceEgressError(
-                                "Source redirect omitted its destination"
-                            )
-                        destination = urljoin(logical_request_url, location)
-                        next_url = _validate_url_shape(destination)
-                        next_host = require_safe_source_url(
-                            destination,
-                            allowed_private_hosts=private_hosts,
-                            resolve_dns=False,
+                        current = _next_redirect_url(
+                            response,
+                            hop,
+                            max_redirects,
+                            logical_request_url,
+                            setup.private_hosts,
+                            setup.permitted_redirect_hosts,
+                            resolution,
                         )
-                        if next_host not in permitted_redirect_hosts:
-                            raise SourceEgressError(
-                                "Cross-host source redirect is not permitted"
-                            )
-                        if resolution.scheme == "https" and next_url.scheme == "http":
-                            raise SourceEgressError(
-                                "HTTPS source redirect downgrade is forbidden"
-                            )
-                        current = destination
                         current_params = {}
                         continue
                     response.raise_for_status()
@@ -676,65 +792,21 @@ async def safe_get_bytes_async(
     except ImportError as exc:  # pragma: no cover - declared runtime dependency
         raise RuntimeError("Native HTTP source connectors require 'httpx'") from exc
 
-    timeout = _validate_timeout(timeout)
-    request_headers = _validated_headers(headers)
-    private_hosts = normalize_allowed_hosts(allowed_private_hosts)
-    redirect_hosts = normalize_allowed_hosts(allowed_redirect_hosts)
-    initial_host = require_safe_source_url(
-        url,
-        allowed_private_hosts=private_hosts,
-        resolve_dns=False,
+    setup = _prepare_fetch_setup(
+        url, params, headers, timeout, allowed_private_hosts, allowed_redirect_hosts
     )
-    initial_origin = _logical_origin(url)
-    permitted_redirect_hosts = {initial_host, *redirect_hosts}
+    client_kwargs, tls, proxy, create_client = _prepare_client_kwargs(
+        transport, tls_service, setup.timeout, is_async=True
+    )
     current = url
-    current_params = _validated_params(params)
-    client_kwargs: dict[str, Any] = {
-        "timeout": timeout,
-        "follow_redirects": False,
-    }
-    tls = None
-    proxy = None
+    current_params = setup.current_params
     try:
-        if transport is not None:
-            client_kwargs["transport"] = transport
-        else:
-            from agent_utilities.core.transport_security import (
-                resolve_configured_tls_profile,
-            )
-
-            tls = resolve_configured_tls_profile(tls_service)
-            proxy = _pin_configured_proxy(tls.proxy_url)
-            client_kwargs.update(_profile_httpx_kwargs(tls, proxy))
-
-        from agent_utilities.core.http_client import create_async_http_client
-    except BaseException:
-        if tls is not None:
-            tls.cleanup()
-        raise
-
-    try:
-        async with create_async_http_client(**client_kwargs) as client:
+        async with create_client(**client_kwargs) as client:
             for hop in range(max_redirects + 1):
-                if transport is None:
-                    resolution = resolve_safe_source_url(
-                        current,
-                        allowed_private_hosts=private_hosts,
-                    )
-                    _require_proxy_target_compatibility(proxy, resolution)
-                    request_url = _pinned_url(current, resolution.pinned_ip)
-                    extensions = _request_extensions(resolution)
-                else:
-                    parsed = _validate_url_shape(current)
-                    resolution = ResolvedSourceURL(
-                        url=current,
-                        host=_normalize_hostname(parsed.hostname or ""),
-                        scheme=parsed.scheme,
-                        resolved_ips=((parsed.hostname or ""),),
-                    )
-                    request_url = current
-                    extensions = {}
-                if resolution.host not in permitted_redirect_hosts:
+                resolution, request_url, extensions = _resolve_hop(
+                    transport, current, setup.private_hosts, proxy
+                )
+                if resolution.host not in setup.permitted_redirect_hosts:
                     raise SourceEgressError(
                         "Cross-host source redirect is not permitted"
                     )
@@ -742,8 +814,8 @@ async def safe_get_bytes_async(
                 _validate_url_shape(logical_request_url)
                 hop_headers = _headers_for_hop(
                     current,
-                    request_headers,
-                    initial_origin=initial_origin,
+                    setup.headers,
+                    initial_origin=setup.initial_origin,
                 )
                 async with client.stream(
                     "GET",
@@ -755,29 +827,15 @@ async def safe_get_bytes_async(
                     if transport is None:
                         _require_direct_peer(response, resolution, proxy)
                     if response.status_code in _REDIRECT_STATUS_CODES:
-                        if hop >= max_redirects:
-                            raise SourceEgressError("Source redirect limit exceeded")
-                        location = response.headers.get("location")
-                        if not location:
-                            raise SourceEgressError(
-                                "Source redirect omitted its destination"
-                            )
-                        destination = urljoin(logical_request_url, location)
-                        next_url = _validate_url_shape(destination)
-                        next_host = require_safe_source_url(
-                            destination,
-                            allowed_private_hosts=private_hosts,
-                            resolve_dns=False,
+                        current = _next_redirect_url(
+                            response,
+                            hop,
+                            max_redirects,
+                            logical_request_url,
+                            setup.private_hosts,
+                            setup.permitted_redirect_hosts,
+                            resolution,
                         )
-                        if next_host not in permitted_redirect_hosts:
-                            raise SourceEgressError(
-                                "Cross-host source redirect is not permitted"
-                            )
-                        if resolution.scheme == "https" and next_url.scheme == "http":
-                            raise SourceEgressError(
-                                "HTTPS source redirect downgrade is forbidden"
-                            )
-                        current = destination
                         current_params = {}
                         continue
                     response.raise_for_status()
@@ -818,6 +876,39 @@ async def safe_get_json_async(url: str, **kwargs: Any) -> Any:
         raise SourceEgressError("Source response was not valid JSON") from exc
 
 
+def _validate_write_limits(max_bytes: int, max_request_bytes: int) -> None:
+    if not 1 <= max_bytes <= HARD_MAX_RESPONSE_BYTES:
+        raise ValueError(f"max_bytes must be between 1 and {HARD_MAX_RESPONSE_BYTES}")
+    if not 1 <= max_request_bytes <= HARD_MAX_RESPONSE_BYTES:
+        raise ValueError(
+            f"max_request_bytes must be between 1 and {HARD_MAX_RESPONSE_BYTES}"
+        )
+
+
+def _encode_json_request_body(payload: Any, max_request_bytes: int) -> bytes:
+    try:
+        request_body = json.dumps(
+            payload,
+            allow_nan=False,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except (OverflowError, RecursionError, TypeError, ValueError) as exc:
+        raise SourceEgressError("Source request was not valid JSON") from exc
+    if len(request_body) > max_request_bytes:
+        raise SourceEgressError("Source request exceeded the configured limit")
+    return request_body
+
+
+def _decode_json_response(raw: bytes, encoding: str | None) -> Any:
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw.decode(encoding or "utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SourceEgressError("Source response was not valid JSON") from exc
+
+
 def _safe_write_json(
     method: str,
     url: str,
@@ -835,25 +926,10 @@ def _safe_write_json(
     """Issue one bounded, non-redirecting JSON state-change request."""
     if method not in {"POST", "DELETE"}:
         raise ValueError("Only POST and DELETE JSON requests are supported")
-    if not 1 <= max_bytes <= HARD_MAX_RESPONSE_BYTES:
-        raise ValueError(f"max_bytes must be between 1 and {HARD_MAX_RESPONSE_BYTES}")
-    if not 1 <= max_request_bytes <= HARD_MAX_RESPONSE_BYTES:
-        raise ValueError(
-            f"max_request_bytes must be between 1 and {HARD_MAX_RESPONSE_BYTES}"
-        )
-    request_body: bytes | None = None
-    if send_body:
-        try:
-            request_body = json.dumps(
-                payload,
-                allow_nan=False,
-                ensure_ascii=False,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        except (OverflowError, RecursionError, TypeError, ValueError) as exc:
-            raise SourceEgressError("Source request was not valid JSON") from exc
-        if len(request_body) > max_request_bytes:
-            raise SourceEgressError("Source request exceeded the configured limit")
+    _validate_write_limits(max_bytes, max_request_bytes)
+    request_body = (
+        _encode_json_request_body(payload, max_request_bytes) if send_body else None
+    )
 
     timeout = _validate_timeout(timeout)
     request_headers = _validated_headers(headers)
@@ -869,50 +945,14 @@ def _safe_write_json(
     except ImportError as exc:  # pragma: no cover - declared runtime dependency
         raise RuntimeError("Native HTTP source connectors require 'httpx'") from exc
 
-    client_kwargs: dict[str, Any] = {
-        "timeout": timeout,
-        "follow_redirects": False,
-    }
-    tls = None
-    proxy = None
+    client_kwargs, tls, proxy, create_client = _prepare_client_kwargs(
+        transport, tls_service, timeout, is_async=False
+    )
     try:
-        if transport is not None:
-            client_kwargs["transport"] = transport
-        else:
-            from agent_utilities.core.transport_security import (
-                resolve_configured_tls_profile,
+        with create_client(**client_kwargs) as client:
+            resolution, request_url, extensions = _resolve_hop(
+                transport, url, private_hosts, proxy
             )
-
-            tls = resolve_configured_tls_profile(tls_service)
-            proxy = _pin_configured_proxy(tls.proxy_url)
-            client_kwargs.update(_profile_httpx_kwargs(tls, proxy))
-
-        from agent_utilities.core.http_client import create_http_client
-    except BaseException:
-        if tls is not None:
-            tls.cleanup()
-        raise
-
-    try:
-        with create_http_client(**client_kwargs) as client:
-            if transport is None:
-                resolution = resolve_safe_source_url(
-                    url,
-                    allowed_private_hosts=private_hosts,
-                )
-                _require_proxy_target_compatibility(proxy, resolution)
-                request_url = _pinned_url(url, resolution.pinned_ip)
-                extensions = _request_extensions(resolution)
-            else:
-                parsed = _validate_url_shape(url)
-                resolution = ResolvedSourceURL(
-                    url=url,
-                    host=_normalize_hostname(parsed.hostname or ""),
-                    scheme=parsed.scheme,
-                    resolved_ips=((parsed.hostname or ""),),
-                )
-                request_url = url
-                extensions = {}
             hop_headers = _headers_for_hop(
                 url,
                 request_headers,
@@ -935,14 +975,7 @@ def _safe_write_json(
                     )
                 response.raise_for_status()
                 raw = _read_bounded(response, max_bytes)
-                if not raw:
-                    return {}
-                try:
-                    return json.loads(raw.decode(response.encoding or "utf-8"))
-                except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                    raise SourceEgressError(
-                        "Source response was not valid JSON"
-                    ) from exc
+                return _decode_json_response(raw, response.encoding)
     except httpx.HTTPError:
         raise SourceEgressError("Source request failed") from None
     finally:
@@ -987,17 +1020,7 @@ async def safe_post_json_async(
         raise ValueError(
             f"max_request_bytes must be between 1 and {HARD_MAX_RESPONSE_BYTES}"
         )
-    try:
-        request_body = json.dumps(
-            payload,
-            allow_nan=False,
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    except (OverflowError, RecursionError, TypeError, ValueError) as exc:
-        raise SourceEgressError("Source request was not valid JSON") from exc
-    if len(request_body) > max_request_bytes:
-        raise SourceEgressError("Source request exceeded the configured limit")
+    request_body = _encode_json_request_body(payload, max_request_bytes)
     timeout = _validate_timeout(timeout)
     request_headers = _validated_headers(headers)
     private_hosts = normalize_allowed_hosts(allowed_private_hosts)
@@ -1011,50 +1034,14 @@ async def safe_post_json_async(
         import httpx
     except ImportError as exc:  # pragma: no cover - declared runtime dependency
         raise RuntimeError("Native HTTP source connectors require 'httpx'") from exc
-    client_kwargs: dict[str, Any] = {
-        "timeout": timeout,
-        "follow_redirects": False,
-    }
-    tls = None
-    proxy = None
+    client_kwargs, tls, proxy, create_client = _prepare_client_kwargs(
+        transport, tls_service, timeout, is_async=True
+    )
     try:
-        if transport is not None:
-            client_kwargs["transport"] = transport
-        else:
-            from agent_utilities.core.transport_security import (
-                resolve_configured_tls_profile,
+        async with create_client(**client_kwargs) as client:
+            resolution, request_url, extensions = _resolve_hop(
+                transport, url, private_hosts, proxy
             )
-
-            tls = resolve_configured_tls_profile(tls_service)
-            proxy = _pin_configured_proxy(tls.proxy_url)
-            client_kwargs.update(_profile_httpx_kwargs(tls, proxy))
-
-        from agent_utilities.core.http_client import create_async_http_client
-    except BaseException:
-        if tls is not None:
-            tls.cleanup()
-        raise
-
-    try:
-        async with create_async_http_client(**client_kwargs) as client:
-            if transport is None:
-                resolution = resolve_safe_source_url(
-                    url,
-                    allowed_private_hosts=private_hosts,
-                )
-                _require_proxy_target_compatibility(proxy, resolution)
-                request_url = _pinned_url(url, resolution.pinned_ip)
-                extensions = _request_extensions(resolution)
-            else:
-                parsed = _validate_url_shape(url)
-                resolution = ResolvedSourceURL(
-                    url=url,
-                    host=_normalize_hostname(parsed.hostname or ""),
-                    scheme=parsed.scheme,
-                    resolved_ips=((parsed.hostname or ""),),
-                )
-                request_url = url
-                extensions = {}
             hop_headers = _headers_for_hop(
                 url,
                 request_headers,
@@ -1076,15 +1063,7 @@ async def safe_post_json_async(
                     )
                 response.raise_for_status()
                 raw = await _read_bounded_async(response, max_bytes)
-                if not raw:
-                    return {}
-                try:
-                    value = json.loads(raw.decode(response.encoding or "utf-8"))
-                except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                    raise SourceEgressError(
-                        "Source response was not valid JSON"
-                    ) from exc
-                return value
+                return _decode_json_response(raw, response.encoding)
     except httpx.HTTPError:
         raise SourceEgressError("Source request failed") from None
     finally:

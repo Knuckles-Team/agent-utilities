@@ -356,6 +356,15 @@ def _graphql_discovery_field_names(item: Mapping[str, Any]) -> tuple[str, ...]:
     )
 
 
+@dataclass
+class _ShapeBudget:
+    """Recursion budget shared, unchanged, across one ``_shape`` walk."""
+
+    max_depth: int
+    max_types: int
+    out: dict[str, set[str]]
+
+
 class GraphQLDiscoveryAdapter:
     """Generic schema discovery over an injected, TLS-governed transport."""
 
@@ -382,13 +391,11 @@ class GraphQLDiscoveryAdapter:
         return result if isinstance(result, Mapping) else {}
 
     @staticmethod
-    def _bounded_probe_variables(document: str) -> tuple[bool, bool]:
-        """Parse one read operation and prove its bound variable is used."""
-
+    def _parse_probe_document(document: str) -> Any:
         if not document or len(document.encode("utf-8")) > 200_000:
             raise ExternalGraphSchemaError("GraphQL discovery probe is invalid")
         try:
-            parsed = parse(
+            return parse(
                 document,
                 no_location=True,
                 max_tokens=_MAX_GRAPHQL_TOKENS,
@@ -398,6 +405,9 @@ class GraphQLDiscoveryAdapter:
             raise ExternalGraphSchemaError(
                 "GraphQL discovery probe is invalid"
             ) from None
+
+    @staticmethod
+    def _single_read_operation(parsed: Any) -> OperationDefinitionNode:
         operations = [
             definition
             for definition in parsed.definitions
@@ -410,44 +420,92 @@ class GraphQLDiscoveryAdapter:
             for definition in parsed.definitions
         ):
             raise ExternalGraphSchemaError("GraphQL discovery probe is invalid")
+        return operations[0]
 
-        declared = {
-            definition.variable.name.value
-            for definition in (operations[0].variable_definitions or ())
-        }
-        bounded: set[str] = set()
+    @staticmethod
+    def _parse_read_operation(
+        document: str,
+    ) -> tuple[OperationDefinitionNode, dict[str, FragmentDefinitionNode]]:
+        parsed = GraphQLDiscoveryAdapter._parse_probe_document(document)
+        operation = GraphQLDiscoveryAdapter._single_read_operation(parsed)
         fragments = {
             definition.name.value: definition
             for definition in parsed.definitions
             if isinstance(definition, FragmentDefinitionNode)
         }
+        return operation, fragments
+
+    @staticmethod
+    def _expand_fragment_spread(
+        node: FragmentSpreadNode,
+        fragments: dict[str, FragmentDefinitionNode],
+        seen_fragments: set[str],
+        stack: list[Any],
+    ) -> None:
+        fragment_name = node.name.value
+        fragment = fragments.get(fragment_name)
+        if fragment is None:
+            raise ExternalGraphSchemaError("GraphQL discovery probe is invalid")
+        if fragment_name not in seen_fragments:
+            seen_fragments.add(fragment_name)
+            stack.append(fragment.selection_set)
+
+    @staticmethod
+    def _bound_variable_name(node: Any, declared: set[str]) -> str | None:
+        if (
+            isinstance(node, ArgumentNode)
+            and node.name.value in {"first", "limit"}
+            and isinstance(node.value, VariableNode)
+            and node.value.name.value in declared
+        ):
+            return str(node.value.name.value)
+        return None
+
+    @staticmethod
+    def _push_child_nodes(node: Any, stack: list[Any]) -> None:
+        if not isinstance(node, Node):
+            return
+        for key in node.keys:
+            child = getattr(node, key, None)
+            if isinstance(child, tuple):
+                stack.extend(child)
+            elif isinstance(child, Node):
+                stack.append(child)
+
+    @staticmethod
+    def _bounded_variable_names(
+        operation: OperationDefinitionNode,
+        fragments: dict[str, FragmentDefinitionNode],
+        declared: set[str],
+    ) -> set[str]:
+        bounded: set[str] = set()
         seen_fragments: set[str] = set()
-        stack: list[Any] = [operations[0].selection_set]
+        stack: list[Any] = [operation.selection_set]
         while stack:
             node = stack.pop()
             if isinstance(node, FragmentSpreadNode):
-                fragment_name = node.name.value
-                fragment = fragments.get(fragment_name)
-                if fragment is None:
-                    raise ExternalGraphSchemaError("GraphQL discovery probe is invalid")
-                if fragment_name not in seen_fragments:
-                    seen_fragments.add(fragment_name)
-                    stack.append(fragment.selection_set)
+                GraphQLDiscoveryAdapter._expand_fragment_spread(
+                    node, fragments, seen_fragments, stack
+                )
                 continue
-            if (
-                isinstance(node, ArgumentNode)
-                and node.name.value in {"first", "limit"}
-                and isinstance(node.value, VariableNode)
-                and node.value.name.value in declared
-            ):
-                bounded.add(node.value.name.value)
-            if isinstance(node, Node):
-                for key in node.keys:
-                    child = getattr(node, key, None)
-                    if isinstance(child, tuple):
-                        stack.extend(child)
-                    elif isinstance(child, Node):
-                        stack.append(child)
+            variable_name = GraphQLDiscoveryAdapter._bound_variable_name(node, declared)
+            if variable_name is not None:
+                bounded.add(variable_name)
+            GraphQLDiscoveryAdapter._push_child_nodes(node, stack)
+        return bounded
+
+    @staticmethod
+    def _bounded_probe_variables(document: str) -> tuple[bool, bool]:
+        """Parse one read operation and prove its bound variable is used."""
+
+        operation, fragments = GraphQLDiscoveryAdapter._parse_read_operation(document)
+        declared = {
+            definition.variable.name.value
+            for definition in (operation.variable_definitions or ())
+        }
+        bounded = GraphQLDiscoveryAdapter._bounded_variable_names(
+            operation, fragments, declared
+        )
         return "limit" in bounded, "first" in bounded
 
     @staticmethod
@@ -476,60 +534,115 @@ class GraphQLDiscoveryAdapter:
         return f"{kind}<{GraphQLDiscoveryAdapter._type_signature(nested, depth=depth + 1)}>"
 
     @classmethod
-    def _introspection_signature(cls, item: Mapping[str, Any]) -> tuple[str, ...]:
-        """Canonical type signature used only for drift hashing."""
+    def _field_argument_signature(cls, argument: Any) -> str | None:
+        if not isinstance(argument, Mapping):
+            return None
+        argument_name = str(argument.get("name") or "")
+        if not _GRAPHQL_IDENT_RE.fullmatch(argument_name):
+            return None
+        default_digest = hashlib.sha256(
+            str(argument.get("defaultValue") or "").encode("utf-8")
+        ).hexdigest()
+        return (
+            f"{argument_name}:{cls._type_signature(argument.get('type'))}"
+            f":{default_digest}"
+        )
 
-        signatures = [f"kind:{str(item.get('kind') or 'UNKNOWN')}"]
-        for field in item.get("fields") or []:
-            if not isinstance(field, Mapping):
-                continue
-            name = str(field.get("name") or "")
-            if not _GRAPHQL_IDENT_RE.fullmatch(name):
-                continue
-            args: list[str] = []
-            for argument in field.get("args") or []:
-                if not isinstance(argument, Mapping):
-                    continue
-                argument_name = str(argument.get("name") or "")
-                if not _GRAPHQL_IDENT_RE.fullmatch(argument_name):
-                    continue
-                default_digest = hashlib.sha256(
-                    str(argument.get("defaultValue") or "").encode("utf-8")
-                ).hexdigest()
-                args.append(
-                    f"{argument_name}:{cls._type_signature(argument.get('type'))}"
-                    f":{default_digest}"
-                )
-            signatures.append(
-                f"field:{name}:{cls._type_signature(field.get('type'))}"
-                f"({','.join(sorted(args))})"
-            )
-        for field in item.get("inputFields") or []:
-            if not isinstance(field, Mapping):
-                continue
-            name = str(field.get("name") or "")
-            if not _GRAPHQL_IDENT_RE.fullmatch(name):
-                continue
-            default_digest = hashlib.sha256(
-                str(field.get("defaultValue") or "").encode("utf-8")
-            ).hexdigest()
-            signatures.append(
-                f"input:{name}:{cls._type_signature(field.get('type'))}"
-                f":{default_digest}"
-            )
-        signatures.extend(
+    @classmethod
+    def _field_signature(cls, field: Any) -> str | None:
+        if not isinstance(field, Mapping):
+            return None
+        name = str(field.get("name") or "")
+        if not _GRAPHQL_IDENT_RE.fullmatch(name):
+            return None
+        args = [
+            signature
+            for argument in field.get("args") or []
+            if (signature := cls._field_argument_signature(argument)) is not None
+        ]
+        return (
+            f"field:{name}:{cls._type_signature(field.get('type'))}"
+            f"({','.join(sorted(args))})"
+        )
+
+    @classmethod
+    def _input_field_signature(cls, field: Any) -> str | None:
+        if not isinstance(field, Mapping):
+            return None
+        name = str(field.get("name") or "")
+        if not _GRAPHQL_IDENT_RE.fullmatch(name):
+            return None
+        default_digest = hashlib.sha256(
+            str(field.get("defaultValue") or "").encode("utf-8")
+        ).hexdigest()
+        return f"input:{name}:{cls._type_signature(field.get('type'))}:{default_digest}"
+
+    @staticmethod
+    def _enum_value_signatures(item: Mapping[str, Any]) -> list[str]:
+        return [
             f"enum:{name}"
             for value in item.get("enumValues") or []
             if isinstance(value, Mapping)
             and _GRAPHQL_IDENT_RE.fullmatch(name := str(value.get("name") or ""))
-        )
-        signatures.extend(
+        ]
+
+    @staticmethod
+    def _possible_type_signatures(item: Mapping[str, Any]) -> list[str]:
+        return [
             f"possible:{name}:{str(value.get('kind') or 'UNKNOWN')}"
             for value in item.get("possibleTypes") or []
             if isinstance(value, Mapping)
             and _GRAPHQL_IDENT_RE.fullmatch(name := str(value.get("name") or ""))
+        ]
+
+    @classmethod
+    def _introspection_signature(cls, item: Mapping[str, Any]) -> tuple[str, ...]:
+        """Canonical type signature used only for drift hashing."""
+
+        signatures = [f"kind:{str(item.get('kind') or 'UNKNOWN')}"]
+        signatures.extend(
+            signature
+            for field in item.get("fields") or []
+            if (signature := cls._field_signature(field)) is not None
         )
+        signatures.extend(
+            signature
+            for field in item.get("inputFields") or []
+            if (signature := cls._input_field_signature(field)) is not None
+        )
+        signatures.extend(cls._enum_value_signatures(item))
+        signatures.extend(cls._possible_type_signatures(item))
         return tuple(sorted(signatures))
+
+    @staticmethod
+    def _shape_typename(value: Mapping[str, Any], prefix: str) -> str:
+        typename = str(value.get("__typename") or prefix or "QueryResult")
+        if not _GRAPHQL_IDENT_RE.fullmatch(typename):
+            return "QueryResult"
+        return typename
+
+    @staticmethod
+    def _shape_list_item(
+        value: list[Any], *, prefix: str, depth: int, budget: _ShapeBudget
+    ) -> None:
+        for item in value[:1]:
+            GraphQLDiscoveryAdapter._shape(
+                item, prefix=prefix, depth=depth, budget=budget
+            )
+
+    @staticmethod
+    def _shape_mapping_fields(
+        value: Mapping[str, Any], typename: str, *, depth: int, budget: _ShapeBudget
+    ) -> None:
+        fields = budget.out.setdefault(typename, set())
+        for key, child in value.items():
+            field = str(key)
+            if field.startswith("__") or not _GRAPHQL_IDENT_RE.fullmatch(field):
+                continue
+            fields.add(field)
+            GraphQLDiscoveryAdapter._shape(
+                child, prefix=field, depth=depth + 1, budget=budget
+            )
 
     @staticmethod
     def _shape(
@@ -537,42 +650,21 @@ class GraphQLDiscoveryAdapter:
         *,
         prefix: str,
         depth: int,
-        max_depth: int,
-        max_types: int,
-        out: dict[str, set[str]],
+        budget: _ShapeBudget,
     ) -> None:
-        if depth > max_depth or len(out) >= max_types:
+        if depth > budget.max_depth or len(budget.out) >= budget.max_types:
             return
         if isinstance(value, list):
-            for item in value[:1]:
-                GraphQLDiscoveryAdapter._shape(
-                    item,
-                    prefix=prefix,
-                    depth=depth,
-                    max_depth=max_depth,
-                    max_types=max_types,
-                    out=out,
-                )
+            GraphQLDiscoveryAdapter._shape_list_item(
+                value, prefix=prefix, depth=depth, budget=budget
+            )
             return
         if not isinstance(value, Mapping):
             return
-        typename = str(value.get("__typename") or prefix or "QueryResult")
-        if not _GRAPHQL_IDENT_RE.fullmatch(typename):
-            typename = "QueryResult"
-        fields = out.setdefault(typename, set())
-        for key, child in value.items():
-            field = str(key)
-            if field.startswith("__") or not _GRAPHQL_IDENT_RE.fullmatch(field):
-                continue
-            fields.add(field)
-            GraphQLDiscoveryAdapter._shape(
-                child,
-                prefix=field,
-                depth=depth + 1,
-                max_depth=max_depth,
-                max_types=max_types,
-                out=out,
-            )
+        typename = GraphQLDiscoveryAdapter._shape_typename(value, prefix)
+        GraphQLDiscoveryAdapter._shape_mapping_fields(
+            value, typename, depth=depth, budget=budget
+        )
 
     def _discover_via_introspection(
         self, execute: GraphQLExecutor, *, allow_introspection: bool, limit: int
@@ -663,9 +755,11 @@ class GraphQLDiscoveryAdapter:
             response.get("data"),
             prefix="Query",
             depth=0,
-            max_depth=max(1, min(int(max_depth), 12)),
-            max_types=limit,
-            out=shaped,
+            budget=_ShapeBudget(
+                max_depth=max(1, min(int(max_depth), 12)),
+                max_types=limit,
+                out=shaped,
+            ),
         )
         types = {key: tuple(sorted(value)) for key, value in sorted(shaped.items())}
         if not types:
@@ -714,14 +808,7 @@ class DiscoveryAdapter(Protocol):
     ) -> tuple[str, str]: ...
 
 
-def _rows(value: Any) -> list[dict[str, Any]]:
-    if value is None:
-        return []
-    if isinstance(value, str):
-        try:
-            return _rows(json.loads(value))
-        except (TypeError, ValueError):
-            return []
+def _rows_dispatch(value: Any) -> list[dict[str, Any]]:
     if isinstance(value, dict):
         for key in ("rows", "result", "data"):
             if key in value:
@@ -730,6 +817,17 @@ def _rows(value: Any) -> list[dict[str, Any]]:
     if isinstance(value, list):
         return [item for item in value if isinstance(item, dict)]
     return []
+
+
+def _rows(value: Any) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        try:
+            return _rows(json.loads(value))
+        except (TypeError, ValueError):
+            return []
+    return _rows_dispatch(value)
 
 
 def _read(engine: Any, query: str, *, limit: int) -> list[dict[str, Any]]:
@@ -984,8 +1082,10 @@ class LadybugDiscoveryAdapter(OpenCypherDiscoveryAdapter):
             remote=False,
         )
 
-    def discover(self, engine: Any, *, max_types: int) -> DiscoveredSchema:
-        limit = max(1, min(int(max_types), _MAX_TYPES))
+    @staticmethod
+    def _catalog_labels_and_relationships(
+        engine: Any, limit: int
+    ) -> tuple[list[str], list[str]]:
         try:
             catalog = _read(
                 engine,
@@ -1005,6 +1105,42 @@ class LadybugDiscoveryAdapter(OpenCypherDiscoveryAdapter):
                 relationships.append(name)
             elif "node" in kind or not kind:
                 labels.append(name)
+        return labels, relationships
+
+    @staticmethod
+    def _label_property_keys(
+        engine: Any, label: str, property_limit: int
+    ) -> tuple[tuple[str, ...], bool]:
+        try:
+            rows = _read(
+                engine,
+                f"CALL table_info('{label}') RETURN name LIMIT $limit",
+                limit=property_limit + 1,
+            )
+        except ExternalGraphSchemaError:
+            rows = []
+        discovered_keys = _identifiers(rows, "name", "property", "column_name")
+        partial = len(discovered_keys) > property_limit
+        return tuple(discovered_keys[:property_limit]), partial
+
+    @classmethod
+    def _per_label_property_keys(
+        cls, engine: Any, labels: list[str], property_limit: int
+    ) -> tuple[dict[str, tuple[str, ...]], set[str], bool]:
+        per_label: dict[str, tuple[str, ...]] = {}
+        property_keys: set[str] = set()
+        properties_partial = False
+        for label in labels:
+            keys, partial = cls._label_property_keys(engine, label, property_limit)
+            if partial:
+                properties_partial = True
+            per_label[label] = keys
+            property_keys.update(keys)
+        return per_label, property_keys, properties_partial
+
+    def discover(self, engine: Any, *, max_types: int) -> DiscoveredSchema:
+        limit = max(1, min(int(max_types), _MAX_TYPES))
+        labels, relationships = self._catalog_labels_and_relationships(engine, limit)
         if not labels and not relationships:
             return super().discover(engine, max_types=limit)
         unique_labels = sorted(set(labels))
@@ -1014,25 +1150,10 @@ class LadybugDiscoveryAdapter(OpenCypherDiscoveryAdapter):
         )
         labels = unique_labels[:limit]
         relationships = unique_relationships[:limit]
-        per_label: dict[str, tuple[str, ...]] = {}
-        property_keys: set[str] = set()
         property_limit = min(_MAX_PROPERTY_KEYS, max(10, limit * 10))
-        properties_partial = False
-        for label in labels:
-            try:
-                rows = _read(
-                    engine,
-                    f"CALL table_info('{label}') RETURN name LIMIT $limit",
-                    limit=property_limit + 1,
-                )
-            except ExternalGraphSchemaError:
-                rows = []
-            discovered_keys = _identifiers(rows, "name", "property", "column_name")
-            if len(discovered_keys) > property_limit:
-                properties_partial = True
-            keys = tuple(discovered_keys[:property_limit])
-            per_label[label] = keys
-            property_keys.update(keys)
+        per_label, property_keys, properties_partial = self._per_label_property_keys(
+            engine, labels, property_limit
+        )
         digest = _digest_schema(
             "ladybug", labels, relationships, sorted(property_keys), per_label
         )
@@ -1125,6 +1246,66 @@ def _safe_property_name(value: Any) -> bool:
     return not report.changed and clean.get(name) == "present"
 
 
+def _normalized_mapping(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _canonical_edge_mapping(edge_mapping: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "properties_path": str(edge_mapping.get("properties_path") or "properties"),
+        "property_allowlist": list(edge_mapping.get("property_allowlist") or []),
+        "source_path": str(edge_mapping.get("source_path") or "source"),
+        "target_path": str(edge_mapping.get("target_path") or "target"),
+        "type_path": str(edge_mapping.get("type_path") or "type"),
+    }
+
+
+def _canonical_node_mapping(node_mapping: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "id_path": str(node_mapping.get("id_path") or "id"),
+        "properties_path": str(node_mapping.get("properties_path") or "properties"),
+        "property_allowlist": list(node_mapping.get("property_allowlist") or []),
+        "type_path": str(node_mapping.get("type_path") or "type"),
+        "version_path": str(node_mapping.get("version_path") or "version"),
+    }
+
+
+def _mapping_policy_identity_fields(profile: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "access": profile.get("access") or {},
+        "adapter_version": str(profile.get("adapter_version") or ""),
+        "backend_kind": str(profile.get("backend_kind") or ""),
+        "discovery_max_types": int(profile.get("discovery_max_types") or 200),
+        "identity_hmac_key_ref": str(profile.get("identity_hmac_key_ref") or ""),
+        "identity_property": str(profile.get("identity_property") or ""),
+        "profile_format": str(profile.get("profile_format") or ""),
+    }
+
+
+def _mapping_policy_query_fields(profile: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "edge_query": str(profile.get("edge_query") or ""),
+        "edge_type_map": profile.get("edge_type_map") or {},
+        "node_query": str(profile.get("node_query") or ""),
+        "runtime_policy_digest": str(profile.get("runtime_policy_digest") or ""),
+        "schema_digest": str(profile.get("schema_digest") or ""),
+        "source_alias": str(profile.get("source_alias") or ""),
+        "sync": profile.get("sync") or {},
+        "type_map": profile.get("type_map") or {},
+    }
+
+
+def _mapping_policy_payload(profile: Mapping[str, Any]) -> dict[str, Any]:
+    node_mapping = _normalized_mapping(profile.get("node_mapping"))
+    edge_mapping = _normalized_mapping(profile.get("edge_mapping"))
+    return {
+        **_mapping_policy_identity_fields(profile),
+        **_mapping_policy_query_fields(profile),
+        "edge_mapping": _canonical_edge_mapping(edge_mapping),
+        "node_mapping": _canonical_node_mapping(node_mapping),
+    }
+
+
 def mapping_policy_digest(profile: Mapping[str, Any]) -> str:
     """Digest every approval-critical mapping/query/governance decision.
 
@@ -1139,41 +1320,7 @@ def mapping_policy_digest(profile: Mapping[str, Any]) -> str:
 
         return graphql_mapping_policy_digest(profile)
 
-    node_mapping = profile.get("node_mapping")
-    edge_mapping = profile.get("edge_mapping")
-    node_mapping = node_mapping if isinstance(node_mapping, Mapping) else {}
-    edge_mapping = edge_mapping if isinstance(edge_mapping, Mapping) else {}
-    policy = {
-        "access": profile.get("access") or {},
-        "adapter_version": str(profile.get("adapter_version") or ""),
-        "backend_kind": str(profile.get("backend_kind") or ""),
-        "discovery_max_types": int(profile.get("discovery_max_types") or 200),
-        "edge_query": str(profile.get("edge_query") or ""),
-        "edge_mapping": {
-            "properties_path": str(edge_mapping.get("properties_path") or "properties"),
-            "property_allowlist": list(edge_mapping.get("property_allowlist") or []),
-            "source_path": str(edge_mapping.get("source_path") or "source"),
-            "target_path": str(edge_mapping.get("target_path") or "target"),
-            "type_path": str(edge_mapping.get("type_path") or "type"),
-        },
-        "edge_type_map": profile.get("edge_type_map") or {},
-        "identity_hmac_key_ref": str(profile.get("identity_hmac_key_ref") or ""),
-        "identity_property": str(profile.get("identity_property") or ""),
-        "node_query": str(profile.get("node_query") or ""),
-        "node_mapping": {
-            "id_path": str(node_mapping.get("id_path") or "id"),
-            "properties_path": str(node_mapping.get("properties_path") or "properties"),
-            "property_allowlist": list(node_mapping.get("property_allowlist") or []),
-            "type_path": str(node_mapping.get("type_path") or "type"),
-            "version_path": str(node_mapping.get("version_path") or "version"),
-        },
-        "profile_format": str(profile.get("profile_format") or ""),
-        "runtime_policy_digest": str(profile.get("runtime_policy_digest") or ""),
-        "schema_digest": str(profile.get("schema_digest") or ""),
-        "source_alias": str(profile.get("source_alias") or ""),
-        "sync": profile.get("sync") or {},
-        "type_map": profile.get("type_map") or {},
-    }
+    policy = _mapping_policy_payload(profile)
     return hashlib.sha256(
         json.dumps(policy, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
@@ -1250,6 +1397,45 @@ class _StaticRetriever:
         return self._rows[:context_window]
 
 
+def _semantic_mapper_response_text(response: Any) -> str:
+    choices = getattr(response, "choices", None)
+    if not isinstance(choices, list | tuple) or len(choices) != 1:
+        raise ExternalGraphSchemaError("semantic mapper returned no single result")
+    message = getattr(choices[0], "message", None)
+    content = getattr(message, "content", None)
+    if not isinstance(content, str):
+        raise ExternalGraphSchemaError("semantic mapper returned non-text content")
+    rendered = content.strip()
+    if not rendered or len(rendered.encode("utf-8")) > _MAX_SEMANTIC_RESPONSE_BYTES:
+        raise ExternalGraphSchemaError("semantic mapper response is outside its bound")
+    return rendered
+
+
+def _decode_bounded_semantic_mapping(rendered: str) -> dict[str, str]:
+    try:
+        decoded = json.loads(
+            rendered,
+            parse_constant=_reject_json_constant,
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
+    except (TypeError, ValueError, RecursionError):
+        raise ExternalGraphSchemaError(
+            "semantic mapper response is not strict JSON"
+        ) from None
+    if not isinstance(decoded, dict) or len(decoded) > _MAX_SEMANTIC_SUGGESTIONS:
+        raise ExternalGraphSchemaError(
+            "semantic mapper response is not a bounded object"
+        )
+    if any(
+        not isinstance(label, str) or not isinstance(target, str)
+        for label, target in decoded.items()
+    ):
+        raise ExternalGraphSchemaError(
+            "semantic mapper response contains an invalid mapping"
+        )
+    return decoded
+
+
 def governed_semantic_mapping_enricher(bundle: Any) -> Mapping[str, str]:
     """Request a proposal through the one governed ContextCompiler model seam.
 
@@ -1278,38 +1464,57 @@ def governed_semantic_mapping_enricher(bundle: Any) -> Mapping[str, str]:
         max_tokens=512,
         temperature=0,
     )
-    choices = getattr(response, "choices", None)
-    if not isinstance(choices, list | tuple) or len(choices) != 1:
-        raise ExternalGraphSchemaError("semantic mapper returned no single result")
-    message = getattr(choices[0], "message", None)
-    content = getattr(message, "content", None)
-    if not isinstance(content, str):
-        raise ExternalGraphSchemaError("semantic mapper returned non-text content")
-    rendered = content.strip()
-    if not rendered or len(rendered.encode("utf-8")) > _MAX_SEMANTIC_RESPONSE_BYTES:
-        raise ExternalGraphSchemaError("semantic mapper response is outside its bound")
-    try:
-        decoded = json.loads(
-            rendered,
-            parse_constant=_reject_json_constant,
-            object_pairs_hook=_reject_duplicate_json_keys,
+    rendered = _semantic_mapper_response_text(response)
+    return _decode_bounded_semantic_mapping(rendered)
+
+
+def _sanitized_ontology_targets(
+    guard: PersistencePrivacyGuard, ontology_classes: list[str]
+) -> list[str]:
+    safe_targets: list[str] = []
+    for target in sorted(set(ontology_classes))[:_MAX_TYPES]:
+        clean_target, report = guard.sanitize_text(target)
+        if not report.changed and clean_target:
+            safe_targets.append(clean_target)
+    return safe_targets
+
+
+def _sanitized_schema_label_rows(
+    guard: PersistencePrivacyGuard, schema: DiscoveredSchema, safe_targets: list[str]
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for index, label in enumerate(schema.labels):
+        clean_label, report = guard.sanitize_text(label)
+        if report.changed:
+            # A schema identifier that looks personal/local never leaves the
+            # deterministic path or reaches an LLM prompt/trace.
+            continue
+        rows.append(
+            {
+                "id": f"schema:{index}",
+                "type": "ExternalSchemaLabel",
+                "name": clean_label,
+                "description": "Candidate ontology targets: " + ", ".join(safe_targets),
+                "score": 1.0,
+                "confidence": 0.5,
+            }
         )
-    except (TypeError, ValueError, RecursionError):
-        raise ExternalGraphSchemaError(
-            "semantic mapper response is not strict JSON"
-        ) from None
-    if not isinstance(decoded, dict) or len(decoded) > _MAX_SEMANTIC_SUGGESTIONS:
-        raise ExternalGraphSchemaError(
-            "semantic mapper response is not a bounded object"
-        )
-    if any(
-        not isinstance(label, str) or not isinstance(target, str)
-        for label, target in decoded.items()
-    ):
-        raise ExternalGraphSchemaError(
-            "semantic mapper response contains an invalid mapping"
-        )
-    return decoded
+    return rows
+
+
+def _filtered_semantic_suggestions(
+    suggestions: Mapping[Any, Any], schema: DiscoveredSchema, safe_targets: list[str]
+) -> Mapping[str, str]:
+    safe_target_set = set(safe_targets)
+    label_set = set(schema.labels)
+    return {
+        label: target
+        for label, target in suggestions.items()
+        if isinstance(label, str)
+        and isinstance(target, str)
+        and label in label_set
+        and target in safe_target_set
+    }
 
 
 def _semantic_suggestions(
@@ -1332,30 +1537,10 @@ def _semantic_suggestions(
     )
 
     guard = PersistencePrivacyGuard()
-    safe_targets: list[str] = []
-    for target in sorted(set(ontology_classes))[:_MAX_TYPES]:
-        clean_target, report = guard.sanitize_text(target)
-        if not report.changed and clean_target:
-            safe_targets.append(clean_target)
+    safe_targets = _sanitized_ontology_targets(guard, ontology_classes)
     if not safe_targets:
         return {}
-    rows: list[dict[str, Any]] = []
-    for index, label in enumerate(schema.labels):
-        clean_label, report = guard.sanitize_text(label)
-        if report.changed:
-            # A schema identifier that looks personal/local never leaves the
-            # deterministic path or reaches an LLM prompt/trace.
-            continue
-        rows.append(
-            {
-                "id": f"schema:{index}",
-                "type": "ExternalSchemaLabel",
-                "name": clean_label,
-                "description": "Candidate ontology targets: " + ", ".join(safe_targets),
-                "score": 1.0,
-                "confidence": 0.5,
-            }
-        )
+    rows = _sanitized_schema_label_rows(guard, schema, safe_targets)
     if not rows:
         return {}
     compiler = ContextCompiler(_StaticRetriever(rows))
@@ -1376,16 +1561,7 @@ def _semantic_suggestions(
         ) from None
     if not isinstance(suggestions, Mapping):
         return {}
-    safe_target_set = set(safe_targets)
-    label_set = set(schema.labels)
-    return {
-        label: target
-        for label, target in suggestions.items()
-        if isinstance(label, str)
-        and isinstance(target, str)
-        and label in label_set
-        and target in safe_target_set
-    }
+    return _filtered_semantic_suggestions(suggestions, schema, safe_targets)
 
 
 def _propose_mapping_profile_validate_digest(runtime_policy_digest: str) -> str:
@@ -1849,23 +2025,14 @@ def propose_mapping_profile(
     }
 
 
-def approve_mapping_profile(
+def _validate_mapping_proposal_match(
+    profile: Mapping[str, Any],
     *,
-    connection: str,
     proposal_id: str,
     proposal_version: int,
     schema_digest: str,
     mapping_digest: str,
-    secret_store: SecretStore,
-    approver_ref: str = "",
-) -> dict[str, Any]:
-    """Approve exactly one version/digest tuple; every mismatch fails closed."""
-
-    connection = _alias(connection, "connection")
-    key = _secret_key(connection)
-    profile = _load_json(secret_store, key)
-    if not profile:
-        raise ExternalGraphSchemaError("mapping proposal does not exist")
+) -> None:
     if mapping_policy_digest(profile) != str(profile.get("mapping_digest") or ""):
         raise ExternalGraphSchemaError("mapping proposal integrity check failed")
     expected = (
@@ -1884,6 +2051,11 @@ def approve_mapping_profile(
         raise ExternalGraphSchemaError(
             "mapping approval does not match current proposal"
         )
+
+
+def _mapping_approval_identity_key(
+    profile: Mapping[str, Any], connection: str, secret_store: SecretStore
+) -> str:
     identity_key_ref = str(profile.get("identity_hmac_key_ref") or "")
     if identity_key_ref != canonical_identity_key_ref(connection):
         raise ExternalGraphSchemaError(
@@ -1892,13 +2064,45 @@ def approve_mapping_profile(
     identity_key = str(secret_store.get(_identity_key_key(connection)) or "")
     if len(identity_key) < 32:
         raise ExternalGraphSchemaError("mapping proposal has no identity key")
+    return identity_key
+
+
+def _mapping_approval_token(identity_key: str, approver_ref: str) -> str:
     guard = PersistencePrivacyGuard()
     clean_approver, report = guard.sanitize_text(str(approver_ref or "operator"))
-    approval_token = _hmac_token(
+    return _hmac_token(
         identity_key,
         "approver",
         clean_approver if not report.changed else "redacted-operator",
     )
+
+
+def approve_mapping_profile(
+    *,
+    connection: str,
+    proposal_id: str,
+    proposal_version: int,
+    schema_digest: str,
+    mapping_digest: str,
+    secret_store: SecretStore,
+    approver_ref: str = "",
+) -> dict[str, Any]:
+    """Approve exactly one version/digest tuple; every mismatch fails closed."""
+
+    connection = _alias(connection, "connection")
+    key = _secret_key(connection)
+    profile = _load_json(secret_store, key)
+    if not profile:
+        raise ExternalGraphSchemaError("mapping proposal does not exist")
+    _validate_mapping_proposal_match(
+        profile,
+        proposal_id=proposal_id,
+        proposal_version=proposal_version,
+        schema_digest=schema_digest,
+        mapping_digest=mapping_digest,
+    )
+    identity_key = _mapping_approval_identity_key(profile, connection, secret_store)
+    approval_token = _mapping_approval_token(identity_key, approver_ref)
     profile["approval_status"] = "approved"
     profile["approval_token"] = approval_token
     secret_store.set(
@@ -1920,22 +2124,9 @@ def approve_mapping_profile(
     }
 
 
-def mapping_profile_status(
-    connection: str,
-    *,
-    secret_store: SecretStore,
-    runtime_policy_digest: str | None = None,
-) -> dict[str, Any]:
-    """Return only pseudonymous approval metadata from a secret profile."""
-
-    connection = _alias(connection, "connection")
-    profile = _load_json(secret_store, _secret_key(connection))
-    if not profile:
-        return {"status": "not_found", "connection": connection}
-    integrity_valid = mapping_policy_digest(profile) == str(
-        profile.get("mapping_digest") or ""
-    )
-    raw_schema = profile.get("raw_schema") or {}
+def _mapped_and_novel_counts(
+    profile: Mapping[str, Any], raw_schema: Mapping[str, Any]
+) -> tuple[int, int]:
     if profile.get("profile_format") == "graphql-document-profile/v1":
         mapped = sum(
             int(item.get("mapping_count") or 0)
@@ -1943,30 +2134,33 @@ def mapping_profile_status(
             if isinstance(item, Mapping)
         )
         novel = max(0, len(raw_schema.get("types") or {}) - mapped)
-    else:
-        mapped = len(profile.get("type_map") or {})
-        novel = max(
-            0,
-            len(raw_schema.get("labels") or []) - mapped,
-        )
-    approved_policy_digest = str(
-        (
-            profile.get("mapping_digest")
-            if profile.get("profile_format") == "graphql-document-profile/v1"
-            else profile.get("runtime_policy_digest")
-        )
-        or ""
-    )
-    current_policy_digest = str(runtime_policy_digest or "")
-    mapping_drift = (
-        "none"
-        if current_policy_digest
-        and approved_policy_digest
-        and current_policy_digest == approved_policy_digest
-        else "detected"
-        if current_policy_digest and approved_policy_digest
-        else "unknown"
-    )
+        return mapped, novel
+    mapped = len(profile.get("type_map") or {})
+    novel = max(0, len(raw_schema.get("labels") or []) - mapped)
+    return mapped, novel
+
+
+def _approved_mapping_policy_digest(profile: Mapping[str, Any]) -> str:
+    if profile.get("profile_format") == "graphql-document-profile/v1":
+        return str(profile.get("mapping_digest") or "")
+    return str(profile.get("runtime_policy_digest") or "")
+
+
+def _policy_drift_status(current: str, approved: str) -> str:
+    if not current or not approved:
+        return "unknown"
+    return "none" if current == approved else "detected"
+
+
+def _mapping_profile_status_payload(
+    profile: Mapping[str, Any],
+    *,
+    connection: str,
+    integrity_valid: bool,
+    mapping_drift: str,
+    mapped: int,
+    novel: int,
+) -> dict[str, Any]:
     return {
         "status": (
             str(profile.get("approval_status") or "invalid")
@@ -1983,6 +2177,83 @@ def mapping_profile_status(
         "mapped": mapped,
         "novel": novel,
         "integrity_valid": integrity_valid,
+    }
+
+
+def mapping_profile_status(
+    connection: str,
+    *,
+    secret_store: SecretStore,
+    runtime_policy_digest: str | None = None,
+) -> dict[str, Any]:
+    """Return only pseudonymous approval metadata from a secret profile."""
+
+    connection = _alias(connection, "connection")
+    profile = _load_json(secret_store, _secret_key(connection))
+    if not profile:
+        return {"status": "not_found", "connection": connection}
+    integrity_valid = mapping_policy_digest(profile) == str(
+        profile.get("mapping_digest") or ""
+    )
+    raw_schema = profile.get("raw_schema") or {}
+    mapped, novel = _mapped_and_novel_counts(profile, raw_schema)
+    approved_policy_digest = _approved_mapping_policy_digest(profile)
+    current_policy_digest = str(runtime_policy_digest or "")
+    mapping_drift = _policy_drift_status(current_policy_digest, approved_policy_digest)
+    return _mapping_profile_status_payload(
+        profile,
+        connection=connection,
+        integrity_valid=integrity_valid,
+        mapping_drift=mapping_drift,
+        mapped=mapped,
+        novel=novel,
+    )
+
+
+def _schema_drift_status(approved_digest: str, schema_digest: str) -> str:
+    if not approved_digest:
+        return "unapproved"
+    return "none" if approved_digest == schema_digest else "detected"
+
+
+def _readiness_discovery_failure(
+    connection: str, adapter: Any, status: Mapping[str, Any], exc: Exception
+) -> dict[str, Any]:
+    return {
+        "status": "not_ready",
+        "connection": connection,
+        "backend": adapter.capabilities.kind,
+        "capabilities": adapter.capabilities.public_dict(),
+        "discovery": "failed",
+        "approval": status.get("status", "not_found"),
+        "schema_drift": "unknown",
+        "mapping_drift": "unknown",
+        "ready": False,
+        "error_type": type(exc).__name__,
+    }
+
+
+def _readiness_payload(
+    *,
+    connection: str,
+    adapter: Any,
+    schema: Any,
+    status: Mapping[str, Any],
+    drift: str,
+    mapping_drift: str,
+    ready: bool,
+) -> dict[str, Any]:
+    return {
+        "status": "ready" if ready else "not_ready",
+        "connection": connection,
+        "backend": adapter.capabilities.kind,
+        "capabilities": adapter.capabilities.public_dict(),
+        "discovery": "complete" if not schema.partial else "partial",
+        "schema": schema.public_dict(),
+        "approval": status.get("status", "not_found"),
+        "schema_drift": drift,
+        "mapping_drift": mapping_drift,
+        "ready": ready,
     }
 
 
@@ -2009,44 +2280,24 @@ def external_graph_readiness(
             engine, backend=backend, max_types=max_types
         )
     except Exception as exc:
-        return {
-            "status": "not_ready",
-            "connection": connection,
-            "backend": adapter.capabilities.kind,
-            "capabilities": adapter.capabilities.public_dict(),
-            "discovery": "failed",
-            "approval": status.get("status", "not_found"),
-            "schema_drift": "unknown",
-            "mapping_drift": "unknown",
-            "ready": False,
-            "error_type": type(exc).__name__,
-        }
+        return _readiness_discovery_failure(connection, adapter, status, exc)
     approved_digest = str(status.get("schema_digest") or "")
-    drift = (
-        "none"
-        if approved_digest and approved_digest == schema.schema_digest
-        else "detected"
-        if approved_digest
-        else "unapproved"
-    )
+    drift = _schema_drift_status(approved_digest, schema.schema_digest)
     discovery_complete = not schema.partial and bool(schema.labels)
     ready = (
         discovery_complete and status.get("status") == "approved" and drift == "none"
     )
     mapping_drift = str(status.get("mapping_drift") or "unknown")
     ready = ready and mapping_drift == "none"
-    return {
-        "status": "ready" if ready else "not_ready",
-        "connection": connection,
-        "backend": adapter.capabilities.kind,
-        "capabilities": adapter.capabilities.public_dict(),
-        "discovery": "complete" if not schema.partial else "partial",
-        "schema": schema.public_dict(),
-        "approval": status.get("status", "not_found"),
-        "schema_drift": drift,
-        "mapping_drift": mapping_drift,
-        "ready": ready,
-    }
+    return _readiness_payload(
+        connection=connection,
+        adapter=adapter,
+        schema=schema,
+        status=status,
+        drift=drift,
+        mapping_drift=mapping_drift,
+        ready=ready,
+    )
 
 
 __all__ = [

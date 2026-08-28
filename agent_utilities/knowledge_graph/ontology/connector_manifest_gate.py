@@ -21,6 +21,7 @@ import json
 import re
 from collections import deque
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -188,6 +189,43 @@ def _absolute_import_module(
     return ".".join(base)
 
 
+def _import_node_targets(node: ast.Import, package_name: str) -> set[str]:
+    return {
+        alias.name
+        for alias in node.names
+        if alias.name == package_name or alias.name.startswith(f"{package_name}.")
+    }
+
+
+def _import_from_targets(
+    node: ast.ImportFrom,
+    *,
+    current_module: str,
+    current_path: Path,
+    package_name: str,
+    resolve_module: Callable[[str], Path | None],
+) -> set[str]:
+    base = _absolute_import_module(
+        node,
+        current_module=current_module,
+        current_is_package=current_path.name == "__init__.py",
+    )
+    if base != package_name and not base.startswith(f"{package_name}."):
+        return set()
+    targets = {base}
+    base_path = resolve_module(base)
+    if base_path is not None and base_path.name == "__init__.py":
+        # ".".join(...) rather than an f-string: a Python dotted import
+        # path derived from static AST analysis of the SCANNED module's
+        # own source (never a query) — this two-part dotted shape is
+        # otherwise indistinguishable from a schema-qualified table cast
+        # at the AST level.
+        targets.update(
+            ".".join((base, alias.name)) for alias in node.names if alias.name != "*"
+        )
+    return targets
+
+
 def _local_import_targets(
     tree: ast.AST,
     *,
@@ -206,34 +244,17 @@ def _local_import_targets(
     targets: set[str] = set()
     for node in visitor.imports:
         if isinstance(node, ast.Import):
-            targets.update(
-                alias.name
-                for alias in node.names
-                if alias.name == package_name
-                or alias.name.startswith(f"{package_name}.")
-            )
+            targets.update(_import_node_targets(node, package_name))
             continue
-
-        base = _absolute_import_module(
-            node,
-            current_module=current_module,
-            current_is_package=current_path.name == "__init__.py",
+        targets.update(
+            _import_from_targets(
+                node,
+                current_module=current_module,
+                current_path=current_path,
+                package_name=package_name,
+                resolve_module=resolve_module,
+            )
         )
-        if base != package_name and not base.startswith(f"{package_name}."):
-            continue
-        targets.add(base)
-        base_path = resolve_module(base)
-        if base_path is not None and base_path.name == "__init__.py":
-            # ".".join(...) rather than an f-string: a Python dotted import
-            # path derived from static AST analysis of the SCANNED module's
-            # own source (never a query) — this two-part dotted shape is
-            # otherwise indistinguishable from a schema-qualified table cast
-            # at the AST level.
-            targets.update(
-                ".".join((base, alias.name))
-                for alias in node.names
-                if alias.name != "*"
-            )
     return targets
 
 
@@ -244,6 +265,105 @@ def _package_ancestors(module_name: str, *, package_name: str) -> tuple[str, ...
         for index in range(1, len(parts))
         if ".".join(parts[:index]) == package_name
         or ".".join(parts[:index]).startswith(f"{package_name}.")
+    )
+
+
+def _resolve_local_module(
+    module_name: str,
+    *,
+    package_name: str,
+    package_root: Path,
+    resolved_package_root: Path,
+    path_cache: dict[str, Path | None],
+) -> Path | None:
+    if module_name in path_cache:
+        return path_cache[module_name]
+    if module_name == package_name:
+        relative_parts: tuple[str, ...] = ()
+    elif module_name.startswith(f"{package_name}."):
+        relative_parts = tuple(module_name[len(package_name) + 1 :].split("."))
+    else:
+        path_cache[module_name] = None
+        return None
+    module_path = package_root.joinpath(*relative_parts).with_suffix(".py")
+    package_path = package_root.joinpath(*relative_parts, "__init__.py")
+    module_exists = module_path.is_file()
+    package_exists = package_path.is_file()
+    if module_exists and package_exists:
+        raise RuntimeError(f"native module {module_name!r} is ambiguous")
+    path = package_path if package_exists else module_path if module_exists else None
+    if path is not None:
+        try:
+            path.resolve().relative_to(resolved_package_root)
+        except ValueError as exc:
+            raise RuntimeError(
+                f"native module {module_name!r} escapes its package root"
+            ) from exc
+    path_cache[module_name] = path
+    return path
+
+
+def _cached_module_source(
+    module_name: str,
+    path: Path,
+    source_cache: dict[str, tuple[bytes, ast.Module]],
+) -> tuple[bytes, ast.Module]:
+    cached = source_cache.get(module_name)
+    if cached is not None:
+        return cached
+    try:
+        source = path.read_bytes()
+        tree = ast.parse(source, filename=module_name)
+    except (OSError, SyntaxError, UnicodeError, ValueError) as exc:
+        raise RuntimeError(
+            f"native module {module_name!r} cannot be fingerprinted"
+        ) from exc
+    source_cache[module_name] = (source, tree)
+    return source, tree
+
+
+@dataclass
+class _ClosureState:
+    """Mutable BFS state for one local-module import-closure walk."""
+
+    pending: deque[str]
+    visited: set[str]
+    missing: set[str]
+    module_hashes: dict[str, str]
+    required: set[str]
+
+
+def _visit_closure_module(
+    module_name: str,
+    state: _ClosureState,
+    *,
+    resolve_module: Callable[[str], Path | None],
+    source_cache: dict[str, tuple[bytes, ast.Module]],
+    package_name: str,
+    deep_roots: set[str],
+) -> None:
+    path = resolve_module(module_name)
+    if path is None:
+        if module_name in state.required:
+            raise RuntimeError(
+                f"native fingerprint root {module_name!r} is unavailable"
+            )
+        state.missing.add(module_name)
+        return
+    source, tree = _cached_module_source(module_name, path, source_cache)
+    state.module_hashes[module_name] = hashlib.sha256(source).hexdigest()
+    state.pending.extend(_package_ancestors(module_name, package_name=package_name))
+    state.pending.extend(
+        sorted(
+            _local_import_targets(
+                tree,
+                current_module=module_name,
+                current_path=path,
+                package_name=package_name,
+                resolve_module=resolve_module,
+                include_function_bodies=module_name in deep_roots,
+            )
+        )
     )
 
 
@@ -266,96 +386,52 @@ def _local_module_closure_fingerprint(
     roots = tuple(sorted(set(root_modules)))
     if not roots:
         raise RuntimeError("native fingerprint roots are empty")
-    pending = deque(roots)
-    required = set(roots)
     resolved_package_root = package_root.resolve()
     deep_roots = set(deep_import_roots or roots)
     path_cache = module_path_cache if module_path_cache is not None else {}
     source_cache = module_source_cache if module_source_cache is not None else {}
 
     def _resolve_module(module_name: str) -> Path | None:
-        if module_name in path_cache:
-            return path_cache[module_name]
-        if module_name == package_name:
-            relative_parts: tuple[str, ...] = ()
-        elif module_name.startswith(f"{package_name}."):
-            relative_parts = tuple(module_name[len(package_name) + 1 :].split("."))
-        else:
-            path_cache[module_name] = None
-            return None
-        module_path = package_root.joinpath(*relative_parts).with_suffix(".py")
-        package_path = package_root.joinpath(*relative_parts, "__init__.py")
-        module_exists = module_path.is_file()
-        package_exists = package_path.is_file()
-        if module_exists and package_exists:
-            raise RuntimeError(f"native module {module_name!r} is ambiguous")
-        path = (
-            package_path if package_exists else module_path if module_exists else None
+        return _resolve_local_module(
+            module_name,
+            package_name=package_name,
+            package_root=package_root,
+            resolved_package_root=resolved_package_root,
+            path_cache=path_cache,
         )
-        if path is not None:
-            try:
-                path.resolve().relative_to(resolved_package_root)
-            except ValueError as exc:
-                raise RuntimeError(
-                    f"native module {module_name!r} escapes its package root"
-                ) from exc
-        path_cache[module_name] = path
-        return path
 
-    visited: set[str] = set()
-    missing: set[str] = set()
-    module_hashes: dict[str, str] = {}
+    state = _ClosureState(
+        pending=deque(roots),
+        visited=set(),
+        missing=set(),
+        module_hashes={},
+        required=set(roots),
+    )
 
-    while pending:
-        module_name = pending.popleft()
-        if module_name in visited:
+    while state.pending:
+        module_name = state.pending.popleft()
+        if module_name in state.visited:
             continue
-        visited.add(module_name)
-        if len(visited) > _MAX_FINGERPRINT_MODULES:
+        state.visited.add(module_name)
+        if len(state.visited) > _MAX_FINGERPRINT_MODULES:
             raise RuntimeError("native module dependency closure is too large")
-        path = _resolve_module(module_name)
-        if path is None:
-            if module_name in required:
-                raise RuntimeError(
-                    f"native fingerprint root {module_name!r} is unavailable"
-                )
-            missing.add(module_name)
-            continue
-        try:
-            cached_source = source_cache.get(module_name)
-            if cached_source is None:
-                source = path.read_bytes()
-                tree = ast.parse(source, filename=module_name)
-                source_cache[module_name] = (source, tree)
-            else:
-                source, tree = cached_source
-        except (OSError, SyntaxError, UnicodeError, ValueError) as exc:
-            raise RuntimeError(
-                f"native module {module_name!r} cannot be fingerprinted"
-            ) from exc
-        module_hashes[module_name] = hashlib.sha256(source).hexdigest()
-        pending.extend(_package_ancestors(module_name, package_name=package_name))
-        pending.extend(
-            sorted(
-                _local_import_targets(
-                    tree,
-                    current_module=module_name,
-                    current_path=path,
-                    package_name=package_name,
-                    resolve_module=_resolve_module,
-                    include_function_bodies=module_name in deep_roots,
-                )
-            )
+        _visit_closure_module(
+            module_name,
+            state,
+            resolve_module=_resolve_module,
+            source_cache=source_cache,
+            package_name=package_name,
+            deep_roots=deep_roots,
         )
 
     payload = {
         "format": NATIVE_FINGERPRINT_FORMAT,
         "roots": list(roots),
-        "modules": dict(sorted(module_hashes.items())),
-        "missing_local_imports": sorted(missing),
+        "modules": dict(sorted(state.module_hashes.items())),
+        "missing_local_imports": sorted(state.missing),
     }
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    return hashlib.sha256(canonical).hexdigest(), tuple(sorted(module_hashes))
+    return hashlib.sha256(canonical).hexdigest(), tuple(sorted(state.module_hashes))
 
 
 def _native_fingerprint_roots(
@@ -615,6 +691,49 @@ def mandatory_connector_packages() -> frozenset[str]:
     )
 
 
+def _load_bundled_manifest(path: Path, normalized: str) -> tuple[Any, Any]:
+    import yaml
+
+    from .connector_manifest import ConnectorManifest
+
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        manifest = ConnectorManifest.model_validate(raw)
+    except Exception as exc:  # noqa: BLE001 - path-free fail-closed boundary
+        raise ValueError("bundled provider manifest is invalid") from exc
+    if manifest.connector.casefold() != normalized:
+        raise ValueError("bundled provider identity differs from its directory")
+    return manifest, raw
+
+
+def _validate_bundled_sync(
+    sync: Any, presets: dict[str, dict[str, Any]], fingerprints: dict[str, str]
+) -> tuple[str, str, str]:
+    preset = str(sync.preset or "")
+    tool = str(sync.tool or "")
+    digest = str(sync.tool_schema_sha256 or "").strip().lower()
+    if not preset or not tool or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ValueError("bundled provider sync contract is incomplete")
+    if preset in presets:
+        raise ValueError("bundled provider declares a duplicate preset")
+    existing = fingerprints.get(tool)
+    if existing is not None and existing != digest:
+        raise ValueError("bundled provider declares conflicting tool fingerprints")
+    return preset, tool, digest
+
+
+def _bundled_provider_presets(
+    manifest: Any,
+) -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
+    presets: dict[str, dict[str, Any]] = {}
+    fingerprints: dict[str, str] = {}
+    for sync in manifest.sync:
+        preset, tool, digest = _validate_bundled_sync(sync, presets, fingerprints)
+        presets[preset] = dict(sync.raw)
+        fingerprints[tool] = digest
+    return presets, fingerprints
+
+
 def bundled_provider_contract(
     provider: str,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, str]] | None:
@@ -640,17 +759,7 @@ def bundled_provider_contract(
     if not path.is_file():
         return None
 
-    import yaml
-
-    from .connector_manifest import ConnectorManifest
-
-    try:
-        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-        manifest = ConnectorManifest.model_validate(raw)
-    except Exception as exc:  # noqa: BLE001 - path-free fail-closed boundary
-        raise ValueError("bundled provider manifest is invalid") from exc
-    if manifest.connector.casefold() != normalized:
-        raise ValueError("bundled provider identity differs from its directory")
+    manifest, raw = _load_bundled_manifest(path, normalized)
     # Same split as `precheck_source` above: the property this fallback needs is
     # "this bundle is exactly what the release ledger recorded", which the pin
     # answers without a key. In-repo manifests carry no signature any more.
@@ -662,22 +771,7 @@ def bundled_provider_contract(
     if pin_violations:
         raise ValueError("bundled provider manifest is not release-pinned")
 
-    presets: dict[str, dict[str, Any]] = {}
-    fingerprints: dict[str, str] = {}
-    for sync in manifest.sync:
-        preset = str(sync.preset or "")
-        tool = str(sync.tool or "")
-        digest = str(sync.tool_schema_sha256 or "").strip().lower()
-        if not preset or not tool or not re.fullmatch(r"[0-9a-f]{64}", digest):
-            raise ValueError("bundled provider sync contract is incomplete")
-        if preset in presets:
-            raise ValueError("bundled provider declares a duplicate preset")
-        existing = fingerprints.get(tool)
-        if existing is not None and existing != digest:
-            raise ValueError("bundled provider declares conflicting tool fingerprints")
-        presets[preset] = dict(sync.raw)
-        fingerprints[tool] = digest
-    return presets, fingerprints
+    return _bundled_provider_presets(manifest)
 
 
 def find_connector_manifest(
@@ -873,6 +967,33 @@ def _attestation_violations(
     return pin_violations
 
 
+def _pin_mismatch_violations(
+    pin: dict[str, Any], manifest_hash: str, provenance: Any, label: str
+) -> list[str]:
+    if not pin.get("manifest_hash"):
+        return []
+    violations: list[str] = []
+    if pin.get("manifest_hash") != manifest_hash:
+        violations.append(
+            f"[signature] {label}: complete manifest content differs from its release pin"
+        )
+    if pin.get("signer") != provenance.signer:
+        violations.append(f"[signature] {label}: signer differs from its release pin")
+    if pin.get("signature") != provenance.signature:
+        violations.append(
+            f"[signature] {label}: signature differs from its release pin"
+        )
+    if pin.get("signature_algorithm") != provenance.signature_algorithm:
+        violations.append(
+            f"[signature] {label}: algorithm differs from its release pin"
+        )
+    if pin.get("signing_public_key") != provenance.signing_public_key:
+        violations.append(
+            f"[signature] {label}: public key differs from its release pin"
+        )
+    return violations
+
+
 def _signature_violations(
     manifest: Any, *, label: str, raw: dict[str, Any] | None = None
 ) -> list[str]:
@@ -926,97 +1047,81 @@ def _signature_violations(
             f"[signature] {label}: Ed25519 release signature or trusted public-key "
             "pin is invalid"
         ]
-    if pin.get("manifest_hash"):
-        violations: list[str] = []
-        if pin.get("manifest_hash") != manifest_hash:
-            violations.append(
-                f"[signature] {label}: complete manifest content differs from its release pin"
-            )
-        if pin.get("signer") != provenance.signer:
-            violations.append(
-                f"[signature] {label}: signer differs from its release pin"
-            )
-        if pin.get("signature") != provenance.signature:
-            violations.append(
-                f"[signature] {label}: signature differs from its release pin"
-            )
-        if pin.get("signature_algorithm") != provenance.signature_algorithm:
-            violations.append(
-                f"[signature] {label}: algorithm differs from its release pin"
-            )
-        if pin.get("signing_public_key") != provenance.signing_public_key:
-            violations.append(
-                f"[signature] {label}: public key differs from its release pin"
-            )
-        return violations
-    return []
+    return _pin_mismatch_violations(pin, manifest_hash, provenance, label)
 
 
-def _native_provider_violations(manifest: Any, *, path: Path, label: str) -> list[str]:
-    """Verify the in-package connector registry against its signed source pins."""
-
+def _native_fingerprint_sidecar_pins(
+    path: Path, label: str
+) -> tuple[dict[str, Any] | None, list[str]]:
     try:
         sidecar = json.loads(
             (path.parent / "tool_schema_fingerprints.json").read_text(encoding="utf-8")
         )
     except (OSError, ValueError):
-        return [
+        return None, [
             f"[tool-schema] {label}: native connector fingerprint sidecar is invalid"
         ]
     if (
         not isinstance(sidecar, dict)
         or sidecar.get("format") != NATIVE_FINGERPRINT_FORMAT
     ):
-        return [
+        return None, [
             f"[tool-schema] {label}: native connector fingerprint format is invalid"
         ]
     pins = sidecar.get("sources", {})
     if not isinstance(pins, dict) or not pins:
-        return [f"[tool-schema] {label}: native connector fingerprint map is empty"]
+        return None, [
+            f"[tool-schema] {label}: native connector fingerprint map is empty"
+        ]
+    return pins, []
 
+
+def _native_sync_violations(
+    sync: Any,
+    *,
+    label: str,
+    pins: dict[str, Any],
+    path_cache: dict[str, Path | None],
+    source_cache: dict[str, tuple[bytes, ast.Module]],
+) -> list[str]:
+    source_type = str(sync.tool or "")
+    contract = native_activation_contract(source_type)
+    if contract is None:
+        return [f"[provider] {label}: native source {source_type!r} is unavailable"]
+    interface, _module_name = contract
     violations: list[str] = []
-    path_cache: dict[str, Path | None] = {}
-    source_cache: dict[str, tuple[bytes, ast.Module]] = {}
-    for sync in manifest.sync:
-        source_type = str(sync.tool or "")
-        contract = native_activation_contract(source_type)
-        if contract is None:
-            violations.append(
-                f"[provider] {label}: native source {source_type!r} is unavailable"
-            )
-            continue
-        interface, _module_name = contract
-        expected_raw = {
-            "source_type": source_type,
-            "interface": interface,
-        }
-        if sync.server != "agent-utilities" or sync.raw != expected_raw:
-            violations.append(
-                f"[tool-schema] {label}: native preset {sync.preset!r} differs "
-                "from its signed activation contract"
-            )
-        try:
-            actual, _modules = _native_activation_fingerprint_evidence(
-                source_type,
-                module_path_cache=path_cache,
-                module_source_cache=source_cache,
-            )
-        except (OSError, RuntimeError, SyntaxError, UnicodeError):
-            violations.append(
-                f"[provider] {label}: native source {source_type!r} code is unavailable"
-            )
-            continue
-        pinned = str(pins.get(source_type) or "")
-        if not pinned or pinned != actual or sync.tool_schema_sha256 != pinned:
-            violations.append(
-                f"[tool-schema] {label}: native source {source_type!r} differs "
-                "from its signed code fingerprint"
-            )
-    declared = {str(sync.tool or "") for sync in manifest.sync}
-    if declared != set(pins):
+    expected_raw = {
+        "source_type": source_type,
+        "interface": interface,
+    }
+    if sync.server != "agent-utilities" or sync.raw != expected_raw:
         violations.append(
-            f"[tool-schema] {label}: native manifest and fingerprint inventory differ"
+            f"[tool-schema] {label}: native preset {sync.preset!r} differs "
+            "from its signed activation contract"
         )
+    try:
+        actual, _modules = _native_activation_fingerprint_evidence(
+            source_type,
+            module_path_cache=path_cache,
+            module_source_cache=source_cache,
+        )
+    except (OSError, RuntimeError, SyntaxError, UnicodeError):
+        violations.append(
+            f"[provider] {label}: native source {source_type!r} code is unavailable"
+        )
+        return violations
+    pinned = str(pins.get(source_type) or "")
+    if not pinned or pinned != actual or sync.tool_schema_sha256 != pinned:
+        violations.append(
+            f"[tool-schema] {label}: native source {source_type!r} differs "
+            "from its signed code fingerprint"
+        )
+    return violations
+
+
+def _native_registry_coverage_violation(
+    manifest: Any, declared: set[str], label: str
+) -> str | None:
     # BUG-161 — a THIRD, independent cross-check against the LIVE registry, not
     # the sidecar. The manifest and its `tool_schema_fingerprints.json` sidecar
     # are written together by the SAME generator run
@@ -1036,23 +1141,53 @@ def _native_provider_violations(manifest: Any, *, path: Path, label: str) -> lis
     }
     missing = sorted(live_registered - declared)
     extra = sorted(declared - live_registered)
-    if missing or extra:
-        detail = []
-        if missing:
-            detail.append(f"missing={missing}")
-        if extra:
-            detail.append(f"extra={extra}")
-        violations.append(
-            f"[coverage] {label}: native manifest and live registry inventory "
-            f"differ ({', '.join(detail)})"
+    if not missing and not extra:
+        return None
+    detail = []
+    if missing:
+        detail.append(f"missing={missing}")
+    if extra:
+        detail.append(f"extra={extra}")
+    return (
+        f"[coverage] {label}: native manifest and live registry inventory "
+        f"differ ({', '.join(detail)})"
+    )
+
+
+def _native_provider_violations(manifest: Any, *, path: Path, label: str) -> list[str]:
+    """Verify the in-package connector registry against its signed source pins."""
+
+    pins, sidecar_violations = _native_fingerprint_sidecar_pins(path, label)
+    if pins is None:
+        return sidecar_violations
+
+    violations: list[str] = []
+    path_cache: dict[str, Path | None] = {}
+    source_cache: dict[str, tuple[bytes, ast.Module]] = {}
+    for sync in manifest.sync:
+        violations.extend(
+            _native_sync_violations(
+                sync,
+                label=label,
+                pins=pins,
+                path_cache=path_cache,
+                source_cache=source_cache,
+            )
         )
+    declared = {str(sync.tool or "") for sync in manifest.sync}
+    if declared != set(pins):
+        violations.append(
+            f"[tool-schema] {label}: native manifest and fingerprint inventory differ"
+        )
+    coverage_violation = _native_registry_coverage_violation(manifest, declared, label)
+    if coverage_violation is not None:
+        violations.append(coverage_violation)
     return violations
 
 
-def _provider_violations(manifest: Any, *, path: Path, label: str) -> list[str]:
-    """Require the installed provider to match every manifest sync preset exactly."""
-    if manifest.connector == "native-source-connectors":
-        return _native_provider_violations(manifest, path=path, label=label)
+def _provider_schema_context(
+    manifest: Any, label: str
+) -> tuple[dict[str, Any] | None, dict[str, str] | None, list[str]]:
     from ...protocols.source_connectors.connectors.mcp_tool import (
         McpToolSourceError,
         provider_tool_presets,
@@ -1062,62 +1197,100 @@ def _provider_violations(manifest: Any, *, path: Path, label: str) -> list[str]:
     try:
         provider_presets = provider_tool_presets(manifest.connector)
     except McpToolSourceError as exc:
-        return [f"[provider] {label}: {exc}"]
+        return None, None, [f"[provider] {label}: {exc}"]
     if provider_presets is None:
-        return [
-            f"[provider] {label}: source preset provider {manifest.connector!r} "
-            "is not installed or cannot be resolved"
-        ]
+        return (
+            None,
+            None,
+            [
+                f"[provider] {label}: source preset provider {manifest.connector!r} "
+                "is not installed or cannot be resolved"
+            ],
+        )
     if not manifest.sync:
-        return [f"[tool-schema] {label}: mandatory connector declares no sync presets"]
+        return (
+            None,
+            None,
+            [f"[tool-schema] {label}: mandatory connector declares no sync presets"],
+        )
 
     try:
         live_schema_pins = provider_tool_schema_fingerprints(manifest.connector)
     except McpToolSourceError as exc:
-        return [f"[tool-schema] {label}: {exc}"]
+        return None, None, [f"[tool-schema] {label}: {exc}"]
     if not live_schema_pins:
-        return [
-            f"[tool-schema] {label}: connector-owned tool_schema_fingerprints.json "
-            "is missing or empty"
-        ]
+        return (
+            None,
+            None,
+            [
+                f"[tool-schema] {label}: connector-owned tool_schema_fingerprints.json "
+                "is missing or empty"
+            ],
+        )
+    return provider_presets, live_schema_pins, []
 
+
+def _provider_sync_violations(
+    sync: Any,
+    *,
+    label: str,
+    provider_presets: dict[str, Any],
+    live_schema_pins: dict[str, str],
+) -> list[str]:
+    actual = provider_presets.get(sync.preset)
+    if actual is None:
+        return [f"[tool-schema] {label}: provider is missing preset {sync.preset!r}"]
     violations: list[str] = []
+    expected = dict(sync.raw)
+    if json.dumps(actual, sort_keys=True, separators=(",", ":")) != json.dumps(
+        expected, sort_keys=True, separators=(",", ":")
+    ):
+        violations.append(
+            f"[tool-schema] {label}: provider preset {sync.preset!r} "
+            "differs from the signed manifest"
+        )
+    if not sync.server or not sync.tool:
+        violations.append(
+            f"[tool-schema] {label}: preset {sync.preset!r} has no server/tool"
+        )
+        return violations
+    pinned = live_schema_pins.get(sync.tool)
+    if not pinned:
+        violations.append(
+            f"[tool-schema] {label}: connector sidecar has no fingerprint for "
+            f"tool {sync.tool!r}"
+        )
+    if not sync.tool_schema_sha256:
+        violations.append(
+            f"[tool-schema] {label}: signed preset {sync.preset!r} has no "
+            "tool_schema_sha256"
+        )
+    elif pinned and pinned != sync.tool_schema_sha256:
+        violations.append(
+            f"[tool-schema] {label}: connector sidecar fingerprint for "
+            f"{sync.tool!r} differs from the signed manifest"
+        )
+    return violations
+
+
+def _provider_violations(manifest: Any, *, path: Path, label: str) -> list[str]:
+    """Require the installed provider to match every manifest sync preset exactly."""
+    if manifest.connector == "native-source-connectors":
+        return _native_provider_violations(manifest, path=path, label=label)
+    provider_presets, live_schema_pins, violations = _provider_schema_context(
+        manifest, label
+    )
+    if provider_presets is None or live_schema_pins is None:
+        return violations
     for sync in manifest.sync:
-        actual = provider_presets.get(sync.preset)
-        if actual is None:
-            violations.append(
-                f"[tool-schema] {label}: provider is missing preset {sync.preset!r}"
+        violations.extend(
+            _provider_sync_violations(
+                sync,
+                label=label,
+                provider_presets=provider_presets,
+                live_schema_pins=live_schema_pins,
             )
-            continue
-        expected = dict(sync.raw)
-        if json.dumps(actual, sort_keys=True, separators=(",", ":")) != json.dumps(
-            expected, sort_keys=True, separators=(",", ":")
-        ):
-            violations.append(
-                f"[tool-schema] {label}: provider preset {sync.preset!r} "
-                "differs from the signed manifest"
-            )
-        if not sync.server or not sync.tool:
-            violations.append(
-                f"[tool-schema] {label}: preset {sync.preset!r} has no server/tool"
-            )
-            continue
-        pinned = live_schema_pins.get(sync.tool)
-        if not pinned:
-            violations.append(
-                f"[tool-schema] {label}: connector sidecar has no fingerprint for "
-                f"tool {sync.tool!r}"
-            )
-        if not sync.tool_schema_sha256:
-            violations.append(
-                f"[tool-schema] {label}: signed preset {sync.preset!r} has no "
-                "tool_schema_sha256"
-            )
-        elif pinned and pinned != sync.tool_schema_sha256:
-            violations.append(
-                f"[tool-schema] {label}: connector sidecar fingerprint for "
-                f"{sync.tool!r} differs from the signed manifest"
-            )
+        )
     return violations
 
 
@@ -1183,20 +1356,31 @@ def _bool_constant(node: ast.expr | None, *, expected: bool) -> bool:
     return isinstance(node, ast.Constant) and node.value is expected
 
 
+def _dict_literal_pairs(node: ast.Dict) -> list[tuple[str, ast.expr]]:
+    return [
+        (key.value, value)
+        for key, value in zip(node.keys, node.values, strict=False)
+        if isinstance(key, ast.Constant) and isinstance(key.value, str)
+    ]
+
+
+def _call_keyword_pairs(node: ast.Call) -> list[tuple[str, ast.expr]]:
+    return [(kw.arg, kw.value) for kw in node.keywords if kw.arg]
+
+
+def _annotation_pairs(node: ast.expr | None) -> list[tuple[str, ast.expr]]:
+    if isinstance(node, ast.Dict):
+        return _dict_literal_pairs(node)
+    if isinstance(node, ast.Call):
+        return _call_keyword_pairs(node)
+    return []
+
+
 def _annotations_mark_mutating(node: ast.expr | None) -> bool:
     """``annotations={"destructiveHint": True}`` / ``{"readOnlyHint": False}``,
     as either a dict literal or a ``ToolAnnotations(...)`` call — both are
     valid ``fastmcp`` ``@mcp.tool(annotations=...)`` shapes."""
-    pairs: list[tuple[str, ast.expr]] = []
-    if isinstance(node, ast.Dict):
-        pairs = [
-            (key.value, value)
-            for key, value in zip(node.keys, node.values, strict=False)
-            if isinstance(key, ast.Constant) and isinstance(key.value, str)
-        ]
-    elif isinstance(node, ast.Call):
-        pairs = [(kw.arg, kw.value) for kw in node.keywords if kw.arg]
-    for name, value in pairs:
+    for name, value in _annotation_pairs(node):
         if name == "destructiveHint" and _bool_constant(value, expected=True):
             return True
         if name == "readOnlyHint" and _bool_constant(value, expected=False):
@@ -1224,6 +1408,19 @@ _TOOL_SCAN_EXCLUDED_DIR_NAMES = frozenset(
 )
 
 
+def _mutating_tool_names_in_file(path: Path) -> set[str]:
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (SyntaxError, UnicodeDecodeError, OSError):
+        return set()
+    return {
+        candidate.name
+        for candidate in ast.walk(tree)
+        if isinstance(candidate, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and _is_explicitly_mutating_tool(candidate)
+    }
+
+
 def undeclared_mutating_tools(
     pkg: str,
     *,
@@ -1248,15 +1445,7 @@ def undeclared_mutating_tools(
     for path in sorted(pkg_root.rglob("*.py")):
         if _TOOL_SCAN_EXCLUDED_DIR_NAMES.intersection(path.parts):
             continue
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        except (SyntaxError, UnicodeDecodeError, OSError):
-            continue
-        for candidate in ast.walk(tree):
-            if isinstance(
-                candidate, (ast.FunctionDef, ast.AsyncFunctionDef)
-            ) and _is_explicitly_mutating_tool(candidate):
-                mutating.add(candidate.name)
+        mutating.update(_mutating_tool_names_in_file(path))
     return sorted(mutating - declared)
 
 
@@ -1286,32 +1475,28 @@ def _undeclared_action_violations(
     ]
 
 
-def _check_manifest_bytes(
-    path: Path,
-    *,
-    require_signature: bool = False,
-    require_release_pin: bool = False,
-    require_provider: bool = False,
-    require_declared_actions: bool = False,
-    agents_root: Path | None = None,
-) -> list[str]:
-    """Implementation shared by runtime and direct hash-only callers."""
+def _load_and_validate_manifest(path: Path, label: str) -> tuple[Any, Any, list[str]]:
     import yaml
 
-    from . import ontology_integrity
     from .connector_manifest import ConnectorManifest
-    from .manifest_compiler import compile_manifest, export_manifest_ttl
 
-    violations: list[str] = []
-    label = _manifest_label(path)
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
         manifest = ConnectorManifest.model_validate(data)
     except Exception as exc:  # noqa: BLE001
-        return [
-            f"[schema] {label}: does not parse/validate as a ConnectorManifest "
-            f"({type(exc).__name__})"
-        ]
+        return (
+            None,
+            None,
+            [
+                f"[schema] {label}: does not parse/validate as a ConnectorManifest "
+                f"({type(exc).__name__})"
+            ],
+        )
+    return manifest, data, []
+
+
+def _compiled_manifest_graph(manifest: Any, label: str) -> tuple[Any, list[str]]:
+    from .manifest_compiler import compile_manifest, export_manifest_ttl
 
     try:
         spec = compile_manifest(manifest)
@@ -1328,7 +1513,7 @@ def _check_manifest_bytes(
         # genuinely needs it to parse/hash the compiled ontology. Degrade to one
         # clear, actionable line instead of a bare ModuleNotFoundError bubbling
         # up as "manifest does not compile cleanly".
-        return [
+        return None, [
             f"[dependency] {label}: the connector-manifest compile-before-sync "
             "gate needs rdflib to parse/hash the compiled ontology, and it is "
             "not installed on this deployment — install the 'owl' extra "
@@ -1336,11 +1521,51 @@ def _check_manifest_bytes(
             "image) to enable manifest-gated sync for this source."
         ]
     except Exception as exc:  # noqa: BLE001
-        return [
+        return None, [
             f"[compile] {label}: manifest does not compile cleanly "
             f"({type(exc).__name__})"
         ]
+    return g, []
 
+
+def _attestation_gate_violations(
+    manifest: Any,
+    *,
+    label: str,
+    raw: Any,
+    require_signature: bool,
+    require_release_pin: bool,
+) -> list[str]:
+    normalized_raw = raw if isinstance(raw, dict) else None
+    if require_signature:
+        return _signature_violations(manifest, label=label, raw=normalized_raw)
+    if require_release_pin:
+        return _attestation_violations(manifest, label=label, raw=normalized_raw)
+    return []
+
+
+def _check_manifest_bytes(
+    path: Path,
+    *,
+    require_signature: bool = False,
+    require_release_pin: bool = False,
+    require_provider: bool = False,
+    require_declared_actions: bool = False,
+    agents_root: Path | None = None,
+) -> list[str]:
+    """Implementation shared by runtime and direct hash-only callers."""
+    from . import ontology_integrity
+
+    label = _manifest_label(path)
+    manifest, data, schema_violations = _load_and_validate_manifest(path, label)
+    if manifest is None:
+        return schema_violations
+
+    g, compile_violations = _compiled_manifest_graph(manifest, label)
+    if g is None:
+        return compile_violations
+
+    violations: list[str] = []
     digest, triple_count = ontology_integrity.canonical_hash(g)
     if digest != manifest.provenance.integrity.hash:
         violations.append(
@@ -1349,22 +1574,15 @@ def _check_manifest_bytes(
             "the manifest was hand-edited after signing, or is stale. Regenerate via "
             "scripts/generate_connector_manifests.py."
         )
-    if require_signature:
-        violations.extend(
-            _signature_violations(
-                manifest,
-                label=label,
-                raw=data if isinstance(data, dict) else None,
-            )
+    violations.extend(
+        _attestation_gate_violations(
+            manifest,
+            label=label,
+            raw=data,
+            require_signature=require_signature,
+            require_release_pin=require_release_pin,
         )
-    elif require_release_pin:
-        violations.extend(
-            _attestation_violations(
-                manifest,
-                label=label,
-                raw=data if isinstance(data, dict) else None,
-            )
-        )
+    )
     if require_provider:
         violations.extend(_provider_violations(manifest, path=path, label=label))
     if require_declared_actions:
