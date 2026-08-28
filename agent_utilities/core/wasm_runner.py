@@ -196,7 +196,11 @@ def _run_emulated(input_data: dict[str, Any], input_str: str) -> dict[str, Any]:
 
 def _validate_int_range(value: Any, low: int, high: int, message: str) -> None:
     """Validate a plain (non-bool) int within [low, high], raising ValueError otherwise."""
-    if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not low <= value <= high
+    ):
         raise ValueError(message)
 
 
@@ -215,9 +219,7 @@ def _resolve_wasm_limits(
     if limits is None:
         raise ValueError("governed WASM execution requires resource limits")
     if float(limits.cpu_cores) != 1.0:
-        raise ValueError(
-            "Wasmtime cannot enforce a fractional or multi-core CPU share"
-        )
+        raise ValueError("Wasmtime cannot enforce a fractional or multi-core CPU share")
 
     memory_pages = min(limit_memory_pages, int(limits.max_wasm_pages))
     payload_bytes = min(max_payload_bytes, int(admission.max_payload_bytes))
