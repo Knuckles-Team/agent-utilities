@@ -4890,26 +4890,78 @@ class GraphComputeEngine:
         op) — the engine, not this client, enforces what statements its user-table
         surface accepts. Raises if no engine query surface is available.
 
-        CONCEPT:AU-KG.query.single-governed-read-path — unlike every other read
-        path in this module tree (``QueryMixin.query_cypher``, the sibling
-        read-only ``sql()``), this method historically carried NO Python-side
-        governance layer at all: no session check, no audit trail. Row-level
-        authorization for the SELECT-shaped case is NOT actually absent — the
-        engine's own ``Method::Sql`` handler enforces
-        ``IsolationLayer::filter_view``/``check_access`` against the caller's
-        carrier identity before executing (epistemic-graph
-        ``src/server/handlers/query.rs``) — but this was the one call in the
-        tree that left no provenance trail and offered no clean, typed
-        failure when that carrier identity is missing. This is a deliberately
-        TRUSTED-INTERNAL primitive (DDL/ETL callers such as
-        ``fleet_catalog_tables``/``table_ingest`` run before any ambient
-        ``GraphSession`` exists, e.g. at boot-time catalog migration), so —
-        unlike ``query_cypher`` — it does NOT hard-require a resolved session
-        (that would break those callers, not just close a gap); it best-effort
-        records the same read-audit trail every governed read leaves when a
-        verified actor IS ambient (as it always is for
-        ``gateway/registry_api.py``'s tenant/principal-scoped caller, the one
-        caller reachable from outside this trusted-internal boundary today).
+        CONCEPT:AU-KG.query.single-governed-read-path — this method applies NO
+        ``filter_rows()``/``visible()`` row-policy pass, and that is deliberate.
+        The reasons are recorded here in full because the previous version of
+        this docstring justified the same behaviour with three claims that were
+        measured false (BUG-CX-118, wave wD10), one of which cited
+        ``sql()``'s "never break a read" posture — a fail-open that was DELETED
+        this wave by BUG-CX-103. What follows is what was actually verified.
+
+        **What the engine does and does not enforce.** ``Method::Sql``
+        (epistemic-graph ``src/server/handlers/query.rs``) hard-requires a
+        signed carrier authority for BOTH reads and writes — a call with none
+        is refused with ``ACCESS_DENIED: current signed tenant authority is
+        required`` — and it RLS-filters the *graph* snapshot
+        (``versioned_rls_snapshot``/``rls_snapshot``, ``#[cfg(feature =
+        "security")]``) before a ``SELECT`` over ``nodes`` is planned. It does
+        NOT row-filter USER tables, which is the only thing this method is used
+        for: ``server::sql_tables::user_table_store`` resolves a per-owner redb
+        file keyed by ``sha256(tenant_scope, agent_id)``
+        (``owner_filename``), and that layer "performs no authorization of its
+        own … answers 'which file', never 'is this caller allowed'". So user-
+        table isolation here is PHYSICAL (one catalog per owner), never a row
+        filter — and it is evaluated against whichever identity issues the RPC.
+
+        **Why no row-policy pass belongs here.** ``filter_rows()``/``visible()``
+        judge governed KG nodes by their ACL. Every ``SELECT`` this method
+        serves reads plain user tables (``information_schema`` schema probes,
+        the ``fleet_catalog_tables`` migration ledger, and ``mcp_servers``/
+        ``mcp_tools``/``skills`` rows that are not KG nodes), so a row pass
+        would deny the fleet-catalog bootstrap outright rather than close a gap
+        — it would break real callers, which is a different thing from failing
+        closed. This is a deliberately TRUSTED-INTERNAL DDL/ETL primitive.
+
+        **What actually bounds it (verified 2026-08-28, 22 call sites in
+        3 modules).** Every ``SELECT`` reaching here is one of: schema-only
+        (``information_schema``); explicitly ``tenant_id``-predicated from the
+        ambient verified actor (``fleet_catalog_tables._select_existing_chunk``,
+        ``catalog_acl_rows``); or a boot-time migration read confined to this
+        process's own owner-scoped store (``_backfill_legacy_rows``,
+        ``_read_ledger_row``). Nothing here returns rows to an external caller.
+
+        * ``table_ingest`` reaches this method ONLY with ``CREATE TABLE`` /
+          ``INSERT`` / ``DROP TABLE`` — write shapes that return no rows. Its
+          one read (``list_tables``) goes through ``QueryMixin.sql``, the
+          fail-closed governed surface, not here.
+        * The ``graph_table`` MCP tool IS externally reachable and does reach
+          ``table_ingest`` (create/rows/ingest/drop) — so this method is NOT
+          "reachable from one caller only", as the previous docstring claimed.
+          Those are write paths. Its one read action, ``graph_table
+          action='query'`` with a caller-supplied ``SELECT``, routes to
+          ``QueryMixin.sql`` → ``_governed_engine_surface_rows`` (fail-closed),
+          never here.
+        * ``gateway/registry_api.py`` is the one externally-reachable path that
+          returns ``sql_exec`` ROWS to a caller, and it does not rely on this
+          method for authorization at all. It pushes
+          ``tenant_id``/authority/principal/grant into the WHERE clause
+          (``_build_where``, from the real caller via
+          ``_require_catalog_authority``) and then RE-VALIDATES every returned
+          row against that same contract (``_validate_scope``), denying the
+          WHOLE read on any row outside it. Note that it deliberately runs the
+          RPC under a fixed catalog-service session
+          (``_catalog_service_session``), so the engine's per-owner store is
+          opened as the SYSTEM writer — the caller gets NO engine-side
+          isolation from that call, and ``_build_where`` + ``_validate_scope``
+          is the entire boundary. Pinned by
+          ``tests/unit/gateway/test_registry_api.py::
+          test_malformed_catalog_scope_is_explicitly_unavailable`` and by
+          ``tests/unit/knowledge_graph/test_sql_exec_trusted_boundary.py``.
+
+        The ambient ACTOR is NOT suspended by ``registry_api`` (only the
+        session is), so the audit entry below attributes the read to the real
+        HTTP caller, not to the catalog-service identity. The audit remains
+        best-effort: an actor-less DDL/ETL boot call must not be broken by it.
         """
         query_ns = getattr(self._client, "query", None)
         sql_fn = getattr(query_ns, "sql", None)
@@ -4926,10 +4978,13 @@ class GraphComputeEngine:
             head = (statement or "").strip().split(None, 1)
             verb = head[0].upper() if head else "SQL"
             audit_read([], summary=f"sql_exec:{verb}")
-        except Exception as exc:  # noqa: BLE001 — best-effort audit only; no
-            # ambient session at trusted-internal DDL/ETL boot time is
-            # expected and must never break the call (mirrors `sql()`'s own
-            # "never break a read" defense-in-depth posture two methods up).
+        except Exception as exc:  # noqa: BLE001 — best-effort audit only; an
+            # actor-less trusted-internal DDL/ETL boot call is expected and
+            # must never be broken by the audit. This is NOT the deleted
+            # `sql()` "never break a read" posture the old comment cited: that
+            # swallowed a failing row-POLICY pass (BUG-CX-103); there is no
+            # row policy here to swallow, only provenance. Authorization for
+            # this surface lives upstream — see the docstring.
             logger.debug("sql_exec: audit trail skipped (%s)", type(exc).__name__)
         return result
 
