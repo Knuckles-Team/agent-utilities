@@ -245,6 +245,52 @@ def _l2_normalize(vec: NDArray) -> NDArray:
     return [value / norm for value in values]
 
 
+def _to_str_set(values: Any) -> set[str]:
+    """Coerce an optional iterable to a ``set[str]``, treating falsy input as empty."""
+    return {str(v) for v in values} if values else set()
+
+
+def _tenant_match(tenant_of: str | None, required_tenant: str | None) -> bool | None:
+    """Return whether ``tenant_of`` satisfies ``required_tenant`` (``None`` when unconstrained)."""
+    if required_tenant is None:
+        return None
+    return tenant_of in (None, required_tenant)
+
+
+def _is_eligible(
+    missing_caps: list[str], tenant_match: bool | None, missing_policy: list[str]
+) -> bool:
+    """Combine the three eligibility gates into one boolean verdict."""
+    if missing_caps or missing_policy:
+        return False
+    return tenant_match is not False
+
+
+def _satisfied_required_caps(
+    caps: set[str], req: set[str], hierarchy: Any
+) -> tuple[set[str], dict[str, list[str]]]:
+    """Resolve which of ``req`` are satisfied by ``caps``, directly or via ontology subsumption.
+
+    Returns the satisfied subset of ``req`` and, for each capability satisfied
+    only through a subtype relationship, the concrete subsumption path used
+    (``required_cap -> [declared_cap, ..., required_cap]``).
+    """
+    subsumption_paths: dict[str, list[str]] = {}
+    satisfied: set[str] = set()
+    for r in req:
+        if r in caps:
+            satisfied.add(r)
+            continue
+        for c in sorted(caps):
+            if hierarchy.is_subtype_of(c, r):
+                satisfied.add(r)
+                path = hierarchy.subsumption_path(c, r)
+                if path:
+                    subsumption_paths[r] = path
+                break
+    return satisfied, subsumption_paths
+
+
 def compute_eligibility(
     *,
     id: str,
@@ -277,36 +323,20 @@ def compute_eligibility(
     bundled current hierarchy rather than selecting a flat-string mode.
     """
     hierarchy = _resolve_capability_hierarchy(hierarchy)
-    caps = {str(c) for c in (capabilities or ())}
-    req = {str(c) for c in required_caps} if required_caps else set()
+    caps = _to_str_set(capabilities)
+    req = _to_str_set(required_caps)
 
-    subsumption_paths: dict[str, list[str]] = {}
-    satisfied: set[str] = set()
-    for r in req:
-        if r in caps:
-            satisfied.add(r)
-            continue
-        for c in sorted(caps):
-            if hierarchy.is_subtype_of(c, r):
-                satisfied.add(r)
-                path = hierarchy.subsumption_path(c, r)
-                if path:
-                    subsumption_paths[r] = path
-                break
+    satisfied, subsumption_paths = _satisfied_required_caps(caps, req, hierarchy)
     missing_caps = sorted(req - satisfied)
 
     tenant_of = tenant
-    tenant_match = (
-        None if required_tenant is None else tenant_of in (None, required_tenant)
-    )
+    tenant_match = _tenant_match(tenant_of, required_tenant)
 
-    policy_of = {str(p) for p in (policy_tags or ())}
-    req_policy = (
-        {str(p) for p in required_policy_tags} if required_policy_tags else set()
-    )
+    policy_of = _to_str_set(policy_tags)
+    req_policy = _to_str_set(required_policy_tags)
     missing_policy = sorted(req_policy - policy_of)
 
-    eligible = not missing_caps and tenant_match is not False and not missing_policy
+    eligible = _is_eligible(missing_caps, tenant_match, missing_policy)
     result: dict[str, Any] = {
         "id": id,
         "capabilities": sorted(caps),
@@ -326,6 +356,64 @@ def compute_eligibility(
     }
     result["subsumption_paths"] = subsumption_paths
     return result
+
+
+def _first_truthy(getter: Any, *keys: str) -> Any:
+    """Return the first truthy ``getter(key)`` across ``keys``, or ``None``."""
+    for k in keys:
+        v = getter(k)
+        if v:
+            return v
+    return None
+
+
+def _merge_candidate(candidate: set[str] | None, ids: set[str]) -> set[str]:
+    """Intersect ``ids`` into ``candidate``, or seed ``candidate`` from ``ids`` when unset."""
+    return set(ids) if candidate is None else candidate & ids
+
+
+@dataclass
+class _DesignationContext:
+    """Per-call context threaded through :meth:`CapabilityIndex._build_designation`."""
+
+    candidates: set[str] | None
+    req: set[str] | None
+    req_policy: set[str] | None
+    tenant: str | None
+    prior_fn: Any
+
+
+def _load_metadata_dict(path: Path) -> dict[str, Any]:
+    """Read, parse, and shape-validate the metadata JSON written by :meth:`CapabilityIndex.save`."""
+    if path.is_symlink() or not path.is_dir():
+        raise ValueError("capability index path must be a real directory")
+    metadata_path = _checked_artifact(
+        path / _INDEX_METADATA_FILE,
+        maximum_bytes=_MAX_INDEX_METADATA_BYTES,
+    )
+    try:
+        meta = json.loads(
+            _read_bounded_file(
+                metadata_path,
+                _MAX_INDEX_METADATA_BYTES,
+            ).decode("utf-8")
+        )
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+        raise ValueError("capability index metadata is invalid") from None
+    if not isinstance(meta, dict):
+        raise ValueError("capability index metadata is invalid")
+    _validate_metadata_shape(meta)
+    return meta
+
+
+def _validate_metadata_shape(meta: dict[str, Any]) -> None:
+    """Raise if ``meta["ids"]``/``meta["dim"]`` don't have the shape :meth:`CapabilityIndex.save` writes."""
+    ids = meta.get("ids")
+    if not isinstance(ids, list) or not all(isinstance(item, str) for item in ids):
+        raise ValueError("capability index identifiers are invalid")
+    dim = meta.get("dim")
+    if dim is not None and (not isinstance(dim, int) or not 0 < dim <= 1_000_000):
+        raise ValueError("capability index dimension is invalid")
 
 
 class CapabilityIndex:
@@ -559,57 +647,10 @@ class CapabilityIndex:
             EmbeddingVersionMismatchError: ``embedding_version`` disagrees with
                 this index's already-pinned version.
         """
-        if embedding_version is not None:
-            if self._embedding_version is None:
-                self._embedding_version = embedding_version
-            elif self._embedding_version != embedding_version:
-                from agent_utilities.observability.gateway_metrics import (
-                    EMBEDDING_VERSION_MISMATCHES,
-                )
-
-                EMBEDDING_VERSION_MISMATCHES.labels(site="capability_index_add").inc()
-                raise EmbeddingVersionMismatchError(
-                    expected=self._embedding_version,
-                    actual=embedding_version,
-                    context=f"CapabilityIndex.add(id={id!r})",
-                )
-        raw_embedding = to_builtin(embedding)
-        if not isinstance(raw_embedding, (list, tuple)):
-            raise TypeError("CapabilityIndex embeddings must be builtin sequences")
-        vec = [float(value) for value in raw_embedding]
-        if not vec:
-            raise ValueError(f"Empty embedding for id {id!r}")
-        if self._dim is None:
-            self._dim = len(vec)
-        elif len(vec) != self._dim:
-            raise ValueError(
-                f"Embedding dim mismatch for {id!r}: expected {self._dim}, "
-                f"got {len(vec)}"
-            )
-
-        norm_vec = _l2_normalize(vec)
+        self._pin_or_check_embedding_version(id, embedding_version)
+        norm_vec = self._validate_and_normalize_embedding(id, embedding)
         is_update = id in self._id_to_vec
-        # CONCEPT:AU-KG.memory.generation-scoped-selective-reward — selective reward erasure on the ingestion upsert path.
-        # A re-add whose representation has materially diverged from the stored one is a
-        # new generation: the reward EMA accrued under the old content is stale
-        # evidence, so erase only that id's record (RQGM selective erasure). The
-        # cosine distance is a near-free dot product on two already-normalized
-        # vectors, so this runs natively on every ingestion upsert with no flag.
-        if is_update and id in self._reward:
-            prev_vec = self._id_to_vec[id]
-            distance = 1.0 - sum(
-                left * right for left, right in zip(prev_vec, norm_vec, strict=True)
-            )
-            if distance > _REWARD_REGEN_DISTANCE:
-                self._reward.pop(id, None)
-                self._reward_erasures += 1
-                logger.debug(
-                    "[KG-2.276] selective reward erasure for %r "
-                    "(embedding drift %.3f > %.2f)",
-                    id,
-                    distance,
-                    _REWARD_REGEN_DISTANCE,
-                )
+        self._maybe_erase_stale_reward(id, norm_vec, is_update)
         self._id_to_vec[id] = norm_vec
         if embedding_version is not None:
             self._id_to_embedding_version[id] = embedding_version
@@ -619,21 +660,8 @@ class CapabilityIndex:
         if node_type:
             self._id_to_type[id] = str(node_type)
 
-        # Capability maps — clear old assignments on update.
-        if is_update:
-            for cap in self._id_to_caps.get(id, set()):
-                self._cap_to_ids.get(cap, set()).discard(id)
-        caps = {str(c) for c in (capabilities or [])}
-        self._id_to_caps[id] = caps
-        for cap in caps:
-            self._cap_to_ids.setdefault(cap, set()).add(id)
-
-        # swappableWith — symmetric.
-        if swappable_with:
-            partners = {str(p) for p in swappable_with if str(p) != id}
-            self._swappable.setdefault(id, set()).update(partners)
-            for p in partners:
-                self._swappable.setdefault(p, set()).add(id)
+        self._update_capability_maps(id, capabilities, is_update)
+        self._update_swappable_with(id, swappable_with)
 
         # Tenant/policy scoping (CONCEPT:AU-P1-3). Only overwrite when a value is
         # supplied so an unscoped update never erases a known tenant/policy set.
@@ -648,23 +676,112 @@ class CapabilityIndex:
         if reward is not None and id not in self._reward:
             self._reward[id] = min(1.0, max(0.0, float(reward)))
 
-        # ANN index maintenance.
-        if self._backend == "hnsw":
-            self._ensure_hnsw(capacity_hint=len(self._id_to_vec))
-            if id in self._id_to_label:
-                label = self._id_to_label[id]
-            else:
-                label = self._next_label
-                self._next_label += 1
-                self._id_to_label[id] = label
-                self._label_to_id[label] = id
-            self._hnsw_resize_if_needed(additional=1)
-            self._hnsw.add_items([norm_vec], [label])
+        self._update_ann_index(id, norm_vec)
+        self._evict_lru_overflow(id)
 
-        # Bounded-cache LRU eviction (CONCEPT:AU-P1-3) — touch ``id`` as most-recently
-        # used, then evict the oldest entries beyond the cap via :meth:`remove` so
-        # every backing structure (HNSW label, capability/tenant/policy/reward maps)
-        # stays in lockstep.
+    def _pin_or_check_embedding_version(
+        self, id: str, embedding_version: str | None
+    ) -> None:
+        """Pin ``embedding_version`` on first sight; raise if a later call disagrees."""
+        if embedding_version is None:
+            return
+        if self._embedding_version is None:
+            self._embedding_version = embedding_version
+        elif self._embedding_version != embedding_version:
+            from agent_utilities.observability.gateway_metrics import (
+                EMBEDDING_VERSION_MISMATCHES,
+            )
+
+            EMBEDDING_VERSION_MISMATCHES.labels(site="capability_index_add").inc()
+            raise EmbeddingVersionMismatchError(
+                expected=self._embedding_version,
+                actual=embedding_version,
+                context=f"CapabilityIndex.add(id={id!r})",
+            )
+
+    def _validate_and_normalize_embedding(self, id: str, embedding: Any) -> Any:
+        """Validate ``embedding`` against this index's pinned ``dim`` and return it L2-normalized."""
+        raw_embedding = to_builtin(embedding)
+        if not isinstance(raw_embedding, (list, tuple)):
+            raise TypeError("CapabilityIndex embeddings must be builtin sequences")
+        vec = [float(value) for value in raw_embedding]
+        if not vec:
+            raise ValueError(f"Empty embedding for id {id!r}")
+        if self._dim is None:
+            self._dim = len(vec)
+        elif len(vec) != self._dim:
+            raise ValueError(
+                f"Embedding dim mismatch for {id!r}: expected {self._dim}, "
+                f"got {len(vec)}"
+            )
+        return _l2_normalize(vec)
+
+    def _maybe_erase_stale_reward(
+        self, id: str, norm_vec: Any, is_update: bool
+    ) -> None:
+        """CONCEPT:AU-KG.memory.generation-scoped-selective-reward — erase a reward EMA whose embedding has drifted.
+
+        A re-add whose representation has materially diverged from the stored one is a
+        new generation: the reward EMA accrued under the old content is stale
+        evidence, so erase only that id's record (RQGM selective erasure). The
+        cosine distance is a near-free dot product on two already-normalized
+        vectors, so this runs natively on every ingestion upsert with no flag.
+        """
+        if not (is_update and id in self._reward):
+            return
+        prev_vec = self._id_to_vec[id]
+        distance = 1.0 - sum(
+            left * right for left, right in zip(prev_vec, norm_vec, strict=True)
+        )
+        if distance > _REWARD_REGEN_DISTANCE:
+            self._reward.pop(id, None)
+            self._reward_erasures += 1
+            logger.debug(
+                "[KG-2.276] selective reward erasure for %r "
+                "(embedding drift %.3f > %.2f)",
+                id,
+                distance,
+                _REWARD_REGEN_DISTANCE,
+            )
+
+    def _update_capability_maps(
+        self, id: str, capabilities: Any, is_update: bool
+    ) -> None:
+        """Refresh ``id``'s capability set, clearing old assignments on update."""
+        if is_update:
+            for cap in self._id_to_caps.get(id, set()):
+                self._cap_to_ids.get(cap, set()).discard(id)
+        caps = {str(c) for c in (capabilities or [])}
+        self._id_to_caps[id] = caps
+        for cap in caps:
+            self._cap_to_ids.setdefault(cap, set()).add(id)
+
+    def _update_swappable_with(self, id: str, swappable_with: Any) -> None:
+        """Record ``swappableWith`` edges symmetrically."""
+        if not swappable_with:
+            return
+        partners = {str(p) for p in swappable_with if str(p) != id}
+        self._swappable.setdefault(id, set()).update(partners)
+        for p in partners:
+            self._swappable.setdefault(p, set()).add(id)
+
+    def _update_ann_index(self, id: str, norm_vec: Any) -> None:
+        """Add/refresh ``id`` in the ANN backend (HNSW label bookkeeping) when active."""
+        if self._backend != "hnsw":
+            return
+        self._ensure_hnsw(capacity_hint=len(self._id_to_vec))
+        if id in self._id_to_label:
+            label = self._id_to_label[id]
+        else:
+            label = self._next_label
+            self._next_label += 1
+            self._id_to_label[id] = label
+            self._label_to_id[label] = id
+        self._hnsw_resize_if_needed(additional=1)
+        self._hnsw.add_items([norm_vec], [label])
+
+    def _evict_lru_overflow(self, id: str) -> None:
+        """CONCEPT:AU-P1-3 — touch ``id`` as most-recently used, then evict overflow via :meth:`remove`."""
         self._lru[id] = None
         self._lru.move_to_end(id)
         while len(self._lru) > self._bounded_cache_size:
@@ -721,42 +838,39 @@ class CapabilityIndex:
             nodes: Iterable of node descriptors.
         """
         for node in nodes:
-            if isinstance(node, dict):
-                getter = node.get
-            else:
+            self._add_one_edge_node(node)
 
-                def getter(key: str, default: Any = None, _n: Any = node) -> Any:
-                    return getattr(_n, key, default)
+    def _add_one_edge_node(self, node: Any) -> None:
+        """Add a single :meth:`build_from_edges` node descriptor, if it has an id and embedding."""
+        if isinstance(node, dict):
+            getter = node.get
+        else:
 
-            nid = getter("id")
-            if nid is None:
-                continue
-            emb = getter("embedding")
-            if emb is None:
-                continue
-            caps = (
-                getter("capabilities")
-                or getter("provides")
-                or getter("providesCapability")
-                or []
-            )
-            swap = getter("swappable_with") or getter("swappableWith") or None
-            node_type = (
-                getter("type") or getter("node_type") or getter("nodeType") or None
-            )
-            tenant = getter("tenant")
-            policy_tags = getter("policy_tags") or getter("policyTags")
-            reward = getter("capability_reward") or getter("reward")
-            self.add(
-                str(nid),
-                emb,
-                caps,
-                swappable_with=swap,
-                node_type=node_type,
-                tenant=tenant,
-                policy_tags=policy_tags,
-                reward=reward,
-            )
+            def getter(key: str, default: Any = None, _n: Any = node) -> Any:
+                return getattr(_n, key, default)
+
+        nid = getter("id", None)
+        if nid is None:
+            return
+        emb = getter("embedding", None)
+        if emb is None:
+            return
+        caps = (
+            _first_truthy(getter, "capabilities", "provides", "providesCapability")
+            or []
+        )
+        swap = _first_truthy(getter, "swappable_with", "swappableWith")
+        node_type = _first_truthy(getter, "type", "node_type", "nodeType")
+        self.add(
+            str(nid),
+            emb,
+            caps,
+            swappable_with=swap,
+            node_type=node_type,
+            tenant=getter("tenant", None),
+            policy_tags=_first_truthy(getter, "policy_tags", "policyTags"),
+            reward=_first_truthy(getter, "capability_reward", "reward"),
+        )
 
     def capabilities_of(self, id: str) -> frozenset[str]:
         """The declared (literal) capability set for ``id`` (empty if unknown)."""
@@ -795,36 +909,50 @@ class CapabilityIndex:
         if required_caps:
             # Intersection of provider sets — O(sum of set sizes). Each provider
             # set is subsumption-widened (X-4) when a hierarchy is attached.
-            for cap in required_caps:
-                providers = self._providers_for(cap)
-                candidate = (
-                    set(providers) if candidate is None else candidate & providers
-                )
-                if not candidate:
-                    return set()
+            candidate = self._providers_intersection(required_caps)
+            if not candidate:
+                return set()
         if tenant is not None:
             # Fail-open on tenant: an entity with no recorded tenant is global (visible
             # to every tenant); one with a DIFFERENT tenant is excluded.
-            tenant_ids = {
-                i
-                for i in self._id_to_vec
-                if self._id_to_tenant.get(i) in (None, tenant)
-            }
-            candidate = tenant_ids if candidate is None else candidate & tenant_ids
+            candidate = _merge_candidate(candidate, self._tenant_matching_ids(tenant))
             if not candidate:
                 return set()
         if required_policy_tags:
             # Fail-closed on policy: an entity must explicitly carry EVERY required
             # tag — an untagged entity does not satisfy a non-empty requirement.
-            policy_ids = {
-                i
-                for i in self._id_to_vec
-                if required_policy_tags <= self._id_to_policy_tags.get(i, set())
-            }
-            candidate = policy_ids if candidate is None else candidate & policy_ids
+            candidate = _merge_candidate(
+                candidate, self._policy_matching_ids(required_policy_tags)
+            )
             if not candidate:
                 return set()
         return candidate
+
+    def _providers_intersection(self, required_caps: set[str]) -> set[str]:
+        """Intersect the (subsumption-widened) provider sets for every required capability."""
+        candidate: set[str] = set()
+        first = True
+        for cap in required_caps:
+            providers = self._providers_for(cap)
+            candidate = set(providers) if first else candidate & providers
+            first = False
+            if not candidate:
+                break
+        return candidate
+
+    def _tenant_matching_ids(self, tenant: str) -> set[str]:
+        """ids with no recorded tenant (global) or exactly ``tenant``."""
+        return {
+            i for i in self._id_to_vec if self._id_to_tenant.get(i) in (None, tenant)
+        }
+
+    def _policy_matching_ids(self, required_policy_tags: set[str]) -> set[str]:
+        """ids carrying every tag in ``required_policy_tags``."""
+        return {
+            i
+            for i in self._id_to_vec
+            if required_policy_tags <= self._id_to_policy_tags.get(i, set())
+        }
 
     def designate(
         self,
@@ -877,24 +1005,56 @@ class CapabilityIndex:
             EmbeddingVersionMismatchError: ``query_embedding_version`` disagrees
                 with this index's pinned :attr:`embedding_version`.
         """
-        if (
+        self._check_query_embedding_version(query_embedding_version)
+        if k <= 0 or not self._id_to_vec:
+            return []
+
+        query = self._validate_and_normalize_query(prompt_embedding)
+
+        req = _to_str_set(required_caps) or None
+        req_policy = _to_str_set(required_policy_tags) or None
+        candidates = self._candidate_ids(
+            req, tenant=tenant, required_policy_tags=req_policy
+        )
+        if candidates is not None and not candidates:
+            return []
+
+        ranked, prior_fn = self._blend_ranked(
+            query, candidates, k, reward_weight, prior_weight, ontology_prior
+        )
+
+        ctx = _DesignationContext(
+            candidates=candidates,
+            req=req,
+            req_policy=req_policy,
+            tenant=tenant,
+            prior_fn=prior_fn,
+        )
+        return [self._build_designation(nid, score, ctx) for nid, score in ranked[:k]]
+
+    def _check_query_embedding_version(
+        self, query_embedding_version: str | None
+    ) -> None:
+        """Raise if ``query_embedding_version`` disagrees with this index's pinned version."""
+        if not (
             query_embedding_version is not None
             and self._embedding_version is not None
             and query_embedding_version != self._embedding_version
         ):
-            from agent_utilities.observability.gateway_metrics import (
-                EMBEDDING_VERSION_MISMATCHES,
-            )
+            return
+        from agent_utilities.observability.gateway_metrics import (
+            EMBEDDING_VERSION_MISMATCHES,
+        )
 
-            EMBEDDING_VERSION_MISMATCHES.labels(site="capability_index_designate").inc()
-            raise EmbeddingVersionMismatchError(
-                expected=self._embedding_version,
-                actual=query_embedding_version,
-                context="CapabilityIndex.designate query embedding",
-            )
-        if k <= 0 or not self._id_to_vec:
-            return []
+        EMBEDDING_VERSION_MISMATCHES.labels(site="capability_index_designate").inc()
+        raise EmbeddingVersionMismatchError(
+            expected=self._embedding_version,
+            actual=query_embedding_version,
+            context="CapabilityIndex.designate query embedding",
+        )
 
+    def _validate_and_normalize_query(self, prompt_embedding: Any) -> Any:
+        """Validate the query embedding against this index's ``dim`` and return it L2-normalized."""
         raw_query = to_builtin(prompt_embedding)
         if not isinstance(raw_query, (list, tuple)):
             raise TypeError(
@@ -905,23 +1065,27 @@ class CapabilityIndex:
             raise ValueError(
                 f"Prompt embedding dim mismatch: expected {self._dim}, got {len(query)}"
             )
-        query = _l2_normalize(query)
+        return _l2_normalize(query)
 
-        req = {str(c) for c in required_caps} if required_caps else None
-        req_policy = (
-            {str(p) for p in required_policy_tags} if required_policy_tags else None
-        )
-        candidates = self._candidate_ids(
-            req, tenant=tenant, required_policy_tags=req_policy
-        )
-        if candidates is not None and not candidates:
-            return []
+    def _blend_ranked(
+        self,
+        query: NDArray,
+        candidates: set[str] | None,
+        k: int,
+        reward_weight: float,
+        prior_weight: float,
+        ontology_prior: Any,
+    ) -> tuple[list[tuple[str, float]], Any]:
+        """Oversample by pure cosine, then blend in the reward EMA and ontology prior.
 
-        # Oversample by pure similarity (keeps the ANN fast path intact), then blend
-        # in two structured boosts so proven / ontology-coherent designations rise to
-        # the top: the learned reward EMA (Plan 08 Synergy 5) and the ontology-type
-        # prior (KG-2.44b). Either weight at 0 (or no signal present) disables its
-        # term, and with both off the ranking is pure cosine — exact prior parity.
+        Oversampling keeps the ANN fast path intact; the blend re-sorts the
+        oversampled pool so proven / ontology-coherent designations rise to the
+        top (CONCEPT:AU-KG.ontology.optional-populated-from — Plan 08 Synergy 5). Either weight at 0 (or
+        no signal present) disables its term, and with both off the ranking is
+        pure cosine — exact prior parity. Returns the ranked list and the
+        resolved prior function (``None`` when the prior is disabled), since the
+        caller also needs ``prior_fn`` to annotate provenance.
+        """
         use_reward = bool(reward_weight) and bool(self._reward)
         oversample_size = (
             len(candidates) if candidates is not None else len(self._id_to_vec)
@@ -932,63 +1096,65 @@ class CapabilityIndex:
             if prior_weight
             else None
         )
-        if use_reward or prior_fn is not None:
-            ranked = self._rank(query, candidates, oversample)
-            ranked = sorted(
-                ranked,
-                key=lambda t: (
-                    t[1]
-                    + (
-                        reward_weight * (self._reward.get(t[0], 0.5) - 0.5)
-                        if use_reward
-                        else 0.0
-                    )
-                    + (
-                        prior_weight * (prior_fn(t[0]) - 0.5)
-                        if prior_fn is not None
-                        else 0.0
-                    )
-                ),
-                reverse=True,
-            )
-        else:
-            ranked = self._rank(query, candidates, k)
+        if not (use_reward or prior_fn is not None):
+            return self._rank(query, candidates, k), prior_fn
 
-        results: list[Designation] = []
-        for nid, score in ranked[:k]:
-            caps = set(self._id_to_caps.get(nid, set()))
-            provenance: dict[str, Any] = {
-                "backend": self._backend,
-                "required_caps": sorted(req) if req else [],
-                "capability_filtered": candidates is not None,
-                "candidate_pool_size": (
-                    len(candidates) if candidates is not None else len(self._id_to_vec)
-                ),
-            }
-            provenance["reward"] = round(self._reward.get(nid, 0.5), 4)
-            if prior_fn is not None:
-                provenance["ontology_type"] = self._id_to_type.get(nid)
-                provenance["ontology_prior"] = round(prior_fn(nid), 4)
-            alts = self.alternatives(nid)
-            if alts:
-                provenance["alternatives"] = alts
-            # CONCEPT:AU-P1-3 — explainable routing: why this candidate was eligible.
-            if req or tenant is not None or req_policy:
-                provenance["eligibility"] = self.explain(
-                    nid,
-                    required_caps=req,
-                    tenant=tenant,
-                    required_policy_tags=req_policy,
+        ranked = self._rank(query, candidates, oversample)
+        ranked = sorted(
+            ranked,
+            key=lambda t: (
+                t[1]
+                + (
+                    reward_weight * (self._reward.get(t[0], 0.5) - 0.5)
+                    if use_reward
+                    else 0.0
                 )
-            results.append(
-                Designation(
-                    id=nid,
-                    score=float(score),
-                    capabilities=caps,
-                    provenance=provenance,
+                + (
+                    prior_weight * (prior_fn(t[0]) - 0.5)
+                    if prior_fn is not None
+                    else 0.0
                 )
+            ),
+            reverse=True,
+        )
+        return ranked, prior_fn
+
+    def _build_designation(
+        self, nid: str, score: float, ctx: _DesignationContext
+    ) -> Designation:
+        """Build one :class:`Designation` (with its full provenance) for a ranked id."""
+        caps = set(self._id_to_caps.get(nid, set()))
+        provenance: dict[str, Any] = {
+            "backend": self._backend,
+            "required_caps": sorted(ctx.req) if ctx.req else [],
+            "capability_filtered": ctx.candidates is not None,
+            "candidate_pool_size": (
+                len(ctx.candidates)
+                if ctx.candidates is not None
+                else len(self._id_to_vec)
+            ),
+        }
+        provenance["reward"] = round(self._reward.get(nid, 0.5), 4)
+        if ctx.prior_fn is not None:
+            provenance["ontology_type"] = self._id_to_type.get(nid)
+            provenance["ontology_prior"] = round(ctx.prior_fn(nid), 4)
+        alts = self.alternatives(nid)
+        if alts:
+            provenance["alternatives"] = alts
+        # CONCEPT:AU-P1-3 — explainable routing: why this candidate was eligible.
+        if ctx.req or ctx.tenant is not None or ctx.req_policy:
+            provenance["eligibility"] = self.explain(
+                nid,
+                required_caps=ctx.req,
+                tenant=ctx.tenant,
+                required_policy_tags=ctx.req_policy,
             )
-        return results
+        return Designation(
+            id=nid,
+            score=float(score),
+            capabilities=caps,
+            provenance=provenance,
+        )
 
     def _resolve_ontology_prior(
         self,
@@ -1035,22 +1201,32 @@ class CapabilityIndex:
         restricted set with bounded native cosine operations.
         """
         if self._backend == "hnsw" and candidates is None and self._hnsw is not None:
-            n = len(self._id_to_vec)
-            top = min(k, n)
-            labels, distances = self._hnsw.knn_query([query], k=top)
-            out: list[tuple[str, float]] = []
-            for label, dist in zip(labels[0], distances[0], strict=False):
-                nid = self._label_to_id.get(int(label))
-                if nid is None:
-                    continue
-                # hnswlib cosine distance == 1 - cosine_similarity.
-                out.append((nid, 1.0 - float(dist)))
-            return out
+            return self._rank_via_hnsw(query, k)
+        return self._rank_brute_force(query, candidates, k)
 
-        # Native brute-force over the (optionally restricted) candidate set.
-        # Candidates are a hash-ordered set; sort them so exact ties rank
-        # deterministically (lexicographic), identically before and after a
-        # save/load round-trip.
+    def _rank_via_hnsw(self, query: NDArray, k: int) -> list[tuple[str, float]]:
+        """Rank the full (unrestricted) id set using the native HNSW knn query."""
+        n = len(self._id_to_vec)
+        top = min(k, n)
+        labels, distances = self._hnsw.knn_query([query], k=top)
+        out: list[tuple[str, float]] = []
+        for label, dist in zip(labels[0], distances[0], strict=False):
+            nid = self._label_to_id.get(int(label))
+            if nid is None:
+                continue
+            # hnswlib cosine distance == 1 - cosine_similarity.
+            out.append((nid, 1.0 - float(dist)))
+        return out
+
+    def _rank_brute_force(
+        self, query: NDArray, candidates: set[str] | None, k: int
+    ) -> list[tuple[str, float]]:
+        """Rank the (optionally restricted) candidate set with bounded native cosine ops.
+
+        Candidates are a hash-ordered set; sort them so exact ties rank
+        deterministically (lexicographic), identically before and after a
+        save/load round-trip.
+        """
         ids = (
             sorted(i for i in candidates if i in self._id_to_vec)
             if candidates is not None
@@ -1203,7 +1379,29 @@ class CapabilityIndex:
         except OSError:
             pass
 
-        meta = {
+        meta = self._build_metadata_dict()
+
+        # Embeddings cross an explicit, versioned list/artifact seam. The native
+        # ranker keeps only builtin vectors in memory; no executable or dtype
+        # payload is persisted.
+        ids = list(self._id_to_vec.keys())
+        vectors = [self._id_to_vec[i] for i in ids]
+        save_numeric_artifact(path / "embeddings.json", vectors)
+        meta["embeddings_sha256"] = _sha256_file(path / "embeddings.json")
+        meta["embeddings_artifact"] = "embeddings.json"
+
+        self._persist_hnsw_index(path, meta)
+
+        encoded = json.dumps(
+            meta, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+        if len(encoded) > _MAX_INDEX_METADATA_BYTES:
+            raise ValueError("capability index metadata exceeds its safe bound")
+        _atomic_private_write(path, _INDEX_METADATA_FILE, encoded)
+
+    def _build_metadata_dict(self) -> dict[str, Any]:
+        """Build the JSON-serializable metadata snapshot (everything but the vector/HNSW artifacts)."""
+        return {
             "backend": self._backend,
             "dim": self._dim,
             "space": self._space,
@@ -1224,36 +1422,24 @@ class CapabilityIndex:
             "next_label": self._next_label,
             "ids": list(self._id_to_vec.keys()),
         }
-        # Embeddings cross an explicit, versioned list/artifact seam. The native
-        # ranker keeps only builtin vectors in memory; no executable or dtype
-        # payload is persisted.
-        ids = list(self._id_to_vec.keys())
-        vectors = [self._id_to_vec[i] for i in ids]
-        save_numeric_artifact(path / "embeddings.json", vectors)
-        meta["embeddings_sha256"] = _sha256_file(path / "embeddings.json")
-        meta["embeddings_artifact"] = "embeddings.json"
 
-        if self._backend == "hnsw" and self._hnsw is not None:
-            descriptor, temporary = tempfile.mkstemp(prefix=".hnsw.", dir=path)
-            os.close(descriptor)
-            temporary_path = Path(temporary)
-            try:
-                self._hnsw.save_index(str(temporary_path))
-                temporary_path.chmod(0o600)
-                with temporary_path.open("rb") as handle:
-                    os.fsync(handle.fileno())
-                os.replace(temporary_path, path / "hnsw.bin")
-            except Exception:
-                temporary_path.unlink(missing_ok=True)
-                raise
-            meta["hnsw_sha256"] = _sha256_file(path / "hnsw.bin")
-
-        encoded = json.dumps(
-            meta, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-        ).encode("utf-8")
-        if len(encoded) > _MAX_INDEX_METADATA_BYTES:
-            raise ValueError("capability index metadata exceeds its safe bound")
-        _atomic_private_write(path, _INDEX_METADATA_FILE, encoded)
+    def _persist_hnsw_index(self, path: Path, meta: dict[str, Any]) -> None:
+        """Atomically write the HNSW binary index and bind it into ``meta`` by digest, when active."""
+        if not (self._backend == "hnsw" and self._hnsw is not None):
+            return
+        descriptor, temporary = tempfile.mkstemp(prefix=".hnsw.", dir=path)
+        os.close(descriptor)
+        temporary_path = Path(temporary)
+        try:
+            self._hnsw.save_index(str(temporary_path))
+            temporary_path.chmod(0o600)
+            with temporary_path.open("rb") as handle:
+                os.fsync(handle.fileno())
+            os.replace(temporary_path, path / "hnsw.bin")
+        except Exception:
+            temporary_path.unlink(missing_ok=True)
+            raise
+        meta["hnsw_sha256"] = _sha256_file(path / "hnsw.bin")
 
     @classmethod
     def load(cls, path: str | Path) -> CapabilityIndex:
@@ -1267,29 +1453,7 @@ class CapabilityIndex:
             behaviour.
         """
         path = Path(path)
-        if path.is_symlink() or not path.is_dir():
-            raise ValueError("capability index path must be a real directory")
-        metadata_path = _checked_artifact(
-            path / _INDEX_METADATA_FILE,
-            maximum_bytes=_MAX_INDEX_METADATA_BYTES,
-        )
-        try:
-            meta = json.loads(
-                _read_bounded_file(
-                    metadata_path,
-                    _MAX_INDEX_METADATA_BYTES,
-                ).decode("utf-8")
-            )
-        except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
-            raise ValueError("capability index metadata is invalid") from None
-        if not isinstance(meta, dict):
-            raise ValueError("capability index metadata is invalid")
-        ids = meta.get("ids")
-        if not isinstance(ids, list) or not all(isinstance(item, str) for item in ids):
-            raise ValueError("capability index identifiers are invalid")
-        dim = meta.get("dim")
-        if dim is not None and (not isinstance(dim, int) or not 0 < dim <= 1_000_000):
-            raise ValueError("capability index dimension is invalid")
+        meta = _load_metadata_dict(path)
 
         idx = cls(
             dim=meta["dim"],
@@ -1298,21 +1462,33 @@ class CapabilityIndex:
             max_elements=meta.get("max_elements", 1024),
             bounded_cache_size=meta.get("bounded_cache_size"),
         )
-        idx._cap_to_ids = {c: set(ids) for c, ids in meta["cap_to_ids"].items()}
-        idx._id_to_caps = {i: set(c) for i, c in meta["id_to_caps"].items()}
-        idx._swappable = {i: set(s) for i, s in meta["swappable"].items()}
-        idx._reward = dict(meta.get("reward", {}))
-        idx._id_to_type = dict(meta.get("id_to_type", {}))
-        idx._id_to_tenant = dict(meta.get("id_to_tenant", {}))
-        idx._id_to_policy_tags = {
+        idx._hydrate_metadata_maps(meta)
+        ids = meta["ids"]
+        idx._load_embeddings(path, meta, ids)
+        idx._load_hnsw_index(path, meta, ids)
+        return idx
+
+    def _hydrate_metadata_maps(self, meta: dict[str, Any]) -> None:
+        """Restore the capability/tenant/policy/reward/label maps from a loaded metadata dict."""
+        self._cap_to_ids = {c: set(ids) for c, ids in meta["cap_to_ids"].items()}
+        self._id_to_caps = {i: set(c) for i, c in meta["id_to_caps"].items()}
+        self._swappable = {i: set(s) for i, s in meta["swappable"].items()}
+        self._reward = dict(meta.get("reward", {}))
+        self._id_to_type = dict(meta.get("id_to_type", {}))
+        self._id_to_tenant = dict(meta.get("id_to_tenant", {}))
+        self._id_to_policy_tags = {
             i: set(p) for i, p in meta.get("id_to_policy_tags", {}).items()
         }
-        idx._embedding_version = meta.get("embedding_version")
-        idx._id_to_embedding_version = dict(meta.get("id_to_embedding_version", {}))
-        idx._id_to_label = dict(meta["id_to_label"])
-        idx._label_to_id = {v: k for k, v in idx._id_to_label.items()}
-        idx._next_label = meta["next_label"]
+        self._embedding_version = meta.get("embedding_version")
+        self._id_to_embedding_version = dict(meta.get("id_to_embedding_version", {}))
+        self._id_to_label = dict(meta["id_to_label"])
+        self._label_to_id = {v: k for k, v in self._id_to_label.items()}
+        self._next_label = meta["next_label"]
 
+    def _load_embeddings(
+        self, path: Path, meta: dict[str, Any], ids: list[str]
+    ) -> None:
+        """Verify and load the embeddings artifact into ``self._id_to_vec``/``self._lru``."""
         artifact_name = meta.get("embeddings_artifact", "embeddings.json")
         if artifact_name != "embeddings.json":
             raise ValueError("capability index embedding artifact is unsupported")
@@ -1326,47 +1502,54 @@ class CapabilityIndex:
             _sha256_file(embeddings_path), meta["embeddings_sha256"]
         ):
             raise ValueError("capability index embedding digest is invalid")
-        try:
-            vectors = load_numeric_artifact(embeddings_path)
-        except ValueError:
-            raise
+        vectors = load_numeric_artifact(embeddings_path)
         if not isinstance(vectors, list) or len(vectors) != len(ids):
             raise ValueError("capability index embedding shape is invalid")
         for nid, vector in zip(ids, vectors, strict=False):
-            if not isinstance(vector, list) or (dim is not None and len(vector) != dim):
-                raise ValueError("capability index embedding dimension is invalid")
-            idx._id_to_vec[nid] = [float(value) for value in vector]
-            idx._lru[nid] = None
+            self._hydrate_one_vector(nid, vector)
 
-        if idx._backend == "hnsw":
-            hnsw_path = path / "hnsw.bin"
-            if hnsw_path.exists() and idx._dim is not None:
-                _checked_artifact(
-                    hnsw_path,
-                    maximum_bytes=max(
-                        1024 * 1024,
-                        max(1, len(ids)) * max(1, int(idx._dim)) * 64,
-                    ),
-                )
-                expected_hnsw = meta.get("hnsw_sha256")
-                if not isinstance(expected_hnsw, str) or not secrets.compare_digest(
-                    _sha256_file(hnsw_path), expected_hnsw
-                ):
-                    raise ValueError("capability index ANN digest is invalid")
-                idx._hnsw = hnswlib.Index(space="cosine", dim=idx._dim)
-                idx._hnsw.load_index(str(hnsw_path), max_elements=idx._max_elements)
-                idx._hnsw.set_ef(max(50, idx._max_elements))
-            elif idx._dim is not None and ids:
-                # Native file missing — rebuild from embeddings to preserve
-                # the hnsw backend contract.
-                idx._hnsw = None
-                idx._next_label = 0
-                idx._id_to_label = {}
-                idx._label_to_id = {}
-                vecs = idx._id_to_vec
-                idx._id_to_vec = {}
-                for nid, vec in vecs.items():
-                    caps = idx._id_to_caps.get(nid, set())
-                    # re-add restores both the vector map and hnsw index
-                    idx.add(nid, vec, caps)
-        return idx
+    def _hydrate_one_vector(self, nid: str, vector: Any) -> None:
+        """Validate one loaded vector's shape and install it (also touching LRU)."""
+        if not isinstance(vector, list) or (
+            self._dim is not None and len(vector) != self._dim
+        ):
+            raise ValueError("capability index embedding dimension is invalid")
+        self._id_to_vec[nid] = [float(value) for value in vector]
+        self._lru[nid] = None
+
+    def _load_hnsw_index(
+        self, path: Path, meta: dict[str, Any], ids: list[str]
+    ) -> None:
+        """Load the persisted HNSW index, or rebuild it from embeddings when the artifact is missing."""
+        if self._backend != "hnsw":
+            return
+        hnsw_path = path / "hnsw.bin"
+        if hnsw_path.exists() and self._dim is not None:
+            _checked_artifact(
+                hnsw_path,
+                maximum_bytes=max(
+                    1024 * 1024,
+                    max(1, len(ids)) * max(1, int(self._dim)) * 64,
+                ),
+            )
+            expected_hnsw = meta.get("hnsw_sha256")
+            if not isinstance(expected_hnsw, str) or not secrets.compare_digest(
+                _sha256_file(hnsw_path), expected_hnsw
+            ):
+                raise ValueError("capability index ANN digest is invalid")
+            self._hnsw = hnswlib.Index(space="cosine", dim=self._dim)
+            self._hnsw.load_index(str(hnsw_path), max_elements=self._max_elements)
+            self._hnsw.set_ef(max(50, self._max_elements))
+        elif self._dim is not None and ids:
+            # Native file missing — rebuild from embeddings to preserve
+            # the hnsw backend contract.
+            self._hnsw = None
+            self._next_label = 0
+            self._id_to_label = {}
+            self._label_to_id = {}
+            vecs = self._id_to_vec
+            self._id_to_vec = {}
+            for nid, vec in vecs.items():
+                caps = self._id_to_caps.get(nid, set())
+                # re-add restores both the vector map and hnsw index
+                self.add(nid, vec, caps)

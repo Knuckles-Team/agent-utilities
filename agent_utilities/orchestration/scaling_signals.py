@@ -40,7 +40,7 @@ import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, wait
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Literal, Protocol, TypeAlias, runtime_checkable
 
@@ -142,24 +142,33 @@ class _BoundedDaemonExecutor:
                 return
             self._shutdown = True
         if cancel_futures:
-            while True:
-                try:
-                    task = self._queue.get_nowait()
-                except queue.Empty:
-                    break
-                try:
-                    if task is not None:
-                        task[0].cancel()
-                finally:
-                    self._queue.task_done()
+            self._cancel_pending_tasks()
+        self._signal_workers_to_stop()
+        if wait_for_workers:
+            self._join_workers()
+
+    def _cancel_pending_tasks(self) -> None:
+        while True:
+            try:
+                task = self._queue.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                if task is not None:
+                    task[0].cancel()
+            finally:
+                self._queue.task_done()
+
+    def _signal_workers_to_stop(self) -> None:
         for _thread in self._threads:
             try:
                 self._queue.put_nowait(None)
             except queue.Full:
                 break
-        if wait_for_workers:
-            for thread in self._threads:
-                thread.join()
+
+    def _join_workers(self) -> None:
+        for thread in self._threads:
+            thread.join()
 
 
 _PROMETHEUS_EXECUTOR_LOCK = threading.Lock()
@@ -289,14 +298,26 @@ class SignalDefinition:
     local_observed_at_metric_family: str | None = None
 
     def __post_init__(self) -> None:
+        self._validate_identity()
+        self._validate_query_template()
+        self._validate_local_metric_families()
+        self._validate_service_labels()
+        self._validate_unit_and_scope()
+        self._validate_per_replica_binding()
+
+    def _validate_identity(self) -> None:
         if not _valid_symbol(self.name):
             raise ValueError("signal definition name is invalid")
         if self.aggregation not in ("fleet_total", "per_replica"):
             raise ValueError("signal aggregation must be fleet_total or per_replica")
+
+    def _validate_query_template(self) -> None:
         if not isinstance(self.query_template, str):
             raise TypeError("signal query_template must be a string")
         if len(self.query_template.encode("utf-8")) > MAX_QUERY_LENGTH:
             raise ValueError("signal query exceeds the bounded query length")
+
+    def _validate_local_metric_families(self) -> None:
         if self.local_metric_family is not None and not _valid_symbol(
             self.local_metric_family
         ):
@@ -315,10 +336,14 @@ class SignalDefinition:
             and self.local_observed_at_metric_family == self.local_metric_family
         ):
             raise ValueError("local observed-at metric family must be distinct")
+
+    def _validate_service_labels(self) -> None:
         if self.service_label is not None and not _valid_symbol(self.service_label):
             raise ValueError("service label is invalid")
         if self.service_binding is not None and not _valid_symbol(self.service_binding):
             raise ValueError("service binding is invalid")
+
+    def _validate_unit_and_scope(self) -> None:
         if not isinstance(self.unit, str) or not self.unit.strip():
             raise ValueError("signal unit is required")
         if len(self.unit.encode("utf-8")) > _MAX_SYMBOL_LENGTH:
@@ -327,6 +352,8 @@ class SignalDefinition:
             raise ValueError("signal scope is required")
         if len(self.scope.encode("utf-8")) > _MAX_SYMBOL_LENGTH:
             raise ValueError("signal scope is too long")
+
+    def _validate_per_replica_binding(self) -> None:
         # A per-replica remote query must be bound to the requested service by
         # either the explicit service placeholder or a documented metric label.
         if (
@@ -362,6 +389,14 @@ class ScalingSignalSample:
     scope: str = ""
 
     def __post_init__(self) -> None:
+        value = self._coerce_value()
+        self._validate_identity_fields()
+        self._validate_unit_and_scope()
+        observed_at = self._coerce_observed_at()
+        object.__setattr__(self, "value", value)
+        object.__setattr__(self, "observed_at", observed_at)
+
+    def _coerce_value(self) -> float:
         if isinstance(self.value, bool):
             raise ValueError("signal value must be numeric")
         try:
@@ -370,6 +405,9 @@ class ScalingSignalSample:
             raise ValueError("signal value must be numeric") from exc
         if not math.isfinite(value) or value < 0:
             raise ValueError("signal value must be finite and non-negative")
+        return value
+
+    def _validate_identity_fields(self) -> None:
         if not isinstance(self.source, str) or not self.source.strip():
             raise ValueError("signal source is required")
         if not _valid_symbol(self.service):
@@ -378,6 +416,8 @@ class ScalingSignalSample:
             raise ValueError("signal name is invalid")
         if self.aggregation not in ("fleet_total", "per_replica"):
             raise ValueError("signal aggregation is invalid")
+
+    def _validate_unit_and_scope(self) -> None:
         if not isinstance(self.unit, str) or not self.unit.strip():
             raise ValueError("signal unit is required")
         if len(self.unit.encode("utf-8")) > _MAX_SYMBOL_LENGTH:
@@ -386,14 +426,15 @@ class ScalingSignalSample:
             raise ValueError("signal scope is required")
         if len(self.scope.encode("utf-8")) > _MAX_SYMBOL_LENGTH:
             raise ValueError("signal scope is too long")
+
+    def _coerce_observed_at(self) -> float:
         try:
             observed_at = float(self.observed_at)
         except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError("signal observation time must be numeric") from exc
         if not math.isfinite(observed_at) or observed_at <= 0:
             raise ValueError("signal observation time is invalid")
-        object.__setattr__(self, "value", value)
-        object.__setattr__(self, "observed_at", observed_at)
+        return observed_at
 
 
 _BUILTIN_SIGNAL_DEFINITIONS: Mapping[str, SignalDefinition] = MappingProxyType(
@@ -470,37 +511,74 @@ def validate_scaling_signal_sample(
 ) -> ScalingSignalSample | None:
     """Validate one provider result at the autoscaler consumption boundary."""
 
+    if not _sample_identity_matches(
+        sample,
+        service=service,
+        signal=signal,
+        aggregation=aggregation,
+        unit=unit,
+        scope=scope,
+    ):
+        return None
+    current_time = _coerce_current_time(now)
+    if current_time is None:
+        return None
+    if not _sample_within_age_bounds(sample, current_time):
+        return None
+    if not _sample_is_newer(sample, previous_observed_at):
+        return None
+    return sample
+
+
+def _sample_identity_matches(
+    sample: Any,
+    *,
+    service: str,
+    signal: str,
+    aggregation: SignalAggregation | None,
+    unit: str | None,
+    scope: str | None,
+) -> bool:
     if (
         not isinstance(sample, ScalingSignalSample)
         or aggregation is None
         or unit is None
         or scope is None
     ):
-        return None
-    if (
-        sample.service != service
-        or sample.signal != signal
-        or sample.aggregation != aggregation
-        or sample.unit != unit
-        or sample.scope != scope
-    ):
-        return None
+        return False
+    return (
+        sample.service == service
+        and sample.signal == signal
+        and sample.aggregation == aggregation
+        and sample.unit == unit
+        and sample.scope == scope
+    )
+
+
+def _coerce_current_time(now: float | None) -> float | None:
     try:
         current_time = time.time() if now is None else float(now)
     except (TypeError, ValueError, OverflowError):
         return None
     if not math.isfinite(current_time):
         return None
+    return current_time
+
+
+def _sample_within_age_bounds(sample: ScalingSignalSample, current_time: float) -> bool:
     age = current_time - sample.observed_at
-    if age > MAX_SIGNAL_AGE_S or age < -MAX_FUTURE_SKEW_S:
-        return None
-    if previous_observed_at is not None:
-        try:
-            if sample.observed_at <= float(previous_observed_at):
-                return None
-        except (TypeError, ValueError, OverflowError):
-            return None
-    return sample
+    return -MAX_FUTURE_SKEW_S <= age <= MAX_SIGNAL_AGE_S
+
+
+def _sample_is_newer(
+    sample: ScalingSignalSample, previous_observed_at: float | None
+) -> bool:
+    if previous_observed_at is None:
+        return True
+    try:
+        return sample.observed_at > float(previous_observed_at)
+    except (TypeError, ValueError, OverflowError):
+        return False
 
 
 def _bounded_timeout(timeout: float) -> float:
@@ -613,26 +691,41 @@ def read_scaling_signal_samples(
         request: None for request in normalised
     }
     if isinstance(provider, BulkScalingSignalProvider):
-        try:
-            values = provider.signal_values(normalised)
-        except Exception as exc:  # noqa: BLE001 — provider failures are no data
-            logger.debug("scaling signal bulk read failed: %s", type(exc).__name__)
-            return empty
-        if not isinstance(values, Mapping):
-            return empty
-        results: dict[SignalRequest, ScalingSignalSample | None] = {}
-        try:
-            for request in normalised:
-                sample = values.get(request)
-                results[request] = (
-                    sample if isinstance(sample, ScalingSignalSample) else None
-                )
-        except Exception as exc:  # noqa: BLE001 — malformed mapping is no data
-            logger.debug("scaling signal bulk result failed: %s", type(exc).__name__)
-            return empty
-        return results
+        return _read_bulk_samples(provider, normalised, empty)
     if getattr(provider, "trusted_in_process", False) is not True:
         return empty
+    return _read_trusted_fallback_samples(provider, normalised)
+
+
+def _read_bulk_samples(
+    provider: BulkScalingSignalProvider,
+    normalised: Sequence[SignalRequest],
+    empty: dict[SignalRequest, ScalingSignalSample | None],
+) -> ScalingSignalBatch:
+    try:
+        values = provider.signal_values(normalised)
+    except Exception as exc:  # noqa: BLE001 — provider failures are no data
+        logger.debug("scaling signal bulk read failed: %s", type(exc).__name__)
+        return empty
+    if not isinstance(values, Mapping):
+        return empty
+    results: dict[SignalRequest, ScalingSignalSample | None] = {}
+    try:
+        for request in normalised:
+            sample = values.get(request)
+            results[request] = (
+                sample if isinstance(sample, ScalingSignalSample) else None
+            )
+    except Exception as exc:  # noqa: BLE001 — malformed mapping is no data
+        logger.debug("scaling signal bulk result failed: %s", type(exc).__name__)
+        return empty
+    return results
+
+
+def _read_trusted_fallback_samples(
+    provider: ScalingSignalProvider,
+    normalised: Sequence[SignalRequest],
+) -> ScalingSignalBatch:
     fallback_results: dict[SignalRequest, ScalingSignalSample | None] = {}
     for service, signal in normalised:
         try:
@@ -666,6 +759,85 @@ def _metric_label_key(labels: Any) -> MetricLabelKey | None:
     ):
         return None
     return tuple(sorted(items))
+
+
+@dataclass(slots=True)
+class _LocalMetricSnapshot:
+    """One read of the process Prometheus registry, keyed by metric family."""
+
+    records: dict[str, dict[MetricLabelKey, float]]
+    invalid_families: set[str]
+    duplicate_families: set[str]
+    high_cardinality_families: set[str]
+
+
+def _record_metric_sample(
+    metric_sample: Any,
+    family: str,
+    snapshot: _LocalMetricSnapshot,
+    max_series: int,
+) -> None:
+    if getattr(metric_sample, "name", "") != family:
+        return
+    labels = _metric_label_key(getattr(metric_sample, "labels", {}))
+    if labels is None:
+        snapshot.invalid_families.add(family)
+        return
+    try:
+        value = float(metric_sample.value)
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        snapshot.invalid_families.add(family)
+        return
+    if not math.isfinite(value) or value < 0:
+        snapshot.invalid_families.add(family)
+        return
+    if labels in snapshot.records[family]:
+        snapshot.duplicate_families.add(family)
+        return
+    if len(snapshot.records[family]) >= max_series:
+        snapshot.high_cardinality_families.add(family)
+        return
+    snapshot.records[family][labels] = value
+
+
+def _family_is_healthy(
+    value_family: str, observed_family: str, snapshot: _LocalMetricSnapshot
+) -> bool:
+    bad = (
+        snapshot.invalid_families
+        | snapshot.duplicate_families
+        | snapshot.high_cardinality_families
+    )
+    return value_family not in bad and observed_family not in bad
+
+
+def _filter_keys_by_service(
+    keys: set[MetricLabelKey], service_label: str, service: str
+) -> set[MetricLabelKey]:
+    return {labels for labels in keys if dict(labels).get(service_label) == service}
+
+
+def _matching_label_keys(
+    value_records: dict[MetricLabelKey, float],
+    observed_records: dict[MetricLabelKey, float],
+    definition: SignalDefinition,
+    service: str,
+    max_series: int,
+) -> tuple[list[float], list[float]] | None:
+    value_keys = set(value_records)
+    observed_keys = set(observed_records)
+    if definition.service_label is not None:
+        value_keys = _filter_keys_by_service(
+            value_keys, definition.service_label, service
+        )
+        observed_keys = _filter_keys_by_service(
+            observed_keys, definition.service_label, service
+        )
+    if not value_keys or value_keys != observed_keys or len(value_keys) > max_series:
+        return None
+    values = [value_records[labels] for labels in value_keys]
+    observed = [observed_records[labels] for labels in value_keys]
+    return values, observed
 
 
 class LocalMetricsProvider:
@@ -706,6 +878,22 @@ class LocalMetricsProvider:
         results: dict[SignalRequest, ScalingSignalSample | None] = {
             request: None for request in normalised
         }
+        definitions, families = self._collect_definitions(normalised)
+        if not families:
+            return results
+        snapshot = self._collect_metric_snapshot(families)
+        if snapshot is None:
+            return results
+        now = time.time()
+        for request, definition in definitions.items():
+            sample = self._sample_for_definition(request, definition, snapshot, now)
+            if sample is not None:
+                results[request] = sample
+        return results
+
+    def _collect_definitions(
+        self, normalised: Sequence[SignalRequest]
+    ) -> tuple[dict[SignalRequest, SignalDefinition], set[str]]:
         definitions: dict[SignalRequest, SignalDefinition] = {}
         families: set[str] = set()
         for service, signal in normalised:
@@ -720,122 +908,277 @@ class LocalMetricsProvider:
             definitions[request] = definition
             families.add(definition.local_metric_family)
             families.add(definition.local_observed_at_metric_family)
-        if not families:
-            return results
+        return definitions, families
+
+    def _collect_metric_snapshot(
+        self, families: set[str]
+    ) -> _LocalMetricSnapshot | None:
         try:
             from prometheus_client import REGISTRY
         except ImportError:
-            return results
-        records: dict[str, dict[MetricLabelKey, float]] = {
-            family: {} for family in families
-        }
-        invalid_families: set[str] = set()
-        duplicate_families: set[str] = set()
-        high_cardinality_families: set[str] = set()
+            return None
+        snapshot = _LocalMetricSnapshot(
+            records={family: {} for family in families},
+            invalid_families=set(),
+            duplicate_families=set(),
+            high_cardinality_families=set(),
+        )
         try:
             for metric in REGISTRY.collect():
                 family = getattr(metric, "name", "")
                 if family not in families:
                     continue
                 for metric_sample in getattr(metric, "samples", ()):
-                    if getattr(metric_sample, "name", "") != family:
-                        continue
-                    labels = _metric_label_key(getattr(metric_sample, "labels", {}))
-                    if labels is None:
-                        invalid_families.add(family)
-                        continue
-                    try:
-                        value = float(metric_sample.value)
-                    except (AttributeError, TypeError, ValueError, OverflowError):
-                        invalid_families.add(family)
-                        continue
-                    if not math.isfinite(value) or value < 0:
-                        invalid_families.add(family)
-                        continue
-                    if labels in records[family]:
-                        duplicate_families.add(family)
-                        continue
-                    if len(records[family]) >= self._max_series:
-                        high_cardinality_families.add(family)
-                        continue
-                    records[family][labels] = value
+                    _record_metric_sample(
+                        metric_sample, family, snapshot, self._max_series
+                    )
         except Exception as exc:  # noqa: BLE001 — malformed metrics are no data
             logger.debug(
                 "LocalMetricsProvider bulk read failed: %s", type(exc).__name__
             )
-            return results
-        now = time.time()
-        for request, definition in definitions.items():
-            value_family = definition.local_metric_family
-            observed_family = definition.local_observed_at_metric_family
-            if value_family is None or observed_family is None:
-                continue
-            if (
-                value_family in invalid_families
-                or observed_family in invalid_families
-                or value_family in duplicate_families
-                or observed_family in duplicate_families
-                or value_family in high_cardinality_families
-                or observed_family in high_cardinality_families
-            ):
-                continue
-            service, signal = request
-            value_records = records[value_family]
-            observed_records = records[observed_family]
-            value_keys = set(value_records)
-            observed_keys = set(observed_records)
-            if definition.service_label is not None:
-                value_keys = {
-                    labels
-                    for labels in value_keys
-                    if dict(labels).get(definition.service_label) == service
-                }
-                observed_keys = {
-                    labels
-                    for labels in observed_keys
-                    if dict(labels).get(definition.service_label) == service
-                }
-            if (
-                not value_keys
-                or value_keys != observed_keys
-                or len(value_keys) > self._max_series
-            ):
-                continue
-            values = [value_records[labels] for labels in value_keys]
-            observed = [observed_records[labels] for labels in value_keys]
-            aggregate_value = (
-                sum(values)
-                if definition.aggregation == "fleet_total"
-                else sum(values) / len(values)
-            )
-            try:
-                sample = ScalingSignalSample(
-                    value=aggregate_value,
-                    source=self.name,
-                    service=service,
-                    signal=signal,
-                    aggregation=definition.aggregation,
-                    observed_at=min(observed),
-                    unit=definition.unit,
-                    scope=definition.scope,
-                )
-            except (TypeError, ValueError, OverflowError):
-                continue
-            results[request] = validate_scaling_signal_sample(
-                sample,
-                service=service,
-                signal=signal,
-                aggregation=definition.aggregation,
-                unit=definition.unit,
-                scope=definition.scope,
-                now=now,
-            )
-        return results
+            return None
+        return snapshot
+
+    def _sample_for_definition(
+        self,
+        request: SignalRequest,
+        definition: SignalDefinition,
+        snapshot: _LocalMetricSnapshot,
+        now: float,
+    ) -> ScalingSignalSample | None:
+        value_family = definition.local_metric_family
+        observed_family = definition.local_observed_at_metric_family
+        if value_family is None or observed_family is None:
+            return None
+        if not _family_is_healthy(value_family, observed_family, snapshot):
+            return None
+        service, signal = request
+        extracted = _matching_label_keys(
+            snapshot.records[value_family],
+            snapshot.records[observed_family],
+            definition,
+            service,
+            self._max_series,
+        )
+        if extracted is None:
+            return None
+        values, observed = extracted
+        return _build_and_validate_sample(
+            self.name, values, observed, service, signal, definition, now
+        )
 
     def signal_value(self, service: str, signal: str) -> ScalingSignalSample | None:
         return read_scaling_signal_samples(self, [(service, signal)]).get(
             (service, signal)
         )
+
+
+def _payload_result_vector(payload: Any, max_series: int) -> list[Any] | None:
+    if not isinstance(payload, Mapping) or payload.get("status") != "success":
+        return None
+    data = payload.get("data")
+    if not isinstance(data, Mapping) or data.get("resultType") != "vector":
+        return None
+    result = data.get("result")
+    if not isinstance(result, list) or not result or len(result) > max_series:
+        return None
+    return result
+
+
+def _build_and_validate_sample(
+    source: str,
+    values: list[float],
+    observed: list[float],
+    service: str,
+    signal: str,
+    definition: SignalDefinition,
+    now: float,
+) -> ScalingSignalSample | None:
+    try:
+        aggregate_value = (
+            sum(values)
+            if definition.aggregation == "fleet_total"
+            else sum(values) / len(values)
+        )
+        sample = ScalingSignalSample(
+            value=aggregate_value,
+            source=source,
+            service=service,
+            signal=signal,
+            aggregation=definition.aggregation,
+            observed_at=min(observed),
+            unit=definition.unit,
+            scope=definition.scope,
+        )
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return validate_scaling_signal_sample(
+        sample,
+        service=service,
+        signal=signal,
+        aggregation=definition.aggregation,
+        unit=definition.unit,
+        scope=definition.scope,
+        now=now,
+    )
+
+
+def _series_label_ok(
+    entry: Any, definition: SignalDefinition, service: str
+) -> Mapping[str, Any] | None:
+    if not isinstance(entry, Mapping):
+        return None
+    metric = entry.get("metric")
+    if not isinstance(metric, Mapping):
+        return None
+    if definition.service_label is not None:
+        label_value = metric.get(definition.service_label)
+        if label_value != service:
+            return None
+    return entry
+
+
+def _coerce_series_value(raw_value: Any) -> tuple[float, float] | None:
+    if not isinstance(raw_value, (list, tuple)) or len(raw_value) != 2:
+        return None
+    try:
+        timestamp = float(raw_value[0])
+        value = float(raw_value[1])
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(timestamp) or not math.isfinite(value) or value < 0:
+        return None
+    return value, timestamp
+
+
+def _extract_one_series(
+    entry: Any, definition: SignalDefinition, service: str
+) -> tuple[float, float] | None:
+    checked_entry = _series_label_ok(entry, definition, service)
+    if checked_entry is None:
+        return None
+    return _coerce_series_value(checked_entry.get("value"))
+
+
+def _extract_prometheus_values(
+    result: list[Any], definition: SignalDefinition, service: str
+) -> tuple[list[float], list[float]] | None:
+    values: list[float] = []
+    observed: list[float] = []
+    for entry in result:
+        point = _extract_one_series(entry, definition, service)
+        if point is None:
+            return None
+        value, timestamp = point
+        values.append(value)
+        observed.append(timestamp)
+    return values, observed
+
+
+@dataclass(slots=True)
+class _BulkDispatchState:
+    """Mutable state for one bounded concurrent bulk Prometheus dispatch."""
+
+    queries: list[str]
+    deadline: float
+    shared_client: Any = None
+    next_query: int = 0
+    pending: dict[Any, str] = field(default_factory=dict)
+    payloads: dict[str, Any] = field(default_factory=dict)
+
+
+def _submit_one_query(
+    provider: PrometheusHttpProvider, state: _BulkDispatchState, remaining: float
+) -> bool:
+    """Submit exactly one query; return whether a future was scheduled."""
+
+    from agent_utilities.core.http_client import create_http_client
+
+    query = state.queries[state.next_query]
+    client = state.shared_client
+    client_owned_by_future = False
+    if client is None:
+        client = create_http_client(
+            timeout=provider.timeout, transport=provider.transport
+        )
+        client_owned_by_future = True
+    try:
+        future = _prometheus_submit(
+            provider._fetch_payload,  # noqa: SLF001 — bulk dispatch is provider-internal
+            provider,
+            client,
+            client_owned_by_future,
+            query,
+            min(provider.timeout, remaining),
+        )
+    except Exception:
+        if client_owned_by_future:
+            _close_prometheus_client(client)
+        raise
+    if future is None:
+        if client_owned_by_future:
+            _close_prometheus_client(client)
+        return False
+    state.pending[future] = query
+    state.next_query += 1
+    return True
+
+
+def _submit_available_queries(
+    provider: PrometheusHttpProvider, state: _BulkDispatchState
+) -> None:
+    while (
+        state.next_query < len(state.queries)
+        and len(state.pending) < provider.max_concurrency
+    ):
+        remaining = state.deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        _reap_prometheus_inflight()
+        with _PROMETHEUS_EXECUTOR_LOCK:
+            global_available = MAX_QUERY_CONCURRENCY - len(_PROMETHEUS_INFLIGHT)
+            provider_available = (
+                provider.max_concurrency - provider._prometheus_inflight  # noqa: SLF001
+            )
+        if global_available <= 0 or provider_available <= 0:
+            return
+        if not _submit_one_query(provider, state, remaining):
+            return
+
+
+def _drain_bulk_dispatch(
+    provider: PrometheusHttpProvider, state: _BulkDispatchState
+) -> None:
+    """Pump submission + completion until every query is settled or the
+    deadline / concurrency budget is exhausted. Mutates ``state`` in place so
+    partial ``payloads``/``pending`` survive a setup exception in the caller.
+    """
+
+    while state.pending or state.next_query < len(state.queries):
+        _submit_available_queries(provider, state)
+        if not state.pending:
+            # Another provider may own every global slot, or this provider
+            # may still have a timed-out query. Do not spin or start
+            # unbounded work; remaining queries are no data.
+            break
+        remaining = state.deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        done, _ = wait(
+            set(state.pending), timeout=remaining, return_when=FIRST_COMPLETED
+        )
+        if not done:
+            break
+        for future in done:
+            query = state.pending.pop(future)
+            try:
+                state.payloads[query] = future.result()
+            except Exception as exc:  # noqa: BLE001 — one query is no data
+                logger.debug(
+                    "PrometheusHttpProvider query failed: %s", type(exc).__name__
+                )
+                state.payloads[query] = None
+        _reap_prometheus_inflight()
 
 
 class PrometheusHttpProvider:
@@ -912,64 +1255,15 @@ class PrometheusHttpProvider:
         *,
         now: float,
     ) -> ScalingSignalSample | None:
-        if not isinstance(payload, Mapping) or payload.get("status") != "success":
+        result = _payload_result_vector(payload, self._max_series)
+        if result is None:
             return None
-        data = payload.get("data")
-        if not isinstance(data, Mapping) or data.get("resultType") != "vector":
+        extracted = _extract_prometheus_values(result, definition, service)
+        if extracted is None:
             return None
-        result = data.get("result")
-        if not isinstance(result, list) or not result or len(result) > self._max_series:
-            return None
-        values: list[float] = []
-        observed: list[float] = []
-        for entry in result:
-            if not isinstance(entry, Mapping):
-                return None
-            metric = entry.get("metric")
-            if not isinstance(metric, Mapping):
-                return None
-            if definition.service_label is not None:
-                label_value = metric.get(definition.service_label)
-                if label_value != service:
-                    return None
-            raw_value = entry.get("value")
-            if not isinstance(raw_value, (list, tuple)) or len(raw_value) != 2:
-                return None
-            try:
-                timestamp = float(raw_value[0])
-                value = float(raw_value[1])
-            except (TypeError, ValueError, OverflowError):
-                return None
-            if not math.isfinite(timestamp) or not math.isfinite(value) or value < 0:
-                return None
-            values.append(value)
-            observed.append(timestamp)
-        try:
-            aggregate_value = (
-                sum(values)
-                if definition.aggregation == "fleet_total"
-                else sum(values) / len(values)
-            )
-            sample = ScalingSignalSample(
-                value=aggregate_value,
-                source=self.name,
-                service=service,
-                signal=signal,
-                aggregation=definition.aggregation,
-                observed_at=min(observed),
-                unit=definition.unit,
-                scope=definition.scope,
-            )
-        except (TypeError, ValueError, OverflowError):
-            return None
-        return validate_scaling_signal_sample(
-            sample,
-            service=service,
-            signal=signal,
-            aggregation=definition.aggregation,
-            unit=definition.unit,
-            scope=definition.scope,
-            now=now,
+        values, observed = extracted
+        return _build_and_validate_sample(
+            self.name, values, observed, service, signal, definition, now
         )
 
     def _fetch_payload(self, client: Any, query: str, timeout: float) -> Any:
@@ -988,6 +1282,15 @@ class PrometheusHttpProvider:
         results: dict[SignalRequest, ScalingSignalSample | None] = {
             request: None for request in normalised
         }
+        jobs = self._build_jobs(normalised)
+        if not jobs:
+            return results
+        payloads = self._run_bulk_dispatch(list(jobs))
+        return self._assemble_results(jobs, payloads, results)
+
+    def _build_jobs(
+        self, normalised: Sequence[SignalRequest]
+    ) -> dict[str, list[tuple[SignalRequest, SignalDefinition]]]:
         jobs: dict[str, list[tuple[SignalRequest, SignalDefinition]]] = {}
         for request in normalised:
             service, signal = request
@@ -998,108 +1301,40 @@ class PrometheusHttpProvider:
             if query not in jobs and len(jobs) >= MAX_BULK_QUERIES:
                 continue
             jobs.setdefault(query, []).append((request, definition))
-        if not jobs:
-            return results
+        return jobs
 
+    def _run_bulk_dispatch(self, queries: list[str]) -> dict[str, Any]:
         from agent_utilities.core.http_client import create_http_client
 
         deadline = time.monotonic() + self.overall_timeout
-        shared_client = None
-        pending: dict[Any, str] = {}
-        payloads: dict[str, Any] = {}
-        queries = list(jobs)
-        next_query = 0
+        state = _BulkDispatchState(queries=queries, deadline=deadline)
         try:
             if self._transport_thread_safe:
-                shared_client = create_http_client(
+                state.shared_client = create_http_client(
                     timeout=self.timeout, transport=self.transport
                 )
-
-            def submit_available() -> None:
-                nonlocal next_query
-                while next_query < len(queries) and len(pending) < self.max_concurrency:
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        return
-                    _reap_prometheus_inflight()
-                    with _PROMETHEUS_EXECUTOR_LOCK:
-                        global_available = MAX_QUERY_CONCURRENCY - len(
-                            _PROMETHEUS_INFLIGHT
-                        )
-                        provider_available = (
-                            self.max_concurrency - self._prometheus_inflight
-                        )
-                    if global_available <= 0 or provider_available <= 0:
-                        return
-                    query = queries[next_query]
-                    client = shared_client
-                    client_owned_by_future = False
-                    if client is None:
-                        client = create_http_client(
-                            timeout=self.timeout, transport=self.transport
-                        )
-                        client_owned_by_future = True
-                    try:
-                        future = _prometheus_submit(
-                            self._fetch_payload,
-                            self,
-                            client,
-                            client_owned_by_future,
-                            query,
-                            min(self.timeout, remaining),
-                        )
-                    except Exception:
-                        if client_owned_by_future:
-                            _close_prometheus_client(client)
-                        raise
-                    if future is None:
-                        if client_owned_by_future:
-                            _close_prometheus_client(client)
-                        return
-                    pending[future] = query
-                    next_query += 1
-
-            while pending or next_query < len(queries):
-                submit_available()
-                if not pending:
-                    # Another provider may own every global slot, or this
-                    # provider may still have a timed-out query. Do not spin or
-                    # start unbounded work; remaining queries are no data.
-                    break
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    break
-                done, _ = wait(
-                    set(pending),
-                    timeout=remaining,
-                    return_when=FIRST_COMPLETED,
-                )
-                if not done:
-                    break
-                for future in done:
-                    query = pending.pop(future)
-                    try:
-                        payloads[query] = future.result()
-                    except Exception as exc:  # noqa: BLE001 — one query is no data
-                        logger.debug(
-                            "PrometheusHttpProvider query failed: %s",
-                            type(exc).__name__,
-                        )
-                        payloads[query] = None
-                _reap_prometheus_inflight()
+            _drain_bulk_dispatch(self, state)
         except Exception as exc:  # noqa: BLE001 — provider failures are no data
             logger.debug(
                 "PrometheusHttpProvider bulk setup failed: %s", type(exc).__name__
             )
         finally:
-            for future in pending:
+            for future in state.pending:
                 future.cancel()
-            if shared_client is not None:
-                if pending:
-                    _close_prometheus_client_when_idle(shared_client)
+            if state.shared_client is not None:
+                if state.pending:
+                    _close_prometheus_client_when_idle(state.shared_client)
                 else:
-                    _close_prometheus_client(shared_client)
+                    _close_prometheus_client(state.shared_client)
             _reap_prometheus_inflight()
+        return state.payloads
+
+    def _assemble_results(
+        self,
+        jobs: dict[str, list[tuple[SignalRequest, SignalDefinition]]],
+        payloads: dict[str, Any],
+        results: dict[SignalRequest, ScalingSignalSample | None],
+    ) -> ScalingSignalBatch:
         now = time.time()
         for query, query_requests in jobs.items():
             payload = payloads.get(query)

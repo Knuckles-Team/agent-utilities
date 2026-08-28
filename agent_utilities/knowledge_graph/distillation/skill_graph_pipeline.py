@@ -379,18 +379,7 @@ def _split_llms_full(text: str, base: str) -> list[AcquiredDoc]:
         if len(sections) <= _MAX_LLMS_SECTIONS:
             return [_section_doc(sec, src) for sec in sections]
         # Over-fragmented: pack adjacent sections into size-bounded files.
-        docs: list[AcquiredDoc] = []
-        buf: list[str] = []
-        size = 0
-        for sec in sections:
-            if buf and size + len(sec) > _LLMS_COALESCE_BYTES:
-                docs.append(_section_doc("\n\n".join(buf), src, idx=len(docs)))
-                buf, size = [], 0
-            buf.append(sec)
-            size += len(sec)
-        if buf:
-            docs.append(_section_doc("\n\n".join(buf), src, idx=len(docs)))
-        return docs
+        return _pack_llms_sections(sections, src)
     return [
         AcquiredDoc(
             rel_path="llms-full.md",
@@ -399,6 +388,22 @@ def _split_llms_full(text: str, base: str) -> list[AcquiredDoc]:
             source_uri=src,
         )
     ]
+
+
+def _pack_llms_sections(sections: list[str], src: str) -> list[AcquiredDoc]:
+    """Pack adjacent over-fragmented sections into ~_LLMS_COALESCE_BYTES-bounded files."""
+    docs: list[AcquiredDoc] = []
+    buf: list[str] = []
+    size = 0
+    for sec in sections:
+        if buf and size + len(sec) > _LLMS_COALESCE_BYTES:
+            docs.append(_section_doc("\n\n".join(buf), src, idx=len(docs)))
+            buf, size = [], 0
+        buf.append(sec)
+        size += len(sec)
+    if buf:
+        docs.append(_section_doc("\n\n".join(buf), src, idx=len(docs)))
+    return docs
 
 
 def _section_doc(sec: str, src: str, idx: int | None = None) -> AcquiredDoc:
@@ -430,19 +435,24 @@ def _fetch_llms_index(idx: str, base: str, max_pages: int) -> list[AcquiredDoc]:
         if not url.startswith("http") or url in seen:
             continue
         seen.add(url)
-        body = _http_get(url)
-        if not body or not body.strip():
-            continue
-        if _looks_like_html(body):
-            body = _html_to_markdown(body)
-            if not body or not body.strip():
-                continue
-        rel = re.sub(r"[^a-zA-Z0-9._/-]+", "-", url.split("://", 1)[-1]).strip("-/")
-        rel = (rel or _slug(name)) + ("" if rel.endswith(".md") else ".md")
-        docs.append(
-            AcquiredDoc(rel_path=rel, text=body, title=name[:80], source_uri=url)
-        )
+        doc = _fetch_llms_page(name, url)
+        if doc is not None:
+            docs.append(doc)
     return docs
+
+
+def _fetch_llms_page(name: str, url: str) -> AcquiredDoc | None:
+    """Fetch one llms.txt-linked page; strip to markdown/text if it looks like HTML."""
+    body = _http_get(url)
+    if not body or not body.strip():
+        return None
+    if _looks_like_html(body):
+        body = _html_to_markdown(body)
+        if not body or not body.strip():
+            return None
+    rel = re.sub(r"[^a-zA-Z0-9._/-]+", "-", url.split("://", 1)[-1]).strip("-/")
+    rel = (rel or _slug(name)) + ("" if rel.endswith(".md") else ".md")
+    return AcquiredDoc(rel_path=rel, text=body, title=name[:80], source_uri=url)
 
 
 def _looks_like_html(text: str) -> bool:
@@ -591,6 +601,26 @@ DistillerFn = Callable[[str, str], str]
 
 
 # ── pipeline ────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class _BuildArtifacts:
+    """Bundle the produced-file artifacts of :meth:`SkillGraphPipeline._build_from_bundles`
+    so :meth:`SkillGraphPipeline._finalize_build` stays under the 7-parameter cap."""
+
+    md_files: list[Path]
+    bundles: list[AcquiredBundle]
+    kg_result: dict[str, Any]
+
+
+@dataclass
+class _DeltaFinalizeArtifacts:
+    """Bundle the delta-refresh artifacts of :meth:`SkillGraphPipeline.refresh_one`
+    so :meth:`SkillGraphPipeline._finalize_delta` stays under the 7-parameter cap."""
+
+    bundles: list[AcquiredBundle]
+    kg_result: dict[str, Any]
+    delta: _SkillDelta
 
 
 class SkillGraphPipeline:
@@ -909,29 +939,9 @@ class SkillGraphPipeline:
         """
         skill_dir = Path(out_dir) / name
         ref = skill_dir / "reference"
-
-        if ref.exists():
-            shutil.rmtree(ref)
-        _write_reference_tree(ref, bundles, max_file_kb)
-
-        # Ship the KG-distiller provenance manifest (round-trip) if a kg_query ran.
-        kg_query_manifest = next(
-            (b.kg_manifest for b in bundles if b.kg_manifest), None
+        kg_result = self._write_bundle_reference(
+            skill_dir, ref, bundles, max_file_kb, kg_enrich, name
         )
-        if kg_query_manifest is not None:
-            (skill_dir / "kg_manifest.json").write_text(
-                json.dumps(kg_query_manifest, indent=2), encoding="utf-8"
-            )
-
-        # Hybrid-auto KG enrichment (graceful — never blocks the offline graph).
-        do_kg = self.kg_enrich if kg_enrich is None else kg_enrich
-        kg_result: dict[str, Any] = (
-            self._maybe_ingest_kg([str(ref)], name) if do_kg else {"kg_ingested": False}
-        )
-        if kg_query_manifest is not None:
-            kg_result.setdefault("kg_manifest", "kg_manifest.json")
-            kg_result.setdefault("kg_ontology", kg_query_manifest.get("ontology"))
-            kg_result.setdefault("concepts", _manifest_concepts(kg_query_manifest))
 
         md_files = sorted(ref.rglob("*.md"))
         version = version or "0.1.0"
@@ -939,38 +949,9 @@ class SkillGraphPipeline:
 
         # Logical sources recorded in the manifest: the override (durable upstream)
         # when given, else the acquisition bundles' own specs.
-        if record_specs is not None:
-            corpus_hash = sha256_text(
-                "\n".join(
-                    sorted(
-                        f"{doc.source_uri}\n{doc.text}"
-                        for b in bundles
-                        for doc in b.docs
-                    )
-                )
-            )
-            recorded = [
-                {
-                    "kind": s.kind,
-                    "uri": s.uri,
-                    "options": dict(s.options),
-                    "extractor": "wrap-existing",
-                    "fetched_at": _now_iso(),
-                    "content_hash": corpus_hash,
-                    "doc_count": len(md_files),
-                }
-                for s in record_specs
-            ]
-            record_kinds = sorted({s.kind for s in record_specs})
-            source_url = ", ".join(
-                s.uri for s in record_specs if s.uri.startswith("http")
-            )
-        else:
-            recorded = None
-            record_kinds = None
-            source_url = ", ".join(
-                b.spec.uri for b in bundles if b.spec.uri.startswith("http")
-            )
+        recorded, record_kinds, source_url = _build_recorded_sources(
+            bundles, record_specs, md_files
+        )
 
         self._write_sources_manifest(
             skill_dir,
@@ -996,6 +977,60 @@ class SkillGraphPipeline:
             source_url=source_url,
         )
 
+        return self._finalize_build(
+            skill_dir,
+            name,
+            version,
+            _BuildArtifacts(md_files=md_files, bundles=bundles, kg_result=kg_result),
+            source_url,
+        )
+
+    def _write_bundle_reference(
+        self,
+        skill_dir: Path,
+        ref: Path,
+        bundles: list[AcquiredBundle],
+        max_file_kb: int,
+        kg_enrich: bool | None,
+        name: str,
+    ) -> dict[str, Any]:
+        """Wipe+write the reference tree, ship kg_manifest.json (if any), enrich via KG."""
+        if ref.exists():
+            shutil.rmtree(ref)
+        _write_reference_tree(ref, bundles, max_file_kb)
+
+        # Ship the KG-distiller provenance manifest (round-trip) if a kg_query ran.
+        kg_query_manifest = next(
+            (b.kg_manifest for b in bundles if b.kg_manifest), None
+        )
+        if kg_query_manifest is not None:
+            (skill_dir / "kg_manifest.json").write_text(
+                json.dumps(kg_query_manifest, indent=2), encoding="utf-8"
+            )
+
+        # Hybrid-auto KG enrichment (graceful — never blocks the offline graph).
+        do_kg = self.kg_enrich if kg_enrich is None else kg_enrich
+        kg_result: dict[str, Any] = (
+            self._maybe_ingest_kg([str(ref)], name) if do_kg else {"kg_ingested": False}
+        )
+        if kg_query_manifest is not None:
+            kg_result.setdefault("kg_manifest", "kg_manifest.json")
+            kg_result.setdefault("kg_ontology", kg_query_manifest.get("ontology"))
+            kg_result.setdefault("concepts", _manifest_concepts(kg_query_manifest))
+        return kg_result
+
+    def _finalize_build(
+        self,
+        skill_dir: Path,
+        name: str,
+        version: str,
+        artifacts: _BuildArtifacts,
+        source_url: str,
+    ) -> dict[str, Any]:
+        """OKF conformance stamp + validation + the build's return payload."""
+        md_files = artifacts.md_files
+        bundles = artifacts.bundles
+        kg_result = artifacts.kg_result
         # OKF conformance (CONCEPT:AU-KG.research.okf-bundle-conformance): make the
         # skill-graph a valid Open Knowledge Format bundle — per-file frontmatter +
         # index.md/log.md — alongside the machine index.json/sources.json twins.
@@ -1049,6 +1084,9 @@ class SkillGraphPipeline:
             "--content-type",
             "document",
         ]
+        return self._run_kg_ingest_cmd(cmd, name)
+
+    def _run_kg_ingest_cmd(self, cmd: list[str], name: str) -> dict[str, Any]:
         try:
             returncode, stdout, stderr = _run_bounded(cmd, timeout=self.kg_timeout)
         except Exception as exc:  # noqa: BLE001 — FileNotFound, timeout, etc.
@@ -1061,14 +1099,7 @@ class SkillGraphPipeline:
                 (stderr or stdout or "").strip()[:300],
             )
             return {"kg_ingested": False, "reason": "ingest_failed"}
-        nodes = edges = 0
-        try:
-            payload = json.loads(stdout or "{}")
-            for r in payload.get("results", []):
-                nodes += int(r.get("nodes_created") or 0)
-                edges += int(r.get("edges_created") or 0)
-        except ValueError:
-            pass
+        nodes, edges = _parse_kg_ingest_stats(stdout)
         return {
             "kg_ingested": True,
             "nodes": nodes,
@@ -1147,107 +1178,28 @@ class SkillGraphPipeline:
     ) -> None:
         source_types = source_types_override or sorted({b.spec.kind for b in bundles})
         concepts = kg_result.get("concepts") or []
-        toc = _render_toc(_build_doc_tree(ref))
-        title = name.replace("-", " ").replace("docs", "").strip().title()
-        kg_on = bool(kg_result.get("kg_ingested"))
-        domain = kg_result.get("domain") or f"skillgraph:{name}"
-        urls = [u.strip() for u in source_url.split(",") if u.strip()]
-        total_kb = sum(p.stat().st_size for p in md_files) // 1024
-
-        # ── frontmatter ──
-        lines = ["---", f"name: {name}", f"description: {description}"]
-        lines.append(f"skill_graph_version: {version}")
-        lines.append(f"source_types: [{', '.join(source_types)}]")
-        if source_url:
-            lines.append(f"source_url: {source_url}")
-        lines.append(f"built_at: {_now_iso()}")
-        lines.append(f"builder_version: {_pkg_version()}")
-        lines.append(f"file_count: {len(md_files)}")
-        lines.append(f"kg_ingested: {str(kg_on).lower()}")
-        lines.append("index: index.json")
-        if (skill_dir / "OVERVIEW.md").exists():
-            lines.append("overview: OVERVIEW.md")
-        if kg_result.get("kg_manifest"):
-            lines.append(f"kg_manifest: {kg_result['kg_manifest']}")
-        if kg_result.get("kg_ontology"):
-            lines.append(f"kg_ontology: {kg_result['kg_ontology']}")
-        if concepts:
-            lines.append(f"concepts: [{', '.join(repr(c) for c in concepts)}]")
-        lines.append("categories: [Documentation, Knowledge Base, Reference]")
-        lines.append(f"tags: [docs, reference, {name}, knowledge-base]")
-        lines.append("---")
-
-        # ── header + badge table ──
-        _nodes = int(kg_result.get("nodes") or 0)
-        kg_cell = (
-            f"✅ ingested ({f'{_nodes} nodes, ' if _nodes else ''}domain `{domain}`)"
-            if kg_on
-            else "— (offline corpus)"
+        ctx = _SkillMdCtx(
+            skill_dir=skill_dir,
+            name=name,
+            description=description,
+            version=version,
+            md_files=md_files,
+            kg_result=kg_result,
+            source_types=source_types,
+            source_url=source_url,
+            concepts=concepts,
+            toc=_render_toc(_build_doc_tree(ref)),
+            title=name.replace("-", " ").replace("docs", "").strip().title(),
+            kg_on=bool(kg_result.get("kg_ingested")),
+            domain=kg_result.get("domain") or f"skillgraph:{name}",
+            urls=[u.strip() for u in source_url.split(",") if u.strip()],
+            total_kb=sum(p.stat().st_size for p in md_files) // 1024,
         )
-        lines += ["", f"# {title} — Reference Skill-Graph", "", f"> {description}", ""]
-        lines += [
-            "| | |",
-            "|---|---|",
-            f"| **Version** | {version} |",
-            f"| **Files** | {len(md_files)} ({total_kb} KB) |",
-            f"| **Source types** | {', '.join(source_types)} |",
-            f"| **Knowledge Graph** | {kg_cell} |",
-            f"| **Built** | {time.strftime('%B %d, %Y', time.gmtime())} |",
-        ]
-        if urls:
-            lines.append("")
-            lines.append("**Sources:** " + ", ".join(f"[{u}]({u})" for u in urls))
-        lines.append("")
-
-        # ── agent usage guidance (the leverage layer) ──
-        lines += ["## 🧭 How to use this skill-graph", ""]
-        lines.append(
-            f"This is a **full reference corpus for {title}** — a manual at your "
-            "disposal. Treat it as ground truth: quote it, don't paraphrase from memory."
-        )
-        lines.append("")
-        if (skill_dir / "OVERVIEW.md").exists():
-            lines.append(
-                "- **Start here:** read **[OVERVIEW.md](OVERVIEW.md)** — the distilled "
-                "essence + cheatsheet of this corpus — then drill into `reference/` for detail."
-            )
-        lines.append(
-            "- **Look something up:** scan the Table of Contents (or `index.json` for a "
-            "machine-readable map), open the specific `reference/…` file, quote it + link it."
-        )
-        if kg_on:
-            lines.append(
-                "- **Cross-cutting question:** this corpus is in the Knowledge Graph — "
-                f'`graph_search(query="…", mode="hybrid")` retrieves the right passages '
-                f"across all files at once (domain `{domain}`). Prefer it for synthesis."
-            )
-        lines.append(
-            "- **Stay grounded:** never invent APIs/flags — verify against the reference "
-            "and cite the file. `sources.json` tracks provenance + freshness."
-        )
-        lines.append("")
-
-        # ── table of contents ──
-        lines += ["## 📚 Table of Contents", ""]
-        lines.append("\n".join(toc) if toc else "*No markdown files found.*")
-        lines.append("")
-
-        # ── knowledge-graph / ontology cross-links ──
-        if kg_on:
-            lines += ["## 🔗 Knowledge Graph & Ontology", ""]
-            lines.append(
-                f"Ingested as a `SkillGraph` ontology object over domain `{domain}`: it "
-                "`CONTAINS` its Documents, `RELATES_TO` the Concepts it covers, and is "
-                "`DERIVED_FROM` its sources. Discover overlap/related graphs via "
-                "`ontology_interface(action='implementers', name='SkillGraph')` or "
-                "`graph_search`."
-            )
-            if concepts:
-                lines.append("")
-                lines.append(
-                    "**Covers concepts:** " + ", ".join(f"`{c}`" for c in concepts)
-                )
-            lines.append("")
+        lines = _skill_md_frontmatter(ctx)
+        lines += _skill_md_header(ctx)
+        lines += _skill_md_usage_guidance(ctx)
+        lines += _skill_md_toc(ctx)
+        lines += _skill_md_kg_section(ctx)
 
         (skill_dir / "SKILL.md").write_text(
             "\n".join(lines).rstrip() + "\n", encoding="utf-8"
@@ -1348,28 +1300,18 @@ class SkillGraphPipeline:
         data = json.loads(mpath.read_text(encoding="utf-8"))
         src_dicts = data.get("sources", [])
         specs = [SourceSpec.from_dict(s) for s in src_dicts]
-        try:
-            bundles = [self.acquire(s) for s in specs]
-        except Exception as exc:  # noqa: BLE001 — source unreachable / crawl failed
-            return {"name": d.name, "status": "failed", "reason": str(exc)[:200]}
-        new_hashes = [b.content_hash for b in bundles]
-        old_hashes = [s.get("content_hash") for s in src_dicts]
-        if not force and new_hashes == old_hashes:
-            return {
-                "name": d.name,
-                "status": "fresh",
-                "version": data.get("skill_graph_version"),
-            }
-        existing_bytes = _ref_bytes(d / "reference")
-        new_bytes = _bundle_bytes(bundles)
-        if shrink_guard and _is_shrink(existing_bytes, new_bytes):
-            return {
-                "name": d.name,
-                "status": "stale_url",
-                "existing_bytes": existing_bytes,
-                "new_bytes": new_bytes,
-                "reason": "re-crawl far smaller than existing — source_url likely moved",
-            }
+        bundles, acquire_fail = self._acquire_refresh_bundles(d, specs)
+        if acquire_fail is not None:
+            return acquire_fail
+
+        fresh = _fresh_refresh_result(d, data, bundles, src_dicts, force)
+        if fresh is not None:
+            return fresh
+
+        stale = _shrink_guard_result(d, bundles, shrink_guard)
+        if stale is not None:
+            return stale
+
         fm = parse_frontmatter((d / "SKILL.md").read_text(encoding="utf-8"))
         version = _bump_patch(data.get("skill_graph_version") or "0.1.0")
         # Delta update: write only the changed/added files, delete removed ones, leave
@@ -1384,6 +1326,15 @@ class SkillGraphPipeline:
             kg_enrich=kg_enrich,
             force=force,
         )
+
+    def _acquire_refresh_bundles(
+        self, d: Path, specs: list[SourceSpec]
+    ) -> tuple[list[AcquiredBundle], dict[str, Any] | None]:
+        """Acquire each recorded source; a crawl failure leaves the graph untouched."""
+        try:
+            return [self.acquire(s) for s in specs], None
+        except Exception as exc:  # noqa: BLE001 — source unreachable / crawl failed
+            return [], {"name": d.name, "status": "failed", "reason": str(exc)[:200]}
 
     def _apply_delta(
         self,
@@ -1410,47 +1361,9 @@ class SkillGraphPipeline:
         tmp_ref = tmp / "reference"
         try:
             _write_reference_tree(tmp_ref, bundles, 50)
+            delta = _compute_skill_delta(tmp_ref, ref)
 
-            def _content_hash(p: Path) -> str:
-                # write_okf_conformance's add_frontmatter() permanently stamps
-                # OKF frontmatter onto every live reference/ file at build
-                # time, but this delta only ever compares AGAINST a freshly
-                # rendered tmp_ref tree (which never has that frontmatter —
-                # refresh_one never re-runs write_okf_conformance). Hashing
-                # raw bytes would therefore see every untouched file as
-                # "changed" (frontmatter present vs. absent) on every refresh
-                # after the first build. Hash the frontmatter-stripped body so
-                # the delta reflects real content changes only.
-                from .okf_bundle import read_frontmatter
-
-                _fm, body = read_frontmatter(p.read_text(encoding="utf-8"))
-                return sha256_text(body)
-
-            new = {
-                p.relative_to(tmp_ref).as_posix(): _content_hash(p)
-                for p in tmp_ref.rglob("*.md")
-            }
-            # Exclude the OKF-conformance index.md/log.md sidecars a prior
-            # build wrote into the live reference/ (write_okf_conformance's
-            # write_dir_index()) — they are not source docs and the fresh
-            # tmp_ref tree above never has them, so leaving them in `old`
-            # would misreport every one of them as "removed" on every refresh,
-            # even when nothing actually changed.
-            old = (
-                {
-                    p.relative_to(ref).as_posix(): _content_hash(p)
-                    for p in ref.rglob("*.md")
-                    if p.name not in {"index.md", "log.md"}
-                }
-                if ref.is_dir()
-                else {}
-            )
-            added = sorted(p for p in new if p not in old)
-            removed = sorted(p for p in old if p not in new)
-            changed = sorted(p for p in new if p in old and new[p] != old[p])
-            unchanged = [p for p in new if p in old and new[p] == old[p]]
-
-            if not force and not (added or removed or changed):
+            if not force and not (delta.added or delta.removed or delta.changed):
                 return {
                     "name": d.name,
                     "status": "fresh",
@@ -1459,35 +1372,63 @@ class SkillGraphPipeline:
                         "added": 0,
                         "changed": 0,
                         "removed": 0,
-                        "unchanged": len(unchanged),
+                        "unchanged": len(delta.unchanged),
                     },
                 }
 
-            ref.mkdir(parents=True, exist_ok=True)
-            for rel in (*added, *changed):
-                dst = ref / rel
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(tmp_ref / rel, dst)
-            for rel in removed:
-                (ref / rel).unlink(missing_ok=True)
-
-            do_kg = self.kg_enrich if kg_enrich is None else kg_enrich
-            # Re-ingest only the changed/added files; --force re-ingests the whole tree.
-            ingest_rels = sorted(new) if force else [*added, *changed]
-            changed_files = [str(ref / rel) for rel in ingest_rels]
-            if do_kg and changed_files:
-                kg_result = self._maybe_ingest_kg(changed_files, d.name)
-            else:
-                kg_result = {
-                    "kg_ingested": bool(data.get("kg_ingested")),
-                    "kg_ontology": data.get("kg_ontology"),
-                    "concepts": data.get("concepts") or [],
-                    "domain": f"skillgraph:{d.name}",
-                }
+            _apply_delta_files(ref, tmp_ref, delta)
+            kg_result = self._ingest_delta_kg(
+                ref, delta, force, kg_enrich, data, d.name
+            )
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
-        # See the `old` dict comment above re: index.md/log.md exclusion.
+        return self._finalize_delta(
+            d,
+            ref,
+            description,
+            version,
+            _DeltaFinalizeArtifacts(bundles=bundles, kg_result=kg_result, delta=delta),
+        )
+
+    def _ingest_delta_kg(
+        self,
+        ref: Path,
+        delta: _SkillDelta,
+        force: bool,
+        kg_enrich: bool | None,
+        data: dict[str, Any],
+        name: str,
+    ) -> dict[str, Any]:
+        """Re-ingest only the changed/added files into the KG; --force re-ingests the whole tree."""
+        do_kg = self.kg_enrich if kg_enrich is None else kg_enrich
+        ingest_rels = (
+            sorted({*delta.added, *delta.changed, *delta.unchanged})
+            if force
+            else [*delta.added, *delta.changed]
+        )
+        changed_files = [str(ref / rel) for rel in ingest_rels]
+        if do_kg and changed_files:
+            return self._maybe_ingest_kg(changed_files, name)
+        return {
+            "kg_ingested": bool(data.get("kg_ingested")),
+            "kg_ontology": data.get("kg_ontology"),
+            "concepts": data.get("concepts") or [],
+            "domain": f"skillgraph:{name}",
+        }
+
+    def _finalize_delta(
+        self,
+        d: Path,
+        ref: Path,
+        description: str | None,
+        version: str,
+        artifacts: _DeltaFinalizeArtifacts,
+    ) -> dict[str, Any]:
+        bundles = artifacts.bundles
+        kg_result = artifacts.kg_result
+        delta = artifacts.delta
+        # See `_compute_skill_delta`'s `old` dict comment re: index.md/log.md exclusion.
         md_files = sorted(
             p for p in ref.rglob("*.md") if p.name not in {"index.md", "log.md"}
         )
@@ -1516,10 +1457,10 @@ class SkillGraphPipeline:
             "file_count": len(md_files),
             "kg_ingested": bool(kg_result.get("kg_ingested")),
             "delta": {
-                "added": len(added),
-                "changed": len(changed),
-                "removed": len(removed),
-                "unchanged": len(unchanged),
+                "added": len(delta.added),
+                "changed": len(delta.changed),
+                "removed": len(delta.removed),
+                "unchanged": len(delta.unchanged),
             },
         }
 
@@ -1581,21 +1522,7 @@ class SkillGraphPipeline:
         )
         name = data.get("name", d.name)
         version = data.get("skill_graph_version") or "0.1.0"
-        kg_result = {
-            "kg_ingested": data.get("kg_ingested"),
-            "kg_ontology": data.get("kg_ontology"),
-            "kg_manifest": data.get("kg_manifest"),
-            "concepts": data.get("concepts") or [],
-            "domain": f"skillgraph:{name}",
-        }
-        source_kinds = sorted(
-            {s["kind"] for s in data.get("sources", []) if s.get("kind")}
-        )
-        source_url = ", ".join(
-            s.get("uri", "")
-            for s in data.get("sources", [])
-            if str(s.get("uri", "")).startswith("http")
-        )
+        kg_result, source_kinds, source_url = _restyle_render_context(data, name)
         _write_index_json(d, ref, name, version, source_url, kg_result)
         self._render_skill_md(
             d,
@@ -1683,6 +1610,89 @@ class SkillGraphPipeline:
 
 
 # ── module helpers (pure / optional-dep guarded) ───────────────────────────────
+
+
+@dataclass
+class _SkillDelta:
+    """File-level diff of a re-acquisition candidate tree against the live reference/."""
+
+    added: list[str]
+    removed: list[str]
+    changed: list[str]
+    unchanged: list[str]
+
+
+def _content_hash(p: Path) -> str:
+    """Hash a reference doc's frontmatter-stripped body (see `_compute_skill_delta`)."""
+    from .okf_bundle import read_frontmatter
+
+    _fm, body = read_frontmatter(p.read_text(encoding="utf-8"))
+    return sha256_text(body)
+
+
+def _hash_tree(tmp_ref: Path, ref: Path) -> tuple[dict[str, str], dict[str, str]]:
+    """Hash the candidate (``new``) and live (``old``) reference trees by relative path.
+
+    ``index.md``/``log.md`` sidecars written by write_okf_conformance's
+    write_dir_index() are excluded from ``old`` — they are not source docs and the
+    fresh ``tmp_ref`` tree never has them, so leaving them in would misreport every
+    one of them as "removed" on every refresh, even when nothing actually changed.
+    """
+    new = {
+        p.relative_to(tmp_ref).as_posix(): _content_hash(p)
+        for p in tmp_ref.rglob("*.md")
+    }
+    old = (
+        {
+            p.relative_to(ref).as_posix(): _content_hash(p)
+            for p in ref.rglob("*.md")
+            if p.name not in {"index.md", "log.md"}
+        }
+        if ref.is_dir()
+        else {}
+    )
+    return new, old
+
+
+def _partition_delta(new: dict[str, str], old: dict[str, str]) -> _SkillDelta:
+    """Partition ``new`` vs. ``old`` path->hash maps into added/removed/changed/unchanged."""
+    added = sorted(set(new) - set(old))
+    removed = sorted(set(old) - set(new))
+    changed: list[str] = []
+    unchanged: list[str] = []
+    for p, h in new.items():
+        if p in old:
+            (changed if h != old[p] else unchanged).append(p)
+    changed.sort()
+    return _SkillDelta(
+        added=added, removed=removed, changed=changed, unchanged=unchanged
+    )
+
+
+def _compute_skill_delta(tmp_ref: Path, ref: Path) -> _SkillDelta:
+    """Diff the freshly rendered candidate tree against the live ``reference/`` by path+sha256.
+
+    Hashes are computed on the frontmatter-stripped body: write_okf_conformance's
+    add_frontmatter() permanently stamps OKF frontmatter onto every live reference/
+    file at build time, but this delta only ever compares AGAINST a freshly rendered
+    tmp_ref tree (which never has that frontmatter — refresh_one never re-runs
+    write_okf_conformance). Hashing raw bytes would therefore see every untouched file
+    as "changed" (frontmatter present vs. absent) on every refresh after the first
+    build.
+    """
+    new, old = _hash_tree(tmp_ref, ref)
+    return _partition_delta(new, old)
+
+
+def _apply_delta_files(ref: Path, tmp_ref: Path, delta: _SkillDelta) -> None:
+    """Write added/changed files into ``ref``, delete removed ones; leave unchanged in place."""
+    ref.mkdir(parents=True, exist_ok=True)
+    for rel in (*delta.added, *delta.changed):
+        dst = ref / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(tmp_ref / rel, dst)
+    for rel in delta.removed:
+        (ref / rel).unlink(missing_ok=True)
 
 
 def _write_reference_tree(
@@ -1816,6 +1826,244 @@ def _default_generate(spec: SourceSpec) -> list[AcquiredDoc]:
             source_uri=f"generated://{_slug(title)}",
         )
     ]
+
+
+def _fresh_refresh_result(
+    d: Path,
+    data: dict[str, Any],
+    bundles: list[AcquiredBundle],
+    src_dicts: list[dict[str, Any]],
+    force: bool,
+) -> dict[str, Any] | None:
+    """None if the re-crawl changed anything; else the ``fresh`` short-circuit result."""
+    new_hashes = [b.content_hash for b in bundles]
+    old_hashes = [s.get("content_hash") for s in src_dicts]
+    if not force and new_hashes == old_hashes:
+        return {
+            "name": d.name,
+            "status": "fresh",
+            "version": data.get("skill_graph_version"),
+        }
+    return None
+
+
+def _shrink_guard_result(
+    d: Path, bundles: list[AcquiredBundle], shrink_guard: bool
+) -> dict[str, Any] | None:
+    """None if the re-crawl size looks sane; else the ``stale_url`` short-circuit result."""
+    existing_bytes = _ref_bytes(d / "reference")
+    new_bytes = _bundle_bytes(bundles)
+    if shrink_guard and _is_shrink(existing_bytes, new_bytes):
+        return {
+            "name": d.name,
+            "status": "stale_url",
+            "existing_bytes": existing_bytes,
+            "new_bytes": new_bytes,
+            "reason": "re-crawl far smaller than existing — source_url likely moved",
+        }
+    return None
+
+
+def _restyle_render_context(
+    data: dict[str, Any], name: str
+) -> tuple[dict[str, Any], list[str], str]:
+    """Derive kg_result/source_kinds/source_url for a restyle from sources.json data."""
+    kg_result = {
+        "kg_ingested": data.get("kg_ingested"),
+        "kg_ontology": data.get("kg_ontology"),
+        "kg_manifest": data.get("kg_manifest"),
+        "concepts": data.get("concepts") or [],
+        "domain": f"skillgraph:{name}",
+    }
+    source_kinds = sorted({s["kind"] for s in data.get("sources", []) if s.get("kind")})
+    source_url = ", ".join(
+        s.get("uri", "")
+        for s in data.get("sources", [])
+        if str(s.get("uri", "")).startswith("http")
+    )
+    return kg_result, source_kinds, source_url
+
+
+def _parse_kg_ingest_stats(stdout: str) -> tuple[int, int]:
+    """Sum nodes_created/edges_created across an ingestion CLI's JSON result list."""
+    nodes = edges = 0
+    try:
+        payload = json.loads(stdout or "{}")
+        for r in payload.get("results", []):
+            nodes += int(r.get("nodes_created") or 0)
+            edges += int(r.get("edges_created") or 0)
+    except ValueError:
+        pass
+    return nodes, edges
+
+
+def _build_recorded_sources(
+    bundles: list[AcquiredBundle],
+    record_specs: list[SourceSpec] | None,
+    md_files: list[Path],
+) -> tuple[list[dict[str, Any]] | None, list[str] | None, str]:
+    """Compute the manifest's logical sources: the override (durable upstream) when
+    given, else the acquisition bundles' own specs. Returns (recorded, kinds, source_url).
+    """
+    if record_specs is None:
+        source_url = ", ".join(
+            b.spec.uri for b in bundles if b.spec.uri.startswith("http")
+        )
+        return None, None, source_url
+
+    corpus_hash = sha256_text(
+        "\n".join(
+            sorted(f"{doc.source_uri}\n{doc.text}" for b in bundles for doc in b.docs)
+        )
+    )
+    recorded = [
+        {
+            "kind": s.kind,
+            "uri": s.uri,
+            "options": dict(s.options),
+            "extractor": "wrap-existing",
+            "fetched_at": _now_iso(),
+            "content_hash": corpus_hash,
+            "doc_count": len(md_files),
+        }
+        for s in record_specs
+    ]
+    record_kinds = sorted({s.kind for s in record_specs})
+    source_url = ", ".join(s.uri for s in record_specs if s.uri.startswith("http"))
+    return recorded, record_kinds, source_url
+
+
+@dataclass
+class _SkillMdCtx:
+    """Shared render context for the SKILL.md section builders below."""
+
+    skill_dir: Path
+    name: str
+    description: str
+    version: str
+    md_files: list[Path]
+    kg_result: dict[str, Any]
+    source_types: list[str]
+    source_url: str
+    concepts: list[str]
+    toc: list[str]
+    title: str
+    kg_on: bool
+    domain: str
+    urls: list[str]
+    total_kb: int
+
+
+def _skill_md_frontmatter(ctx: _SkillMdCtx) -> list[str]:
+    lines = ["---", f"name: {ctx.name}", f"description: {ctx.description}"]
+    lines.append(f"skill_graph_version: {ctx.version}")
+    lines.append(f"source_types: [{', '.join(ctx.source_types)}]")
+    if ctx.source_url:
+        lines.append(f"source_url: {ctx.source_url}")
+    lines.append(f"built_at: {_now_iso()}")
+    lines.append(f"builder_version: {_pkg_version()}")
+    lines.append(f"file_count: {len(ctx.md_files)}")
+    lines.append(f"kg_ingested: {str(ctx.kg_on).lower()}")
+    lines.append("index: index.json")
+    if (ctx.skill_dir / "OVERVIEW.md").exists():
+        lines.append("overview: OVERVIEW.md")
+    if ctx.kg_result.get("kg_manifest"):
+        lines.append(f"kg_manifest: {ctx.kg_result['kg_manifest']}")
+    if ctx.kg_result.get("kg_ontology"):
+        lines.append(f"kg_ontology: {ctx.kg_result['kg_ontology']}")
+    if ctx.concepts:
+        lines.append(f"concepts: [{', '.join(repr(c) for c in ctx.concepts)}]")
+    lines.append("categories: [Documentation, Knowledge Base, Reference]")
+    lines.append(f"tags: [docs, reference, {ctx.name}, knowledge-base]")
+    lines.append("---")
+    return lines
+
+
+def _skill_md_header(ctx: _SkillMdCtx) -> list[str]:
+    _nodes = int(ctx.kg_result.get("nodes") or 0)
+    kg_cell = (
+        f"✅ ingested ({f'{_nodes} nodes, ' if _nodes else ''}domain `{ctx.domain}`)"
+        if ctx.kg_on
+        else "— (offline corpus)"
+    )
+    lines = [
+        "",
+        f"# {ctx.title} — Reference Skill-Graph",
+        "",
+        f"> {ctx.description}",
+        "",
+    ]
+    lines += [
+        "| | |",
+        "|---|---|",
+        f"| **Version** | {ctx.version} |",
+        f"| **Files** | {len(ctx.md_files)} ({ctx.total_kb} KB) |",
+        f"| **Source types** | {', '.join(ctx.source_types)} |",
+        f"| **Knowledge Graph** | {kg_cell} |",
+        f"| **Built** | {time.strftime('%B %d, %Y', time.gmtime())} |",
+    ]
+    if ctx.urls:
+        lines.append("")
+        lines.append("**Sources:** " + ", ".join(f"[{u}]({u})" for u in ctx.urls))
+    lines.append("")
+    return lines
+
+
+def _skill_md_usage_guidance(ctx: _SkillMdCtx) -> list[str]:
+    lines = ["## 🧭 How to use this skill-graph", ""]
+    lines.append(
+        f"This is a **full reference corpus for {ctx.title}** — a manual at your "
+        "disposal. Treat it as ground truth: quote it, don't paraphrase from memory."
+    )
+    lines.append("")
+    if (ctx.skill_dir / "OVERVIEW.md").exists():
+        lines.append(
+            "- **Start here:** read **[OVERVIEW.md](OVERVIEW.md)** — the distilled "
+            "essence + cheatsheet of this corpus — then drill into `reference/` for detail."
+        )
+    lines.append(
+        "- **Look something up:** scan the Table of Contents (or `index.json` for a "
+        "machine-readable map), open the specific `reference/…` file, quote it + link it."
+    )
+    if ctx.kg_on:
+        lines.append(
+            "- **Cross-cutting question:** this corpus is in the Knowledge Graph — "
+            f'`graph_search(query="…", mode="hybrid")` retrieves the right passages '
+            f"across all files at once (domain `{ctx.domain}`). Prefer it for synthesis."
+        )
+    lines.append(
+        "- **Stay grounded:** never invent APIs/flags — verify against the reference "
+        "and cite the file. `sources.json` tracks provenance + freshness."
+    )
+    lines.append("")
+    return lines
+
+
+def _skill_md_toc(ctx: _SkillMdCtx) -> list[str]:
+    lines = ["## 📚 Table of Contents", ""]
+    lines.append("\n".join(ctx.toc) if ctx.toc else "*No markdown files found.*")
+    lines.append("")
+    return lines
+
+
+def _skill_md_kg_section(ctx: _SkillMdCtx) -> list[str]:
+    if not ctx.kg_on:
+        return []
+    lines = ["## 🔗 Knowledge Graph & Ontology", ""]
+    lines.append(
+        f"Ingested as a `SkillGraph` ontology object over domain `{ctx.domain}`: it "
+        "`CONTAINS` its Documents, `RELATES_TO` the Concepts it covers, and is "
+        "`DERIVED_FROM` its sources. Discover overlap/related graphs via "
+        "`ontology_interface(action='implementers', name='SkillGraph')` or "
+        "`graph_search`."
+    )
+    if ctx.concepts:
+        lines.append("")
+        lines.append(
+            "**Covers concepts:** " + ", ".join(f"`{c}`" for c in ctx.concepts)
+        )
+    lines.append("")
+    return lines
 
 
 def _manifest_concepts(manifest: dict[str, Any]) -> list[str]:
@@ -1955,21 +2203,26 @@ def _split_oversized(reference_dir: Path, max_file_kb: int) -> None:
                 continue
         except OSError:
             continue
-        out = md.parent / md.stem
-        if out.exists():
-            shutil.rmtree(out, ignore_errors=True)
-        out.mkdir(parents=True, exist_ok=True)
-        split_ok = _try_mdsplit(md, out, max_bytes)
-        if not split_ok:
-            _line_split(md, out, max_bytes)
-        for big in [
-            p
-            for p in out.rglob("*.md")
-            if p.stat().st_size > max_bytes and p.name != "toc.md"
-        ]:
-            _line_split(big, out, max_bytes)
-            big.unlink(missing_ok=True)
-        md.unlink(missing_ok=True)
+        _split_one_oversized_file(md, max_bytes)
+
+
+def _split_one_oversized_file(md: Path, max_bytes: int) -> None:
+    """Split one oversized markdown file (mdsplit if present; line fallback) into md.stem/."""
+    out = md.parent / md.stem
+    if out.exists():
+        shutil.rmtree(out, ignore_errors=True)
+    out.mkdir(parents=True, exist_ok=True)
+    split_ok = _try_mdsplit(md, out, max_bytes)
+    if not split_ok:
+        _line_split(md, out, max_bytes)
+    for big in [
+        p
+        for p in out.rglob("*.md")
+        if p.stat().st_size > max_bytes and p.name != "toc.md"
+    ]:
+        _line_split(big, out, max_bytes)
+        big.unlink(missing_ok=True)
+    md.unlink(missing_ok=True)
 
 
 def _try_mdsplit(md: Path, out: Path, max_bytes: int) -> bool:
