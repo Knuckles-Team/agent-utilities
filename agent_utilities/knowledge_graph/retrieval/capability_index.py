@@ -245,6 +245,52 @@ def _l2_normalize(vec: NDArray) -> NDArray:
     return [value / norm for value in values]
 
 
+def _to_str_set(values: Any) -> set[str]:
+    """Coerce an optional iterable to a ``set[str]``, treating falsy input as empty."""
+    return {str(v) for v in values} if values else set()
+
+
+def _tenant_match(tenant_of: str | None, required_tenant: str | None) -> bool | None:
+    """Return whether ``tenant_of`` satisfies ``required_tenant`` (``None`` when unconstrained)."""
+    if required_tenant is None:
+        return None
+    return tenant_of in (None, required_tenant)
+
+
+def _is_eligible(
+    missing_caps: list[str], tenant_match: bool | None, missing_policy: list[str]
+) -> bool:
+    """Combine the three eligibility gates into one boolean verdict."""
+    if missing_caps or missing_policy:
+        return False
+    return tenant_match is not False
+
+
+def _satisfied_required_caps(
+    caps: set[str], req: set[str], hierarchy: Any
+) -> tuple[set[str], dict[str, list[str]]]:
+    """Resolve which of ``req`` are satisfied by ``caps``, directly or via ontology subsumption.
+
+    Returns the satisfied subset of ``req`` and, for each capability satisfied
+    only through a subtype relationship, the concrete subsumption path used
+    (``required_cap -> [declared_cap, ..., required_cap]``).
+    """
+    subsumption_paths: dict[str, list[str]] = {}
+    satisfied: set[str] = set()
+    for r in req:
+        if r in caps:
+            satisfied.add(r)
+            continue
+        for c in sorted(caps):
+            if hierarchy.is_subtype_of(c, r):
+                satisfied.add(r)
+                path = hierarchy.subsumption_path(c, r)
+                if path:
+                    subsumption_paths[r] = path
+                break
+    return satisfied, subsumption_paths
+
+
 def compute_eligibility(
     *,
     id: str,
@@ -277,36 +323,20 @@ def compute_eligibility(
     bundled current hierarchy rather than selecting a flat-string mode.
     """
     hierarchy = _resolve_capability_hierarchy(hierarchy)
-    caps = {str(c) for c in (capabilities or ())}
-    req = {str(c) for c in required_caps} if required_caps else set()
+    caps = _to_str_set(capabilities)
+    req = _to_str_set(required_caps)
 
-    subsumption_paths: dict[str, list[str]] = {}
-    satisfied: set[str] = set()
-    for r in req:
-        if r in caps:
-            satisfied.add(r)
-            continue
-        for c in sorted(caps):
-            if hierarchy.is_subtype_of(c, r):
-                satisfied.add(r)
-                path = hierarchy.subsumption_path(c, r)
-                if path:
-                    subsumption_paths[r] = path
-                break
+    satisfied, subsumption_paths = _satisfied_required_caps(caps, req, hierarchy)
     missing_caps = sorted(req - satisfied)
 
     tenant_of = tenant
-    tenant_match = (
-        None if required_tenant is None else tenant_of in (None, required_tenant)
-    )
+    tenant_match = _tenant_match(tenant_of, required_tenant)
 
-    policy_of = {str(p) for p in (policy_tags or ())}
-    req_policy = (
-        {str(p) for p in required_policy_tags} if required_policy_tags else set()
-    )
+    policy_of = _to_str_set(policy_tags)
+    req_policy = _to_str_set(required_policy_tags)
     missing_policy = sorted(req_policy - policy_of)
 
-    eligible = not missing_caps and tenant_match is not False and not missing_policy
+    eligible = _is_eligible(missing_caps, tenant_match, missing_policy)
     result: dict[str, Any] = {
         "id": id,
         "capabilities": sorted(caps),
