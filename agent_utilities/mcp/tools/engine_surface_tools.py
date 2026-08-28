@@ -59,6 +59,10 @@ from typing import Any
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+from agent_utilities.mcp.engine_surface_types import (
+    ChartRenderRequest,
+    KvCheckpointIntelligenceRequest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -655,27 +659,7 @@ def _kv_checkpoint_now(
 
 
 def _kv_checkpoint_intelligence(
-    action: str,
-    *,
-    graph: str,
-    data_b64: str,
-    model_identity: str,
-    quantization: str,
-    serving_engine: str,
-    engine_version: str,
-    prefix_digest: str,
-    tenant: str,
-    policy_version: str,
-    run_id: str,
-    point: str,
-    checkpoint_id: str,
-    requesting_tenant: str,
-    observation_json: str,
-    evidence_bundle_json: str,
-    context_bundle_json: str,
-    sources_json: str,
-    trigger: str,
-    persist: bool,
+    action: str, request: KvCheckpointIntelligenceRequest
 ) -> str:
     """The worthiness/tiering/eligibility half of ``graph_kv_checkpoint``.
 
@@ -694,29 +678,37 @@ def _kv_checkpoint_intelligence(
     # Validate the trigger AT THE BOUNDARY. It is a Literal on PersistenceRequest /
     # RAMCheckpointRecord, so an unrecognized value would surface deep inside as a raw
     # pydantic ValidationError that the KVCheckpointError handlers below never catch.
-    if trigger not in {"user", "agent", "system"}:
+    if request.trigger not in {"user", "agent", "system"}:
         return _surface_error(
-            ValueError(f"trigger must be one of user|agent|system, got {trigger!r}"),
+            ValueError(
+                f"trigger must be one of user|agent|system, got {request.trigger!r}"
+            ),
             surface="kv_checkpoint",
             action=action,
             code="invalid_request",
         )
 
-    manager = _checkpoint_manager(graph)
+    manager = _checkpoint_manager(request.graph)
     bundles = {
-        "observation_json": observation_json,
-        "evidence_bundle_json": evidence_bundle_json,
-        "context_bundle_json": context_bundle_json,
+        "observation_json": request.observation_json,
+        "evidence_bundle_json": request.evidence_bundle_json,
+        "context_bundle_json": request.context_bundle_json,
     }
     if action == "ram_stats":
         return _kv_ram_stats_response(action, manager)
     if action == "recommend":
         return _kv_recommend_response(action, manager, bundles)
     if action == "explain":
-        return _kv_explain_response(action, manager, checkpoint_id, requesting_tenant)
+        return _kv_explain_response(
+            action, manager, request.checkpoint_id, request.requesting_tenant
+        )
     if action == "promote":
         return _kv_promote_response(
-            action, manager, checkpoint_id, requesting_tenant, trigger
+            action,
+            manager,
+            request.checkpoint_id,
+            request.requesting_tenant,
+            request.trigger,
         )
     # action == "checkpoint_now"
     return _kv_checkpoint_now(
@@ -724,19 +716,19 @@ def _kv_checkpoint_intelligence(
         manager,
         bundles,
         {
-            "data_b64": data_b64,
-            "model_identity": model_identity,
-            "quantization": quantization,
-            "serving_engine": serving_engine,
-            "engine_version": engine_version,
-            "prefix_digest": prefix_digest,
-            "tenant": tenant,
-            "policy_version": policy_version,
-            "run_id": run_id,
-            "point": point,
-            "trigger": trigger,
-            "persist": persist,
-            "sources_json": sources_json,
+            "data_b64": request.data_b64,
+            "model_identity": request.model_identity,
+            "quantization": request.quantization,
+            "serving_engine": request.serving_engine,
+            "engine_version": request.engine_version,
+            "prefix_digest": request.prefix_digest,
+            "tenant": request.tenant,
+            "policy_version": request.policy_version,
+            "run_id": request.run_id,
+            "point": request.point,
+            "trigger": request.trigger,
+            "persist": request.persist,
+            "sources_json": request.sources_json,
         },
     )
 
@@ -1255,18 +1247,7 @@ def _rows_to_inline_columns(
 
 
 def _render_chart(
-    viz_client: Any,
-    *,
-    surface: str,
-    action: str,
-    spec: dict[str, Any],
-    dataset: dict[str, Any],
-    width_px: int,
-    height_px: int,
-    format: str,
-    max_primitives: int,
-    max_bytes: int,
-    dataset_ref: str,
+    viz_client: Any, *, surface: str, action: str, request: ChartRenderRequest
 ) -> str:
     """Call ``client.viz.render`` and wrap the result in the same
     ``{"surface", "action", "result"}`` envelope every other tool in this
@@ -1274,14 +1255,14 @@ def _render_chart(
     (base64, the SAME convention every other bytes-carrying tool result uses)."""
     try:
         result = viz_client.render(
-            spec,
-            dataset,
-            width_px=width_px,
-            height_px=height_px,
-            format=format,
-            max_primitives=max_primitives,
-            max_bytes=max_bytes,
-            dataset_ref=dataset_ref,
+            request.spec,
+            request.dataset,
+            width_px=request.width_px,
+            height_px=request.height_px,
+            format=request.format,
+            max_primitives=request.max_primitives,
+            max_bytes=request.max_bytes,
+            dataset_ref=request.dataset_ref,
         )
     except Exception as exc:  # noqa: BLE001 — surface engine errors as data
         return _surface_error(exc, surface=surface, action=action, code="render_failed")
@@ -1422,9 +1403,7 @@ def _viz_export_chart(
         viz_client,
         surface="viz",
         action=action,
-        spec=spec,
-        dataset=dataset,
-        **render_opts,
+        request=ChartRenderRequest(spec=spec, dataset=dataset, **render_opts),
     )
 
 
@@ -1549,9 +1528,11 @@ def _viz_plot_from_query(
         viz_client,
         surface="viz",
         action=action,
-        spec=spec,
-        dataset={"InlineColumns": {"columns": columns}},
-        **render_opts,
+        request=ChartRenderRequest(
+            spec=spec,
+            dataset={"InlineColumns": {"columns": columns}},
+            **render_opts,
+        ),
     )
     return _viz_with_row_counts(resp, rows_returned, rows_used)
 
@@ -3336,8 +3317,7 @@ def register_engine_surface_tools(mcp) -> None:
             "explain",
             "ram_stats",
         }:
-            return _kv_checkpoint_intelligence(
-                action,
+            intelligence_request = KvCheckpointIntelligenceRequest(
                 graph=graph,
                 data_b64=data_b64,
                 model_identity=model_identity,
@@ -3358,6 +3338,7 @@ def register_engine_surface_tools(mcp) -> None:
                 trigger=trigger,
                 persist=persist,
             )
+            return _kv_checkpoint_intelligence(action, intelligence_request)
 
         try:
             store = _checkpoint_store(graph)

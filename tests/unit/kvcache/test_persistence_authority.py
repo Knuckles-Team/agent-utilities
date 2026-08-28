@@ -862,6 +862,7 @@ def _mcp_args(**overrides):
 def test_mcp_action_persists_from_the_session_with_no_grant_argument(monkeypatch, disk):
     """LIVE PATH. There is no ``operator_grant`` argument to pass any more, and the
     tenant is taken from the verified session rather than the payload."""
+    from agent_utilities.mcp.engine_surface_types import KvCheckpointIntelligenceRequest
     from agent_utilities.mcp.tools import engine_surface_tools as est
 
     ram = RAMCheckpointStore()
@@ -875,20 +876,22 @@ def test_mcp_action_persists_from_the_session_with_no_grant_argument(monkeypatch
         taken = json.loads(
             est._kv_checkpoint_intelligence(
                 "checkpoint_now",
-                **_mcp_args(
-                    data_b64=base64.b64encode(b"kv-bytes").decode(),
-                    trigger="agent",
-                    persist=True,
-                    sources_json=json.dumps(
-                        [
-                            {
-                                "source_id": "src:crm",
-                                "classification": "confidential",
-                                "residency_regions": [ANY_REGION],
-                                "retention_days": UNLIMITED_RETENTION_DAYS,
-                            }
-                        ]
-                    ),
+                KvCheckpointIntelligenceRequest(
+                    **_mcp_args(
+                        data_b64=base64.b64encode(b"kv-bytes").decode(),
+                        trigger="agent",
+                        persist=True,
+                        sources_json=json.dumps(
+                            [
+                                {
+                                    "source_id": "src:crm",
+                                    "classification": "confidential",
+                                    "residency_regions": [ANY_REGION],
+                                    "retention_days": UNLIMITED_RETENTION_DAYS,
+                                }
+                            ]
+                        ),
+                    )
                 ),
             )
         )
@@ -902,6 +905,7 @@ def test_mcp_action_takes_its_sources_from_the_context_bundle_citations(
     monkeypatch, disk
 ):
     """The bundle an agent already hands over for scoring IS its provenance."""
+    from agent_utilities.mcp.engine_surface_types import KvCheckpointIntelligenceRequest
     from agent_utilities.mcp.tools import engine_surface_tools as est
 
     ram = RAMCheckpointStore()
@@ -933,22 +937,24 @@ def test_mcp_action_takes_its_sources_from_the_context_bundle_citations(
             taken = json.loads(
                 est._kv_checkpoint_intelligence(
                     "checkpoint_now",
-                    **_mcp_args(
-                        data_b64=base64.b64encode(b"kv-bytes").decode(),
-                        persist=True,
-                        context_bundle_json=json.dumps(
-                            {
-                                "items": [{"id": "i1"}],
-                                "dropped_redundant": 3,
-                                "citations": [
-                                    {"node_id": "n1", "source_refs": ["src:wiki"]},
-                                    {
-                                        "node_id": "n2",
-                                        "source_refs": ["src:wiki", "src:docs"],
-                                    },
-                                ],
-                            }
-                        ),
+                    KvCheckpointIntelligenceRequest(
+                        **_mcp_args(
+                            data_b64=base64.b64encode(b"kv-bytes").decode(),
+                            persist=True,
+                            context_bundle_json=json.dumps(
+                                {
+                                    "items": [{"id": "i1"}],
+                                    "dropped_redundant": 3,
+                                    "citations": [
+                                        {"node_id": "n1", "source_refs": ["src:wiki"]},
+                                        {
+                                            "node_id": "n2",
+                                            "source_refs": ["src:wiki", "src:docs"],
+                                        },
+                                    ],
+                                }
+                            ),
+                        )
                     ),
                 )
             )
@@ -964,6 +970,7 @@ def test_mcp_action_refuses_a_payload_tenant_that_is_not_the_session_tenant(
     monkeypatch, disk
 ):
     """A caller may not name someone else's tenancy — the payload no longer wins."""
+    from agent_utilities.mcp.engine_surface_types import KvCheckpointIntelligenceRequest
     from agent_utilities.mcp.tools import engine_surface_tools as est
 
     monkeypatch.setattr(
@@ -977,10 +984,12 @@ def test_mcp_action_refuses_a_payload_tenant_that_is_not_the_session_tenant(
         payload = json.loads(
             est._kv_checkpoint_intelligence(
                 "checkpoint_now",
-                **_mcp_args(
-                    data_b64=base64.b64encode(b"kv").decode(),
-                    tenant="tenant-b",
-                    persist=True,
+                KvCheckpointIntelligenceRequest(
+                    **_mcp_args(
+                        data_b64=base64.b64encode(b"kv").decode(),
+                        tenant="tenant-b",
+                        persist=True,
+                    )
                 ),
             )
         )
@@ -993,6 +1002,7 @@ def test_mcp_action_refuses_a_payload_tenant_that_is_not_the_session_tenant(
 
 def test_mcp_promote_derives_authority_at_promotion_time(monkeypatch, disk):
     """RAM residency is not consent, and the authority is re-read at the write."""
+    from agent_utilities.mcp.engine_surface_types import KvCheckpointIntelligenceRequest
     from agent_utilities.mcp.tools import engine_surface_tools as est
 
     ram = RAMCheckpointStore()
@@ -1017,10 +1027,12 @@ def test_mcp_promote_derives_authority_at_promotion_time(monkeypatch, disk):
         taken = json.loads(
             est._kv_checkpoint_intelligence(
                 "checkpoint_now",
-                **_mcp_args(
-                    data_b64=base64.b64encode(b"kv-bytes").decode(),
-                    persist=True,
-                    sources_json=sources_json,
+                KvCheckpointIntelligenceRequest(
+                    **_mcp_args(
+                        data_b64=base64.b64encode(b"kv-bytes").decode(),
+                        persist=True,
+                        sources_json=sources_json,
+                    )
                 ),
             )
         )
@@ -1033,7 +1045,10 @@ def test_mcp_promote_derives_authority_at_promotion_time(monkeypatch, disk):
     with caller(roles=("confidential",)):
         promoted = json.loads(
             est._kv_checkpoint_intelligence(
-                "promote", **_mcp_args(checkpoint_id=checkpoint_id, trigger="user")
+                "promote",
+                KvCheckpointIntelligenceRequest(
+                    **_mcp_args(checkpoint_id=checkpoint_id, trigger="user")
+                ),
             )
         )
     assert promoted["result"]["tier"] == "disk"
