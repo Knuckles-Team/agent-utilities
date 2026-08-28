@@ -261,9 +261,7 @@ def _validate_forward_matrix_defaults(data: dict[str, Any]) -> list[str]:
     if not isinstance(token_budget, int) or not 256 <= token_budget <= 16384:
         errors.append("forward matrix: token_budget must be between 256 and 16384")
     if not isinstance(trace_timeout, int) or not 1 <= trace_timeout <= 60:
-        errors.append(
-            "forward matrix: trace_timeout_seconds must be between 1 and 60"
-        )
+        errors.append("forward matrix: trace_timeout_seconds must be between 1 and 60")
     if defaults.get("sequential") is not True:
         errors.append("forward matrix: runtime validation must be sequential")
     return errors
@@ -281,9 +279,7 @@ def _validate_forward_matrix_case_domain_routes(
     if mode == "direct" and "graph_orchestrate" in route_set:
         errors.append(f"{case_id}: a direct case cannot use graph_orchestrate")
     if mode == "delegated" and "graph_orchestrate" not in route_set:
-        errors.append(
-            f"{case_id}: a delegated domain case must use graph_orchestrate"
-        )
+        errors.append(f"{case_id}: a delegated domain case must use graph_orchestrate")
     return errors
 
 
@@ -409,7 +405,9 @@ def _validate_forward_matrix_case(
     return errors
 
 
-def _validate_forward_matrix_privacy(data: dict[str, Any], raw_matrix: str) -> list[str]:
+def _validate_forward_matrix_privacy(
+    data: dict[str, Any], raw_matrix: str
+) -> list[str]:
     errors: list[str] = []
     privacy = data.get("privacy_assertions") or {}
     forbidden = set(privacy.get("forbid_persisted") or [])

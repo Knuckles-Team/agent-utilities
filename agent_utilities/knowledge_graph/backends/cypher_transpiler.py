@@ -143,7 +143,7 @@ def _try_create_node(
     m = _CREATE_NODE.search(cypher_stripped)
     if not (m and cypher_stripped.upper().startswith("CREATE")):
         return None
-    alias, label, props_str = m.group(1), m.group(2), m.group(3)
+    _alias, label, props_str = m.group(1), m.group(2), m.group(3)
     # Parse "key: $param" pairs
     prop_pairs = re.findall(r"`?(\w+)`?\s*:\s*\$(\w+)", props_str)
     cols = [p[0] for p in prop_pairs]
@@ -254,7 +254,7 @@ def _try_label_lookup(
     m_label = _LABEL_FUNC.search(cypher_stripped)
     if not (m_any and m_label):
         return None
-    alias, id_param = m_any.group(1), m_any.group(2)
+    _alias, id_param = m_any.group(1), m_any.group(2)
     lbl_alias = m_label.group(2)
     id_val = clean_params.get(id_param)
     # Search all known tables for this ID
@@ -314,9 +314,7 @@ def _relationship_select_columns(
                 m_prop_simple = re.search(rf"{r_alias}\.(\w+)", item, re.IGNORECASE)
                 if m_prop_simple:
                     prop_name = m_prop_simple.group(1)
-                    select_cols.append(
-                        f"(properties->>'{prop_name}') AS {prop_name}"
-                    )
+                    select_cols.append(f"(properties->>'{prop_name}') AS {prop_name}")
                     return_cols.append(prop_name)
                 elif item == r_alias:
                     select_cols.append("properties")
@@ -662,7 +660,9 @@ def _try_match_with_label(
     label = m_label_match.group(2) if m_label_match else None
     alias = m_label_match.group(1) if m_label_match else "n"
 
-    result = _try_count_pattern(cypher_stripped, clean_params, alias, label, node_tables)
+    result = _try_count_pattern(
+        cypher_stripped, clean_params, alias, label, node_tables
+    )
     if result is not None:
         return result
 

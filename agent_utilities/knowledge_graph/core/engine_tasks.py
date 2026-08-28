@@ -179,7 +179,17 @@ def _build_staged_node_merge_query(
 
     Extracted verbatim from ``_merge_staged_node`` (pure extract-method, no
     behaviour change).
+
+    The label is re-validated HERE, at the point of interpolation, rather than
+    relying on the caller having run it through ``_resolve_staged_node_label``.
+    That is not belt-and-braces: extracting this builder out of
+    ``_merge_staged_node`` separated the interpolation from its guard, which is
+    exactly the shape that turns a validated identifier into an injected one
+    the day a second caller appears. ``_safe_graph_identifier`` is idempotent
+    on an already-valid identifier, so this costs one regex on the write path
+    and fails closed to ``Code`` on anything else.
     """
+    label = _safe_graph_identifier(label, default="Code")
     set_clause = ", ".join([f"n.{key} = $props_{key}" for key in safe_properties])
     if set_clause:
         set_clause = " SET " + set_clause

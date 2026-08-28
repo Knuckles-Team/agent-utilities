@@ -771,7 +771,9 @@ class HybridRetriever:
                 makes it into this method's return value at all, so no
                 downstream ACL pass could ever recover it.
         """
-        qa_source_types, as_of = self._resolve_query_analysis_filters(query, query_analysis, as_of)
+        qa_source_types, as_of = self._resolve_query_analysis_filters(
+            query, query_analysis, as_of
+        )
         corpus_doc_ids = self._resolve_corpus_constraint(corpus_id)
         relational_nodes = self._relational_intent_arm(query, context_window)
 
@@ -811,7 +813,9 @@ class HybridRetriever:
         base_nodes = self._apply_autocut(base_nodes)
 
         # 2. Graph Traversal (Multi-hop context assembly)
-        assembled_subgraph = self._assemble_multi_hop_subgraph(base_nodes, multi_hop_depth)
+        assembled_subgraph = self._assemble_multi_hop_subgraph(
+            base_nodes, multi_hop_depth
+        )
 
         # CONCEPT:AU-KG.research.research-pipeline-runner — Assess retrieval quality
         return self._finalize_retrieval(
@@ -1142,16 +1146,10 @@ class HybridRetriever:
         if not relational_nodes:
             return base_nodes
         seen_ids = {n.get("id") for n in relational_nodes}
-        return relational_nodes + [
-            n for n in base_nodes if n.get("id") not in seen_ids
-        ]
+        return relational_nodes + [n for n in base_nodes if n.get("id") not in seen_ids]
 
-    def _apply_autocut(
-        self, base_nodes: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
-        if not (
-            self._schema_pack and self._schema_pack.autocut_enabled and base_nodes
-        ):
+    def _apply_autocut(self, base_nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not (self._schema_pack and self._schema_pack.autocut_enabled and base_nodes):
             return base_nodes
         from .autocut import autocut
 
@@ -1409,9 +1407,7 @@ class HybridRetriever:
         except Exception as e:  # noqa: BLE001 — a hydration failure must never drop the already-discovered nodes, only their enrichment (mirrors the per-node fallback this replaces)
             logger.debug(f"Batched hydration failed: {e}")
             hydrated_all = {}
-        _node_by_id = {
-            str(n.get("id")): n for n in base_nodes if isinstance(n, dict)
-        }
+        _node_by_id = {str(n.get("id")): n for n in base_nodes if isinstance(n, dict)}
         for node_id, all_discovered in pending_hydrate:
             base_node = _node_by_id.get(node_id) or {"id": node_id}
             for nid in all_discovered:

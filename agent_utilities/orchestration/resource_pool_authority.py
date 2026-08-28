@@ -935,6 +935,7 @@ def _check_snapshot(
 
     return tuple(dict.fromkeys(reasons))[:MAX_DENIAL_REASONS]
 
+
 def _candidate_rank(snapshot: ResourcePoolSnapshot) -> tuple[int, int, int, int, str]:
     """Rank only capability headroom; the digest is a stable final tie-breaker."""
 

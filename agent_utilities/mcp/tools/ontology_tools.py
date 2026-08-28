@@ -141,8 +141,14 @@ _ONTOLOGY_PROPOSAL_ACTIONS = frozenset(
 
 
 def _graph_ontology_load(
-    lc: Any, *, source: str, source_type: str, iri: str, version: str,
-    category: str, tags_json: str,
+    lc: Any,
+    *,
+    source: str,
+    source_type: str,
+    iri: str,
+    version: str,
+    category: str,
+    tags_json: str,
 ) -> str:
     if not source:
         return json.dumps({"error": "load requires `source`"})
@@ -161,8 +167,14 @@ def _graph_ontology_load(
 
 
 def _graph_ontology_list(
-    lc: Any, *, source_type: str, active_only: bool, deprecated_only: bool,
-    search: str, category: str, tag: str,
+    lc: Any,
+    *,
+    source_type: str,
+    active_only: bool,
+    deprecated_only: bool,
+    search: str,
+    category: str,
+    tag: str,
 ) -> str:
     # source_type defaults to 'auto' (the load/validate parse-hint sentinel) —
     # never filter on that default, only on a caller's EXPLICIT file/url/text
@@ -194,9 +206,7 @@ def _graph_ontology_update(
     lc: Any, *, source: str, iri: str, version: str, source_type: str
 ) -> str:
     if not (source and iri and version):
-        return json.dumps(
-            {"error": "update requires `source`, `iri`, and `version`"}
-        )
+        return json.dumps({"error": "update requires `source`, `iri`, and `version`"})
     return json.dumps(
         lc.update(source, iri=iri, version=version, source_type=source_type),
         default=str,
@@ -386,9 +396,7 @@ def _graph_ontology_list_proposals(engine: Any, tenant: str, *, status: str) -> 
     )
 
 
-def _graph_ontology_get_proposal(
-    engine: Any, tenant: str, *, proposal_id: str
-) -> str:
+def _graph_ontology_get_proposal(engine: Any, tenant: str, *, proposal_id: str) -> str:
     if not proposal_id:
         return json.dumps({"error": "get_proposal requires `proposal_id`"})
     from agent_utilities.knowledge_graph.ontology.evolution import get_proposal
@@ -497,9 +505,7 @@ def _graph_ontology_proposal(
             notes=notes,
         )
     if action == "promote_proposal":
-        return _graph_ontology_promote_proposal(
-            engine, tenant, proposal_id=proposal_id
-        )
+        return _graph_ontology_promote_proposal(engine, tenant, proposal_id=proposal_id)
     # Only "rollback_proposal" remains among `_ONTOLOGY_PROPOSAL_ACTIONS`.
     return _graph_ontology_rollback_proposal(engine, tenant, proposal_id=proposal_id)
 

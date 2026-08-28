@@ -726,7 +726,9 @@ def _config_doctor_load_live(
     prof = profile or configured_profile
     app_profile = str(setting("APP_PROFILE", cfg.app_profile) or "").strip().casefold()
     profile_source = (
-        "argument" if profile else ("configuration" if configured_profile else "default")
+        "argument"
+        if profile
+        else ("configuration" if configured_profile else "default")
     )
     return cfg, prof, app_profile, profile_source
 

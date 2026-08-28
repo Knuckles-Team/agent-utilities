@@ -814,7 +814,9 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             raise GraphQLDocumentError("GraphQL governance legal hold is invalid")
 
     @staticmethod
-    def _validate_governance_retention(governance: dict[str, Any], mappings: Any) -> str:
+    def _validate_governance_retention(
+        governance: dict[str, Any], mappings: Any
+    ) -> str:
         retention = str(governance.get("retention") or "").strip()
         if mappings is not None and not retention:
             raise GraphQLDocumentError(
@@ -1567,7 +1569,11 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             checkpoint
         )
         self._validate_snapshot_completeness(
-            diagnostics, snapshot_authoritative, baseline, versions, allow_empty_snapshot
+            diagnostics,
+            snapshot_authoritative,
+            baseline,
+            versions,
+            allow_empty_snapshot,
         )
         governance_state = self._governance_state_dict(governance)
         changed, changed_documents, changed_envelopes = self._changed_entities(
@@ -1616,7 +1622,9 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
         ):
             raise GraphQLDocumentError("GraphQL checkpoint scope is invalid")
 
-    def _validate_checkpoint_baseline(self, prior_state: dict[str, Any]) -> dict[str, str]:
+    def _validate_checkpoint_baseline(
+        self, prior_state: dict[str, Any]
+    ) -> dict[str, str]:
         baseline_raw = prior_state.get("versions")
         baseline = baseline_raw if isinstance(baseline_raw, dict) else {}
         if len(baseline) > max(self.max_entities, self.max_documents) or any(

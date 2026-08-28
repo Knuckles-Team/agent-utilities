@@ -512,9 +512,7 @@ def set_active_backend(backend):
     _ACTIVE_BACKEND = backend
 
 
-def _create_default_tier_backend(
-    backend_type: str, db_path: str | None, kwargs: dict
-):
+def _create_default_tier_backend(backend_type: str, db_path: str | None, kwargs: dict):
     """memory/file/epistemic_graph -> the zero-dependency Rust-native backend."""
     from .epistemic_graph_backend import EpistemicGraphBackend
 
@@ -535,9 +533,7 @@ def _create_ladybug_backend(db_path: str | None):
     from .contrib.ladybug_backend import LADYBUG_AVAILABLE, LadybugBackend
 
     if not LADYBUG_AVAILABLE:
-        logger.warning(
-            "LadybugDB requested but 'ladybug' package is not installed."
-        )
+        logger.warning("LadybugDB requested but 'ladybug' package is not installed.")
         return None
     # Use centralized XDG-aware path resolver
     if db_path:
@@ -662,9 +658,7 @@ def _create_jena_fuseki_backend(kwargs):
     resolved_dataset = (
         kwargs.get("dataset") or setting("GRAPH_FUSEKI_DATASET") or "agent_kg"
     )
-    resolved_jena_fuseki_user = kwargs.get("username") or setting(
-        "GRAPH_FUSEKI_USER"
-    )
+    resolved_jena_fuseki_user = kwargs.get("username") or setting("GRAPH_FUSEKI_USER")
     backend = JenaFusekiBackend(
         jena_fuseki_url=resolved_url,
         dataset=resolved_dataset,
@@ -714,9 +708,7 @@ def _create_stardog_backend(uri, user, password, db_name, kwargs):
         StardogSparqlBackend,
     )
 
-    stardog_database = (
-        db_name or kwargs.get("database") or setting("STARDOG_DATABASE")
-    )
+    stardog_database = db_name or kwargs.get("database") or setting("STARDOG_DATABASE")
     backend = StardogSparqlBackend(
         endpoint=kwargs.get("endpoint") or uri or setting("STARDOG_ENDPOINT"),
         database=stardog_database,

@@ -110,9 +110,7 @@ def _graph_search(engine, backend, rest: str) -> str:
         )
     except Exception as e:  # noqa: BLE001
         rows = []
-        logger.warning(
-            "Graph search failed (exception_type=%s)", type(e).__name__
-        )
+        logger.warning("Graph search failed (exception_type=%s)", type(e).__name__)
     if not rows:
         return f"No graph nodes matched `{rest}`."
     lines = [
@@ -142,8 +140,7 @@ def _graph_impact(engine, rest: str) -> str:
             f"No downstream dependencies found (or `{rest}` is not a known node)."
         )
     lines = [
-        f"- `{item.get('id')}` ({item.get('type', 'Node')}, "
-        f"depth {item.get('depth')})"
+        f"- `{item.get('id')}` ({item.get('type', 'Node')}, depth {item.get('depth')})"
         for item in radius
     ]
     return (
@@ -167,9 +164,7 @@ def _graph_stats(engine, backend) -> str:
         # TenancyManager.scope_cypher_query can inject a tenant
         # predicate against, so it fails closed with
         # UnscopableQueryError instead of returning a count (D-W2T-1).
-        edge_rows = (
-            engine.query_cypher("MATCH (a)-[r]->() RETURN count(r) AS c") or []
-        )
+        edge_rows = engine.query_cypher("MATCH (a)-[r]->() RETURN count(r) AS c") or []
         nodes = int(node_rows[0]["c"]) if node_rows else 0
         edges = int(edge_rows[0]["c"]) if edge_rows else 0
         return (
@@ -223,9 +218,7 @@ def _kb_list(engine, backend) -> str:
         )
     except Exception as e:  # noqa: BLE001
         rows = []
-        logger.warning(
-            "KB list query failed (exception_type=%s)", type(e).__name__
-        )
+        logger.warning("KB list query failed (exception_type=%s)", type(e).__name__)
     if not rows:
         return (
             "### Connected Knowledge Bases:\n\n"
@@ -260,9 +253,7 @@ def _kb_search(engine, backend, rest: str) -> str:
         )
     except Exception as e:  # noqa: BLE001
         rows = []
-        logger.warning(
-            "KB search failed (exception_type=%s)", type(e).__name__
-        )
+        logger.warning("KB search failed (exception_type=%s)", type(e).__name__)
     if not rows:
         return f"No KB articles matched `{rest}`."
     lines = _kb_search_format_rows(rows)
@@ -329,17 +320,13 @@ def _sdd_specs(manager, workspace: str) -> str:
         specs = manager.list_specs()
     except Exception as e:  # noqa: BLE001
         specs = []
-        logger.warning(
-            "SDD spec listing failed (exception_type=%s)", type(e).__name__
-        )
+        logger.warning("SDD spec listing failed (exception_type=%s)", type(e).__name__)
     if not specs:
         return (
             "### Active Spec-Driven Specifications:\n\n"
             f"No specs found under `{workspace}/.specify/specs/`."
         )
-    lines = [
-        f"- **[{s.get('id')}]**: {s.get('title', s.get('id'))}" for s in specs
-    ]
+    lines = [f"- **[{s.get('id')}]**: {s.get('title', s.get('id'))}" for s in specs]
     return "### Active Spec-Driven Specifications:\n\n" + "\n".join(lines)
 
 

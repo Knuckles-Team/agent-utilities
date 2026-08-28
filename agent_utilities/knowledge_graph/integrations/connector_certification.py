@@ -999,9 +999,7 @@ def _verify_cert_checks(checks: Any) -> list[str]:
 def _verify_cert_evidence(evidence: Any) -> list[str]:
     if not isinstance(evidence, dict) or set(evidence) != set(REQUIRED_CHECKS):
         return ["certification evidence catalog is invalid"]
-    if any(
-        not _HEX_DIGEST.fullmatch(str(value or "")) for value in evidence.values()
-    ):
+    if any(not _HEX_DIGEST.fullmatch(str(value or "")) for value in evidence.values()):
         return ["certification evidence digest is invalid"]
     return []
 

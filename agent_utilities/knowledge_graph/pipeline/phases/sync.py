@@ -298,6 +298,14 @@ def _write_synced_node_batches(
     """Extracted verbatim: the node MERGE batch-write loop of ``execute_sync``."""
     nodes_synced = 0
     for (label, group_keys), batch in nodes_by_group.items():
+        # Re-validated HERE, at the point of interpolation. Extracting this
+        # writer out of ``execute_sync`` separated the interpolation from
+        # ``_prepare_one_sync_node``'s guard, and a guard in another function
+        # protects nothing the day a second caller appears.
+        # ``_safe_graph_identifier`` is idempotent on an already-valid
+        # identifier, so this is one regex per BATCH (not per row) and fails
+        # closed to ``Code``.
+        label = _safe_graph_identifier(label, default="Code")
         set_clause = (
             " SET " + ", ".join([f"n.{k} = $props_{k}" for k in group_keys])
             if group_keys
@@ -344,10 +352,10 @@ def _prepare_one_sync_edge(
     u_label = _resolve_sync_edge_label(u_type)
     v_label = _resolve_sync_edge_label(v_type)
 
-    u_label_str = f":{u_label}" if u_label else ":Code"
-    v_label_str = f":{v_label}" if v_label else ":Code"
-
-    return (etype, u_label_str, v_label_str), {"uid": u, "vid": v}
+    # Bare labels, no leading ``:``. The writer re-validates and adds the
+    # colon itself, so the value that crosses this boundary is an identifier
+    # rather than a Cypher fragment that only LOOKS like one.
+    return (etype, u_label or "Code", v_label or "Code"), {"uid": u, "vid": v}
 
 
 def _group_sync_edges(graph: Any) -> dict[tuple[str, str, str], list[dict[str, Any]]]:
@@ -371,8 +379,23 @@ def _write_synced_edge_batches(
 ) -> int:
     """Extracted verbatim: the edge MERGE batch-write loop of ``execute_sync``."""
     edges_synced = 0
-    for (etype, u_label_str, v_label_str), batch in edges_by_type.items():
-        query = f"MATCH (a{u_label_str} {{id: $uid}}), (b{v_label_str} {{id: $vid}}) MERGE (a)-[r:{etype}]->(b)"
+    for (etype, u_label, v_label), batch in edges_by_type.items():
+        # Re-validated HERE, at the point of interpolation, for the same reason
+        # as ``_write_synced_node_batches``: extracting this writer out of
+        # ``execute_sync`` separated the f-string from
+        # ``_prepare_one_sync_edge``'s guard, and a guard in another function
+        # protects nothing the day a second caller builds ``edges_by_type``
+        # some other way. All three interpolated identifiers are re-checked --
+        # the relationship type as well as both end labels.
+        # ``_safe_graph_identifier`` is idempotent on an already-valid
+        # identifier, so for every value the current preparer emits these
+        # return their input unchanged, at one regex per BATCH, not per row.
+        # An identifier that does NOT survive validation yields an unusable
+        # (never an injected) query, which the batch loop below already logs.
+        etype = _safe_graph_identifier(etype)
+        u_label = _safe_graph_identifier(u_label, default="Code")
+        v_label = _safe_graph_identifier(v_label, default="Code")
+        query = f"MATCH (a:{u_label} {{id: $uid}}), (b:{v_label} {{id: $vid}}) MERGE (a)-[r:{etype}]->(b)"
         batch_size = getattr(ctx.config, "ingest_batch_size", 500)
         for i in range(0, len(batch), batch_size):
             chunk = batch[i : i + batch_size]

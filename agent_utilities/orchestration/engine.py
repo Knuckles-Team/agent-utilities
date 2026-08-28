@@ -168,9 +168,7 @@ def _is_agent_error(output: str) -> bool:
         return False
 
 
-async def _connect_mcp_toolsets(
-    stack: AsyncExitStack, deps: Any
-) -> None:
+async def _connect_mcp_toolsets(stack: AsyncExitStack, deps: Any) -> None:
     """Connect every MCP toolset in ``deps.mcp_toolsets``, tolerating failures.
 
     Extracted verbatim from ``AgentOrchestrationEngine.execute_graph`` (pure
@@ -311,9 +309,7 @@ async def _run_graph_with_evidence(
         ) as span:
             graph_evidence.attach_span(span)
             try:
-                with anyio.move_on_after(
-                    DEFAULT_GRAPH_TIMEOUT / 1000.0
-                ) as scope:
+                with anyio.move_on_after(DEFAULT_GRAPH_TIMEOUT / 1000.0) as scope:
                     result = await run_with_execution_evidence(
                         graph,
                         state=state,
@@ -331,9 +327,7 @@ async def _run_graph_with_evidence(
             if span is not None:
                 span.set_status(
                     trace.Status(
-                        trace.StatusCode.OK
-                        if result
-                        else trace.StatusCode.ERROR
+                        trace.StatusCode.OK if result else trace.StatusCode.ERROR
                     )
                 )
     except Exception as e:
@@ -344,22 +338,26 @@ async def _run_graph_with_evidence(
         emit_graph_event(
             deps.event_queue, "graph_complete", run_id=run_id, status="error"
         )
-        return None, _graph_run_start, GraphResponse(
-            status="error",
-            error=str(e),
-            metadata={
-                "run_id": run_id,
-                "is_error": True,
-                "execution_mode": "pydantic_graph",
-            },
-            # A budget, timeout, or model failure can happen after a
-            # real tool completed.  Preserve the calls accumulated by
-            # graph nodes so the outer required-tool gate and durable
-            # RunTrace record what actually happened instead of
-            # reporting zero provenance.
-            tool_calls=list(getattr(state, "tool_calls", []) or []),
-            execution_evidence=graph_evidence.evidence(state=state),
-        ).model_dump()
+        return (
+            None,
+            _graph_run_start,
+            GraphResponse(
+                status="error",
+                error=str(e),
+                metadata={
+                    "run_id": run_id,
+                    "is_error": True,
+                    "execution_mode": "pydantic_graph",
+                },
+                # A budget, timeout, or model failure can happen after a
+                # real tool completed.  Preserve the calls accumulated by
+                # graph nodes so the outer required-tool gate and durable
+                # RunTrace record what actually happened instead of
+                # reporting zero provenance.
+                tool_calls=list(getattr(state, "tool_calls", []) or []),
+                execution_evidence=graph_evidence.evidence(state=state),
+            ).model_dump(),
+        )
 
     # CONCEPT:AU-ORCH.execution.node-direct-end — a node may END the run directly with End[GraphResponse]
     # (the router's direct-completion shape). pydantic-graph returns the End wrapper,
@@ -644,14 +642,8 @@ def _shape_response_for_error_dict(
             "run_id": run_id,
             "domain": state.routed_domain,
             "degraded": True,
-            "outcome": "budget_exceeded"
-            if budget_exceeded
-            else "graph_terminal_error",
-            **(
-                {"budget_dimension": budget_dimension}
-                if budget_dimension
-                else {}
-            ),
+            "outcome": "budget_exceeded" if budget_exceeded else "graph_terminal_error",
+            **({"budget_dimension": budget_dimension} if budget_dimension else {}),
             "execution_mode": "pydantic_graph",
         },
         tool_calls=list(getattr(state, "tool_calls", []) or []),
@@ -715,7 +707,9 @@ def _shape_graph_execute_response(
     # read must never grant permission": make failure a distinct value, never an empty
     # success), report it as a genuine, honest failure instead.
     if result is None:
-        return _shape_response_for_none_result(run_id, state, graph_evidence, mermaid_prefix)
+        return _shape_response_for_none_result(
+            run_id, state, graph_evidence, mermaid_prefix
+        )
 
     # Guard: graph.run() returned a plain string (node label) instead of GraphResponse.
     # This happens when the graph exits without hitting End[GraphResponse] via some other
@@ -754,7 +748,9 @@ def _shape_graph_execute_response(
     # repr (e.g. "{'error': 'Execution budget exceeded...', 'results': {...}}") as if it
     # were a normal reply. Surface the real cause in `error` + a coherent output instead.
     if isinstance(result, dict) and result.get("error"):
-        return _shape_response_for_error_dict(result, run_id, state, graph_evidence, mermaid_prefix)
+        return _shape_response_for_error_dict(
+            result, run_id, state, graph_evidence, mermaid_prefix
+        )
 
     return GraphResponse(
         status="completed",
@@ -1163,7 +1159,6 @@ class AgentOrchestrationEngine:
 
         async with AsyncExitStack() as stack:
             await _connect_mcp_toolsets(stack, deps)
-
 
             # Standardize tag_prompts from the registry for high-fidelity routing.
             # We merge existing prompts with registry-provided domain tags.

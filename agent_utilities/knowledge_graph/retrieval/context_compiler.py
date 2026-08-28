@@ -975,10 +975,7 @@ class ContextCompiler:
             if (
                 best_rec is None
                 or mmr_score > best_mmr + 1e-12
-                or (
-                    abs(mmr_score - best_mmr) <= 1e-12
-                    and rec["nid"] < best_rec["nid"]
-                )
+                or (abs(mmr_score - best_mmr) <= 1e-12 and rec["nid"] < best_rec["nid"])
             ):
                 best_rec = rec
                 best_mmr = mmr_score
@@ -1005,9 +1002,7 @@ class ContextCompiler:
             best_rec["diversity_penalty"] = best_div
             selected.append(best_rec)
             selected_nodes.append(best_rec["node"])
-            remaining.remove(
-                next(r for r in remaining if r["nid"] == best_rec["nid"])
-            )
+            remaining.remove(next(r for r in remaining if r["nid"] == best_rec["nid"]))
         return selected
 
     def _compile_record_mmr_decisions(
@@ -1075,9 +1070,7 @@ class ContextCompiler:
                 node_id=rec["nid"],
                 kind=str(node.get("type") or node.get("label") or "Unknown"),
                 evidence_kind=node.get("evidence_kind"),
-                source_refs=tuple(
-                    node.get("source_refs") or node.get("sources") or ()
-                ),
+                source_refs=tuple(node.get("source_refs") or node.get("sources") or ()),
                 span=text[:240],
                 confidence=float(node.get("confidence", _NEUTRAL_CONFIDENCE) or 0.0),
             )
@@ -1185,9 +1178,7 @@ class ContextCompiler:
             durable_source["query"] = persistence_reference(
                 "query", query, namespace="context-bundle"
             )
-            durable_bundle, _privacy_report = sanitize_for_persistence(
-                durable_source
-            )
+            durable_bundle, _privacy_report = sanitize_for_persistence(durable_source)
             encoded = json.dumps(durable_bundle, default=str).encode("utf-8")
             prompt_copied = (
                 bool(query) and query.casefold() in encoded.decode("utf-8").casefold()
@@ -1284,9 +1275,7 @@ class ContextCompiler:
         candidates, quality_report = self._retrieve(
             query, pool, as_of=as_of, session=session
         )
-        quality_gate_failed, quality_reason = self._compile_quality_gate(
-            quality_report
-        )
+        quality_gate_failed, quality_reason = self._compile_quality_gate(quality_report)
         decisions: list[dict[str, Any]] = []
 
         allowed, allowed_ids, dropped_policy = self._compile_policy_filter(

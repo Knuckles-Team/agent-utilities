@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-572 typed fields · 379 runtime-only call-site inputs.
+572 typed fields · 377 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -827,7 +827,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `FORKD_TOKEN` | 1 |
 | `FORKD_URL` | 1 |
 | `FRESHRSS_MAX_BATCHES` | 1 |
-| `FRESHRSS_URL` | 2 |
+| `FRESHRSS_URL` | 1 |
 | `FRESHRSS_USE_NOVELTY` | 1 |
 | `GITHUB_API_KEY` | 1 |
 | `GITHUB_TOKEN` | 1 |
@@ -948,9 +948,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `MATTERMOST_URL` | 2 |
 | `MAX_TOOL_CALLS_PER_SESSION` | 1 |
 | `MAX_TOOL_REPEATS` | 1 |
-| `MCP_DISABLED_TAGS` | 1 |
 | `MCP_DISABLED_TOOLS` | 1 |
-| `MCP_ENABLED_TAGS` | 1 |
 | `MCP_ENABLED_TOOLS` | 1 |
 | `MCP_FLEET_REGISTRATION` | 1 |
 | `MCP_FLEET_REGISTRATION_TTL_SECS` | 1 |

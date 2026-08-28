@@ -755,7 +755,9 @@ def _graph_search_rerank(engine: Any, session: Any, *, query: str, top_k: int) -
         for r in base
     ]
     qemb: list[float] = []
-    embed_model = getattr(getattr(engine, "hybrid_retriever", None), "embed_model", None)
+    embed_model = getattr(
+        getattr(engine, "hybrid_retriever", None), "embed_model", None
+    )
     if embed_model is not None:
         try:
             qemb = embed_model.get_text_embedding(query)
@@ -2058,7 +2060,12 @@ def register_query_tools(mcp):
     kg_server.REGISTERED_TOOLS["graph_code_nav"] = graph_code_nav
 
     def _graph_document_tree_build(
-        document_id: str, text: str, persist: bool, thin: bool, summarize: bool, engine: Any
+        document_id: str,
+        text: str,
+        persist: bool,
+        thin: bool,
+        summarize: bool,
+        engine: Any,
     ) -> str:
         from agent_utilities.knowledge_graph.ontology.document_processing import (
             SectionTreeConfig,
@@ -2100,7 +2107,9 @@ def register_query_tools(mcp):
             return json.dumps({"error": "IntelligenceGraphEngine not active"})
         roots = HierarchicalDocumentRetriever(engine).load_tree(document_id)
         if not roots:
-            return json.dumps({"error": f"no section tree for document {document_id!r}"})
+            return json.dumps(
+                {"error": f"no section tree for document {document_id!r}"}
+            )
         return json.dumps(
             {
                 "action": "structure",
@@ -2126,7 +2135,9 @@ def register_query_tools(mcp):
             return public_error_json(e)
         roots = HierarchicalDocumentRetriever(engine).load_tree(document_id)
         if not roots:
-            return json.dumps({"error": f"no section tree for document {document_id!r}"})
+            return json.dumps(
+                {"error": f"no section tree for document {document_id!r}"}
+            )
         return json.dumps(
             {
                 "action": "content",

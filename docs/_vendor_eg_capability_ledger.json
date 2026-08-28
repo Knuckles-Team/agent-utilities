@@ -1,6 +1,6 @@
 {
-  "cached_at": "2026-08-26T17:07:56Z",
-  "row_count": 404,
+  "cached_at": "2026-08-28T03:46:12Z",
+  "row_count": 407,
   "rows": {
     "AcquireCapacity": {
       "audited": "true",
@@ -4105,6 +4105,28 @@
       "note": "",
       "txn_participation": "Snapshot"
     },
+    "TsDeleteSeries": {
+      "audited": "false",
+      "authz_action": "timeseries:write",
+      "durability": "SeriesRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "TsDeleteSeries",
+      "mutates": "true",
+      "note": "content-idempotent unlike TsAppend: re-deleting an already-gone series is a safe no-op (see SeriesStore::delete_series)",
+      "txn_participation": "Atomic"
+    },
+    "TsEvict": {
+      "audited": "false",
+      "authz_action": "timeseries:write",
+      "durability": "SeriesRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "TsEvict",
+      "mutates": "true",
+      "note": "content-idempotent unlike TsAppend: re-evicting an already-past cutoff is a safe no-op (see SeriesStore::evict_before)",
+      "txn_participation": "Atomic"
+    },
     "TsGapFill": {
       "audited": "false",
       "authz_action": "timeseries:read",
@@ -4112,6 +4134,17 @@
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "TsGapFill",
+      "mutates": "false",
+      "note": "",
+      "txn_participation": "Snapshot"
+    },
+    "TsListSeries": {
+      "audited": "false",
+      "authz_action": "timeseries:read",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "TsListSeries",
       "mutates": "false",
       "note": "",
       "txn_participation": "Snapshot"

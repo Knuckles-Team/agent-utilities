@@ -1281,7 +1281,9 @@ async def dispatch_intent(
 
     def _resolve_candidates() -> dict[str, Any] | None:
         nonlocal candidates, top, chosen_tool
-        candidates = resolve_intent(verb, intent, hints=raw_hints, top_k=max(2, int(top_k)))
+        candidates = resolve_intent(
+            verb, intent, hints=raw_hints, top_k=max(2, int(top_k))
+        )
         if not candidates:
             if explicit_tool:
                 # Two DIFFERENT failure reasons collapse to the same empty
@@ -1520,7 +1522,9 @@ async def dispatch_intent(
                     "capability_source": "packaged_graphos_cpd",
                 },
                 "policy": {
-                    "verb_class": ("read_only" if verb in _READ_ONLY_VERBS else "non_read"),
+                    "verb_class": (
+                        "read_only" if verb in _READ_ONLY_VERBS else "non_read"
+                    ),
                     "read_only_enforced": verb in _READ_ONLY_VERBS,
                     "preview_required": plan["preview_required"],
                     "approval": plan["approval"],
@@ -1546,7 +1550,9 @@ async def dispatch_intent(
     routing = _build_routing()
 
     def _policy_gate() -> dict[str, Any] | None:
-        read_policy_violation = verb in _READ_ONLY_VERBS and plan["mutates"] is not False
+        read_policy_violation = (
+            verb in _READ_ONLY_VERBS and plan["mutates"] is not False
+        )
         if not should_execute:
             if verb in _NON_READ_VERBS:
                 _remember_preview_plan(

@@ -924,7 +924,7 @@ def surface_profile(surface: SurfaceKind) -> SurfaceProfile:
 
 def _check_signal(
     signal: SignalObservation | None,
-    contract: "ScaleUnitContract",
+    contract: ScaleUnitContract,
     current: datetime,
     evidence: list[DecisionEvidence],
     reasons: list[DecisionReason],
@@ -975,7 +975,7 @@ def _check_signal(
 
 
 def _check_capacity_axes(
-    contract: "ScaleUnitContract",
+    contract: ScaleUnitContract,
     cap_map: dict[str, CapacityObservation],
     current: datetime,
     evidence: list[DecisionEvidence],
@@ -1024,7 +1024,7 @@ def _check_capacity_axes(
 
 
 def _check_quotas(
-    contract: "ScaleUnitContract",
+    contract: ScaleUnitContract,
     quota_map: dict[str, QuotaObservation],
     current: datetime,
     evidence: list[DecisionEvidence],
@@ -1116,7 +1116,7 @@ def _check_quotas(
 
 
 def _check_continuity(
-    contract: "ScaleUnitContract",
+    contract: ScaleUnitContract,
     continuity: ContinuityObservation | None,
     current: datetime,
     evidence: list[DecisionEvidence],
@@ -1173,7 +1173,7 @@ def _check_continuity(
 
 
 def _check_safety(
-    contract: "ScaleUnitContract",
+    contract: ScaleUnitContract,
     safety: LoadSafetyObservation | None,
     current: datetime,
     evidence: list[DecisionEvidence],
@@ -1219,7 +1219,7 @@ def _check_safety(
 
 
 def _check_scale_up_feasibility(
-    contract: "ScaleUnitContract",
+    contract: ScaleUnitContract,
     cap_map: dict[str, CapacityObservation],
     quota_map: dict[str, QuotaObservation],
     *,
@@ -1229,7 +1229,7 @@ def _check_scale_up_feasibility(
     evidence: list[DecisionEvidence],
     provider_quota_exhausted: bool,
     local_quota_exhausted: bool,
-) -> "ScaleDecision | None":
+) -> ScaleDecision | None:
     """Returns a blocked ScaleDecision if scale-up is infeasible, else None."""
     reasons: list[DecisionReason] = []
     additional = desired - current_replicas
@@ -1276,7 +1276,7 @@ def _check_scale_up_feasibility(
 
 
 def _compute_scale_decision(
-    contract: "ScaleUnitContract",
+    contract: ScaleUnitContract,
     *,
     current_replicas: int,
     signal: SignalObservation | None,
@@ -1288,7 +1288,7 @@ def _compute_scale_decision(
     evidence: list[DecisionEvidence],
     provider_quota_exhausted: bool,
     local_quota_exhausted: bool,
-) -> "ScaleDecision":
+) -> ScaleDecision:
     reasons: list[DecisionReason] = []
     if signal is None:
         raise ScaleContractError(

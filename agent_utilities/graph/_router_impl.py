@@ -984,10 +984,6 @@ async def _router_plan_and_dispatch(
             )
             logger.error(f"Router fallback also failed: {fallback_e}")
 
-        # Detailed logging for debugging
-        if "res" in locals():
-            logger.debug(f"Router raw response: {res}")
-
         # D-RTR-2: this used to ``return "__end__"``, implying the router could
         # terminate the graph run here. It cannot: ``graph/builder.py`` gives the
         # router a SINGLE static outgoing edge to the dispatcher (a second edge to

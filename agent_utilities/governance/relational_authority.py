@@ -548,7 +548,6 @@ def _validate_placement_events(
     )
 
 
-
 def _validate_table_entry(
     raw_table: Any,
     table_path: str,
@@ -808,9 +807,7 @@ def _validate_read_models(
             errors.append(f"{path}.owner_domain is invalid")
         if model.get("write_forbidden") is not True:
             errors.append(f"{path}.write_forbidden must be true")
-        fields = _string_list(
-            model.get("fields"), path=f"{path}.fields", errors=errors
-        )
+        fields = _string_list(model.get("fields"), path=f"{path}.fields", errors=errors)
         if len(fields) != len(set(fields)):
             errors.append(f"duplicate read-model fields: {path}")
         if isinstance(name, str) and set(fields) != _EXPECTED_READ_MODEL_FIELDS.get(

@@ -530,7 +530,9 @@ class EnrichmentPipeline:
 
         pending, pending_hashes = self._enrich_prehash_filter(files, root_real, summary)
 
-        results, struct_edges, call_edges = self._enrich_parse_and_resolve(pending, pending_hashes, summary)
+        results, struct_edges, call_edges = self._enrich_parse_and_resolve(
+            pending, pending_hashes, summary
+        )
 
         all_code = [c for r in results for c in r.code]
         all_tests = [t for r in results for t in r.tests]
@@ -652,7 +654,9 @@ class EnrichmentPipeline:
         pending: list[tuple[str, str]],
         pending_hashes: dict[str, str],
         summary: EnrichmentSummary,
-    ) -> tuple[list[ExtractionResult], list[EnrichmentEdge], list[EnrichmentEdge] | None]:
+    ) -> tuple[
+        list[ExtractionResult], list[EnrichmentEdge], list[EnrichmentEdge] | None
+    ]:
         """Phase 2 of ``enrich_files``: parse + resolve the changed files.
 
         Extracted verbatim from ``enrich_files`` (pure extract-method, no
@@ -781,7 +785,6 @@ class EnrichmentPipeline:
                 result = self.writeback_fn(minted)
                 summary.capabilities_pushed = _writeback_count(result)
 
-
     def _enrich_write_all(
         self,
         all_code: list[Any],
@@ -846,7 +849,6 @@ class EnrichmentPipeline:
         finally:
             self.backend.flush()
             self.backend = real_backend
-
 
     # ── writers (GraphBackend single interface) ──────────────────────────
     def _write_code(self, c: Any, card: CapabilityCard | None = None) -> None:

@@ -386,13 +386,14 @@ def create_agent(
 
     mcp_tls = resolve_configured_tls_profile("mcp", config=config)
 
-
     def _setup_mcp_url_toolset() -> None:
         if mcp_url:
             if DEFAULT_VALIDATION_MODE:
                 logger.info("VALIDATION_MODE: skipping MCP connection")
             elif is_loopback_url(mcp_url, current_host, current_port):
-                logger.warning("Loopback Guard: skipping self-referential MCP connection")
+                logger.warning(
+                    "Loopback Guard: skipping self-referential MCP connection"
+                )
             else:
                 try:
                     server = build_http_toolset(mcp_url, timeout=DEFAULT_TIMEOUT)
@@ -448,7 +449,9 @@ def create_agent(
     def _setup_explicit_mcp_toolsets() -> None:
         if mcp_toolsets:
             if DEFAULT_VALIDATION_MODE:
-                logger.info("VALIDATION_MODE: Skipping external mcp_toolsets connection")
+                logger.info(
+                    "VALIDATION_MODE: Skipping external mcp_toolsets connection"
+                )
             else:
                 for server in mcp_toolsets:
                     if server is None:
@@ -635,11 +638,15 @@ def create_agent(
             logger.info(
                 "No system_prompt provided to create_agent. Building from workspace..."
             )
-            from agent_utilities.prompting.builder import build_system_prompt_from_workspace
+            from agent_utilities.prompting.builder import (
+                build_system_prompt_from_workspace,
+            )
 
             system_prompt_str = build_system_prompt_from_workspace()
         else:
-            logger.debug(f"Custom Agent System Prompt provided: {system_prompt[:100]}...")
+            logger.debug(
+                f"Custom Agent System Prompt provided: {system_prompt[:100]}..."
+            )
             system_prompt_str = system_prompt
 
         # CONCEPT:AU-ECO.bus.agent-bus-awareness — weave AgentBus awareness into EVERY agent's prompt at the one

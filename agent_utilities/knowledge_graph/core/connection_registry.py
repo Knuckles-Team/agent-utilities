@@ -473,9 +473,7 @@ def _validate_persistable_graph_booleans(spec: dict[str, Any], graphql: bool) ->
         if spec.get(boolean_key) is not None and not isinstance(
             spec.get(boolean_key), bool
         ):
-            raise ValueError(
-                f"persistent external graph {boolean_key} must be boolean"
-            )
+            raise ValueError(f"persistent external graph {boolean_key} must be boolean")
 
 
 def _validate_persistable_external_graph_spec(
@@ -663,9 +661,7 @@ def _build_engine_epistemic_graph(
     if not _build_engine_epistemic_graph_applicable(build_spec, backend_kind):
         return None
     if str(spec.get("role") or DEFAULT_ROLE) != "read":
-        raise ValueError(
-            "a remote epistemic-graph connector must have role='read'"
-        )
+        raise ValueError("a remote epistemic-graph connector must have role='read'")
     from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
         RemoteEpistemicGraphReadAdapter,
     )
