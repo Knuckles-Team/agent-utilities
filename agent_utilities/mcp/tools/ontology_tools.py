@@ -1412,6 +1412,124 @@ def _ontology_derive_compute_all(object_json: str, object_type: str) -> str:
     return json.dumps(ont.derive_all(obj, object_type=object_type or None), default=str)
 
 
+def _object_edits_as_dict(v: Any) -> dict:
+    # Omitted dict params arrive as the unresolved FastMCP ``FieldInfo``
+    # (default_factory is not resolved by the internal/REST dispatcher);
+    # coerce anything non-dict — and a JSON-string some clients send.
+    if isinstance(v, dict):
+        return v
+    if isinstance(v, str) and v.strip():
+        try:
+            parsed = json.loads(v)
+            return parsed if isinstance(parsed, dict) else {}
+        except (ValueError, TypeError):
+            return {}
+    return {}
+
+
+@dataclass
+class _ObjectEditsRecordArgs:
+    """Bundled `object_edits` action='record' parameters (kept under the
+    7-parameter cap as a dataclass rather than positional args)."""
+
+    edit_type: str
+    object_id: str
+    properties_json: str
+    link_target: str
+    link_label: str
+    actor: str
+    expect: dict
+
+
+def _object_edits_compare_and_set(
+    ledger: Any, object_id: str, conditions: dict, props: dict, actor: str, etype: Any
+) -> str:
+    # CONCEPT:AU-KG.ontology.optimistic-concurrency-object-property — atomic
+    # optimistic-concurrency property set. The object id IS the node id (the
+    # ledger persists the edit's target as MERGE (t {id: object_id})), so we
+    # condition on the SAME node the edit targets. Apply the set ONLY if the
+    # node still matches ``expect`` (missing field ≡ null), under the engine
+    # write lock. If we lose the race we record NOTHING and surface
+    # applied=false — never a misleading audit edit.
+    from agent_utilities.knowledge_graph.ontology.edits import Edit
+
+    engine = kg_server._get_engine()
+    backend = getattr(engine, "backend", None)
+    if backend is None:
+        return json.dumps(
+            {
+                "action": "compare_and_set",
+                "object_id": object_id,
+                "applied": False,
+                "error": "no engine backend for conditional set",
+            }
+        )
+    applied = bool(
+        backend.compare_and_set_node_fields(object_id, conditions, dict(props))
+    )
+    if not applied:
+        return json.dumps(
+            {"action": "compare_and_set", "object_id": object_id, "applied": False}
+        )
+    edit = Edit(actor=actor, edit_type=etype, object_id=object_id, after=dict(props))
+    recorded = ledger.record(edit)
+    payload = recorded.model_dump()
+    payload["applied"] = True
+    return json.dumps(payload, default=str)
+
+
+def _object_edits_record(ledger: Any, args: _ObjectEditsRecordArgs) -> str:
+    from agent_utilities.knowledge_graph.ontology.edits import Edit, EditType
+
+    etype = EditType(args.edit_type)
+    if etype in (EditType.LINK_ADD, EditType.LINK_REMOVE):
+        edit = Edit(
+            actor=args.actor,
+            edit_type=etype,
+            object_id=args.object_id,
+            link_source=args.object_id,
+            link_label=args.link_label,
+            link_target=args.link_target,
+        )
+        recorded = ledger.record(edit)
+        return json.dumps(recorded.model_dump(), default=str)
+
+    props = json.loads(args.properties_json) if args.properties_json else {}
+    conditions = _object_edits_as_dict(args.expect)
+    if etype == EditType.PROPERTY_SET and conditions:
+        return _object_edits_compare_and_set(
+            ledger, args.object_id, conditions, props, args.actor, etype
+        )
+    edit = Edit(
+        actor=args.actor, edit_type=etype, object_id=args.object_id, after=dict(props)
+    )
+    recorded = ledger.record(edit)
+    return json.dumps(recorded.model_dump(), default=str)
+
+
+def _object_edits_revert(ledger: Any, edit_id: str, actor: str) -> str:
+    from agent_utilities.knowledge_graph.ontology.edits import revert_edit
+
+    comp = revert_edit(ledger, edit_id, actor=actor)
+    return json.dumps(comp.model_dump(), default=str)
+
+
+def _object_edits_history(ledger: Any, object_id: str) -> str:
+    return json.dumps(
+        {
+            "object_id": object_id,
+            "history": [e.model_dump() for e in ledger.history(object_id)],
+        },
+        default=str,
+    )
+
+
+def _object_edits_as_of(ledger: Any, object_id: str, ts: float) -> str:
+    return json.dumps(
+        {"object_id": object_id, "snapshot": ledger.as_of(object_id, ts)}, default=str
+    )
+
+
 def register_ontology_tools(mcp):
     """Register the ontology_tools group on the given FastMCP server."""
 
@@ -2834,109 +2952,26 @@ def register_ontology_tools(mcp):
         ledger edit is recorded **only if the precondition still holds** — use it
         when concurrent agents shape the same object so one never clobbers another.
         """
-        from agent_utilities.knowledge_graph.ontology.edits import (
-            Edit,
-            EditType,
-            revert_edit,
-        )
-
-        def _as_dict(v: Any) -> dict:
-            # Omitted dict params arrive as the unresolved FastMCP ``FieldInfo``
-            # (default_factory is not resolved by the internal/REST dispatcher);
-            # coerce anything non-dict — and a JSON-string some clients send.
-            if isinstance(v, dict):
-                return v
-            if isinstance(v, str) and v.strip():
-                try:
-                    parsed = json.loads(v)
-                    return parsed if isinstance(parsed, dict) else {}
-                except (ValueError, TypeError):
-                    return {}
-            return {}
-
         try:
             ont = kg_server._ontology_system()
             ledger = ont.edits
             if action == "record":
-                etype = EditType(edit_type)
-                if etype in (EditType.LINK_ADD, EditType.LINK_REMOVE):
-                    edit = Edit(
-                        actor=actor,
-                        edit_type=etype,
-                        object_id=object_id,
-                        link_source=object_id,
-                        link_label=link_label,
-                        link_target=link_target,
-                    )
-                else:
-                    props = json.loads(properties_json) if properties_json else {}
-                    conditions = _as_dict(expect)
-                    if etype == EditType.PROPERTY_SET and conditions:
-                        # CONCEPT:AU-KG.ontology.optimistic-concurrency-object-property — atomic optimistic-concurrency property
-                        # set. The object id IS the node id (the ledger persists the
-                        # edit's target as MERGE (t {id: object_id})), so we condition
-                        # on the SAME node the edit targets. Apply the set ONLY if the
-                        # node still matches ``expect`` (missing field ≡ null), under
-                        # the engine write lock. If we lose the race we record NOTHING
-                        # and surface applied=false — never a misleading audit edit.
-                        engine = kg_server._get_engine()
-                        backend = getattr(engine, "backend", None)
-                        if backend is None:
-                            return json.dumps(
-                                {
-                                    "action": "compare_and_set",
-                                    "object_id": object_id,
-                                    "applied": False,
-                                    "error": "no engine backend for conditional set",
-                                }
-                            )
-                        applied = bool(
-                            backend.compare_and_set_node_fields(
-                                object_id, conditions, dict(props)
-                            )
-                        )
-                        if not applied:
-                            return json.dumps(
-                                {
-                                    "action": "compare_and_set",
-                                    "object_id": object_id,
-                                    "applied": False,
-                                }
-                            )
-                        edit = Edit(
-                            actor=actor,
-                            edit_type=etype,
-                            object_id=object_id,
-                            after=dict(props),
-                        )
-                        recorded = ledger.record(edit)
-                        payload = recorded.model_dump()
-                        payload["applied"] = True
-                        return json.dumps(payload, default=str)
-                    edit = Edit(
-                        actor=actor,
-                        edit_type=etype,
-                        object_id=object_id,
-                        after=dict(props),
-                    )
-                recorded = ledger.record(edit)
-                return json.dumps(recorded.model_dump(), default=str)
+                args = _ObjectEditsRecordArgs(
+                    edit_type=edit_type,
+                    object_id=object_id,
+                    properties_json=properties_json,
+                    link_target=link_target,
+                    link_label=link_label,
+                    actor=actor,
+                    expect=expect,
+                )
+                return _object_edits_record(ledger, args)
             if action == "revert":
-                comp = revert_edit(ledger, edit_id, actor=actor)
-                return json.dumps(comp.model_dump(), default=str)
+                return _object_edits_revert(ledger, edit_id, actor)
             if action == "history":
-                return json.dumps(
-                    {
-                        "object_id": object_id,
-                        "history": [e.model_dump() for e in ledger.history(object_id)],
-                    },
-                    default=str,
-                )
+                return _object_edits_history(ledger, object_id)
             if action == "as_of":
-                return json.dumps(
-                    {"object_id": object_id, "snapshot": ledger.as_of(object_id, ts)},
-                    default=str,
-                )
+                return _object_edits_as_of(ledger, object_id, ts)
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
