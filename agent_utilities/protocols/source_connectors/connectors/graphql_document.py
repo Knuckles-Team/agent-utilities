@@ -1613,6 +1613,73 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
                 return value
         return None
 
+    def _mapping_flat_records(
+        self,
+        seeds: list[Any],
+        mapping: dict[str, Any],
+        limit: int,
+    ) -> tuple[list[tuple[dict[str, Any], Any | None, int]], int]:
+        parent_path = str(mapping.get("parent_id_path") or "")
+        records: list[tuple[dict[str, Any], Any | None, int]] = []
+        truncated = 0
+        for seed in seeds:
+            if not isinstance(seed, dict):
+                continue
+            if len(records) >= limit:
+                truncated += 1
+                continue
+            parent = _dig(seed, parent_path) if parent_path else None
+            records.append((seed, parent, 0))
+        return records, truncated
+
+    def _hierarchy_step(
+        self,
+        record: dict[str, Any],
+        children_path: str,
+        id_path: str,
+        depth: int,
+        max_depth: int,
+    ) -> tuple[list[tuple[dict[str, Any], Any, int]], int]:
+        """Returns (pushable child stack entries, extra-truncated count)."""
+        children = [
+            child
+            for child in _dig_many(record, children_path)
+            if isinstance(child, dict)
+        ]
+        if not children:
+            return [], 0
+        if depth + 1 >= max_depth:
+            return [], len(children)
+        raw_id = _dig(record, id_path)
+        pushable = [(child, raw_id, depth + 1) for child in reversed(children)]
+        return pushable, 0
+
+    def _mapping_hierarchy_records(
+        self,
+        seeds: list[Any],
+        children_path: str,
+        id_path: str,
+        limit: int,
+        max_depth: int,
+    ) -> tuple[list[tuple[dict[str, Any], Any | None, int]], int]:
+        records: list[tuple[dict[str, Any], Any | None, int]] = []
+        truncated = 0
+        stack: list[tuple[dict[str, Any], Any | None, int]] = [
+            (seed, None, 0) for seed in reversed(seeds) if isinstance(seed, dict)
+        ]
+        while stack:
+            record, parent, depth = stack.pop()
+            if len(records) >= limit:
+                truncated += 1
+                continue
+            records.append((record, parent, depth))
+            pushable, extra_truncated = self._hierarchy_step(
+                record, children_path, id_path, depth, max_depth
+            )
+            stack.extend(pushable)
+            truncated += extra_truncated
+        return records, truncated
+
     def _mapping_records(
         self,
         roots: list[Any],
@@ -1630,39 +1697,17 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
 
         for root in roots:
             seeds = _dig_many(root, records_path)
+            remaining = limit - len(records)
             if kind != "hierarchy" or not children_path:
-                for seed in seeds:
-                    if not isinstance(seed, dict):
-                        continue
-                    if len(records) >= limit:
-                        truncated += 1
-                        continue
-                    parent_path = str(mapping.get("parent_id_path") or "")
-                    parent = _dig(seed, parent_path) if parent_path else None
-                    records.append((seed, parent, 0))
-                continue
-
-            stack: list[tuple[dict[str, Any], Any | None, int]] = [
-                (seed, None, 0) for seed in reversed(seeds) if isinstance(seed, dict)
-            ]
-            while stack:
-                record, parent, depth = stack.pop()
-                if len(records) >= limit:
-                    truncated += 1
-                    continue
-                records.append((record, parent, depth))
-                children = [
-                    child
-                    for child in _dig_many(record, children_path)
-                    if isinstance(child, dict)
-                ]
-                if not children:
-                    continue
-                if depth + 1 >= max_depth:
-                    truncated += len(children)
-                    continue
-                raw_id = _dig(record, id_path)
-                stack.extend((child, raw_id, depth + 1) for child in reversed(children))
+                new_records, new_truncated = self._mapping_flat_records(
+                    seeds, mapping, remaining
+                )
+            else:
+                new_records, new_truncated = self._mapping_hierarchy_records(
+                    seeds, children_path, id_path, remaining, max_depth
+                )
+            records.extend(new_records)
+            truncated += new_truncated
         return records, truncated
 
     def _entity_node_id(
