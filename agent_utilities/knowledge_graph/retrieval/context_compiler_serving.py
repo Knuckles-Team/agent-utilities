@@ -32,6 +32,7 @@ already-assembled :class:`ContextBundle`.
 import hashlib
 import logging
 import time
+from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
 
@@ -56,6 +57,110 @@ _DEFAULT_TIMEOUT_S = 60.0
 _DEFAULT_MAX_RETRIES = 2
 
 
+@dataclass
+class _BundleModelConfig:
+    """Everything shared by the sync/async client-resolution paths — the
+    dependency-injected override / configured model-id / default-chat-model
+    resolution order and TLS/auth material, with only the concrete client
+    class (``OpenAI`` vs ``AsyncOpenAI``) and http-client factory left to the
+    caller."""
+
+    base_url: str
+    model: str
+    tls_profile: Any
+    headers: dict[str, str] | None
+    oauth2_auth: Any
+    api_key: str
+
+
+def _resolve_bundle_endpoint(
+    *, base_url: str | None, model: str | None
+) -> tuple[Any, str, str]:
+    """Resolve the configured model entry plus the base URL / model id to use.
+
+    Resolution order is an explicit dependency-injected override followed by a
+    configured model id/role (including ``lite``), then
+    ``config.default_chat_model``.
+
+    Returns:
+        ``(cfg, resolved_base_url, resolved_model)`` — ``cfg`` is the selected
+        (or default) chat-model config entry, or ``None`` if neither resolved.
+    """
+    from agent_utilities.core.config import config
+
+    selected_cfg = config.resolve_chat_model_config(model)
+    cfg = selected_cfg or config.default_chat_model
+    resolved_base_url = base_url or (cfg.base_url if cfg else None)
+    if not resolved_base_url:
+        raise RuntimeError("a configured chat-model base URL is required")
+    resolved_model = (
+        (selected_cfg.id if selected_cfg is not None else model)
+        or (cfg.id if cfg else None)
+        or "default"
+    )
+    return cfg, resolved_base_url, resolved_model
+
+
+def _resolve_bundle_auth_material(
+    cfg: Any,
+) -> tuple[Any, dict[str, str] | None, Any, str]:
+    """Resolve the TLS profile, headers, oauth2 auth, and API key for ``cfg``
+    (the entry returned by :func:`_resolve_bundle_endpoint`). Lazy imports mean
+    importing this module never requires the provider package or a reachable
+    endpoint.
+
+    Returns:
+        ``(tls_profile, headers, oauth2_auth, api_key)``.
+    """
+    from agent_utilities.core.config import config
+    from agent_utilities.core.model_runtime_auth import (
+        resolve_model_api_key,
+        resolve_model_headers,
+    )
+    from agent_utilities.core.transport_security import (
+        resolve_configured_tls_profile,
+    )
+
+    tls_profile = resolve_configured_tls_profile(
+        "model",
+        profile_name=config.model_tls_profile,
+        profile_ref=config.model_tls_profile_ref,
+        config=config,
+    )
+    oauth2_auth = None
+    if cfg and cfg.oauth2:
+        from agent_utilities.security.oauth_client_credentials import (
+            httpx_auth_from_config,
+        )
+
+        oauth2_auth = httpx_auth_from_config(cfg.oauth2)
+    api_key = (
+        resolve_model_api_key(reference=cfg.api_key_ref) if cfg else None
+    ) or "oauth2-managed"
+    headers = resolve_model_headers(reference=cfg.headers_ref if cfg else None)
+    return tls_profile, headers, oauth2_auth, api_key
+
+
+def _resolve_bundle_model_config(
+    *, base_url: str | None, model: str | None
+) -> _BundleModelConfig:
+    """Resolve the model/endpoint/auth material shared by both
+    :func:`resolve_bundle_chat_client` and :func:`resolve_bundle_async_chat_client`.
+    """
+    cfg, resolved_base_url, resolved_model = _resolve_bundle_endpoint(
+        base_url=base_url, model=model
+    )
+    tls_profile, headers, oauth2_auth, api_key = _resolve_bundle_auth_material(cfg)
+    return _BundleModelConfig(
+        base_url=resolved_base_url,
+        model=resolved_model,
+        tls_profile=tls_profile,
+        headers=headers,
+        oauth2_auth=oauth2_auth,
+        api_key=api_key,
+    )
+
+
 def resolve_bundle_chat_client(
     *,
     base_url: str | None = None,
@@ -75,54 +180,23 @@ def resolve_bundle_chat_client(
     """
     from openai import OpenAI
 
-    from agent_utilities.core.config import config
     from agent_utilities.core.http_client import create_http_client
-    from agent_utilities.core.model_runtime_auth import (
-        resolve_model_api_key,
-        resolve_model_headers,
-    )
-    from agent_utilities.core.transport_security import (
-        resolve_configured_tls_profile,
-    )
 
-    selected_cfg = config.resolve_chat_model_config(model)
-    cfg = selected_cfg or config.default_chat_model
-    resolved_base_url = base_url or (cfg.base_url if cfg else None)
-    if not resolved_base_url:
-        raise RuntimeError("a configured chat-model base URL is required")
-    resolved_model = (
-        (selected_cfg.id if selected_cfg is not None else model)
-        or (cfg.id if cfg else None)
-        or "default"
-    )
-    tls_profile = resolve_configured_tls_profile(
-        "model",
-        profile_name=config.model_tls_profile,
-        profile_ref=config.model_tls_profile_ref,
-        config=config,
-    )
-    oauth2_auth = None
-    if cfg and cfg.oauth2:
-        from agent_utilities.security.oauth_client_credentials import (
-            httpx_auth_from_config,
-        )
-
-        oauth2_auth = httpx_auth_from_config(cfg.oauth2)
+    resolved = _resolve_bundle_model_config(base_url=base_url, model=model)
     http_client = create_http_client(
         timeout=timeout_s,
-        verify=tls_profile.ssl_context,
-        headers=resolve_model_headers(reference=cfg.headers_ref if cfg else None),
-        auth=oauth2_auth,
+        verify=resolved.tls_profile.ssl_context,
+        headers=resolved.headers,
+        auth=resolved.oauth2_auth,
     )
     client = OpenAI(
-        base_url=resolved_base_url,
-        api_key=(resolve_model_api_key(reference=cfg.api_key_ref) if cfg else None)
-        or "oauth2-managed",
+        base_url=resolved.base_url,
+        api_key=resolved.api_key,
         http_client=http_client,
         timeout=timeout_s,
         max_retries=max_retries,
     )
-    return client, resolved_model
+    return client, resolved.model
 
 
 def resolve_bundle_async_chat_client(
@@ -136,55 +210,24 @@ def resolve_bundle_async_chat_client(
 
     from openai import AsyncOpenAI
 
-    from agent_utilities.core.config import config
     from agent_utilities.core.http_client import create_async_http_client
-    from agent_utilities.core.model_runtime_auth import (
-        resolve_model_api_key,
-        resolve_model_headers,
-    )
-    from agent_utilities.core.transport_security import (
-        resolve_configured_tls_profile,
-    )
 
-    selected_cfg = config.resolve_chat_model_config(model)
-    cfg = selected_cfg or config.default_chat_model
-    resolved_base_url = base_url or (cfg.base_url if cfg else None)
-    if not resolved_base_url:
-        raise RuntimeError("a configured chat-model base URL is required")
-    resolved_model = (
-        (selected_cfg.id if selected_cfg is not None else model)
-        or (cfg.id if cfg else None)
-        or "default"
-    )
-    tls_profile = resolve_configured_tls_profile(
-        "model",
-        profile_name=config.model_tls_profile,
-        profile_ref=config.model_tls_profile_ref,
-        config=config,
-    )
-    oauth2_auth = None
-    if cfg and cfg.oauth2:
-        from agent_utilities.security.oauth_client_credentials import (
-            httpx_auth_from_config,
-        )
-
-        oauth2_auth = httpx_auth_from_config(cfg.oauth2)
+    resolved = _resolve_bundle_model_config(base_url=base_url, model=model)
     http_client = create_async_http_client(
         timeout=timeout_s,
-        verify=tls_profile.ssl_context,
-        headers=resolve_model_headers(reference=cfg.headers_ref if cfg else None),
-        auth=oauth2_auth,
+        verify=resolved.tls_profile.ssl_context,
+        headers=resolved.headers,
+        auth=resolved.oauth2_auth,
     )
     return (
         AsyncOpenAI(
-            base_url=resolved_base_url,
-            api_key=(resolve_model_api_key(reference=cfg.api_key_ref) if cfg else None)
-            or "oauth2-managed",
+            base_url=resolved.base_url,
+            api_key=resolved.api_key,
             http_client=http_client,
             timeout=timeout_s,
             max_retries=max_retries,
         ),
-        resolved_model,
+        resolved.model,
     )
 
 
@@ -236,6 +279,91 @@ def _synthetic_cache_response(lookup: Any, *, model: str | None) -> Any:
         au_cache_age_seconds=lookup.age_seconds,
         au_cache_fingerprint=lookup.key.fingerprint,
     )
+
+
+def _semantic_cache_lookup_for_call(
+    bundle: ContextBundle,
+    turn_text: str,
+    *,
+    model: str | None,
+    system_preamble: str | None,
+    semantic_cache_policy: Any | None,
+    log_prefix: str,
+) -> Any | None:
+    """Opt-in semantic-cache lookup shared by the sync/async completion calls.
+
+    Returns ``None`` when the caller did not opt in, OR the lookup best-effort
+    failed (mirrors the original inline ``cache_lookup = None`` reset on
+    exception). The caller is responsible for checking ``.hit`` and returning
+    the synthetic response — this only resolves the lookup object.
+    """
+    if semantic_cache_policy is None:
+        return None
+    try:
+        from agent_utilities.caching.semantic_cache import get_semantic_cache
+
+        cache_key = _semantic_cache_key_for_bundle(
+            bundle, model=model, system_preamble=system_preamble
+        )
+        return get_semantic_cache().lookup(
+            cache_key, turn_text, policy=semantic_cache_policy
+        )
+    except Exception as exc:  # noqa: BLE001 — semantic cache is best-effort
+        logger.debug("%s semantic-cache lookup failed: %s", log_prefix, exc)
+        return None
+
+
+def _apply_prompt_cache_hint(
+    create_kwargs: dict[str, Any],
+    *,
+    system_preamble: str | None,
+    resolved_model: str | None,
+    bundle: ContextBundle,
+    log_prefix: str,
+) -> dict[str, Any]:
+    """Default-on OpenAI ``prompt_cache_key`` routing hint, shared by the
+    sync/async completion calls. Never overrides an explicit caller value;
+    best-effort — a failure here must never break the call, so it falls back
+    to the unmodified ``create_kwargs`` (CONCEPT:AU-ORCH.optimization.provider-
+    prompt-cache)."""
+    try:
+        from agent_utilities.caching.prompt_cache import prompt_cache_create_kwargs
+
+        return prompt_cache_create_kwargs(
+            create_kwargs,
+            system_prompt=system_preamble,
+            model_identity=resolved_model or "",
+            tenant=bundle.session_tenant or None,
+            policy_version=bundle.policy_version if bundle.policy_version else None,
+        )
+    except Exception as exc:  # noqa: BLE001 — prompt-cache hint is best-effort
+        logger.debug("%s prompt-cache hint failed: %s", log_prefix, exc)
+        return create_kwargs
+
+
+def _store_semantic_cache_result(
+    cache_lookup: Any | None,
+    *,
+    turn_text: str,
+    response: Any,
+    semantic_cache_policy: Any | None,
+    log_prefix: str,
+) -> None:
+    """Store a live response for next time on a semantic-cache MISS, shared by
+    the sync/async completion calls. A no-op when caching was not opted into,
+    there was no lookup to pair with, or the lookup was already a HIT (the
+    caller returns early on a hit, so this only runs on the miss path)."""
+    if semantic_cache_policy is None or cache_lookup is None or cache_lookup.hit:
+        return
+    try:
+        from agent_utilities.caching.semantic_cache import get_semantic_cache
+
+        text = response.choices[0].message.content
+        get_semantic_cache().store(
+            cache_lookup.key, turn_text, text or "", policy=semantic_cache_policy
+        )
+    except Exception as exc:  # noqa: BLE001 — semantic cache is best-effort
+        logger.debug("%s semantic-cache store failed: %s", log_prefix, exc)
 
 
 def bundle_chat_completion(
@@ -306,22 +434,16 @@ def bundle_chat_completion(
         synthetic cache-hit stand-in described above.
     """
     resolved_model = model
-    cache_lookup = None
-    if semantic_cache_policy is not None:
-        try:
-            from agent_utilities.caching.semantic_cache import get_semantic_cache
-
-            cache_key = _semantic_cache_key_for_bundle(
-                bundle, model=model, system_preamble=system_preamble
-            )
-            cache_lookup = get_semantic_cache().lookup(
-                cache_key, turn_text, policy=semantic_cache_policy
-            )
-            if cache_lookup.hit:
-                return _synthetic_cache_response(cache_lookup, model=model)
-        except Exception as exc:  # noqa: BLE001 — semantic cache is best-effort
-            logger.debug("bundle_chat_completion semantic-cache lookup failed: %s", exc)
-            cache_lookup = None
+    cache_lookup = _semantic_cache_lookup_for_call(
+        bundle,
+        turn_text,
+        model=model,
+        system_preamble=system_preamble,
+        semantic_cache_policy=semantic_cache_policy,
+        log_prefix="bundle_chat_completion",
+    )
+    if cache_lookup is not None and cache_lookup.hit:
+        return _synthetic_cache_response(cache_lookup, model=model)
 
     if client is None:
         client, resolved_model = resolve_bundle_chat_client(
@@ -341,40 +463,25 @@ def bundle_chat_completion(
         bundle.cache_key,
         len(bundle.items),
     )
-    # CONCEPT:AU-ORCH.optimization.provider-prompt-cache — default-on OpenAI prompt_cache_key
-    # routing hint for this raw-client seam (Anthropic isn't reachable here — this endpoint is
-    # OpenAI-compatible only, see module docstring). Never overrides an explicit caller value.
-    try:
-        from agent_utilities.caching.prompt_cache import prompt_cache_create_kwargs
-
-        create_kwargs = prompt_cache_create_kwargs(
-            create_kwargs,
-            system_prompt=system_preamble,
-            model_identity=resolved_model or "",
-            tenant=bundle.session_tenant or None,
-            policy_version=bundle.policy_version if bundle.policy_version else None,
-        )
-    except Exception as exc:  # noqa: BLE001 — prompt-cache hint is best-effort
-        logger.debug("bundle_chat_completion prompt-cache hint failed: %s", exc)
+    create_kwargs = _apply_prompt_cache_hint(
+        create_kwargs,
+        system_preamble=system_preamble,
+        resolved_model=resolved_model,
+        bundle=bundle,
+        log_prefix="bundle_chat_completion",
+    )
     start = time.perf_counter()
     response = client.chat.completions.create(
         model=resolved_model or "default", messages=messages, **create_kwargs
     )
     _record_ttft(time.perf_counter() - start, bundle)
-    if (
-        semantic_cache_policy is not None
-        and cache_lookup is not None
-        and not cache_lookup.hit
-    ):
-        try:
-            from agent_utilities.caching.semantic_cache import get_semantic_cache
-
-            text = response.choices[0].message.content
-            get_semantic_cache().store(
-                cache_lookup.key, turn_text, text or "", policy=semantic_cache_policy
-            )
-        except Exception as exc:  # noqa: BLE001 — semantic cache is best-effort
-            logger.debug("bundle_chat_completion semantic-cache store failed: %s", exc)
+    _store_semantic_cache_result(
+        cache_lookup,
+        turn_text=turn_text,
+        response=response,
+        semantic_cache_policy=semantic_cache_policy,
+        log_prefix="bundle_chat_completion",
+    )
     return response
 
 
@@ -398,24 +505,16 @@ async def bundle_async_chat_completion(
     """
 
     resolved_model = model
-    cache_lookup = None
-    if semantic_cache_policy is not None:
-        try:
-            from agent_utilities.caching.semantic_cache import get_semantic_cache
-
-            cache_key = _semantic_cache_key_for_bundle(
-                bundle, model=model, system_preamble=system_preamble
-            )
-            cache_lookup = get_semantic_cache().lookup(
-                cache_key, turn_text, policy=semantic_cache_policy
-            )
-            if cache_lookup.hit:
-                return _synthetic_cache_response(cache_lookup, model=model)
-        except Exception as exc:  # noqa: BLE001 — semantic cache is best-effort
-            logger.debug(
-                "bundle_async_chat_completion semantic-cache lookup failed: %s", exc
-            )
-            cache_lookup = None
+    cache_lookup = _semantic_cache_lookup_for_call(
+        bundle,
+        turn_text,
+        model=model,
+        system_preamble=system_preamble,
+        semantic_cache_policy=semantic_cache_policy,
+        log_prefix="bundle_async_chat_completion",
+    )
+    if cache_lookup is not None and cache_lookup.hit:
+        return _synthetic_cache_response(cache_lookup, model=model)
 
     if client is None:
         client, resolved_model = resolve_bundle_async_chat_client(
@@ -427,39 +526,25 @@ async def bundle_async_chat_completion(
     kwargs = {}
     if system_preamble is not None:
         kwargs["system_preamble"] = system_preamble
-    try:
-        from agent_utilities.caching.prompt_cache import prompt_cache_create_kwargs
-
-        create_kwargs = prompt_cache_create_kwargs(
-            create_kwargs,
-            system_prompt=system_preamble,
-            model_identity=resolved_model or "",
-            tenant=bundle.session_tenant or None,
-            policy_version=bundle.policy_version if bundle.policy_version else None,
-        )
-    except Exception as exc:  # noqa: BLE001 — prompt-cache hint is best-effort
-        logger.debug("bundle_async_chat_completion prompt-cache hint failed: %s", exc)
+    create_kwargs = _apply_prompt_cache_hint(
+        create_kwargs,
+        system_preamble=system_preamble,
+        resolved_model=resolved_model,
+        bundle=bundle,
+        log_prefix="bundle_async_chat_completion",
+    )
     response = await client.chat.completions.create(
         model=resolved_model or "default",
         messages=bundle.as_prompt_messages(turn_text, **kwargs),
         **create_kwargs,
     )
-    if (
-        semantic_cache_policy is not None
-        and cache_lookup is not None
-        and not cache_lookup.hit
-    ):
-        try:
-            from agent_utilities.caching.semantic_cache import get_semantic_cache
-
-            text = response.choices[0].message.content
-            get_semantic_cache().store(
-                cache_lookup.key, turn_text, text or "", policy=semantic_cache_policy
-            )
-        except Exception as exc:  # noqa: BLE001 — semantic cache is best-effort
-            logger.debug(
-                "bundle_async_chat_completion semantic-cache store failed: %s", exc
-            )
+    _store_semantic_cache_result(
+        cache_lookup,
+        turn_text=turn_text,
+        response=response,
+        semantic_cache_policy=semantic_cache_policy,
+        log_prefix="bundle_async_chat_completion",
+    )
     return response
 
 

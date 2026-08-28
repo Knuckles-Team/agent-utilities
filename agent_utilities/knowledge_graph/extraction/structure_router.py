@@ -34,6 +34,7 @@ import csv
 import io
 import json
 import re
+from dataclasses import dataclass
 from typing import Any
 
 # --------------------------------------------------------------------------- #
@@ -196,6 +197,22 @@ def _is_record_marker(key: str) -> bool:
     return any(k.startswith(mk) for mk in _RECORD_MARKERS if len(mk) >= 5)
 
 
+def _delimiter_score(nonempty: list[str], delim: str) -> int | None:
+    """Structural fit score for ``delim`` as the table delimiter (computed
+    before any parsing), or ``None`` if it does not qualify at all."""
+    counts = [ln.count(delim) for ln in nonempty]
+    # Need the delimiter to appear on most lines, more than once per line.
+    rows_with = [c for c in counts if c >= 1]
+    if len(rows_with) < max(_MIN_TABLE_ROWS, int(0.7 * len(nonempty))):
+        return None
+    # Column count should be roughly constant (a real table), not ragged.
+    col_mode = max(set(counts), key=counts.count)
+    if col_mode < 1:
+        return None
+    consistent = sum(1 for c in counts if abs(c - col_mode) <= 1)
+    return consistent * (col_mode + 1)
+
+
 def _column_table(lines: list[str]) -> tuple[str, list[list[str]]] | None:
     """Detect a delimited table among ``lines``.
 
@@ -210,23 +227,27 @@ def _column_table(lines: list[str]) -> tuple[str, list[list[str]]] | None:
     best: tuple[str, list[list[str]]] | None = None
     best_score = 0
     for delim in _COLUMN_DELIMS:
-        counts = [ln.count(delim) for ln in nonempty]
-        # Need the delimiter to appear on most lines, more than once per line.
-        rows_with = [c for c in counts if c >= 1]
-        if len(rows_with) < max(_MIN_TABLE_ROWS, int(0.7 * len(nonempty))):
+        score = _delimiter_score(nonempty, delim)
+        if score is None or score <= best_score:
             continue
-        # Column count should be roughly constant (a real table), not ragged.
-        col_mode = max(set(counts), key=counts.count)
-        if col_mode < 1:
-            continue
-        consistent = sum(1 for c in counts if abs(c - col_mode) <= 1)
-        score = consistent * (col_mode + 1)
-        if score > best_score:
-            parsed = _parse_delimited(nonempty, delim)
-            if parsed and len(parsed) >= _MIN_TABLE_ROWS:
-                best = (delim, parsed)
-                best_score = score
+        parsed = _parse_delimited(nonempty, delim)
+        if parsed and len(parsed) >= _MIN_TABLE_ROWS:
+            best = (delim, parsed)
+            best_score = score
     return best
+
+
+def _parse_markdown_pipe_rows(lines: list[str]) -> list[list[str]]:
+    """Markdown-aware ``|`` split: strips leading/trailing pipes and skips
+    separator rows (``---|:--:|---``)."""
+    rows: list[list[str]] = []
+    for ln in lines:
+        stripped = ln.strip().strip("|")
+        cells = [c.strip() for c in stripped.split("|")]
+        if cells and all(set(c) <= set("-: ") and c for c in cells):
+            continue
+        rows.append(cells)
+    return rows
 
 
 def _parse_delimited(lines: list[str], delim: str) -> list[list[str]]:
@@ -234,15 +255,7 @@ def _parse_delimited(lines: list[str], delim: str) -> list[list[str]]:
     (strips leading/trailing pipes + separator rows); ``,``/``;``/``\\t`` go
     through ``csv`` so quoting/escaping is handled correctly."""
     if delim == "|":
-        rows: list[list[str]] = []
-        for ln in lines:
-            stripped = ln.strip().strip("|")
-            cells = [c.strip() for c in stripped.split("|")]
-            # Skip markdown separator rows (---|:--:|---).
-            if cells and all(set(c) <= set("-: ") and c for c in cells):
-                continue
-            rows.append(cells)
-        return rows
+        return _parse_markdown_pipe_rows(lines)
     try:
         reader = csv.reader(io.StringIO("\n".join(lines)), delimiter=delim)
         return [list(r) for r in reader if any(c.strip() for c in r)]
@@ -289,6 +302,111 @@ def _json_to_records(text: str) -> list[dict[str, Any]]:
 # --------------------------------------------------------------------------- #
 
 
+def _compute_kv_signals(nonempty: list[str]) -> tuple[int, bool, int]:
+    """Scan ``nonempty`` for ``key: value`` lines. Returns
+    ``(kv_total, marker_hit, header_kv)`` — the total kv-line count, whether
+    any is a known record marker, and how many fall within the leading
+    header-scan window."""
+    kv_total = 0
+    marker_hit = False
+    header_kv = 0  # kv lines within the leading header window
+    for idx, ln in enumerate(nonempty):
+        kv = _kv_match(ln)
+        if kv is None:
+            continue
+        kv_total += 1
+        if idx < _MIXED_HEADER_SCAN:
+            header_kv += 1
+        if _is_record_marker(kv[0]):
+            marker_hit = True
+    return kv_total, marker_hit, header_kv
+
+
+@dataclass
+class _ClassificationSignals:
+    """Every signal :func:`classify_text` computes once, up front, so the
+    decision cascade below can be split into small, independently-readable
+    checks without re-threading a long parameter list through each one."""
+
+    nonempty: list[str]
+    kv_total: int
+    marker_hit: bool
+    header_kv: int
+    kv_ratio: float
+    table: tuple[str, list[list[str]]] | None
+    has_header: bool
+    has_body: bool
+
+
+def _classify_paper_book_override(
+    doc_type: str, sig: _ClassificationSignals
+) -> str | None:
+    dt = (doc_type or "").strip().lower()
+    if (
+        dt in ("paper", "book")
+        and not sig.marker_hit
+        and sig.kv_ratio < 0.3
+        and sig.table is None
+    ):
+        return "prose"
+    return None
+
+
+def _classify_mixed_header_body(sig: _ClassificationSignals) -> str | None:
+    # A leading contiguous KV header (form/email header block) + a real prose
+    # body after it ⇒ mixed (split + open-extract the body). This is the key
+    # discriminator between a pure record and a form-with-notes / email.
+    if sig.has_header and sig.has_body:
+        return "mixed"
+    return None
+
+
+def _classify_strong_structured(sig: _ClassificationSignals) -> str | None:
+    """Strong structured signals (no prose body to split off)."""
+    if sig.marker_hit and sig.kv_total >= 2:
+        return "structured"
+    if sig.kv_ratio >= 0.6 or (
+        sig.kv_total >= _KV_RUN_STRUCTURED and sig.kv_ratio >= 0.4
+    ):
+        return "structured"
+    return None
+
+
+def _classify_table_signal(sig: _ClassificationSignals) -> str | None:
+    if sig.table is None:
+        return None
+    _delim, rows = sig.table
+    if len(rows) >= 0.7 * len(sig.nonempty):
+        return "structured"
+    return "mixed"
+
+
+def _classify_small_header(sig: _ClassificationSignals) -> str | None:
+    """A small record header over a body that didn't trip the strict prose test."""
+    if sig.has_header and sig.header_kv >= 3 and sig.kv_ratio < 0.5:
+        return "mixed"
+    return None
+
+
+def _classify_from_signals(doc_type: str, sig: _ClassificationSignals) -> str:
+    result = _classify_paper_book_override(doc_type, sig)
+    if result is not None:
+        return result
+    result = _classify_mixed_header_body(sig)
+    if result is not None:
+        return result
+    result = _classify_strong_structured(sig)
+    if result is not None:
+        return result
+    result = _classify_table_signal(sig)
+    if result is not None:
+        return result
+    result = _classify_small_header(sig)
+    if result is not None:
+        return result
+    return "prose"
+
+
 def classify_text(text: str, doc_type: str = "") -> str:
     """Classify ``text`` as ``"prose"``, ``"structured"``, or ``"mixed"``.
 
@@ -318,55 +436,23 @@ def classify_text(text: str, doc_type: str = "") -> str:
     if not nonempty:
         return "prose"
 
-    # --- key/value record signal -----------------------------------------
-    kv_total = 0
-    marker_hit = False
-    header_kv = 0  # kv lines within the leading header window
-    for idx, ln in enumerate(nonempty):
-        kv = _kv_match(ln)
-        if kv is None:
-            continue
-        kv_total += 1
-        if idx < _MIXED_HEADER_SCAN:
-            header_kv += 1
-        if _is_record_marker(kv[0]):
-            marker_hit = True
-
+    kv_total, marker_hit, header_kv = _compute_kv_signals(nonempty)
     kv_ratio = kv_total / len(nonempty)
-
-    # --- table signal -----------------------------------------------------
     table = _column_table(nonempty)
-
-    # A leading contiguous KV header (form/email header block) + a real prose
-    # body after it ⇒ mixed (split + open-extract the body). This is the key
-    # discriminator between a pure record and a form-with-notes / email.
     has_header = header_kv >= 2 and _leading_kv_header(nonempty) >= 2
     has_body = _has_prose_body(nonempty)
 
-    dt = (doc_type or "").strip().lower()
-    if dt in ("paper", "book") and not marker_hit and kv_ratio < 0.3 and table is None:
-        return "prose"
-
-    if has_header and has_body:
-        return "mixed"
-
-    # Strong structured signals (no prose body to split off).
-    if marker_hit and kv_total >= 2:
-        return "structured"
-    if kv_ratio >= 0.6 or (kv_total >= _KV_RUN_STRUCTURED and kv_ratio >= 0.4):
-        return "structured"
-
-    if table is not None:
-        _delim, rows = table
-        if len(rows) >= 0.7 * len(nonempty):
-            return "structured"
-        return "mixed"
-
-    # A small record header over a body that didn't trip the strict prose test.
-    if has_header and header_kv >= 3 and kv_ratio < 0.5:
-        return "mixed"
-
-    return "prose"
+    sig = _ClassificationSignals(
+        nonempty=nonempty,
+        kv_total=kv_total,
+        marker_hit=marker_hit,
+        header_kv=header_kv,
+        kv_ratio=kv_ratio,
+        table=table,
+        has_header=has_header,
+        has_body=has_body,
+    )
+    return _classify_from_signals(doc_type, sig)
 
 
 def _leading_kv_header(nonempty: list[str]) -> int:
@@ -462,6 +548,27 @@ def route_for_extraction(text: str, doc_type: str = "") -> dict[str, Any]:
     return plan
 
 
+def _kv_lines_to_record(nonempty: list[str]) -> dict[str, Any]:
+    """key:value lines → one flat record (last value wins on duplicate keys, but
+    repeated keys are collected into a list so nothing is dropped)."""
+    record: dict[str, Any] = {}
+    for ln in nonempty:
+        kv = _kv_match(ln)
+        if kv is None:
+            continue
+        key, val = kv
+        key = key.strip().rstrip(":")
+        if key not in record:
+            record[key] = val
+            continue
+        existing = record[key]
+        if isinstance(existing, list):
+            existing.append(val)
+        else:
+            record[key] = [existing, val]
+    return record
+
+
 def _parse_structured(text: str) -> list[dict[str, Any]]:
     """Parse a fully-structured blob into records (JSON → table → key:value)."""
     if _looks_like_json(text):
@@ -475,24 +582,48 @@ def _parse_structured(text: str) -> list[dict[str, Any]]:
         if recs:
             return recs
 
-    # key:value lines → one flat record (last value wins on duplicate keys, but
-    # repeated keys are collected into a list so nothing is dropped).
-    record: dict[str, Any] = {}
-    for ln in nonempty:
-        kv = _kv_match(ln)
-        if kv is None:
-            continue
-        key, val = kv
-        key = key.strip().rstrip(":")
-        if key in record:
-            existing = record[key]
-            if isinstance(existing, list):
-                existing.append(val)
-            else:
-                record[key] = [existing, val]
-        else:
-            record[key] = val
+    record = _kv_lines_to_record(nonempty)
     return [record] if record else []
+
+
+def _scan_kv_header(lines: list[str]) -> tuple[dict[str, Any], int] | None:
+    """Walk the leading lines collecting contiguous ``key: value`` record lines
+    (tolerating blank separators) until the prose body begins.
+
+    Returns ``(header, body_start)``, or ``None`` when no header was found at
+    all (prose from the first line) — the caller returns ``([], text)`` for
+    that case, matching :func:`_split_header_body`'s original early return.
+    """
+    header: dict[str, Any] = {}
+    body_start = 0
+    seen_kv = False
+    blanks_after_kv = 0
+    for i, ln in enumerate(lines[:_MIXED_HEADER_SCAN]):
+        if not ln.strip():
+            if not seen_kv:
+                continue
+            # A blank line right after the header block ends it.
+            blanks_after_kv += 1
+            if blanks_after_kv < 1:
+                continue
+            body_start = i + 1
+            break
+        kv = _kv_match(ln)
+        if kv is not None:
+            key, val = kv
+            key = key.strip().rstrip(":")
+            header[key] = val
+            seen_kv = True
+            body_start = i + 1
+            blanks_after_kv = 0
+            continue
+        # First non-kv, non-blank line after the header → prose body begins.
+        if seen_kv:
+            body_start = i
+            break
+        # No header yet and this is prose → no header at all.
+        return None
+    return header, body_start
 
 
 def _split_header_body(
@@ -505,34 +636,10 @@ def _split_header_body(
     header as one record dict and everything after as the prose body.
     """
     lines = text.splitlines()
-    header: dict[str, Any] = {}
-    body_start = 0
-    seen_kv = False
-    blanks_after_kv = 0
-    for i, ln in enumerate(lines[:_MIXED_HEADER_SCAN]):
-        if not ln.strip():
-            # A blank line right after the header block ends it.
-            if seen_kv:
-                blanks_after_kv += 1
-                if blanks_after_kv >= 1:
-                    body_start = i + 1
-                    break
-            continue
-        kv = _kv_match(ln)
-        if kv is not None:
-            key, val = kv
-            key = key.strip().rstrip(":")
-            header[key] = val
-            seen_kv = True
-            body_start = i + 1
-            blanks_after_kv = 0
-        else:
-            # First non-kv, non-blank line after the header → prose body begins.
-            if seen_kv:
-                body_start = i
-                break
-            # No header yet and this is prose → no header at all.
-            return [], text
+    scanned = _scan_kv_header(lines)
+    if scanned is None:
+        return [], text
+    header, body_start = scanned
     body = "\n".join(lines[body_start:]).strip()
     records = [header] if header else []
     return records, body

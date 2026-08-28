@@ -368,34 +368,17 @@ class KGBackend:
     def __init__(self, engine: IntelligenceGraphEngine | None = None):
         self.engine = engine
 
-    def checkpoint(
-        self,
-        state: Any,
-        session_id: str | None = None,
-        status: str = "active",
-    ) -> str | None:
-        """Persist a snapshot and return its identifier only after a confirmed write."""
-
-        if self.engine is None:
-            return None
-
-        if session_id is None:
-            session_id = f"sess:{uuid.uuid4().hex}"
-
-        checkpoint_id = f"ckpt:{session_id}:{time.time_ns()}"
-        timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-        query = getattr(state, "query", "") or ""
+    @staticmethod
+    def _resolve_checkpoint_plan(state: Any) -> str:
         raw_plan = getattr(state, "plan", "") or ""
         if hasattr(raw_plan, "model_dump_json"):
-            plan = raw_plan.model_dump_json()
-        elif isinstance(raw_plan, str):
-            plan = raw_plan
-        else:
-            plan = json.dumps(raw_plan, default=str)
-        node_history = list(getattr(state, "node_history", []) or [])
-        current_node = str(node_history[-1]) if node_history else ""
+            return raw_plan.model_dump_json()
+        if isinstance(raw_plan, str):
+            return raw_plan
+        return json.dumps(raw_plan, default=str)
 
+    @staticmethod
+    def _resolve_checkpoint_specialist_results(state: Any) -> dict[str, str]:
         specialist_results: dict[str, str] = {}
         raw_results = getattr(state, "specialist_results", None)
         if isinstance(raw_results, dict):
@@ -403,12 +386,10 @@ class KGBackend:
         elif isinstance(raw_results, list):
             for i, r in enumerate(raw_results):
                 specialist_results[f"result_{i}"] = str(r)[:500]
+        return specialist_results
 
-        total_tokens = 0
-        usage = getattr(state, "usage", None)
-        if usage:
-            total_tokens = getattr(usage, "total_tokens", 0) or 0
-
+    @staticmethod
+    def _resolve_checkpoint_state_data(state: Any) -> dict[str, Any]:
         state_data: dict[str, Any] = {}
         for attr in ("routed_domain", "routed_specialist", "active_topology"):
             val = getattr(state, attr, None)
@@ -417,28 +398,18 @@ class KGBackend:
                     state_data[attr] = str(val)
                 except Exception:  # noqa: BLE001 — opaque optional state is best-effort
                     pass
+        return state_data
 
-        topo_id = ""
+    @staticmethod
+    def _resolve_checkpoint_topo_id(state: Any) -> str:
         active_topo = getattr(state, "active_topology", None)
         if active_topo:
-            topo_id = getattr(active_topo, "id", str(active_topo))
+            return str(getattr(active_topo, "id", str(active_topo)))
+        return ""
 
-        node_data = {
-            "id": checkpoint_id,
-            "name": f"Checkpoint: {query[:50]}..."
-            if len(query) > 50
-            else f"Checkpoint: {query}",
-            "node_type": RegistryNodeType.SESSION_CHECKPOINT.value,
-            "session_id": session_id,
-            "query": query[:1000],
-            "plan": plan[:2000],
-            "specialist_results": json.dumps(specialist_results),
-            "node_history": node_history,
-            "current_node": current_node,
-            "total_usage_tokens": total_tokens,
-            "state_data": json.dumps(state_data),
-            "status": status,
-            "topology_template_id": topo_id,
+    @staticmethod
+    def _resolve_checkpoint_graph_fields(state: Any) -> dict[str, Any]:
+        return {
             "graph_topology_digest": str(
                 getattr(state, "graph_topology_digest", "") or ""
             ),
@@ -456,12 +427,56 @@ class KGBackend:
                 sort_keys=True,
                 separators=(",", ":"),
             ),
+        }
+
+    def _build_checkpoint_node_data(
+        self,
+        state: Any,
+        checkpoint_id: str,
+        session_id: str,
+        status: str,
+        timestamp: str,
+    ) -> dict[str, Any]:
+        query = getattr(state, "query", "") or ""
+        plan = self._resolve_checkpoint_plan(state)
+        node_history = list(getattr(state, "node_history", []) or [])
+        current_node = str(node_history[-1]) if node_history else ""
+        specialist_results = self._resolve_checkpoint_specialist_results(state)
+        total_tokens = 0
+        usage = getattr(state, "usage", None)
+        if usage:
+            total_tokens = getattr(usage, "total_tokens", 0) or 0
+        state_data = self._resolve_checkpoint_state_data(state)
+        topo_id = self._resolve_checkpoint_topo_id(state)
+        graph_fields = self._resolve_checkpoint_graph_fields(state)
+
+        return {
+            "id": checkpoint_id,
+            "name": f"Checkpoint: {query[:50]}..."
+            if len(query) > 50
+            else f"Checkpoint: {query}",
+            "node_type": RegistryNodeType.SESSION_CHECKPOINT.value,
+            "session_id": session_id,
+            "query": query[:1000],
+            "plan": plan[:2000],
+            "specialist_results": json.dumps(specialist_results),
+            "node_history": node_history,
+            "current_node": current_node,
+            "total_usage_tokens": total_tokens,
+            "state_data": json.dumps(state_data),
+            "status": status,
+            "topology_template_id": topo_id,
+            **graph_fields,
             "timestamp": timestamp,
         }
 
-        if hasattr(self.engine, "backend_type") and self.engine.backend_type == "rust":
+    @staticmethod
+    def _write_checkpoint_node(
+        engine: IntelligenceGraphEngine, checkpoint_id: str, node_data: dict[str, Any]
+    ) -> str | None:
+        if hasattr(engine, "backend_type") and engine.backend_type == "rust":
             try:
-                cast("GraphComputeEngine", self.engine).add_node(
+                cast("GraphComputeEngine", engine).add_node(
                     checkpoint_id, properties=node_data
                 )
             except Exception as exc:
@@ -469,70 +484,100 @@ class KGBackend:
                 return None
             return checkpoint_id
 
-        if getattr(self.engine, "backend", None):
+        if getattr(engine, "backend", None):
             try:
-                self.engine._upsert_node("SessionCheckpoint", checkpoint_id, node_data)
+                engine._upsert_node("SessionCheckpoint", checkpoint_id, node_data)
             except Exception as exc:
                 logger.warning("Failed to checkpoint to backend: %s", exc)
                 return None
             return checkpoint_id
 
-        if hasattr(self.engine, "graph") and hasattr(self.engine.graph, "add_node"):
+        if hasattr(engine, "graph") and hasattr(engine.graph, "add_node"):
             try:
-                self.engine.graph.add_node(checkpoint_id, **node_data)
+                engine.graph.add_node(checkpoint_id, **node_data)
             except Exception as exc:
                 logger.warning("Failed to checkpoint to graph mirror: %s", exc)
                 return None
             return checkpoint_id
         return None
 
-    def restore(self, session_id: str) -> dict[str, Any] | None:
-        if not self.engine:
+    def checkpoint(
+        self,
+        state: Any,
+        session_id: str | None = None,
+        status: str = "active",
+    ) -> str | None:
+        """Persist a snapshot and return its identifier only after a confirmed write."""
+
+        if self.engine is None:
             return None
+        engine = self.engine
 
-        checkpoint = None
+        if session_id is None:
+            session_id = f"sess:{uuid.uuid4().hex}"
 
-        if self.engine.backend:
-            try:
-                results = self.engine.backend.execute(
-                    "MATCH (c:SessionCheckpoint) WHERE c.session_id = $sid RETURN c ORDER BY c.timestamp DESC LIMIT 1",
-                    {"sid": session_id},
-                )
-                if results:
-                    checkpoint = results[0]
-                    if isinstance(checkpoint, dict) and "c" in checkpoint:
-                        checkpoint = checkpoint["c"]
+        checkpoint_id = f"ckpt:{session_id}:{time.time_ns()}"
+        timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
-                    if not isinstance(checkpoint, dict):
-                        checkpoint = None
-            except Exception as e:  # noqa: BLE001 — one candidate lookup path; the graph/rust-engine mirror lookup below is tried next before returning None
-                logger.debug("Backend checkpoint restore failed: %s", e)
+        node_data = self._build_checkpoint_node_data(
+            state, checkpoint_id, session_id, status, timestamp
+        )
+        return self._write_checkpoint_node(engine, checkpoint_id, node_data)
 
-        if checkpoint is None and self.engine:
-            checkpoint_id = f"SessionCheckpoint_{session_id}"
-            if (
-                hasattr(self.engine, "backend_type")
-                and self.engine.backend_type == "rust"
-            ):
-                rust_engine = cast("GraphComputeEngine", self.engine)
-                if rust_engine.has_node(checkpoint_id):
-                    checkpoint = rust_engine[checkpoint_id]
-            elif hasattr(self.engine, "graph"):
-                if checkpoint_id in self.engine.graph:
-                    checkpoint = dict(self.engine.graph.nodes[checkpoint_id])
-                else:
-                    for nid, data in self.engine.graph.nodes(data=True):
-                        if (
-                            data.get("node_type")
-                            == RegistryNodeType.SESSION_CHECKPOINT.value
-                            and data.get("session_id") == session_id
-                        ):
-                            checkpoint = dict(data)
-                            break
-
-        if checkpoint is None:
+    @staticmethod
+    def _restore_from_backend(
+        engine: IntelligenceGraphEngine, session_id: str
+    ) -> dict[str, Any] | None:
+        if not engine.backend:
             return None
+        try:
+            results = engine.backend.execute(
+                "MATCH (c:SessionCheckpoint) WHERE c.session_id = $sid RETURN c ORDER BY c.timestamp DESC LIMIT 1",
+                {"sid": session_id},
+            )
+        except Exception as e:  # noqa: BLE001 — one candidate lookup path; the graph/rust-engine mirror lookup is tried next before returning None
+            logger.debug("Backend checkpoint restore failed: %s", e)
+            return None
+        if not results:
+            return None
+        checkpoint = results[0]
+        if isinstance(checkpoint, dict) and "c" in checkpoint:
+            checkpoint = checkpoint["c"]
+        return checkpoint if isinstance(checkpoint, dict) else None
 
+    @staticmethod
+    def _restore_from_graph_mirror(
+        engine: IntelligenceGraphEngine, session_id: str
+    ) -> dict[str, Any] | None:
+        checkpoint_id = f"SessionCheckpoint_{session_id}"
+        if hasattr(engine, "backend_type") and engine.backend_type == "rust":
+            rust_engine = cast("GraphComputeEngine", engine)
+            if rust_engine.has_node(checkpoint_id):
+                return cast("dict[str, Any]", rust_engine[checkpoint_id])
+            return None
+        if hasattr(engine, "graph"):
+            if checkpoint_id in engine.graph:
+                return dict(engine.graph.nodes[checkpoint_id])
+            for _nid, data in engine.graph.nodes(data=True):
+                if (
+                    data.get("node_type") == RegistryNodeType.SESSION_CHECKPOINT.value
+                    and data.get("session_id") == session_id
+                ):
+                    return dict(data)
+        return None
+
+    @staticmethod
+    def _decode_checkpoint_json_field(value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        try:
+            return json.loads(value)
+        except ValueError:
+            return {}
+
+    def _decode_checkpoint_dict(
+        self, checkpoint: dict[str, Any], session_id: str
+    ) -> dict[str, Any] | None:
         try:
             state_dict: dict[str, Any] = {
                 "session_id": checkpoint.get("session_id", session_id),
@@ -544,31 +589,30 @@ class KGBackend:
                 "status": checkpoint.get("status", "active"),
                 "topology_template_id": checkpoint.get("topology_template_id", ""),
             }
-
-            sr = checkpoint.get("specialist_results", "{}")
-            if isinstance(sr, str):
-                try:
-                    state_dict["specialist_results"] = json.loads(sr)
-                except ValueError:
-                    state_dict["specialist_results"] = {}
-            else:
-                state_dict["specialist_results"] = sr
-
-            sd = checkpoint.get("state_data", "{}")
-            if isinstance(sd, str):
-                try:
-                    state_dict["state_data"] = json.loads(sd)
-                except ValueError:
-                    state_dict["state_data"] = {}
-            else:
-                state_dict["state_data"] = sd
-
+            state_dict["specialist_results"] = self._decode_checkpoint_json_field(
+                checkpoint.get("specialist_results", "{}")
+            )
+            state_dict["state_data"] = self._decode_checkpoint_json_field(
+                checkpoint.get("state_data", "{}")
+            )
             return state_dict
         except Exception as exc:  # noqa: BLE001 — a malformed prior checkpoint degrades to "no checkpoint" (resume starts fresh) rather than crashing resumption
             # "no checkpoint" and "checkpoint unreadable" are different
             # operator questions — log which one this is.
             logger.debug("Checkpoint state could not be decoded: %s", exc)
             return None
+
+    def restore(self, session_id: str) -> dict[str, Any] | None:
+        if not self.engine:
+            return None
+        engine = self.engine
+
+        checkpoint = self._restore_from_backend(engine, session_id)
+        if checkpoint is None:
+            checkpoint = self._restore_from_graph_mirror(engine, session_id)
+        if checkpoint is None:
+            return None
+        return self._decode_checkpoint_dict(checkpoint, session_id)
 
     def list_sessions(
         self, status: str | None = None, limit: int = 20
@@ -636,6 +680,75 @@ class CheckpointManager:
             return None
         return None
 
+    @staticmethod
+    def _create_file_backend(run_id: str | None, kwargs: dict[str, Any]) -> Any:
+        path = kwargs.get("path", "agent_data/graph_state")
+        filename = kwargs.get("filename", f"{run_id or 'default'}.json")
+        return FileBackend(json_file=Path(path) / filename)
+
+    @staticmethod
+    def _create_postgres_backend(kwargs: dict[str, Any]) -> Any:
+        dsn = kwargs.get("dsn") or setting("POSTGRES_DSN")
+        if dsn:
+            return PostgresBackend(dsn=dsn)
+        return None
+
+    @staticmethod
+    def _resolve_redis_connection_profile(
+        connection_ref: Any, profile_name: Any, profile_ref: Any
+    ) -> tuple[str, Any, Any]:
+        """Resolve a stored ``connection_profile_ref`` secret into
+        ``(url, tls_profile, tls_profile_ref)``. Fail-closed: a decoded JSON
+        object carrying any key outside the allowed set is rejected outright
+        rather than silently ignored, and a non-dict payload is treated as a
+        bare URL string (unchanged from the caller's own tls args)."""
+        from agent_utilities.security.secrets_client import create_secrets_client
+
+        raw = create_secrets_client().resolve_ref(str(connection_ref))
+        rendered = (
+            raw.decode("utf-8") if isinstance(raw, bytes) else str(raw or "")
+        ).strip()
+        try:
+            profile = json.loads(rendered)
+        except (TypeError, ValueError):
+            profile = None
+        if not isinstance(profile, dict):
+            return rendered, profile_name, profile_ref
+        if set(profile).difference({"url", "tls_profile", "tls_profile_ref"}):
+            raise ValueError("Redis connection profile is invalid")
+        url = str(profile.get("url") or "").strip()
+        profile_name = profile.get("tls_profile") or profile_name
+        profile_ref = profile.get("tls_profile_ref") or profile_ref
+        return url, profile_name, profile_ref
+
+    @staticmethod
+    def _create_redis_backend(kwargs: dict[str, Any]) -> Any:
+        from agent_utilities.core.config import config
+
+        profile_name = kwargs.get("tls_profile")
+        profile_ref = kwargs.get("tls_profile_ref")
+        url = kwargs.get("url")
+        connection_ref = (
+            kwargs.get("connection_profile_ref") or config.redis_connection_profile_ref
+        )
+        if connection_ref:
+            url, profile_name, profile_ref = (
+                CheckpointManager._resolve_redis_connection_profile(
+                    connection_ref, profile_name, profile_ref
+                )
+            )
+        if not url:
+            return None
+        return RedisBackend(
+            url=str(url),
+            tls_profile=(str(profile_name) if profile_name else None),
+            tls_profile_ref=(str(profile_ref) if profile_ref else None),
+        )
+
+    @staticmethod
+    def _create_kg_backend(kwargs: dict[str, Any]) -> Any:
+        return KGBackend(engine=kwargs.get("engine"))
+
     @classmethod
     def create(
         cls, persistence_type: str = "file", run_id: str | None = None, **kwargs: Any
@@ -645,54 +758,12 @@ class CheckpointManager:
         backend: Any = None
 
         if ptype == "file":
-            path = kwargs.get("path", "agent_data/graph_state")
-            filename = kwargs.get("filename", f"{run_id or 'default'}.json")
-            backend = FileBackend(json_file=Path(path) / filename)
+            backend = cls._create_file_backend(run_id, kwargs)
         elif ptype == "postgres":
-            dsn = kwargs.get("dsn") or setting("POSTGRES_DSN")
-            if dsn:
-                backend = PostgresBackend(dsn=dsn)
+            backend = cls._create_postgres_backend(kwargs)
         elif ptype == "redis":
-            from agent_utilities.core.config import config
-
-            profile_name = kwargs.get("tls_profile")
-            profile_ref = kwargs.get("tls_profile_ref")
-            url = kwargs.get("url")
-            connection_ref = (
-                kwargs.get("connection_profile_ref")
-                or config.redis_connection_profile_ref
-            )
-            if connection_ref:
-                from agent_utilities.security.secrets_client import (
-                    create_secrets_client,
-                )
-
-                raw = create_secrets_client().resolve_ref(str(connection_ref))
-                rendered = (
-                    raw.decode("utf-8") if isinstance(raw, bytes) else str(raw or "")
-                ).strip()
-                try:
-                    profile = json.loads(rendered)
-                except (TypeError, ValueError):
-                    profile = None
-                if isinstance(profile, dict):
-                    if set(profile).difference(
-                        {"url", "tls_profile", "tls_profile_ref"}
-                    ):
-                        raise ValueError("Redis connection profile is invalid")
-                    url = str(profile.get("url") or "").strip()
-                    profile_name = profile.get("tls_profile") or profile_name
-                    profile_ref = profile.get("tls_profile_ref") or profile_ref
-                else:
-                    url = rendered
-            if url:
-                backend = RedisBackend(
-                    url=str(url),
-                    tls_profile=(str(profile_name) if profile_name else None),
-                    tls_profile_ref=(str(profile_ref) if profile_ref else None),
-                )
+            backend = cls._create_redis_backend(kwargs)
         elif ptype == "kg":
-            engine = kwargs.get("engine")
-            backend = KGBackend(engine=engine)
+            backend = cls._create_kg_backend(kwargs)
 
         return cls(backend=backend)

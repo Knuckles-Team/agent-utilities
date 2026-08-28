@@ -101,10 +101,10 @@ class AgentControlPlane:
 
         self._repository.put_registration(registration)
 
-    def _pointer_for_request(
+    def _resolve_pointer_for_request(
         self,
         request: AgentResolutionRequest,
-    ) -> tuple[AgentReleasePointer, AgentVersion]:
+    ) -> AgentReleasePointer:
         if request.channel is not None:
             pointer = self._repository.get_release_pointer(
                 request.scope, request.agent_id, request.channel
@@ -125,11 +125,26 @@ class AgentControlPlane:
             )
         if request.version_id is not None and pointer.version_id != request.version_id:
             raise AgentResolutionError("version_not_active_on_selected_pointer")
+        return pointer
+
+    def _resolve_version_for_pointer(
+        self,
+        request: AgentResolutionRequest,
+        pointer: AgentReleasePointer,
+    ) -> AgentVersion:
         version = self._repository.get_version(request.scope, pointer.version_id)
         if version is None:
             raise AgentResolutionError("agent_version_unavailable")
         if version.agent_id != request.agent_id:
             raise RepositoryContractError("repository returned a cross-agent release")
+        return version
+
+    def _pointer_for_request(
+        self,
+        request: AgentResolutionRequest,
+    ) -> tuple[AgentReleasePointer, AgentVersion]:
+        pointer = self._resolve_pointer_for_request(request)
+        version = self._resolve_version_for_pointer(request, pointer)
         return pointer, version
 
     @staticmethod
@@ -163,7 +178,7 @@ class AgentControlPlane:
             raise AgentResolutionError("approval_release_evidence_mismatch")
 
     @staticmethod
-    def _validate_request(
+    def _resolve_selected_bindings(
         request: AgentResolutionRequest,
         version: AgentVersion,
     ) -> tuple[str, ...]:
@@ -175,6 +190,14 @@ class AgentControlPlane:
         )
         if any(binding_id not in all_binding_ids for binding_id in selected):
             raise AgentResolutionError("capability_mismatch")
+        return selected
+
+    @staticmethod
+    def _validate_team_policy(
+        request: AgentResolutionRequest,
+        version: AgentVersion,
+        selected: tuple[str, ...],
+    ) -> None:
         allowed = set(version.policies.team.allowed_binding_ids)
         if allowed and any(binding_id not in allowed for binding_id in selected):
             raise AgentResolutionError("team_capability_mismatch")
@@ -185,6 +208,12 @@ class AgentControlPlane:
             raise AgentResolutionError("team_policy_mismatch")
         if request.team_member_count > version.policies.team.max_members:
             raise AgentResolutionError("team_budget_escalation")
+
+    @staticmethod
+    def _validate_delegation_policy(
+        request: AgentResolutionRequest,
+        version: AgentVersion,
+    ) -> None:
         if request.delegation_depth > version.policies.delegation.max_depth:
             raise AgentResolutionError("delegation_depth_escalation")
         if request.delegation_children > version.policies.delegation.max_children:
@@ -194,6 +223,12 @@ class AgentControlPlane:
             > version.policies.delegation.max_budget_micros
         ):
             raise AgentResolutionError("delegation_budget_escalation")
+
+    @staticmethod
+    def _validate_budget_policy(
+        request: AgentResolutionRequest,
+        version: AgentVersion,
+    ) -> None:
         budget = version.policies.budget
         if request.requested_tokens > budget.max_tokens:
             raise AgentResolutionError("token_budget_escalation")
@@ -201,6 +236,16 @@ class AgentControlPlane:
             raise AgentResolutionError("cost_budget_escalation")
         if request.requested_time_ms > budget.max_time_ms:
             raise AgentResolutionError("time_budget_escalation")
+
+    @staticmethod
+    def _validate_request(
+        request: AgentResolutionRequest,
+        version: AgentVersion,
+    ) -> tuple[str, ...]:
+        selected = AgentControlPlane._resolve_selected_bindings(request, version)
+        AgentControlPlane._validate_team_policy(request, version, selected)
+        AgentControlPlane._validate_delegation_policy(request, version)
+        AgentControlPlane._validate_budget_policy(request, version)
         return tuple(sorted(selected))
 
     def resolve(self, request: AgentResolutionRequest) -> ResolvedAgentPlan:
@@ -248,16 +293,11 @@ class AgentControlPlane:
             resolution_digest=resolution_digest_for(resolution_input),
         )
 
-    def promote(
+    def _resolve_current_pointer_state(
         self,
         scope: AccessScope,
         mutation: ReleaseMutation,
-        *,
-        approval_id: str,
-        at: str,
-    ) -> AgentPromotionResult:
-        """Apply an approved promotion/rollback through repository CAS."""
-
+    ) -> tuple[AgentReleasePointer | None, int, str | None]:
         current = self._repository.get_release_pointer(
             scope, mutation.agent_id, mutation.channel
         )
@@ -269,12 +309,17 @@ class AgentControlPlane:
             raise AgentResolutionError("release_pointer_version_conflict")
         if current is not None and mutation.next_version_id == current.version_id:
             raise AgentResolutionError("release_pointer_noop")
-        if mutation.operation == "rollback":
-            if (
-                current is None
-                or current.previous_version_id != mutation.next_version_id
-            ):
-                raise AgentResolutionError("rollback_target_not_previous_release")
+        if mutation.operation == "rollback" and (
+            current is None or current.previous_version_id != mutation.next_version_id
+        ):
+            raise AgentResolutionError("rollback_target_not_previous_release")
+        return current, current_revision, current_version_id
+
+    def _resolve_promotion_target_version(
+        self,
+        scope: AccessScope,
+        mutation: ReleaseMutation,
+    ) -> AgentVersion:
         version = self._repository.get_version(scope, mutation.next_version_id)
         if version is None:
             raise AgentResolutionError("agent_version_unavailable")
@@ -282,18 +327,16 @@ class AgentControlPlane:
             raise RepositoryContractError(
                 "repository returned a cross-agent target release"
             )
-        approval = self._repository.get_approval(
-            scope, mutation.agent_id, version.version_id, approval_id
-        )
-        synthetic_request = AgentResolutionRequest(
-            request_version="agent-resolution-request.v1",
-            agent_id=mutation.agent_id,
-            scope=scope,
-            channel=mutation.channel,
-            approval_id=approval_id,
-            at=at,
-        )
-        pointer = AgentReleasePointer(
+        return version
+
+    @staticmethod
+    def _build_promotion_pointer(
+        mutation: ReleaseMutation,
+        version: AgentVersion,
+        current_revision: int,
+        current_version_id: str | None,
+    ) -> AgentReleasePointer:
+        return AgentReleasePointer(
             pointer_version="agent-release-pointer.v1",
             pointer_id=pointer_id_for(mutation.agent_id, mutation.channel),
             agent_id=mutation.agent_id,
@@ -309,6 +352,35 @@ class AgentControlPlane:
                 current_version_id,
             ),
         )
+
+    def promote(
+        self,
+        scope: AccessScope,
+        mutation: ReleaseMutation,
+        *,
+        approval_id: str,
+        at: str,
+    ) -> AgentPromotionResult:
+        """Apply an approved promotion/rollback through repository CAS."""
+
+        current, current_revision, current_version_id = (
+            self._resolve_current_pointer_state(scope, mutation)
+        )
+        version = self._resolve_promotion_target_version(scope, mutation)
+        approval = self._repository.get_approval(
+            scope, mutation.agent_id, version.version_id, approval_id
+        )
+        synthetic_request = AgentResolutionRequest(
+            request_version="agent-resolution-request.v1",
+            agent_id=mutation.agent_id,
+            scope=scope,
+            channel=mutation.channel,
+            approval_id=approval_id,
+            at=at,
+        )
+        pointer = self._build_promotion_pointer(
+            mutation, version, current_revision, current_version_id
+        )
         self._validate_approval(synthetic_request, pointer, version, approval)
         applied = self._repository.compare_and_swap_release(scope, mutation, pointer)
         if applied != pointer:
@@ -322,6 +394,76 @@ class AgentControlPlane:
             change_ref=mutation.change_ref,
         )
 
+    @staticmethod
+    def _coerce_release_channel(channel: str) -> ReleaseTrack:
+        if channel == "stable":
+            return "stable"
+        if channel == "beta":
+            return "beta"
+        if channel == "edge":
+            return "edge"
+        raise AgentResolutionError("release_channel_unknown")
+
+    def _resolve_projection_pointer(
+        self,
+        scope: AccessScope,
+        agent_id: str,
+        release_channel: ReleaseTrack,
+        channel: str,
+    ) -> AgentReleasePointer:
+        pointer = self._repository.get_release_pointer(scope, agent_id, release_channel)
+        if pointer is None:
+            raise AgentResolutionError("release_pointer_unavailable")
+        if pointer.agent_id != agent_id or pointer.channel != channel:
+            raise RepositoryContractError(
+                "repository returned an invalid agent pointer"
+            )
+        return pointer
+
+    def _resolve_projection_version(
+        self,
+        scope: AccessScope,
+        agent_id: str,
+        pointer: AgentReleasePointer,
+    ) -> AgentVersion:
+        version = self._repository.get_version(scope, pointer.version_id)
+        if version is None:
+            raise AgentResolutionError("agent_version_unavailable")
+        if version.agent_id != agent_id:
+            raise RepositoryContractError("repository returned a cross-agent release")
+        return version
+
+    def _resolve_projection_approval_state(
+        self,
+        scope: AccessScope,
+        agent_id: str,
+        version: AgentVersion,
+        pointer: AgentReleasePointer,
+        approval_id: str | None,
+        at: str | None,
+    ) -> Literal["missing", "approved", "stale", "denied"]:
+        approval = (
+            self._repository.get_approval(
+                scope, agent_id, version.version_id, approval_id
+            )
+            if approval_id is not None
+            else None
+        )
+        if approval_id is not None and (
+            approval is None
+            or approval.approval_id != approval_id
+            or approval.policy_set_digest != version.policies.policy_set_digest
+            or approval.evaluation_digest != version.evaluation.evidence_digest
+        ):
+            return "stale"
+        return _approval_state(
+            approval,
+            agent_id=agent_id,
+            version_id=version.version_id,
+            channel=pointer.channel,
+            at=at,
+        )
+
     def project(
         self,
         scope: AccessScope,
@@ -333,49 +475,13 @@ class AgentControlPlane:
     ) -> AgentGraphProjection:
         """Return a bounded graph projection without resolving or dispatching."""
 
-        if channel == "stable":
-            release_channel: ReleaseTrack = "stable"
-        elif channel == "beta":
-            release_channel = "beta"
-        elif channel == "edge":
-            release_channel = "edge"
-        else:
-            raise AgentResolutionError("release_channel_unknown")
-        pointer = self._repository.get_release_pointer(scope, agent_id, release_channel)
-        if pointer is None:
-            raise AgentResolutionError("release_pointer_unavailable")
-        if pointer.agent_id != agent_id or pointer.channel != channel:
-            raise RepositoryContractError(
-                "repository returned an invalid agent pointer"
-            )
-        version = self._repository.get_version(scope, pointer.version_id)
-        if version is None:
-            raise AgentResolutionError("agent_version_unavailable")
-        if version.agent_id != agent_id:
-            raise RepositoryContractError("repository returned a cross-agent release")
-        approval = (
-            self._repository.get_approval(
-                scope, agent_id, version.version_id, approval_id
-            )
-            if approval_id is not None
-            else None
+        release_channel = self._coerce_release_channel(channel)
+        pointer = self._resolve_projection_pointer(
+            scope, agent_id, release_channel, channel
         )
-        state = (
-            "stale"
-            if approval_id is not None
-            and (
-                approval is None
-                or approval.approval_id != approval_id
-                or approval.policy_set_digest != version.policies.policy_set_digest
-                or approval.evaluation_digest != version.evaluation.evidence_digest
-            )
-            else _approval_state(
-                approval,
-                agent_id=agent_id,
-                version_id=version.version_id,
-                channel=pointer.channel,
-                at=at,
-            )
+        version = self._resolve_projection_version(scope, agent_id, pointer)
+        state = self._resolve_projection_approval_state(
+            scope, agent_id, version, pointer, approval_id, at
         )
         return AgentGraphProjection(
             projection_version="agent-graph-projection.v1",
