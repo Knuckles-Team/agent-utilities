@@ -1899,20 +1899,69 @@ class IngestionEngine:
             write_slice=_NativeGraphSliceCapture(self.backend),
             sem=self._enrichment_semaphore(),
         )
-        concepts = 0
-        if enrich_concepts:
-            concepts = await self._enrich_concepts_pass(ctx)
-        facts = 0
-        if enrich_facts:
-            facts = await self._enrich_facts_pass(ctx, structure=structure)
-        extraction = _empty_extraction_totals()
-        if enrich_entities:
-            extraction = await self._enrich_entities_pass(ctx)
-        topics = await self._enrich_topics_pass(ctx, text)
+        counts = await self._run_enrichment_passes(
+            ctx,
+            text,
+            structure=structure,
+            enrich_concepts=enrich_concepts,
+            enrich_facts=enrich_facts,
+            enrich_entities=enrich_entities,
+        )
+        # The commit stays INLINE here on purpose. The native ChangeEnvelope
+        # boundary gate asserts, by AST, that this seam itself invokes
+        # ``ingest_graph_slice``; pushing the call down into a helper leaves the
+        # behaviour intact but silently disarms that architectural check.
+        entities, relationships = ctx.write_slice.snapshot()
+        persisted = True
+        if entities or relationships:
+            try:
+                from .envelope_ingest import ingest_graph_slice
 
-        persisted = self._persist_enrichment_slice(ctx)
-        if not persisted:
-            concepts = facts = topics = 0
+                ingest_graph_slice(
+                    self.kg,
+                    "text-enrichment",
+                    entities,
+                    relationships,
+                    source_instance=ctx.source_type,
+                )
+            except Exception:  # noqa: BLE001 — enrichment remains best-effort
+                logger.warning(
+                    "native text-enrichment ChangeEnvelope failed for %s",
+                    ctx.source_type,
+                    exc_info=True,
+                )
+                persisted = False
+        return self._enrichment_result(counts, structure=structure, persisted=persisted)
+
+    async def _run_enrichment_passes(
+        self,
+        ctx: _EnrichContext,
+        text: str,
+        *,
+        structure: str,
+        enrich_concepts: bool,
+        enrich_facts: bool,
+        enrich_entities: bool,
+    ) -> dict[str, Any]:
+        """Run every gated enrichment pass over ``ctx`` and tally what they found.
+
+        Passes run in the historical order (concepts → facts → entities →
+        topics); a disabled pass contributes its empty tally rather than being
+        skipped silently. Nothing here writes: each pass captures into
+        ``ctx.write_slice``, which the caller commits as ONE native envelope.
+        """
+        concepts = await self._enrich_concepts_pass(ctx) if enrich_concepts else 0
+        facts = (
+            await self._enrich_facts_pass(ctx, structure=structure)
+            if enrich_facts
+            else 0
+        )
+        extraction = (
+            await self._enrich_entities_pass(ctx)
+            if enrich_entities
+            else _empty_extraction_totals()
+        )
+        topics = await self._enrich_topics_pass(ctx, text)
         return {
             "concepts": concepts,
             "facts": facts,
@@ -1921,9 +1970,25 @@ class IngestionEngine:
             "claims": extraction["claims"],
             "relationships": extraction["relationships"],
             "extraction_outcomes": extraction["extraction_outcomes"],
-            "structure": structure,
-            "persisted": persisted,
         }
+
+    @staticmethod
+    def _enrichment_result(
+        counts: dict[str, Any], *, structure: str, persisted: bool
+    ) -> dict[str, Any]:
+        """The enrichment payload, zeroed when the slice never reached the graph.
+
+        A failed write is a *reported* failure — the graph-bearing counts are
+        zeroed and ``persisted=False`` is stamped — so it can never be read back
+        as "enriched, found nothing". The extraction tallies are left intact
+        because they describe work that happened regardless of the write.
+        """
+        result = dict(counts)
+        if not persisted:
+            result["concepts"] = result["facts"] = result["topics"] = 0
+        result["structure"] = structure
+        result["persisted"] = persisted
+        return result
 
     @staticmethod
     def _classify_structure(text: str, source_type: str) -> str:
@@ -2129,35 +2194,6 @@ class IngestionEngine:
             return 1 if topic_result.get("status") == "classified" else 0
         except Exception:  # noqa: BLE001 — topic classification never breaks ingest
             return 0
-
-    def _persist_enrichment_slice(self, ctx: _EnrichContext) -> bool:
-        """Commit the captured enrichment slice through the native envelope seam.
-
-        Returns whether the slice reached the graph. ``False`` is a *reported*
-        failure — the caller zeroes the counts and stamps ``persisted=False`` —
-        so a failed write can never be read back as "enriched, found nothing".
-        """
-        entities, relationships = ctx.write_slice.snapshot()
-        if not (entities or relationships):
-            return True
-        try:
-            from .envelope_ingest import ingest_graph_slice
-
-            ingest_graph_slice(
-                self.kg,
-                "text-enrichment",
-                entities,
-                relationships,
-                source_instance=ctx.source_type,
-            )
-        except Exception:  # noqa: BLE001 — enrichment remains best-effort
-            logger.warning(
-                "native text-enrichment ChangeEnvelope failed for %s",
-                ctx.source_type,
-                exc_info=True,
-            )
-            return False
-        return True
 
     async def enrich_text(
         self,
@@ -3074,25 +3110,36 @@ class IngestionEngine:
                 for p in pdf_paths
             ]
         )
-        self._link_page_to_papers(page_result, results)
-        if page_result.details is not None:
-            page_result.details["papers_acquired"] = len(pdf_paths)
-            page_result.details["papers_ingested"] = sum(
-                1 for r in results if r is not None and r.status == "success"
-            )
+        # The MENTIONS write stays INLINE: the native ChangeEnvelope boundary
+        # gate asserts by AST that this method itself commits through
+        # ``ingest_graph_slice``. Only the edge-building and the tallying —
+        # bookkeeping the gate does not care about — are extracted.
+        mention_edges = self._page_paper_mention_edges(page_result, results)
+        if mention_edges:
+            from .envelope_ingest import ingest_graph_slice
 
-    def _link_page_to_papers(
-        self, page_result: IngestionResult, results: list[Any]
-    ) -> None:
-        """Write the roundup page → each ingested paper ``MENTIONS`` edges.
+            ingest_graph_slice(
+                self.kg,
+                "research-roundup-links",
+                [],
+                mention_edges,
+                source_instance="document",
+            )
+        self._record_paper_acquisition(page_result, pdf_paths, results)
+
+    @staticmethod
+    def _page_paper_mention_edges(
+        page_result: IngestionResult, results: list[Any]
+    ) -> list[dict[str, Any]]:
+        """The roundup page → each ingested paper ``MENTIONS`` edges.
 
         No page id (or no successfully ingested paper) means there is nothing to
         link, so nothing is written — the absence is never filled in with a guess.
         """
         page_id = (page_result.details or {}).get("doc_id")
         if not page_id:
-            return
-        mention_edges = [
+            return []
+        return [
             {
                 "source": page_id,
                 "target": paper_id,
@@ -3101,16 +3148,22 @@ class IngestionEngine:
             for result in results
             if result is not None and (paper_id := (result.details or {}).get("doc_id"))
         ]
-        if not mention_edges:
-            return
-        from .envelope_ingest import ingest_graph_slice
 
-        ingest_graph_slice(
-            self.kg,
-            "research-roundup-links",
-            [],
-            mention_edges,
-            source_instance="document",
+    @staticmethod
+    def _record_paper_acquisition(
+        page_result: IngestionResult, pdf_paths: list[Any], results: list[Any]
+    ) -> None:
+        """Stamp the acquisition/ingest tallies onto the roundup page's result.
+
+        A page whose result carries no ``details`` mapping is left untouched
+        rather than being given one, so this can never invent a details payload
+        the ingest itself never produced.
+        """
+        if page_result.details is None:
+            return
+        page_result.details["papers_acquired"] = len(pdf_paths)
+        page_result.details["papers_ingested"] = sum(
+            1 for r in results if r is not None and r.status == "success"
         )
 
     # Document file extensions the standardized unit can read verbatim. Covers the
@@ -3407,8 +3460,19 @@ class IngestionEngine:
         with _pstage("extract"):  # OS-5.70 — the LLM concept-extraction stage
             doc, concepts, edges = extract_document(str(path_obj), text, llm)
 
-        source_kind, source_reference = self._document_source_identity(
-            manifest, path_obj, doc
+        source_kind, source_locator, configured_reference = (
+            self._document_source_identity(manifest, path_obj, doc)
+        )
+        # ``persistence_reference`` stays INLINE: the native ChangeEnvelope
+        # boundary gate asserts by AST that this method itself keys the
+        # transient locator away, so a document can never persist a raw source
+        # location. Only the locator/kind derivation is extracted.
+        from ...security.persistence_privacy import persistence_reference
+
+        source_reference = configured_reference or persistence_reference(
+            "document_source",
+            source_locator,
+            namespace=source_kind,
         )
         source_digest = hashlib.sha256(source_reference.encode("utf-8")).hexdigest()
         document_id = f"doc:{source_digest[:32]}"
@@ -3454,23 +3518,12 @@ class IngestionEngine:
             for edge in edges
         )
 
-        chunks_created = 0
-        if manifest.metadata.get("chunk", True):
-            chunk_entities, chunk_edges = self._verbatim_chunk_slice(
-                document_id, doc, text, source_kind
-            )
-            entities.extend(chunk_entities)
-            relationships.extend(chunk_edges)
-            chunks_created = len(chunk_entities)
-
-        chunk_objects_created = 0
-        chunk_object_edges = 0
-        if manifest.metadata.get("chunk_objects"):
-            obj_entities, obj_edges, chunk_objects_created, chunk_object_edges = (
-                self._chunk_object_slice(manifest, text, document_id, doc, source_kind)
-            )
-            entities.extend(obj_entities)
-            relationships.extend(obj_edges)
+        chunk_entities, chunk_edges, chunk_counts = self._document_chunk_slices(
+            manifest, text, document_id, doc, source_kind
+        )
+        entities.extend(chunk_entities)
+        relationships.extend(chunk_edges)
+        chunks_created, chunk_objects_created, chunk_object_edges = chunk_counts
 
         try:
             from .envelope_ingest import ingest_graph_slice
@@ -3518,6 +3571,47 @@ class IngestionEngine:
             ],
         )
 
+    def _document_chunk_slices(
+        self,
+        manifest: IngestionManifest,
+        text: str,
+        document_id: str,
+        doc: Any,
+        source_kind: str,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], tuple[int, int, int]]:
+        """The manifest-gated chunk slices for one document.
+
+        ``(entities, relationships, (chunks, chunk_objects, chunk_object_edges))``
+        for the verbatim chunk substrate (``chunk``, default on) and the
+        object-centric chunk projection (``chunk_objects``, opt-in). Neither
+        writes: both contribute rows to the SINGLE document ChangeEnvelope the
+        caller commits, so a document and its chunks land atomically.
+        """
+        entities: list[dict[str, Any]] = []
+        relationships: list[dict[str, Any]] = []
+        chunks_created = 0
+        if manifest.metadata.get("chunk", True):
+            chunk_entities, chunk_edges = self._verbatim_chunk_slice(
+                document_id, doc, text, source_kind
+            )
+            entities.extend(chunk_entities)
+            relationships.extend(chunk_edges)
+            chunks_created = len(chunk_entities)
+
+        chunk_objects_created = 0
+        chunk_object_edges = 0
+        if manifest.metadata.get("chunk_objects"):
+            obj_entities, obj_edges, chunk_objects_created, chunk_object_edges = (
+                self._chunk_object_slice(manifest, text, document_id, doc, source_kind)
+            )
+            entities.extend(obj_entities)
+            relationships.extend(obj_edges)
+        return (
+            entities,
+            relationships,
+            (chunks_created, chunk_objects_created, chunk_object_edges),
+        )
+
     def _document_concept_llm(self, want_concepts: bool) -> Callable:
         """The lite-LLM callable ``extract_document`` should use for concepts.
 
@@ -3537,13 +3631,14 @@ class IngestionEngine:
     @staticmethod
     def _document_source_identity(
         manifest: IngestionManifest, path_obj: Path, doc: Any
-    ) -> tuple[str, str]:
-        """``(source_kind, source_reference)`` for one document.
+    ) -> tuple[str, str, str]:
+        """``(source_kind, source_locator, configured_reference)`` for a document.
 
         A URL fetch is materialized through a temporary file and a local file
         contains a machine-specific path. Neither location may become durable
-        identity or provenance. This turns the transient locator into a keyed,
-        non-reversible reference whose digest drives the document topology.
+        identity or provenance, so this only *derives* them: the caller keys the
+        locator through ``persistence_reference`` unless the manifest already
+        supplied an explicit ``source_reference`` (returned here, else ``""``).
         """
         source_url = manifest.metadata.get("source_url") or doc.file_path
         source_locator = str(source_url or path_obj)
@@ -3552,16 +3647,8 @@ class IngestionEngine:
             if source_locator.startswith(("http://", "https://"))
             else "configured-document"
         )
-        from ...security.persistence_privacy import persistence_reference
-
-        source_reference = str(manifest.metadata.get("source_reference") or "") or (
-            persistence_reference(
-                "document_source",
-                source_locator,
-                namespace=source_kind,
-            )
-        )
-        return source_kind, source_reference
+        configured_reference = str(manifest.metadata.get("source_reference") or "")
+        return source_kind, source_locator, configured_reference
 
     @staticmethod
     def _document_provenance_props(
@@ -3712,12 +3799,9 @@ class IngestionEngine:
         from ...protocols.source_connectors import ConnectorCheckpoint, build_connector
         from ..ontology.document_processing import ChunkingConfig, DocumentProcessor
 
-        source_type = manifest.source_uri
-        config = dict(manifest.metadata.get("connector_config") or {})
-        connector_id = manifest.metadata.get("connector_id") or _connector_config_id(
-            source_type, config
+        source_type, config, connector_id, contextual = self._connector_identity(
+            manifest
         )
-        contextual = bool(manifest.metadata.get("contextual", True))
 
         try:
             connector = build_connector(source_type, config)
@@ -3734,12 +3818,24 @@ class IngestionEngine:
         if dry_result is not None:
             return dry_result
 
-        cursor_ok, prior_raw = self._read_connector_cursor(source_type, connector_id)
-        if not cursor_ok:
+        # ``read_change_cursor`` stays INLINE: the native ChangeEnvelope boundary
+        # gate asserts by AST that the generic connector itself resumes from the
+        # engine-owned typed cursor. There is deliberately no legacy fallback —
+        # a cursor failure FAILS the ingest rather than silently re-draining the
+        # whole source as if it had never been read.
+        try:
+            from .envelope_ingest import read_change_cursor
+
+            prior_raw = read_change_cursor(
+                self.kg,
+                source_type,
+                source_instance=str(connector_id),
+            )
+        except Exception as exc:  # noqa: BLE001 — no legacy cursor fallback
             return IngestionResult(
                 manifest=manifest,
                 status="failed",
-                error=f"native connector cursor unavailable ({prior_raw})",
+                error=f"native connector cursor unavailable ({type(exc).__name__})",
             )
 
         drained = self._drain_connector(
@@ -3769,13 +3865,34 @@ class IngestionEngine:
         enrichable = self._process_connector_documents(
             processor, documents, tally, source_type, connector_id
         )
-        checkpoint_recorded, checkpoint_safe = self._finalize_connector_cursor(
+        # ``ingest_graph_slice`` stays INLINE for the same reason: the cursor
+        # marker and the cursor transition share ONE native envelope, and the
+        # gate asserts this method commits it itself.
+        checkpoint_safe, cursor_node = self._connector_cursor_plan(
             source_type, connector_id, final_checkpoint, tally
         )
+        checkpoint_recorded = False
+        if cursor_node is not None:
+            try:
+                from .envelope_ingest import ingest_graph_slice
+
+                cursor_result = ingest_graph_slice(
+                    self.kg,
+                    source_type,
+                    [cursor_node],
+                    source_instance=str(connector_id),
+                    checkpoint=final_checkpoint,
+                )
+                checkpoint_recorded = bool(
+                    cursor_result.get("watermark_advanced", False)
+                )
+            except Exception:  # noqa: BLE001 — cursor failure is not success
+                logger.warning("native connector cursor commit failed", exc_info=True)
+                checkpoint_safe = False
 
         return IngestionResult(
             manifest=manifest,
-            status="success" if checkpoint_safe else "partial",
+            status=self._connector_status(checkpoint_safe),
             nodes_created=tally.nodes,
             edges_created=tally.edges,
             details={
@@ -3830,27 +3947,38 @@ class IngestionEngine:
             },
         )
 
-    def _read_connector_cursor(
-        self, source_type: str, connector_id: str
-    ) -> tuple[bool, Any]:
-        """``(ok, prior_raw)`` — resume from the engine-owned typed cursor.
+    @staticmethod
+    def _connector_identity(
+        manifest: IngestionManifest,
+    ) -> tuple[str, dict[str, Any], str, bool]:
+        """``(source_type, config, connector_id, contextual)`` from the manifest.
 
-        A separate Python manifest must never advance independently of the graph
-        material it describes, so there is no legacy cursor fallback: on failure
-        this returns ``(False, "<ExceptionName>")`` and the caller FAILS the
-        ingest. It never degrades to "no cursor", which would silently re-drain
-        the whole source as if it had never been read.
+        ``connector_id`` is the stable checkpoint key: an explicit
+        ``metadata["connector_id"]`` wins, otherwise it is derived from the
+        source type plus a hash of the config, so a re-run of the same connector
+        resumes the same typed cursor instead of re-draining the source.
         """
-        from .envelope_ingest import read_change_cursor
+        source_type = manifest.source_uri
+        config = dict(manifest.metadata.get("connector_config") or {})
+        connector_id = manifest.metadata.get("connector_id") or _connector_config_id(
+            source_type, config
+        )
+        return (
+            source_type,
+            config,
+            connector_id,
+            bool(manifest.metadata.get("contextual", True)),
+        )
 
-        try:
-            return True, read_change_cursor(
-                self.kg,
-                source_type,
-                source_instance=str(connector_id),
-            )
-        except Exception as exc:  # noqa: BLE001 — no legacy cursor fallback
-            return False, type(exc).__name__
+    @staticmethod
+    def _connector_status(checkpoint_safe: bool) -> str:
+        """``"success"`` only when the cursor advanced safely, else ``"partial"``.
+
+        A held-back cursor is a real, reportable outcome — never a success — so
+        the caller re-drains next run instead of skipping records that never
+        landed.
+        """
+        return "success" if checkpoint_safe else "partial"
 
     @staticmethod
     def _drain_connector(
@@ -3878,27 +4006,35 @@ class IngestionEngine:
             return f"connector drain failed ({type(exc).__name__})"
         return f"connector {source_type!r} supports neither load nor poll"
 
-    def _finalize_connector_cursor(
-        self,
+    @staticmethod
+    def _connector_cursor_plan(
         source_type: str,
         connector_id: str,
         final_checkpoint: str | None,
         tally: _ConnectorTally,
-    ) -> tuple[bool, bool]:
-        """``(checkpoint_recorded, checkpoint_safe)`` after the whole batch.
+    ) -> tuple[bool, dict[str, Any] | None]:
+        """``(checkpoint_safe, cursor_node)`` for the typed source cursor.
 
-        Advance the typed cursor only after every graph record has committed.
-        The marker and cursor share one native ChangeEnvelope transaction; a
-        crash before this point causes safe idempotent replay, never data loss.
-        ANY failed envelope or document holds the cursor back, so the next run
-        re-drains rather than skipping records that never landed.
+        Advance the typed cursor only after every graph record has committed:
+        ANY failed envelope or document holds it back, and a held-back cursor
+        yields ``None`` so the caller writes nothing and the next run re-drains
+        rather than skipping records that never landed. This only *plans* the
+        marker node — the caller commits it and the cursor transition in ONE
+        native ChangeEnvelope, so a crash before that replays idempotently
+        rather than losing data.
         """
         checkpoint_safe = tally.envelope_failed == 0 and tally.docs_failed == 0
         if final_checkpoint is None or not checkpoint_safe:
-            return False, checkpoint_safe
-        return self._commit_connector_cursor(
-            source_type, connector_id, final_checkpoint
-        )
+            return checkpoint_safe, None
+        marker_id = hashlib.sha256(
+            f"{source_type}\x1f{connector_id}".encode()
+        ).hexdigest()
+        return checkpoint_safe, {
+            "id": f"source-checkpoint:{marker_id}",
+            "node_type": "SourceCheckpoint",
+            "source_system": source_type,
+            "connector_reference": marker_id,
+        }
 
     def _ingest_governed_envelopes(
         self, connector: Any, tally: _ConnectorTally, new_cp: Any
@@ -4040,40 +4176,6 @@ class IngestionEngine:
             )
             return None
         return processed, safe_title
-
-    def _commit_connector_cursor(
-        self, source_type: str, connector_id: str, final_checkpoint: str
-    ) -> tuple[bool, bool]:
-        """``(checkpoint_recorded, checkpoint_safe)`` for the typed source cursor.
-
-        A cursor-commit failure is NOT success: it returns ``(False, False)`` so
-        the ingest reports ``partial`` and the next run re-drains from the last
-        durable cursor instead of skipping records that never landed.
-        """
-        try:
-            from .envelope_ingest import ingest_graph_slice
-
-            marker_id = hashlib.sha256(
-                f"{source_type}\x1f{connector_id}".encode()
-            ).hexdigest()
-            cursor_result = ingest_graph_slice(
-                self.kg,
-                source_type,
-                [
-                    {
-                        "id": f"source-checkpoint:{marker_id}",
-                        "node_type": "SourceCheckpoint",
-                        "source_system": source_type,
-                        "connector_reference": marker_id,
-                    }
-                ],
-                source_instance=str(connector_id),
-                checkpoint=final_checkpoint,
-            )
-        except Exception:  # noqa: BLE001 — cursor failure is not success
-            logger.warning("native connector cursor commit failed", exc_info=True)
-            return False, False
-        return bool(cursor_result.get("watermark_advanced", False)), True
 
     @adaptor(ContentType.CONVERSATION)
     async def _ingest_conversation(
