@@ -459,6 +459,93 @@ def _digest_message_refs(
         ]
 
 
+def _context_record_shape_ok(value: dict[str, Any], *, tenant_ref: str) -> bool:
+    return not (
+        value.get("record_kind") != _CONTEXT_RECORD_KIND
+        or value.get("node_type") != "A2AContext"
+        or value.get("tenant_ref") != tenant_ref
+        or not isinstance(value.get("revision"), int)
+        or isinstance(value.get("revision"), bool)
+        or value["revision"] < 0
+    )
+
+
+def _context_record_payload_ok(value: dict[str, Any], *, tenant_key: str) -> bool:
+    return not (
+        not isinstance(value.get("payload"), list)
+        or not _valid_payload_ref(value.get("payload_ref"))
+        or value["payload_ref"] != _payload_ref(value["payload"], tenant_key=tenant_key)
+    )
+
+
+def _task_record_shape_ok(
+    value: dict[str, Any], *, tenant_ref: str, tenant_key: str
+) -> bool:
+    return not (
+        value.get("record_kind") != _TASK_RECORD_KIND
+        or value.get("node_type") != "A2ATask"
+        or value.get("tenant_ref") != tenant_ref
+        or not isinstance(value.get("revision"), int)
+        or isinstance(value.get("revision"), bool)
+        or value["revision"] < 0
+        or not isinstance(value.get("payload"), dict)
+        or not _valid_payload_ref(value.get("payload_ref"))
+        or value["payload_ref"] != _payload_ref(value["payload"], tenant_key=tenant_key)
+    )
+
+
+def _task_record_dispatch_state_ok(value: dict[str, Any]) -> bool:
+    return not (
+        not isinstance(value.get("context_revision"), int)
+        or isinstance(value.get("context_revision"), bool)
+        or value["context_revision"] < 0
+        or not _valid_payload_ref(value.get("context_payload_ref"))
+        or value.get("run_dispatch_state") not in {"pending", "published", "suppressed"}
+        or value.get("cancel_dispatch_state") not in {"none", "pending", "published"}
+    )
+
+
+def _task_record_identity_ok(
+    task: Task, value: dict[str, Any], *, task_id: str, context_id: str
+) -> bool:
+    return not (
+        task.get("id") != task_id
+        or value.get("context_id") != context_id
+        or value.get("state") != task["status"]["state"]
+    )
+
+
+def _task_execution_fence_ok(tag: Any, consumer: Any) -> bool:
+    if (tag is None) != (consumer is None):
+        return False
+    if tag is None:
+        return True
+    return (
+        isinstance(tag, int)
+        and not isinstance(tag, bool)
+        and tag > 0
+        and isinstance(consumer, str)
+        and bool(consumer)
+    )
+
+
+def _run_dispatch_message_ok(message: Any, *, task_id: str, context_id: str) -> bool:
+    if not isinstance(message, dict):
+        return False
+    if set(message) != {"role", "parts", "kind", "message_id", "task_id", "context_id"}:
+        return False
+    if (
+        message.get("parts") != []
+        or message.get("task_id") != task_id
+        or message.get("context_id") != context_id
+    ):
+        return False
+    message_id = message.get("message_id")
+    if not isinstance(message_id, str) or not message_id.startswith("a2a.message."):
+        return False
+    return bool(_HEX_64.fullmatch(message_id.removeprefix("a2a.message.")))
+
+
 @dataclass
 class EpistemicGraphA2ARuntime:
     """Shared verified authority for the FastA2A broker and storage adapters."""
@@ -701,18 +788,9 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
     def _context_record(self, value: Any) -> dict[str, Any]:
         if not isinstance(value, dict) or set(value) != _CONTEXT_RECORD_FIELDS:
             raise RuntimeError("native A2A context record is invalid")
-        if (
-            value.get("record_kind") != _CONTEXT_RECORD_KIND
-            or value.get("node_type") != "A2AContext"
-            or value.get("tenant_ref") != self.runtime.tenant_ref
-            or not isinstance(value.get("revision"), int)
-            or isinstance(value.get("revision"), bool)
-            or value["revision"] < 0
-            or not isinstance(value.get("payload"), list)
-            or not _valid_payload_ref(value.get("payload_ref"))
-            or value["payload_ref"]
-            != _payload_ref(value["payload"], tenant_key=self.runtime.tenant_key)
-        ):
+        if not _context_record_shape_ok(
+            value, tenant_ref=self.runtime.tenant_ref
+        ) or not _context_record_payload_ok(value, tenant_key=self.runtime.tenant_key):
             raise RuntimeError("native A2A context record is invalid")
         return value
 
@@ -720,48 +798,22 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
         self.runtime.require_task_id(task_id)
         if not isinstance(value, dict) or set(value) != _TASK_RECORD_FIELDS:
             raise RuntimeError("native A2A task record is invalid")
-        if (
-            value.get("record_kind") != _TASK_RECORD_KIND
-            or value.get("node_type") != "A2ATask"
-            or value.get("tenant_ref") != self.runtime.tenant_ref
-            or not isinstance(value.get("revision"), int)
-            or isinstance(value.get("revision"), bool)
-            or value["revision"] < 0
-            or not isinstance(value.get("payload"), dict)
-            or not _valid_payload_ref(value.get("payload_ref"))
-            or value["payload_ref"]
-            != _payload_ref(value["payload"], tenant_key=self.runtime.tenant_key)
-            or not isinstance(value.get("context_revision"), int)
-            or isinstance(value.get("context_revision"), bool)
-            or value["context_revision"] < 0
-            or not _valid_payload_ref(value.get("context_payload_ref"))
-            or value.get("run_dispatch_state")
-            not in {"pending", "published", "suppressed"}
-            or value.get("cancel_dispatch_state")
-            not in {"none", "pending", "published"}
-        ):
+        if not _task_record_shape_ok(
+            value,
+            tenant_ref=self.runtime.tenant_ref,
+            tenant_key=self.runtime.tenant_key,
+        ) or not _task_record_dispatch_state_ok(value):
             raise RuntimeError("native A2A task record is invalid")
         task = _validated_json(
             _TASK_ADAPTER, cast(Task, value["payload"]), label="stored A2A task"
         )
         context_id = self.runtime.context_id(str(task.get("context_id") or ""))
-        if (
-            task.get("id") != task_id
-            or value.get("context_id") != context_id
-            or value.get("state") != task["status"]["state"]
+        if not _task_record_identity_ok(
+            task, value, task_id=task_id, context_id=context_id
         ):
             raise RuntimeError("native A2A task identity does not match its record")
-        tag = value.get("execution_tag")
-        consumer = value.get("execution_consumer")
-        if (tag is None) != (consumer is None) or (
-            tag is not None
-            and (
-                not isinstance(tag, int)
-                or isinstance(tag, bool)
-                or tag <= 0
-                or not isinstance(consumer, str)
-                or not consumer
-            )
+        if not _task_execution_fence_ok(
+            value.get("execution_tag"), value.get("execution_consumer")
         ):
             raise RuntimeError("native A2A task execution fence is invalid")
         run_operation = value.get("run_operation")
@@ -785,22 +837,9 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
         if (
             params.get("id") != task_id
             or params.get("context_id") != context_id
-            or not isinstance(message, dict)
-            or set(message)
-            != {
-                "role",
-                "parts",
-                "kind",
-                "message_id",
-                "task_id",
-                "context_id",
-            }
-            or message.get("parts") != []
-            or message.get("task_id") != task_id
-            or message.get("context_id") != context_id
-            or not isinstance(message.get("message_id"), str)
-            or not message["message_id"].startswith("a2a.message.")
-            or not _HEX_64.fullmatch(message["message_id"].removeprefix("a2a.message."))
+            or not _run_dispatch_message_ok(
+                message, task_id=task_id, context_id=context_id
+            )
         ):
             raise RuntimeError("native A2A run dispatch is invalid")
         return params
