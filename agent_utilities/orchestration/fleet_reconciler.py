@@ -777,6 +777,101 @@ def registry_server_alias(package: str, registry_path: str | Path | None = None)
     return alias
 
 
+def _resolve_desired_state_paths(
+    registry_path: str | Path | None, override_path: str | Path | None
+) -> tuple[str | Path | None, str | Path | None]:
+    """Fall back to AgentConfig for whichever path the caller left unset."""
+
+    if registry_path is not None and override_path is not None:
+        return registry_path, override_path
+    try:
+        from agent_utilities.core.config import config as _cfg
+
+        registry_path = registry_path or (
+            getattr(_cfg, "fleet_registry_path", "") or None
+        )
+        override_path = override_path or (
+            getattr(_cfg, "fleet_desired_state_path", "") or None
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    return registry_path, override_path
+
+
+def _registry_entry_to_desired_service(
+    raw: dict[str, Any], name: str
+) -> DesiredService:
+    return DesiredService(
+        name=name,
+        desired=str(raw.get("desired") or "running"),
+        replicas=int(raw.get("replicas") or 1),
+        version=str(raw.get("version") or ""),
+        profiles=[str(p) for p in raw.get("profiles") or []],
+        scaling=parse_scaling_spec(raw.get("scaling"), name),
+        kubernetes_resource=parse_kubernetes_resource(
+            raw.get("kubernetes", raw.get("k8s")), name
+        ),
+    )
+
+
+def _load_registry_desired_services(
+    registry_path: str | Path | None, yaml: Any
+) -> dict[str, DesiredService]:
+    desired: dict[str, DesiredService] = {}
+    path = resolve_registry_path(str(registry_path) if registry_path else None)
+    if path is None:
+        return desired
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        for raw in data.get("services") or []:
+            if not isinstance(raw, dict) or not raw.get("name"):
+                continue
+            name = str(raw["name"])
+            desired[name] = _registry_entry_to_desired_service(raw, name)
+    except Exception as e:  # noqa: BLE001 — a broken registry reconciles nothing
+        logger.warning("fleet_reconciler: registry parse failed (%s)", type(e).__name__)
+    return desired
+
+
+def _apply_override_entry(
+    entry: DesiredService, raw: dict[str, Any], name: str
+) -> None:
+    if raw.get("desired"):
+        entry.desired = str(raw["desired"])
+        entry.operator_override = True
+    if raw.get("replicas") is not None:
+        entry.replicas = int(raw["replicas"])
+        entry.operator_override = True
+    if raw.get("version"):
+        entry.version = str(raw["version"])
+    if "scaling" in raw:
+        # The registry file is machine-generated, so the override
+        # file is where a deployment normally declares scaling
+        # bounds. ``scaling: null`` explicitly disables.
+        entry.scaling = parse_scaling_spec(raw.get("scaling"), name)
+    if "kubernetes" in raw or "k8s" in raw:
+        entry.kubernetes_resource = parse_kubernetes_resource(
+            raw.get("kubernetes", raw.get("k8s")), name
+        )
+
+
+def _apply_override_desired_state(
+    desired: dict[str, DesiredService], override_path: str | Path, yaml: Any
+) -> None:
+    try:
+        data = yaml.safe_load(Path(override_path).read_text(encoding="utf-8")) or {}
+        for raw in data.get("services") or []:
+            if not isinstance(raw, dict) or not raw.get("name"):
+                continue
+            name = str(raw["name"])
+            entry = desired.setdefault(name, DesiredService(name=name))
+            _apply_override_entry(entry, raw, name)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            "fleet_reconciler: override parse failed (%s): %s", override_path, e
+        )
+
+
 def load_desired_state(
     registry_path: str | Path | None = None,
     override_path: str | Path | None = None,
@@ -784,73 +879,12 @@ def load_desired_state(
     """Parse registry + optional override into ``{name: DesiredService}``."""
     import yaml
 
-    if registry_path is None or override_path is None:
-        try:
-            from agent_utilities.core.config import config as _cfg
-
-            registry_path = registry_path or (
-                getattr(_cfg, "fleet_registry_path", "") or None
-            )
-            override_path = override_path or (
-                getattr(_cfg, "fleet_desired_state_path", "") or None
-            )
-        except Exception:  # noqa: BLE001
-            pass
-
-    desired: dict[str, DesiredService] = {}
-    path = resolve_registry_path(str(registry_path) if registry_path else None)
-    if path is not None:
-        try:
-            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-            for raw in data.get("services") or []:
-                if not isinstance(raw, dict) or not raw.get("name"):
-                    continue
-                name = str(raw["name"])
-                desired[name] = DesiredService(
-                    name=name,
-                    desired=str(raw.get("desired") or "running"),
-                    replicas=int(raw.get("replicas") or 1),
-                    version=str(raw.get("version") or ""),
-                    profiles=[str(p) for p in raw.get("profiles") or []],
-                    scaling=parse_scaling_spec(raw.get("scaling"), name),
-                    kubernetes_resource=parse_kubernetes_resource(
-                        raw.get("kubernetes", raw.get("k8s")), name
-                    ),
-                )
-        except Exception as e:  # noqa: BLE001 — a broken registry reconciles nothing
-            logger.warning(
-                "fleet_reconciler: registry parse failed (%s)", type(e).__name__
-            )
-
+    registry_path, override_path = _resolve_desired_state_paths(
+        registry_path, override_path
+    )
+    desired = _load_registry_desired_services(registry_path, yaml)
     if override_path:
-        try:
-            data = yaml.safe_load(Path(override_path).read_text(encoding="utf-8")) or {}
-            for raw in data.get("services") or []:
-                if not isinstance(raw, dict) or not raw.get("name"):
-                    continue
-                name = str(raw["name"])
-                entry = desired.setdefault(name, DesiredService(name=name))
-                if raw.get("desired"):
-                    entry.desired = str(raw["desired"])
-                    entry.operator_override = True
-                if raw.get("replicas") is not None:
-                    entry.replicas = int(raw["replicas"])
-                    entry.operator_override = True
-                if raw.get("version"):
-                    entry.version = str(raw["version"])
-                if "scaling" in raw:
-                    # The registry file is machine-generated, so the override
-                    # file is where a deployment normally declares scaling
-                    # bounds. ``scaling: null`` explicitly disables.
-                    entry.scaling = parse_scaling_spec(raw.get("scaling"), name)
-                if "kubernetes" in raw or "k8s" in raw:
-                    entry.kubernetes_resource = parse_kubernetes_resource(
-                        raw.get("kubernetes", raw.get("k8s")), name
-                    )
-        except Exception as e:  # noqa: BLE001
-            logger.warning(
-                "fleet_reconciler: override parse failed (%s): %s", override_path, e
-            )
+        _apply_override_desired_state(desired, override_path, yaml)
     return desired
 
 
@@ -1171,38 +1205,79 @@ class FleetReconciler:
 
     # ── convergence ─────────────────────────────────────────────────
 
-    def _authorized_intent(self, request: ActionRequest) -> tuple[bool, str]:
-        intent_id = str(request.params.get("scale_intent_id") or "")
-        if not intent_id:
-            return False, ""
-        desired = load_desired_state().get(request.target)
-        if (
+    @staticmethod
+    def _lacks_native_scale_authority(desired: DesiredService | None) -> bool:
+        return (
             desired is None
             or desired.operator_override
             or desired.scaling is None
             or desired.scaling.controller_mode != SCALE_CONTROLLER_NATIVE
-        ):
-            return False, "scale intent is not the declared native replica authority"
-        complete, intent = self.intent_store.latest(request.target)
-        expected_revision = request.params.get("scale_intent_revision")
+        )
+
+    @classmethod
+    def _native_scale_authority_reason(cls, target: str) -> str:
+        """Empty when `target` declares native scale-intent authority, else why not."""
+        desired = load_desired_state().get(target)
+        if cls._lacks_native_scale_authority(desired):
+            return "scale intent is not the declared native replica authority"
+        return ""
+
+    @staticmethod
+    def _intent_fields_match(
+        intent: dict[str, Any],
+        target: str,
+        intent_id: str,
+        expected_revision: Any,
+        replicas_param: Any,
+    ) -> bool:
+        return bool(
+            str(intent.get("service")) == target
+            and str(intent["status"]) == _SCALE_INTENT_ACCEPTED
+            and str(intent["intent_id"]) == intent_id
+            and int(intent["revision"]) == int(expected_revision)
+            and int(intent["desired_replicas"]) == int(replicas_param)
+        )
+
+    @staticmethod
+    def _scale_intent_matches(
+        complete: bool,
+        intent: dict[str, Any] | None,
+        target: str,
+        intent_id: str,
+        expected_revision: Any,
+        replicas_param: Any,
+    ) -> bool:
         try:
             if expected_revision is None:
                 raise ValueError("scale_intent_revision is required")
-            replicas_param = request.params.get("replicas")
             if replicas_param is None:
                 raise ValueError("replicas is required")
-            matches = (
-                complete
-                and intent is not None
-                and _intent_is_valid(intent)
-                and str(intent.get("service")) == request.target
-                and str(intent["status"]) == _SCALE_INTENT_ACCEPTED
-                and str(intent["intent_id"]) == intent_id
-                and int(intent["revision"]) == int(expected_revision)
-                and int(intent["desired_replicas"]) == int(replicas_param)
+            if not complete or intent is None or not _intent_is_valid(intent):
+                return False
+            return FleetReconciler._intent_fields_match(
+                intent, target, intent_id, expected_revision, replicas_param
             )
         except (KeyError, TypeError, ValueError):
-            matches = False
+            return False
+
+    def _authorized_intent(self, request: ActionRequest) -> tuple[bool, str]:
+        intent_id = str(request.params.get("scale_intent_id") or "")
+        if not intent_id:
+            return False, ""
+        authority_reason = self._native_scale_authority_reason(request.target)
+        if authority_reason:
+            return False, authority_reason
+        complete, intent = self.intent_store.latest(request.target)
+        expected_revision = request.params.get("scale_intent_revision")
+        replicas_param = request.params.get("replicas")
+        matches = self._scale_intent_matches(
+            complete,
+            intent,
+            request.target,
+            intent_id,
+            expected_revision,
+            replicas_param,
+        )
         if not matches:
             return False, "accepted scale intent is stale, concurrent, or unavailable"
         return True, ""
@@ -1372,29 +1447,13 @@ class FleetReconciler:
 
         desired_state = load_desired_state()
         want = desired_state.get(request.target)
-        if (
-            want is None
-            or want.operator_override
-            or want.scaling is None
-            or want.scaling.controller_mode != SCALE_CONTROLLER_NATIVE
-        ):
+        if self._lacks_native_scale_authority(want):
             return {"ok": False, "detail": "scale intent is not native-authorized"}
         complete, intent = self.intent_store.latest(request.target)
         intent_id = str(request.params.get("scale_intent_id") or "")
-        try:
-            revision = int(request.params["scale_intent_revision"])
-            replicas = int(request.params["replicas"])
-            identity_matches = (
-                complete
-                and isinstance(intent, dict)
-                and str(intent.get("service")) == request.target
-                and str(intent.get("intent_id")) == intent_id
-                and int(intent["revision"]) == revision
-                and int(intent["desired_replicas"]) == replicas
-            )
-        except (KeyError, TypeError, ValueError):
-            identity_matches = False
-            revision = -1
+        revision, identity_matches = self._scale_intent_identity_matches(
+            complete, intent, request.target, intent_id, request.params
+        )
         if not identity_matches or not isinstance(intent, dict):
             return {"ok": False, "detail": "scale intent is stale or concurrent"}
         if str(intent.get("status")) == _SCALE_INTENT_ACCEPTED:
@@ -1411,15 +1470,8 @@ class FleetReconciler:
             }
         if str(intent.get("status")) != _SCALE_INTENT_PROPOSED:
             return {"ok": False, "detail": "scale intent is no longer approvable"}
-        result = self.intent_store.cas(
-            {
-                "operation": "transition",
-                "service": request.target,
-                "intent_id": intent_id,
-                "expected_revision": revision,
-                "status": _SCALE_INTENT_ACCEPTED,
-                "updated_unix": time.time(),
-            }
+        result = self._transition_scale_intent_to_accepted(
+            request.target, intent_id, revision
         )
         if not _cas_succeeded(result):
             return {"ok": False, "detail": "scale intent acceptance CAS conflicted"}
@@ -1430,6 +1482,44 @@ class FleetReconciler:
             "state": _SCALE_INTENT_ACCEPTED,
             "detail": "approved scale intent accepted for reconciler actuation",
         }
+
+    @staticmethod
+    def _scale_intent_identity_matches(
+        complete: bool,
+        intent: Any,
+        target: str,
+        intent_id: str,
+        params: dict[str, Any],
+    ) -> tuple[int, bool]:
+        try:
+            revision = int(params["scale_intent_revision"])
+            replicas = int(params["replicas"])
+            identity_matches = (
+                complete
+                and isinstance(intent, dict)
+                and str(intent.get("service")) == target
+                and str(intent.get("intent_id")) == intent_id
+                and int(intent["revision"]) == revision
+                and int(intent["desired_replicas"]) == replicas
+            )
+        except (KeyError, TypeError, ValueError):
+            identity_matches = False
+            revision = -1
+        return revision, identity_matches
+
+    def _transition_scale_intent_to_accepted(
+        self, target: str, intent_id: str, revision: int
+    ) -> dict[str, Any]:
+        return self.intent_store.cas(
+            {
+                "operation": "transition",
+                "service": target,
+                "intent_id": intent_id,
+                "expected_revision": revision,
+                "status": _SCALE_INTENT_ACCEPTED,
+                "updated_unix": time.time(),
+            }
+        )
 
     def _reconcile_recovery_approval(
         self, request: ActionRequest, execution: dict[str, Any], approval_id: str
@@ -1445,24 +1535,46 @@ class FleetReconciler:
             return execution
         if observed is None:
             return execution
+        if not self._recovery_confirmed(request, observed):
+            return execution
+        completion = self._complete_recovery_outbox(request, execution, approval_id)
+        if completion is None:
+            return execution
+        if not _outbox_completion_matches(completion, _SCALE_INTENT_OBSERVED):
+            return execution
+        if not bool(completion.get("approval_committed")):
+            return execution
+        return {
+            **execution,
+            "ok": True,
+            "state": _SCALE_INTENT_OBSERVED,
+            "real_execution": True,
+            "approval_committed": True,
+            "outbox_status": _SCALE_INTENT_OBSERVED,
+            "observed": True,
+        }
+
+    @staticmethod
+    def _recovery_confirmed(request: ActionRequest, observed: Any) -> bool:
         if request.kind == "scale_service":
             try:
                 replicas_param = request.params.get("replicas")
                 if replicas_param is None:
                     raise ValueError("replicas is required")
-                confirmed = (
+                return bool(
                     observed.status == STATUS_UP
                     and observed.replicas is not None
                     and int(observed.replicas) == int(replicas_param)
                 )
             except (TypeError, ValueError):
-                confirmed = False
-        elif request.kind == "stop_service":
-            confirmed = observed.status == STATUS_DOWN
-        else:
-            confirmed = observed.status == STATUS_UP
-        if not confirmed:
-            return execution
+                return False
+        if request.kind == "stop_service":
+            return observed.status == STATUS_DOWN
+        return observed.status == STATUS_UP
+
+    def _complete_recovery_outbox(
+        self, request: ActionRequest, execution: dict[str, Any], approval_id: str
+    ) -> dict[str, Any] | None:
         outbox = self.action_outbox_store
         if outbox is None:
             from agent_utilities.orchestration.fleet_actuation import (
@@ -1471,7 +1583,7 @@ class FleetReconciler:
 
             outbox = EngineActionOutboxStore(self.engine)
         try:
-            completion = outbox.complete(
+            return outbox.complete(
                 {
                     "operation": "reconcile",
                     "idempotency_key": execution.get("idempotency_key", ""),
@@ -1487,21 +1599,7 @@ class FleetReconciler:
             )
         except Exception as exc:  # noqa: BLE001 — completion remains pending
             logger.warning("fleet recovery completion failed: %s", exc)
-            return execution
-        if not _outbox_completion_matches(completion, _SCALE_INTENT_OBSERVED):
-            return execution
-        approval_committed = bool(completion.get("approval_committed"))
-        if not approval_committed:
-            return execution
-        return {
-            **execution,
-            "ok": True,
-            "state": _SCALE_INTENT_OBSERVED,
-            "real_execution": True,
-            "approval_committed": True,
-            "outbox_status": _SCALE_INTENT_OBSERVED,
-            "observed": True,
-        }
+            return None
 
     def _drain_approved(self, budget: int) -> list[dict[str, Any]]:
         """Execute fleet actions a human approved via /api/fleet/approvals/grant."""
