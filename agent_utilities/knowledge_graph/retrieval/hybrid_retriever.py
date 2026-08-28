@@ -430,6 +430,20 @@ class HybridRetriever:
                     continue
         return out
 
+    def _exists_batch_via_has_batch(
+        self, graph: Any, wanted: list[str]
+    ) -> dict[str, bool] | None:
+        batch = getattr(graph, "has_batch", None)
+        if not callable(batch):
+            return None
+        try:
+            return {str(k): bool(v) for k, v in (batch(wanted) or {}).items()}
+        except Exception as e:  # noqa: BLE001 — deliberate DEBUG: a CAPABILITY probe. Not every backend implements `has_batch`, so this degrades to the per-id `has_node` path below and still returns a correct (merely slower) answer — unlike the sibling `_neighbors_batch`, a failure here cannot corrupt the assembled subgraph, because existence is re-derived per id rather than defaulted. The cause is preserved (interpolated).
+            # Degrade to per-id existence rather than failing assembly; the
+            # cause is kept in the log, never discarded silently.
+            logger.debug("has_batch unavailable, falling back per-id: %s", e)
+            return None
+
     def _exists_batch(self, ids: list[str]) -> dict[str, bool]:
         """Existence for many node ids in ONE engine round-trip.
 
@@ -444,14 +458,9 @@ class HybridRetriever:
         wanted = [nid for nid in dict.fromkeys(ids) if nid]
         if not wanted or graph is None:
             return {}
-        batch = getattr(graph, "has_batch", None)
-        if callable(batch):
-            try:
-                return {str(k): bool(v) for k, v in (batch(wanted) or {}).items()}
-            except Exception as e:  # noqa: BLE001 — deliberate DEBUG: a CAPABILITY probe. Not every backend implements `has_batch`, so this degrades to the per-id `has_node` path below and still returns a correct (merely slower) answer — unlike the sibling `_neighbors_batch`, a failure here cannot corrupt the assembled subgraph, because existence is re-derived per id rather than defaulted. The cause is preserved (interpolated).
-                # Degrade to per-id existence rather than failing assembly; the
-                # cause is kept in the log, never discarded silently.
-                logger.debug("has_batch unavailable, falling back per-id: %s", e)
+        result = self._exists_batch_via_has_batch(graph, wanted)
+        if result is not None:
+            return result
         has_node = getattr(graph, "has_node", None)
         if not callable(has_node):
             return {}
@@ -613,12 +622,20 @@ class HybridRetriever:
         wanted = [nid for nid in dict.fromkeys(ids) if nid]
         if not wanted or not self.engine.backend or self._varlen_batch_unsupported:
             return {}
+        rows = self._run_varlen_neighbors_query(wanted, depth)
+        if rows is None:
+            return {}
+        return self._collect_varlen_rows(rows)
+
+    def _run_varlen_neighbors_query(
+        self, wanted: list[str], depth: int
+    ) -> list[Any] | None:
         query_str = (
             "UNWIND $ids AS base_id MATCH (n {id: base_id})-[*1.."
             f"{depth}]-(m) RETURN base_id, m"
         )
         try:
-            rows = self.engine.backend.execute(query_str, {"ids": wanted})
+            return self.engine.backend.execute(query_str, {"ids": wanted})
         except Exception as e:  # noqa: BLE001 — capability probe, degrades to the BFS fallback path
             self._varlen_batch_unsupported = True
             logger.debug(
@@ -628,7 +645,11 @@ class HybridRetriever:
                 type(e).__name__,
                 e,
             )
-            return {}
+            return None
+
+    def _collect_varlen_rows(
+        self, rows: list[Any] | None
+    ) -> dict[str, list[dict[str, Any]]]:
         out: dict[str, list[dict[str, Any]]] = {}
         for row in rows or []:
             if not isinstance(row, dict):
