@@ -575,7 +575,7 @@ def cmd_enforce(base_ref: str) -> int:
         ]
     )
 
-    uid = uuid.uuid4().hex[:8]
+    uid = uuid.uuid4().hex
     workdir = _workdir()
     before_wt = workdir / f"cx-jscpd-before-{uid}"
     after_wt = workdir / f"cx-jscpd-after-{uid}"

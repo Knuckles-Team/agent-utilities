@@ -90,6 +90,15 @@ def test_tool_catalog_exposes_only_neutral_resource_references() -> None:
     source = (ROOT / "agent_utilities/mcp/kg_server.py").read_text(encoding="utf-8")
 
     assert '"file_path": f"skill://{name}"' in source
-    assert '"file_path": f"tool://{f.stem}"' in source
+    # `f"tool://{stem}"`, not `f"tool://{f.stem}"`: the batched-toggle-state
+    # refactor (see the "ONE batched engine round trip for every toggle
+    # state" comment in kg_server.py) split what used to be a single
+    # per-``Path`` loop into `_gather_builtin_tool_stems()` -- which computes
+    # `f.stem` once, per Path, and returns `list[str]` -- and a separate
+    # dict comprehension that only ever sees those already-extracted stem
+    # strings. `stem` here IS `f.stem`'s value; this asserts the same
+    # neutral-resource-reference property the original literal did, just
+    # spelled the way the extracted code now spells it.
+    assert '"file_path": f"tool://{stem}"' in source
     assert '"command": "[configured]"' in source
     assert '"args": ["[configured]"]' in source

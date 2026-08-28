@@ -82,8 +82,20 @@ def classify(repo_root: Path, patch: Path) -> PatchVerdict:
             "LIVE-UNAPPLIED",
             f"applies cleanly against {repo_root} and is NOT yet present in the "
             "tree -- this is uncommitted work that would be DESTROYED if this "
-            f"file were deleted. Recover with: git -C {repo_root} apply "
-            f"{patch}",
+            "file were deleted. This is a DISPOSITION DECISION, not an "
+            "automatic recovery: `git apply` reapplies whatever the killed "
+            "run's working tree held at that moment, which is not always "
+            "wanted work-in-progress -- read the patch's own content "
+            f"(`git -C {repo_root} apply --check -v {patch}` / a plain diff "
+            "view) first. If it is genuinely lost work: "
+            f"`git -C {repo_root} apply {patch}`, then commit it. If review "
+            "shows it is abandoned intent instead (e.g. it deletes passing "
+            "code/tests, or duplicates work already landed a different way), "
+            "do NOT apply it -- but do not silently delete this file either: "
+            "record the disposition (what it was, why it is not being "
+            "applied) wherever this repo tracks that decision, THEN remove "
+            "the file. A human must make and record this call; this script "
+            "only classifies.",
         )
     applies_reverse = _git_apply_check(repo_root, patch, reverse=True)
     if applies_reverse:
@@ -156,8 +168,14 @@ def main(argv: list[str] | None = None) -> int:
     if live:
         print(
             f"\nFAILED: {len(live)} patch(es) represent live, unapplied "
-            "uncommitted work. Recover each with the `git apply` command shown "
-            "above BEFORE touching this cache directory in any way."
+            "uncommitted work. This gate does not clear on its own -- someone "
+            "must open each one (see the per-patch detail above), decide "
+            "APPLY (it is real lost work; apply then commit it) or REJECT "
+            "(it is abandoned intent, e.g. it deletes passing code/tests; do "
+            "not apply it), and record that decision before the file is "
+            "removed. Do NOT delete/clear this cache directory to silence "
+            "this gate -- that is exactly the BUG-067 near-miss it exists to "
+            "prevent."
         )
         return 1
 

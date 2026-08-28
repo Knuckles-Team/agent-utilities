@@ -13,7 +13,6 @@ from agent_utilities.mcp.concurrency import (
     invoke_client_method,
     run_blocking,
 )
-from agent_utilities.mcp_utilities import run_blocking as run_blocking_reexport
 
 
 def test_run_blocking_runs_in_worker_thread_and_returns():
@@ -39,10 +38,6 @@ def test_run_blocking_propagates_exceptions():
             await run_blocking(boom)
 
     anyio.run(main)
-
-
-def test_reexport_is_same_callable():
-    assert run_blocking_reexport is run_blocking
 
 
 def test_run_blocking_rejects_async_callable():

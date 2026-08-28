@@ -13,11 +13,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agent_utilities import mcp_utilities
+import agent_utilities.mcp.server_factory as server_factory
+from agent_utilities.core.config import load_mcp_servers_from_config
 
 
 def test_create_mcp_parser():
-    parser = mcp_utilities.create_mcp_parser()
+    parser = server_factory.create_mcp_parser()
     assert parser.description == "MCP Server"
     # Check some default arguments
     args = parser.parse_args(["--transport", "sse", "--port", "9000"])
@@ -37,7 +38,7 @@ def test_create_mcp_server_basic(mock_fastmcp):
         mock_args.help = False
         mock_parse.return_value = (mock_args, [])
 
-        args, mcp, middlewares = mcp_utilities.create_mcp_server(name="TestServer")
+        args, mcp, middlewares = server_factory.create_mcp_server(name="TestServer")
 
         assert args == mock_args
         # ``create_mcp_server`` now always stamps the package version onto
@@ -65,7 +66,7 @@ def test_create_mcp_server_exposes_metrics_health_and_tool_middleware(monkeypatc
     and the per-tool metrics middleware (CONCEPT:AU-OS.observability.no-op-without-metrics). Uses the real FastMCP
     (no mock) so the registered HTTP routes can be inspected."""
     monkeypatch.setattr("sys.argv", ["test-mcp"])  # defaults: auth none, eunomia none
-    args, mcp, middlewares = mcp_utilities.create_mcp_server(
+    args, mcp, middlewares = server_factory.create_mcp_server(
         name="metrics-test", version="0.0.0", instructions="t"
     )
     mw_names = {type(m).__name__ for m in middlewares}
@@ -76,7 +77,7 @@ def test_create_mcp_server_exposes_metrics_health_and_tool_middleware(monkeypatc
 
 
 def test_load_mcp_servers_from_config_missing():
-    servers = mcp_utilities.load_mcp_servers_from_config("non_existent.json")
+    servers = load_mcp_servers_from_config("non_existent.json")
     assert servers == []
 
 
@@ -100,7 +101,7 @@ def test_load_mcp_servers_from_config_success(mock_load):
         mock_server = MagicMock()
         mock_load.return_value = [mock_server]
 
-        servers = mcp_utilities.load_mcp_servers_from_config(tmp_path)
+        servers = load_mcp_servers_from_config(tmp_path)
 
         assert len(servers) == 1
         assert servers[0].id == "test-server"
@@ -112,8 +113,8 @@ def test_load_mcp_servers_from_config_success(mock_load):
 
 def test_mcp_auth_config_defaults():
     # Should use env vars
-    assert isinstance(mcp_utilities.mcp_auth_config, dict)
-    assert "enable_delegation" in mcp_utilities.mcp_auth_config
+    assert isinstance(server_factory.mcp_auth_config, dict)
+    assert "enable_delegation" in server_factory.mcp_auth_config
 
 
 @patch("requests.get")
@@ -134,7 +135,7 @@ def test_create_mcp_server_delegation_error(mock_get):
         mock_parse.return_value = (mock_args, [])
 
         with pytest.raises(SystemExit) as excinfo:
-            mcp_utilities.create_mcp_server()
+            server_factory.create_mcp_server()
         assert excinfo.value.code == 1
 
 
@@ -147,7 +148,7 @@ def test_create_mcp_server_invalid_port():
         mock_parse.return_value = (mock_args, [])
 
         with pytest.raises(SystemExit) as excinfo:
-            mcp_utilities.create_mcp_server()
+            server_factory.create_mcp_server()
         assert excinfo.value.code == 1
 
 
@@ -174,7 +175,7 @@ def test_create_mcp_server_eunomia(mock_create_mw):
         mock_args.eunomia_api_key_ref = None
         mock_parse.return_value = (mock_args, [])
 
-        mcp_utilities.create_mcp_server(name="TestServerEmbedded")
+        server_factory.create_mcp_server(name="TestServerEmbedded")
         mock_create_mw.assert_called_with(
             policy_file="my_custom_policy.json",
             use_remote_eunomia=False,
@@ -188,7 +189,7 @@ def test_create_mcp_server_eunomia(mock_create_mw):
         mock_args.eunomia_policy_file = None
         mock_args.eunomia_remote_url = "http://eunomia:8421"
 
-        mcp_utilities.create_mcp_server(name="TestServerRemote")
+        server_factory.create_mcp_server(name="TestServerRemote")
         mock_create_mw.assert_called_with(
             policy_file=None,
             use_remote_eunomia=True,

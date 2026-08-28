@@ -207,12 +207,44 @@ def test_accepted_residual_requires_rationale_and_owner() -> None:
 
 
 def test_gate_carries_a_documented_residual_but_still_rejects_a_new_one(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Known-bad input: one documented accepted residual, one genuinely new,
     undocumented retired path in the same run. The accepted one must be
     reported as carried (and never drive a non-zero exit); the new one must
-    still fail exactly as before."""
+    still fail exactly as before.
+
+    WD10-P-AUPUSH: this used to hardcode a REAL ``needle=None``
+    ACCEPTED_RESIDUALS entry (first ``agent_utilities/exceptions" + ".py``,
+    then ``agent_utilities/mcp_`` + ``utilities.py``, split here the same
+    way scripts/check_current_only_contract.py splits its own spellings so
+    this docstring does not trip the needles it discusses) as its
+    accepted-residual example -- and broke, twice, each time that entry was
+    resolved and removed (both
+    shims are now deleted; every remaining real entry is a ``needle=``
+    in-content match, not a ``needle=None`` retired-PATH-exists match, so
+    there was no longer a live example of this shape to borrow). Monkeypatch
+    a synthetic one onto a real ``RETIRED_PATHS`` member instead -- proves
+    the exact same mechanism without depending on which residual happens to
+    still be carried right now.
+    """
+    import scripts.check_current_only_contract as contract_mod
+
+    accepted_relative = "agent_utilities/exceptions" + ".py"
+    assert accepted_relative in contract_mod.RETIRED_PATHS
+    monkeypatch.setattr(
+        contract_mod,
+        "ACCEPTED_RESIDUALS",
+        (
+            AcceptedResidual(
+                relative=accepted_relative,
+                needle=None,
+                owner="TEST-OWNER",
+                reason="synthetic residual for this meta-test only",
+            ),
+        ),
+    )
+
     accepted_residual_path = tmp_path / "agent_utilities" / "exceptions.py"
     accepted_residual_path.parent.mkdir(parents=True)
     accepted_residual_path.write_text("# back-compat shim\n", encoding="utf-8")

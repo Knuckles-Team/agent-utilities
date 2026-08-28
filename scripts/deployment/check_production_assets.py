@@ -385,7 +385,7 @@ def _validate_config(
             raise ProductionAssetError(f"cell contract must set {key}={expected}")
     coordinator = str(
         topology_data.get(
-            "ENGINE_ENDPOINT",
+            "GRAPHOS_ENGINE_ENDPOINT",
             "tls://epistemic-graph-coordinator.graphos-cell.svc.cluster.local:9101",
         )
     )

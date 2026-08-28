@@ -250,7 +250,6 @@ RETIRED_IDENTIFIERS: tuple[str, ...] = (
     "migrate_concepts_" + "hierarchy.py",
     "plan_concept_" + "migration.py",
     "apply_concept_" + "migration.py",
-    "check_no_legacy_" + "markers.py",
     "reserve_concepts_" + "hook.py",
     "concept reserve --" + "ns",
     ":flat" + "Id",
@@ -274,39 +273,38 @@ RETIRED_IDENTIFIERS: tuple[str, ...] = (
 )
 RETIRED_PATHS: tuple[str, ...] = (
     "agent_utilities/core/agent_" + "launcher.py",
-    # GOC-59 (BUG-032 shape): accepted residual, NOT a gap in this gate's
-    # coverage. This module is a back-compat re-export shim over
-    # ``agent_utilities.core.exceptions`` (its own docstring says so). It has
-    # zero in-repo importers, but ``agents/microsoft-agent`` -- a real,
-    # actively-developed repo with a live GitHub origin remote
-    # (github.com/Knuckles-Team/microsoft-agent) -- imports it at
-    # ``tests/test_auth_coverage.py:5``
-    # (``from agent_utilities.exceptions import AuthError, UnauthorizedError``).
-    # Deleting it would break that repo's test suite; migrating that one
-    # caller onto ``agent_utilities.core.exceptions`` is a separate,
-    # cross-repo change, not a Phase-0 publication-unblock item. Carried and
-    # owned, not silently cleared.
+    # WD10-P-AUPUSH: the back-compat re-export shim over
+    # ``agent_utilities.core.exceptions`` this path used to name is DELETED
+    # (its sole external importer, agents/microsoft-agent/tests/
+    # test_auth_coverage.py:5, was migrated onto
+    # ``agent_utilities.core.exceptions`` directly first). No longer an
+    # ACCEPTED_RESIDUALS entry -- this is now a plain tripwire against the
+    # shim reappearing, same as every other RETIRED_PATHS entry.
     "agent_utilities/exceptions" + ".py",
     "agent_utilities/graph/" + "steps.py",
     "agent_utilities/knowledge_graph/core/ingest_" + "engine.py",
-    # BUG-032 (GOC-59): accepted residual, NOT a gap in this gate's coverage.
-    # Deletion is blocked by live cross-repo importers -- 15+ files across
-    # 7+ repos under agents/, plus scaffold_package.py:1650,1978 (which
-    # emits `from agent_utilities.mcp_utilities import ...` into every
-    # newly scaffolded package). A fleet-wide migration off this module is
-    # a separate program, not a Phase-0 publication-unblock item. This
-    # finding is meant to keep reporting until that migration lands --
-    # do not delete the file or this entry to silence it.
+    # WD10-P-AUPUSH: the back-compat re-export shim this path used to name
+    # is DELETED. Its 12 live importers (aris-mcp, firefly-iii-mcp x1,
+    # freshrss-agent x4, hdhomerun-mcp x6) were migrated onto the canonical
+    # submodules it forwarded to, and universal-skills' scaffold_package.py
+    # no longer emits an import of it into new packages. No longer an
+    # ACCEPTED_RESIDUALS entry -- this is now a plain tripwire against the
+    # shim reappearing, same as every other RETIRED_PATHS entry.
     "agent_utilities/mcp_" + "utilities.py",
     "agent_utilities/mcp/kg_" + "coordinator.py",
     "scripts/apply_concept_" + "migration.py",
     "scripts/autocurate_" + "repo.py",
-    # BUG-032 (GOC-59): accepted residual, same shape as mcp_utilities.py
-    # above. Referenced by the `.pre-commit-config.yaml` of all 61
-    # `agents/*` packages plus agent-webui, agent-terminal-ui, geniusbot,
-    # and the scaffolder -- deleting it would break the fleet's gates
-    # wholesale. Carried and owned, not silently cleared.
-    "scripts/check_no_legacy_" + "markers.py",
+    # WD10-P-AUPUSH: scripts/check_no_legacy_markers.py was WRONGLY listed
+    # here. It is not retired surface -- it is a live gate the
+    # `.pre-commit-config.yaml` of all 61 `agents/*` packages plus
+    # agent-webui, agent-terminal-ui, geniusbot, and the scaffolder still
+    # invoke by this exact name today. The RETIRED_PATHS/RETIRED_IDENTIFIERS
+    # contract exists to catch surface that was REMOVED and should stay
+    # removed; a file 65 repos actively depend on does not meet that
+    # definition regardless of what its name contains. Fixed the contract
+    # (removed the entry, here and in RETIRED_IDENTIFIERS above, plus the
+    # 3 ACCEPTED_RESIDUALS entries this false positive required) rather
+    # than migrating or deleting anything -- there is nothing to migrate.
     "scripts/consolidate_" + "concepts.py",
     "scripts/curate_" + "batches.py",
     "scripts/inject_concept_" + "ids.py",
@@ -360,79 +358,6 @@ class AcceptedResidual:
 # RETIRED_IDENTIFIERS is listed here: an undocumented retired surface still
 # fails the gate exactly as before (see check_report()/main()).
 ACCEPTED_RESIDUALS: tuple[AcceptedResidual, ...] = (
-    AcceptedResidual(
-        relative="agent_utilities/exceptions" + ".py",
-        needle=None,
-        owner="BUG-032 / GOC-59",
-        reason=(
-            "Back-compat re-export shim over agent_utilities.core.exceptions, "
-            "kept alive by a live cross-repo importer this repo does not own "
-            "(agents/microsoft-agent/tests/test_auth_coverage.py:5). Migrating "
-            "that one caller is a separate, cross-repo change."
-        ),
-    ),
-    AcceptedResidual(
-        relative="docs/concepts.yaml",
-        needle="agent_utilities/mcp_" + "utilities.py",
-        owner="BUG-032 / GOC-59",
-        reason=(
-            "docs/concepts.yaml is GENERATED by scripts/build_concepts_yaml.py "
-            "from the CONCEPT: markers in the tree, so it necessarily lists the "
-            "code_paths of the accepted-residual module above. A generated "
-            "reference inherits the acceptance of what it references -- it is "
-            "not independently fixable, and hand-editing the file is forbidden "
-            "by its own header. Clears automatically when mcp_utilities.py is "
-            "finally deleted."
-        ),
-    ),
-    AcceptedResidual(
-        relative="agent_utilities/mcp_" + "utilities.py",
-        needle=None,
-        owner="BUG-032 / GOC-59",
-        reason=(
-            "Back-compat re-export shim; deletion is blocked by 15+ live "
-            "importers across 7+ agents/* repos plus universal-skills' "
-            "scaffold_package.py, which emits an import of this module into "
-            "every newly scaffolded package. A fleet-wide migration off it is "
-            "a separate program."
-        ),
-    ),
-    AcceptedResidual(
-        relative="scripts/check_no_legacy_" + "markers.py",
-        needle=None,
-        owner="BUG-032 / GOC-59",
-        reason=(
-            "Referenced by the .pre-commit-config.yaml of all 61 agents/* "
-            "packages plus agent-webui, agent-terminal-ui, and geniusbot; "
-            "deleting it would break the fleet's gates wholesale."
-        ),
-    ),
-    # The two entries below are the necessary, accurate consequence of
-    # keeping the accepted-residual script named directly above this comment
-    # (split so this comment itself does not trip the needle it discusses):
-    # a fast-tier forwarder's TARGET constant and a docstring naming its
-    # canonical location. Treating the file as accepted but these literal,
-    # correct references to it as violations would leave the gate permanently red
-    # for naming the file correctly.
-    AcceptedResidual(
-        relative="scripts/security/check_no_legacy_markers_gate.py",
-        needle="check_no_legacy_" + "markers.py",
-        owner="BUG-032 / GOC-59",
-        reason=(
-            "Fast-tier forwarder TARGET constant that must literally name the "
-            "accepted-residual script above to invoke it."
-        ),
-    ),
-    AcceptedResidual(
-        relative="scripts/security_contract.py",
-        needle="check_no_legacy_" + "markers.py",
-        owner="BUG-032 / GOC-59",
-        reason=(
-            "Docstring names the accepted-residual script above as the "
-            "worked example of the locate-au-and-run pattern every fleet "
-            "consumer reaches it through."
-        ),
-    ),
     AcceptedResidual(
         relative="docs/operations/phase10-cutover-runbook.md",
         needle="GRAPH_" + "BACKEND",
