@@ -580,6 +580,13 @@ class TrialMerge:
     detail: str = ""
 
 
+def _merge_tree_conflicts(lines: list[str]) -> list[str]:
+    # Sections are blank-line separated: OID, conflicted paths, informational text.
+    blank = next((i for i, ln in enumerate(lines[1:], 1) if not ln.strip()), None)
+    end = blank if blank is not None else len(lines)
+    return [ln.strip() for ln in lines[1:end] if ln.strip()]
+
+
 def trial_merge(repo: Path, base_ref: str, branch: str) -> TrialMerge:
     """Merge *branch* into *base_ref* as objects only; report conflicts, never write a ref."""
     res = _run_git(
@@ -593,11 +600,7 @@ def trial_merge(repo: Path, base_ref: str, branch: str) -> TrialMerge:
         )
     lines = res.out.splitlines()
     tree = lines[0].strip() if lines else ""
-    # Sections are blank-line separated: OID, conflicted paths, informational text.
-    conflicts = [ln.strip() for ln in lines[1:] if ln.strip()]
-    blank = next((i for i, ln in enumerate(lines[1:], 1) if not ln.strip()), None)
-    if blank is not None:
-        conflicts = [ln.strip() for ln in lines[1:blank] if ln.strip()]
+    conflicts = _merge_tree_conflicts(lines)
     return TrialMerge(ok=False, tree=tree, conflicts=conflicts, detail=res.out)
 
 
@@ -869,6 +872,21 @@ def _scripts_dir_signature(scripts_dir: Path) -> str:
     return digest.hexdigest()
 
 
+def _selected_tests_for_path(path: str, *, tree: Path, tests_root: Path) -> set[str]:
+    if path.startswith("tests/") and path.endswith(".py"):
+        return {path} if (tree / path).is_file() else set()
+    if not path.endswith(".py"):
+        return set()
+    stem = Path(path).stem
+    if stem in {"__init__", "__main__"}:
+        return set()
+    if not tests_root.is_dir():
+        return set()
+    return {
+        str(match.relative_to(tree)) for match in tests_root.rglob(f"test_{stem}*.py")
+    }
+
+
 def select_tests(tree: Path, paths: Iterable[str]) -> list[str]:
     """Test files worth running for *paths* — targeted, and honest when it can't be.
 
@@ -877,21 +895,12 @@ def select_tests(tree: Path, paths: Iterable[str]) -> list[str]:
     has stopped being targeted, and the caller defers to the post-merge suite rather
     than pretending a slow run is a fast one.
     """
-    selected: set[str] = set()
     tests_root = tree / "tests"
+    selected: set[str] = set()
     for path in paths:
-        if path.startswith("tests/") and path.endswith(".py"):
-            if (tree / path).is_file():
-                selected.add(path)
-            continue
-        if not path.endswith(".py"):
-            continue
-        stem = Path(path).stem
-        if stem in {"__init__", "__main__"}:
-            continue
-        if tests_root.is_dir():
-            for match in tests_root.rglob(f"test_{stem}*.py"):
-                selected.add(str(match.relative_to(tree)))
+        selected.update(
+            _selected_tests_for_path(path, tree=tree, tests_root=tests_root)
+        )
     return sorted(selected)
 
 
@@ -1279,6 +1288,186 @@ def _output_lines(proc: subprocess.CompletedProcess) -> frozenset[str]:
     )
 
 
+@dataclass(frozen=True)
+class _BaseRef:
+    """A base ref name paired with its resolved SHA.
+
+    Bundled rather than threaded as two separate parameters through the
+    baseline helpers below: two of them otherwise cross the 7-parameter cap
+    (clippy's own ``too_many_arguments`` default) the moment they also need
+    ``env``/``interpreter``/a file-set — decomposition trades cyclomatic
+    complexity for parameter count, and this pair is the cheapest one to
+    collapse without losing any caller-visible information.
+    """
+
+    ref: str
+    sha: str
+
+
+def _cache_hit_contract_baseline(
+    script_names: list[str],
+    cached: dict[str, ScriptBaseline],
+    base_ref: str,
+    base_sha: str,
+) -> ContractBaselineResult:
+    return ContractBaselineResult(
+        readable=True,
+        base_sha=base_sha,
+        scripts={s: cached[s] for s in script_names},
+        detail=(
+            f"{len(script_names)} contract script(s) already baselined on "
+            f"{base_ref} ({base_sha[:12]}) under this instrument — full "
+            "cache hit"
+        ),
+    )
+
+
+def _overlay_candidate_scripts(candidate_tree: Path, base_tree: Path) -> None:
+    # BUG-176: overlay the CANDIDATE's scripts/ tree onto the base worktree so
+    # every present script — and anything it forwards to or imports from
+    # elsewhere under scripts/ — runs as the candidate's code, scanning only
+    # the base tree's (untouched) content. This worktree is thrown away at
+    # the end of the `with` block, so mutating it here never touches the
+    # canonical checkout or base_ref itself.
+    candidate_scripts = candidate_tree / "scripts"
+    if not candidate_scripts.is_dir():
+        return
+    base_scripts = base_tree / "scripts"
+    if base_scripts.exists():
+        shutil.rmtree(base_scripts)
+    shutil.copytree(
+        candidate_scripts, base_scripts, ignore=shutil.ignore_patterns("__pycache__")
+    )
+
+
+def _run_contract_baseline_jobs(
+    present: dict[str, Path],
+    *,
+    base_tree: Path,
+    interpreter: str,
+    base_sha: str,
+    base_ref: str,
+    env: dict[str, str],
+) -> tuple[ContractBaselineResult | None, dict[str, ScriptBaseline]]:
+    # D-MW-9: run the (usually empty, since this is cached) not-yet-known
+    # scripts concurrently too — same reasoning as run_contract_checks.
+    jobs = {
+        name: (
+            _contract_check_argv(
+                script,
+                script.relative_to(base_tree),
+                interpreter=interpreter,
+                tree=base_tree,
+                base_sha=base_sha,
+            ),
+            base_tree,
+            CONTRACT_BASELINE_BUDGET_SECONDS,
+        )
+        for name, script in present.items()
+    }
+    results = _timed_run_parallel(jobs, env=env)
+    entries: dict[str, ScriptBaseline] = {}
+    for name, (proc, secs) in results.items():
+        if isinstance(proc, _ExecFailure):
+            return (
+                ContractBaselineResult(
+                    readable=False,
+                    base_sha=base_sha,
+                    detail=(
+                        f"baseline run of {name} on {base_ref} ({base_sha[:12]}) "
+                        f"REFUSED: {proc.detail()}"
+                    ),
+                ),
+                entries,
+            )
+        if proc is None:
+            return (
+                ContractBaselineResult(
+                    readable=False,
+                    base_sha=base_sha,
+                    detail=(
+                        f"baseline run of {name} on {base_ref} ({base_sha[:12]}) "
+                        f"exceeded {CONTRACT_BASELINE_BUDGET_SECONDS}s — an "
+                        "unproducible baseline is REFUSED, never silently "
+                        f"treated as 'no pre-existing violations' (took "
+                        f"{secs:.1f}s before timing out)"
+                    ),
+                ),
+                entries,
+            )
+        entries[name] = (
+            ScriptBaseline(ok=True)
+            if proc.returncode == 0
+            else ScriptBaseline(ok=False, lines=_output_lines(proc))
+        )
+    return None, entries
+
+
+def _contract_baseline_new_entries(
+    repo: Path,
+    base: _BaseRef,
+    unknown: list[str],
+    *,
+    scope: LaneScope,
+    candidate_tree: Path,
+    interpreter: str,
+    env: dict[str, str],
+) -> tuple[ContractBaselineResult | None, dict[str, ScriptBaseline]]:
+    contract_dir = Path(CONTRACT_CHECK_GLOB).parent
+    new_entries: dict[str, ScriptBaseline] = {}
+    with materialized(repo, base.sha, scope=scope) as base_tree:
+        # Decide "did this contract exist on base_ref at all" BEFORE the
+        # overlay below replaces base_tree/scripts wholesale with the
+        # candidate's copy — see the "genuinely new contract" branch of this
+        # function's docstring.
+        pre_overlay_present = {
+            name for name in unknown if (base_tree / contract_dir / name).is_file()
+        }
+        for name in unknown:
+            if name not in pre_overlay_present:
+                new_entries[name] = ScriptBaseline(ok=True)
+
+        _overlay_candidate_scripts(candidate_tree, base_tree)
+
+        present = {
+            name: base_tree / contract_dir / name for name in pre_overlay_present
+        }
+        failure, fresh_entries = _run_contract_baseline_jobs(
+            present,
+            base_tree=base_tree,
+            interpreter=interpreter,
+            base_sha=base.sha,
+            base_ref=base.ref,
+            env=env,
+        )
+        if failure is not None:
+            return failure, new_entries
+        new_entries.update(fresh_entries)
+    return None, new_entries
+
+
+def _merged_contract_baseline_result(
+    script_names: list[str],
+    cached: dict[str, ScriptBaseline],
+    new_entries: dict[str, ScriptBaseline],
+    *,
+    unknown: list[str],
+    base_ref: str,
+    base_sha: str,
+) -> ContractBaselineResult:
+    all_known = {**cached, **new_entries}
+    hits = len(script_names) - len(unknown)
+    return ContractBaselineResult(
+        readable=True,
+        base_sha=base_sha,
+        scripts={s: all_known.get(s, ScriptBaseline(ok=True)) for s in script_names},
+        detail=(
+            f"{len(script_names)} contract script(s) evaluated on {base_ref} "
+            f"({base_sha[:12]}) — {hits} from cache, {len(unknown)} freshly run"
+        ),
+    )
+
+
 def compute_contract_baseline(
     repo: Path,
     base_ref: str,
@@ -1353,110 +1542,162 @@ def compute_contract_baseline(
 
     unknown = [s for s in script_names if s not in cached]
     if not unknown:
-        return ContractBaselineResult(
-            readable=True,
-            base_sha=base_sha,
-            scripts={s: cached[s] for s in script_names},
-            detail=(
-                f"{len(script_names)} contract script(s) already baselined on "
-                f"{base_ref} ({base_sha[:12]}) under this instrument — full "
-                "cache hit"
-            ),
-        )
+        return _cache_hit_contract_baseline(script_names, cached, base_ref, base_sha)
 
-    contract_dir = Path(CONTRACT_CHECK_GLOB).parent
-    new_entries: dict[str, ScriptBaseline] = {}
-    with materialized(repo, base_sha, scope=scope) as base_tree:
-        # Decide "did this contract exist on base_ref at all" BEFORE the
-        # overlay below replaces base_tree/scripts wholesale with the
-        # candidate's copy — see the "genuinely new contract" branch of this
-        # function's docstring.
-        pre_overlay_present = {
-            name for name in unknown if (base_tree / contract_dir / name).is_file()
-        }
-        for name in unknown:
-            if name not in pre_overlay_present:
-                new_entries[name] = ScriptBaseline(ok=True)
-
-        # BUG-176: overlay the CANDIDATE's scripts/ tree onto the base
-        # worktree so every present script — and anything it forwards to or
-        # imports from elsewhere under scripts/ — runs as the candidate's
-        # code, scanning only the base tree's (untouched) content. This
-        # worktree is thrown away at the end of the `with` block, so
-        # mutating it here never touches the canonical checkout or base_ref
-        # itself.
-        candidate_scripts = candidate_tree / "scripts"
-        if candidate_scripts.is_dir():
-            base_scripts = base_tree / "scripts"
-            if base_scripts.exists():
-                shutil.rmtree(base_scripts)
-            shutil.copytree(
-                candidate_scripts,
-                base_scripts,
-                ignore=shutil.ignore_patterns("__pycache__"),
-            )
-
-        present: dict[str, Path] = {
-            name: base_tree / contract_dir / name for name in pre_overlay_present
-        }
-
-        # D-MW-9: run the (usually empty, since this is cached) not-yet-known
-        # scripts concurrently too — same reasoning as run_contract_checks.
-        jobs = {
-            name: (
-                _contract_check_argv(
-                    script,
-                    script.relative_to(base_tree),
-                    interpreter=interpreter,
-                    tree=base_tree,
-                    base_sha=base_sha,
-                ),
-                base_tree,
-                CONTRACT_BASELINE_BUDGET_SECONDS,
-            )
-            for name, script in present.items()
-        }
-        results = _timed_run_parallel(jobs, env=env)
-        for name, (proc, secs) in results.items():
-            if isinstance(proc, _ExecFailure):
-                return ContractBaselineResult(
-                    readable=False,
-                    base_sha=base_sha,
-                    detail=(
-                        f"baseline run of {name} on {base_ref} ({base_sha[:12]}) "
-                        f"REFUSED: {proc.detail()}"
-                    ),
-                )
-            if proc is None:
-                return ContractBaselineResult(
-                    readable=False,
-                    base_sha=base_sha,
-                    detail=(
-                        f"baseline run of {name} on {base_ref} ({base_sha[:12]}) "
-                        f"exceeded {CONTRACT_BASELINE_BUDGET_SECONDS}s — an "
-                        "unproducible baseline is REFUSED, never silently "
-                        f"treated as 'no pre-existing violations' (took "
-                        f"{secs:.1f}s before timing out)"
-                    ),
-                )
-            new_entries[name] = (
-                ScriptBaseline(ok=True)
-                if proc.returncode == 0
-                else ScriptBaseline(ok=False, lines=_output_lines(proc))
-            )
+    failure, new_entries = _contract_baseline_new_entries(
+        repo,
+        _BaseRef(ref=base_ref, sha=base_sha),
+        unknown,
+        scope=scope,
+        candidate_tree=candidate_tree,
+        interpreter=interpreter,
+        env=env,
+    )
+    if failure is not None:
+        return failure
 
     _merge_contract_baseline_cache(cache_path, base_sha, new_entries)
-    all_known = {**cached, **new_entries}
-    hits = len(script_names) - len(unknown)
-    return ContractBaselineResult(
-        readable=True,
+    return _merged_contract_baseline_result(
+        script_names,
+        cached,
+        new_entries,
+        unknown=unknown,
+        base_ref=base_ref,
         base_sha=base_sha,
-        scripts={s: all_known.get(s, ScriptBaseline(ok=True)) for s in script_names},
-        detail=(
-            f"{len(script_names)} contract script(s) evaluated on {base_ref} "
-            f"({base_sha[:12]}) — {hits} from cache, {len(unknown)} freshly run"
-        ),
     )
+
+
+def _contract_dropped_check_failure(
+    scripts: list[Path], baseline: set[str] | None
+) -> str | None:
+    dropped = sorted((baseline or set()) - {s.name for s in scripts})
+    if not dropped:
+        return None
+    return (
+        "the merged tree DROPS contract check(s) the base still has: "
+        + ", ".join(dropped)
+        + " — deleting the check that guards an invariant is not a way to "
+        "satisfy it"
+    )
+
+
+def _contract_jobs(
+    scripts: list[Path], *, tree: Path, interpreter: str, merged_base_sha: str | None
+) -> dict[str, tuple[list[str], Path, int]]:
+    return {
+        script.name: (
+            _contract_check_argv(
+                script,
+                script.relative_to(tree),
+                interpreter=interpreter,
+                tree=tree,
+                base_sha=merged_base_sha,
+            ),
+            tree,
+            CONTRACT_CHECK_BUDGET_SECONDS,
+        )
+        for script in scripts
+    }
+
+
+def _contract_itemized_result(
+    rel: Path, merged_lines: frozenset[str], base: ScriptBaseline
+) -> tuple[str | None, str | None]:
+    # Itemized script: line-level diff catches a genuinely new violation even
+    # when the base was already red for something else — the precise case a
+    # coarser script-level compare would mask (see ScriptBaseline's
+    # docstring).
+    new_lines = sorted(merged_lines - base.lines)
+    pre_existing = merged_lines & base.lines
+    if new_lines:
+        detail = f"{rel}: NEW violation(s) not present on the base ref:\n" + "\n".join(
+            new_lines[:50]
+        )
+        if pre_existing:
+            detail += (
+                f"\n({len(pre_existing)} pre-existing violation(s) also "
+                "on the base ref, not blocking)"
+            )
+        return detail, None
+    # new_lines empty and merged_lines non-empty => merged_lines is entirely a
+    # subset of base.lines => pre_existing == merged_lines.
+    shown = "\n".join(sorted(pre_existing)[:10])
+    more = f" (+{len(pre_existing) - 10} more)" if len(pre_existing) > 10 else ""
+    return None, (
+        f"{rel}: {len(pre_existing)} pre-existing violation(s) on "
+        f"the base ref (allowed — not caused by this candidate):\n"
+        f"{shown}{more}"
+    )
+
+
+def _contract_script_result(
+    rel: Path,
+    script_name: str,
+    proc: Any,
+    output_baseline: ContractBaselineResult | None,
+) -> tuple[str | None, str | None]:
+    """Returns ``(failure_detail, note)`` for one already-nonzero-exit script."""
+    if output_baseline is None:
+        return f"{rel}: {(proc.stderr or proc.stdout).strip()[:1500]}", None
+    if not output_baseline.readable:
+        return (
+            f"{rel}: REFUSED — the base-ref baseline needed to tell a NEW "
+            f"violation from pre-existing red could not be produced: "
+            f"{output_baseline.detail}",
+            None,
+        )
+    merged_lines = _output_lines(proc)
+    base = output_baseline.scripts.get(script_name, ScriptBaseline(ok=True))
+    if merged_lines:
+        return _contract_itemized_result(rel, merged_lines, base)
+    if not base.ok:
+        # Non-itemized script (a static message or a bare nonzero exit with no
+        # output at all) that was ALSO non-clean on the base: the finest
+        # signal available is "was this script red before" — allowed,
+        # reported as pre-existing debt, not blocking.
+        return (
+            None,
+            f"{rel}: non-clean on the base ref too (no itemized output to "
+            "compare — allowed at script granularity, not blocking)",
+        )
+    # Non-itemized script that was clean (or absent/new) on the base: any
+    # failure now is unambiguously new.
+    return (
+        f"{rel}: NEW failure not present on the base ref "
+        f"(exit {proc.returncode}, no itemized output): "
+        f"{(proc.stderr or proc.stdout).strip()[:1500]}",
+        None,
+    )
+
+
+def _contract_check_results(
+    scripts: list[Path],
+    tree: Path,
+    results: dict[str, tuple[Any, float]],
+    output_baseline: ContractBaselineResult | None,
+) -> tuple[list[str], list[str]]:
+    failures: list[str] = []
+    notes: list[str] = []
+    for script in scripts:
+        rel = script.relative_to(tree)
+        proc, _ = results[script.name]
+        if isinstance(proc, _ExecFailure):
+            failures.append(f"{rel}: REFUSED — {proc.detail()}")
+            continue
+        if proc is None:
+            failures.append(
+                f"{rel}: exceeded {CONTRACT_CHECK_BUDGET_SECONDS}s — a contract "
+                "check that cannot answer is not a passing contract check"
+            )
+            continue
+        if proc.returncode == 0:
+            continue
+        failure, note = _contract_script_result(rel, script.name, proc, output_baseline)
+        if failure is not None:
+            failures.append(failure)
+        if note is not None:
+            notes.append(note)
+    return failures, notes
 
 
 def run_contract_checks(
@@ -1502,19 +1743,11 @@ def run_contract_checks(
     """
     started = time.monotonic()
     scripts = contract_scripts(tree)
-    failures: list[str] = []
-    notes: list[str] = []
-    dropped = sorted((baseline or set()) - {s.name for s in scripts})
-    if dropped:
-        # A candidate that deletes an invariant would otherwise land by having
-        # nothing left to fail. "Fewer contracts than the base" is the degraded
-        # read; "this repo has none" is a genuine empty and passes below.
-        failures.append(
-            "the merged tree DROPS contract check(s) the base still has: "
-            + ", ".join(dropped)
-            + " — deleting the check that guards an invariant is not a way to "
-            "satisfy it"
-        )
+    # A candidate that deletes an invariant would otherwise land by having
+    # nothing left to fail. "Fewer contracts than the base" is the degraded
+    # read; "this repo has none" is a genuine empty and passes below.
+    dropped_failure = _contract_dropped_check_failure(scripts, baseline)
+    failures: list[str] = [dropped_failure] if dropped_failure is not None else []
     if not scripts and not baseline:
         return Check(
             "contract-checks",
@@ -1526,96 +1759,14 @@ def run_contract_checks(
             ),
         )
     merged_base_sha = output_baseline.base_sha if output_baseline is not None else None
-    jobs = {
-        script.name: (
-            _contract_check_argv(
-                script,
-                script.relative_to(tree),
-                interpreter=interpreter,
-                tree=tree,
-                base_sha=merged_base_sha,
-            ),
-            tree,
-            CONTRACT_CHECK_BUDGET_SECONDS,
-        )
-        for script in scripts
-    }
+    jobs = _contract_jobs(
+        scripts, tree=tree, interpreter=interpreter, merged_base_sha=merged_base_sha
+    )
     results = _timed_run_parallel(jobs, env=env)
-    for script in scripts:
-        rel = script.relative_to(tree)
-        proc, _ = results[script.name]
-        if isinstance(proc, _ExecFailure):
-            failures.append(f"{rel}: REFUSED — {proc.detail()}")
-            continue
-        if proc is None:
-            failures.append(
-                f"{rel}: exceeded {CONTRACT_CHECK_BUDGET_SECONDS}s — a contract "
-                "check that cannot answer is not a passing contract check"
-            )
-            continue
-        if proc.returncode == 0:
-            continue
-        if output_baseline is None:
-            failures.append(f"{rel}: {(proc.stderr or proc.stdout).strip()[:1500]}")
-            continue
-        if not output_baseline.readable:
-            failures.append(
-                f"{rel}: REFUSED — the base-ref baseline needed to tell a NEW "
-                f"violation from pre-existing red could not be produced: "
-                f"{output_baseline.detail}"
-            )
-            continue
-        merged_lines = _output_lines(proc)
-        base = output_baseline.scripts.get(script.name, ScriptBaseline(ok=True))
-        if merged_lines:
-            # Itemized script: line-level diff catches a genuinely new
-            # violation even when the base was already red for something
-            # else — the precise case a coarser script-level compare would
-            # mask (see ScriptBaseline's docstring).
-            new_lines = sorted(merged_lines - base.lines)
-            pre_existing = merged_lines & base.lines
-            if new_lines:
-                detail = (
-                    f"{rel}: NEW violation(s) not present on the base ref:\n"
-                    + "\n".join(new_lines[:50])
-                )
-                if pre_existing:
-                    detail += (
-                        f"\n({len(pre_existing)} pre-existing violation(s) also "
-                        "on the base ref, not blocking)"
-                    )
-                failures.append(detail)
-            else:
-                # new_lines empty and merged_lines non-empty => merged_lines is
-                # entirely a subset of base.lines => pre_existing == merged_lines.
-                shown = "\n".join(sorted(pre_existing)[:10])
-                more = (
-                    f" (+{len(pre_existing) - 10} more)"
-                    if len(pre_existing) > 10
-                    else ""
-                )
-                notes.append(
-                    f"{rel}: {len(pre_existing)} pre-existing violation(s) on "
-                    f"the base ref (allowed — not caused by this candidate):\n"
-                    f"{shown}{more}"
-                )
-        elif not base.ok:
-            # Non-itemized script (a static message or a bare nonzero exit
-            # with no output at all) that was ALSO non-clean on the base:
-            # the finest signal available is "was this script red before" —
-            # allowed, reported as pre-existing debt, not blocking.
-            notes.append(
-                f"{rel}: non-clean on the base ref too (no itemized output to "
-                "compare — allowed at script granularity, not blocking)"
-            )
-        else:
-            # Non-itemized script that was clean (or absent/new) on the base:
-            # any failure now is unambiguously new.
-            failures.append(
-                f"{rel}: NEW failure not present on the base ref "
-                f"(exit {proc.returncode}, no itemized output): "
-                f"{(proc.stderr or proc.stdout).strip()[:1500]}"
-            )
+    script_failures, notes = _contract_check_results(
+        scripts, tree, results, output_baseline
+    )
+    failures.extend(script_failures)
     detail = "\n".join(failures)
     if notes:
         detail = (detail + "\n" if detail else "") + "\n".join(notes)
@@ -1774,6 +1925,168 @@ def _merge_file_baseline_cache(
     tmp.replace(path)
 
 
+def _baseline_test_run_failure(
+    proc: Any, secs: float, present: list[str], *, base_ref: str, base_sha: str
+) -> BaselineResult | None:
+    if isinstance(proc, _ExecFailure):
+        return BaselineResult(
+            readable=False,
+            base_sha=base_sha,
+            detail=(
+                f"baseline run on {base_ref} ({base_sha[:12]}) for "
+                f"{len(present)} not-yet-cached file(s) REFUSED: "
+                f"{proc.detail()}"
+            ),
+        )
+    if proc is None:
+        return BaselineResult(
+            readable=False,
+            base_sha=base_sha,
+            detail=(
+                f"baseline run on {base_ref} ({base_sha[:12]}) for "
+                f"{len(present)} not-yet-cached file(s) exceeded "
+                f"{BASELINE_TEST_BUDGET_SECONDS}s — an unproducible "
+                "baseline is REFUSED, never silently treated as 'no "
+                f"pre-existing failures' (took {secs:.1f}s before "
+                "timing out; the already-cached files this batch also "
+                "asked for are not re-run, but a whole answer needs the "
+                "new ones too)"
+            ),
+        )
+    if proc.returncode not in _PYTEST_READABLE_EXIT_CODES:
+        return BaselineResult(
+            readable=False,
+            base_sha=base_sha,
+            detail=(
+                f"baseline run on {base_ref} ({base_sha[:12]}) exited "
+                f"{proc.returncode} (collection/usage/internal error, not "
+                "a test outcome) — an unreadable baseline is REFUSED, "
+                "never silently treated as 'no pre-existing failures'\n"
+                + proc.stdout[-2000:]
+                + "\n"
+                + proc.stderr[-1000:]
+            ),
+        )
+    return None
+
+
+def _run_baseline_tests(
+    base_tree: Path,
+    present: list[str],
+    *,
+    scope: LaneScope,
+    interpreter: str,
+    env: dict[str, str],
+    base_ref: str,
+    base_sha: str,
+) -> tuple[BaselineResult | None, dict[str, list[str]]]:
+    """Run pytest for the not-yet-cached, base-present files.
+
+    Returns a terminal ``BaselineResult`` when the run itself could not
+    produce a readable answer, or ``(None, per-file failing ids)`` when the
+    caller should merge the fresh entries into the cache.
+    """
+    basetemp = partitioned_paths(scope.tree).pytest_basetemp / "merge-queue-baseline"
+    basetemp.mkdir(parents=True, exist_ok=True)
+    proc, secs = _timed_run(
+        [
+            interpreter,
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "no:randomly",
+            "-rfE",
+            f"--basetemp={basetemp}",
+            *present,
+        ],
+        base_tree,
+        timeout=BASELINE_TEST_BUDGET_SECONDS,
+        env=env,
+    )
+    failure = _baseline_test_run_failure(
+        proc, secs, present, base_ref=base_ref, base_sha=base_sha
+    )
+    if failure is not None:
+        return failure, {}
+    fresh_failing = _parse_failing_test_ids(proc.stdout)
+    return None, {
+        t: sorted(fid for fid in fresh_failing if fid.startswith(t + "::"))
+        for t in present
+    }
+
+
+def _cache_hit_baseline_result(
+    tests: list[str], cached_files: dict[str, list[str]], base_ref: str, base_sha: str
+) -> BaselineResult:
+    failing = {fid for t in tests for fid in cached_files[t]}
+    return BaselineResult(
+        readable=True,
+        base_sha=base_sha,
+        failing=frozenset(failing),
+        detail=(
+            f"{len(tests)} test file(s) already baselined on {base_ref} "
+            f"({base_sha[:12]}) — full cache hit, no run needed"
+        ),
+    )
+
+
+def _merged_baseline_result(
+    tests: list[str],
+    cached_files: dict[str, list[str]],
+    new_entries: dict[str, list[str]],
+    *,
+    unknown: list[str],
+    present: list[str],
+    missing: list[str],
+    base: _BaseRef,
+) -> BaselineResult:
+    all_files = {**cached_files, **new_entries}
+    failing = {fid for t in tests for fid in all_files.get(t, [])}
+    hits = len(tests) - len(unknown)
+    return BaselineResult(
+        readable=True,
+        base_sha=base.sha,
+        failing=frozenset(failing),
+        detail=(
+            f"{len(tests)} test file(s) evaluated on {base.ref} ({base.sha[:12]}) "
+            f"— {hits} from cache, {len(present)} freshly run"
+            + (f", {len(missing)} absent on base" if missing else "")
+        ),
+    )
+
+
+def _baseline_new_entries(
+    repo: Path,
+    base_sha: str,
+    unknown: list[str],
+    *,
+    scope: LaneScope,
+    interpreter: str,
+    env: dict[str, str],
+    base_ref: str,
+) -> tuple[BaselineResult | None, list[str], list[str], dict[str, list[str]]]:
+    with materialized(repo, base_sha, scope=scope) as base_tree:
+        present = [t for t in unknown if (base_tree / t).is_file()]
+        missing = [t for t in unknown if t not in present]
+        new_entries: dict[str, list[str]] = {t: [] for t in missing}
+
+        if present:
+            failure, fresh_entries = _run_baseline_tests(
+                base_tree,
+                present,
+                scope=scope,
+                interpreter=interpreter,
+                env=env,
+                base_ref=base_ref,
+                base_sha=base_sha,
+            )
+            if failure is not None:
+                return failure, present, missing, new_entries
+            new_entries.update(fresh_entries)
+    return None, present, missing, new_entries
+
+
 def compute_test_baseline(
     repo: Path,
     base_ref: str,
@@ -1806,102 +2119,377 @@ def compute_test_baseline(
 
     unknown = [t for t in tests if t not in cached_files]
     if not unknown:
-        failing = {fid for t in tests for fid in cached_files[t]}
-        return BaselineResult(
-            readable=True,
-            base_sha=base_sha,
-            failing=frozenset(failing),
-            detail=(
-                f"{len(tests)} test file(s) already baselined on {base_ref} "
-                f"({base_sha[:12]}) — full cache hit, no run needed"
-            ),
-        )
+        return _cache_hit_baseline_result(tests, cached_files, base_ref, base_sha)
 
-    with materialized(repo, base_sha, scope=scope) as base_tree:
-        present = [t for t in unknown if (base_tree / t).is_file()]
-        missing = [t for t in unknown if t not in present]
-        new_entries: dict[str, list[str]] = {t: [] for t in missing}
-
-        if present:
-            basetemp = (
-                partitioned_paths(scope.tree).pytest_basetemp / "merge-queue-baseline"
-            )
-            basetemp.mkdir(parents=True, exist_ok=True)
-            proc, secs = _timed_run(
-                [
-                    interpreter,
-                    "-m",
-                    "pytest",
-                    "-q",
-                    "-p",
-                    "no:randomly",
-                    "-rfE",
-                    f"--basetemp={basetemp}",
-                    *present,
-                ],
-                base_tree,
-                timeout=BASELINE_TEST_BUDGET_SECONDS,
-                env=env,
-            )
-
-            if isinstance(proc, _ExecFailure):
-                return BaselineResult(
-                    readable=False,
-                    base_sha=base_sha,
-                    detail=(
-                        f"baseline run on {base_ref} ({base_sha[:12]}) for "
-                        f"{len(present)} not-yet-cached file(s) REFUSED: "
-                        f"{proc.detail()}"
-                    ),
-                )
-            if proc is None:
-                return BaselineResult(
-                    readable=False,
-                    base_sha=base_sha,
-                    detail=(
-                        f"baseline run on {base_ref} ({base_sha[:12]}) for "
-                        f"{len(present)} not-yet-cached file(s) exceeded "
-                        f"{BASELINE_TEST_BUDGET_SECONDS}s — an unproducible "
-                        "baseline is REFUSED, never silently treated as 'no "
-                        f"pre-existing failures' (took {secs:.1f}s before "
-                        "timing out; the already-cached files this batch also "
-                        "asked for are not re-run, but a whole answer needs the "
-                        "new ones too)"
-                    ),
-                )
-            if proc.returncode not in _PYTEST_READABLE_EXIT_CODES:
-                return BaselineResult(
-                    readable=False,
-                    base_sha=base_sha,
-                    detail=(
-                        f"baseline run on {base_ref} ({base_sha[:12]}) exited "
-                        f"{proc.returncode} (collection/usage/internal error, not "
-                        "a test outcome) — an unreadable baseline is REFUSED, "
-                        "never silently treated as 'no pre-existing failures'\n"
-                        + proc.stdout[-2000:]
-                        + "\n"
-                        + proc.stderr[-1000:]
-                    ),
-                )
-            fresh_failing = _parse_failing_test_ids(proc.stdout)
-            for t in present:
-                new_entries[t] = sorted(
-                    fid for fid in fresh_failing if fid.startswith(t + "::")
-                )
+    failure, present, missing, new_entries = _baseline_new_entries(
+        repo,
+        base_sha,
+        unknown,
+        scope=scope,
+        interpreter=interpreter,
+        env=env,
+        base_ref=base_ref,
+    )
+    if failure is not None:
+        return failure
 
     _merge_file_baseline_cache(cache_path, base_sha, new_entries)
-    all_files = {**cached_files, **new_entries}
-    failing = {fid for t in tests for fid in all_files.get(t, [])}
-    hits = len(tests) - len(unknown)
-    return BaselineResult(
-        readable=True,
-        base_sha=base_sha,
-        failing=frozenset(failing),
+    return _merged_baseline_result(
+        tests,
+        cached_files,
+        new_entries,
+        unknown=unknown,
+        present=present,
+        missing=missing,
+        base=_BaseRef(ref=base_ref, sha=base_sha),
+    )
+
+
+def _duplicate_symbols_check(duplicates: list[dict[str, Any]]) -> Check:
+    return Check(
+        name="cross-branch-duplicate-symbols",
+        ok=not duplicates,
+        seconds=0.0,
         detail=(
-            f"{len(tests)} test file(s) evaluated on {base_ref} ({base_sha[:12]}) "
-            f"— {hits} from cache, {len(present)} freshly run"
-            + (f", {len(missing)} absent on base" if missing else "")
+            ""
+            if not duplicates
+            else "\n".join(
+                f"{d['symbol']} added by "
+                + ", ".join(f"{s['branch']} ({s['at']})" for s in d["added_by"])
+                for d in duplicates
+            )
         ),
+    )
+
+
+def _fast_gate_contract_check(
+    tree: Path,
+    *,
+    interpreter: str,
+    env: dict[str, str],
+    scope: LaneScope,
+    base_ref: str,
+) -> Check:
+    # D-MW-9: differential against base_ref's own output, exactly like
+    # targeted-tests below — main legitimately carries contract debt.
+    discovered_names = [s.name for s in contract_scripts(tree)]
+    return run_contract_checks(
+        tree,
+        interpreter=interpreter,
+        env=env,
+        baseline=contract_baseline(scope.main_tree, base_ref),
+        output_baseline=(
+            compute_contract_baseline(
+                scope.main_tree,
+                base_ref,
+                discovered_names,
+                candidate_tree=tree,
+                scope=scope,
+                interpreter=interpreter,
+                env=env,
+            )
+            if discovered_names
+            else None
+        ),
+    )
+
+
+def _import_smoke_check(
+    tree: Path, changed: list[str], *, interpreter: str, env: dict[str, str]
+) -> Check:
+    # This is the D-OB-17 catcher: a tree git merged without a single conflict
+    # marker that nonetheless does not import.
+    modules = _module_names(tree, changed)
+    if not modules:
+        return Check("import-smoke", ok=True, seconds=0.0, detail="no changed modules")
+    script = (
+        "import importlib, sys\n"
+        f"for name in {modules!r}:\n"
+        "    importlib.import_module(name)\n"
+        "print(sys.executable)\n"
+    )
+    proc, secs = _timed_run(
+        [interpreter, "-c", script],
+        tree,
+        timeout=IMPORT_SMOKE_BUDGET_SECONDS,
+        env=env,
+    )
+    if isinstance(proc, _ExecFailure):
+        return Check("import-smoke", ok=False, seconds=secs, detail=proc.detail())
+    if proc is None:
+        return Check(
+            "import-smoke",
+            ok=False,
+            seconds=secs,
+            detail=(
+                f"importing {len(modules)} changed modules exceeded "
+                f"{IMPORT_SMOKE_BUDGET_SECONDS}s — an import that slow is "
+                "itself a defect (import-time work belongs in a function)"
+            ),
+        )
+    return Check(
+        "import-smoke",
+        ok=proc.returncode == 0,
+        seconds=secs,
+        detail=("" if proc.returncode == 0 else proc.stderr[-4000:]),
+    )
+
+
+def _targeted_test_ids_label(label: str, ids: list[str], limit: int = 25) -> str:
+    shown = ", ".join(ids[:limit])
+    more = f" (+{len(ids) - limit} more)" if len(ids) > limit else ""
+    return f"{len(ids)} {label}: {shown}{more}"
+
+
+def _run_targeted_tests(
+    tree: Path,
+    tests: list[str],
+    *,
+    scope: LaneScope,
+    interpreter: str,
+    env: dict[str, str],
+) -> tuple[Check | None, set[str], float]:
+    """Execute the targeted-test subprocess.
+
+    Returns a terminal ``Check`` (ExecFailure / budget-overrun DEFER / an
+    unreadable exit code) when the run itself settles the verdict, or
+    ``(None, merged_failing, seconds)`` when the caller must still consult
+    the base-ref baseline.
+    """
+    basetemp = partitioned_paths(scope.tree).pytest_basetemp / "merge-queue"
+    basetemp.mkdir(parents=True, exist_ok=True)
+    proc, secs = _timed_run(
+        [
+            interpreter,
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "no:randomly",
+            "-rfE",
+            f"--basetemp={basetemp}",
+            *tests,
+        ],
+        tree,
+        timeout=TARGETED_TEST_BUDGET_SECONDS,
+        env=env,
+    )
+    if isinstance(proc, _ExecFailure):
+        # Distinct from the budget-overrun DEFER below: the interpreter
+        # never ran at all, so this is not "no regression claim to make",
+        # it is "no claim COULD be made" — refused, not deferred.
+        return (
+            Check("targeted-tests", ok=False, seconds=secs, detail=proc.detail()),
+            set(),
+            secs,
+        )
+    if proc is None:
+        # Preserve the existing budget-overrun contract verbatim (CONCEPT:
+        # AU-OS.governance.tiered-merge-gate): exceeding the ceiling is a
+        # DEFER to the post-merge suite, not a fail — and, distinctly from a
+        # baseline that can't be produced (see compute_test_baseline), this is
+        # the run we already had no regression claim to make, so there is
+        # nothing here for a baseline to change.
+        return (
+            Check(
+                "targeted-tests",
+                ok=True,
+                seconds=secs,
+                deferred=True,
+                detail=(
+                    f"targeted tests exceeded {TARGETED_TEST_BUDGET_SECONDS}s — "
+                    "deferred to the post-merge suite rather than holding the "
+                    "lease; the queue's value is that it always returns"
+                ),
+            ),
+            set(),
+            secs,
+        )
+    if proc.returncode not in _PYTEST_READABLE_EXIT_CODES:
+        # The merged tree itself did not collect/run cleanly (D-OB-17's shape,
+        # or worse). Per CONCEPT:AU-OS.governance.test-regression-baseline this
+        # is refused outright without consulting the baseline: "a collection
+        # error is not a pass" on EITHER tree, and an unreadable merged run
+        # gives no failing-id set to diff against a baseline in the first
+        # place — there is nothing to compare.
+        return (
+            Check(
+                "targeted-tests",
+                ok=False,
+                seconds=secs,
+                detail=(
+                    f"the merged tree's targeted-test run exited "
+                    f"{proc.returncode} (collection/usage/internal error, not "
+                    "a test outcome) — refused; a run that cannot enumerate "
+                    "its failures cannot be diffed against the base\n"
+                    + proc.stdout[-2000:]
+                    + "\n"
+                    + proc.stderr[-1000:]
+                ),
+            ),
+            set(),
+            secs,
+        )
+    return None, _parse_failing_test_ids(proc.stdout), secs
+
+
+def _targeted_tests_no_merged_failures_check(
+    tests: list[str],
+    secs: float,
+    interpreter: str,
+    baseline: BaselineResult,
+    base_ref: str,
+) -> Check:
+    # Nothing failed on the merged tree, so there is NO POSSIBLE regression no
+    # matter what the baseline says — mathematically, `merged_failing -
+    # baseline.failing` is empty whenever `merged_failing` is, regardless of
+    # whether `baseline.failing` is even known. So an unreadable baseline here
+    # does not refuse: fail-closed (property 2) governs cases where the
+    # baseline's answer could change the verdict, and here it cannot.
+    base_label = (
+        f"{base_ref} ({baseline.base_sha[:12]})" if baseline.readable else base_ref
+    )
+    detail = f"{len(tests)} test file(s) green on {interpreter}"
+    if baseline.readable and baseline.failing:
+        detail += "\n" + _targeted_test_ids_label(
+            f"test(s) this candidate FIXES relative to {base_label}",
+            sorted(baseline.failing),
+        )
+    elif not baseline.readable:
+        detail += (
+            f" (improvement delta unavailable — {base_ref} baseline "
+            f"could not be produced: {baseline.detail})"
+        )
+    return Check("targeted-tests", ok=True, seconds=secs, detail=detail)
+
+
+def _targeted_tests_regression_check(
+    merged_failing: set[str], secs: float, baseline: BaselineResult, base_ref: str
+) -> Check:
+    new_failures = sorted(merged_failing - baseline.failing)
+    pre_existing = sorted(merged_failing & baseline.failing)
+    fixed = sorted(baseline.failing - merged_failing)
+    base_label = f"{base_ref} ({baseline.base_sha[:12]})"
+
+    if new_failures:
+        detail = _targeted_test_ids_label(
+            "NEW failure(s) not present on " + base_label, new_failures
+        )
+        if pre_existing:
+            detail += "\n" + _targeted_test_ids_label(
+                f"pre-existing failure(s) also on {base_label} (not blocking)",
+                pre_existing,
+            )
+        if fixed:
+            detail += "\n" + _targeted_test_ids_label(
+                f"test(s) this candidate FIXES relative to {base_label}", fixed
+            )
+        return Check("targeted-tests", ok=False, seconds=secs, detail=detail)
+
+    # Every merged-tree failure is identically present on the base:
+    # pre-existing red the branch did not cause, ALLOWED — but reported
+    # explicitly, with counts, so it never reads as a silent success
+    # (property 1: not a masking mechanism).
+    detail = _targeted_test_ids_label(
+        f"pre-existing failure(s) also failing on {base_label} "
+        "(allowed — not caused by this candidate)",
+        pre_existing,
+    )
+    if fixed:
+        detail += "\n" + _targeted_test_ids_label(
+            f"test(s) this candidate FIXES relative to {base_label}", fixed
+        )
+    return Check("targeted-tests", ok=True, seconds=secs, detail=detail)
+
+
+def _targeted_tests_verdict(
+    tests: list[str],
+    merged_failing: set[str],
+    secs: float,
+    *,
+    scope: LaneScope,
+    base_ref: str,
+    interpreter: str,
+    env: dict[str, str],
+) -> Check:
+    # The baseline is computed whenever the merged run itself is readable —
+    # not only when it has failures — so that a candidate which FIXES a
+    # pre-existing failure gets that improvement reported even when nothing
+    # else in the selection is red (adversarial property (d)). The batch (not
+    # each individual candidate) pays for this: `tests` here is the union
+    # selection for the whole batch/sub-batch attempt (:func:`integrate_batch`),
+    # and :func:`compute_test_baseline` caches on ``(base_sha, selection,
+    # interpreter)`` — main is static within a batch, so a repeated or later
+    # attempt against the same selection is answered from disk rather than
+    # run again.
+    baseline = compute_test_baseline(
+        scope.main_tree, base_ref, tests, scope=scope, interpreter=interpreter, env=env
+    )
+    if not merged_failing:
+        return _targeted_tests_no_merged_failures_check(
+            tests, secs, interpreter, baseline, base_ref
+        )
+    if not baseline.readable:
+        # Fail-closed (CONCEPT:AU-OS.governance.test-regression-baseline,
+        # property 2): an unproducible baseline REFUSES the candidate. It
+        # must never fall back to "no pre-existing failures", which would
+        # silently permit every failing id as if it were known-red.
+        return Check(
+            "targeted-tests",
+            ok=False,
+            seconds=secs,
+            detail=(
+                f"REFUSED: {len(merged_failing)} test(s) failed on "
+                f"the merged tree and the {base_ref} baseline "
+                "needed to tell a regression from pre-existing red "
+                f"could not be produced: {baseline.detail}"
+            ),
+        )
+    return _targeted_tests_regression_check(merged_failing, secs, baseline, base_ref)
+
+
+def _targeted_tests_check(
+    tree: Path,
+    changed: list[str],
+    *,
+    scope: LaneScope,
+    interpreter: str,
+    env: dict[str, str],
+    base_ref: str,
+) -> Check:
+    tests = select_tests(tree, changed)
+    if not tests:
+        return Check(
+            "targeted-tests",
+            ok=True,
+            seconds=0.0,
+            detail="no tests map to the changed paths",
+        )
+    if len(tests) > MAX_TARGETED_TEST_FILES:
+        return Check(
+            "targeted-tests",
+            ok=True,
+            seconds=0.0,
+            deferred=True,
+            detail=(
+                f"{len(tests)} test files selected (> {MAX_TARGETED_TEST_FILES}); "
+                "this is a full run wearing a costume — deferred to the "
+                "post-merge suite so the queue keeps its latency budget"
+            ),
+        )
+    terminal, merged_failing, secs = _run_targeted_tests(
+        tree, tests, scope=scope, interpreter=interpreter, env=env
+    )
+    if terminal is not None:
+        return terminal
+    return _targeted_tests_verdict(
+        tests,
+        merged_failing,
+        secs,
+        scope=scope,
+        base_ref=base_ref,
+        interpreter=interpreter,
+        env=env,
     )
 
 
@@ -1920,311 +2508,33 @@ def run_fast_gate(
     is a claim about an interpreter (see :func:`_interpreter`).
     """
     started = time.monotonic()
-    checks: list[Check] = []
     interpreter = _interpreter(tree)
     env = dict(os.environ)
     env["PYTEST_ADDOPTS"] = ""
     env["PYTHONDONTWRITEBYTECODE"] = "1"
 
-    # 1. duplicate symbols — already computed across the whole batch, ~ms.
-    checks.append(
-        Check(
-            name="cross-branch-duplicate-symbols",
-            ok=not duplicates,
-            seconds=0.0,
-            detail=(
-                ""
-                if not duplicates
-                else "\n".join(
-                    f"{d['symbol']} added by "
-                    + ", ".join(f"{s['branch']} ({s['at']})" for s in d["added_by"])
-                    for d in duplicates
-                )
-            ),
-        )
-    )
-
-    # 2. repo-invariant contract checks, against the MERGED tree. Second because it
-    #    is the cheapest thing that can catch a *semantic* regression, and because a
-    #    silently-reverted security fix must not wait on a test selection to notice.
-    #    D-MW-9: differential against base_ref's own output, exactly like
-    #    targeted-tests below — main legitimately carries contract debt.
-    discovered_names = [s.name for s in contract_scripts(tree)]
-    checks.append(
-        run_contract_checks(
+    checks: list[Check] = [
+        # 1. duplicate symbols — already computed across the whole batch, ~ms.
+        _duplicate_symbols_check(duplicates),
+        # 2. repo-invariant contract checks, against the MERGED tree. Second
+        #    because it is the cheapest thing that can catch a *semantic*
+        #    regression, and because a silently-reverted security fix must not
+        #    wait on a test selection to notice.
+        _fast_gate_contract_check(
+            tree, interpreter=interpreter, env=env, scope=scope, base_ref=base_ref
+        ),
+        # 3. import smoke over changed modules.
+        _import_smoke_check(tree, changed, interpreter=interpreter, env=env),
+        # 4. targeted tests over changed paths.
+        _targeted_tests_check(
             tree,
+            changed,
+            scope=scope,
             interpreter=interpreter,
             env=env,
-            baseline=contract_baseline(scope.main_tree, base_ref),
-            output_baseline=(
-                compute_contract_baseline(
-                    scope.main_tree,
-                    base_ref,
-                    discovered_names,
-                    candidate_tree=tree,
-                    scope=scope,
-                    interpreter=interpreter,
-                    env=env,
-                )
-                if discovered_names
-                else None
-            ),
-        )
-    )
-
-    # 3. import smoke over changed modules — this is the D-OB-17 catcher: a tree git
-    #    merged without a single conflict marker that nonetheless does not import.
-    modules = _module_names(tree, changed)
-    if modules:
-        script = (
-            "import importlib, sys\n"
-            f"for name in {modules!r}:\n"
-            "    importlib.import_module(name)\n"
-            "print(sys.executable)\n"
-        )
-        proc, secs = _timed_run(
-            [interpreter, "-c", script],
-            tree,
-            timeout=IMPORT_SMOKE_BUDGET_SECONDS,
-            env=env,
-        )
-        if isinstance(proc, _ExecFailure):
-            checks.append(
-                Check("import-smoke", ok=False, seconds=secs, detail=proc.detail())
-            )
-        elif proc is None:
-            checks.append(
-                Check(
-                    "import-smoke",
-                    ok=False,
-                    seconds=secs,
-                    detail=(
-                        f"importing {len(modules)} changed modules exceeded "
-                        f"{IMPORT_SMOKE_BUDGET_SECONDS}s — an import that slow is "
-                        "itself a defect (import-time work belongs in a function)"
-                    ),
-                )
-            )
-        else:
-            checks.append(
-                Check(
-                    "import-smoke",
-                    ok=proc.returncode == 0,
-                    seconds=secs,
-                    detail=("" if proc.returncode == 0 else proc.stderr[-4000:]),
-                )
-            )
-    else:
-        checks.append(
-            Check("import-smoke", ok=True, seconds=0.0, detail="no changed modules")
-        )
-
-    # 4. targeted tests over changed paths.
-    tests = select_tests(tree, changed)
-    if not tests:
-        checks.append(
-            Check(
-                "targeted-tests",
-                ok=True,
-                seconds=0.0,
-                detail="no tests map to the changed paths",
-            )
-        )
-    elif len(tests) > MAX_TARGETED_TEST_FILES:
-        checks.append(
-            Check(
-                "targeted-tests",
-                ok=True,
-                seconds=0.0,
-                deferred=True,
-                detail=(
-                    f"{len(tests)} test files selected (> {MAX_TARGETED_TEST_FILES}); "
-                    "this is a full run wearing a costume — deferred to the "
-                    "post-merge suite so the queue keeps its latency budget"
-                ),
-            )
-        )
-    else:
-        basetemp = partitioned_paths(scope.tree).pytest_basetemp / "merge-queue"
-        basetemp.mkdir(parents=True, exist_ok=True)
-        proc, secs = _timed_run(
-            [
-                interpreter,
-                "-m",
-                "pytest",
-                "-q",
-                "-p",
-                "no:randomly",
-                "-rfE",
-                f"--basetemp={basetemp}",
-                *tests,
-            ],
-            tree,
-            timeout=TARGETED_TEST_BUDGET_SECONDS,
-            env=env,
-        )
-        if isinstance(proc, _ExecFailure):
-            # Distinct from the budget-overrun DEFER below: the interpreter
-            # never ran at all, so this is not "no regression claim to make",
-            # it is "no claim COULD be made" — refused, not deferred.
-            checks.append(
-                Check("targeted-tests", ok=False, seconds=secs, detail=proc.detail())
-            )
-        elif proc is None:
-            # Preserve the existing budget-overrun contract verbatim (CONCEPT:
-            # AU-OS.governance.tiered-merge-gate): exceeding the ceiling is a
-            # DEFER to the post-merge suite, not a fail — and, distinctly from a
-            # baseline that can't be produced (see compute_test_baseline), this is
-            # the run we already had no regression claim to make, so there is
-            # nothing here for a baseline to change.
-            checks.append(
-                Check(
-                    "targeted-tests",
-                    ok=True,
-                    seconds=secs,
-                    deferred=True,
-                    detail=(
-                        f"targeted tests exceeded {TARGETED_TEST_BUDGET_SECONDS}s — "
-                        "deferred to the post-merge suite rather than holding the "
-                        "lease; the queue's value is that it always returns"
-                    ),
-                )
-            )
-        elif proc.returncode not in _PYTEST_READABLE_EXIT_CODES:
-            # The merged tree itself did not collect/run cleanly (D-OB-17's shape,
-            # or worse). Per CONCEPT:AU-OS.governance.test-regression-baseline this
-            # is refused outright without consulting the baseline: "a collection
-            # error is not a pass" on EITHER tree, and an unreadable merged run
-            # gives no failing-id set to diff against a baseline in the first
-            # place — there is nothing to compare.
-            checks.append(
-                Check(
-                    "targeted-tests",
-                    ok=False,
-                    seconds=secs,
-                    detail=(
-                        f"the merged tree's targeted-test run exited "
-                        f"{proc.returncode} (collection/usage/internal error, not "
-                        "a test outcome) — refused; a run that cannot enumerate "
-                        "its failures cannot be diffed against the base\n"
-                        + proc.stdout[-2000:]
-                        + "\n"
-                        + proc.stderr[-1000:]
-                    ),
-                )
-            )
-        else:
-            merged_failing = _parse_failing_test_ids(proc.stdout)
-            # The baseline is computed whenever the merged run itself is readable
-            # — not only when it has failures — so that a candidate which FIXES a
-            # pre-existing failure gets that improvement reported even when nothing
-            # else in the selection is red (adversarial property (d)). The batch
-            # (not each individual candidate) pays for this: `tests` here is the
-            # union selection for the whole batch/sub-batch attempt
-            # (:func:`integrate_batch`), and :func:`compute_test_baseline` caches
-            # on ``(base_sha, selection, interpreter)`` — main is static within a
-            # batch, so a repeated or later attempt against the same selection is
-            # answered from disk rather than run again.
-            baseline = compute_test_baseline(
-                scope.main_tree,
-                base_ref,
-                tests,
-                scope=scope,
-                interpreter=interpreter,
-                env=env,
-            )
-
-            def _ids(label: str, ids: list[str], limit: int = 25) -> str:
-                shown = ", ".join(ids[:limit])
-                more = f" (+{len(ids) - limit} more)" if len(ids) > limit else ""
-                return f"{len(ids)} {label}: {shown}{more}"
-
-            if not merged_failing:
-                # Nothing failed on the merged tree, so there is NO POSSIBLE
-                # regression no matter what the baseline says — mathematically,
-                # `merged_failing - baseline.failing` is empty whenever
-                # `merged_failing` is, regardless of whether `baseline.failing` is
-                # even known. So an unreadable baseline here does not refuse: fail-
-                # closed (property 2) governs cases where the baseline's answer
-                # could change the verdict, and here it cannot.
-                base_label = (
-                    f"{base_ref} ({baseline.base_sha[:12]})"
-                    if baseline.readable
-                    else base_ref
-                )
-                detail = f"{len(tests)} test file(s) green on {interpreter}"
-                if baseline.readable and baseline.failing:
-                    detail += "\n" + _ids(
-                        f"test(s) this candidate FIXES relative to {base_label}",
-                        sorted(baseline.failing),
-                    )
-                elif not baseline.readable:
-                    detail += (
-                        f" (improvement delta unavailable — {base_ref} baseline "
-                        f"could not be produced: {baseline.detail})"
-                    )
-                checks.append(
-                    Check("targeted-tests", ok=True, seconds=secs, detail=detail)
-                )
-            elif not baseline.readable:
-                # Fail-closed (CONCEPT:AU-OS.governance.test-regression-baseline,
-                # property 2): an unproducible baseline REFUSES the candidate.
-                # It must never fall back to "no pre-existing failures", which
-                # would silently permit every failing id as if it were known-red.
-                checks.append(
-                    Check(
-                        "targeted-tests",
-                        ok=False,
-                        seconds=secs,
-                        detail=(
-                            f"REFUSED: {len(merged_failing)} test(s) failed on "
-                            f"the merged tree and the {base_ref} baseline "
-                            "needed to tell a regression from pre-existing red "
-                            f"could not be produced: {baseline.detail}"
-                        ),
-                    )
-                )
-            else:
-                new_failures = sorted(merged_failing - baseline.failing)
-                pre_existing = sorted(merged_failing & baseline.failing)
-                fixed = sorted(baseline.failing - merged_failing)
-                base_label = f"{base_ref} ({baseline.base_sha[:12]})"
-
-                if new_failures:
-                    detail = _ids(
-                        "NEW failure(s) not present on " + base_label, new_failures
-                    )
-                    if pre_existing:
-                        detail += "\n" + _ids(
-                            f"pre-existing failure(s) also on {base_label} (not blocking)",
-                            pre_existing,
-                        )
-                    if fixed:
-                        detail += "\n" + _ids(
-                            f"test(s) this candidate FIXES relative to {base_label}",
-                            fixed,
-                        )
-                    checks.append(
-                        Check("targeted-tests", ok=False, seconds=secs, detail=detail)
-                    )
-                else:
-                    # Every merged-tree failure is identically present on the
-                    # base: pre-existing red the branch did not cause, ALLOWED
-                    # — but reported explicitly, with counts, so it never reads
-                    # as a silent success (property 1: not a masking mechanism).
-                    detail = _ids(
-                        f"pre-existing failure(s) also failing on {base_label} "
-                        "(allowed — not caused by this candidate)",
-                        pre_existing,
-                    )
-                    if fixed:
-                        detail += "\n" + _ids(
-                            f"test(s) this candidate FIXES relative to {base_label}",
-                            fixed,
-                        )
-                    checks.append(
-                        Check("targeted-tests", ok=True, seconds=secs, detail=detail)
-                    )
+            base_ref=base_ref,
+        ),
+    ]
 
     return GateResult(
         ok=all(c.ok for c in checks),
@@ -2353,6 +2663,225 @@ def _worktree_registrations(repo: Path) -> dict[str, str] | None:
     return registrations or None
 
 
+def _prune_branch_tip(branch: str, *, repo: Path) -> tuple[dict[str, Any] | None, str]:
+    tip = _run_git(["rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"], repo)
+    if not tip.ok or not tip.out:
+        return (
+            {
+                "pruned": False,
+                "branch": branch,
+                "reason": (
+                    f"branch {branch!r} does not exist in {repo} — nothing to prune"
+                ),
+            },
+            "",
+        )
+    return None, tip.out
+
+
+def _prune_verify_ancestor(
+    branch: str, tip_sha: str, *, repo: Path, base: str
+) -> dict[str, Any] | None:
+    ancestor = _run_git(["merge-base", "--is-ancestor", tip_sha, base], repo)
+    if not ancestor.ok:
+        return {
+            "pruned": False,
+            "branch": branch,
+            "reason": (
+                f"refused to delete branch {branch!r}: {tip_sha[:12]} has commits "
+                f"that are not (or no longer) reachable from {base!r}, so deleting "
+                "the ref would turn them into unreferenced objects"
+            ),
+        }
+    return None
+
+
+def _prune_dirty_sibling_guard(
+    branch: str, *, repo: Path, worktree: Path | None
+) -> tuple[dict[str, Any] | None, dict[str, str] | None]:
+    before = _worktree_registrations(repo)
+    if before is None:
+        return (
+            {
+                "pruned": False,
+                "branch": branch,
+                "reason": (
+                    "refused to prune: could not read the repository's worktree "
+                    "registrations, so sibling worktrees cannot be verified as safe"
+                ),
+            },
+            None,
+        )
+    # Guard (bonus, NE-058): a prune touches only the worktree it landed, but
+    # it must not even START while some UNRELATED lane worktree is mid-edit —
+    # refusing here costs nothing (the candidate stays queued as landed and
+    # simply un-pruned until the next run) and removes any incentive to ever
+    # relax step 5's post-condition into "best effort." The canonical
+    # checkout (`repo` itself) is excluded: it is the shared trunk `land()`
+    # already guards on its own terms, not a "sibling lane" in this sense.
+    repo_resolved = repo.resolve()
+    dirty_siblings = [
+        path
+        for path in before
+        if Path(path).resolve() not in {repo_resolved, worktree}
+        if Path(path).is_dir() and tree_has_uncommitted_work(path)
+    ]
+    if dirty_siblings:
+        return (
+            {
+                "pruned": False,
+                "branch": branch,
+                "reason": (
+                    f"refused to prune {branch!r}: {len(dirty_siblings)} sibling "
+                    f"worktree(s) hold uncommitted work ({', '.join(dirty_siblings)}) "
+                    "— a prune does not run while any lane of this repo is mid-edit, "
+                    "landed candidate or not"
+                ),
+            },
+            None,
+        )
+    return None, before
+
+
+def _prune_verify_removal_postcondition(
+    branch: str,
+    *,
+    repo: Path,
+    worktree: Path,
+    before: dict[str, str],
+    removed_worktree: str,
+) -> dict[str, Any] | None:
+    # Post-condition (NE-058): the ONLY registration allowed to have
+    # disappeared is the one just named above. A sibling missing here
+    # means something touched the shared admin directory beyond what this
+    # function itself asked for — refused loudly, never reported as a
+    # clean prune, exactly as `land()` refuses an unverified write.
+    after = _worktree_registrations(repo)
+    if after is None:
+        return {
+            "pruned": False,
+            "branch": branch,
+            "removed": removed_worktree,
+            "reason": (
+                "git worktree remove succeeded, but the post-condition "
+                "read of worktree registrations failed; the branch was "
+                "not deleted because sibling safety could not be verified"
+            ),
+        }
+    expected = dict(before)
+    expected.pop(str(worktree), None)
+    if after != expected:
+        missing = sorted(set(expected) - set(after))
+        added = sorted(set(after) - set(expected))
+        changed = sorted(
+            path for path in set(expected) & set(after) if expected[path] != after[path]
+        )
+        raise MergeQueueError(
+            f"prune of {branch!r} REFUSED post-hoc: worktree registrations "
+            f"changed unexpectedly (missing={missing}, added={added}, "
+            f"head-changed={changed}) after removing {worktree} — the run "
+            "stops rather than reporting a clean prune over unrelated "
+            "worktrees possibly having just lost their git registration"
+        )
+    return None
+
+
+def _prune_remove_worktree(
+    branch: str, *, repo: Path, worktree: Path | None, before: dict[str, str]
+) -> tuple[dict[str, Any] | None, str | None]:
+    if not (worktree and worktree != repo.resolve() and worktree.is_dir()):
+        return None, None
+    if tree_has_uncommitted_work(worktree):
+        return (
+            {
+                "pruned": False,
+                "branch": branch,
+                "reason": (
+                    f"worktree {worktree} still holds uncommitted work — a lane may "
+                    "still be occupying it, so it is skipped rather than removed "
+                    "out from under it"
+                ),
+            },
+            None,
+        )
+    wt_remove = _run_git(["worktree", "remove", str(worktree)], repo)
+    if not wt_remove.ok:
+        return (
+            {
+                "pruned": False,
+                "branch": branch,
+                "reason": (
+                    f"git worktree remove {worktree} failed: "
+                    f"{wt_remove.err or wt_remove.out}"
+                ),
+            },
+            None,
+        )
+    removed_worktree = str(worktree)
+    failure = _prune_verify_removal_postcondition(
+        branch,
+        repo=repo,
+        worktree=worktree,
+        before=before,
+        removed_worktree=removed_worktree,
+    )
+    if failure is not None:
+        return failure, removed_worktree
+    return None, removed_worktree
+
+
+def _prune_anchor_and_delete_branch(
+    branch: str, tip_sha: str, *, repo: Path, removed_worktree: str | None
+) -> dict[str, Any]:
+    anchor = f"refs/lane-backup/{branch.replace('/', '-')}"
+    previous = _run_git(["rev-parse", "--verify", "--quiet", anchor], repo)
+    if previous.code not in {0, 1}:
+        return {
+            "pruned": False,
+            "branch": branch,
+            "removed": removed_worktree,
+            "reason": (
+                f"refused to delete branch {branch!r}: could not inspect the "
+                f"backup anchor {anchor}: {previous.err or previous.out}"
+            ),
+        }
+    previous_sha = previous.out if previous.ok else ""
+    anchored = _run_git(["update-ref", anchor, tip_sha], repo)
+    if not anchored.ok:
+        return {
+            "pruned": False,
+            "branch": branch,
+            "removed": removed_worktree,
+            "reason": (
+                f"refused to delete branch {branch!r}: could not create the "
+                f"backup anchor {anchor}: {anchored.err or anchored.out}"
+            ),
+        }
+
+    deleted = _run_git(["branch", "-d", branch], repo)  # never -D — see docstring
+    if not deleted.ok:
+        # Restore the ref namespace exactly as found: put back a pre-existing
+        # anchor, or remove only the one just written.
+        if previous_sha:
+            _run_git(["update-ref", anchor, previous_sha, tip_sha], repo)
+        else:
+            _run_git(["update-ref", "-d", anchor, tip_sha], repo)
+        return {
+            "pruned": False,
+            "branch": branch,
+            "reason": (
+                f"git refused to delete branch {branch!r} as merged: "
+                f"{deleted.err or deleted.out}"
+            ),
+        }
+    return {
+        "pruned": True,
+        "branch": branch,
+        "branch_anchor": anchor,
+        "removed": removed_worktree,
+    }
+
+
 def _prune_landed_inline(
     candidate: Candidate, *, repo: Path, base: str
 ) -> dict[str, Any]:
@@ -2411,173 +2940,28 @@ def _prune_landed_inline(
     for the first.
     """
     branch = candidate.branch
-    tip = _run_git(["rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"], repo)
-    if not tip.ok or not tip.out:
-        return {
-            "pruned": False,
-            "branch": branch,
-            "reason": (
-                f"branch {branch!r} does not exist in {repo} — nothing to prune"
-            ),
-        }
-    tip_sha = tip.out
+    failure, tip_sha = _prune_branch_tip(branch, repo=repo)
+    if failure is not None:
+        return failure
 
-    ancestor = _run_git(["merge-base", "--is-ancestor", tip_sha, base], repo)
-    if not ancestor.ok:
-        return {
-            "pruned": False,
-            "branch": branch,
-            "reason": (
-                f"refused to delete branch {branch!r}: {tip_sha[:12]} has commits "
-                f"that are not (or no longer) reachable from {base!r}, so deleting "
-                "the ref would turn them into unreferenced objects"
-            ),
-        }
+    failure = _prune_verify_ancestor(branch, tip_sha, repo=repo, base=base)
+    if failure is not None:
+        return failure
 
     worktree = Path(candidate.worktree).resolve() if candidate.worktree else None
-    before = _worktree_registrations(repo)
-    if before is None:
-        return {
-            "pruned": False,
-            "branch": branch,
-            "reason": (
-                "refused to prune: could not read the repository's worktree "
-                "registrations, so sibling worktrees cannot be verified as safe"
-            ),
-        }
+    failure, before = _prune_dirty_sibling_guard(branch, repo=repo, worktree=worktree)
+    if failure is not None or before is None:
+        return failure if failure is not None else {}
 
-    # Guard (bonus, NE-058): a prune touches only the worktree it landed, but
-    # it must not even START while some UNRELATED lane worktree is mid-edit —
-    # refusing here costs nothing (the candidate stays queued as landed and
-    # simply un-pruned until the next run) and removes any incentive to ever
-    # relax step 5's post-condition into "best effort." The canonical
-    # checkout (`repo` itself) is excluded: it is the shared trunk `land()`
-    # already guards on its own terms, not a "sibling lane" in this sense.
-    repo_resolved = repo.resolve()
-    dirty_siblings = [
-        path
-        for path in before
-        if Path(path).resolve() not in {repo_resolved, worktree}
-        if Path(path).is_dir() and tree_has_uncommitted_work(path)
-    ]
-    if dirty_siblings:
-        return {
-            "pruned": False,
-            "branch": branch,
-            "reason": (
-                f"refused to prune {branch!r}: {len(dirty_siblings)} sibling "
-                f"worktree(s) hold uncommitted work ({', '.join(dirty_siblings)}) "
-                "— a prune does not run while any lane of this repo is mid-edit, "
-                "landed candidate or not"
-            ),
-        }
+    failure, removed_worktree = _prune_remove_worktree(
+        branch, repo=repo, worktree=worktree, before=before
+    )
+    if failure is not None:
+        return failure
 
-    removed_worktree: str | None = None
-    if worktree and worktree != repo.resolve() and worktree.is_dir():
-        if tree_has_uncommitted_work(worktree):
-            return {
-                "pruned": False,
-                "branch": branch,
-                "reason": (
-                    f"worktree {worktree} still holds uncommitted work — a lane may "
-                    "still be occupying it, so it is skipped rather than removed "
-                    "out from under it"
-                ),
-            }
-        wt_remove = _run_git(["worktree", "remove", str(worktree)], repo)
-        if not wt_remove.ok:
-            return {
-                "pruned": False,
-                "branch": branch,
-                "reason": (
-                    f"git worktree remove {worktree} failed: "
-                    f"{wt_remove.err or wt_remove.out}"
-                ),
-            }
-        removed_worktree = str(worktree)
-
-        # Post-condition (NE-058): the ONLY registration allowed to have
-        # disappeared is the one just named above. A sibling missing here
-        # means something touched the shared admin directory beyond what this
-        # function itself asked for — refused loudly, never reported as a
-        # clean prune, exactly as `land()` refuses an unverified write.
-        after = _worktree_registrations(repo)
-        if after is None:
-            return {
-                "pruned": False,
-                "branch": branch,
-                "removed": removed_worktree,
-                "reason": (
-                    "git worktree remove succeeded, but the post-condition "
-                    "read of worktree registrations failed; the branch was "
-                    "not deleted because sibling safety could not be verified"
-                ),
-            }
-        expected = dict(before)
-        expected.pop(str(worktree), None)
-        if after != expected:
-            missing = sorted(set(expected) - set(after))
-            added = sorted(set(after) - set(expected))
-            changed = sorted(
-                path
-                for path in set(expected) & set(after)
-                if expected[path] != after[path]
-            )
-            raise MergeQueueError(
-                f"prune of {branch!r} REFUSED post-hoc: worktree registrations "
-                f"changed unexpectedly (missing={missing}, added={added}, "
-                f"head-changed={changed}) after removing {worktree} — the run "
-                "stops rather than reporting a clean prune over unrelated "
-                "worktrees possibly having just lost their git registration"
-            )
-
-    anchor = f"refs/lane-backup/{branch.replace('/', '-')}"
-    previous = _run_git(["rev-parse", "--verify", "--quiet", anchor], repo)
-    if previous.code not in {0, 1}:
-        return {
-            "pruned": False,
-            "branch": branch,
-            "removed": removed_worktree,
-            "reason": (
-                f"refused to delete branch {branch!r}: could not inspect the "
-                f"backup anchor {anchor}: {previous.err or previous.out}"
-            ),
-        }
-    previous_sha = previous.out if previous.ok else ""
-    anchored = _run_git(["update-ref", anchor, tip_sha], repo)
-    if not anchored.ok:
-        return {
-            "pruned": False,
-            "branch": branch,
-            "removed": removed_worktree,
-            "reason": (
-                f"refused to delete branch {branch!r}: could not create the "
-                f"backup anchor {anchor}: {anchored.err or anchored.out}"
-            ),
-        }
-
-    deleted = _run_git(["branch", "-d", branch], repo)  # never -D — see docstring
-    if not deleted.ok:
-        # Restore the ref namespace exactly as found: put back a pre-existing
-        # anchor, or remove only the one just written.
-        if previous_sha:
-            _run_git(["update-ref", anchor, previous_sha, tip_sha], repo)
-        else:
-            _run_git(["update-ref", "-d", anchor, tip_sha], repo)
-        return {
-            "pruned": False,
-            "branch": branch,
-            "reason": (
-                f"git refused to delete branch {branch!r} as merged: "
-                f"{deleted.err or deleted.out}"
-            ),
-        }
-    return {
-        "pruned": True,
-        "branch": branch,
-        "branch_anchor": anchor,
-        "removed": removed_worktree,
-    }
+    return _prune_anchor_and_delete_branch(
+        branch, tip_sha, repo=repo, removed_worktree=removed_worktree
+    )
 
 
 def prune_landed(
@@ -2770,6 +3154,53 @@ def _build_chain(
     return head, accepted, conflicted
 
 
+def _conflicted_batch_outcomes(
+    conflicted: list[tuple[Candidate, TrialMerge]], base: str
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "branch": c.branch,
+            "landed": False,
+            "reason": (
+                "conflicts with the current "
+                f"{base} in: {', '.join(t.conflicts) or 'unreported paths'} — "
+                f"sync {base} down into {c.branch}, resolve there, then re-enqueue"
+            ),
+            "conflicts": t.conflicts,
+        }
+        for c, t in conflicted
+    ]
+
+
+def _landed_batch_outcomes(
+    accepted: list[Candidate], gate: GateResult, landing: dict[str, Any]
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "branch": candidate.branch,
+            "landed": True,
+            "batch_size": len(accepted),
+            "gate": gate.as_dict(),
+            **landing,
+        }
+        for candidate in accepted
+    ]
+
+
+def _single_candidate_gate_failure_outcome(
+    candidate: Candidate, gate: GateResult
+) -> dict[str, Any]:
+    return {
+        "branch": candidate.branch,
+        "landed": False,
+        "reason": "; ".join(
+            f"{c.name}: {c.detail.splitlines()[0] if c.detail else 'failed'}"
+            for c in gate.failures()
+        ),
+        "gate": gate.as_dict(),
+    }
+
+
 def integrate_batch(
     candidates: list[Candidate],
     *,
@@ -2794,19 +3225,7 @@ def integrate_batch(
         return []
 
     head, accepted, conflicted = _build_chain(repo, base, candidates, scope=scope)
-    outcomes: list[dict[str, Any]] = [
-        {
-            "branch": c.branch,
-            "landed": False,
-            "reason": (
-                "conflicts with the current "
-                f"{base} in: {', '.join(t.conflicts) or 'unreported paths'} — "
-                f"sync {base} down into {c.branch}, resolve there, then re-enqueue"
-            ),
-            "conflicts": t.conflicts,
-        }
-        for c, t in conflicted
-    ]
+    outcomes: list[dict[str, Any]] = _conflicted_batch_outcomes(conflicted, base)
     if not accepted:
         return outcomes
 
@@ -2823,31 +3242,11 @@ def integrate_batch(
 
     if gate.ok:
         landing = land(repo, head, base=base, scope=scope)
-        for candidate in accepted:
-            outcomes.append(
-                {
-                    "branch": candidate.branch,
-                    "landed": True,
-                    "batch_size": len(accepted),
-                    "gate": gate.as_dict(),
-                    **landing,
-                }
-            )
+        outcomes.extend(_landed_batch_outcomes(accepted, gate, landing))
         return outcomes
 
     if len(accepted) == 1:
-        candidate = accepted[0]
-        outcomes.append(
-            {
-                "branch": candidate.branch,
-                "landed": False,
-                "reason": "; ".join(
-                    f"{c.name}: {c.detail.splitlines()[0] if c.detail else 'failed'}"
-                    for c in gate.failures()
-                ),
-                "gate": gate.as_dict(),
-            }
-        )
+        outcomes.append(_single_candidate_gate_failure_outcome(accepted[0], gate))
         return outcomes
 
     # Bisect. The first half is re-gated against the unchanged base; the second is
@@ -2861,6 +3260,40 @@ def integrate_batch(
         accepted[middle:], base=base, scope=scope, depth=depth + 1
     )
     return outcomes
+
+
+def _record_batch_outcome(
+    outcome: dict[str, Any],
+    by_branch: dict[str, Candidate],
+    *,
+    prune: bool,
+    repo_name: str,
+    base: str,
+    repo: Path,
+    tree: Path,
+) -> None:
+    candidate = by_branch.get(outcome["branch"])
+    if candidate is None:
+        return
+    if outcome["landed"]:
+        _record_state(candidate, LANDED, "", tree)
+        if prune:
+            outcome["prune"] = prune_landed(
+                candidate, repo_name=repo_name, base=base, repo=repo
+            )
+    else:
+        _record_state(candidate, REJECTED, outcome["reason"], tree)
+
+
+def _drain_summary(outcomes: list[dict[str, Any]], started: float) -> dict[str, Any]:
+    return {
+        "drained": len(outcomes),
+        "landed": sum(1 for o in outcomes if o["landed"]),
+        "rejected": sum(1 for o in outcomes if not o["landed"]),
+        "outcomes": outcomes,
+        "seconds": round(time.monotonic() - started, 2),
+        "budget_seconds": FAST_GATE_BUDGET_SECONDS,
+    }
 
 
 def run_queue(
@@ -2887,25 +3320,16 @@ def run_queue(
         by_branch = {c.branch: c for c in batch}
         outcomes = integrate_batch(batch, base=base, scope=scope)
         for outcome in outcomes:
-            candidate = by_branch.get(outcome["branch"])
-            if candidate is None:
-                continue
-            if outcome["landed"]:
-                _record_state(candidate, LANDED, "", scope.tree)
-                if prune:
-                    outcome["prune"] = prune_landed(
-                        candidate, repo_name=repo_name, base=base, repo=repo
-                    )
-            else:
-                _record_state(candidate, REJECTED, outcome["reason"], scope.tree)
-    return {
-        "drained": len(outcomes),
-        "landed": sum(1 for o in outcomes if o["landed"]),
-        "rejected": sum(1 for o in outcomes if not o["landed"]),
-        "outcomes": outcomes,
-        "seconds": round(time.monotonic() - started, 2),
-        "budget_seconds": FAST_GATE_BUDGET_SECONDS,
-    }
+            _record_batch_outcome(
+                outcome,
+                by_branch,
+                prune=prune,
+                repo_name=repo_name,
+                base=base,
+                repo=repo,
+                tree=scope.tree,
+            )
+    return _drain_summary(outcomes, started)
 
 
 # ---------------------------------------------------------------------------
