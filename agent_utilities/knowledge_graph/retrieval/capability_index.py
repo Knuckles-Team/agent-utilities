@@ -1032,7 +1032,9 @@ class CapabilityIndex:
         )
         return [self._build_designation(nid, score, ctx) for nid, score in ranked[:k]]
 
-    def _check_query_embedding_version(self, query_embedding_version: str | None) -> None:
+    def _check_query_embedding_version(
+        self, query_embedding_version: str | None
+    ) -> None:
         """Raise if ``query_embedding_version`` disagrees with this index's pinned version."""
         if not (
             query_embedding_version is not None
