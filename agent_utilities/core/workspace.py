@@ -17,7 +17,6 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from agent_utilities.core.config import load_config, setting
 from agent_utilities.core.paths import config_dir, skills_dir
 from agent_utilities.core.providers import resolve_skill_provider_dirs
 
@@ -151,6 +150,11 @@ def get_agent_workspace() -> Path:
         logger.debug("Resolved agent workspace from explicit runtime override")
         return p
 
+    # Deferred (not top-level): agent_utilities.core.config imports
+    # CORE_FILES/get_workspace_path FROM this module, so a top-level import
+    # here forms an eager two-module cycle. See scripts/check_import_cycles.py.
+    from agent_utilities.core.config import setting
+
     env_workspace = setting("WORKSPACE_PATH")
     if env_workspace:
         p = Path(env_workspace).resolve()
@@ -244,6 +248,9 @@ def initialize_workspace(overwrite: bool = False):
         overwrite: Whether to overwrite existing files. Defaults to False.
 
     """
+    # Deferred -- see get_agent_workspace() above for why.
+    from agent_utilities.core.config import load_config
+
     load_config()
     for key, fname in CORE_FILES.items():
         path = get_workspace_path(fname)
