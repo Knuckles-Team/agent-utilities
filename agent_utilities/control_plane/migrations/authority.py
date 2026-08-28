@@ -181,6 +181,30 @@ class InMemoryMigrationAuthority:
         with self._lock:
             return self._plan(plan_ref)
 
+    @staticmethod
+    def _inventory_matches_snapshot_binding(
+        inventory: MigrationInventory,
+        plan: MigrationPlan,
+        snapshot: SourceSnapshot,
+        source_file_refs: set[str],
+    ) -> bool:
+        """Whether ``inventory`` is correctly bound to ``plan``'s source snapshot."""
+        if (
+            inventory.migration_ref != plan.migration_ref
+            or inventory.source_snapshot_ref != plan.source_snapshot_ref
+            or inventory.source_snapshot_digest != plan.source_snapshot_digest
+        ):
+            return False
+        return not any(
+            item.source_ref != snapshot.source_ref
+            or item.source_revision != snapshot.revision
+            or (
+                item.source_file_ref is not None
+                and item.source_file_ref not in source_file_refs
+            )
+            for item in inventory.items
+        )
+
     def freeze_inventory(
         self,
         plan_ref: str,
@@ -198,19 +222,8 @@ class InMemoryMigrationAuthority:
             source_file_refs = {
                 source_file.source_file_ref for source_file in snapshot.files
             }
-            if (
-                inventory.migration_ref != plan.migration_ref
-                or inventory.source_snapshot_ref != plan.source_snapshot_ref
-                or inventory.source_snapshot_digest != plan.source_snapshot_digest
-                or any(
-                    item.source_ref != snapshot.source_ref
-                    or item.source_revision != snapshot.revision
-                    or (
-                        item.source_file_ref is not None
-                        and item.source_file_ref not in source_file_refs
-                    )
-                    for item in inventory.items
-                )
+            if not self._inventory_matches_snapshot_binding(
+                inventory, plan, snapshot, source_file_refs
             ):
                 raise MigrationConflictError("inventory_snapshot_binding_mismatch")
             existing_inventory = self._inventories.get(inventory.inventory_ref)
@@ -235,6 +248,23 @@ class InMemoryMigrationAuthority:
             self._inventories[inventory.inventory_ref] = inventory
             self._plans[plan.plan_ref] = updated
             return updated
+
+    @staticmethod
+    def _backfill_observation_conflict(
+        batch: BackfillBatch, inventory_refs: set[str], snapshot: SourceSnapshot
+    ) -> str | None:
+        """The conflict-error key if any observation in ``batch`` is invalid, else ``None``."""
+        if any(
+            observation.canonical_ref not in inventory_refs
+            for observation in batch.observations
+        ):
+            return "backfill_identity_not_in_inventory"
+        if any(
+            observation.source_revision != snapshot.revision
+            for observation in batch.observations
+        ):
+            return "backfill_source_revision_mismatch"
+        return None
 
     def record_backfill(
         self,
@@ -263,16 +293,11 @@ class InMemoryMigrationAuthority:
                 raise MigrationPrerequisiteError("frozen_inventory_missing")
             inventory = self._inventories[plan.inventory_ref]
             inventory_refs = {item.canonical_ref for item in inventory.items}
-            if any(
-                observation.canonical_ref not in inventory_refs
-                for observation in batch.observations
-            ):
-                raise MigrationConflictError("backfill_identity_not_in_inventory")
-            if any(
-                observation.source_revision != snapshot.revision
-                for observation in batch.observations
-            ):
-                raise MigrationConflictError("backfill_source_revision_mismatch")
+            conflict = self._backfill_observation_conflict(
+                batch, inventory_refs, snapshot
+            )
+            if conflict is not None:
+                raise MigrationConflictError(conflict)
             existing = self._backfills.get(batch.batch_ref)
             same = self._same_or_conflict(
                 existing,
@@ -347,6 +372,195 @@ class InMemoryMigrationAuthority:
             digest=_digest_for(data),
         )
 
+    @staticmethod
+    def _build_shadow_record_maps(
+        source_records: tuple[CanonicalRecord, ...],
+        target_records: tuple[CanonicalRecord, ...],
+    ) -> tuple[dict[str, CanonicalRecord], dict[str, CanonicalRecord]]:
+        """Build ``canonical_ref -> record`` maps; raises on any duplicate canonical_ref."""
+        source_map = {record.canonical_ref: record for record in source_records}
+        target_map = {record.canonical_ref: record for record in target_records}
+        if len(source_map) != len(source_records) or len(target_map) != len(
+            target_records
+        ):
+            raise MigrationConflictError("shadow_record_duplicate")
+        return source_map, target_map
+
+    def _load_shadow_observations(
+        self, plan: MigrationPlan
+    ) -> tuple[BackfillObservation, ...]:
+        """Load + validate the plan's backfill observations (non-empty, no duplicate identity)."""
+        observations = self._observations_for(plan)
+        if not observations:
+            raise MigrationPrerequisiteError("backfill_observations_missing")
+        observation_refs = [item.canonical_ref for item in observations]
+        if len(observation_refs) != len(set(observation_refs)):
+            raise MigrationConflictError("backfill_identity_duplicate")
+        return observations
+
+    def _load_shadow_inventory(self, plan: MigrationPlan) -> MigrationInventory:
+        """Load the plan's frozen inventory, or raise if it's missing."""
+        inventory = self._inventories.get(plan.inventory_ref or "")
+        if inventory is None:
+            raise MigrationPrerequisiteError("frozen_inventory_missing")
+        return inventory
+
+    def _validate_shadow_backfill_coverage(
+        self,
+        plan: MigrationPlan,
+        source_records: tuple[CanonicalRecord, ...],
+        snapshot: SourceSnapshot,
+    ) -> tuple[bool, bool]:
+        """Validate the backfill/inventory prerequisites for a shadow reconciliation.
+
+        Returns ``(has_rejected, has_inventory_reject)``.
+        """
+        if any(
+            record.source_revision != snapshot.revision for record in source_records
+        ):
+            raise MigrationConflictError("shadow_source_revision_mismatch")
+        observations = self._load_shadow_observations(plan)
+        inventory = self._load_shadow_inventory(plan)
+        accepted = {
+            item.canonical_ref
+            for item in observations
+            if item.disposition == "accepted"
+        }
+        if any(record.canonical_ref not in accepted for record in source_records):
+            raise MigrationPrerequisiteError("shadow_record_not_backfilled")
+        has_rejected = any(item.disposition != "accepted" for item in observations)
+        has_inventory_reject = any(item.state != "present" for item in inventory.items)
+        return has_rejected, has_inventory_reject
+
+    def _shadow_delta_for(
+        self,
+        canonical_ref: str,
+        source: CanonicalRecord | None,
+        target: CanonicalRecord | None,
+    ) -> ShadowDelta | None:
+        """Compute the delta (if any) for one canonical_ref across source/target."""
+        if source is None and target is not None:
+            return self._delta(
+                canonical_ref,
+                kind="delete",
+                source_digest=None,
+                target_digest=target.record_digest,
+            )
+        if source is not None and target is None:
+            return self._delta(
+                canonical_ref,
+                kind="add",
+                source_digest=source.record_digest,
+                target_digest=None,
+            )
+        if (
+            source is not None
+            and target is not None
+            and (
+                source.record_digest != target.record_digest
+                or source.source_revision != target.source_revision
+            )
+        ):
+            return self._delta(
+                canonical_ref,
+                kind="update",
+                source_digest=source.record_digest,
+                target_digest=target.record_digest,
+            )
+        return None
+
+    def _compute_shadow_deltas(
+        self,
+        source_map: dict[str, CanonicalRecord],
+        target_map: dict[str, CanonicalRecord],
+    ) -> list[ShadowDelta]:
+        """Compute the sorted delta set between source and target canonical records."""
+        deltas: list[ShadowDelta] = []
+        for canonical_ref in sorted(set(source_map) | set(target_map)):
+            delta = self._shadow_delta_for(
+                canonical_ref,
+                source_map.get(canonical_ref),
+                target_map.get(canonical_ref),
+            )
+            if delta is not None:
+                deltas.append(delta)
+        return deltas
+
+    @staticmethod
+    def _shadow_reconciliation_state(
+        has_rejected: bool, has_inventory_reject: bool, deltas: list[ShadowDelta]
+    ) -> Literal["clean", "needs_review", "blocked"]:
+        if has_rejected or has_inventory_reject:
+            return "blocked"
+        if not deltas:
+            return "clean"
+        return "needs_review"
+
+    @staticmethod
+    def _build_shadow_reconciliation_candidate(
+        plan: MigrationPlan,
+        *,
+        source_snapshot_digest: str,
+        target_snapshot_digest: str,
+        deltas: list[ShadowDelta],
+        state: Literal["clean", "needs_review", "blocked"],
+    ) -> ShadowReconciliation:
+        """Build the (not-yet-persisted) ``ShadowReconciliation`` candidate record."""
+        delta_tuple = tuple(deltas)
+        reconciliation_ref = (
+            f"reconcile:{source_snapshot_digest[7:23]}:{target_snapshot_digest[7:23]}"
+        )
+        delta_digest = canonical_digest(delta_tuple)
+        return ShadowReconciliation(
+            reconciliation_ref=reconciliation_ref,
+            migration_ref=plan.migration_ref,
+            source_snapshot_digest=source_snapshot_digest,
+            target_snapshot_digest=target_snapshot_digest,
+            deltas=delta_tuple,
+            delta_count=len(delta_tuple),
+            delta_digest=delta_digest,
+            state=state,
+            version=1,
+            digest=_digest_for(
+                {
+                    "reconciliation_ref": reconciliation_ref,
+                    "migration_ref": plan.migration_ref,
+                    "source_snapshot_digest": source_snapshot_digest,
+                    "target_snapshot_digest": target_snapshot_digest,
+                    "delta_digest": delta_digest,
+                    "state": state,
+                    "version": 1,
+                }
+            ),
+        )
+
+    def _commit_shadow_reconciliation(
+        self,
+        plan: MigrationPlan,
+        candidate: ShadowReconciliation,
+        *,
+        expected_plan_version: int,
+    ) -> ShadowReconciliation:
+        """Idempotent-replay check + plan transition + persist the reconciliation."""
+        existing = self._reconciliations.get(candidate.reconciliation_ref)
+        if existing is not None:
+            if existing == candidate:
+                return existing
+            raise MigrationReplayError("shadow_reconciliation_replay_drift")
+        if candidate.state == "clean" and plan.state == "backfill_observing":
+            updated = self._next_plan(
+                plan,
+                expected_version=expected_plan_version,
+                state="shadow_reconciled",
+                stage="stage_2_shadow_reconciliation",
+                reconciliation_ref=candidate.reconciliation_ref,
+            )
+            self._plans[plan.plan_ref] = updated
+        else:
+            self._cas_version(plan.version, expected_plan_version)
+        self._reconciliations[candidate.reconciliation_ref] = candidate
+        return candidate
+
     def reconcile_shadow(
         self,
         plan_ref: str,
@@ -364,129 +578,28 @@ class InMemoryMigrationAuthority:
             snapshot = self._snapshot(plan.source_snapshot_ref, source_snapshot_digest)
             if plan.state not in {"backfill_observing", "shadow_reconciled"}:
                 raise MigrationPrerequisiteError("shadow_stage_invalid")
-            source_map = {record.canonical_ref: record for record in source_records}
-            target_map = {record.canonical_ref: record for record in target_records}
-            if len(source_map) != len(source_records) or len(target_map) != len(
-                target_records
-            ):
-                raise MigrationConflictError("shadow_record_duplicate")
-            if any(
-                record.source_revision != snapshot.revision for record in source_records
-            ):
-                raise MigrationConflictError("shadow_source_revision_mismatch")
-            observations = self._observations_for(plan)
-            if not observations:
-                raise MigrationPrerequisiteError("backfill_observations_missing")
-            observation_refs = [item.canonical_ref for item in observations]
-            if len(observation_refs) != len(set(observation_refs)):
-                raise MigrationConflictError("backfill_identity_duplicate")
-            inventory = self._inventories.get(plan.inventory_ref or "")
-            if inventory is None:
-                raise MigrationPrerequisiteError("frozen_inventory_missing")
-            accepted = {
-                item.canonical_ref
-                for item in observations
-                if item.disposition == "accepted"
-            }
-            if any(record.canonical_ref not in accepted for record in source_records):
-                raise MigrationPrerequisiteError("shadow_record_not_backfilled")
-            has_rejected = any(item.disposition != "accepted" for item in observations)
-            has_inventory_reject = any(
-                item.state != "present" for item in inventory.items
+            source_map, target_map = self._build_shadow_record_maps(
+                source_records, target_records
             )
-            deltas: list[ShadowDelta] = []
-            for canonical_ref in sorted(set(source_map) | set(target_map)):
-                source = source_map.get(canonical_ref)
-                target = target_map.get(canonical_ref)
-                if source is None and target is not None:
-                    deltas.append(
-                        self._delta(
-                            canonical_ref,
-                            kind="delete",
-                            source_digest=None,
-                            target_digest=target.record_digest,
-                        )
-                    )
-                elif source is not None and target is None:
-                    deltas.append(
-                        self._delta(
-                            canonical_ref,
-                            kind="add",
-                            source_digest=source.record_digest,
-                            target_digest=None,
-                        )
-                    )
-                elif (
-                    source is not None
-                    and target is not None
-                    and (
-                        source.record_digest != target.record_digest
-                        or source.source_revision != target.source_revision
-                    )
-                ):
-                    deltas.append(
-                        self._delta(
-                            canonical_ref,
-                            kind="update",
-                            source_digest=source.record_digest,
-                            target_digest=target.record_digest,
-                        )
-                    )
-            state: Literal["clean", "needs_review", "blocked"] = (
-                "blocked"
-                if has_rejected or has_inventory_reject
-                else "clean"
-                if not deltas
-                else "needs_review"
+            has_rejected, has_inventory_reject = (
+                self._validate_shadow_backfill_coverage(plan, source_records, snapshot)
+            )
+            deltas = self._compute_shadow_deltas(source_map, target_map)
+            state = self._shadow_reconciliation_state(
+                has_rejected, has_inventory_reject, deltas
             )
             if target_snapshot_digest == source_snapshot_digest and deltas:
                 raise MigrationConflictError("same_snapshot_nonzero_delta")
-            delta_tuple = tuple(deltas)
-            reconciliation_ref = (
-                "reconcile:"
-                f"{source_snapshot_digest[7:23]}:"
-                f"{target_snapshot_digest[7:23]}"
-            )
-            candidate = ShadowReconciliation(
-                reconciliation_ref=reconciliation_ref,
-                migration_ref=plan.migration_ref,
+            candidate = self._build_shadow_reconciliation_candidate(
+                plan,
                 source_snapshot_digest=source_snapshot_digest,
                 target_snapshot_digest=target_snapshot_digest,
-                deltas=delta_tuple,
-                delta_count=len(delta_tuple),
-                delta_digest=canonical_digest(delta_tuple),
+                deltas=deltas,
                 state=state,
-                version=1,
-                digest=_digest_for(
-                    {
-                        "reconciliation_ref": reconciliation_ref,
-                        "migration_ref": plan.migration_ref,
-                        "source_snapshot_digest": source_snapshot_digest,
-                        "target_snapshot_digest": target_snapshot_digest,
-                        "delta_digest": canonical_digest(delta_tuple),
-                        "state": state,
-                        "version": 1,
-                    }
-                ),
             )
-            existing = self._reconciliations.get(reconciliation_ref)
-            if existing is not None:
-                if existing == candidate:
-                    return existing
-                raise MigrationReplayError("shadow_reconciliation_replay_drift")
-            if state == "clean" and plan.state == "backfill_observing":
-                updated = self._next_plan(
-                    plan,
-                    expected_version=expected_plan_version,
-                    state="shadow_reconciled",
-                    stage="stage_2_shadow_reconciliation",
-                    reconciliation_ref=reconciliation_ref,
-                )
-                self._plans[plan.plan_ref] = updated
-            else:
-                self._cas_version(plan.version, expected_plan_version)
-            self._reconciliations[reconciliation_ref] = candidate
-            return candidate
+            return self._commit_shadow_reconciliation(
+                plan, candidate, expected_plan_version=expected_plan_version
+            )
 
     def get_reconciliation(self, reconciliation_ref: str) -> ShadowReconciliation:
         with self._lock:
@@ -660,6 +773,22 @@ class InMemoryMigrationAuthority:
                 raise MigrationNotFoundError()
             return checkpoint
 
+    @staticmethod
+    def _retirement_proof_invalid(
+        retirement: LegacyRetirement, plan: MigrationPlan, gate: PrerequisiteGate
+    ) -> bool:
+        """Whether ``retirement`` fails the explicit zero-consumer retirement-proof contract."""
+        return (
+            retirement.migration_ref != plan.migration_ref
+            or retirement.source_snapshot_digest != plan.source_snapshot_digest
+            or retirement.write_fence_ref != plan.write_fence_ref
+            or retirement.checkpoint_ref != plan.checkpoint_ref
+            or retirement.gate_ref != gate.gate_ref
+            or retirement.state != "retired"
+            or retirement.remaining_consumers != 0
+            or retirement.remaining_facades != 0
+        )
+
     def retire_legacy(
         self,
         plan_ref: str,
@@ -678,16 +807,7 @@ class InMemoryMigrationAuthority:
                 source_snapshot_digest=plan.source_snapshot_digest,
                 stage="legacy_retirement",
             )
-            if (
-                retirement.migration_ref != plan.migration_ref
-                or retirement.source_snapshot_digest != plan.source_snapshot_digest
-                or retirement.write_fence_ref != plan.write_fence_ref
-                or retirement.checkpoint_ref != plan.checkpoint_ref
-                or retirement.gate_ref != gate.gate_ref
-                or retirement.state != "retired"
-                or retirement.remaining_consumers != 0
-                or retirement.remaining_facades != 0
-            ):
+            if self._retirement_proof_invalid(retirement, plan, gate):
                 raise MigrationConflictError("legacy_retirement_proof_invalid")
             existing = self._retirements.get(retirement.retirement_ref)
             same = self._same_or_conflict(
@@ -717,6 +837,35 @@ class InMemoryMigrationAuthority:
                 raise MigrationNotFoundError()
             return retirement
 
+    def _rolled_back_fence_for(
+        self, plan: MigrationPlan, rollback: MigrationRollback
+    ) -> WriteCutoverFence | None:
+        """Build the rolled-back ``WriteCutoverFence`` record when the plan has an active fence."""
+        if plan.state not in {"write_fenced", "checkpointed"}:
+            return None
+        if rollback.fence_ref != plan.write_fence_ref:
+            raise MigrationConflictError("rollback_fence_binding_invalid")
+        fence = self._write_fences.get(plan.write_fence_ref or "")
+        if fence is None:
+            raise MigrationPrerequisiteError("rollback_fence_missing")
+        if fence.version >= _MAX_VERSION:
+            raise MigrationCasConflictError("migration_version_exhausted")
+        fence_data = fence.model_dump(mode="python")
+        fence_data["state"] = "rolled_back"
+        fence_data["version"] = fence.version + 1
+        fence_data["digest"] = _digest_for(fence_data)
+        return WriteCutoverFence(**fence_data)
+
+    @staticmethod
+    def _applied_rollback(rollback: MigrationRollback) -> MigrationRollback:
+        """Mark a ``requested`` rollback record ``applied`` (no-op for any other decision)."""
+        if rollback.decision != "requested":
+            return rollback
+        applied_data = rollback.model_dump(mode="python")
+        applied_data["decision"] = "applied"
+        applied_data["digest"] = _digest_for(applied_data)
+        return MigrationRollback(**applied_data)
+
     def rollback(
         self,
         plan_ref: str,
@@ -741,25 +890,8 @@ class InMemoryMigrationAuthority:
                 if existing == rollback:
                     return plan
                 raise MigrationReplayError("rollback_replay_drift")
-            rolled_back_fence: WriteCutoverFence | None = None
-            if plan.state in {"write_fenced", "checkpointed"}:
-                if rollback.fence_ref != plan.write_fence_ref:
-                    raise MigrationConflictError("rollback_fence_binding_invalid")
-                fence = self._write_fences.get(plan.write_fence_ref or "")
-                if fence is None:
-                    raise MigrationPrerequisiteError("rollback_fence_missing")
-                if fence.version >= _MAX_VERSION:
-                    raise MigrationCasConflictError("migration_version_exhausted")
-                fence_data = fence.model_dump(mode="python")
-                fence_data["state"] = "rolled_back"
-                fence_data["version"] = fence.version + 1
-                fence_data["digest"] = _digest_for(fence_data)
-                rolled_back_fence = WriteCutoverFence(**fence_data)
-            if rollback.decision == "requested":
-                applied_data = rollback.model_dump(mode="python")
-                applied_data["decision"] = "applied"
-                applied_data["digest"] = _digest_for(applied_data)
-                rollback = MigrationRollback(**applied_data)
+            rolled_back_fence = self._rolled_back_fence_for(plan, rollback)
+            rollback = self._applied_rollback(rollback)
             updated = self._next_plan(
                 plan,
                 expected_version=expected_plan_version,
