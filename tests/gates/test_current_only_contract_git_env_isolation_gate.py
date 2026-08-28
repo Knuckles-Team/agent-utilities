@@ -133,13 +133,34 @@ def _poisoned_env(decoy_git_dir: Path) -> dict[str, str]:
 
 
 def _run_gate(env: dict[str, str]) -> subprocess.CompletedProcess:
+    # WD10-P-AUPUSH: this test calls the REAL check_current_only_contract.py
+    # TWICE, and the module's own check_report() is O(files x lines x
+    # needles) -- at this repo's current scale (~4,657 tracked text files,
+    # RETIRED_IDENTIFIERS + RAW_ROUTE_FRAGMENTS at 189 needles) that is
+    # ~350M substring/regex checks per invocation. Measured directly
+    # (`/usr/bin/time -v .venv/bin/python3 scripts/check_current_only_
+    # contract.py --new-only`, exit 0): 293.03s user / 5:09.73 wall / 94%
+    # CPU -- CPU-bound the entire time (py-spy: parked in
+    # `_needle_matches` <- `check_report`), reproduced at BOTH high host
+    # load (~50-90) and low host load (~26), so this is NOT a scheduling-
+    # contention artifact this program's GOC-70 doctrine covers -- it is a
+    # genuine algorithmic cost that has grown past the timeout's original
+    # budget as the repo/needle-list grew. 120s was already impossible at
+    # measurement time (one call alone needs ~2.5x that). 900s is a
+    # stopgap with real headroom (~3x the measured worst case), not a fix:
+    # the real fix is algorithmic (e.g. one combined alternation regex
+    # instead of up to 189 separate `.search()` calls per line, or a
+    # needle-prefix index) and is out of this lane's scope -- flagged to
+    # the program ledger, not attempted here, to avoid rushing a change to
+    # the word-boundary-vs-plain-substring matching semantics this needle
+    # system depends on (see `_needle_matches`'s own docstring).
     return subprocess.run(
         [sys.executable, str(_MODULE), "--new-only"],
         cwd=_REPO_ROOT,
         env=env,
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=900,
     )
 
 
@@ -162,6 +183,23 @@ def test_gate_verdict_against_the_real_tree_is_identical_plain_vs_ambient_git_en
     assert plain.stderr == ambient.stderr
     assert plain.returncode == ambient.returncode
     # Not a trivially-empty comparison: the gate must have actually scanned
-    # something real either way (``--new-only`` reports findings on stderr,
-    # a clean summary line on stdout).
-    assert "Current-only contract violations:" in plain.stderr
+    # something real either way. WD10-P-AUPUSH: this used to assert
+    # "Current-only contract violations:" appears in `plain.stderr` -- true
+    # while this repo carried 2 genuine new violations, but `--new-only`
+    # prints NOTHING on either stream once `report.new` is empty (see
+    # main()'s own `if report.new:` guard), which is now this repo's
+    # correct, fixed state (0 new violations) -- so that assertion no
+    # longer proves liveness, it just happens to prove "were there
+    # violations right now", an unrelated fact this test should not
+    # depend on. Prove liveness instead with a THIRD invocation, without
+    # `--new-only`, whose summary line prints unconditionally regardless
+    # of the violation count.
+    summary = subprocess.run(
+        [sys.executable, str(_MODULE)],
+        cwd=_REPO_ROOT,
+        env=_clean_env(),
+        capture_output=True,
+        text=True,
+        timeout=900,
+    )
+    assert "Current-only contract:" in summary.stdout
