@@ -906,35 +906,41 @@ def process_kg_ingest_location(engine: Any, file_path: Path):
     _SEEN_HASHES[file_key].add(content_hash)
 
 
-def run_watcher_scan(engine: Any, workspace_path: Path):
-    """Executes a single synchronous directory scan for plans, tasks, skills, and downloads."""
-    raise_if_task_cancelled()
+def _scan_active_workspace_specs(engine: Any, workspace_path: Path) -> None:
     # 1. Scan active workspace specs
     specs_dir = workspace_path / ".specify" / "specs"
-    if specs_dir.exists():
-        for feature_dir in specs_dir.iterdir():
-            raise_if_task_cancelled()
-            if feature_dir.is_dir():
-                plan_file = feature_dir / "plan.md"
-                tasks_file = feature_dir / "tasks.md"
-                if plan_file.exists():
-                    process_plan_file(engine, plan_file, workspace_path)
-                if tasks_file.exists():
-                    process_tasks_file(engine, tasks_file, workspace_path)
+    if not specs_dir.exists():
+        return
+    for feature_dir in specs_dir.iterdir():
+        raise_if_task_cancelled()
+        if not feature_dir.is_dir():
+            continue
+        plan_file = feature_dir / "plan.md"
+        tasks_file = feature_dir / "tasks.md"
+        if plan_file.exists():
+            process_plan_file(engine, plan_file, workspace_path)
+        if tasks_file.exists():
+            process_tasks_file(engine, tasks_file, workspace_path)
 
+
+def _scan_brain_sessions(engine: Any, workspace_path: Path) -> None:
     # 2. Scan Antigravity IDE brain directories
     brain_dir = Path(os.path.expanduser("~/.gemini/antigravity/brain"))
-    if brain_dir.exists():
-        for sess_dir in brain_dir.iterdir():
-            raise_if_task_cancelled()
-            if sess_dir.is_dir():
-                plan_file = sess_dir / "implementation_plan.md"
-                tasks_file = sess_dir / "task.md"
-                if plan_file.exists():
-                    process_plan_file(engine, plan_file, workspace_path)
-                if tasks_file.exists():
-                    process_tasks_file(engine, tasks_file, workspace_path)
+    if not brain_dir.exists():
+        return
+    for sess_dir in brain_dir.iterdir():
+        raise_if_task_cancelled()
+        if not sess_dir.is_dir():
+            continue
+        plan_file = sess_dir / "implementation_plan.md"
+        tasks_file = sess_dir / "task.md"
+        if plan_file.exists():
+            process_plan_file(engine, plan_file, workspace_path)
+        if tasks_file.exists():
+            process_tasks_file(engine, tasks_file, workspace_path)
 
+
+def _scan_nested_specs(engine: Any, workspace_path: Path) -> None:
     # 3. Recursive Specification Scan for nested sub-repositories
     try:
         target_plan_tasks = {
@@ -953,27 +959,53 @@ def run_watcher_scan(engine: Any, workspace_path: Path):
     except Exception as e:  # noqa: BLE001 — this phase is one of 6 independent scan phases in run_watcher_scan; one phase's failure must not block the others, and the outer run_plan_watcher_loop already logs any escaping exception at ERROR
         logger.debug("Nested specification scan failed: %s", e)
 
+
+def _scan_one_skills_dir(engine: Any, s_dir: Path, workspace_path: Path) -> None:
+    raise_if_task_cancelled()
+    for f in _safe_walk(s_dir, {"skill.md"}, max_depth=3):
+        raise_if_task_cancelled()
+        process_skill_file(engine, f, workspace_path)
+    for f in _safe_walk(
+        s_dir,
+        {"plan.md", "tasks.md", "task.md", "implementation_plan.md"},
+        max_depth=3,
+    ):
+        raise_if_task_cancelled()
+        if f.name.lower() in {"plan.md", "implementation_plan.md"}:
+            process_plan_file(engine, f, workspace_path)
+        elif f.name.lower() in {"tasks.md", "task.md"}:
+            process_tasks_file(engine, f, workspace_path)
+
+
+def _scan_skills(engine: Any, workspace_path: Path) -> None:
     # 4. Multi-IDE / Platform Skills Scan
     try:
         skills_dirs = get_all_skills_directories(workspace_path)
         for s_dir in skills_dirs:
-            raise_if_task_cancelled()
-            for f in _safe_walk(s_dir, {"skill.md"}, max_depth=3):
-                raise_if_task_cancelled()
-                process_skill_file(engine, f, workspace_path)
-            for f in _safe_walk(
-                s_dir,
-                {"plan.md", "tasks.md", "task.md", "implementation_plan.md"},
-                max_depth=3,
-            ):
-                raise_if_task_cancelled()
-                if f.name.lower() in {"plan.md", "implementation_plan.md"}:
-                    process_plan_file(engine, f, workspace_path)
-                elif f.name.lower() in {"tasks.md", "task.md"}:
-                    process_tasks_file(engine, f, workspace_path)
+            _scan_one_skills_dir(engine, s_dir, workspace_path)
     except Exception as e:  # noqa: BLE001 — one of 6 independent scan phases; see the nested-specification-scan phase above for the fault-isolation rationale
         logger.debug("Skills scan failed: %s", e)
 
+
+def _scan_one_watched_dir(
+    engine: Any, w_dir: Path, recursive: bool, source: str, target_exts: set[str]
+) -> None:
+    try:
+        items = w_dir.rglob("*") if recursive else w_dir.iterdir()
+        for item in items:
+            raise_if_task_cancelled()
+            if not item.is_file() or item.suffix.lower() not in target_exts:
+                continue
+            if item.name.lower() == "skill.md":
+                continue
+            if any(part in _SKIP_WATCH_DIRS for part in item.parts):
+                continue
+            process_watched_file(engine, item, source=source)
+    except Exception as exc:  # noqa: BLE001 — one watch root is non-fatal
+        logger.debug("Watched-directory scan failed for %s: %s", w_dir, exc)
+
+
+def _scan_watched_directories(engine: Any, workspace_path: Path) -> None:
     # 5. Watched directories scan — ScholarX/research downloads (top-level) +
     #    operator KG_WATCH_DIRS document corpora (recursive). One unified ingest
     #    with per-file content-hash delta-skip (CONCEPT:EG-KG.storage.nonblocking-checkpoint): new files ingest,
@@ -982,22 +1014,22 @@ def run_watcher_scan(engine: Any, workspace_path: Path):
         target_exts = {".pdf", ".docx", ".doc", ".txt", ".md"}
         for w_dir, recursive, source in get_watched_directories():
             raise_if_task_cancelled()
-            try:
-                items = w_dir.rglob("*") if recursive else w_dir.iterdir()
-                for item in items:
-                    raise_if_task_cancelled()
-                    if not item.is_file() or item.suffix.lower() not in target_exts:
-                        continue
-                    if item.name.lower() == "skill.md":
-                        continue
-                    if any(part in _SKIP_WATCH_DIRS for part in item.parts):
-                        continue
-                    process_watched_file(engine, item, source=source)
-            except Exception as exc:  # noqa: BLE001 — one watch root is non-fatal
-                logger.debug("Watched-directory scan failed for %s: %s", w_dir, exc)
+            _scan_one_watched_dir(engine, w_dir, recursive, source, target_exts)
     except Exception as e:  # noqa: BLE001 — one of 6 independent scan phases; see the nested-specification-scan phase above for the fault-isolation rationale
         logger.debug("Watched-directory scan failed: %s", e)
 
+
+def _scan_kg_ingest_dir_children(engine: Any, p: Path) -> None:
+    try:
+        for child in p.iterdir():
+            raise_if_task_cancelled()
+            if child.is_file():
+                process_kg_ingest_location(engine, child)
+    except Exception as exc:  # noqa: BLE001 — one KG root is non-fatal
+        logger.debug("Could not enumerate KG ingest path %s: %s", p, exc)
+
+
+def _scan_kg_ingest_locations(engine: Any, workspace_path: Path) -> None:
     # 6. Core Knowledge Graph Ingest Locations Scan
     try:
         kg_paths = get_kg_ingest_paths(workspace_path)
@@ -1006,15 +1038,20 @@ def run_watcher_scan(engine: Any, workspace_path: Path):
             if p.is_file():
                 process_kg_ingest_location(engine, p)
             elif p.is_dir():
-                try:
-                    for child in p.iterdir():
-                        raise_if_task_cancelled()
-                        if child.is_file():
-                            process_kg_ingest_location(engine, child)
-                except Exception as exc:  # noqa: BLE001 — one KG root is non-fatal
-                    logger.debug("Could not enumerate KG ingest path %s: %s", p, exc)
+                _scan_kg_ingest_dir_children(engine, p)
     except Exception as e:  # noqa: BLE001 — one of 6 independent scan phases; see the nested-specification-scan phase above for the fault-isolation rationale
         logger.debug("Core KG ingestion-location scan failed: %s", e)
+
+
+def run_watcher_scan(engine: Any, workspace_path: Path):
+    """Executes a single synchronous directory scan for plans, tasks, skills, and downloads."""
+    raise_if_task_cancelled()
+    _scan_active_workspace_specs(engine, workspace_path)
+    _scan_brain_sessions(engine, workspace_path)
+    _scan_nested_specs(engine, workspace_path)
+    _scan_skills(engine, workspace_path)
+    _scan_watched_directories(engine, workspace_path)
+    _scan_kg_ingest_locations(engine, workspace_path)
 
 
 def run_plan_watcher_loop(engine: Any, workspace_path: Path, interval: float = 5.0):
