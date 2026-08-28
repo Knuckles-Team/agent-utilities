@@ -147,27 +147,48 @@ def _resolve_edges(
 ) -> list[str]:
     """Dotted target module(s) an Import/ImportFrom statement depends on.
 
-    For ``from PKG import NAME`` with no dots (absolute) or with a named
-    module after the dots (e.g. ``from ..models import X``), the target is
-    unambiguous. For a bare ``from .. import NAME`` (dots only, no module),
-    NAME may itself be a submodule or a plain attribute of the resolved
-    package — indistinguishable without also consulting the filesystem, and
-    either way the resolved *package* must be import-started first, so the
-    conservative and report-matching resolution is: the edge targets the
-    resolved package itself.
+    ``from PKG import NAME`` and ``from .. import NAME`` each yield TWO
+    candidate targets: the resolved package, and ``<package>.NAME``.
+
+    ★ The second is not redundant, and omitting it was a real hole in this
+    gate. If ``NAME`` is a SUBMODULE, ``from PKG import NAME`` imports that
+    submodule eagerly — a genuine load-time edge to ``PKG.NAME``. Recording
+    only the edge to ``PKG`` makes a cycle expressed in that form invisible.
+    Proven by planting: ``a: from pkg import b`` / ``b: from pkg import a``
+    PASSED this gate, while the dotted, plain-``import`` and relative-dotted
+    forms of the same cycle were all correctly caught.
+
+    That is the same blind spot the fleet mirror sweep hit independently on the
+    same day: ``from . import mcp as X`` contains no ``pkg.mcp`` substring, so
+    a dotted-path scan misses it, and it is a common load-bearing import shape
+    in this codebase.
+
+    Emitting the extra candidate is safe when ``NAME`` is a plain attribute
+    rather than a submodule: it adds a leaf node with no outgoing edges, and a
+    node with no outgoing edges cannot participate in a cycle.
     """
     if isinstance(node, ast.Import):
         return [alias.name for alias in node.names]
     if node.level == 0:
-        return [node.module] if node.module else []
+        if not node.module:
+            return []
+        return [node.module, *(f"{node.module}.{a.name}" for a in node.names)]
     base = _relative_base(current_package, node.level)
     if node.module:
-        return [f"{base}.{node.module}"] if base else [node.module]
-    return [base] if base else []
+        target = f"{base}.{node.module}" if base else node.module
+        return [target, *(f"{target}.{a.name}" for a in node.names)]
+    if not base:
+        return []
+    return [base, *(f"{base}.{a.name}" for a in node.names)]
 
 
 def _add_file_edges(
-    path: Path, module_name: str, current_package: str, pkg_name: str, graph: nx.DiGraph
+    path: Path,
+    module_name: str,
+    current_package: str,
+    pkg_name: str,
+    graph: nx.DiGraph,
+    known_modules: frozenset[str],
 ) -> None:
     try:
         tree = ast.parse(
@@ -185,6 +206,16 @@ def _add_file_edges(
                 continue
             if target == module_name:
                 continue
+            # Only real, discovered modules become edges. `_resolve_edges`
+            # deliberately over-produces (`from PKG import NAME` yields both
+            # `PKG` and `PKG.NAME`, since NAME may be a submodule), and
+            # filtering here is what keeps a plain ATTRIBUTE import from
+            # inventing a phantom module node. Without this filter the verdict
+            # stays correct — a leaf node cannot be in a cycle — but the
+            # reported module and edge counts triple, and a gate that prints a
+            # false number is a reporting defect even when its verdict is right.
+            if target not in known_modules:
+                continue
             graph.add_edge(module_name, target)
 
 
@@ -192,15 +223,28 @@ def build_eager_graph(package_root: Path) -> nx.DiGraph:
     """Directed graph of load-time-executing internal imports under `package_root`."""
     pkg_name = package_root.name
     repo_root = repo_root_of(package_root) or package_root
+    paths = [
+        p
+        for p in sorted(tracked_or_walked(package_root, "*.py", root=repo_root))
+        if not any(part in _SKIP_DIRS for part in p.parts)
+    ]
+    # TWO passes, deliberately: every module must be known before any edge is
+    # resolved, so `_add_file_edges` can tell a real submodule import from a
+    # plain attribute import of the same syntactic shape.
+    discovered = {_module_name(p.relative_to(package_root.parent)): p for p in paths}
+    known_modules = frozenset(discovered)
     graph: nx.DiGraph = nx.DiGraph()
-    for path in sorted(tracked_or_walked(package_root, "*.py", root=repo_root)):
-        if any(part in _SKIP_DIRS for part in path.parts):
-            continue
+    for module_name, path in discovered.items():
         relpath = path.relative_to(package_root.parent)
-        module_name = _module_name(relpath)
-        current_package = _current_package(relpath)
         graph.add_node(module_name)
-        _add_file_edges(path, module_name, current_package, pkg_name, graph)
+        _add_file_edges(
+            path,
+            module_name,
+            _current_package(relpath),
+            pkg_name,
+            graph,
+            known_modules,
+        )
     return graph
 
 

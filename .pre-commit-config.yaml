@@ -360,6 +360,26 @@ repos:
     # Scoped: scans agent_utilities/**.py only (pkg_root = ROOT/"agent_utilities"
     # in the script). ~19s standalone.
     files: ^agent_utilities/.*\.py$
+  - id: check-import-cycles
+    name: Import cycles — ZERO eager (load-time) cycles, absolute
+    entry: python3 scripts/check_import_cycles.py
+    language: system
+    pass_filenames: false
+    files: ^agent_utilities/.*\.py$
+    # ABSOLUTE gate at zero, deliberately NOT diff-scoped and NOT a ratchet —
+    # the debt is gone, so zero is enforceable. WD4-ARCH-01 measured the
+    # notorious 821-module SCC (48.5% of 1694 modules, confirmed three
+    # independent ways) and found 46% of au's 12,968 imports never execute at
+    # module-load time. Counting only EAGER top-level edges, that SCC collapsed
+    # to 3 modules plus one 2-module cycle; WD5-ARCH-02 closed both with two
+    # edits. Now: 0 cycles, 2760 eager edges.
+    #
+    # ★ Gate on EAGER imports only. The raw all-imports graph is NOT
+    # adoptable — ~500 of 3,486 edges would need cutting to get under even a
+    # 50-module threshold. Function-local and TYPE_CHECKING-guarded imports are
+    # excluded BY DESIGN; that exclusion is the whole point, not an oversight,
+    # and "simplifying" it to all imports would make this gate permanently red
+    # and therefore useless. See the script's module docstring.
   - id: check-swallowed-errors
     name: Swallowed errors — census + no cause-dropping handler ADDED by this change
     entry: python3 scripts/check_swallowed_errors.py
