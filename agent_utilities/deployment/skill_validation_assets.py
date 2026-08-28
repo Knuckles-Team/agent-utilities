@@ -66,131 +66,107 @@ def _digest(payload: bytes) -> str:
     return "sha256:" + hashlib.sha256(payload).hexdigest()
 
 
-def _read_regular(path: Path, *, limit: int, code: str) -> bytes:
+def _stat_signature(metadata: os.stat_result) -> tuple[int, int, int, int, int]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+def _open_regular_readonly(path: Path, *, code: str) -> int:
     if not path.is_absolute():
         raise CertificationAssetError(code)
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
-        descriptor = os.open(path, flags)
+        return os.open(path, flags)
     except OSError as exc:
         raise CertificationAssetError(code) from exc
+
+
+def _validated_regular_stat(
+    descriptor: int, *, limit: int, code: str
+) -> os.stat_result:
+    metadata = os.fstat(descriptor)
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_nlink != 1
+        or not 1 <= metadata.st_size <= limit
+    ):
+        raise CertificationAssetError(code)
+    return metadata
+
+
+def _confirm_path_signature(
+    path: Path, signature: tuple[int, int, int, int, int], *, code: str
+) -> None:
     try:
-        metadata = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(metadata.st_mode)
-            or metadata.st_nlink != 1
-            or not 1 <= metadata.st_size <= limit
-        ):
-            raise CertificationAssetError(code)
-        before = (
-            metadata.st_dev,
-            metadata.st_ino,
-            metadata.st_size,
-            metadata.st_mtime_ns,
-            metadata.st_ctime_ns,
-        )
-        chunks: list[bytes] = []
-        remaining = limit + 1
-        while remaining:
-            chunk = os.read(descriptor, min(1024 * 1024, remaining))
-            if not chunk:
-                break
-            chunks.append(chunk)
-            remaining -= len(chunk)
-        payload = b"".join(chunks)
+        path_metadata = path.stat(follow_symlinks=False)
+    except OSError as exc:
+        raise CertificationAssetError(code) from exc
+    if _stat_signature(path_metadata) != signature:
+        raise CertificationAssetError(code)
+
+
+def _read_bounded(descriptor: int, limit: int) -> bytes:
+    chunks: list[bytes] = []
+    remaining = limit + 1
+    while remaining:
+        chunk = os.read(descriptor, min(1024 * 1024, remaining))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
+
+
+def _read_regular(path: Path, *, limit: int, code: str) -> bytes:
+    descriptor = _open_regular_readonly(path, code=code)
+    try:
+        metadata = _validated_regular_stat(descriptor, limit=limit, code=code)
+        before = _stat_signature(metadata)
+        payload = _read_bounded(descriptor, limit)
         after = os.fstat(descriptor)
         if (
             len(payload) != metadata.st_size
             or len(payload) > limit
-            or before
-            != (
-                after.st_dev,
-                after.st_ino,
-                after.st_size,
-                after.st_mtime_ns,
-                after.st_ctime_ns,
-            )
+            or before != _stat_signature(after)
         ):
             raise CertificationAssetError(code)
-        try:
-            path_metadata = path.stat(follow_symlinks=False)
-        except OSError as exc:
-            raise CertificationAssetError(code) from exc
-        if (
-            path_metadata.st_dev,
-            path_metadata.st_ino,
-            path_metadata.st_size,
-            path_metadata.st_mtime_ns,
-            path_metadata.st_ctime_ns,
-        ) != before:
-            raise CertificationAssetError(code)
+        _confirm_path_signature(path, before, code=code)
         return payload
     finally:
         os.close(descriptor)
 
 
-def _hash_regular(path: Path, *, limit: int, code: str) -> str:
-    if not path.is_absolute():
-        raise CertificationAssetError(code)
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        descriptor = os.open(path, flags)
-    except OSError as exc:
-        raise CertificationAssetError(code) from exc
-    hasher = hashlib.sha256()
+def _hash_bounded(descriptor: int, limit: int, hasher: Any, *, code: str) -> int:
     consumed = 0
-    try:
-        metadata = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(metadata.st_mode)
-            or metadata.st_nlink != 1
-            or not 1 <= metadata.st_size <= limit
-        ):
+    while True:
+        chunk = os.read(descriptor, 1024 * 1024)
+        if not chunk:
+            break
+        consumed += len(chunk)
+        if consumed > limit:
             raise CertificationAssetError(code)
-        before = (
-            metadata.st_dev,
-            metadata.st_ino,
-            metadata.st_size,
-            metadata.st_mtime_ns,
-            metadata.st_ctime_ns,
-        )
-        while True:
-            chunk = os.read(descriptor, 1024 * 1024)
-            if not chunk:
-                break
-            consumed += len(chunk)
-            if consumed > limit:
-                raise CertificationAssetError(code)
-            hasher.update(chunk)
+        hasher.update(chunk)
+    return consumed
+
+
+def _hash_regular(path: Path, *, limit: int, code: str) -> str:
+    descriptor = _open_regular_readonly(path, code=code)
+    hasher = hashlib.sha256()
+    try:
+        metadata = _validated_regular_stat(descriptor, limit=limit, code=code)
+        before = _stat_signature(metadata)
+        consumed = _hash_bounded(descriptor, limit, hasher, code=code)
         after = os.fstat(descriptor)
-        if consumed != metadata.st_size or before != (
-            after.st_dev,
-            after.st_ino,
-            after.st_size,
-            after.st_mtime_ns,
-            after.st_ctime_ns,
-        ):
+        if consumed != metadata.st_size or before != _stat_signature(after):
             raise CertificationAssetError(code)
     finally:
         os.close(descriptor)
-    try:
-        path_metadata = path.stat(follow_symlinks=False)
-    except OSError as exc:
-        raise CertificationAssetError(code) from exc
-    if (
-        path_metadata.st_dev,
-        path_metadata.st_ino,
-        path_metadata.st_size,
-        path_metadata.st_mtime_ns,
-        path_metadata.st_ctime_ns,
-    ) != (
-        after.st_dev,
-        after.st_ino,
-        after.st_size,
-        after.st_mtime_ns,
-        after.st_ctime_ns,
-    ):
-        raise CertificationAssetError(code)
+    _confirm_path_signature(path, _stat_signature(after), code=code)
     return "sha256:" + hasher.hexdigest()
 
 
@@ -223,30 +199,49 @@ def _material_path(reference: str, *, code: str) -> Path:
     return path
 
 
-def _model_configuration(root: Any) -> tuple[list[Any], list[str]]:
-    if not isinstance(root, dict):
-        raise CertificationAssetError("runtime_configuration_invalid")
-    from agent_utilities.core.config import ChatModelConfig
+def _single_config_key(
+    root: dict[str, Any], candidates: tuple[str, ...], *, code: str
+) -> str:
+    keys = [key for key in candidates if key in root]
+    if len(keys) != 1:
+        raise CertificationAssetError(code)
+    return keys[0]
 
-    model_keys = [key for key in ("CHAT_MODELS", "chat_models") if key in root]
-    host_keys = [
-        key
-        for key in (
-            "MODEL_HTTP_ALLOWED_PRIVATE_HOSTS",
-            "model_http_allowed_private_hosts",
-        )
-        if key in root
-    ]
-    if len(model_keys) != 1 or len(host_keys) != 1:
-        raise CertificationAssetError("runtime_model_registry_missing")
-    raw_models = root[model_keys[0]]
-    raw_hosts = root[host_keys[0]]
+
+def _optional_config_key(
+    root: dict[str, Any], candidates: tuple[str, ...], *, code: str
+) -> str | None:
+    keys = [key for key in candidates if key in root]
+    if len(keys) > 1:
+        raise CertificationAssetError(code)
+    return keys[0] if keys else None
+
+
+def _validated_model_list(raw_models: Any, raw_hosts: Any) -> None:
     if (
         not isinstance(raw_models, list)
         or not isinstance(raw_hosts, list)
         or any(not isinstance(host, str) for host in raw_hosts)
     ):
         raise CertificationAssetError("runtime_model_registry_invalid")
+
+
+def _model_configuration(root: Any) -> tuple[list[Any], list[str]]:
+    if not isinstance(root, dict):
+        raise CertificationAssetError("runtime_configuration_invalid")
+    from agent_utilities.core.config import ChatModelConfig
+
+    model_key = _single_config_key(
+        root, ("CHAT_MODELS", "chat_models"), code="runtime_model_registry_missing"
+    )
+    host_key = _single_config_key(
+        root,
+        ("MODEL_HTTP_ALLOWED_PRIVATE_HOSTS", "model_http_allowed_private_hosts"),
+        code="runtime_model_registry_missing",
+    )
+    raw_models = root[model_key]
+    raw_hosts = root[host_key]
+    _validated_model_list(raw_models, raw_hosts)
     try:
         models = [ChatModelConfig.model_validate(item) for item in raw_models]
     except Exception as exc:
@@ -254,37 +249,36 @@ def _model_configuration(root: Any) -> tuple[list[Any], list[str]]:
     return models, [str(host) for host in raw_hosts]
 
 
+def _validated_ttl(ttl: Any) -> int:
+    try:
+        return validated_token_ttl_seconds(ttl)
+    except Exception as exc:
+        raise CertificationAssetError("runtime_identity_authority_invalid") from exc
+
+
 def _identity_authority_configuration(root: Any) -> dict[str, Any]:
     """Resolve the current-only lifecycle authority controls from AgentConfig."""
 
     if not isinstance(root, dict):
         raise CertificationAssetError("runtime_configuration_invalid")
-    mode_keys = [
-        key
-        for key in (
-            "SKILL_CERT_IDENTITY_AUTHORITY_MODE",
-            "skill_cert_identity_authority_mode",
-        )
-        if key in root
-    ]
-    ttl_keys = [
-        key
-        for key in (
+    mode_key = _optional_config_key(
+        root,
+        ("SKILL_CERT_IDENTITY_AUTHORITY_MODE", "skill_cert_identity_authority_mode"),
+        code="runtime_identity_authority_invalid",
+    )
+    ttl_key = _optional_config_key(
+        root,
+        (
             "SKILL_CERT_IDENTITY_TOKEN_TTL_SECONDS",
             "skill_cert_identity_token_ttl_seconds",
-        )
-        if key in root
-    ]
-    if len(mode_keys) > 1 or len(ttl_keys) > 1:
-        raise CertificationAssetError("runtime_identity_authority_invalid")
-    mode = root[mode_keys[0]] if mode_keys else AUTHORITY_MODE
-    ttl = root[ttl_keys[0]] if ttl_keys else DEFAULT_TOKEN_TTL_SECONDS
+        ),
+        code="runtime_identity_authority_invalid",
+    )
+    mode = root[mode_key] if mode_key else AUTHORITY_MODE
+    ttl = root[ttl_key] if ttl_key else DEFAULT_TOKEN_TTL_SECONDS
     if mode != AUTHORITY_MODE:
         raise CertificationAssetError("runtime_identity_authority_invalid")
-    try:
-        token_ttl_seconds = validated_token_ttl_seconds(ttl)
-    except Exception as exc:
-        raise CertificationAssetError("runtime_identity_authority_invalid") from exc
+    token_ttl_seconds = _validated_ttl(ttl)
     return {
         "mode": AUTHORITY_MODE,
         "tokenTtlSeconds": token_ttl_seconds,
@@ -292,6 +286,70 @@ def _identity_authority_configuration(root: Any) -> dict[str, Any]:
         "lifecycleOwned": True,
         "renewableCredentialsRequired": True,
     }
+
+
+def _validate_model_identity(
+    model: Any, model_ids: set[str], counts: dict[str, int]
+) -> tuple[str, str]:
+    model_id = str(getattr(model, "id", "") or "")
+    level = str(getattr(model, "intelligence_level", "") or "").casefold()
+    if not model_id or model_id in model_ids or level not in counts:
+        raise CertificationAssetError("runtime_model_registry_class_invalid")
+    model_ids.add(model_id)
+    counts[level] += 1
+    return model_id, level
+
+
+def _is_valid_model_transport(
+    parsed: Any, host: str, port: int | None, allowed: set[str]
+) -> bool:
+    if parsed.scheme.casefold() not in {"http", "https"}:
+        return False
+    if not host or host not in allowed:
+        return False
+    if port is not None and not 1 <= port <= 65_535:
+        return False
+    if parsed.username is not None or parsed.password is not None:
+        return False
+    return not (parsed.query or parsed.fragment)
+
+
+def _validate_model_transport(model: Any, allowed: set[str]) -> tuple[Any, str]:
+    try:
+        parsed = urlsplit(str(getattr(model, "base_url", "") or ""))
+        host = str(parsed.hostname or "").casefold().rstrip(".")
+        port = parsed.port
+    except ValueError as exc:
+        raise CertificationAssetError("runtime_model_transport_invalid") from exc
+    if not _is_valid_model_transport(parsed, host, port, allowed):
+        raise CertificationAssetError("runtime_model_transport_invalid")
+    return parsed, host
+
+
+def _model_locality(host: str) -> tuple[str, bool, bool]:
+    """Return ``(locality label, is_literal_private, is_private_dns)``."""
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return "private-dns-runtime-pinned", False, True
+    if address.is_loopback:
+        return "loopback", True, False
+    if any(address in network for network in _PRIVATE_MODEL_NETWORKS):
+        return "private", True, False
+    raise CertificationAssetError("runtime_model_locality_unproven")
+
+
+def _model_auth_modes(model: Any) -> list[str]:
+    auth_modes: list[str] = []
+    if getattr(model, "api_key_ref", None):
+        auth_modes.append("api-key-reference")
+    if getattr(model, "oauth2", None):
+        auth_modes.append("oauth2-secret-reference")
+    if not auth_modes:
+        raise CertificationAssetError("runtime_model_credentials_unreferenced")
+    if getattr(model, "headers_ref", None):
+        auth_modes.append("supplemental-header-reference")
+    return auth_modes
 
 
 def derive_model_registry_proof(
@@ -310,51 +368,12 @@ def derive_model_registry_proof(
     private_dns_model_count = 0
     model_ids: set[str] = set()
     for model in models:
-        model_id = str(getattr(model, "id", "") or "")
-        level = str(getattr(model, "intelligence_level", "") or "").casefold()
-        if not model_id or model_id in model_ids or level not in counts:
-            raise CertificationAssetError("runtime_model_registry_class_invalid")
-        model_ids.add(model_id)
-        counts[level] += 1
-        try:
-            parsed = urlsplit(str(getattr(model, "base_url", "") or ""))
-            host = str(parsed.hostname or "").casefold().rstrip(".")
-            port = parsed.port
-        except ValueError as exc:
-            raise CertificationAssetError("runtime_model_transport_invalid") from exc
-        if (
-            parsed.scheme.casefold() not in {"http", "https"}
-            or not host
-            or (port is not None and not 1 <= port <= 65_535)
-            or parsed.username is not None
-            or parsed.password is not None
-            or parsed.query
-            or parsed.fragment
-            or host not in allowed
-        ):
-            raise CertificationAssetError("runtime_model_transport_invalid")
-        try:
-            address = ipaddress.ip_address(host)
-        except ValueError:
-            locality = "private-dns-runtime-pinned"
-            private_dns_model_count += 1
-        else:
-            if address.is_loopback:
-                locality = "loopback"
-            elif any(address in network for network in _PRIVATE_MODEL_NETWORKS):
-                locality = "private"
-            else:
-                raise CertificationAssetError("runtime_model_locality_unproven")
-            literal_private_model_count += 1
-        auth_modes: list[str] = []
-        if getattr(model, "api_key_ref", None):
-            auth_modes.append("api-key-reference")
-        if getattr(model, "oauth2", None):
-            auth_modes.append("oauth2-secret-reference")
-        if not auth_modes:
-            raise CertificationAssetError("runtime_model_credentials_unreferenced")
-        if getattr(model, "headers_ref", None):
-            auth_modes.append("supplemental-header-reference")
+        model_id, level = _validate_model_identity(model, model_ids, counts)
+        parsed, host = _validate_model_transport(model, allowed)
+        locality, is_literal, is_dns = _model_locality(host)
+        literal_private_model_count += int(is_literal)
+        private_dns_model_count += int(is_dns)
+        auth_modes = _model_auth_modes(model)
         canonical.append(
             {
                 "modelIdentityDigest": _digest(model_id.encode("utf-8")),
@@ -381,6 +400,58 @@ def derive_model_registry_proof(
     }
 
 
+def _resolved_model_host(model: Any) -> tuple[str, int | None]:
+    try:
+        parsed = urlsplit(str(getattr(model, "base_url", "") or ""))
+        host = str(parsed.hostname or "").casefold().rstrip(".")
+        port = parsed.port
+    except ValueError as exc:
+        raise CertificationAssetError("runtime_model_transport_invalid") from exc
+    return host, port
+
+
+def _resolved_dns_addresses(host: str, port: int | None, getaddrinfo: Any) -> set[str]:
+    try:
+        answers = getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        raise CertificationAssetError("runtime_model_private_dns_unproven") from exc
+    resolved: set[str] = set()
+    for answer_count, answer in enumerate(answers, start=1):
+        if answer_count > 64:
+            raise CertificationAssetError(
+                "runtime_model_private_dns_unproven"
+            ) from None
+        try:
+            resolved.add(ipaddress.ip_address(str(answer[4][0])).compressed)
+        except (IndexError, TypeError, ValueError) as exc:
+            raise CertificationAssetError("runtime_model_private_dns_unproven") from exc
+    return resolved
+
+
+def _prove_private_dns_host(
+    host: str, port: int | None, allowed: set[str], getaddrinfo: Any
+) -> None:
+    if not host or host not in allowed:
+        raise CertificationAssetError("runtime_model_private_dns_unproven") from None
+    resolved = _resolved_dns_addresses(host, port, getaddrinfo)
+    if len(resolved) != 1:
+        raise CertificationAssetError("runtime_model_private_dns_unproven") from None
+    resolved_address = ipaddress.ip_address(next(iter(resolved)))
+    if not (
+        resolved_address.is_loopback
+        or any(resolved_address in network for network in _PRIVATE_MODEL_NETWORKS)
+    ):
+        raise CertificationAssetError("runtime_model_private_dns_unproven") from None
+
+
+def _prove_literal_private_host(address: Any) -> None:
+    if not (
+        address.is_loopback
+        or any(address in network for network in _PRIVATE_MODEL_NETWORKS)
+    ):
+        raise CertificationAssetError("runtime_model_locality_unproven")
+
+
 def prove_model_registry_runtime(
     models: list[Any],
     allowed_private_hosts: list[str],
@@ -397,58 +468,14 @@ def prove_model_registry_runtime(
     literal_count = 0
     getaddrinfo = resolver or socket.getaddrinfo
     for model in models:
-        try:
-            parsed = urlsplit(str(getattr(model, "base_url", "") or ""))
-            host = str(parsed.hostname or "").casefold().rstrip(".")
-            port = parsed.port
-        except ValueError as exc:
-            raise CertificationAssetError("runtime_model_transport_invalid") from exc
+        host, port = _resolved_model_host(model)
         try:
             address = ipaddress.ip_address(host)
         except ValueError:
-            if not host or host not in allowed:
-                raise CertificationAssetError(
-                    "runtime_model_private_dns_unproven"
-                ) from None
-            try:
-                answers = getaddrinfo(host, port, type=socket.SOCK_STREAM)
-            except OSError as exc:
-                raise CertificationAssetError(
-                    "runtime_model_private_dns_unproven"
-                ) from exc
-            resolved: set[str] = set()
-            for answer_count, answer in enumerate(answers, start=1):
-                if answer_count > 64:
-                    raise CertificationAssetError(
-                        "runtime_model_private_dns_unproven"
-                    ) from None
-                try:
-                    resolved.add(ipaddress.ip_address(str(answer[4][0])).compressed)
-                except (IndexError, TypeError, ValueError) as exc:
-                    raise CertificationAssetError(
-                        "runtime_model_private_dns_unproven"
-                    ) from exc
-            if len(resolved) != 1:
-                raise CertificationAssetError(
-                    "runtime_model_private_dns_unproven"
-                ) from None
-            resolved_address = ipaddress.ip_address(next(iter(resolved)))
-            if not (
-                resolved_address.is_loopback
-                or any(
-                    resolved_address in network for network in _PRIVATE_MODEL_NETWORKS
-                )
-            ):
-                raise CertificationAssetError(
-                    "runtime_model_private_dns_unproven"
-                ) from None
+            _prove_private_dns_host(host, port, allowed, getaddrinfo)
             private_dns_count += 1
         else:
-            if not (
-                address.is_loopback
-                or any(address in network for network in _PRIVATE_MODEL_NETWORKS)
-            ):
-                raise CertificationAssetError("runtime_model_locality_unproven")
+            _prove_literal_private_host(address)
             literal_count += 1
     if (
         literal_count != proof["literalPrivateModelCount"]
@@ -684,6 +711,70 @@ def _promotion_certification_binding(
     return {**binding, "agentUtilitiesFileCount": count}
 
 
+def _is_regular_unhardlinked(metadata: os.stat_result) -> bool:
+    return (
+        not stat.S_ISLNK(metadata.st_mode)
+        and stat.S_ISREG(metadata.st_mode)
+        and metadata.st_nlink == 1
+    )
+
+
+def _is_same_inode(left: os.stat_result, right: os.stat_result) -> bool:
+    return (left.st_dev, left.st_ino) == (right.st_dev, right.st_ino)
+
+
+def _is_canonical_graph_os_path(canonical: Path) -> bool:
+    return (
+        canonical.name == "graph-os"
+        and canonical.parent.name == "bin"
+        and canonical.parent.parent.name == "runtime"
+    )
+
+
+def _is_invalid_executable_layout(
+    start_executable: Path,
+    original: os.stat_result,
+    canonical: Path,
+    canonical_metadata: os.stat_result,
+) -> bool:
+    if not start_executable.is_absolute():
+        return True
+    if not _is_regular_unhardlinked(original):
+        return True
+    if not _is_regular_unhardlinked(canonical_metadata):
+        return True
+    if not _is_same_inode(original, canonical_metadata):
+        return True
+    return not _is_canonical_graph_os_path(canonical)
+
+
+def _validated_start_executable_layout(
+    start_executable: Path,
+) -> tuple[os.stat_result, Path, os.stat_result]:
+    try:
+        original = start_executable.lstat()
+        canonical = start_executable.resolve(strict=True)
+        canonical_metadata = canonical.lstat()
+    except OSError as exc:
+        raise CertificationAssetError("installed_release_layout_invalid") from exc
+    if _is_invalid_executable_layout(
+        start_executable, original, canonical, canonical_metadata
+    ):
+        raise CertificationAssetError("installed_release_layout_invalid")
+    return original, canonical, canonical_metadata
+
+
+def _confirm_executable_unchanged(
+    start_executable: Path, original: os.stat_result
+) -> None:
+    try:
+        after = start_executable.stat(follow_symlinks=False)
+    except OSError as exc:
+        raise CertificationAssetError("installed_release_attestation_failed") from exc
+    if _stat_signature(original) != _stat_signature(after):
+        raise CertificationAssetError("installed_release_attestation_failed")
+
+
 def attest_installed_release_binding(
     deployment: SkillValidationDeployment,
     *,
@@ -692,27 +783,9 @@ def attest_installed_release_binding(
 ) -> dict[str, Any]:
     """Recompute the exact sealed release containing the selected GraphOS."""
 
-    try:
-        original = start_executable.lstat()
-        canonical = start_executable.resolve(strict=True)
-        canonical_metadata = canonical.lstat()
-    except OSError as exc:
-        raise CertificationAssetError("installed_release_layout_invalid") from exc
-    if (
-        not start_executable.is_absolute()
-        or stat.S_ISLNK(original.st_mode)
-        or not stat.S_ISREG(original.st_mode)
-        or original.st_nlink != 1
-        or stat.S_ISLNK(canonical_metadata.st_mode)
-        or not stat.S_ISREG(canonical_metadata.st_mode)
-        or canonical_metadata.st_nlink != 1
-        or (original.st_dev, original.st_ino)
-        != (canonical_metadata.st_dev, canonical_metadata.st_ino)
-        or canonical.name != "graph-os"
-        or canonical.parent.name != "bin"
-        or canonical.parent.parent.name != "runtime"
-    ):
-        raise CertificationAssetError("installed_release_layout_invalid")
+    original, canonical, _canonical_metadata = _validated_start_executable_layout(
+        start_executable
+    )
     release_root = canonical.parent.parent.parent
     certification = promotion_evidence.get("certificationArtifacts")
     if not isinstance(certification, dict):
@@ -724,24 +797,7 @@ def attest_installed_release_binding(
         installed = attest_installed_release(release_root)
     except Exception as exc:
         raise CertificationAssetError("installed_release_attestation_failed") from exc
-    try:
-        after = start_executable.stat(follow_symlinks=False)
-    except OSError as exc:
-        raise CertificationAssetError("installed_release_attestation_failed") from exc
-    if (
-        original.st_dev,
-        original.st_ino,
-        original.st_size,
-        original.st_mtime_ns,
-        original.st_ctime_ns,
-    ) != (
-        after.st_dev,
-        after.st_ino,
-        after.st_size,
-        after.st_mtime_ns,
-        after.st_ctime_ns,
-    ):
-        raise CertificationAssetError("installed_release_attestation_failed")
+    _confirm_executable_unchanged(start_executable, original)
     actual = _promotion_certification_binding(installed)
     deployment_binding = {
         "agentUtilitiesSha256": deployment.release.agent_utilities_sha256,
@@ -891,11 +947,7 @@ def generate_deployment(
     return deployment
 
 
-async def probe_readiness(
-    deployment: SkillValidationDeployment, *, request_timeout: float = 15.0
-) -> None:
-    """Prove active AgentConfig, TLS/auth, GraphOS tools, and a local engine."""
-
+def _validated_request_timeout(request_timeout: float) -> None:
     if (
         isinstance(request_timeout, bool)
         or not isinstance(request_timeout, int | float)
@@ -903,9 +955,11 @@ async def probe_readiness(
         or not 0.1 <= float(request_timeout) <= 120.0
     ):
         raise CertificationAssetError("readiness_timeout_invalid")
-    runtime_materials = load_runtime_materials(
-        deployment, require_active_configuration=True
-    )
+
+
+def _validated_runtime_transport_proof(
+    deployment: SkillValidationDeployment, runtime_materials: dict[str, Any]
+) -> None:
     runtime_transport_proof = prove_model_registry_runtime(
         runtime_materials["models"], runtime_materials["modelPrivateHosts"]
     )
@@ -916,7 +970,9 @@ async def probe_readiness(
         != deployment.runtime.model_registry.private_dns_model_count
     ):
         raise CertificationAssetError("runtime_model_transport_proof_mismatch")
-    endpoint = str(setting(deployment.runtime.endpoint_reference, "") or "").strip()
+
+
+def _resolved_local_endpoint(endpoint: str) -> tuple[Any, str, int | None, bool]:
     try:
         parsed = urlsplit(endpoint)
         host = str(parsed.hostname or "").casefold().rstrip(".")
@@ -928,6 +984,10 @@ async def probe_readiness(
         loopback = address.is_loopback
     except ValueError:
         loopback = host in {"localhost", "localhost.localdomain"}
+    return parsed, host, port, loopback
+
+
+def _validate_local_endpoint(parsed: Any, port: int | None, loopback: bool) -> None:
     if (
         parsed.scheme.casefold() not in {"http", "https"}
         or not loopback
@@ -939,17 +999,10 @@ async def probe_readiness(
     ):
         raise CertificationAssetError("graph_os_endpoint_not_local")
 
-    from agent_utilities.core.config import config
-    from agent_utilities.core.transport_security import resolve_configured_tls_profile
-    from agent_utilities.knowledge_graph.core.engine_resolver import resolve_engine
-    from agent_utilities.knowledge_graph.core.shard_topology import is_local_endpoint
-    from agent_utilities.mcp.client_credentials import (
-        child_auth,
-        outbound_auth_configuration_status,
-    )
-    from agent_utilities.mcp.toolset_factory import build_http_toolset
-    from agent_utilities.skills.runtime_validation import _call_tool, _ensure_tool
 
+def _validate_active_runtime_configuration(
+    deployment: SkillValidationDeployment, endpoint: str, config: Any
+) -> None:
     if str(config.mcp_url or "").strip() != endpoint:
         raise CertificationAssetError("graph_os_endpoint_not_active")
     active_proof = derive_model_registry_proof(
@@ -957,11 +1010,13 @@ async def probe_readiness(
     )
     if active_proof != deployment.runtime.model_registry.model_dump(by_alias=True):
         raise CertificationAssetError("runtime_model_registry_not_active")
-    auth_status = outbound_auth_configuration_status()
-    if auth_status.get("ready") is not True:
-        raise CertificationAssetError("graph_os_identity_not_ready")
-    trust = resolve_configured_tls_profile("mcp", config=config)
-    trust.cleanup()
+
+
+async def _probe_graph_os_tools(endpoint: str, *, request_timeout: float) -> None:
+    from agent_utilities.mcp.client_credentials import child_auth
+    from agent_utilities.mcp.toolset_factory import build_http_toolset
+    from agent_utilities.skills.runtime_validation import _call_tool, _ensure_tool
+
     toolset = build_http_toolset(
         endpoint,
         auth=child_auth({}),
@@ -981,6 +1036,37 @@ async def probe_readiness(
             },
             request_timeout,
         )
+
+
+async def probe_readiness(
+    deployment: SkillValidationDeployment, *, request_timeout: float = 15.0
+) -> None:
+    """Prove active AgentConfig, TLS/auth, GraphOS tools, and a local engine."""
+
+    _validated_request_timeout(request_timeout)
+    runtime_materials = load_runtime_materials(
+        deployment, require_active_configuration=True
+    )
+    _validated_runtime_transport_proof(deployment, runtime_materials)
+    endpoint = str(setting(deployment.runtime.endpoint_reference, "") or "").strip()
+    parsed, _host, port, loopback = _resolved_local_endpoint(endpoint)
+    _validate_local_endpoint(parsed, port, loopback)
+
+    from agent_utilities.core.config import config
+    from agent_utilities.core.transport_security import resolve_configured_tls_profile
+    from agent_utilities.knowledge_graph.core.engine_resolver import resolve_engine
+    from agent_utilities.knowledge_graph.core.shard_topology import is_local_endpoint
+    from agent_utilities.mcp.client_credentials import (
+        outbound_auth_configuration_status,
+    )
+
+    _validate_active_runtime_configuration(deployment, endpoint, config)
+    auth_status = outbound_auth_configuration_status()
+    if auth_status.get("ready") is not True:
+        raise CertificationAssetError("graph_os_identity_not_ready")
+    trust = resolve_configured_tls_profile("mcp", config=config)
+    trust.cleanup()
+    await _probe_graph_os_tools(endpoint, request_timeout=request_timeout)
     resolved = resolve_engine(config, "skill-validation-readiness")
     if resolved.mode == "remote" or not is_local_endpoint(resolved.endpoint):
         raise CertificationAssetError("engine_topology_not_local")
@@ -1001,6 +1087,227 @@ def _signed_document(path: Path, *, code: str) -> tuple[dict[str, Any], bytes]:
     if not isinstance(value, dict):
         raise CertificationAssetError(code)
     return value, payload
+
+
+def _validate_certification_schemas(
+    validation: dict[str, Any], lifecycle: dict[str, Any]
+) -> None:
+    try:
+        Draft202012Validator(
+            _schema("prebundled-skill-validation-evidence.schema.json")
+        ).validate(validation)
+        Draft202012Validator(
+            _schema("skill-validation-deployment-evidence.schema.json")
+        ).validate(lifecycle)
+    except Exception as exc:
+        raise CertificationAssetError("certification_evidence_schema_invalid") from exc
+
+
+def _expected_release_binding(deployment: SkillValidationDeployment) -> dict[str, Any]:
+    return {
+        "id": deployment.release.id,
+        "specificationDigest": deployment.release.specification_digest,
+        "promotionEvidenceDigest": deployment.release.promotion_evidence_digest,
+        "agentUtilitiesSha256": deployment.release.agent_utilities_sha256,
+        "agentUtilitiesFileCount": deployment.release.agent_utilities_file_count,
+        "distributionClosureSha256": deployment.release.distribution_closure_sha256,
+        "releasePythonSha256": deployment.release.release_python_sha256,
+        "graphOsDigest": deployment.release.graph_os_digest,
+        "engineDigest": deployment.release.engine_digest,
+    }
+
+
+def _expected_runtime_binding(deployment: SkillValidationDeployment) -> dict[str, Any]:
+    return {
+        "configurationDigest": deployment.runtime.configuration_digest,
+        "profileDigest": deployment.runtime.profile_digest,
+        "modelRegistryDigest": deployment.runtime.model_registry.digest,
+    }
+
+
+def _verify_validation_release_binding(
+    validation: dict[str, Any], expected_release: dict[str, Any]
+) -> None:
+    validation_expected_release = {
+        key: value
+        for key, value in expected_release.items()
+        if key
+        not in {
+            "agentUtilitiesSha256",
+            "agentUtilitiesFileCount",
+            "distributionClosureSha256",
+            "releasePythonSha256",
+        }
+    }
+    if validation.get("release") != validation_expected_release:
+        raise CertificationAssetError("validation_release_binding_mismatch")
+
+
+def _verify_validation_runtime_binding(
+    validation: dict[str, Any], expected_runtime: dict[str, Any]
+) -> None:
+    validation_runtime = validation.get("runtime")
+    if not isinstance(validation_runtime, dict) or any(
+        validation_runtime.get(key) != value for key, value in expected_runtime.items()
+    ):
+        raise CertificationAssetError("validation_runtime_binding_mismatch")
+
+
+def _verify_validation_catalog_binding(
+    validation: dict[str, Any], catalogs: dict[str, Any]
+) -> None:
+    expected_catalog = {
+        "skillCount": _SKILL_COUNT,
+        "skillCatalogDigest": prebundled_skill_catalog_digest(SKILLS_ROOT),
+        "testCaseCount": _CASE_COUNT,
+        "testCatalogDigest": catalogs["testCatalogDigest"],
+        "caseCatalogDigest": catalogs["caseCatalogDigest"],
+    }
+    if validation.get("catalog") != expected_catalog:
+        raise CertificationAssetError("validation_catalog_binding_mismatch")
+
+
+def _verify_one_case_binding(
+    item: Any, expected_cases: dict[str, Any], catalogs: dict[str, Any]
+) -> None:
+    if not isinstance(item, dict):
+        raise CertificationAssetError("validation_case_binding_mismatch")
+    case_id = str(item.get("caseId") or "")
+    expected_case = expected_cases.get(case_id)
+    if expected_case is None or (
+        item.get("caseDigest") != catalogs["caseDigests"].get(case_id)
+        or item.get("skill") != expected_case.skill
+        or item.get("mode") != expected_case.mode
+        or item.get("modelClass") != expected_case.model_class
+        or item.get("status") != "pass"
+    ):
+        raise CertificationAssetError("validation_case_binding_mismatch")
+
+
+def _verify_validation_case_binding(
+    validation: dict[str, Any], cases: list[Any], catalogs: dict[str, Any]
+) -> None:
+    evidence_cases = validation.get("cases")
+    expected_cases = {case.case_id: case for case in cases}
+    if not isinstance(evidence_cases, list) or len(evidence_cases) != _CASE_COUNT:
+        raise CertificationAssetError("validation_case_binding_mismatch")
+    for item in evidence_cases:
+        _verify_one_case_binding(item, expected_cases, catalogs)
+
+
+def _verify_validation_result(validation: dict[str, Any]) -> None:
+    result = validation.get("result")
+    if not isinstance(result, dict) or result.get("status") != "pass":
+        raise CertificationAssetError("validation_result_failed")
+
+
+def _verify_validation_document(
+    validation: dict[str, Any],
+    expected_release: dict[str, Any],
+    expected_runtime: dict[str, Any],
+    cases: list[Any],
+    catalogs: dict[str, Any],
+) -> None:
+    _verify_validation_release_binding(validation, expected_release)
+    _verify_validation_runtime_binding(validation, expected_runtime)
+    _verify_validation_catalog_binding(validation, catalogs)
+    _verify_validation_case_binding(validation, cases, catalogs)
+    _verify_validation_result(validation)
+
+
+def _verify_lifecycle_release_runtime_binding(
+    lifecycle: dict[str, Any],
+    expected_release: dict[str, Any],
+    expected_runtime: dict[str, Any],
+) -> None:
+    if (
+        lifecycle.get("release") != expected_release
+        or lifecycle.get("runtime") != expected_runtime
+    ):
+        raise CertificationAssetError("lifecycle_binding_mismatch")
+
+
+def _verify_lifecycle_identity_authority(
+    lifecycle: dict[str, Any], deployment: SkillValidationDeployment
+) -> None:
+    identity_authority = lifecycle.get("identityAuthority")
+    if (
+        not isinstance(identity_authority, dict)
+        or identity_authority.get("mode") != deployment.identity_authority.mode
+        or identity_authority.get("lifecycleCounts")
+        != {"before": 0, "running": 1, "after": 0}
+        or identity_authority.get("tlsVerified") is not True
+        or identity_authority.get("renewableCredentialsProven") is not True
+        or isinstance(identity_authority.get("tokenMintCount"), bool)
+        or not isinstance(identity_authority.get("tokenMintCount"), int)
+        or identity_authority["tokenMintCount"] < 2
+        or identity_authority.get("reaped") is not True
+    ):
+        raise CertificationAssetError("lifecycle_identity_authority_mismatch")
+
+
+def _verify_lifecycle_model_transport_proof(
+    lifecycle: dict[str, Any], deployment: SkillValidationDeployment
+) -> None:
+    if lifecycle.get("modelTransportProof") != {
+        "modelCount": 2,
+        "literalPrivateModelCount": (
+            deployment.runtime.model_registry.literal_private_model_count
+        ),
+        "privateDnsModelCount": (
+            deployment.runtime.model_registry.private_dns_model_count
+        ),
+        "privateDnsUniqueResolutionProven": True,
+        "privateBoundaryProven": True,
+        "dnsRebindingGuarded": True,
+    }:
+        raise CertificationAssetError("lifecycle_model_transport_proof_mismatch")
+
+
+def _verify_lifecycle_process_gate(
+    lifecycle: dict[str, Any], deployment: SkillValidationDeployment
+) -> None:
+    process_gate = lifecycle.get("processGate")
+    if (
+        not isinstance(process_gate, dict)
+        or process_gate.get("engineExecutableDigest")
+        != deployment.release.engine_digest
+    ):
+        raise CertificationAssetError("lifecycle_engine_binding_mismatch")
+    if process_gate.get("terminalProcessCounts") != {
+        "langfuseMcpChildren": 0,
+        "loopbackOidcFixtures": 0,
+    }:
+        raise CertificationAssetError("lifecycle_terminal_process_count_mismatch")
+
+
+def _verify_lifecycle_validation_binding(
+    lifecycle: dict[str, Any], validation_payload: bytes
+) -> None:
+    lifecycle_validation = lifecycle.get("validation")
+    if (
+        not isinstance(lifecycle_validation, dict)
+        or lifecycle_validation.get("evidenceDigest") != _digest(validation_payload)
+        or lifecycle_validation.get("caseCount") != _CASE_COUNT
+        or lifecycle.get("result") != "pass"
+    ):
+        raise CertificationAssetError("lifecycle_validation_binding_mismatch")
+
+
+def _verify_lifecycle_document(
+    lifecycle: dict[str, Any],
+    deployment: SkillValidationDeployment,
+    expected_release: dict[str, Any],
+    expected_runtime: dict[str, Any],
+    validation_payload: bytes,
+) -> None:
+    _verify_lifecycle_release_runtime_binding(
+        lifecycle, expected_release, expected_runtime
+    )
+    _verify_lifecycle_identity_authority(lifecycle, deployment)
+    _verify_lifecycle_model_transport_proof(lifecycle, deployment)
+    _verify_lifecycle_process_gate(lifecycle, deployment)
+    _verify_lifecycle_validation_binding(lifecycle, validation_payload)
 
 
 def verify_certification_documents(
@@ -1034,15 +1341,7 @@ def verify_certification_documents(
     lifecycle, _lifecycle_payload = _signed_document(
         lifecycle_evidence_path, code="lifecycle_evidence_invalid"
     )
-    try:
-        Draft202012Validator(
-            _schema("prebundled-skill-validation-evidence.schema.json")
-        ).validate(validation)
-        Draft202012Validator(
-            _schema("skill-validation-deployment-evidence.schema.json")
-        ).validate(lifecycle)
-    except Exception as exc:
-        raise CertificationAssetError("certification_evidence_schema_invalid") from exc
+    _validate_certification_schemas(validation, lifecycle)
     verify_signed_evidence(
         validation,
         verifier_reference=deployment.validation.verifier_command_reference,
@@ -1051,123 +1350,16 @@ def verify_certification_documents(
         lifecycle,
         verifier_reference=deployment.validation.verifier_command_reference,
     )
-    expected_release = {
-        "id": deployment.release.id,
-        "specificationDigest": deployment.release.specification_digest,
-        "promotionEvidenceDigest": deployment.release.promotion_evidence_digest,
-        "agentUtilitiesSha256": deployment.release.agent_utilities_sha256,
-        "agentUtilitiesFileCount": deployment.release.agent_utilities_file_count,
-        "distributionClosureSha256": deployment.release.distribution_closure_sha256,
-        "releasePythonSha256": deployment.release.release_python_sha256,
-        "graphOsDigest": deployment.release.graph_os_digest,
-        "engineDigest": deployment.release.engine_digest,
-    }
-    expected_runtime = {
-        "configurationDigest": deployment.runtime.configuration_digest,
-        "profileDigest": deployment.runtime.profile_digest,
-        "modelRegistryDigest": deployment.runtime.model_registry.digest,
-    }
-    validation_expected_release = {
-        key: value
-        for key, value in expected_release.items()
-        if key
-        not in {
-            "agentUtilitiesSha256",
-            "agentUtilitiesFileCount",
-            "distributionClosureSha256",
-            "releasePythonSha256",
-        }
-    }
-    if validation.get("release") != validation_expected_release:
-        raise CertificationAssetError("validation_release_binding_mismatch")
-    validation_runtime = validation.get("runtime")
-    if not isinstance(validation_runtime, dict) or any(
-        validation_runtime.get(key) != value for key, value in expected_runtime.items()
-    ):
-        raise CertificationAssetError("validation_runtime_binding_mismatch")
+    expected_release = _expected_release_binding(deployment)
+    expected_runtime = _expected_runtime_binding(deployment)
     _defaults, cases = load_matrix()
     catalogs = _test_catalog_evidence(cases)
-    expected_catalog = {
-        "skillCount": _SKILL_COUNT,
-        "skillCatalogDigest": prebundled_skill_catalog_digest(SKILLS_ROOT),
-        "testCaseCount": _CASE_COUNT,
-        "testCatalogDigest": catalogs["testCatalogDigest"],
-        "caseCatalogDigest": catalogs["caseCatalogDigest"],
-    }
-    if validation.get("catalog") != expected_catalog:
-        raise CertificationAssetError("validation_catalog_binding_mismatch")
-    evidence_cases = validation.get("cases")
-    expected_cases = {case.case_id: case for case in cases}
-    if not isinstance(evidence_cases, list) or len(evidence_cases) != _CASE_COUNT:
-        raise CertificationAssetError("validation_case_binding_mismatch")
-    for item in evidence_cases:
-        if not isinstance(item, dict):
-            raise CertificationAssetError("validation_case_binding_mismatch")
-        case_id = str(item.get("caseId") or "")
-        expected_case = expected_cases.get(case_id)
-        if expected_case is None or (
-            item.get("caseDigest") != catalogs["caseDigests"].get(case_id)
-            or item.get("skill") != expected_case.skill
-            or item.get("mode") != expected_case.mode
-            or item.get("modelClass") != expected_case.model_class
-            or item.get("status") != "pass"
-        ):
-            raise CertificationAssetError("validation_case_binding_mismatch")
-    result = validation.get("result")
-    if not isinstance(result, dict) or result.get("status") != "pass":
-        raise CertificationAssetError("validation_result_failed")
-    if (
-        lifecycle.get("release") != expected_release
-        or lifecycle.get("runtime") != expected_runtime
-    ):
-        raise CertificationAssetError("lifecycle_binding_mismatch")
-    identity_authority = lifecycle.get("identityAuthority")
-    if (
-        not isinstance(identity_authority, dict)
-        or identity_authority.get("mode") != deployment.identity_authority.mode
-        or identity_authority.get("lifecycleCounts")
-        != {"before": 0, "running": 1, "after": 0}
-        or identity_authority.get("tlsVerified") is not True
-        or identity_authority.get("renewableCredentialsProven") is not True
-        or isinstance(identity_authority.get("tokenMintCount"), bool)
-        or not isinstance(identity_authority.get("tokenMintCount"), int)
-        or identity_authority["tokenMintCount"] < 2
-        or identity_authority.get("reaped") is not True
-    ):
-        raise CertificationAssetError("lifecycle_identity_authority_mismatch")
-    if lifecycle.get("modelTransportProof") != {
-        "modelCount": 2,
-        "literalPrivateModelCount": (
-            deployment.runtime.model_registry.literal_private_model_count
-        ),
-        "privateDnsModelCount": (
-            deployment.runtime.model_registry.private_dns_model_count
-        ),
-        "privateDnsUniqueResolutionProven": True,
-        "privateBoundaryProven": True,
-        "dnsRebindingGuarded": True,
-    }:
-        raise CertificationAssetError("lifecycle_model_transport_proof_mismatch")
-    process_gate = lifecycle.get("processGate")
-    if (
-        not isinstance(process_gate, dict)
-        or process_gate.get("engineExecutableDigest")
-        != deployment.release.engine_digest
-    ):
-        raise CertificationAssetError("lifecycle_engine_binding_mismatch")
-    if process_gate.get("terminalProcessCounts") != {
-        "langfuseMcpChildren": 0,
-        "loopbackOidcFixtures": 0,
-    }:
-        raise CertificationAssetError("lifecycle_terminal_process_count_mismatch")
-    lifecycle_validation = lifecycle.get("validation")
-    if (
-        not isinstance(lifecycle_validation, dict)
-        or lifecycle_validation.get("evidenceDigest") != _digest(validation_payload)
-        or lifecycle_validation.get("caseCount") != _CASE_COUNT
-        or lifecycle.get("result") != "pass"
-    ):
-        raise CertificationAssetError("lifecycle_validation_binding_mismatch")
+    _verify_validation_document(
+        validation, expected_release, expected_runtime, cases, catalogs
+    )
+    _verify_lifecycle_document(
+        lifecycle, deployment, expected_release, expected_runtime, validation_payload
+    )
 
 
 def _generator_arguments(argv: list[str] | None = None) -> argparse.Namespace:
