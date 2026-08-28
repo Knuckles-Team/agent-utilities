@@ -2987,7 +2987,9 @@ class DataPrepService:
         }
 
 
-def _json_payload(raw: Any) -> Mapping[str, Any]:
+def _decode_json_payload(raw: Any) -> dict[str, Any]:
+    """Decode+shape-check the raw ``params_json`` string into a plain dict."""
+
     if not isinstance(raw, str):
         raise DataPrepToolError("params_json must be a JSON object")
     if len(raw.encode("utf-8")) > _MAX_PARAMS_BYTES:
@@ -2998,6 +3000,12 @@ def _json_payload(raw: Any) -> Mapping[str, Any]:
         raise DataPrepToolError("params_json must be valid JSON") from exc
     if not isinstance(value, dict):
         raise DataPrepToolError("params_json must decode to a JSON object")
+    return value
+
+
+def _check_forbidden_fields(value: Mapping[str, Any]) -> None:
+    """Reject inline bytes/paths/executable-code/checkpoint fields."""
+
     forbidden = {
         "arrow_ipc",
         "bytes",
@@ -3014,6 +3022,11 @@ def _json_payload(raw: Any) -> Mapping[str, Any]:
         raise DataPrepToolError(
             "inline bytes, paths, executable code and checkpoints are forbidden"
         )
+
+
+def _normalize_plan_field(value: dict[str, Any]) -> None:
+    """Decode a string-encoded ``plan`` field in place; bound its size."""
+
     plan = value.get("plan")
     if isinstance(plan, str):
         try:
@@ -3028,6 +3041,12 @@ def _json_payload(raw: Any) -> Mapping[str, Any]:
         raise
     except (TypeError, ValueError) as exc:
         raise DataPrepToolError("plan must be a JSON object") from exc
+
+
+def _json_payload(raw: Any) -> Mapping[str, Any]:
+    value = _decode_json_payload(raw)
+    _check_forbidden_fields(value)
+    _normalize_plan_field(value)
     return value
 
 
