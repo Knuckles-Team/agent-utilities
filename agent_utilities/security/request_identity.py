@@ -137,6 +137,26 @@ OPTIONAL_CARRIER_CLAIM_FIELDS: frozenset[str] = frozenset(
 )
 
 
+def _validate_carrier_scalar_fields(claims: dict[str, Any]) -> None:
+    scalar_fields = ("principal", "tenant", "audience", "agent_id", "policy_version")
+    for scalar_field in scalar_fields:
+        value = claims[scalar_field]
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(
+                f"carrier claim {scalar_field!r} must be a non-empty string"
+            )
+
+
+def _validate_carrier_list_fields(claims: dict[str, Any]) -> None:
+    for list_field in ("roles", "scopes", "delegation"):
+        value = claims[list_field]
+        is_str_list = isinstance(value, list) and all(
+            isinstance(item, str) for item in value
+        )
+        if not is_str_list:
+            raise ValueError(f"carrier claim {list_field!r} must be a list of strings")
+
+
 def validate_carrier_claims(claims: dict[str, Any]) -> None:
     """Fail closed if ``claims`` is not a well-formed verified-carrier dict.
 
@@ -163,20 +183,8 @@ def validate_carrier_claims(claims: dict[str, Any]) -> None:
     missing = CARRIER_CLAIM_FIELDS - set(claims)
     if missing:
         raise ValueError(f"carrier claims missing required field(s): {sorted(missing)}")
-    scalar_fields = ("principal", "tenant", "audience", "agent_id", "policy_version")
-    for scalar_field in scalar_fields:
-        value = claims[scalar_field]
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError(
-                f"carrier claim {scalar_field!r} must be a non-empty string"
-            )
-    for list_field in ("roles", "scopes", "delegation"):
-        value = claims[list_field]
-        is_str_list = isinstance(value, list) and all(
-            isinstance(item, str) for item in value
-        )
-        if not is_str_list:
-            raise ValueError(f"carrier claim {list_field!r} must be a list of strings")
+    _validate_carrier_scalar_fields(claims)
+    _validate_carrier_list_fields(claims)
 
 
 _LOCAL_PROCESS_ISSUER = "urn:agent-utilities:graph-os:local-process"
@@ -228,6 +236,47 @@ def mint_graph_session(actor: ActorContext) -> GraphSession:
     )
 
 
+def _assert_actor_authenticated(actor: ActorContext) -> None:
+    if not actor.authenticated:
+        raise PermissionError(
+            "A GraphSession can only be minted from authenticated identity"
+        )
+    if not str(actor.actor_id or "").strip():
+        raise PermissionError("Verified identity is missing its subject")
+
+
+def _resolve_authenticated_scopes(actor: ActorContext) -> frozenset[str]:
+    """Coarse KG scopes are hierarchical. A writer necessarily performs
+    authorization-safe precondition reads, while an administrator may do
+    both. Expand the hierarchy once at the trusted claims boundary so the
+    facade and the engine receive the same capability set."""
+    scopes = frozenset(str(role) for role in actor.roles) & _GRAPH_AUTH_SCOPES
+    if "kg:admin" in scopes:
+        return scopes | frozenset({"kg:read", "kg:write"})
+    if "kg:write" in scopes:
+        return scopes | frozenset({"kg:read"})
+    return scopes
+
+
+def _resolve_verified_tenant(actor: ActorContext) -> str:
+    tenant = str(actor.tenant_id or "").strip()
+    if not tenant:
+        raise PermissionError(
+            "Authenticated graph requests require a verified tenant claim"
+        )
+    return tenant
+
+
+def _assert_graph_authority(audience: str, policy_version: str) -> tuple[str, str]:
+    audience = str(audience or "").strip()
+    policy_version = str(policy_version or "").strip()
+    if not audience or not policy_version:
+        raise PermissionError(
+            "Verified graph authority is missing audience or policy revision"
+        )
+    return audience, policy_version
+
+
 def _mint_graph_session(
     actor: ActorContext,
     *,
@@ -242,12 +291,7 @@ def _mint_graph_session(
     ``catalog_epoch`` unbound. See the module docstring's *"Identity, not
     topology"* note for why binding a route here was a security defect.
     """
-    if not actor.authenticated:
-        raise PermissionError(
-            "A GraphSession can only be minted from authenticated identity"
-        )
-    if not str(actor.actor_id or "").strip():
-        raise PermissionError("Verified identity is missing its subject")
+    _assert_actor_authenticated(actor)
 
     from agent_utilities.knowledge_graph.core.session import GraphSession
     from agent_utilities.knowledge_graph.core.shard_topology import (
@@ -256,28 +300,11 @@ def _mint_graph_session(
     )
     from agent_utilities.observability import correlation
 
-    scopes = frozenset(str(role) for role in actor.roles) & _GRAPH_AUTH_SCOPES
-    # Coarse KG scopes are hierarchical.  A writer necessarily performs
-    # authorization-safe precondition reads, while an administrator may do
-    # both.  Expand the hierarchy once at the trusted claims boundary so the
-    # facade and the engine receive the same capability set.
-    if "kg:admin" in scopes:
-        scopes |= frozenset({"kg:read", "kg:write"})
-    elif "kg:write" in scopes:
-        scopes |= frozenset({"kg:read"})
-    tenant = str(actor.tenant_id or "").strip()
-    if not tenant:
-        raise PermissionError(
-            "Authenticated graph requests require a verified tenant claim"
-        )
+    scopes = _resolve_authenticated_scopes(actor)
+    tenant = _resolve_verified_tenant(actor)
     graph = tenant_graph_name(tenant, base=default_graph_name())
+    audience, policy_version = _assert_graph_authority(audience, policy_version)
 
-    audience = str(audience or "").strip()
-    policy_version = str(policy_version or "").strip()
-    if not audience or not policy_version:
-        raise PermissionError(
-            "Verified graph authority is missing audience or policy revision"
-        )
     # No route, no engine contact, no transport provisioning: the data plane
     # (``knowledge_graph/core/graph_compute.py``) binds the authoritative route
     # per call with the calling session already bound, and overwrites the
@@ -622,16 +649,8 @@ async def actor_from_bearer_token(token: str) -> ActorContext:
     return actor_from_claims(claims)
 
 
-def acquire_process_identity_token(config: Any = None) -> str:
-    """Acquire the graph process JWT from exactly one runtime identity source.
-
-    Configuration stores only secret references or an OAuth2 client-credentials
-    block. Token material is resolved/minted at startup and is never logged.
-    """
-    if config is None:
-        from agent_utilities.core.config import config as live_config
-
-        config = live_config
+def _resolve_process_identity_source(config: Any) -> tuple[str, Any]:
+    """``(token_ref, oauth2)`` — fail-closed unless EXACTLY one is configured."""
     token_ref = str(getattr(config, "kg_auth_token_ref", None) or "").strip()
     oauth2 = getattr(config, "kg_identity_oauth2", None)
     if bool(token_ref) == bool(oauth2):
@@ -639,16 +658,19 @@ def acquire_process_identity_token(config: Any = None) -> str:
             "Configure exactly one graph process identity source: "
             "KG_AUTH_TOKEN_REF or KG_IDENTITY_OAUTH2"
         )
+    return token_ref, oauth2
+
+
+def _fetch_process_identity_token(token_ref: str, oauth2: Any) -> str:
     try:
         if token_ref:
             from .cli_secrets import resolve_runtime_secret_reference
 
-            token = resolve_runtime_secret_reference(token_ref)
-        else:
-            from .oauth_client_credentials import build_provider_from_config
+            return resolve_runtime_secret_reference(token_ref)
+        from .oauth_client_credentials import build_provider_from_config
 
-            assert oauth2 is not None  # guaranteed by the XOR check above
-            token = build_provider_from_config(oauth2).get_token()
+        assert oauth2 is not None  # guaranteed by the XOR check above
+        return build_provider_from_config(oauth2).get_token()
     except Exception as exc:
         # BUG-PE-028: was `from None`, discarding the real cause (a
         # transport/TLS/secret-lookup failure) entirely -- a
@@ -661,6 +683,9 @@ def acquire_process_identity_token(config: Any = None) -> str:
         # (never echoes secret/token material), while `__cause__` keeps the
         # real exception available to server-side logs/tracebacks.
         raise RuntimeError("Graph process identity acquisition failed") from exc
+
+
+def _validate_process_identity_token(token: str) -> str:
     if (
         not isinstance(token, str)
         or not token
@@ -671,6 +696,21 @@ def acquire_process_identity_token(config: Any = None) -> str:
             "Graph process identity acquisition returned invalid material"
         )
     return token
+
+
+def acquire_process_identity_token(config: Any = None) -> str:
+    """Acquire the graph process JWT from exactly one runtime identity source.
+
+    Configuration stores only secret references or an OAuth2 client-credentials
+    block. Token material is resolved/minted at startup and is never logged.
+    """
+    if config is None:
+        from agent_utilities.core.config import config as live_config
+
+        config = live_config
+    token_ref, oauth2 = _resolve_process_identity_source(config)
+    token = _fetch_process_identity_token(token_ref, oauth2)
+    return _validate_process_identity_token(token)
 
 
 def mint_actor_from_token_sync(token: str) -> ActorContext:
@@ -731,6 +771,104 @@ async def _send_json(send: Any, status: int, payload: dict[str, Any]) -> None:
     await send({"type": "http.response.body", "body": body})
 
 
+async def _resolve_prevalidated_actor(
+    prevalidated: Any, send: Any
+) -> tuple[ActorContext | None, bool]:
+    """``(actor, handled)`` from the outer HTTP boundary's already-verified
+    claims — ``handled=True`` means a 401 was already sent and the caller
+    must return immediately without any further processing."""
+    if not (isinstance(prevalidated, dict) and prevalidated.get("auth_type") == "jwt"):
+        return None, False
+    # The outer HTTP authentication boundary already verified this
+    # credential. Reuse its claims rather than making a second JWKS
+    # lookup/verification pass with potentially different timing.
+    try:
+        return actor_from_claims(prevalidated), False
+    except (TypeError, ValueError):
+        await _send_json(send, 401, {"error": "Token validation failed"})
+        return None, True
+
+
+async def _resolve_bearer_actor(
+    token: str, send: Any
+) -> tuple[ActorContext | None, bool]:
+    """``(actor, handled)`` from a live JWKS bearer-token verification —
+    same ``handled`` contract as :func:`_resolve_prevalidated_actor`."""
+    from fastapi import HTTPException
+    from fastapi import status as http_status
+
+    try:
+        return await actor_from_bearer_token(token), False
+    except HTTPException as exc:
+        if exc.status_code == http_status.HTTP_401_UNAUTHORIZED:
+            await _send_json(send, 401, {"error": "Token validation failed"})
+            return None, True
+        # A verification-path fault that is NOT a credential rejection
+        # (currently only `_decode_jwt`'s 500 when its JWT dependency is
+        # missing) must surface loudly and distinctly, never collapse
+        # to a 401 — that collapse is exactly how a missing dependency
+        # was misreported as a rejected credential.
+        logger.error(
+            "JWT verification path failed (status=%s): %s",
+            exc.status_code,
+            exc.detail,
+        )
+        await _send_json(send, exc.status_code, {"error": exc.detail})
+        return None, True
+    except Exception:  # noqa: BLE001 — any other failure = invalid credential
+        await _send_json(send, 401, {"error": "Token validation failed"})
+        return None, True
+
+
+async def _resolve_request_actor(
+    token: str | None, prevalidated: Any, config: Any, send: Any
+) -> tuple[ActorContext | None, bool]:
+    """``(actor, handled)`` — tries prevalidated claims first, then a live
+    bearer-token verification, in the SAME order and under the SAME JWKS
+    availability gate as the original inline sequence."""
+    actor, handled = await _resolve_prevalidated_actor(prevalidated, send)
+    if handled:
+        return None, True
+    if token and not config.auth_jwt_jwks_uri:
+        await _send_json(send, 401, {"error": "Token validation unavailable"})
+        return None, True
+    if token and actor is None:
+        actor, handled = await _resolve_bearer_actor(token, send)
+        if handled:
+            return None, True
+    return actor, False
+
+
+def _extract_authorization_headers(scope: Any) -> list[Any]:
+    return [
+        value
+        for key, value in scope.get("headers") or []
+        if isinstance(key, bytes) and key.lower() == b"authorization"
+    ]
+
+
+def _extract_prevalidated_claims(scope: Any) -> Any:
+    state = scope.get("state") or {}
+    return state.get("user_claims") if isinstance(state, dict) else None
+
+
+async def _mint_request_session(
+    actor: ActorContext, send: Any
+) -> tuple[GraphSession | None, bool]:
+    """``(session, handled)`` — mints the server-owned GraphSession or sends
+    the matching 401/403 and reports ``handled=True``."""
+    from agent_utilities.knowledge_graph.core.session import SessionExpiredError
+
+    try:
+        return mint_graph_session(actor), False
+    except SessionExpiredError:
+        await _send_json(send, 401, {"error": "Bearer credential expired"})
+        return None, True
+    except PermissionError:
+        await _send_json(send, 403, {"error": "Verified tenant claim required"})
+        return None, True
+
+
 class ActorIdentityMiddleware:
     """Pure-ASGI middleware that mints the request's ActorContext from a JWT.
 
@@ -750,113 +888,55 @@ class ActorIdentityMiddleware:
     def __init__(self, app: Any) -> None:
         self.app = app
 
-    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
-        if scope.get("type") != "http":
+    async def _serve_unauthenticated_path(
+        self, scope: Any, receive: Any, send: Any, path: str
+    ) -> None:
+        """Handle the ``actor is None`` case: 401 unless ``path`` is exempt,
+        in which case it is served under an explicit non-authoritative
+        health-probe actor with no inherited GraphSession."""
+        if path not in UNAUTHENTICATED_PATHS:
+            await _send_json(
+                send,
+                401,
+                {"error": "Verified Bearer identity required"},
+            )
+            return
+        # Liveness is deliberately unauthenticated.  Scope it to an
+        # explicit non-authoritative actor and suppress any GraphSession
+        # inherited from a parent task so health handlers cannot observe or
+        # accidentally reuse process/request authority.
+        from agent_utilities.knowledge_graph.core.session import suspend_session
+
+        with (
+            use_actor(
+                ActorContext(
+                    actor_id="health-probe",
+                    tenant_id="health",
+                    authenticated=False,
+                )
+            ),
+            suspend_session(),
+        ):
             await self.app(scope, receive, send)
-            return
 
-        from agent_utilities.core.config import config
-
-        path = scope.get("path", "")
-        state = scope.get("state") or {}
-        prevalidated = state.get("user_claims") if isinstance(state, dict) else None
-        from .auth import parse_bearer_authorization
-
-        authorization = [
-            value
-            for key, value in scope.get("headers") or []
-            if isinstance(key, bytes) and key.lower() == b"authorization"
-        ]
-        try:
-            token = parse_bearer_authorization(authorization)
-        except PermissionError:
-            await _send_json(send, 401, {"error": "Verified Bearer identity required"})
-            return
-
-        actor: ActorContext | None = None
-        if isinstance(prevalidated, dict) and prevalidated.get("auth_type") == "jwt":
-            # The outer HTTP authentication boundary already verified this
-            # credential. Reuse its claims rather than making a second JWKS
-            # lookup/verification pass with potentially different timing.
-            try:
-                actor = actor_from_claims(prevalidated)
-            except (TypeError, ValueError):
-                await _send_json(send, 401, {"error": "Token validation failed"})
-                return
-        if token and not config.auth_jwt_jwks_uri:
-            await _send_json(send, 401, {"error": "Token validation unavailable"})
-            return
-
-        if token and actor is None:
-            from fastapi import HTTPException
-            from fastapi import status as http_status
-
-            try:
-                actor = await actor_from_bearer_token(token)
-            except HTTPException as exc:
-                if exc.status_code == http_status.HTTP_401_UNAUTHORIZED:
-                    await _send_json(send, 401, {"error": "Token validation failed"})
-                    return
-                # A verification-path fault that is NOT a credential rejection
-                # (currently only `_decode_jwt`'s 500 when its JWT dependency is
-                # missing) must surface loudly and distinctly, never collapse
-                # to a 401 — that collapse is exactly how a missing dependency
-                # was misreported as a rejected credential.
-                logger.error(
-                    "JWT verification path failed (status=%s): %s",
-                    exc.status_code,
-                    exc.detail,
-                )
-                await _send_json(send, exc.status_code, {"error": exc.detail})
-                return
-            except Exception:  # noqa: BLE001 — any other failure = invalid credential
-                await _send_json(send, 401, {"error": "Token validation failed"})
-                return
-
-        if actor is None:
-            if path not in UNAUTHENTICATED_PATHS:
-                await _send_json(
-                    send,
-                    401,
-                    {"error": "Verified Bearer identity required"},
-                )
-                return
-            # Liveness is deliberately unauthenticated.  Scope it to an
-            # explicit non-authoritative actor and suppress any GraphSession
-            # inherited from a parent task so health handlers cannot observe or
-            # accidentally reuse process/request authority.
-            from agent_utilities.knowledge_graph.core.session import suspend_session
-
-            with (
-                use_actor(
-                    ActorContext(
-                        actor_id="health-probe",
-                        tenant_id="health",
-                        authenticated=False,
-                    )
-                ),
-                suspend_session(),
-            ):
-                await self.app(scope, receive, send)
-            return
-
-        # The authenticated request establishes both ambient currencies.  The
-        # session is minted here, outside every served route, so async tasks and
-        # worker-thread dispatch inherit one immutable, verified authority.
+    async def _dispatch_authenticated(
+        self,
+        scope: Any,
+        receive: Any,
+        send: Any,
+        actor: ActorContext,
+        session: GraphSession,
+    ) -> None:
+        """Bind actor+session context vars for the app call, dispatch, and
+        unwind them — degrading a credential/session expiry to 401 only if
+        no response has been sent yet (a started response cannot be
+        rewritten, so it must re-raise instead)."""
         from agent_utilities.knowledge_graph.core.session import (
             SessionExpiredError,
             reset_session,
             set_session,
         )
 
-        try:
-            session = mint_graph_session(actor)
-        except SessionExpiredError:
-            await _send_json(send, 401, {"error": "Bearer credential expired"})
-            return
-        except PermissionError:
-            await _send_json(send, 403, {"error": "Verified tenant claim required"})
-            return
         try:
             ctx_token = set_actor(actor)
             try:
@@ -885,6 +965,42 @@ class ActorIdentityMiddleware:
         finally:
             reset_session(session_token)
             reset_actor(ctx_token)
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+
+        from agent_utilities.core.config import config
+
+        from .auth import parse_bearer_authorization
+
+        path = scope.get("path", "")
+        prevalidated = _extract_prevalidated_claims(scope)
+
+        try:
+            token = parse_bearer_authorization(_extract_authorization_headers(scope))
+        except PermissionError:
+            await _send_json(send, 401, {"error": "Verified Bearer identity required"})
+            return
+
+        actor, handled = await _resolve_request_actor(token, prevalidated, config, send)
+        if handled:
+            return
+
+        if actor is None:
+            await self._serve_unauthenticated_path(scope, receive, send, path)
+            return
+
+        # The authenticated request establishes both ambient currencies.  The
+        # session is minted here, outside every served route, so async tasks and
+        # worker-thread dispatch inherit one immutable, verified authority.
+        session, handled = await _mint_request_session(actor, send)
+        if handled:
+            return
+        assert session is not None  # guaranteed by _mint_request_session's contract
+
+        await self._dispatch_authenticated(scope, receive, send, actor, session)
 
 
 __all__ = [
