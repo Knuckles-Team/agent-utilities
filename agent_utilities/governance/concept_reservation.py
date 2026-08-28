@@ -33,7 +33,7 @@ import inspect
 import json
 import re
 import threading
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -170,6 +170,20 @@ def _validate_cursor(cursor: object, field_name: str = "cursor") -> str | None:
     return cursor
 
 
+def _parse_offset_cursor(cursor: str | None) -> int:
+    """Decode the fixture authority's plain-integer offset cursor."""
+
+    if not cursor:
+        return 0
+    try:
+        offset = int(cursor)
+    except ValueError as exc:
+        raise ConceptReservationError("cursor is invalid") from exc
+    if offset < 0:
+        raise ConceptReservationError("cursor is invalid")
+    return offset
+
+
 def _nonblank(value: object, field_name: str) -> str:
     if not isinstance(value, str) or not value or value.strip() != value:
         raise ConceptReservationError(f"{field_name} must be a non-blank string")
@@ -223,6 +237,11 @@ def _parse_time(value: object, field_name: str) -> datetime:
     return parsed.astimezone(UTC)
 
 
+def _optional_time(value: Mapping[str, Any], field_name: str) -> datetime | None:
+    raw = value.get(field_name)
+    return _parse_time(raw, field_name) if raw else None
+
+
 def _refs(values: Iterable[object] | None, field_name: str) -> tuple[str, ...]:
     if values is None:
         return ()
@@ -272,13 +291,21 @@ class ConceptNamespacePolicy:
         if not concept_id.startswith(self.namespace + "."):
             return False
         tail = concept_id[len(self.namespace) + 1 :]
-        if self.concept_prefixes and not any(
+        if not self._prefix_matches(tail):
+            return False
+        return self._range_matches(tail)
+
+    def _prefix_matches(self, tail: str) -> bool:
+        if not self.concept_prefixes:
+            return True
+        return any(
             tail == prefix
             or tail.startswith(prefix + ".")
             or tail.startswith(prefix + "-")
             for prefix in self.concept_prefixes
-        ):
-            return False
+        )
+
+    def _range_matches(self, tail: str) -> bool:
         if self.range_start is None and self.range_end is None:
             return True
         match = re.search(r"-(\d+)(?:\.|$)", tail)
@@ -384,29 +411,9 @@ class ConceptReservationRequest:
     provenance_refs: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        parsed = parse_okf_id(self.concept_id)
-        if not is_valid_domain(parsed.pillar, parsed.domain):
-            raise ConceptReservationError(
-                f"domain {parsed.domain!r} is not registered for pillar {parsed.pillar!r}"
-            )
-        _reference(self.tenant_ref, "tenant_ref")
-        _reference(self.repository_ref, "repository_ref")
-        _reference(self.lane_ref, "lane_ref")
-        _reference(self.owner_ref, "owner_ref")
-        _reference(self.request_key_ref, "request_key_ref")
-        if self.design_ref is not None:
-            _reference(self.design_ref, "design_ref")
-        if not _DIGEST_RE.fullmatch(self.purpose_digest):
-            raise ConceptReservationError("purpose_digest must be a SHA-256 digest")
-        if self.range_start is not None and self.range_start < 0:
-            raise ConceptReservationError("range_start must be non-negative")
-        if self.range_end is not None and (
-            self.range_end < 0
-            or (self.range_start is not None and self.range_end < self.range_start)
-        ):
-            raise ConceptReservationError("range_end is invalid")
-        if self.policy_version:
-            _nonblank(self.policy_version, "policy_version")
+        self._validate_domain()
+        self._validate_references()
+        self._validate_bounds()
         if self.expires_at <= self.created_at:
             raise ConceptReservationError("expires_at must be after created_at")
         namespace = _nonblank(self.namespace, "namespace")
@@ -418,6 +425,35 @@ class ConceptReservationRequest:
         object.__setattr__(
             self, "provenance_refs", _refs(self.provenance_refs, "provenance_refs")
         )
+
+    def _validate_domain(self) -> None:
+        parsed = parse_okf_id(self.concept_id)
+        if not is_valid_domain(parsed.pillar, parsed.domain):
+            raise ConceptReservationError(
+                f"domain {parsed.domain!r} is not registered for pillar {parsed.pillar!r}"
+            )
+
+    def _validate_references(self) -> None:
+        _reference(self.tenant_ref, "tenant_ref")
+        _reference(self.repository_ref, "repository_ref")
+        _reference(self.lane_ref, "lane_ref")
+        _reference(self.owner_ref, "owner_ref")
+        _reference(self.request_key_ref, "request_key_ref")
+        if self.design_ref is not None:
+            _reference(self.design_ref, "design_ref")
+
+    def _validate_bounds(self) -> None:
+        if not _DIGEST_RE.fullmatch(self.purpose_digest):
+            raise ConceptReservationError("purpose_digest must be a SHA-256 digest")
+        if self.range_start is not None and self.range_start < 0:
+            raise ConceptReservationError("range_start must be non-negative")
+        if self.range_end is not None and (
+            self.range_end < 0
+            or (self.range_start is not None and self.range_end < self.range_start)
+        ):
+            raise ConceptReservationError("range_end is invalid")
+        if self.policy_version:
+            _nonblank(self.policy_version, "policy_version")
 
     @property
     def immutable_fingerprint(self) -> str:
@@ -452,6 +488,36 @@ class ConceptReservationRequest:
                 expires_at=_iso(self.expires_at),
             )
         return payload
+
+
+def _request_conflicts_with_policy(
+    request: ConceptReservationRequest, policy: ConceptNamespacePolicy
+) -> bool:
+    """True if a caller's namespace/range/policy_version diverges from the
+    authority-owned policy it matched -- shared by both authority
+    implementations' ``_normalize_request``."""
+
+    return (
+        request.namespace != policy.namespace
+        or (
+            request.range_start is not None
+            and request.range_start != policy.range_start
+        )
+        or (request.range_end is not None and request.range_end != policy.range_end)
+        or (request.policy_version and request.policy_version != policy.policy_version)
+    )
+
+
+def _normalized_for_policy(
+    request: ConceptReservationRequest, policy: ConceptNamespacePolicy
+) -> ConceptReservationRequest:
+    return replace(
+        request,
+        namespace=policy.namespace,
+        range_start=policy.range_start,
+        range_end=policy.range_end,
+        policy_version=policy.policy_version,
+    )
 
 
 def reservation_request(
@@ -560,6 +626,12 @@ class ConceptReservationRecord:
     tombstoned_at: datetime | None = None
 
     def __post_init__(self) -> None:
+        self._validate_identity()
+        times = self._lifecycle_times()
+        self._validate_timestamps(times)
+        _RECORD_STATE_VALIDATORS[self.state](self, times)
+
+    def _validate_identity(self) -> None:
         _reference(self.reservation_id, "reservation_id")
         if not isinstance(self.state, ConceptReservationState):
             raise ConceptReservationError("record state is invalid")
@@ -571,13 +643,17 @@ class ConceptReservationRecord:
             raise ConceptReservationError("record expiry must follow creation")
         if self.transitioned_at < self.created_at:
             raise ConceptReservationError("transition timestamp precedes creation")
-        times = {
+
+    def _lifecycle_times(self) -> dict[str, datetime | None]:
+        return {
             "materialized_at": self.materialized_at,
             "landed_at": self.landed_at,
             "released_at": self.released_at,
             "expired_at": self.expired_at,
             "tombstoned_at": self.tombstoned_at,
         }
+
+    def _validate_timestamps(self, times: dict[str, datetime | None]) -> None:
         if any(
             value is not None and value < self.created_at for value in times.values()
         ):
@@ -589,60 +665,6 @@ class ConceptReservationRecord:
             if value > self.transitioned_at or value < previous_time:
                 raise ConceptReservationError("lifecycle timestamps are not monotonic")
             previous_time = value
-        state = self.state
-        if state is ConceptReservationState.RESERVED and (
-            self.visibility is not ConceptReservationVisibility.PRIVATE
-            or any(value is not None for value in times.values())
-        ):
-            raise ConceptReservationError(
-                "reserved record has advanced lifecycle fields"
-            )
-        if state is ConceptReservationState.MATERIALIZED and (
-            _VISIBILITY_RANK[self.visibility]
-            < _VISIBILITY_RANK[ConceptReservationVisibility.FRAGMENT]
-            or self.materialized_at is None
-            or any(
-                value is not None
-                for value in (
-                    self.landed_at,
-                    self.released_at,
-                    self.expired_at,
-                    self.tombstoned_at,
-                )
-            )
-        ):
-            raise ConceptReservationError("materialized record is inconsistent")
-        if state is ConceptReservationState.LANDED and (
-            _VISIBILITY_RANK[self.visibility]
-            < _VISIBILITY_RANK[ConceptReservationVisibility.REPOSITORY]
-            or self.materialized_at is None
-            or self.landed_at is None
-            or self.tombstoned_at is not None
-        ):
-            raise ConceptReservationError("landed record is inconsistent")
-        if state is ConceptReservationState.RELEASED and (
-            _VISIBILITY_RANK[self.visibility]
-            >= _VISIBILITY_RANK[ConceptReservationVisibility.REPOSITORY]
-            or self.released_at is None
-            or self.landed_at is not None
-            or self.tombstoned_at is not None
-        ):
-            raise ConceptReservationError("released record is externally visible")
-        if state is ConceptReservationState.EXPIRED and (
-            _VISIBILITY_RANK[self.visibility]
-            >= _VISIBILITY_RANK[ConceptReservationVisibility.REPOSITORY]
-            or self.expired_at is None
-            or self.landed_at is not None
-            or self.tombstoned_at is not None
-        ):
-            raise ConceptReservationError("expired record is externally visible")
-        if state is ConceptReservationState.TOMBSTONED and (
-            self.visibility is not ConceptReservationVisibility.EXTERNAL
-            or self.tombstoned_at is None
-        ):
-            raise ConceptReservationError(
-                "tombstoned record must be externally visible"
-            )
 
     @property
     def concept_id(self) -> str:
@@ -682,13 +704,9 @@ class ConceptReservationRecord:
         )
         return value
 
-    @classmethod
-    def from_wire(cls, value: Mapping[str, Any]) -> Self:
-        if value.get("schema_version") != SCHEMA_VERSION:
-            raise ConceptReservationError(
-                "concept reservation schema_version is unsupported"
-            )
-        request = ConceptReservationRequest(
+    @staticmethod
+    def _request_from_wire(value: Mapping[str, Any]) -> ConceptReservationRequest:
+        return ConceptReservationRequest(
             tenant_ref=_reference(value.get("tenant_ref"), "tenant_ref"),
             concept_id=_nonblank(value.get("concept_id"), "concept_id"),
             namespace=_nonblank(value.get("namespace"), "namespace"),
@@ -709,13 +727,29 @@ class ConceptReservationRecord:
             policy_version=str(value.get("policy_version") or ""),
             provenance_refs=_refs(value.get("provenance_refs"), "provenance_refs"),
         )
+
+    @staticmethod
+    def _lifecycle_enums_from_wire(
+        value: Mapping[str, Any],
+    ) -> tuple[ConceptReservationState, ConceptReservationVisibility]:
         try:
-            state = ConceptReservationState(str(value.get("state")))
-            visibility = ConceptReservationVisibility(str(value.get("visibility")))
+            return (
+                ConceptReservationState(str(value.get("state"))),
+                ConceptReservationVisibility(str(value.get("visibility"))),
+            )
         except ValueError as exc:
             raise ConceptReservationError(
                 "concept reservation state is invalid"
             ) from exc
+
+    @classmethod
+    def from_wire(cls, value: Mapping[str, Any]) -> Self:
+        if value.get("schema_version") != SCHEMA_VERSION:
+            raise ConceptReservationError(
+                "concept reservation schema_version is unsupported"
+            )
+        request = cls._request_from_wire(value)
+        state, visibility = cls._lifecycle_enums_from_wire(value)
         fence = value.get("fence")
         if not isinstance(fence, int) or isinstance(fence, bool):
             raise ConceptReservationError("concept reservation fence is invalid")
@@ -730,32 +764,102 @@ class ConceptReservationRecord:
             transitioned_at=_parse_time(
                 value.get("transitioned_at"), "transitioned_at"
             ),
-            materialized_at=(
-                _parse_time(value.get("materialized_at"), "materialized_at")
-                if value.get("materialized_at")
-                else None
-            ),
-            landed_at=(
-                _parse_time(value.get("landed_at"), "landed_at")
-                if value.get("landed_at")
-                else None
-            ),
-            released_at=(
-                _parse_time(value.get("released_at"), "released_at")
-                if value.get("released_at")
-                else None
-            ),
-            expired_at=(
-                _parse_time(value.get("expired_at"), "expired_at")
-                if value.get("expired_at")
-                else None
-            ),
-            tombstoned_at=(
-                _parse_time(value.get("tombstoned_at"), "tombstoned_at")
-                if value.get("tombstoned_at")
-                else None
-            ),
+            materialized_at=_optional_time(value, "materialized_at"),
+            landed_at=_optional_time(value, "landed_at"),
+            released_at=_optional_time(value, "released_at"),
+            expired_at=_optional_time(value, "expired_at"),
+            tombstoned_at=_optional_time(value, "tombstoned_at"),
         )
+
+
+def _validate_reserved_record(
+    record: ConceptReservationRecord, times: dict[str, datetime | None]
+) -> None:
+    if record.visibility is not ConceptReservationVisibility.PRIVATE or any(
+        value is not None for value in times.values()
+    ):
+        raise ConceptReservationError("reserved record has advanced lifecycle fields")
+
+
+def _validate_materialized_record(
+    record: ConceptReservationRecord, times: dict[str, datetime | None]
+) -> None:
+    if (
+        _VISIBILITY_RANK[record.visibility]
+        < _VISIBILITY_RANK[ConceptReservationVisibility.FRAGMENT]
+        or record.materialized_at is None
+        or any(
+            times[key] is not None
+            for key in ("landed_at", "released_at", "expired_at", "tombstoned_at")
+        )
+    ):
+        raise ConceptReservationError("materialized record is inconsistent")
+
+
+def _validate_landed_record(
+    record: ConceptReservationRecord, times: dict[str, datetime | None]
+) -> None:
+    del times
+    if (
+        _VISIBILITY_RANK[record.visibility]
+        < _VISIBILITY_RANK[ConceptReservationVisibility.REPOSITORY]
+        or record.materialized_at is None
+        or record.landed_at is None
+        or record.tombstoned_at is not None
+    ):
+        raise ConceptReservationError("landed record is inconsistent")
+
+
+def _validate_released_record(
+    record: ConceptReservationRecord, times: dict[str, datetime | None]
+) -> None:
+    del times
+    if (
+        _VISIBILITY_RANK[record.visibility]
+        >= _VISIBILITY_RANK[ConceptReservationVisibility.REPOSITORY]
+        or record.released_at is None
+        or record.landed_at is not None
+        or record.tombstoned_at is not None
+    ):
+        raise ConceptReservationError("released record is externally visible")
+
+
+def _validate_expired_record(
+    record: ConceptReservationRecord, times: dict[str, datetime | None]
+) -> None:
+    del times
+    if (
+        _VISIBILITY_RANK[record.visibility]
+        >= _VISIBILITY_RANK[ConceptReservationVisibility.REPOSITORY]
+        or record.expired_at is None
+        or record.landed_at is not None
+        or record.tombstoned_at is not None
+    ):
+        raise ConceptReservationError("expired record is externally visible")
+
+
+def _validate_tombstoned_record(
+    record: ConceptReservationRecord, times: dict[str, datetime | None]
+) -> None:
+    del times
+    if (
+        record.visibility is not ConceptReservationVisibility.EXTERNAL
+        or record.tombstoned_at is None
+    ):
+        raise ConceptReservationError("tombstoned record must be externally visible")
+
+
+_RECORD_STATE_VALIDATORS: dict[
+    ConceptReservationState,
+    Callable[[ConceptReservationRecord, dict[str, datetime | None]], None],
+] = {
+    ConceptReservationState.RESERVED: _validate_reserved_record,
+    ConceptReservationState.MATERIALIZED: _validate_materialized_record,
+    ConceptReservationState.LANDED: _validate_landed_record,
+    ConceptReservationState.RELEASED: _validate_released_record,
+    ConceptReservationState.EXPIRED: _validate_expired_record,
+    ConceptReservationState.TOMBSTONED: _validate_tombstoned_record,
+}
 
 
 class ConceptReservationAuthority(Protocol):
@@ -873,6 +977,133 @@ def _transition_map() -> dict[ConceptReservationState, set[ConceptReservationSta
     }
 
 
+def _effective_target(
+    current: ConceptReservationRecord,
+    target: ConceptReservationState,
+    visibility: ConceptReservationVisibility | None,
+) -> tuple[ConceptReservationState, ConceptReservationVisibility]:
+    """Resolve the requested visibility and redirect a demoting transition
+    to TOMBSTONED once repository/external visibility has been reached --
+    shared by both authority implementations' ``transition``."""
+
+    requested_visibility = _strongest_visibility(
+        current.visibility, visibility or current.visibility
+    )
+    if (
+        target is not ConceptReservationState.TOMBSTONED
+        and _VISIBILITY_RANK[requested_visibility]
+        >= _VISIBILITY_RANK[ConceptReservationVisibility.REPOSITORY]
+    ):
+        # Visibility is monotonic. A release/expiry request cannot erase
+        # repository/external evidence; preserve it as a tombstone.
+        target = ConceptReservationState.TOMBSTONED
+    return target, requested_visibility
+
+
+def _is_idempotent_retry(
+    record: ConceptReservationRecord,
+    owner: str,
+    target: ConceptReservationState,
+    expected_fence: int,
+) -> bool:
+    # A retry may arrive with the pre-CAS fence after another caller has
+    # already committed this exact transition.  Check that idempotent case
+    # before rejecting the now-stale expected fence, but never let another
+    # owner observe a successful retry.
+    return (
+        record.owner_ref == owner
+        and record.state is target
+        and record.fence == expected_fence + 1
+    )
+
+
+def _check_transition_fence(
+    record: ConceptReservationRecord, owner: str, expected_fence: int
+) -> None:
+    if record.owner_ref != owner or record.fence != expected_fence:
+        raise ConceptReservationFenceConflict("reservation owner or fence is stale")
+
+
+def _check_transition_expiry(
+    record: ConceptReservationRecord, target: ConceptReservationState
+) -> None:
+    if (
+        target is ConceptReservationState.EXPIRED
+        and datetime.now(UTC) < record.expires_at
+    ):
+        raise ConceptReservationConflict("reservation has not reached its expiry")
+
+
+def _check_transition_allowed(
+    record: ConceptReservationRecord, target: ConceptReservationState
+) -> None:
+    if target not in _transition_map().get(record.state, set()):
+        raise ConceptReservationConflict(
+            f"cannot transition {record.state.value} to {target.value}"
+        )
+
+
+def _visibility_for_target(
+    target: ConceptReservationState,
+    requested_visibility: ConceptReservationVisibility,
+) -> ConceptReservationVisibility:
+    if target is ConceptReservationState.MATERIALIZED:
+        return _strongest_visibility(
+            requested_visibility, ConceptReservationVisibility.FRAGMENT
+        )
+    if target is ConceptReservationState.LANDED:
+        return _strongest_visibility(
+            requested_visibility, ConceptReservationVisibility.REPOSITORY
+        )
+    if target is ConceptReservationState.TOMBSTONED:
+        return ConceptReservationVisibility.EXTERNAL
+    return requested_visibility
+
+
+def _record_matches(
+    record: ConceptReservationRecord,
+    *,
+    tenant: str,
+    namespace: str | None,
+    state: ConceptReservationState | None,
+    concept_prefix: str | None,
+) -> bool:
+    """The tenant/namespace/state/concept_prefix filter shared by both
+    authority implementations' ``list``."""
+
+    if record.tenant_ref != tenant:
+        return False
+    if namespace and record.request.namespace != namespace:
+        return False
+    if state and record.state is not state:
+        return False
+    if concept_prefix and not record.concept_id.startswith(concept_prefix):
+        return False
+    return True
+
+
+def _next_lifecycle_times(
+    target: ConceptReservationState, now: datetime, current: ConceptReservationRecord
+) -> dict[str, datetime | None]:
+    return {
+        "materialized_at": now
+        if target is ConceptReservationState.MATERIALIZED
+        else current.materialized_at,
+        "landed_at": now
+        if target is ConceptReservationState.LANDED
+        else current.landed_at,
+        "released_at": now
+        if target is ConceptReservationState.RELEASED
+        else current.released_at,
+        "expired_at": now
+        if target is ConceptReservationState.EXPIRED
+        else current.expired_at,
+        "tombstoned_at": now
+        if target is ConceptReservationState.TOMBSTONED
+        else current.tombstoned_at,
+    }
+
+
 class NativeConceptReservationAuthority:
     """Durable authority built from epistemic-graph's existing native writes.
 
@@ -961,28 +1192,11 @@ class NativeConceptReservationAuthority:
                 "authority policy selection is ambiguous for the concept id"
             )
         policy = matches[0]
-        if (
-            request.namespace != policy.namespace
-            or (
-                request.range_start is not None
-                and request.range_start != policy.range_start
-            )
-            or (request.range_end is not None and request.range_end != policy.range_end)
-            or (
-                request.policy_version
-                and request.policy_version != policy.policy_version
-            )
-        ):
+        if _request_conflicts_with_policy(request, policy):
             raise ConceptReservationConflict(
                 "request namespace/range/policy differs from authority policy"
             )
-        return replace(
-            request,
-            namespace=policy.namespace,
-            range_start=policy.range_start,
-            range_end=policy.range_end,
-            policy_version=policy.policy_version,
-        )
+        return _normalized_for_policy(request, policy)
 
     def _record_properties(self, record: ConceptReservationRecord) -> dict[str, Any]:
         value = record.to_wire()
@@ -1018,35 +1232,45 @@ class NativeConceptReservationAuthority:
             )
         return record
 
-    def _list_nodes(
-        self, *, limit: int, after: str | None
-    ) -> Sequence[tuple[str, Mapping[str, Any]]]:
-        if not 1 <= limit <= _MAX_LIST_LIMIT:
-            raise ConceptReservationError("native label page limit is invalid")
-        after = _validate_cursor(after, "native cursor")
-        if after is None:
-            try:
-                value = self._call(
-                    "list_nodes_by_label", RESERVATION_NODE_LABEL, limit, after=None
-                )
-            except AuthorityUnavailable:
-                # Older AU GraphComputeEngine wrappers expose a bounded label
-                # read without a cursor.  Keep the first page usable, but do
-                # not pretend it can paginate a large authority.
-                for fallback in ("get_nodes_by_label", "nodes_by_label"):
-                    try:
-                        value = self._call(fallback, RESERVATION_NODE_LABEL, limit)
-                        break
-                    except AuthorityUnavailable:
-                        continue
-                else:
-                    raise AuthorityUnavailable(
-                        "native graph has no bounded reservation label read"
-                    )
-        else:
-            value = self._call(
+    def _fetch_label_page(self, *, limit: int, after: str | None) -> Any:
+        if after is not None:
+            return self._call(
                 "list_nodes_by_label", RESERVATION_NODE_LABEL, limit, after=after
             )
+        try:
+            return self._call(
+                "list_nodes_by_label", RESERVATION_NODE_LABEL, limit, after=None
+            )
+        except AuthorityUnavailable:
+            # Older AU GraphComputeEngine wrappers expose a bounded label
+            # read without a cursor.  Keep the first page usable, but do
+            # not pretend it can paginate a large authority.
+            for fallback in ("get_nodes_by_label", "nodes_by_label"):
+                try:
+                    return self._call(fallback, RESERVATION_NODE_LABEL, limit)
+                except AuthorityUnavailable:
+                    continue
+            raise AuthorityUnavailable(
+                "native graph has no bounded reservation label read"
+            ) from None
+
+    def _validated_row(self, row: Any) -> tuple[str, Mapping[str, Any]]:
+        if not isinstance(row, Sequence) or len(row) != 2:
+            raise AuthorityUnavailable("native reservation label row is malformed")
+        node_id, props = row
+        if not isinstance(node_id, str) or not isinstance(props, Mapping):
+            raise AuthorityUnavailable("native reservation label row is malformed")
+        try:
+            _validate_cursor(node_id, "native node id")
+        except ConceptReservationError as exc:
+            raise AuthorityUnavailable(
+                "native reservation node id is malformed"
+            ) from exc
+        return node_id, props
+
+    def _validated_rows(
+        self, value: Any, limit: int
+    ) -> Sequence[tuple[str, Mapping[str, Any]]]:
         if not isinstance(value, Sequence) or isinstance(
             value, (str, bytes, bytearray)
         ):
@@ -1058,17 +1282,7 @@ class NativeConceptReservationAuthority:
         rows: list[tuple[str, Mapping[str, Any]]] = []
         previous_node_id: str | None = None
         for row in value:
-            if not isinstance(row, Sequence) or len(row) != 2:
-                raise AuthorityUnavailable("native reservation label row is malformed")
-            node_id, props = row
-            if not isinstance(node_id, str) or not isinstance(props, Mapping):
-                raise AuthorityUnavailable("native reservation label row is malformed")
-            try:
-                _validate_cursor(node_id, "native node id")
-            except ConceptReservationError as exc:
-                raise AuthorityUnavailable(
-                    "native reservation node id is malformed"
-                ) from exc
+            node_id, props = self._validated_row(row)
             if previous_node_id is not None and node_id <= previous_node_id:
                 raise AuthorityUnavailable(
                     "native reservation label page is not strictly ordered"
@@ -1076,6 +1290,54 @@ class NativeConceptReservationAuthority:
             previous_node_id = node_id
             rows.append((node_id, props))
         return rows
+
+    def _list_nodes(
+        self, *, limit: int, after: str | None
+    ) -> Sequence[tuple[str, Mapping[str, Any]]]:
+        if not 1 <= limit <= _MAX_LIST_LIMIT:
+            raise ConceptReservationError("native label page limit is invalid")
+        after = _validate_cursor(after, "native cursor")
+        value = self._fetch_label_page(limit=limit, after=after)
+        return self._validated_rows(value, limit)
+
+    def _match_reservation(
+        self,
+        rows: Sequence[tuple[str, Mapping[str, Any]]],
+        reservation_id: str,
+        tenant_ref: str,
+    ) -> tuple[str, ConceptReservationRecord] | None:
+        for node_id, props in rows:
+            record = self._parse_properties(props)
+            if node_id != _reservation_node_id(record.concept_id):
+                raise AuthorityUnavailable(
+                    "native reservation node identity is inconsistent"
+                )
+            if record.reservation_id != reservation_id:
+                continue
+            if record.tenant_ref != tenant_ref:
+                raise ConceptReservationUnauthorized(
+                    "concept reservation belongs to another tenant"
+                )
+            return node_id, record
+        return None
+
+    def _advance_lookup_cursor(
+        self,
+        rows: Sequence[tuple[str, Mapping[str, Any]]],
+        cursor: str | None,
+        seen_cursors: set[str],
+    ) -> str:
+        next_cursor = _validate_cursor(rows[-1][0], "native cursor")
+        if (
+            next_cursor is None
+            or (cursor is not None and next_cursor <= cursor)
+            or next_cursor in seen_cursors
+        ):
+            raise AuthorityUnavailable(
+                "native reservation lookup cursor did not advance"
+            )
+        seen_cursors.add(next_cursor)
+        return next_cursor
 
     def _find_reservation(
         self, reservation_id: str, tenant_ref: str
@@ -1090,32 +1352,12 @@ class NativeConceptReservationAuthority:
                 raise AuthorityUnavailable(
                     "native reservation lookup exceeded its record bound"
                 )
-            for node_id, props in rows:
-                record = self._parse_properties(props)
-                if node_id != _reservation_node_id(record.concept_id):
-                    raise AuthorityUnavailable(
-                        "native reservation node identity is inconsistent"
-                    )
-                if record.reservation_id != reservation_id:
-                    continue
-                if record.tenant_ref != tenant_ref:
-                    raise ConceptReservationUnauthorized(
-                        "concept reservation belongs to another tenant"
-                    )
-                return node_id, record
+            found = self._match_reservation(rows, reservation_id, tenant_ref)
+            if found is not None:
+                return found
             if len(rows) < _MAX_LIST_LIMIT:
                 break
-            next_cursor = _validate_cursor(rows[-1][0], "native cursor")
-            if (
-                next_cursor is None
-                or (cursor is not None and next_cursor <= cursor)
-                or next_cursor in seen_cursors
-            ):
-                raise AuthorityUnavailable(
-                    "native reservation lookup cursor did not advance"
-                )
-            seen_cursors.add(next_cursor)
-            cursor = next_cursor
+            cursor = self._advance_lookup_cursor(rows, cursor, seen_cursors)
         else:
             raise AuthorityUnavailable(
                 "native reservation lookup exceeded its page bound"
@@ -1185,6 +1427,65 @@ class NativeConceptReservationAuthority:
         _node_id, record = self._find_reservation(reservation, tenant)
         return record
 
+    def _collect_page_matches(
+        self,
+        page: Sequence[tuple[str, Mapping[str, Any]]],
+        *,
+        tenant: str,
+        namespace: str | None,
+        state: ConceptReservationState | None,
+        concept_prefix: str | None,
+        limit: int,
+        rows_out: list[ConceptReservationRecord],
+    ) -> str | None:
+        last_scanned: str | None = None
+        for node_id, props in page:
+            last_scanned = node_id
+            record = self._parse_properties(props)
+            if _record_matches(
+                record,
+                tenant=tenant,
+                namespace=namespace,
+                state=state,
+                concept_prefix=concept_prefix,
+            ):
+                rows_out.append(record)
+                if len(rows_out) == limit:
+                    break
+        return last_scanned
+
+    def _list_page_cursor(
+        self,
+        page: Sequence[tuple[str, Mapping[str, Any]]],
+        *,
+        page_limit: int,
+        last_scanned: str | None,
+        filled: bool,
+    ) -> str | None:
+        """Next native cursor to page from, or ``None`` if the list is done."""
+
+        if filled:
+            # The page is intentionally wider than the requested filtered
+            # result.  Advance only past the last node actually inspected;
+            # using page[-1] here would silently skip uninspected matches.
+            if len(page) < page_limit and last_scanned == page[-1][0]:
+                return None
+            candidate = last_scanned
+        elif len(page) < page_limit:
+            return None
+        else:
+            candidate = page[-1][0]
+        return _validate_cursor(candidate, "native cursor")
+
+    def _check_list_cursor_advanced(
+        self, next_cursor: str, native_cursor: str | None, seen_cursors: set[str]
+    ) -> None:
+        if (
+            native_cursor is not None and next_cursor <= native_cursor
+        ) or next_cursor in seen_cursors:
+            raise AuthorityUnavailable("native reservation list cursor did not advance")
+        seen_cursors.add(next_cursor)
+
     def list(
         self,
         *,
@@ -1212,45 +1513,51 @@ class NativeConceptReservationAuthority:
                 raise AuthorityUnavailable(
                     "native reservation list exceeded its record bound"
                 )
-            last_scanned: str | None = None
-            for node_id, props in page:
-                last_scanned = node_id
-                record = self._parse_properties(props)
-                if record.tenant_ref != tenant:
-                    continue
-                if namespace and record.request.namespace != namespace:
-                    continue
-                if state and record.state is not state:
-                    continue
-                if concept_prefix and not record.concept_id.startswith(concept_prefix):
-                    continue
-                rows_out.append(record)
-                if len(rows_out) == limit:
-                    break
-            if len(rows_out) == limit:
-                # The page is intentionally wider than the requested filtered
-                # result.  Advance only past the last node actually inspected;
-                # using page[-1] here would silently skip uninspected matches.
-                if len(page) < page_limit and last_scanned == page[-1][0]:
-                    return rows_out, None
-                next_cursor = _validate_cursor(last_scanned, "native cursor")
-            elif len(page) < page_limit:
+            last_scanned = self._collect_page_matches(
+                page,
+                tenant=tenant,
+                namespace=namespace,
+                state=state,
+                concept_prefix=concept_prefix,
+                limit=limit,
+                rows_out=rows_out,
+            )
+            next_cursor = self._list_page_cursor(
+                page,
+                page_limit=page_limit,
+                last_scanned=last_scanned,
+                filled=len(rows_out) == limit,
+            )
+            if next_cursor is None:
                 return rows_out, None
-            else:
-                next_cursor = _validate_cursor(page[-1][0], "native cursor")
-            if (
-                next_cursor is None
-                or (native_cursor is not None and next_cursor <= native_cursor)
-                or next_cursor in seen_cursors
-            ):
-                raise AuthorityUnavailable(
-                    "native reservation list cursor did not advance"
-                )
-            seen_cursors.add(next_cursor)
+            self._check_list_cursor_advanced(next_cursor, native_cursor, seen_cursors)
             native_cursor = next_cursor
             if len(rows_out) == limit:
                 return rows_out, native_cursor
         raise AuthorityUnavailable("native reservation list exceeded its page bound")
+
+    def _cas_transition(
+        self,
+        node_id: str,
+        owner: str,
+        current: ConceptReservationRecord,
+        expected_fence: int,
+        next_record: ConceptReservationRecord,
+    ) -> bool:
+        return self._call(
+            "compare_and_set_node_fields",
+            node_id,
+            {
+                "node_type": RESERVATION_NODE_LABEL,
+                "reservation_id": current.reservation_id,
+                "tenant_ref": current.tenant_ref,
+                "owner_ref": owner,
+                "state": current.state.value,
+                "fence": expected_fence,
+                "immutable_fingerprint": current.immutable_fingerprint,
+            },
+            self._record_properties(next_record),
+        )
 
     def transition(
         self,
@@ -1268,101 +1575,26 @@ class NativeConceptReservationAuthority:
         tenant = _reference(tenant_ref, "tenant_ref")
         owner = _reference(owner_ref, "owner_ref")
         node_id, current = self._find_reservation(reservation, tenant)
-        requested_visibility = _strongest_visibility(
-            current.visibility, visibility or current.visibility
-        )
-        if (
-            target is not ConceptReservationState.TOMBSTONED
-            and _VISIBILITY_RANK[requested_visibility]
-            >= _VISIBILITY_RANK[ConceptReservationVisibility.REPOSITORY]
-        ):
-            # Visibility is monotonic. A release/expiry request cannot erase
-            # repository/external evidence; preserve it as a tombstone.
-            target = ConceptReservationState.TOMBSTONED
-        # A retry may arrive with the pre-CAS fence after another caller has
-        # already committed this exact transition.  Check that idempotent case
-        # before rejecting the now-stale expected fence, but never let another
-        # owner observe a successful retry.
-        if (
-            current.owner_ref == owner
-            and current.state is target
-            and current.fence == expected_fence + 1
-        ):
+        target, requested_visibility = _effective_target(current, target, visibility)
+        if _is_idempotent_retry(current, owner, target, expected_fence):
             return current
-        if current.owner_ref != owner or current.fence != expected_fence:
-            raise ConceptReservationFenceConflict("reservation owner or fence is stale")
-        if (
-            target is ConceptReservationState.EXPIRED
-            and datetime.now(UTC) < current.expires_at
-        ):
-            raise ConceptReservationConflict("reservation has not reached its expiry")
-        allowed = _transition_map().get(current.state, set())
-        if target not in allowed:
-            raise ConceptReservationConflict(
-                f"cannot transition {current.state.value} to {target.value}"
-            )
+        _check_transition_fence(current, owner, expected_fence)
+        _check_transition_expiry(current, target)
+        _check_transition_allowed(current, target)
         now = max(current.transitioned_at, datetime.now(UTC))
-        next_visibility = requested_visibility
-        if target is ConceptReservationState.MATERIALIZED:
-            next_visibility = _strongest_visibility(
-                next_visibility, ConceptReservationVisibility.FRAGMENT
-            )
-        elif target is ConceptReservationState.LANDED:
-            next_visibility = _strongest_visibility(
-                next_visibility, ConceptReservationVisibility.REPOSITORY
-            )
-        elif target is ConceptReservationState.TOMBSTONED:
-            next_visibility = ConceptReservationVisibility.EXTERNAL
+        next_visibility = _visibility_for_target(target, requested_visibility)
         next_record = replace(
             current,
             state=target,
             visibility=next_visibility,
             fence=current.fence + 1,
             transitioned_at=now,
-            materialized_at=(
-                now
-                if target is ConceptReservationState.MATERIALIZED
-                else current.materialized_at
-            ),
-            landed_at=(
-                now if target is ConceptReservationState.LANDED else current.landed_at
-            ),
-            released_at=(
-                now
-                if target is ConceptReservationState.RELEASED
-                else current.released_at
-            ),
-            expired_at=(
-                now if target is ConceptReservationState.EXPIRED else current.expired_at
-            ),
-            tombstoned_at=(
-                now
-                if target is ConceptReservationState.TOMBSTONED
-                else current.tombstoned_at
-            ),
+            **_next_lifecycle_times(target, now, current),
         )
-        applied = self._call(
-            "compare_and_set_node_fields",
-            node_id,
-            {
-                "node_type": RESERVATION_NODE_LABEL,
-                "reservation_id": reservation,
-                "tenant_ref": tenant,
-                "owner_ref": owner,
-                "state": current.state.value,
-                "fence": expected_fence,
-                "immutable_fingerprint": current.immutable_fingerprint,
-            },
-            self._record_properties(next_record),
-        )
-        if applied:
+        if self._cas_transition(node_id, owner, current, expected_fence, next_record):
             return next_record
         _node_id, latest = self._find_reservation(reservation, tenant)
-        if (
-            latest.owner_ref == owner
-            and latest.state is target
-            and latest.fence == expected_fence + 1
-        ):
+        if _is_idempotent_retry(latest, owner, target, expected_fence):
             return latest
         raise ConceptReservationFenceConflict("reservation owner or fence is stale")
 
@@ -1405,28 +1637,11 @@ class FixtureConceptReservationAuthority:
                 "authority policy selection is ambiguous for the concept id"
             )
         policy = matches[0]
-        if (
-            request.namespace != policy.namespace
-            or (
-                request.range_start is not None
-                and request.range_start != policy.range_start
-            )
-            or (request.range_end is not None and request.range_end != policy.range_end)
-            or (
-                request.policy_version
-                and request.policy_version != policy.policy_version
-            )
-        ):
+        if _request_conflicts_with_policy(request, policy):
             raise ConceptReservationConflict(
                 "request namespace/range/policy differs from authority policy"
             )
-        return replace(
-            request,
-            namespace=policy.namespace,
-            range_start=policy.range_start,
-            range_end=policy.range_end,
-            policy_version=policy.policy_version,
-        )
+        return _normalized_for_policy(request, policy)
 
     def _require(
         self, reservation_id: str, tenant_ref: str
@@ -1504,34 +1719,20 @@ class FixtureConceptReservationAuthority:
     ) -> tuple[list[ConceptReservationRecord], str | None]:
         if not 1 <= limit <= _MAX_LIST_LIMIT:
             raise ConceptReservationError("limit is outside the bounded range")
-        if cursor:
-            try:
-                offset = int(cursor)
-            except ValueError as exc:
-                raise ConceptReservationError("cursor is invalid") from exc
-            if offset < 0:
-                raise ConceptReservationError("cursor is invalid")
-        else:
-            offset = 0
+        offset = _parse_offset_cursor(cursor)
         tenant = _reference(tenant_ref, "tenant_ref")
         with self._lock:
             rows = [
                 record
                 for record in self._records.values()
-                if record.tenant_ref == tenant
+                if _record_matches(
+                    record,
+                    tenant=tenant,
+                    namespace=namespace,
+                    state=state,
+                    concept_prefix=concept_prefix,
+                )
             ]
-            if namespace:
-                rows = [
-                    record for record in rows if record.request.namespace == namespace
-                ]
-            if state:
-                rows = [record for record in rows if record.state is state]
-            if concept_prefix:
-                rows = [
-                    record
-                    for record in rows
-                    if record.concept_id.startswith(concept_prefix)
-                ]
             rows.sort(key=lambda record: record.reservation_id)
             page = rows[offset : offset + limit]
             next_cursor = str(offset + limit) if offset + limit < len(rows) else None
@@ -1550,71 +1751,23 @@ class FixtureConceptReservationAuthority:
         with self._lock:
             record = self._require(reservation_id, tenant_ref)
             owner = _reference(owner_ref, "owner_ref")
-            requested_visibility = _strongest_visibility(
-                record.visibility, visibility or record.visibility
-            )
-            if (
-                target is not ConceptReservationState.TOMBSTONED
-                and _VISIBILITY_RANK[requested_visibility]
-                >= _VISIBILITY_RANK[ConceptReservationVisibility.REPOSITORY]
-            ):
-                target = ConceptReservationState.TOMBSTONED
+            target, requested_visibility = _effective_target(record, target, visibility)
             # Match native retry semantics: an exact same-owner transition is
             # idempotent when the caller presents the immediately prior fence.
-            if (
-                record.owner_ref == owner
-                and record.state is target
-                and record.fence == expected_fence + 1
-            ):
+            if _is_idempotent_retry(record, owner, target, expected_fence):
                 return record
-            if record.owner_ref != owner or record.fence != expected_fence:
-                raise ConceptReservationFenceConflict(
-                    "reservation owner or fence is stale"
-                )
-            if (
-                target is ConceptReservationState.EXPIRED
-                and datetime.now(UTC) < record.expires_at
-            ):
-                raise ConceptReservationConflict(
-                    "reservation has not reached its expiry"
-                )
-            if target not in _transition_map().get(record.state, set()):
-                raise ConceptReservationConflict(
-                    f"cannot transition {record.state.value} to {target.value}"
-                )
+            _check_transition_fence(record, owner, expected_fence)
+            _check_transition_expiry(record, target)
+            _check_transition_allowed(record, target)
             now = max(record.transitioned_at, datetime.now(UTC))
-            next_visibility = requested_visibility
-            if target is ConceptReservationState.MATERIALIZED:
-                next_visibility = _strongest_visibility(
-                    next_visibility, ConceptReservationVisibility.FRAGMENT
-                )
-            elif target is ConceptReservationState.LANDED:
-                next_visibility = _strongest_visibility(
-                    next_visibility, ConceptReservationVisibility.REPOSITORY
-                )
-            elif target is ConceptReservationState.TOMBSTONED:
-                next_visibility = ConceptReservationVisibility.EXTERNAL
+            next_visibility = _visibility_for_target(target, requested_visibility)
             return self._replace(
                 record,
                 state=target,
                 visibility=next_visibility,
                 fence=record.fence + 1,
                 transitioned_at=now,
-                materialized_at=now
-                if target is ConceptReservationState.MATERIALIZED
-                else record.materialized_at,
-                landed_at=now
-                if target is ConceptReservationState.LANDED
-                else record.landed_at,
-                released_at=now
-                if target is ConceptReservationState.RELEASED
-                else record.released_at,
-                expired_at=now
-                if target is ConceptReservationState.EXPIRED
-                else record.expired_at,
-                tombstoned_at=now
-                if target is ConceptReservationState.TOMBSTONED
-                else record.tombstoned_at,
+                **_next_lifecycle_times(target, now, record),
             )
 
     def _replace(
@@ -1746,6 +1899,65 @@ class ProjectionReconciliation:
         }
 
 
+_PROJECTION_STATUS_BY_STATE: dict[ConceptReservationState, set[str]] = {
+    ConceptReservationState.RESERVED: {"reserved", "materialized"},
+    ConceptReservationState.MATERIALIZED: {"materialized", "reserved"},
+    ConceptReservationState.LANDED: {"landed"},
+    ConceptReservationState.TOMBSTONED: {"tombstoned", "landed"},
+    ConceptReservationState.RELEASED: {"released", "expired"},
+    ConceptReservationState.EXPIRED: {"expired"},
+}
+
+
+def _read_all_reservations(
+    authority: ConceptReservationAuthority, tenant_ref: str, max_records: int
+) -> list[ConceptReservationRecord]:
+    rows: list[ConceptReservationRecord] = []
+    cursor: str | None = None
+    seen_cursors: set[str] = set()
+    while True:
+        page_limit = min(_MAX_LIST_LIMIT, max_records - len(rows))
+        if page_limit <= 0:
+            raise AuthorityUnavailable("concept reconciliation exceeded max_records")
+        page, cursor = authority.list(
+            tenant_ref=tenant_ref, limit=page_limit, cursor=cursor
+        )
+        rows.extend(page)
+        if len(rows) > max_records:
+            raise AuthorityUnavailable("concept reconciliation exceeded max_records")
+        if cursor is None:
+            return rows
+        if cursor in seen_cursors:
+            raise AuthorityUnavailable("concept reconciliation cursor did not advance")
+        seen_cursors.add(cursor)
+
+
+def _classify_concept(
+    concept_id: str,
+    row: ConceptReservationRecord,
+    local: Mapping[str, Any],
+    code: set[str],
+) -> str:
+    """Classify one authority record against its local projection/source
+    usage; returns "missing_projection", "state_mismatch", or "matches"."""
+
+    projection = local.get(concept_id)
+    if projection is None:
+        return "missing_projection"
+    expected = _PROJECTION_STATUS_BY_STATE[row.state]
+    if projection.get("status") not in expected:
+        return "state_mismatch"
+    if concept_id in code and row.state not in {
+        ConceptReservationState.LANDED,
+        ConceptReservationState.TOMBSTONED,
+    }:
+        # Source visibility has advanced beyond the authority's lifecycle;
+        # report it for a fenced transition rather than silently landing a
+        # claim during this read-only comparison.
+        return "state_mismatch"
+    return "matches"
+
+
 def reconcile_projection(
     authority: ConceptReservationAuthority,
     *,
@@ -1765,24 +1977,7 @@ def reconcile_projection(
 
     from agent_utilities.governance import concept_allocator as allocator
 
-    rows: list[ConceptReservationRecord] = []
-    cursor: str | None = None
-    seen_cursors: set[str] = set()
-    while True:
-        page_limit = min(_MAX_LIST_LIMIT, max_records - len(rows))
-        if page_limit <= 0:
-            raise AuthorityUnavailable("concept reconciliation exceeded max_records")
-        page, cursor = authority.list(
-            tenant_ref=tenant_ref, limit=page_limit, cursor=cursor
-        )
-        rows.extend(page)
-        if len(rows) > max_records:
-            raise AuthorityUnavailable("concept reconciliation exceeded max_records")
-        if cursor is None:
-            break
-        if cursor in seen_cursors:
-            raise AuthorityUnavailable("concept reconciliation cursor did not advance")
-        seen_cursors.add(cursor)
+    rows = _read_all_reservations(authority, tenant_ref, max_records)
     central = {row.concept_id: row for row in rows}
     local_rows = allocator.read_ledger(repo_root)
     local = {str(row["id"]): row for row in local_rows}
@@ -1790,31 +1985,13 @@ def reconcile_projection(
     matches: list[str] = []
     missing: list[str] = []
     mismatch: list[str] = []
+    outcomes = {
+        "matches": matches,
+        "missing_projection": missing,
+        "state_mismatch": mismatch,
+    }
     for concept_id, row in central.items():
-        projection = local.get(concept_id)
-        if projection is None:
-            missing.append(concept_id)
-            continue
-        expected = {
-            ConceptReservationState.RESERVED: {"reserved", "materialized"},
-            ConceptReservationState.MATERIALIZED: {"materialized", "reserved"},
-            ConceptReservationState.LANDED: {"landed"},
-            ConceptReservationState.TOMBSTONED: {"tombstoned", "landed"},
-            ConceptReservationState.RELEASED: {"released", "expired"},
-            ConceptReservationState.EXPIRED: {"expired"},
-        }[row.state]
-        if projection.get("status") not in expected:
-            mismatch.append(concept_id)
-        elif concept_id in code and row.state not in {
-            ConceptReservationState.LANDED,
-            ConceptReservationState.TOMBSTONED,
-        }:
-            # Source visibility has advanced beyond the authority's lifecycle;
-            # report it for a fenced transition rather than silently landing a
-            # claim during this read-only comparison.
-            mismatch.append(concept_id)
-        else:
-            matches.append(concept_id)
+        outcomes[_classify_concept(concept_id, row, local, code)].append(concept_id)
     orphan = sorted(set(local) - set(central))
     marker_without_claim = sorted(code - set(central))
     return ProjectionReconciliation(
