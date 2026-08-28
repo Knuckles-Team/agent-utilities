@@ -848,6 +848,159 @@ def _read_catalog_kind_sync(
     return rows
 
 
+def _gather_mcp_catalog_entries() -> tuple[list[tuple[str, dict[str, Any]]], str]:
+    """Gather (name, catalog_row) pairs for the fleet catalog's ``servers`` kind.
+
+    Section 1 of :func:`_build_tools_payload_sync` — see that function's
+    docstring for why ``mcp_tools`` reads the SQL fleet catalog now.
+    """
+    try:
+        server_rows = _read_catalog_kind_sync(
+            "servers", require_discovery_binding=False
+        )
+        mcp_entries = [
+            (str(row.get("name") or ""), row) for row in server_rows if row.get("name")
+        ]
+        return mcp_entries, "ok"
+    except Exception as e:
+        logger.error("Failed to read the fleet-catalog 'servers' kind: %s", e)
+        return [], "unavailable"
+
+
+def _gather_builtin_tool_stems() -> tuple[list[str], str]:
+    """Gather built-in agent tool file stems. No catalog equivalent exists."""
+    try:
+        tools_dir = Path(__file__).resolve().parents[1] / "tools"
+        builtin_stems: list[str] = []
+        if tools_dir.exists() and tools_dir.is_dir():
+            for f in tools_dir.glob("*.py"):
+                if f.name.startswith("_"):
+                    continue
+                builtin_stems.append(f.stem)
+        return builtin_stems, "ok"
+    except Exception as e:
+        logger.error("Failed to scan built-in tools directory: %s", e)
+        return [], "unavailable"
+
+
+def _gather_skill_and_workflow_entries(
+    workspace_root: Path | None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str]:
+    """Gather Skill / Skill-Workflow entries by parsing SKILL.md files.
+
+    Stays filesystem-sourced (not the fleet catalog) — see
+    :func:`_build_tools_payload_sync`'s docstring for the domain/tags and
+    freshness gap that rules the catalog out for this section.
+    """
+    skill_entries: list[dict[str, Any]] = []
+    workflow_entries: list[dict[str, Any]] = []
+    try:
+        univ_skills_dir = (
+            workspace_root
+            / "agent-packages"
+            / "skills"
+            / "universal-skills"
+            / "universal_skills"
+            if workspace_root is not None
+            else None
+        )
+        if univ_skills_dir is not None and univ_skills_dir.exists():
+            for p in univ_skills_dir.glob("**/SKILL.md"):
+                skill_info = _parse_skill_md(p)
+                if "workflows" in p.parts:
+                    skill_info["type"] = "Skill Workflow"
+                    workflow_entries.append(skill_info)
+                else:
+                    skill_info["type"] = "Agent Skill"
+                    skill_entries.append(skill_info)
+        return skill_entries, workflow_entries, "ok"
+    except Exception as e:
+        logger.error("Failed to scan the universal-skills corpus: %s", e)
+        return [], [], "unavailable"
+
+
+def _gather_skill_graph_entries(
+    workspace_root: Path | None,
+) -> tuple[list[dict[str, Any]], str]:
+    """Gather Skill-Graph entries by parsing SKILL.md files.
+
+    Stays filesystem-sourced — see :func:`_build_tools_payload_sync`'s
+    docstring for why (no reliable ingestion sync for this package).
+    """
+    graph_entries: list[dict[str, Any]] = []
+    try:
+        graphs_dir = (
+            workspace_root
+            / "agent-packages"
+            / "skills"
+            / "skill-graphs"
+            / "skill_graphs"
+            if workspace_root is not None
+            else None
+        )
+        if graphs_dir is not None and graphs_dir.exists():
+            for p in graphs_dir.glob("**/SKILL.md"):
+                skill_info = _parse_skill_md(p)
+                skill_info["type"] = "Skill Graph"
+                graph_entries.append(skill_info)
+        return graph_entries, "ok"
+    except Exception as e:
+        logger.error("Failed to scan the skill-graphs corpus: %s", e)
+        return [], "unavailable"
+
+
+def _resolve_tool_payload_toggle_states(
+    engine: Any,
+    mcp_entries: list[tuple[str, dict[str, Any]]],
+    builtin_stems: list[str],
+    workflow_entries: list[dict[str, Any]],
+    skill_entries: list[dict[str, Any]],
+    graph_entries: list[dict[str, Any]],
+) -> dict[tuple[str, str], bool]:
+    """One batched toggle-state round trip for every item about to render.
+
+    See :func:`_build_tools_payload_sync`'s docstring for why ``mcp_tools``
+    reads this Preference-node store even though it is catalog-sourced now.
+    """
+    toggle_keys: list[tuple[str, str]] = (
+        [("mcp_server", name) for name, _row in mcp_entries]
+        + [("builtin_tool", stem) for stem in builtin_stems]
+        + [("skill_workflow", info["id"]) for info in workflow_entries]
+        + [("skill", info["id"]) for info in skill_entries]
+        + [("skill_graph", info["id"]) for info in graph_entries]
+    )
+    return get_toggle_states_batch(engine, toggle_keys)
+
+
+def _mcp_tools_section(
+    mcp_entries: list[tuple[str, dict[str, Any]]],
+    toggle_states: dict[tuple[str, str], bool],
+) -> list[dict[str, Any]]:
+    """Build the ``mcp_tools`` payload rows from catalog entries + toggle state."""
+    mcp_tools: list[dict[str, Any]] = []
+    for name, row in mcp_entries:
+        mcp_enabled = toggle_states[("mcp_server", name)]
+        if not row.get("enabled", True):
+            mcp_enabled = False
+        transport = str(row.get("transport") or "")
+        is_stdio = transport == "stdio"
+        mcp_tools.append(
+            {
+                "name": name,
+                "type": "MCP Server",
+                "launch_mode": "subprocess" if is_stdio else "remote",
+                # The catalog never stores the raw command/args (privacy —
+                # see fleet_catalog_tables' module docstring); these stayed
+                # opaque presence markers even before this migration.
+                "command": "[configured]" if is_stdio else "",
+                "args": ["[configured]"] if is_stdio else [],
+                "status": "active" if mcp_enabled else "disabled",
+                "enabled": mcp_enabled,
+            }
+        )
+    return mcp_tools
+
+
 def _build_tools_payload_sync(
     engine: Any, workspace_root: Path | None
 ) -> _ToolsPayload:
@@ -926,94 +1079,20 @@ def _build_tools_payload_sync(
           on-disk corpus is real and current, so it also stays
           filesystem-sourced.
     """
-    section_status: dict[str, str] = {}
 
-    # 1. MCP Tools — now the SQL fleet catalog's ``servers`` kind (see
-    #    docstring above), not a fresh ``mcp_config.json`` parse.
-    mcp_tools: list[dict[str, Any]] = []
-    mcp_entries: list[tuple[str, dict[str, Any]]] = []  # (name, catalog_row)
-    try:
-        server_rows = _read_catalog_kind_sync(
-            "servers", require_discovery_binding=False
-        )
-        mcp_entries = [
-            (str(row.get("name") or ""), row) for row in server_rows if row.get("name")
-        ]
-        section_status["mcp_tools"] = "ok"
-    except Exception as e:
-        logger.error("Failed to read the fleet-catalog 'servers' kind: %s", e)
-        section_status["mcp_tools"] = "unavailable"
-
-    # 2. Built-in Agent Tools — gather raw file stems first. No catalog
-    #    equivalent exists (see docstring) — filesystem-sourced as before.
-    builtin_stems: list[str] = []
-    try:
-        tools_dir = Path(__file__).resolve().parents[1] / "tools"
-        if tools_dir.exists() and tools_dir.is_dir():
-            for f in tools_dir.glob("*.py"):
-                if f.name.startswith("_"):
-                    continue
-                builtin_stems.append(f.stem)
-        section_status["builtin_tools"] = "ok"
-    except Exception as e:
-        logger.error("Failed to scan built-in tools directory: %s", e)
-        section_status["builtin_tools"] = "unavailable"
-
-    # 3. Skills & Workflows — parse SKILL.md files first, defer toggle state.
-    #    No catalog migration (see docstring: domain/tags + freshness gap).
-    skill_entries: list[dict[str, Any]] = []  # bucket="skill"
-    workflow_entries: list[dict[str, Any]] = []  # bucket="skill_workflow"
-    try:
-        univ_skills_dir = (
-            workspace_root
-            / "agent-packages"
-            / "skills"
-            / "universal-skills"
-            / "universal_skills"
-            if workspace_root is not None
-            else None
-        )
-        if univ_skills_dir is not None and univ_skills_dir.exists():
-            for p in univ_skills_dir.glob("**/SKILL.md"):
-                skill_info = _parse_skill_md(p)
-                if "workflows" in p.parts:
-                    skill_info["type"] = "Skill Workflow"
-                    workflow_entries.append(skill_info)
-                else:
-                    skill_info["type"] = "Agent Skill"
-                    skill_entries.append(skill_info)
-        section_status["skills"] = "ok"
-        section_status["skill_workflows"] = "ok"
-    except Exception as e:
-        logger.error("Failed to scan the universal-skills corpus: %s", e)
-        section_status["skills"] = "unavailable"
-        section_status["skill_workflows"] = "unavailable"
-        skill_entries = []
-        workflow_entries = []
-
-    # 4. Skill Graphs — parse SKILL.md files first, defer toggle state.
-    #    No catalog migration (see docstring: no reliable ingestion sync).
-    graph_entries: list[dict[str, Any]] = []
-    try:
-        graphs_dir = (
-            workspace_root
-            / "agent-packages"
-            / "skills"
-            / "skill-graphs"
-            / "skill_graphs"
-            if workspace_root is not None
-            else None
-        )
-        if graphs_dir is not None and graphs_dir.exists():
-            for p in graphs_dir.glob("**/SKILL.md"):
-                skill_info = _parse_skill_md(p)
-                skill_info["type"] = "Skill Graph"
-                graph_entries.append(skill_info)
-        section_status["skill_graphs"] = "ok"
-    except Exception as e:
-        logger.error("Failed to scan the skill-graphs corpus: %s", e)
-        section_status["skill_graphs"] = "unavailable"
-        graph_entries = []
+    mcp_entries, mcp_status = _gather_mcp_catalog_entries()
+    builtin_stems, builtin_status = _gather_builtin_tool_stems()
+    skill_entries, workflow_entries, skills_status = _gather_skill_and_workflow_entries(
+        workspace_root
+    )
+    graph_entries, graphs_status = _gather_skill_graph_entries(workspace_root)
+    section_status: dict[str, str] = {
+        "mcp_tools": mcp_status,
+        "builtin_tools": builtin_status,
+        "skills": skills_status,
+        "skill_workflows": skills_status,
+        "skill_graphs": graphs_status,
+    }
 
     # ── ONE batched engine round trip for every toggle state ───────────────
     # Still the Preference-node toggle store, for EVERY section including the
@@ -1028,35 +1107,16 @@ def _build_tools_payload_sync(
     # an additional AND term below (a server force-disabled in config stays
     # disabled even if the toggle preference says otherwise), preserving the
     # original ``cfg.get("disabled")`` override semantics.
-    toggle_keys: list[tuple[str, str]] = (
-        [("mcp_server", name) for name, _row in mcp_entries]
-        + [("builtin_tool", stem) for stem in builtin_stems]
-        + [("skill_workflow", info["id"]) for info in workflow_entries]
-        + [("skill", info["id"]) for info in skill_entries]
-        + [("skill_graph", info["id"]) for info in graph_entries]
+    toggle_states = _resolve_tool_payload_toggle_states(
+        engine,
+        mcp_entries,
+        builtin_stems,
+        workflow_entries,
+        skill_entries,
+        graph_entries,
     )
-    toggle_states = get_toggle_states_batch(engine, toggle_keys)
 
-    for name, row in mcp_entries:
-        mcp_enabled = toggle_states[("mcp_server", name)]
-        if not row.get("enabled", True):
-            mcp_enabled = False
-        transport = str(row.get("transport") or "")
-        is_stdio = transport == "stdio"
-        mcp_tools.append(
-            {
-                "name": name,
-                "type": "MCP Server",
-                "launch_mode": "subprocess" if is_stdio else "remote",
-                # The catalog never stores the raw command/args (privacy —
-                # see fleet_catalog_tables' module docstring); these stayed
-                # opaque presence markers even before this migration.
-                "command": "[configured]" if is_stdio else "",
-                "args": ["[configured]"] if is_stdio else [],
-                "status": "active" if mcp_enabled else "disabled",
-                "enabled": mcp_enabled,
-            }
-        )
+    mcp_tools = _mcp_tools_section(mcp_entries, toggle_states)
 
     builtin_tools = [
         {
