@@ -88,50 +88,48 @@ class _PayloadBudget:
     max_collection_items: int
     consumed_bytes: int = 0
 
-    def accept(self, row: Mapping[str, Any], *, label: str) -> None:
-        try:
-            stack: list[tuple[Any, int]] = [(row, 1)]
-            visited_containers: set[int] = set()
-            while stack:
-                value, depth = stack.pop()
-                if isinstance(value, Mapping):
-                    container_id = id(value)
-                    if container_id in visited_containers:
-                        raise ExternalGraphIngestionError(
-                            f"External graph {label} contains a repeated container"
-                        )
-                    visited_containers.add(container_id)
-                    if depth > self.max_nesting_depth:
-                        raise ExternalGraphIngestionError(
-                            f"External graph {label} exceeded the nesting-depth bound"
-                        )
-                    if len(value) > self.max_collection_items:
-                        raise ExternalGraphIngestionError(
-                            f"External graph {label} exceeded the collection-size bound"
-                        )
-                    stack.extend((item, depth + 1) for item in value.values())
-                elif isinstance(value, list | tuple):
-                    container_id = id(value)
-                    if container_id in visited_containers:
-                        raise ExternalGraphIngestionError(
-                            f"External graph {label} contains a repeated container"
-                        )
-                    visited_containers.add(container_id)
-                    if depth > self.max_nesting_depth:
-                        raise ExternalGraphIngestionError(
-                            f"External graph {label} exceeded the nesting-depth bound"
-                        )
-                    if len(value) > self.max_collection_items:
-                        raise ExternalGraphIngestionError(
-                            f"External graph {label} exceeded the collection-size bound"
-                        )
-                    stack.extend((item, depth + 1) for item in value)
-        except ExternalGraphIngestionError:
-            raise
-        except Exception:
+    def _check_container_bounds(
+        self,
+        value: Mapping[Any, Any] | list[Any] | tuple[Any, ...],
+        depth: int,
+        label: str,
+        visited_containers: set[int],
+    ) -> None:
+        """Shared repeated-container / nesting-depth / collection-size checks.
+
+        Applies identically whether ``value`` is a ``Mapping`` or a ``list``/``tuple``
+        (the two branches of the bounded-JSON walk were exact duplicates of this).
+        """
+        container_id = id(value)
+        if container_id in visited_containers:
             raise ExternalGraphIngestionError(
-                f"External graph {label} is not bounded JSON"
-            ) from None
+                f"External graph {label} contains a repeated container"
+            )
+        visited_containers.add(container_id)
+        if depth > self.max_nesting_depth:
+            raise ExternalGraphIngestionError(
+                f"External graph {label} exceeded the nesting-depth bound"
+            )
+        if len(value) > self.max_collection_items:
+            raise ExternalGraphIngestionError(
+                f"External graph {label} exceeded the collection-size bound"
+            )
+
+    def _walk_bounded(self, row: Mapping[str, Any], label: str) -> None:
+        """Walk ``row`` depth-first, enforcing nesting/size/repeated-container bounds."""
+        stack: list[tuple[Any, int]] = [(row, 1)]
+        visited_containers: set[int] = set()
+        while stack:
+            value, depth = stack.pop()
+            if isinstance(value, Mapping):
+                self._check_container_bounds(value, depth, label, visited_containers)
+                stack.extend((item, depth + 1) for item in value.values())
+            elif isinstance(value, list | tuple):
+                self._check_container_bounds(value, depth, label, visited_containers)
+                stack.extend((item, depth + 1) for item in value)
+
+    def _row_byte_size(self, row: Mapping[str, Any], label: str) -> int:
+        """Serialize + size-check one row. Raises on non-JSON or over the per-row byte bound."""
         try:
             row_bytes = len(
                 json.dumps(
@@ -150,6 +148,18 @@ class _PayloadBudget:
             raise ExternalGraphIngestionError(
                 f"External graph {label} exceeded the per-row byte bound"
             )
+        return row_bytes
+
+    def accept(self, row: Mapping[str, Any], *, label: str) -> None:
+        try:
+            self._walk_bounded(row, label)
+        except ExternalGraphIngestionError:
+            raise
+        except Exception:
+            raise ExternalGraphIngestionError(
+                f"External graph {label} is not bounded JSON"
+            ) from None
+        row_bytes = self._row_byte_size(row, label)
         self.consumed_bytes += row_bytes
         if self.consumed_bytes > self.max_total_bytes:
             raise ExternalGraphIngestionError(
@@ -187,6 +197,22 @@ def _dig(value: Any, path: str, default: Any = None) -> Any:
     return current
 
 
+def _rows_from_iterable(
+    value: Iterable[Any], *, max_records: int
+) -> list[dict[str, Any]]:
+    """The ``Iterable``-of-rows branch of :func:`_rows`."""
+    rows: list[dict[str, Any]] = []
+    for row in value:
+        if not isinstance(row, dict):
+            continue
+        if len(rows) >= max_records:
+            raise ExternalGraphIngestionError(
+                "External graph source exceeded the requested row bound"
+            )
+        rows.append(row)
+    return rows
+
+
 def _rows(value: Any, *, max_records: int) -> list[dict[str, Any]]:
     if value is None:
         return []
@@ -201,17 +227,118 @@ def _rows(value: Any, *, max_records: int) -> list[dict[str, Any]]:
                 return _rows(value[key], max_records=max_records)
         return [value]
     if isinstance(value, Iterable):
-        rows: list[dict[str, Any]] = []
-        for row in value:
-            if not isinstance(row, dict):
-                continue
-            if len(rows) >= max_records:
-                raise ExternalGraphIngestionError(
-                    "External graph source exceeded the requested row bound"
-                )
-            rows.append(row)
-        return rows
+        return _rows_from_iterable(value, max_records=max_records)
     return []
+
+
+def _skip_line_comment(query: str, index: int, size: int) -> int:
+    """Skip a ``// ...`` line comment starting at ``index``; returns the index after it."""
+    newline = query.find("\n", index + 2)
+    return size if newline < 0 else newline + 1
+
+
+def _skip_block_comment(query: str, index: int, label: str) -> int:
+    """Skip a ``/* ... */`` block comment starting at ``index``; returns the index after it."""
+    end = query.find("*/", index + 2)
+    if end < 0:
+        raise ExternalGraphIngestionError(f"{label} is not valid Cypher")
+    return end + 2
+
+
+def _scan_quoted_literal(query: str, index: int, size: int, label: str) -> int:
+    """Consume a quote-delimited literal starting at ``index`` (the opening quote).
+
+    Returns the index just past the closing (unescaped, undoubled) delimiter.
+    """
+    delimiter = query[index]
+    index += 1
+    closed = False
+    while index < size:
+        current = query[index]
+        if current == "\\" and delimiter != "`":
+            index += 2
+            continue
+        if current == delimiter:
+            if index + 1 < size and query[index + 1] == delimiter:
+                index += 2
+                continue
+            index += 1
+            closed = True
+            break
+        index += 1
+    if not closed:
+        raise ExternalGraphIngestionError(f"{label} is not valid Cypher")
+    return index
+
+
+def _scan_parameter_token(
+    query: str, index: int, size: int, label: str
+) -> tuple[int, tuple[str, str]]:
+    """Consume a ``$name`` parameter token starting at ``index`` (the ``$``)."""
+    end = index + 1
+    while end < size and (
+        query[end].isascii() and (query[end].isalnum() or query[end] == "_")
+    ):
+        end += 1
+    if end == index + 1:
+        raise ExternalGraphIngestionError(f"{label} is not valid Cypher")
+    return end, ("parameter", query[index + 1 : end].casefold())
+
+
+def _scan_word_token(query: str, index: int, size: int) -> tuple[int, tuple[str, str]]:
+    """Consume a bare-word token starting at ``index``."""
+    end = index + 1
+    while end < size and (
+        query[end].isascii() and (query[end].isalnum() or query[end] == "_")
+    ):
+        end += 1
+    return end, ("word", query[index:end].upper())
+
+
+def _skip_trivia(query: str, index: int, size: int, label: str) -> int | None:
+    """Skip whitespace or a comment starting at ``index``.
+
+    Returns the new index, or ``None`` if ``index`` is not trivia (caller should
+    scan a token there instead).
+    """
+    char = query[index]
+    if char.isspace():
+        return index + 1
+    if query.startswith("//", index):
+        return _skip_line_comment(query, index, size)
+    if query.startswith("/*", index):
+        return _skip_block_comment(query, index, label)
+    return None
+
+
+def _is_bare_word_start(char: str) -> bool:
+    """Whether ``char`` can start a bare (unquoted) Cypher word token."""
+    return char.isascii() and (char.isalpha() or char == "_")
+
+
+def _scan_token(
+    query: str, index: int, size: int, label: str
+) -> tuple[int, tuple[str, str] | None]:
+    """Scan one non-trivia token starting at ``index``. Returns ``(new_index, token)``.
+
+    ``token`` is ``None`` only for a quoted literal (consumed, but not tokenized).
+    """
+    char = query[index]
+    if char in {"'", '"', "`"}:
+        return _scan_quoted_literal(query, index, size, label), None
+    if char == ";":
+        raise ExternalGraphIngestionError(
+            f"{label} must contain exactly one read statement"
+        )
+    if char == "$":
+        return _scan_parameter_token(query, index, size, label)
+    if _is_bare_word_start(char):
+        return _scan_word_token(query, index, size)
+    if not char.isascii():
+        raise ExternalGraphIngestionError(
+            f"{label} bare identifiers must be ASCII or backtick-quoted"
+        )
+    return index + 1, ("symbol", char)
 
 
 def _scan_cypher(query: str, *, label: str) -> list[tuple[str, str]]:
@@ -228,71 +355,21 @@ def _scan_cypher(query: str, *, label: str) -> list[tuple[str, str]]:
     index = 0
     size = len(query)
     while index < size:
-        char = query[index]
-        if char.isspace():
-            index += 1
+        skipped = _skip_trivia(query, index, size, label)
+        if skipped is not None:
+            index = skipped
             continue
-        if query.startswith("//", index):
-            newline = query.find("\n", index + 2)
-            index = size if newline < 0 else newline + 1
-            continue
-        if query.startswith("/*", index):
-            end = query.find("*/", index + 2)
-            if end < 0:
-                raise ExternalGraphIngestionError(f"{label} is not valid Cypher")
-            index = end + 2
-            continue
-        if char in {"'", '"', "`"}:
-            delimiter = char
-            index += 1
-            closed = False
-            while index < size:
-                current = query[index]
-                if current == "\\" and delimiter != "`":
-                    index += 2
-                    continue
-                if current == delimiter:
-                    if index + 1 < size and query[index + 1] == delimiter:
-                        index += 2
-                        continue
-                    index += 1
-                    closed = True
-                    break
-                index += 1
-            if not closed:
-                raise ExternalGraphIngestionError(f"{label} is not valid Cypher")
-            continue
-        if char == ";":
-            raise ExternalGraphIngestionError(
-                f"{label} must contain exactly one read statement"
-            )
-        if char == "$":
-            end = index + 1
-            while end < size and (
-                query[end].isascii() and (query[end].isalnum() or query[end] == "_")
-            ):
-                end += 1
-            if end == index + 1:
-                raise ExternalGraphIngestionError(f"{label} is not valid Cypher")
-            tokens.append(("parameter", query[index + 1 : end].casefold()))
-            index = end
-            continue
-        if char.isascii() and (char.isalpha() or char == "_"):
-            end = index + 1
-            while end < size and (
-                query[end].isascii() and (query[end].isalnum() or query[end] == "_")
-            ):
-                end += 1
-            tokens.append(("word", query[index:end].upper()))
-            index = end
-            continue
-        if not char.isascii():
-            raise ExternalGraphIngestionError(
-                f"{label} bare identifiers must be ASCII or backtick-quoted"
-            )
-        tokens.append(("symbol", char))
-        index += 1
+        index, token = _scan_token(query, index, size, label)
+        if token is not None:
+            tokens.append(token)
     return tokens
+
+
+def _contains_token_pair(
+    tokens: list[tuple[str, str]], pair: list[tuple[str, str]]
+) -> bool:
+    """Whether ``pair`` (2 tokens) appears anywhere as a contiguous subsequence of ``tokens``."""
+    return any(tokens[index : index + 2] == pair for index in range(len(tokens) - 1))
 
 
 def _validate_read_query(query: str, *, label: str) -> None:
@@ -307,15 +384,11 @@ def _validate_read_query(query: str, *, label: str) -> None:
         raise ExternalGraphIngestionError(
             f"{label} must end with the exact bound LIMIT $limit"
         )
-    if [("word", "SKIP"), ("parameter", "offset")] not in [
-        tokens[index : index + 2] for index in range(len(tokens) - 1)
-    ]:
+    if not _contains_token_pair(tokens, [("word", "SKIP"), ("parameter", "offset")]):
         raise ExternalGraphIngestionError(
             f"{label} must use the exact page cursor SKIP $offset"
         )
-    if [("word", "ORDER"), ("word", "BY")] not in [
-        tokens[index : index + 2] for index in range(len(tokens) - 1)
-    ]:
+    if not _contains_token_pair(tokens, [("word", "ORDER"), ("word", "BY")]):
         raise ExternalGraphIngestionError(
             f"{label} must define deterministic ORDER BY paging"
         )
@@ -438,6 +511,72 @@ def _read_external(
         ) from None
 
 
+def _read_external_snapshot_full(
+    engine: Any,
+    query: str,
+    variables: Mapping[str, Any],
+    *,
+    max_records: int,
+    budget: _PayloadBudget,
+    label: str,
+) -> list[dict[str, Any]]:
+    """Read a full snapshot in one bounded request (no paginated ``read_snapshot_page``)."""
+    params = dict(variables)
+    params.update({"offset": 0, "limit": max_records + 1})
+    rows = _read_external(
+        engine,
+        query,
+        params,
+        max_records=max_records + 1,
+        budget=budget,
+        label=label,
+    )
+    if len(rows) > max_records:
+        raise ExternalGraphIngestionError(
+            "External graph snapshot exceeded the configured total bound"
+        )
+    return rows
+
+
+def _fetch_snapshot_page(
+    snapshot_reader: Callable[..., Any],
+    query: str,
+    params: dict[str, Any],
+    *,
+    window: int,
+    snapshot_token: str | None,
+    privacy: PersistencePrivacyGuard,
+    label: str,
+) -> tuple[Mapping[str, Any], str]:
+    """Call ``snapshot_reader`` for one page and validate its snapshot-token contract.
+
+    Returns ``(result, page_token)``.
+    """
+    try:
+        result = snapshot_reader(
+            query=query,
+            params=params,
+            max_records=window + 1,
+            snapshot_token=snapshot_token,
+        )
+    except Exception as exc:
+        raise ExternalGraphIngestionError(
+            f"External graph stable snapshot read failed ({type(exc).__name__})"
+        ) from None
+    if not isinstance(result, Mapping):
+        raise ExternalGraphIngestionError(
+            "External graph stable snapshot page has an invalid contract"
+        )
+    page_token = _safe_resume_token(
+        result.get("snapshot_token"), privacy, label="snapshot token"
+    )
+    if snapshot_token is not None and page_token != snapshot_token:
+        raise ExternalGraphIngestionError(
+            "External graph stable snapshot token changed during paging"
+        )
+    return result, page_token
+
+
 def _read_external_pages(
     engine: Any,
     query: str,
@@ -458,20 +597,14 @@ def _read_external_pages(
     snapshot_reader = getattr(target, "read_snapshot_page", None)
     snapshot_reader = snapshot_reader if callable(snapshot_reader) else None
     if snapshot_reader is None:
-        params = dict(variables)
-        params.update({"offset": 0, "limit": max_records + 1})
-        rows = _read_external(
+        rows = _read_external_snapshot_full(
             engine,
             query,
-            params,
-            max_records=max_records + 1,
+            variables,
+            max_records=max_records,
             budget=budget,
             label=label,
         )
-        if len(rows) > max_records:
-            raise ExternalGraphIngestionError(
-                "External graph snapshot exceeded the configured total bound"
-            )
         return rows, None
     collected: list[dict[str, Any]] = []
     offset = 0
@@ -485,29 +618,15 @@ def _read_external_pages(
         window = min(page_size, remaining)
         params = dict(variables)
         params.update({"offset": offset, "limit": window + 1})
-        try:
-            result = snapshot_reader(
-                query=query,
-                params=params,
-                max_records=window + 1,
-                snapshot_token=snapshot_token,
-            )
-        except Exception as exc:
-            raise ExternalGraphIngestionError(
-                f"External graph stable snapshot read failed ({type(exc).__name__})"
-            ) from None
-        if not isinstance(result, Mapping):
-            raise ExternalGraphIngestionError(
-                "External graph stable snapshot page has an invalid contract"
-            )
-        page_token = _safe_resume_token(
-            result.get("snapshot_token"), privacy, label="snapshot token"
+        result, snapshot_token = _fetch_snapshot_page(
+            snapshot_reader,
+            query,
+            params,
+            window=window,
+            snapshot_token=snapshot_token,
+            privacy=privacy,
+            label=label,
         )
-        if snapshot_token is not None and page_token != snapshot_token:
-            raise ExternalGraphIngestionError(
-                "External graph stable snapshot token changed during paging"
-            )
-        snapshot_token = page_token
         rows = _rows(result.get("rows"), max_records=window + 1)
         for row in rows:
             budget.accept(row, label=label)
@@ -555,6 +674,80 @@ def _safe_resume_token(
     return rendered
 
 
+def _fetch_change_page(
+    reader: Callable[..., Any], current: str | None, window: int
+) -> Mapping[str, Any]:
+    """Call ``reader`` for one CDC page and validate its outer contract."""
+    try:
+        result = reader(cursor=current, limit=window)
+    except Exception as exc:
+        raise ExternalGraphIngestionError(
+            f"External graph CDC read failed ({type(exc).__name__})"
+        ) from None
+    if not isinstance(result, Mapping):
+        raise ExternalGraphIngestionError(
+            "External graph CDC page has an invalid contract"
+        )
+    return result
+
+
+def _validate_change_event(event: dict[str, Any]) -> None:
+    """Enforce the per-event CDC contract (a supported node upsert/delete shape)."""
+    operation = str(event.get("operation") or "")
+    entity = str(event.get("entity") or "node")
+    if operation not in {"upsert", "delete"} or entity != "node":
+        raise ExternalGraphIngestionError(
+            "External graph CDC event is not a supported node change"
+        )
+    if operation == "upsert" and not isinstance(event.get("record"), dict):
+        raise ExternalGraphIngestionError("External graph CDC upsert has no record")
+    if operation == "delete" and event.get("id") in (None, ""):
+        raise ExternalGraphIngestionError("External graph CDC delete has no identity")
+
+
+def _collect_change_events(
+    raw_events: Any, *, window: int, budget: _PayloadBudget
+) -> list[dict[str, Any]]:
+    """Validate + collect one page's raw CDC events (shape, budget, and per-event contract)."""
+    if not isinstance(raw_events, list) or len(raw_events) > window:
+        raise ExternalGraphIngestionError(
+            "External graph CDC page exceeded its event bound"
+        )
+    events: list[dict[str, Any]] = []
+    for event in raw_events:
+        if not isinstance(event, dict):
+            raise ExternalGraphIngestionError(
+                "External graph CDC event has an invalid contract"
+            )
+        budget.accept(event, label="CDC event")
+        _validate_change_event(event)
+        events.append(event)
+    return events
+
+
+def _resolve_change_page_cursor(
+    result: Mapping[str, Any],
+    current: str | None,
+    events: list[dict[str, Any]],
+    privacy: PersistencePrivacyGuard,
+) -> tuple[bool, str | None]:
+    """Validate + extract ``(has_more, page_cursor)`` from one CDC page's result."""
+    has_more = result.get("has_more")
+    if not isinstance(has_more, bool):
+        raise ExternalGraphIngestionError(
+            "External graph CDC page has no explicit continuation state"
+        )
+    raw_next = result.get("next_cursor")
+    page_cursor: str | None = None
+    if raw_next not in (None, ""):
+        page_cursor = _safe_resume_token(raw_next, privacy, label="CDC cursor")
+    if events and (not page_cursor or page_cursor == current):
+        raise ExternalGraphIngestionError(
+            "External graph CDC event cursor did not advance"
+        )
+    return has_more, page_cursor
+
+
 def _read_change_pages(
     reader: Callable[..., Any],
     *,
@@ -588,57 +781,14 @@ def _read_change_pages(
                 "External graph CDC exceeded the configured total bound"
             )
         window = min(page_size, remaining)
-        try:
-            result = reader(cursor=current, limit=window)
-        except Exception as exc:
-            raise ExternalGraphIngestionError(
-                f"External graph CDC read failed ({type(exc).__name__})"
-            ) from None
-        if not isinstance(result, Mapping):
-            raise ExternalGraphIngestionError(
-                "External graph CDC page has an invalid contract"
-            )
-        raw_events = result.get("events")
-        if not isinstance(raw_events, list) or len(raw_events) > window:
-            raise ExternalGraphIngestionError(
-                "External graph CDC page exceeded its event bound"
-            )
-        events: list[dict[str, Any]] = []
-        for event in raw_events:
-            if not isinstance(event, dict):
-                raise ExternalGraphIngestionError(
-                    "External graph CDC event has an invalid contract"
-                )
-            budget.accept(event, label="CDC event")
-            operation = str(event.get("operation") or "")
-            entity = str(event.get("entity") or "node")
-            if operation not in {"upsert", "delete"} or entity != "node":
-                raise ExternalGraphIngestionError(
-                    "External graph CDC event is not a supported node change"
-                )
-            if operation == "upsert" and not isinstance(event.get("record"), dict):
-                raise ExternalGraphIngestionError(
-                    "External graph CDC upsert has no record"
-                )
-            if operation == "delete" and event.get("id") in (None, ""):
-                raise ExternalGraphIngestionError(
-                    "External graph CDC delete has no identity"
-                )
-            events.append(event)
+        result = _fetch_change_page(reader, current, window)
+        events = _collect_change_events(
+            result.get("events"), window=window, budget=budget
+        )
         collected.extend(events)
-        has_more = result.get("has_more")
-        if not isinstance(has_more, bool):
-            raise ExternalGraphIngestionError(
-                "External graph CDC page has no explicit continuation state"
-            )
-        raw_next = result.get("next_cursor")
-        page_cursor: str | None = None
-        if raw_next not in (None, ""):
-            page_cursor = _safe_resume_token(raw_next, privacy, label="CDC cursor")
-        if events and (not page_cursor or page_cursor == current):
-            raise ExternalGraphIngestionError(
-                "External graph CDC event cursor did not advance"
-            )
+        has_more, page_cursor = _resolve_change_page_cursor(
+            result, current, events, privacy
+        )
         if page_cursor is not None:
             next_cursor = page_cursor
         if not has_more:
