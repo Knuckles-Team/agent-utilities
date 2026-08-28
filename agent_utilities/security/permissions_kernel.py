@@ -499,24 +499,14 @@ class PermissionsKernel:
         # A non-empty identity grant set is an additional closed-world boundary,
         # never an elevation over the role policy. Grants are glob patterns over
         # tool names and may also match the action's explicit semantic capability.
-        if identity.capabilities:
-            capability_target = str(required_capability or "").strip().lower()
-            tool_granted = self._matches_patterns(
-                tool_lower, identity.capabilities
-            ) or bool(
-                capability_target
-                and self._matches_patterns(capability_target, identity.capabilities)
-            )
-            if not tool_granted:
-                return AuthDecision.DENY
+        if identity.capabilities and not self._capability_grants_tool(
+            identity.capabilities, tool_lower, required_capability
+        ):
+            return AuthDecision.DENY
 
         # Step 3: Check denied (highest precedence after identity/capability)
-        if self._matches_patterns(tool_lower, policy.denied_tools):
-            # Deny wins unless an *explicit* (non-wildcard) allowed pattern
-            # also matches — a bare "*" in allowed_tools does not override deny.
-            explicit_allows = [p for p in policy.allowed_tools if p != "*"]
-            if not self._matches_patterns(tool_lower, explicit_allows):
-                return AuthDecision.DENY
+        if self._denied_by_policy(tool_lower, policy):
+            return AuthDecision.DENY
 
         # Step 4: Check require_approval
         if self._matches_patterns(tool_lower, policy.require_approval_for):
@@ -528,6 +518,34 @@ class PermissionsKernel:
 
         # Default deny (closed world)
         return AuthDecision.DENY
+
+    def _capability_grants_tool(
+        self,
+        capabilities: list[str],
+        tool_lower: str,
+        required_capability: str | None,
+    ) -> bool:
+        """Whether a non-empty identity capability grant set covers this tool call.
+
+        Matches either the tool name itself or the action's declared semantic
+        capability against the identity's granted capability glob patterns.
+        """
+        capability_target = str(required_capability or "").strip().lower()
+        return self._matches_patterns(tool_lower, capabilities) or bool(
+            capability_target
+            and self._matches_patterns(capability_target, capabilities)
+        )
+
+    def _denied_by_policy(self, tool_lower: str, policy: AgentPolicy) -> bool:
+        """Step 3 of ``authorize_tool``: denied_tools match, not overridden.
+
+        Deny wins unless an *explicit* (non-wildcard) allowed pattern also
+        matches — a bare ``"*"`` in ``allowed_tools`` does not override deny.
+        """
+        if not self._matches_patterns(tool_lower, policy.denied_tools):
+            return False
+        explicit_allows = [p for p in policy.allowed_tools if p != "*"]
+        return not self._matches_patterns(tool_lower, explicit_allows)
 
     def get_token_quota_for_role(self, role: AgentRole) -> int:
         """Return the max token quota for a given role.
@@ -571,61 +589,7 @@ class PermissionsKernel:
         """
         self._policies.clear()
         try:
-            policy_path = Path(path).expanduser()
-            if policy_path.is_symlink() or not policy_path.is_file():
-                raise PermissionPolicyError(
-                    "configured permission policy is unavailable"
-                )
-            size = policy_path.stat().st_size
-            if size <= 0 or size > _MAX_POLICY_FILE_BYTES:
-                raise PermissionPolicyError(
-                    "configured permission policy has invalid size"
-                )
-
-            def reject_constant(_value: str) -> None:
-                raise ValueError("non-finite constants are not supported")
-
-            def reject_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
-                value: dict[str, object] = {}
-                for key, item in pairs:
-                    if key in value:
-                        raise ValueError("duplicate JSON keys are not supported")
-                    value[key] = item
-                return value
-
-            data = json.loads(
-                policy_path.read_text(encoding="utf-8"),
-                parse_constant=reject_constant,
-                object_pairs_hook=reject_duplicates,
-            )
-            if not isinstance(data, Mapping) or set(data) != {"policies"}:
-                raise ValueError("policy document must contain only policies")
-            policies_data = data["policies"]
-            if (
-                not isinstance(policies_data, Sequence)
-                or isinstance(policies_data, str | bytes)
-                or not 1 <= len(policies_data) <= _MAX_POLICIES
-            ):
-                raise ValueError("policies must be a bounded non-empty list")
-
-            loaded: dict[AgentRole, AgentPolicy] = {}
-            required = {
-                "role",
-                "allowed_tools",
-                "denied_tools",
-                "require_approval_for",
-                "max_token_quota",
-            }
-            for raw_policy in policies_data:
-                if not isinstance(raw_policy, Mapping) or not required.issubset(
-                    raw_policy
-                ):
-                    raise ValueError("configured policy is incomplete")
-                policy = AgentPolicy.model_validate(raw_policy)
-                if policy.role in loaded:
-                    raise ValueError("configured policy contains duplicate roles")
-                loaded[policy.role] = policy
-            self._policies = loaded
+            self._policies = self._load_policy_file(path)
         except PermissionPolicyError:
             logger.error("Configured permission policy is unavailable")
             raise
@@ -643,6 +607,79 @@ class PermissionsKernel:
             ) from None
 
         logger.info("Loaded %d permission policies", len(self._policies))
+
+    def _load_policy_file(self, path: str) -> dict[AgentRole, AgentPolicy]:
+        """Read, parse, and validate ``agent_policies.json`` into a role map.
+
+        Raises the same exception types ``load_policies`` already catches
+        (``PermissionPolicyError``, ``ValueError``, ``OSError``, JSON/pydantic
+        errors) — this helper does no error handling of its own.
+        """
+        policy_path = Path(path).expanduser()
+        self._validate_policy_path(policy_path)
+        data = json.loads(
+            policy_path.read_text(encoding="utf-8"),
+            parse_constant=self._reject_non_finite_constant,
+            object_pairs_hook=self._reject_duplicate_keys,
+        )
+        policies_data = self._validate_policies_payload(data)
+        return self._build_policy_map(policies_data)
+
+    @staticmethod
+    def _validate_policy_path(policy_path: Path) -> None:
+        """Reject an absent, symlinked, empty, or oversized policy file."""
+        if policy_path.is_symlink() or not policy_path.is_file():
+            raise PermissionPolicyError("configured permission policy is unavailable")
+        size = policy_path.stat().st_size
+        if size <= 0 or size > _MAX_POLICY_FILE_BYTES:
+            raise PermissionPolicyError("configured permission policy has invalid size")
+
+    @staticmethod
+    def _reject_non_finite_constant(_value: str) -> None:
+        raise ValueError("non-finite constants are not supported")
+
+    @staticmethod
+    def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        value: dict[str, object] = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError("duplicate JSON keys are not supported")
+            value[key] = item
+        return value
+
+    @staticmethod
+    def _validate_policies_payload(data: Any) -> Sequence[Any]:
+        """Validate the top-level document shape and return the ``policies`` list."""
+        if not isinstance(data, Mapping) or set(data) != {"policies"}:
+            raise ValueError("policy document must contain only policies")
+        policies_data = data["policies"]
+        if (
+            not isinstance(policies_data, Sequence)
+            or isinstance(policies_data, str | bytes)
+            or not 1 <= len(policies_data) <= _MAX_POLICIES
+        ):
+            raise ValueError("policies must be a bounded non-empty list")
+        return policies_data
+
+    @staticmethod
+    def _build_policy_map(policies_data: Sequence[Any]) -> dict[AgentRole, AgentPolicy]:
+        """Validate and construct each ``AgentPolicy``, rejecting duplicate roles."""
+        loaded: dict[AgentRole, AgentPolicy] = {}
+        required = {
+            "role",
+            "allowed_tools",
+            "denied_tools",
+            "require_approval_for",
+            "max_token_quota",
+        }
+        for raw_policy in policies_data:
+            if not isinstance(raw_policy, Mapping) or not required.issubset(raw_policy):
+                raise ValueError("configured policy is incomplete")
+            policy = AgentPolicy.model_validate(raw_policy)
+            if policy.role in loaded:
+                raise ValueError("configured policy contains duplicate roles")
+            loaded[policy.role] = policy
+        return loaded
 
     def _load_defaults(self) -> None:
         """Load the built-in default policies."""
@@ -920,12 +957,8 @@ def _render_key_document(versions: list[dict[str, Any]], active_key_id: str) -> 
     )
 
 
-def _provisioned_from_document(value: Any) -> ProvisionedSigningKey | None:
-    """Parse a stored versioned key document into a ``ProvisionedSigningKey``.
-
-    Defensive: any structural problem, or an absent/invalid active signer, returns
-    ``None`` so the caller (re-)provisions rather than trusting malformed material.
-    """
+def _parse_signing_key_document(value: Any) -> Mapping[str, Any] | None:
+    """Parse and schema-check the stored value; ``None`` on any structural problem."""
     if not isinstance(value, str) or not value:
         return None
     try:
@@ -934,10 +967,17 @@ def _provisioned_from_document(value: Any) -> ProvisionedSigningKey | None:
         return None
     if not isinstance(doc, Mapping) or doc.get("schema") != _SIGNING_KEY_DOC_SCHEMA:
         return None
-    versions = doc.get("versions")
-    active_key_id = doc.get("active_key_id")
-    if not isinstance(versions, list) or not isinstance(active_key_id, str):
-        return None
+    return doc
+
+
+def _scan_key_versions(
+    versions: list[Any], active_key_id: str
+) -> tuple[str | None, list[str]] | None:
+    """Validate every version entry; return ``(active_material, verifying materials)``.
+
+    ``None`` signals a structurally invalid entry (not a mapping, or missing/invalid
+    ``material``/``key_id``) so the caller treats the whole document as untrusted.
+    """
     active_material: str | None = None
     verifying: list[str] = []
     for entry in versions:
@@ -952,6 +992,26 @@ def _provisioned_from_document(value: Any) -> ProvisionedSigningKey | None:
             verifying.append(material)
         if key_id == active_key_id and status == "active":
             active_material = material
+    return active_material, verifying
+
+
+def _provisioned_from_document(value: Any) -> ProvisionedSigningKey | None:
+    """Parse a stored versioned key document into a ``ProvisionedSigningKey``.
+
+    Defensive: any structural problem, or an absent/invalid active signer, returns
+    ``None`` so the caller (re-)provisions rather than trusting malformed material.
+    """
+    doc = _parse_signing_key_document(value)
+    if doc is None:
+        return None
+    versions = doc.get("versions")
+    active_key_id = doc.get("active_key_id")
+    if not isinstance(versions, list) or not isinstance(active_key_id, str):
+        return None
+    scanned = _scan_key_versions(versions, active_key_id)
+    if scanned is None:
+        return None
+    active_material, verifying = scanned
     if active_material is None or active_material not in verifying:
         return None
     return ProvisionedSigningKey(
@@ -1134,6 +1194,31 @@ def _resolve_identity_refresh_skew(config: Any) -> float:
     return skew if skew >= 0 else _DEFAULT_IDENTITY_REFRESH_SKEW_SECONDS
 
 
+def _resolve_signing_materials(
+    config: Any,
+    signing_key_ref: str,
+    secret_resolver: Callable[[object], str] | None,
+    secrets_client: Any,
+) -> tuple[str, tuple[str, ...]]:
+    """Resolve the active signing material and any additional verification materials.
+
+    If ``signing_key_ref`` is set, the explicit external/rotated key reference
+    WINS and is resolved through ``secret_resolver`` (single active authority,
+    no additional verification materials). Otherwise the authority is durably
+    self-provisioned (:func:`provision_signing_key`), returning both its active
+    material and any rotation-grace verification materials.
+    """
+    if signing_key_ref:
+        resolver = secret_resolver
+        if resolver is None:
+            from .cli_secrets import resolve_runtime_secret_reference
+
+            resolver = resolve_runtime_secret_reference
+        return resolver(signing_key_ref), ()
+    provisioned = provision_signing_key(config, secrets_client=secrets_client)
+    return provisioned.active_material, provisioned.additional_verification_materials
+
+
 def resolve_permission_context(
     config: AgentConfig,
     *,
@@ -1186,22 +1271,9 @@ def resolve_permission_context(
     ttl_seconds = _resolve_identity_ttl(config)
     skew_seconds = _resolve_identity_refresh_skew(config)
     try:
-        if signing_key_ref:
-            # Explicit external/rotated key reference — config override WINS,
-            # resolved exactly as before (single active authority).
-            resolver = secret_resolver
-            if resolver is None:
-                from .cli_secrets import resolve_runtime_secret_reference
-
-                resolver = resolve_runtime_secret_reference
-            active_material = resolver(signing_key_ref)
-            additional_materials: tuple[str, ...] = ()
-        else:
-            # No explicit reference: durably self-provision one shared authority
-            # (idempotent, atomic create-if-absent) rather than failing.
-            provisioned = provision_signing_key(config, secrets_client=secrets_client)
-            active_material = provisioned.active_material
-            additional_materials = provisioned.additional_verification_materials
+        active_material, additional_materials = _resolve_signing_materials(
+            config, signing_key_ref, secret_resolver, secrets_client
+        )
         kernel = PermissionsKernel(
             signing_key=active_material,
             policies_path=getattr(config, "agent_policies_path", None),
