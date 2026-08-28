@@ -361,70 +361,101 @@ def _build_candidates(*, force: bool = False) -> list[CapabilityCandidate]:
     actions_by_tool = _actions_by_tool()
     cpds = _load_cpds_required()
     live_tools = sorted(set(kg_server.REGISTERED_TOOLS) - set(INTENT_VERBS))
+    _require_cpd_coverage(live_tools, cpds)
+    _require_verb_authority_coverage(live_tools)
+
+    # Intent verbs have CPDs because they are first-class MCP/REST entry points,
+    # but they can never be resolver targets: selecting ``ask`` from inside
+    # ``ask`` would recursively dispatch intent routing instead of a capability.
+    out = [
+        _build_candidate_for_tool(tool, cpds[tool], actions_by_tool)
+        for tool in live_tools
+    ]
+    _CANDIDATES_CACHE = out
+    _CANDIDATES_GENERATION += 1
+    return out
+
+
+def _require_cpd_coverage(
+    live_tools: list[str], cpds: dict[str, dict[str, Any]]
+) -> None:
+    """Helper for `_build_candidates`: fail closed on a registered tool without a CPD."""
     missing_cpds = sorted(set(live_tools) - set(cpds))
     if missing_cpds:
         raise RuntimeError(
             "GraphOS capability descriptors are missing for registered tools: "
             + ", ".join(missing_cpds)
         )
+
+
+def _require_verb_authority_coverage(live_tools: list[str]) -> None:
+    """Helper for `_build_candidates`: fail closed on a tool without verb authority."""
     missing_authority = sorted(set(live_tools) - set(TOOL_VERBS))
     if missing_authority:
         raise RuntimeError(
             "GraphOS intent-verb authority is missing registered tools: "
             + ", ".join(missing_authority)
         )
-    out: list[CapabilityCandidate] = []
-    # Intent verbs have CPDs because they are first-class MCP/REST entry points,
-    # but they can never be resolver targets: selecting ``ask`` from inside
-    # ``ask`` would recursively dispatch intent routing instead of a capability.
-    for tool in live_tools:
-        authority_verbs = TOOL_VERBS[tool]
-        if (
-            not authority_verbs
-            or len(set(authority_verbs)) != len(authority_verbs)
-            or not set(authority_verbs) <= set(INTENT_VERBS)
-        ):
-            raise RuntimeError(
-                f"GraphOS intent-verb authority is invalid for {tool}: "
-                f"{authority_verbs!r}"
-            )
-        cpd = cpds[tool]
-        packaged_verbs = cpd.get("intent_verbs")
-        if not isinstance(packaged_verbs, list) or not all(
-            isinstance(verb, str) for verb in packaged_verbs
-        ):
-            raise RuntimeError(
-                "GraphOS capability descriptor has an invalid intent_verbs "
-                f"field for {tool}"
-            )
-        if tuple(packaged_verbs) != authority_verbs:
-            raise RuntimeError(
-                "GraphOS capability descriptor intent-verb drift for "
-                f"{tool}: expected {list(authority_verbs)!r}, "
-                f"packaged {packaged_verbs!r}"
-            )
-        examples_text = " ".join(str(e) for e in (cpd.get("examples") or ()))
-        does_text = " ".join(str(d.get("action", "")) for d in (cpd.get("does") or ()))
-        doc = (
-            f"{tool} {' '.join(actions_by_tool.get(tool, []))} "
-            f"{cpd.get('one_line', '')} {examples_text} {does_text}"
+
+
+def _validate_tool_authority_verbs(tool: str, authority_verbs: tuple[str, ...]) -> None:
+    """Helper for `_build_candidates`: authority_verbs must be a non-empty, unique subset of INTENT_VERBS."""
+    if (
+        not authority_verbs
+        or len(set(authority_verbs)) != len(authority_verbs)
+        or not set(authority_verbs) <= set(INTENT_VERBS)
+    ):
+        raise RuntimeError(
+            f"GraphOS intent-verb authority is invalid for {tool}: {authority_verbs!r}"
         )
-        input_params = (cpd.get("typed_io") or {}).get("input_params") or ()
-        accepts_skill_name = any(
-            isinstance(p, dict) and p.get("name") == "skill_name" for p in input_params
+
+
+def _validate_packaged_verbs(
+    tool: str, cpd: dict[str, Any], authority_verbs: tuple[str, ...]
+) -> None:
+    """Helper for `_build_candidates`: packaged CPD intent_verbs must match TOOL_VERBS exactly."""
+    packaged_verbs = cpd.get("intent_verbs")
+    if not isinstance(packaged_verbs, list) or not all(
+        isinstance(verb, str) for verb in packaged_verbs
+    ):
+        raise RuntimeError(
+            "GraphOS capability descriptor has an invalid intent_verbs "
+            f"field for {tool}"
         )
-        out.append(
-            CapabilityCandidate(
-                tool=tool,
-                action=None,
-                verbs=authority_verbs,
-                doc=doc,
-                accepts_skill_name=accepts_skill_name,
-            )
+    if tuple(packaged_verbs) != authority_verbs:
+        raise RuntimeError(
+            "GraphOS capability descriptor intent-verb drift for "
+            f"{tool}: expected {list(authority_verbs)!r}, packaged {packaged_verbs!r}"
         )
-    _CANDIDATES_CACHE = out
-    _CANDIDATES_GENERATION += 1
-    return out
+
+
+def _build_candidate_for_tool(
+    tool: str,
+    cpd: dict[str, Any],
+    actions_by_tool: dict[str, list[str]],
+) -> CapabilityCandidate:
+    """Helper for `_build_candidates`: validate one tool's CPD and build its candidate."""
+    authority_verbs = TOOL_VERBS[tool]
+    _validate_tool_authority_verbs(tool, authority_verbs)
+    _validate_packaged_verbs(tool, cpd, authority_verbs)
+
+    examples_text = " ".join(str(e) for e in (cpd.get("examples") or ()))
+    does_text = " ".join(str(d.get("action", "")) for d in (cpd.get("does") or ()))
+    doc = (
+        f"{tool} {' '.join(actions_by_tool.get(tool, []))} "
+        f"{cpd.get('one_line', '')} {examples_text} {does_text}"
+    )
+    input_params = (cpd.get("typed_io") or {}).get("input_params") or ()
+    accepts_skill_name = any(
+        isinstance(p, dict) and p.get("name") == "skill_name" for p in input_params
+    )
+    return CapabilityCandidate(
+        tool=tool,
+        action=None,
+        verbs=authority_verbs,
+        doc=doc,
+        accepts_skill_name=accepts_skill_name,
+    )
 
 
 def _score(
@@ -543,19 +574,7 @@ def resolve_intent(
     pinned = hints.get("tool") or hints.get("_tool")
     candidates = _build_candidates()
     if pinned:
-        for c in candidates:
-            if c.tool == pinned and (verb is None or verb in c.verbs):
-                return [
-                    CapabilityCandidate(
-                        tool=c.tool,
-                        action=hints.get("action") or c.action,
-                        verbs=c.verbs,
-                        doc=c.doc,
-                        score=1.0,
-                        matched_terms=["explicit tool hint"],
-                    )
-                ]
-        return []
+        return _pinned_resolution(candidates, verb, pinned, hints)
 
     outcome_scope_ref = _outcome_scope_ref()
     cache_key = _cache_key(verb, intent, hints, top_k, outcome_scope_ref)
@@ -565,63 +584,133 @@ def resolve_intent(
         return list(cached)
 
     intent_tokens = _tokenize(intent)
-    pool = candidates if verb is None else [c for c in candidates if verb in c.verbs]
     explicit_action = hints.get("action")
-    if not pinned and explicit_action is not None:
+    pool = _resolution_pool(candidates, verb, explicit_action)
+    router = _outcome_router() if outcome_scope_ref is not None else None
+    cpds = _load_cpds_required() if explicit_action is not None else {}
+    ctx = _RankingContext(
+        intent=intent,
+        intent_tokens=intent_tokens,
+        verb=verb,
+        explicit_action=explicit_action,
+        cpds=cpds,
+        router=router,
+        outcome_scope_ref=outcome_scope_ref,
+    )
+    ranked = [_rank_candidate(c, ctx) for c in pool]
+    ranked.sort(key=lambda c: (c.score, c.tool), reverse=True)
+    result = ranked[:top_k]
+
+    _cache_resolution(cache_key, result)
+    return list(result)
+
+
+def _cache_resolution(
+    cache_key: tuple[Any, ...], result: list[CapabilityCandidate]
+) -> None:
+    """Helper for `resolve_intent`: store `result`, evicting the LRU entry over capacity."""
+    _RESOLUTION_CACHE[cache_key] = result
+    _RESOLUTION_CACHE.move_to_end(cache_key)
+    while len(_RESOLUTION_CACHE) > _RESOLUTION_CACHE_MAX:
+        _RESOLUTION_CACHE.popitem(last=False)
+
+
+def _pinned_resolution(
+    candidates: list[CapabilityCandidate],
+    verb: str | None,
+    pinned: str,
+    hints: dict[str, Any],
+) -> list[CapabilityCandidate]:
+    """Helper for `resolve_intent`: resolve a hints["tool"]-pinned request.
+
+    Empty list if `pinned` names no candidate authorized for `verb`.
+    """
+    for c in candidates:
+        if c.tool == pinned and (verb is None or verb in c.verbs):
+            return [
+                CapabilityCandidate(
+                    tool=c.tool,
+                    action=hints.get("action") or c.action,
+                    verbs=c.verbs,
+                    doc=c.doc,
+                    score=1.0,
+                    matched_terms=["explicit tool hint"],
+                )
+            ]
+    return []
+
+
+def _resolution_pool(
+    candidates: list[CapabilityCandidate],
+    verb: str | None,
+    explicit_action: Any,
+) -> list[CapabilityCandidate]:
+    """Helper for `resolve_intent`: filter candidates by verb, then by explicit action."""
+    pool = candidates if verb is None else [c for c in candidates if verb in c.verbs]
+    if explicit_action is not None:
         actions_by_tool = _actions_by_tool()
         pool = [
             candidate
             for candidate in pool
             if explicit_action in actions_by_tool.get(candidate.tool, ())
         ]
-    router = _outcome_router() if outcome_scope_ref is not None else None
-    cpds = _load_cpds_required() if explicit_action is not None else {}
-    ranked: list[CapabilityCandidate] = []
-    for c in pool:
-        scoring_candidate = c
-        if explicit_action is not None:
-            cpd = cpds[c.tool]
-            scoring_candidate = CapabilityCandidate(
-                tool=c.tool,
-                action=str(explicit_action),
-                verbs=c.verbs,
-                doc=f"{c.tool} {explicit_action} {cpd.get('one_line', '')}",
-            )
-        score, matched = _score(intent_tokens, scoring_candidate)
-        if explicit_action is None:
-            score += _declared_action_phrase_bonus(intent, c.tool)
-        score += _skill_delegation_bonus(intent, c)
-        task_verb = verb if verb is not None else c.verbs[0]
-        reward = (
-            router.reward_of(
-                _reward_task_class(task_verb, outcome_scope_ref), c.capability_id
-            )
-            if router is not None and outcome_scope_ref is not None
-            else 0.5
-        )
-        if reward != 0.5:
-            score += _LEARNED_REWARD_WEIGHT * (reward - 0.5)
-        ranked.append(
-            CapabilityCandidate(
-                tool=c.tool,
-                action=(
-                    str(explicit_action) if explicit_action is not None else c.action
-                ),
-                verbs=c.verbs,
-                doc=c.doc,
-                score=score,
-                matched_terms=matched,
-                accepts_skill_name=c.accepts_skill_name,
-            )
-        )
-    ranked.sort(key=lambda c: (c.score, c.tool), reverse=True)
-    result = ranked[:top_k]
+    return pool
 
-    _RESOLUTION_CACHE[cache_key] = result
-    _RESOLUTION_CACHE.move_to_end(cache_key)
-    while len(_RESOLUTION_CACHE) > _RESOLUTION_CACHE_MAX:
-        _RESOLUTION_CACHE.popitem(last=False)
-    return list(result)
+
+@dataclass
+class _RankingContext:
+    """Helper for `resolve_intent`/`_rank_candidate`: bundles the per-call scoring
+
+    context so `_rank_candidate` stays within the 7-parameter cap.
+    """
+
+    intent: str
+    intent_tokens: Counter
+    verb: str | None
+    explicit_action: Any
+    cpds: dict[str, dict[str, Any]]
+    router: Any
+    outcome_scope_ref: str | None
+
+
+def _rank_candidate(
+    c: CapabilityCandidate, ctx: _RankingContext
+) -> CapabilityCandidate:
+    """Helper for `resolve_intent`: score + build the ranked candidate for one pool entry."""
+    scoring_candidate = c
+    if ctx.explicit_action is not None:
+        cpd = ctx.cpds[c.tool]
+        scoring_candidate = CapabilityCandidate(
+            tool=c.tool,
+            action=str(ctx.explicit_action),
+            verbs=c.verbs,
+            doc=f"{c.tool} {ctx.explicit_action} {cpd.get('one_line', '')}",
+        )
+    score, matched = _score(ctx.intent_tokens, scoring_candidate)
+    if ctx.explicit_action is None:
+        score += _declared_action_phrase_bonus(ctx.intent, c.tool)
+    score += _skill_delegation_bonus(ctx.intent, c)
+    task_verb = ctx.verb if ctx.verb is not None else c.verbs[0]
+    reward = (
+        ctx.router.reward_of(
+            _reward_task_class(task_verb, ctx.outcome_scope_ref), c.capability_id
+        )
+        if ctx.router is not None and ctx.outcome_scope_ref is not None
+        else 0.5
+    )
+    if reward != 0.5:
+        score += _LEARNED_REWARD_WEIGHT * (reward - 0.5)
+    return CapabilityCandidate(
+        tool=c.tool,
+        action=(
+            str(ctx.explicit_action) if ctx.explicit_action is not None else c.action
+        ),
+        verbs=c.verbs,
+        doc=c.doc,
+        score=score,
+        matched_terms=matched,
+        accepts_skill_name=c.accepts_skill_name,
+    )
 
 
 def _rank_actions(tool: str, intent: str) -> list[tuple[str, float]]:
@@ -755,6 +844,173 @@ def _hint_argument_error(tool: str, unsupported: list[str]) -> str:
     )
 
 
+#: Action-name prefixes treated as read-only when nothing more authoritative
+#: (a declared ``mutates``, the destructive-terms check, or the reviewed
+#: READ_ONLY_ACTIONS allowlist) has already classified the operation. Used
+#: only by :func:`_resolve_mutates`.
+_READ_ACTION_PREFIXES = frozenset(
+    {
+        "check",
+        "count",
+        "describe",
+        "discover",
+        "doctor",
+        "explain",
+        "export",
+        "fetch",
+        "find",
+        "get",
+        "has",
+        "history",
+        "inspect",
+        "list",
+        "lookup",
+        "metrics",
+        "preflight",
+        "profile",
+        "query",
+        "read",
+        "recall",
+        "report",
+        "search",
+        "show",
+        "status",
+        "validate",
+        "view",
+    }
+)
+
+
+def _mutates_from_declaration(
+    declared_mutation: bool | None, destructive: bool
+) -> bool | None:
+    """Helper for `_resolve_mutates`: declared/destructive authority (None = inconclusive)."""
+    if declared_mutation is not None:
+        return declared_mutation
+    if destructive:
+        return True
+    return None
+
+
+def _mutates_from_action_policy(
+    tool: str, action: str | None, action_is_declared_read: bool
+) -> bool | None:
+    """Helper for `_resolve_mutates`: the READ_ONLY_ACTIONS allowlist policy."""
+    if action_is_declared_read:
+        return False
+    if action is not None and tool in READ_ONLY_ACTIONS:
+        # The reviewed allowlist is the action policy for a mixed surface:
+        # anything not explicitly declared read-only is non-read.
+        return True
+    return None
+
+
+def _mutates_from_verb_and_prefix(
+    verb: str, action: str | None, action_prefix: str
+) -> bool | None:
+    """Helper for `_resolve_mutates`: name/verb-based inference fallback."""
+    if action_prefix in _READ_ACTION_PREFIXES:
+        return False
+    if action is None and verb in _READ_ONLY_VERBS:
+        return False
+    if verb in _NON_READ_VERBS:
+        return True
+    return None
+
+
+def _resolve_mutates(
+    verb: str,
+    tool: str,
+    action: str | None,
+    declared_mutation: bool | None,
+    destructive: bool,
+) -> bool | None:
+    """Helper for `_operation_plan`: resolve the operation's mutation classification.
+
+    Tries, in priority order: declared/destructive authority, the
+    READ_ONLY_ACTIONS allowlist policy, then name/verb-based inference.
+    """
+    result = _mutates_from_declaration(declared_mutation, destructive)
+    if result is not None:
+        return result
+    action_is_declared_read = action in READ_ONLY_ACTIONS.get(tool, frozenset())
+    result = _mutates_from_action_policy(tool, action, action_is_declared_read)
+    if result is not None:
+        return result
+    action_prefix = str(action or "").split("_", 1)[0]
+    return _mutates_from_verb_and_prefix(verb, action, action_prefix)
+
+
+def _execution_class_and_impact(
+    destructive: bool, mutates: bool | None
+) -> tuple[str, str]:
+    """Helper for `_operation_plan`: (execution_class, impact_summary)."""
+    if destructive:
+        return "destructive", "May remove or irreversibly invalidate governed state."
+    if mutates is True:
+        return (
+            "mutation",
+            "Changes governed state within the selected capability scope.",
+        )
+    if mutates is False:
+        return "read_only", "Reads or computes without a declared state mutation."
+    return "unclassified", "Effect metadata is insufficient; execution fails closed."
+
+
+def _approval_info(cpd: dict[str, Any], destructive: bool) -> dict[str, Any]:
+    """Helper for `_operation_plan`: the ``approval`` block."""
+    raw_policy = cpd.get("policy")
+    policy = raw_policy if isinstance(raw_policy, dict) else {}
+    approval_class = str(policy.get("approval_class") or "unclassified")
+    approval_required = destructive or approval_class != "auto"
+    return {
+        "class": approval_class,
+        "required": approval_required,
+        "route": "exact_tool" if approval_required else "intent_policy",
+    }
+
+
+def _declared_flag(operation: dict[str, Any] | None, key: str) -> bool | None:
+    """Helper for `_operation_plan`: a declared boolean CPD operation flag, or None."""
+    return _literal_bool(operation.get(key) if operation is not None else None)
+
+
+def _operation_cost_latency(cpd: dict[str, Any]) -> dict[str, Any]:
+    """Helper for `_operation_metadata`: cost/latency, with fallbacks applied."""
+    cost = cpd.get("cost") if isinstance(cpd.get("cost"), dict) else {}
+    latency = cpd.get("latency") if isinstance(cpd.get("latency"), dict) else {}
+    return {
+        "cost": cost or {"estimate": "not_available"},
+        "latency": latency or {"estimate": "not_available"},
+    }
+
+
+def _operation_impact_fields(
+    cpd: dict[str, Any], operation: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Helper for `_operation_metadata`: scopes/durability/transaction, with fallbacks applied."""
+    scopes = sorted(str(scope) for scope in (cpd.get("scopes") or ()))
+    durability = str(operation.get("durability") or "") if operation is not None else ""
+    transaction = (
+        str(operation.get("txn_participation") or "") if operation is not None else ""
+    )
+    return {
+        "scopes": scopes,
+        "durability": durability or "unclassified",
+        "transaction": transaction or "unclassified",
+    }
+
+
+def _operation_metadata(
+    cpd: dict[str, Any], operation: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Helper for `_operation_plan`: cost/latency/scopes/durability/transaction, fallbacks applied."""
+    return {
+        **_operation_cost_latency(cpd),
+        **_operation_impact_fields(cpd, operation),
+    }
+
+
 def _operation_plan(
     verb: str,
     tool: str,
@@ -765,93 +1021,16 @@ def _operation_plan(
 
     cpd = _load_cpds_required()[tool]
     operation = _operation_record(cpd, action)
-    declared_mutation = _literal_bool(
-        operation.get("mutates") if operation is not None else None
-    )
+    declared_mutation = _declared_flag(operation, "mutates")
     destructive = _operation_is_destructive(tool, action)
+    mutates = _resolve_mutates(verb, tool, action, declared_mutation, destructive)
 
-    read_prefixes = frozenset(
-        {
-            "check",
-            "count",
-            "describe",
-            "discover",
-            "doctor",
-            "explain",
-            "export",
-            "fetch",
-            "find",
-            "get",
-            "has",
-            "history",
-            "inspect",
-            "list",
-            "lookup",
-            "metrics",
-            "preflight",
-            "profile",
-            "query",
-            "read",
-            "recall",
-            "report",
-            "search",
-            "show",
-            "status",
-            "validate",
-            "view",
-        }
-    )
-    action_prefix = str(action or "").split("_", 1)[0]
-    action_is_declared_read = action in READ_ONLY_ACTIONS.get(tool, frozenset())
-    if declared_mutation is not None:
-        mutates: bool | None = declared_mutation
-    elif destructive:
-        mutates = True
-    elif action_is_declared_read:
-        mutates = False
-    elif action is not None and tool in READ_ONLY_ACTIONS:
-        # The reviewed allowlist is the action policy for a mixed surface:
-        # anything not explicitly declared read-only is non-read.
-        mutates = True
-    elif action_prefix in read_prefixes:
-        mutates = False
-    elif action is None and verb in _READ_ONLY_VERBS:
-        mutates = False
-    elif verb in _NON_READ_VERBS:
-        mutates = True
-    else:
-        mutates = None
-
-    declared_idempotency = _literal_bool(
-        operation.get("idempotent") if operation is not None else None
-    )
+    declared_idempotency = _declared_flag(operation, "idempotent")
     if declared_idempotency is None and mutates is False:
         declared_idempotency = True
 
-    _raw_policy = cpd.get("policy")
-    policy = _raw_policy if isinstance(_raw_policy, dict) else {}
-    approval_class = str(policy.get("approval_class") or "unclassified")
-    approval_required = destructive or approval_class != "auto"
-    cost = cpd.get("cost") if isinstance(cpd.get("cost"), dict) else {}
-    latency = cpd.get("latency") if isinstance(cpd.get("latency"), dict) else {}
-    scopes = sorted(str(scope) for scope in (cpd.get("scopes") or ()))
-    durability = str(operation.get("durability") or "") if operation is not None else ""
-    transaction = (
-        str(operation.get("txn_participation") or "") if operation is not None else ""
-    )
-
-    if destructive:
-        execution_class = "destructive"
-        impact_summary = "May remove or irreversibly invalidate governed state."
-    elif mutates is True:
-        execution_class = "mutation"
-        impact_summary = "Changes governed state within the selected capability scope."
-    elif mutates is False:
-        execution_class = "read_only"
-        impact_summary = "Reads or computes without a declared state mutation."
-    else:
-        execution_class = "unclassified"
-        impact_summary = "Effect metadata is insufficient; execution fails closed."
+    metadata = _operation_metadata(cpd, operation)
+    execution_class, impact_summary = _execution_class_and_impact(destructive, mutates)
 
     return {
         "tool": tool,
@@ -861,19 +1040,15 @@ def _operation_plan(
         "destructive": destructive,
         "idempotent": declared_idempotency,
         "preview_required": verb in _NON_READ_VERBS,
-        "approval": {
-            "class": approval_class,
-            "required": approval_required,
-            "route": "exact_tool" if approval_required else "intent_policy",
-        },
+        "approval": _approval_info(cpd, destructive),
         "impact": {
             "summary": impact_summary,
-            "scopes": scopes,
-            "durability": durability or "unclassified",
-            "transaction": transaction or "unclassified",
+            "scopes": metadata["scopes"],
+            "durability": metadata["durability"],
+            "transaction": metadata["transaction"],
         },
-        "cost": cost or {"estimate": "not_available"},
-        "latency": latency or {"estimate": "not_available"},
+        "cost": metadata["cost"],
+        "latency": metadata["latency"],
         "forwarded_fields": sorted(call_kwargs),
     }
 
@@ -961,48 +1136,23 @@ def _restore_preview_hints(
     return deepcopy(preview.hints)
 
 
-def _ambiguity_evidence(
-    candidates: list[CapabilityCandidate], *, explicit: bool
+def _margin_ambiguity_fields(
+    top_score: float,
+    second_score: float | None,
+    *,
+    explicit: bool,
+    extra_ambiguous_gate: bool = True,
 ) -> dict[str, Any]:
-    top_score = candidates[0].score if candidates else 0.0
-    second_score = candidates[1].score if len(candidates) > 1 else None
-    margin = top_score - second_score if second_score is not None else None
-    ambiguous = not explicit and (
-        top_score <= 0.0
-        or (
-            second_score is not None
-            and second_score > 0.0
-            and margin is not None
-            and margin < _AMBIGUITY_MARGIN
-        )
-    )
-    return {
-        "ambiguous": ambiguous,
-        "explicit": explicit,
-        "top_score": round(top_score, 4),
-        "runner_up_score": (
-            round(second_score, 4) if second_score is not None else None
-        ),
-        "margin": round(margin, 4) if margin is not None else None,
-        "required_margin": _AMBIGUITY_MARGIN,
-    }
+    """Shared score-margin ambiguity computation.
 
-
-def _action_ambiguity_evidence(
-    ranked_actions: list[tuple[str, float]], *, explicit: bool
-) -> dict[str, Any]:
-    if not ranked_actions:
-        return {
-            "ambiguous": False,
-            "explicit": explicit,
-            "candidates": [],
-        }
-    top_score = ranked_actions[0][1]
-    second_score = ranked_actions[1][1] if len(ranked_actions) > 1 else None
+    Used by both `_ambiguity_evidence` and `_action_ambiguity_evidence`;
+    `extra_ambiguous_gate` carries the latter's extra ``len(ranked_actions) >
+    1`` condition (always True — a no-op AND — for the former).
+    """
     margin = top_score - second_score if second_score is not None else None
     ambiguous = (
         not explicit
-        and len(ranked_actions) > 1
+        and extra_ambiguous_gate
         and (
             top_score <= 0.0
             or (
@@ -1022,11 +1172,39 @@ def _action_ambiguity_evidence(
         ),
         "margin": round(margin, 4) if margin is not None else None,
         "required_margin": _AMBIGUITY_MARGIN,
-        "candidates": [
-            {"action": action, "score": round(score, 4)}
-            for action, score in ranked_actions[:5]
-        ],
     }
+
+
+def _ambiguity_evidence(
+    candidates: list[CapabilityCandidate], *, explicit: bool
+) -> dict[str, Any]:
+    top_score = candidates[0].score if candidates else 0.0
+    second_score = candidates[1].score if len(candidates) > 1 else None
+    return _margin_ambiguity_fields(top_score, second_score, explicit=explicit)
+
+
+def _action_ambiguity_evidence(
+    ranked_actions: list[tuple[str, float]], *, explicit: bool
+) -> dict[str, Any]:
+    if not ranked_actions:
+        return {
+            "ambiguous": False,
+            "explicit": explicit,
+            "candidates": [],
+        }
+    top_score = ranked_actions[0][1]
+    second_score = ranked_actions[1][1] if len(ranked_actions) > 1 else None
+    fields = _margin_ambiguity_fields(
+        top_score,
+        second_score,
+        explicit=explicit,
+        extra_ambiguous_gate=len(ranked_actions) > 1,
+    )
+    fields["candidates"] = [
+        {"action": action, "score": round(score, 4)}
+        for action, score in ranked_actions[:5]
+    ]
+    return fields
 
 
 def _intent_security_failure(
@@ -1078,30 +1256,40 @@ def _execution_succeeded(result: Any) -> bool:
     if isinstance(result, BaseModel):
         return _execution_succeeded(result.model_dump())
     if isinstance(result, dict):
-        if result.get("error") or result.get("ok") is False:
-            return False
-        if result.get("success") is False or result.get("executed") is False:
-            return False
-        if str(result.get("status") or "").strip().lower() in {
-            "cancelled",
-            "denied",
-            "error",
-            "failed",
-            "forbidden",
-        }:
-            return False
-        return True
+        return _execution_succeeded_dict(result)
     if isinstance(result, str):
-        stripped = result.strip()
-        if not stripped:
-            return False
-        try:
-            decoded = json.loads(stripped)
-        except (TypeError, ValueError):
-            lowered = stripped.lower()
-            return not lowered.startswith(("error", "failed", "forbidden", "denied"))
-        return _execution_succeeded(decoded)
+        return _execution_succeeded_str(result)
     return result is not None
+
+
+def _execution_succeeded_dict(result: dict[str, Any]) -> bool:
+    """Helper for `_execution_succeeded`: classify a dict-shaped result."""
+    if result.get("error") or result.get("ok") is False:
+        return False
+    if result.get("success") is False or result.get("executed") is False:
+        return False
+    if str(result.get("status") or "").strip().lower() in {
+        "cancelled",
+        "denied",
+        "error",
+        "failed",
+        "forbidden",
+    }:
+        return False
+    return True
+
+
+def _execution_succeeded_str(result: str) -> bool:
+    """Helper for `_execution_succeeded`: classify a str-shaped result."""
+    stripped = result.strip()
+    if not stripped:
+        return False
+    try:
+        decoded = json.loads(stripped)
+    except (TypeError, ValueError):
+        lowered = stripped.lower()
+        return not lowered.startswith(("error", "failed", "forbidden", "denied"))
+    return _execution_succeeded(decoded)
 
 
 def _require_candidate(candidate: CapabilityCandidate | None) -> CapabilityCandidate:
@@ -1156,6 +1344,338 @@ def _approval_satisfied_by_session_load(mcp: Any, chosen_tool: str) -> bool:
         return bool(mux.tool_dispatchable(chosen_tool))
     except Exception:  # noqa: BLE001 — a broken predicate must fail closed, not open
         return False
+
+
+def _plan_ref_hints_match(
+    raw_hints: dict[str, Any], restored_hints: dict[str, Any]
+) -> bool:
+    """Helper for `dispatch_intent`'s `_restore_from_plan_ref` closure.
+
+    D-GIS-1: this equality check exists so a caller resubmitting the SAME
+    hints they previewed (plus plan_ref) is provably replaying what was
+    reviewed. But `_remember_preview_plan` stores `raw_hints` from AFTER the
+    resolver's own `chosen_tool` merge (see `_select_tool_and_action`'s "if
+    chosen_tool in _DOCUMENTED_HINT_ALIASES"), which injects a "tool"/"_tool"
+    key the caller never supplied and has no way to know in advance (it is
+    the resolver's inferred routing target, e.g. an unpinned
+    skill-delegation intent auto-resolving to `graph_orchestrate`).
+    Comparing against that resolver-injected key made every unpinned
+    non-read `act` reject its own documented "resubmit the same hints plus
+    plan_ref" flow unconditionally -- the caller's hints could never
+    contain a key they were never told to supply. Excluding it here does
+    not weaken the check: everything the CALLER actually controls must
+    still match exactly, and the resolver will independently re-derive the
+    identical `tool` value from the (matched) remaining hints during
+    dispatch, so nothing forged by a caller can smuggle a different tool
+    through this path.
+    """
+    resolver_injected_hint_fields = ("tool", "_tool")
+    replayed_hints = {
+        k: v
+        for k, v in raw_hints.items()
+        if k != "plan_ref" and k not in resolver_injected_hint_fields
+    }
+    comparable_restored_hints = {
+        k: v
+        for k, v in restored_hints.items()
+        if k not in resolver_injected_hint_fields
+    }
+    return not replayed_hints or replayed_hints == comparable_restored_hints
+
+
+def _normalize_chosen_tool_alias(
+    raw_hints: dict[str, Any], chosen_tool: str
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Helper for `dispatch_intent`'s `_select_tool_and_action` closure.
+
+    A non-pinned resolver result can still be the orchestration façade. It is
+    safe to normalize its two documented target aliases only after the
+    resolver has selected that tool. Returns (raw_hints, error_response);
+    error_response is None on success.
+    """
+    if chosen_tool not in _DOCUMENTED_HINT_ALIASES:
+        return raw_hints, None
+    try:
+        return (
+            _normalize_documented_hint_aliases({**raw_hints, "tool": chosen_tool}),
+            None,
+        )
+    except ValueError as exc:
+        # ``exc.args[0]`` (not ``str(exc)``/``repr(exc)``): this ValueError's
+        # message is a developer-authored, non-sensitive validation
+        # explanation (see _normalize_documented_hint_aliases) that callers
+        # need to self-correct their hints -- test_orchestration_target_
+        # alias_conflict_fails_closed and test_intent_rejects_unknown_hint_
+        # before_creating_preview assert on the exact text. Collapsing to
+        # the exception TYPE name here would satisfy the served-boundary
+        # exception-surface gate's letter while losing the caller-facing
+        # detail those tests require; .args[0] satisfies both.
+        return raw_hints, {
+            "error": exc.args[0] if exc.args else type(exc).__name__,
+            "executed": False,
+        }
+
+
+def _validate_explicit_action(
+    verb: str,
+    chosen_tool: str,
+    explicit_action: Any,
+    available_actions: list[str],
+) -> dict[str, Any] | None:
+    """Helper for `dispatch_intent`'s `_select_tool_and_action` closure.
+
+    Rejects an explicit action not declared for the selected capability.
+    """
+    if explicit_action is not None and explicit_action not in available_actions:
+        return {
+            "error": "Requested action is not declared for the selected capability.",
+            "executed": False,
+            "routing": {
+                "verb": verb,
+                "chosen_tool": chosen_tool,
+                "declared_actions": sorted(available_actions),
+            },
+        }
+    return None
+
+
+def _restrict_to_read_actions(
+    verb: str,
+    chosen_tool: str,
+    explicit_action: Any,
+    ranked_actions: list[tuple[str, float]],
+) -> tuple[list[tuple[str, float]], dict[str, Any] | None]:
+    """Helper for `dispatch_intent`'s `_select_tool_and_action` closure.
+
+    For a read-only verb with a declared read-action allowlist: validates the
+    explicit action (if any), filters `ranked_actions` to just the read-only
+    ones, and checks the result for ambiguity. Returns (ranked_actions,
+    error_response); `ranked_actions` is returned unchanged, and
+    error_response is None, when the verb/tool has no read-only allowlist.
+    """
+    read_actions = READ_ONLY_ACTIONS.get(chosen_tool)
+    if not (verb in _READ_ONLY_VERBS and read_actions is not None):
+        return ranked_actions, None
+    if explicit_action is not None and explicit_action not in read_actions:
+        return ranked_actions, {
+            "error": "Read-only intent action is not declared read-only.",
+            "executed": False,
+            "routing": {
+                "verb": verb,
+                "chosen_tool": chosen_tool,
+                "declared_read_actions": sorted(read_actions),
+            },
+        }
+    filtered = [
+        (action, score) for action, score in ranked_actions if action in read_actions
+    ]
+    read_action_ambiguity = _action_ambiguity_evidence(
+        filtered, explicit=explicit_action is not None
+    )
+    if explicit_action is None and read_action_ambiguity["ambiguous"]:
+        return filtered, {
+            "error": "Ambiguous read-only action requires an explicit action.",
+            "executed": False,
+            "routing": {
+                "verb": verb,
+                "chosen_tool": chosen_tool,
+                "declared_read_actions": sorted(read_actions),
+                "ambiguity": {"action": read_action_ambiguity},
+            },
+        }
+    return filtered, None
+
+
+def _should_fall_back_to_nl_planner(
+    verb: str,
+    chosen_tool: str,
+    call_kwargs: dict[str, Any],
+    raw_hints: dict[str, Any],
+    explicit_action: Any,
+) -> bool:
+    """Helper for `dispatch_intent`'s `_finalize_call_kwargs` closure.
+
+    True when there are no structured hints AND the winning tool has no
+    known free-text param: falling back to the NL planner is safer than
+    dispatching a call known to be missing required args
+    (CONCEPT:AU-KG.query.ask-gateway-rest-twin). An explicit pin/action
+    never falls back — that would silently replace the caller's declared
+    route.
+    """
+    return (
+        not call_kwargs
+        and chosen_tool not in _PRIMARY_TEXT_PARAM
+        and verb == "ask"
+        and not raw_hints.get("tool")
+        and not raw_hints.get("_tool")
+        and explicit_action is None
+    )
+
+
+def _policy_gate_preview_response(
+    verb: str,
+    should_execute: bool,
+    plan_ref: str,
+    intent_ref: str,
+    outcome_scope_ref: str | None,
+    raw_hints: dict[str, Any],
+    routing: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Helper for `dispatch_intent`'s `_policy_gate` closure: the preview (not-execute) branch."""
+    if should_execute:
+        return None
+    if verb in _NON_READ_VERBS:
+        _remember_preview_plan(
+            plan_ref,
+            verb=verb,
+            intent_ref=intent_ref,
+            outcome_scope_ref=outcome_scope_ref,
+            hints=raw_hints,
+        )
+    return {"routing": routing, "executed": False}
+
+
+def _policy_gate_execution_checks(
+    verb: str,
+    plan: dict[str, Any],
+    candidate_ambiguity: dict[str, Any],
+    action_ambiguity: dict[str, Any],
+    supplied_plan_ref: str,
+    plan_ref: str,
+    routing: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Helper for `dispatch_intent`'s `_policy_gate` closure: execution-path policy checks
+
+    (read-only violation, unclassified effect, ambiguity, stale plan_ref) —
+    everything except the final approval/session-load check.
+    """
+    if verb in _READ_ONLY_VERBS and plan["mutates"] is not False:
+        return {
+            "error": "Read-only intent policy rejected a mutating or unclassified route.",
+            "routing": routing,
+            "executed": False,
+        }
+    if plan["execution_class"] == "unclassified":
+        return {
+            "error": "Operation effect metadata is unclassified; execution denied.",
+            "routing": routing,
+            "executed": False,
+        }
+    if verb in _NON_READ_VERBS and (
+        candidate_ambiguity["ambiguous"] or action_ambiguity["ambiguous"]
+    ):
+        return {
+            "error": "Ambiguous non-read intent requires an explicit tool and action.",
+            "routing": routing,
+            "executed": False,
+        }
+    if verb in _NON_READ_VERBS and supplied_plan_ref != plan_ref:
+        return {
+            "error": (
+                "Preview required: call with execute=false, review the plan, then "
+                "resubmit its plan_ref with execute=true."
+            ),
+            "routing": routing,
+            "executed": False,
+        }
+    return None
+
+
+def _policy_gate_approval_check(
+    mcp: Any, plan: dict[str, Any], chosen_tool: str, routing: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Helper for `dispatch_intent`'s `_policy_gate` closure: the approval/session-load check."""
+    if not (
+        plan["approval"]["required"]
+        and not _approval_satisfied_by_session_load(mcp, chosen_tool)
+    ):
+        return None
+    return {
+        "error": (
+            "Approval-required operation: call "
+            f"manage(intent='load {chosen_tool}', hints_json="
+            f'\'{{"action": "load", "tools": ["{chosen_tool}"]}}\') to '
+            "explicitly acknowledge the approval policy for THIS exact "
+            "tool, then resubmit this plan_ref with execute=true."
+        ),
+        "routing": routing,
+        "executed": False,
+        "approval_required": True,
+        "required_load_tools": [chosen_tool],
+    }
+
+
+def _dispatch_hint_derived_fields(
+    raw_hints: dict[str, Any],
+) -> tuple[str, bool, dict[str, Any]]:
+    """Helper for `dispatch_intent`: pinned_name, explicit_tool, and call_kwargs from raw_hints."""
+    pinned_name = str(raw_hints.get("tool") or raw_hints.get("_tool") or "")
+    explicit_tool = bool(pinned_name)
+    call_kwargs = {k: v for k, v in raw_hints.items() if k not in _CONTROL_HINT_FIELDS}
+    return pinned_name, explicit_tool, call_kwargs
+
+
+def _dispatch_reward_and_learning_eligibility(
+    verb: str,
+    chosen_tool: str,
+    outcome_scope_ref: str | None,
+    explicit_tool: bool,
+    candidate_ambiguity: dict[str, Any],
+    action_ambiguity: dict[str, Any],
+) -> tuple[float, bool]:
+    """Helper for `dispatch_intent`: the calibrated outcome reward + learning eligibility."""
+    reward = (
+        _outcome_router().reward_of(
+            _reward_task_class(verb, outcome_scope_ref), chosen_tool
+        )
+        if outcome_scope_ref is not None
+        else 0.5
+    )
+    learning_eligible = bool(
+        outcome_scope_ref
+        and not explicit_tool
+        and not candidate_ambiguity["ambiguous"]
+        and not action_ambiguity["ambiguous"]
+    )
+    return reward, learning_eligible
+
+
+async def _dispatch_execute_and_record(
+    verb: str,
+    chosen_tool: str,
+    call_kwargs: dict[str, Any],
+    outcome_scope_ref: str | None,
+    learning_eligible: bool,
+    routing: dict[str, Any],
+) -> dict[str, Any]:
+    """Helper for `dispatch_intent`: execute the chosen tool, record the outcome,
+
+    and build the final response dict.
+    """
+    try:
+        result = await kg_server._execute_tool(chosen_tool, **call_kwargs)
+    except Exception as e:  # noqa: BLE001 — surface as a structured routing failure, not a 500
+        if learning_eligible and outcome_scope_ref is not None:
+            _record_dispatch_outcome(
+                outcome_scope_ref, verb, chosen_tool, success=False
+            )
+        routing["decision_trace"]["result_provenance"]["status"] = "failed"
+        routing["learning"]["recorded"] = learning_eligible
+        return {
+            "routing": routing,
+            "executed": False,
+            **public_error_payload(e, logger=logger),
+        }
+    observed_success = _execution_succeeded(result)
+    if learning_eligible and outcome_scope_ref is not None:
+        _record_dispatch_outcome(
+            outcome_scope_ref, verb, chosen_tool, success=observed_success
+        )
+    routing["decision_trace"]["result_provenance"]["status"] = (
+        "succeeded" if observed_success else "failed"
+    )
+    routing["learning"]["recorded"] = learning_eligible
+    return {"result": result, "routing": routing, "executed": True}
 
 
 async def dispatch_intent(
@@ -1226,66 +1746,38 @@ async def dispatch_intent(
 
     def _restore_from_plan_ref() -> dict[str, Any] | None:
         nonlocal raw_hints
-        if verb in _NON_READ_VERBS and should_execute and supplied_plan_ref:
-            restored_hints = _restore_preview_hints(
-                supplied_plan_ref,
-                verb=verb,
-                intent_ref=intent_ref,
-                outcome_scope_ref=outcome_scope_ref,
-            )
-            if restored_hints is None:
-                return {
-                    "error": (
-                        "Unknown, expired, or context-mismatched plan_ref; request a "
-                        "new preview before execution."
-                    ),
-                    "executed": False,
-                    "routing": {"verb": verb, "intent_ref": intent_ref},
-                }
-            # D-GIS-1: the equality check below exists so a caller resubmitting the
-            # SAME hints they previewed (plus plan_ref) is provably replaying what was
-            # reviewed. But `_remember_preview_plan` stores `raw_hints` from AFTER the
-            # resolver's own `chosen_tool` merge (below, "if chosen_tool in
-            # _DOCUMENTED_HINT_ALIASES"), which injects a "tool"/"_tool" key the
-            # caller never supplied and has no way to know in advance (it is the
-            # resolver's inferred routing target, e.g. an unpinned skill-delegation
-            # intent auto-resolving to `graph_orchestrate`). Comparing against that
-            # resolver-injected key made every unpinned non-read `act` reject its own
-            # documented "resubmit the same hints plus plan_ref" flow unconditionally
-            # -- the caller's hints could never contain a key they were never told to
-            # supply. Excluding it here does not weaken the check: everything the
-            # CALLER actually controls must still match exactly, and the resolver
-            # will independently re-derive the identical `tool` value from the
-            # (matched) remaining hints during dispatch below, so nothing forged by
-            # a caller can smuggle a different tool through this path.
-            _RESOLVER_INJECTED_HINT_FIELDS = ("tool", "_tool")
-            replayed_hints = {
-                k: v
-                for k, v in raw_hints.items()
-                if k != "plan_ref" and k not in _RESOLVER_INJECTED_HINT_FIELDS
+        if not (verb in _NON_READ_VERBS and should_execute and supplied_plan_ref):
+            return None
+        restored_hints = _restore_preview_hints(
+            supplied_plan_ref,
+            verb=verb,
+            intent_ref=intent_ref,
+            outcome_scope_ref=outcome_scope_ref,
+        )
+        if restored_hints is None:
+            return {
+                "error": (
+                    "Unknown, expired, or context-mismatched plan_ref; request a "
+                    "new preview before execution."
+                ),
+                "executed": False,
+                "routing": {"verb": verb, "intent_ref": intent_ref},
             }
-            comparable_restored_hints = {
-                k: v
-                for k, v in restored_hints.items()
-                if k not in _RESOLVER_INJECTED_HINT_FIELDS
+        if not _plan_ref_hints_match(raw_hints, restored_hints):
+            return {
+                "error": "Supplied hints do not match the reviewed preview plan.",
+                "executed": False,
+                "routing": {"verb": verb, "intent_ref": intent_ref},
             }
-            if replayed_hints and replayed_hints != comparable_restored_hints:
-                return {
-                    "error": "Supplied hints do not match the reviewed preview plan.",
-                    "executed": False,
-                    "routing": {"verb": verb, "intent_ref": intent_ref},
-                }
-            raw_hints = {**restored_hints, "plan_ref": supplied_plan_ref}
+        raw_hints = {**restored_hints, "plan_ref": supplied_plan_ref}
         return None
 
     _restore_outcome = _restore_from_plan_ref()
     if _restore_outcome is not None:
         return _restore_outcome
 
-    pinned_name = str(raw_hints.get("tool") or raw_hints.get("_tool") or "")
-    explicit_tool = bool(pinned_name)
+    pinned_name, explicit_tool, call_kwargs = _dispatch_hint_derived_fields(raw_hints)
     explicit_action = raw_hints.get("action")
-    call_kwargs = {k: v for k, v in raw_hints.items() if k not in _CONTROL_HINT_FIELDS}
 
     candidates: list[CapabilityCandidate] = []
     top: CapabilityCandidate | None = None
@@ -1358,68 +1850,24 @@ async def dispatch_intent(
         # A non-pinned resolver result can still be the orchestration façade.  It
         # is safe to normalize its two documented target aliases only after the
         # resolver has selected that tool.
-        if chosen_tool in _DOCUMENTED_HINT_ALIASES:
-            try:
-                raw_hints = _normalize_documented_hint_aliases(
-                    {**raw_hints, "tool": chosen_tool}
-                )
-            except ValueError as exc:
-                # ``exc.args[0]`` (not ``str(exc)``/``repr(exc)``): this ValueError's
-                # message is a developer-authored, non-sensitive validation
-                # explanation (see _normalize_documented_hint_aliases) that callers
-                # need to self-correct their hints -- test_orchestration_target_
-                # alias_conflict_fails_closed and test_intent_rejects_unknown_hint_
-                # before_creating_preview assert on the exact text. Collapsing to
-                # the exception TYPE name here would satisfy the served-boundary
-                # exception-surface gate's letter while losing the caller-facing
-                # detail those tests require; .args[0] satisfies both.
-                return {
-                    "error": exc.args[0] if exc.args else type(exc).__name__,
-                    "executed": False,
-                }
+        raw_hints, alias_error = _normalize_chosen_tool_alias(raw_hints, chosen_tool)
+        if alias_error is not None:
+            return alias_error
+
         available_actions = _actions_by_tool().get(chosen_tool, [])
-        if explicit_action is not None and explicit_action not in available_actions:
-            return {
-                "error": "Requested action is not declared for the selected capability.",
-                "executed": False,
-                "routing": {
-                    "verb": verb,
-                    "chosen_tool": chosen_tool,
-                    "declared_actions": sorted(available_actions),
-                },
-            }
+        action_error = _validate_explicit_action(
+            verb, chosen_tool, explicit_action, available_actions
+        )
+        if action_error is not None:
+            return action_error
+
         ranked_actions = _rank_actions(chosen_tool, intent)
-        read_actions = READ_ONLY_ACTIONS.get(chosen_tool)
-        if verb in _READ_ONLY_VERBS and read_actions is not None:
-            if explicit_action is not None and explicit_action not in read_actions:
-                return {
-                    "error": "Read-only intent action is not declared read-only.",
-                    "executed": False,
-                    "routing": {
-                        "verb": verb,
-                        "chosen_tool": chosen_tool,
-                        "declared_read_actions": sorted(read_actions),
-                    },
-                }
-            ranked_actions = [
-                (action, score)
-                for action, score in ranked_actions
-                if action in read_actions
-            ]
-            read_action_ambiguity = _action_ambiguity_evidence(
-                ranked_actions, explicit=explicit_action is not None
-            )
-            if explicit_action is None and read_action_ambiguity["ambiguous"]:
-                return {
-                    "error": "Ambiguous read-only action requires an explicit action.",
-                    "executed": False,
-                    "routing": {
-                        "verb": verb,
-                        "chosen_tool": chosen_tool,
-                        "declared_read_actions": sorted(read_actions),
-                        "ambiguity": {"action": read_action_ambiguity},
-                    },
-                }
+        ranked_actions, read_action_error = _restrict_to_read_actions(
+            verb, chosen_tool, explicit_action, ranked_actions
+        )
+        if read_action_error is not None:
+            return read_action_error
+
         chosen_action = (
             explicit_action
             or chosen_candidate.action
@@ -1439,13 +1887,8 @@ async def dispatch_intent(
         fell_back = False
         if text_param and text_param not in call_kwargs:
             call_kwargs[text_param] = intent
-        elif (
-            not call_kwargs
-            and chosen_tool not in _PRIMARY_TEXT_PARAM
-            and verb == "ask"
-            and not raw_hints.get("tool")
-            and not raw_hints.get("_tool")
-            and explicit_action is None
+        elif _should_fall_back_to_nl_planner(
+            verb, chosen_tool, call_kwargs, raw_hints, explicit_action
         ):
             # No structured hints AND the winning tool has no known free-text param:
             # fall back to the NL planner rather than dispatch a call we know is
@@ -1489,18 +1932,13 @@ async def dispatch_intent(
     )
     plan["plan_ref"] = plan_ref
 
-    reward = (
-        _outcome_router().reward_of(
-            _reward_task_class(verb, outcome_scope_ref), chosen_tool
-        )
-        if outcome_scope_ref is not None
-        else 0.5
-    )
-    learning_eligible = bool(
-        outcome_scope_ref
-        and not explicit_tool
-        and not candidate_ambiguity["ambiguous"]
-        and not action_ambiguity["ambiguous"]
+    reward, learning_eligible = _dispatch_reward_and_learning_eligibility(
+        verb,
+        chosen_tool,
+        outcome_scope_ref,
+        explicit_tool,
+        candidate_ambiguity,
+        action_ambiguity,
     )
 
     def _build_routing() -> dict[str, Any]:
@@ -1570,95 +2008,37 @@ async def dispatch_intent(
     routing = _build_routing()
 
     def _policy_gate() -> dict[str, Any] | None:
-        read_policy_violation = (
-            verb in _READ_ONLY_VERBS and plan["mutates"] is not False
+        preview_response = _policy_gate_preview_response(
+            verb,
+            should_execute,
+            plan_ref,
+            intent_ref,
+            outcome_scope_ref,
+            raw_hints,
+            routing,
         )
-        if not should_execute:
-            if verb in _NON_READ_VERBS:
-                _remember_preview_plan(
-                    plan_ref,
-                    verb=verb,
-                    intent_ref=intent_ref,
-                    outcome_scope_ref=outcome_scope_ref,
-                    hints=raw_hints,
-                )
-            return {"routing": routing, "executed": False}
-
-        if read_policy_violation:
-            return {
-                "error": "Read-only intent policy rejected a mutating or unclassified route.",
-                "routing": routing,
-                "executed": False,
-            }
-        if plan["execution_class"] == "unclassified":
-            return {
-                "error": "Operation effect metadata is unclassified; execution denied.",
-                "routing": routing,
-                "executed": False,
-            }
-        if verb in _NON_READ_VERBS and (
-            candidate_ambiguity["ambiguous"] or action_ambiguity["ambiguous"]
-        ):
-            return {
-                "error": "Ambiguous non-read intent requires an explicit tool and action.",
-                "routing": routing,
-                "executed": False,
-            }
-        if verb in _NON_READ_VERBS and supplied_plan_ref != plan_ref:
-            return {
-                "error": (
-                    "Preview required: call with execute=false, review the plan, then "
-                    "resubmit its plan_ref with execute=true."
-                ),
-                "routing": routing,
-                "executed": False,
-            }
-        if plan["approval"]["required"] and not _approval_satisfied_by_session_load(
-            mcp, chosen_tool
-        ):
-            return {
-                "error": (
-                    "Approval-required operation: call "
-                    f"manage(intent='load {chosen_tool}', hints_json="
-                    f'\'{{"action": "load", "tools": ["{chosen_tool}"]}}\') to '
-                    "explicitly acknowledge the approval policy for THIS exact "
-                    "tool, then resubmit this plan_ref with execute=true."
-                ),
-                "routing": routing,
-                "executed": False,
-                "approval_required": True,
-                "required_load_tools": [chosen_tool],
-            }
-        return None
+        if preview_response is not None:
+            return preview_response
+        execution_error = _policy_gate_execution_checks(
+            verb,
+            plan,
+            candidate_ambiguity,
+            action_ambiguity,
+            supplied_plan_ref,
+            plan_ref,
+            routing,
+        )
+        if execution_error is not None:
+            return execution_error
+        return _policy_gate_approval_check(mcp, plan, chosen_tool, routing)
 
     _policy_outcome = _policy_gate()
     if _policy_outcome is not None:
         return _policy_outcome
 
-    try:
-        result = await kg_server._execute_tool(chosen_tool, **call_kwargs)
-    except Exception as e:  # noqa: BLE001 — surface as a structured routing failure, not a 500
-        if learning_eligible and outcome_scope_ref is not None:
-            _record_dispatch_outcome(
-                outcome_scope_ref, verb, chosen_tool, success=False
-            )
-        routing["decision_trace"]["result_provenance"]["status"] = "failed"
-        routing["learning"]["recorded"] = learning_eligible
-        return {
-            "routing": routing,
-            "executed": False,
-            **public_error_payload(e, logger=logger),
-        }
-    observed_success = _execution_succeeded(result)
-    if learning_eligible and outcome_scope_ref is not None:
-        _record_dispatch_outcome(
-            outcome_scope_ref, verb, chosen_tool, success=observed_success
-        )
-    routing["decision_trace"]["result_provenance"]["status"] = (
-        "succeeded" if observed_success else "failed"
+    return await _dispatch_execute_and_record(
+        verb, chosen_tool, call_kwargs, outcome_scope_ref, learning_eligible, routing
     )
-    routing["learning"]["recorded"] = learning_eligible
-    return {"result": result, "routing": routing, "executed": True}
 
 
 async def _find_capability(mcp: Any, intent: str, top_k: int = 8) -> dict[str, Any]:
@@ -1799,35 +2179,11 @@ async def _manage_lifecycle(
     supplied_plan_ref = str(raw_hints.get("plan_ref") or "")
     action = str(raw_hints.get("action") or "").strip().lower()
     if execute and supplied_plan_ref and not action:
-        _expire_preview_plans(time.monotonic())
-        cached = _PREVIEW_PLAN_CACHE.get(supplied_plan_ref)
-        if (
-            cached is not None
-            and cached.verb == "manage"
-            and str(cached.hints.get("action") or "") in _RECLAIM_ACTIONS
-        ):
-            restored_hints = _restore_preview_hints(
-                supplied_plan_ref,
-                verb="manage",
-                intent_ref=intent_ref,
-                outcome_scope_ref=outcome_scope_ref,
-            )
-            if restored_hints is None:
-                return {
-                    "executed": False,
-                    "error": (
-                        "Unknown, expired, or context-mismatched lifecycle plan_ref; "
-                        "request a new preview before execution."
-                    ),
-                }
-            replayed_hints = {k: v for k, v in raw_hints.items() if k != "plan_ref"}
-            if replayed_hints and replayed_hints != restored_hints:
-                return {
-                    "executed": False,
-                    "error": "Supplied hints do not match the reviewed lifecycle plan.",
-                }
-            raw_hints = {**restored_hints, "plan_ref": supplied_plan_ref}
-            action = str(raw_hints["action"]).strip().lower()
+        raw_hints, action, replay_error = await _manage_lifecycle_replay_from_plan_ref(
+            raw_hints, supplied_plan_ref, intent_ref, outcome_scope_ref
+        )
+        if replay_error is not None:
+            return replay_error
     if action in _STATUS_ACTIONS:
         # Read-only: no preview/plan_ref/approval machinery needed (unlike
         # load/unload/reclaim below) — a status read never mutates anything.
@@ -1835,6 +2191,107 @@ async def _manage_lifecycle(
         return {"executed": True, "action": action, "status": status}
     if action not in _RECLAIM_ACTIONS:
         return None
+    return await _manage_lifecycle_preview_or_execute(
+        mcp, action, raw_hints, intent_ref, outcome_scope_ref, execute
+    )
+
+
+async def _manage_lifecycle_preview_or_execute(
+    mcp: Any,
+    action: str,
+    raw_hints: dict[str, Any],
+    intent_ref: str,
+    outcome_scope_ref: str | None,
+    execute: bool,
+) -> dict[str, Any]:
+    """Helper for `_manage_lifecycle`: preview (default) or execute a reclaim-action plan."""
+    plan, plan_hints = _manage_lifecycle_plan(action, raw_hints)
+    if not execute:
+        _remember_preview_plan(
+            plan["plan_ref"],
+            verb="manage",
+            intent_ref=intent_ref,
+            outcome_scope_ref=outcome_scope_ref,
+            hints=plan_hints,
+        )
+        return {"executed": False, "plan": plan}
+    if str(raw_hints.get("plan_ref") or "") != plan["plan_ref"]:
+        return {
+            "executed": False,
+            "error": (
+                "Preview required: review the lifecycle plan and resubmit its "
+                "plan_ref with execute=true."
+            ),
+            "plan": plan,
+        }
+    return await _manage_lifecycle_execute(mcp, action, raw_hints)
+
+
+def _is_replayable_reclaim_plan_ref(supplied_plan_ref: str) -> bool:
+    """Helper for `_manage_lifecycle_replay_from_plan_ref`: does `supplied_plan_ref`
+
+    name a cached, non-expired ``manage`` reclaim-action preview plan?
+    """
+    _expire_preview_plans(time.monotonic())
+    cached = _PREVIEW_PLAN_CACHE.get(supplied_plan_ref)
+    return (
+        cached is not None
+        and cached.verb == "manage"
+        and str(cached.hints.get("action") or "") in _RECLAIM_ACTIONS
+    )
+
+
+async def _manage_lifecycle_replay_from_plan_ref(
+    raw_hints: dict[str, Any],
+    supplied_plan_ref: str,
+    intent_ref: str,
+    outcome_scope_ref: str | None,
+) -> tuple[dict[str, Any], str, dict[str, Any] | None]:
+    """Helper for `_manage_lifecycle`: replay a reclaim-action plan from its plan_ref.
+
+    Returns (raw_hints, action, error_response). `error_response` is not None
+    when the caller must return it immediately; otherwise `raw_hints`/`action`
+    are the (possibly plan-ref-restored) values to continue with — unchanged
+    from the inputs when the plan_ref doesn't name a cached reclaim plan.
+    """
+    if not _is_replayable_reclaim_plan_ref(supplied_plan_ref):
+        return raw_hints, str(raw_hints.get("action") or "").strip().lower(), None
+    restored_hints = _restore_preview_hints(
+        supplied_plan_ref,
+        verb="manage",
+        intent_ref=intent_ref,
+        outcome_scope_ref=outcome_scope_ref,
+    )
+    if restored_hints is None:
+        return (
+            raw_hints,
+            "",
+            {
+                "executed": False,
+                "error": (
+                    "Unknown, expired, or context-mismatched lifecycle plan_ref; "
+                    "request a new preview before execution."
+                ),
+            },
+        )
+    replayed_hints = {k: v for k, v in raw_hints.items() if k != "plan_ref"}
+    if replayed_hints and replayed_hints != restored_hints:
+        return (
+            raw_hints,
+            "",
+            {
+                "executed": False,
+                "error": "Supplied hints do not match the reviewed lifecycle plan.",
+            },
+        )
+    new_raw_hints = {**restored_hints, "plan_ref": supplied_plan_ref}
+    return new_raw_hints, str(new_raw_hints["action"]).strip().lower(), None
+
+
+def _manage_lifecycle_plan(
+    action: str, raw_hints: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Helper for `_manage_lifecycle`: build the (idempotent) reclaim-action plan."""
     plan_hints = {k: v for k, v in raw_hints.items() if k != "plan_ref"}
     plan_ref = persistence_reference(
         "intent_plan",
@@ -1855,24 +2312,13 @@ async def _manage_lifecycle(
         "plan_ref": plan_ref,
         "approval": {"required": False, "route": "dynamic_tool_policy"},
     }
-    if not execute:
-        _remember_preview_plan(
-            plan_ref,
-            verb="manage",
-            intent_ref=intent_ref,
-            outcome_scope_ref=outcome_scope_ref,
-            hints=plan_hints,
-        )
-        return {"executed": False, "plan": plan}
-    if str(raw_hints.get("plan_ref") or "") != plan_ref:
-        return {
-            "executed": False,
-            "error": (
-                "Preview required: review the lifecycle plan and resubmit its "
-                "plan_ref with execute=true."
-            ),
-            "plan": plan,
-        }
+    return plan, plan_hints
+
+
+async def _manage_lifecycle_execute(
+    mcp: Any, action: str, raw_hints: dict[str, Any]
+) -> dict[str, Any]:
+    """Helper for `_manage_lifecycle`: perform the load/unload/reclaim action via the fleet mux."""
     mux = getattr(mcp, "_fleet_mux", None)
     if mux is None:
         return {

@@ -107,55 +107,92 @@ def dag_critical_path(
     topo_order = [graph[i] for i in topo_indices]
     idx_map = {graph[i]: i for i in graph.node_indices()}
 
+    earliest, predecessor = _dag_forward_earliest(
+        graph, topo_order, idx_map, weight_attr, default_weight
+    )
+
+    sink = max(topo_order, key=lambda n: earliest[n])
+    makespan = earliest[sink]
+
+    latest = _dag_backward_latest(
+        graph, topo_order, idx_map, earliest, makespan, weight_attr, default_weight
+    )
+    slack = {n: latest[n] - earliest[n] for n in topo_order}
+
+    return {
+        "makespan": makespan,
+        "critical_path": _dag_reconstruct_critical_path(sink, predecessor),
+        "node_earliest_start": earliest,
+        "node_slack": slack,
+    }
+
+
+def _dag_edge_weight(
+    graph: rx.PyDiGraph,
+    ni: int,
+    succ_idx: int,
+    weight_attr: str,
+    default_weight: float,
+) -> float:
+    """Helper: resolve a `ni -> succ_idx` edge's weight, defaulting when absent/untyped."""
+    edge_data = graph.get_edge_data(ni, succ_idx)
+    if isinstance(edge_data, dict):
+        return float(edge_data.get(weight_attr, default_weight))
+    return default_weight
+
+
+def _dag_forward_earliest(
+    graph: rx.PyDiGraph,
+    topo_order: list[Any],
+    idx_map: dict[Any, int],
+    weight_attr: str,
+    default_weight: float,
+) -> tuple[dict[Any, float], dict[Any, Any]]:
+    """Helper: forward DP pass computing each node's earliest start + predecessor."""
     earliest: dict[Any, float] = {n: 0.0 for n in topo_order}
     predecessor: dict[Any, Any] = {n: None for n in topo_order}
 
     for node in topo_order:
         ni = idx_map[node]
-        for edge_idx in graph.incident_edges(ni):
-            _src, _tgt, _data = graph.get_edge_data_by_index(edge_idx), None, None
         for succ_idx in graph.successor_indices(ni):
             succ = graph[succ_idx]
-            edge_data = graph.get_edge_data(ni, succ_idx)
-            if isinstance(edge_data, dict):
-                w = float(edge_data.get(weight_attr, default_weight))
-            else:
-                w = default_weight
+            w = _dag_edge_weight(graph, ni, succ_idx, weight_attr, default_weight)
             candidate = earliest[node] + w
             if candidate > earliest[succ]:
                 earliest[succ] = candidate
                 predecessor[succ] = node
+    return earliest, predecessor
 
-    sink = max(topo_order, key=lambda n: earliest[n])
-    makespan = earliest[sink]
 
+def _dag_backward_latest(
+    graph: rx.PyDiGraph,
+    topo_order: list[Any],
+    idx_map: dict[Any, int],
+    earliest: dict[Any, float],
+    makespan: float,
+    weight_attr: str,
+    default_weight: float,
+) -> dict[Any, float]:
+    """Helper: backward DP pass computing each node's latest allowable start."""
     latest: dict[Any, float] = {n: makespan for n in topo_order}
     for node in reversed(topo_order):
         ni = idx_map[node]
         for succ_idx in graph.successor_indices(ni):
             succ = graph[succ_idx]
-            edge_data = graph.get_edge_data(ni, succ_idx)
-            if isinstance(edge_data, dict):
-                w = float(edge_data.get(weight_attr, default_weight))
-            else:
-                w = default_weight
+            w = _dag_edge_weight(graph, ni, succ_idx, weight_attr, default_weight)
             latest[node] = min(latest[node], latest[succ] - w)
+    return latest
 
-    slack = {n: latest[n] - earliest[n] for n in topo_order}
 
+def _dag_reconstruct_critical_path(sink: Any, predecessor: dict[Any, Any]) -> list[Any]:
+    """Helper: walk the predecessor chain from the sink back to a source."""
     critical_path: list[Any] = []
     current: Any = sink
     while current is not None:
         critical_path.append(current)
         current = predecessor[current]
     critical_path.reverse()
-
-    return {
-        "makespan": makespan,
-        "critical_path": critical_path,
-        "node_earliest_start": earliest,
-        "node_slack": slack,
-    }
+    return critical_path
 
 
 def vertex_connectivity(graph: rx.PyGraph) -> Any:
@@ -218,23 +255,32 @@ def euler_tour(graph: rx.PyGraph) -> list[Any]:
     # Check Eulerian: every vertex must have even degree
     is_eulerian = all(graph.degree(n) % 2 == 0 for n in graph.node_indices())
     if is_eulerian:
-        # Hierholzer's algorithm
-        adj: dict[int, list[int]] = {n: [] for n in graph.node_indices()}
-        for src, tgt, _ in graph.weighted_edge_list():
-            adj[int(src)].append(int(tgt))
-            adj[int(tgt)].append(int(src))
-        stack = [next(iter(graph.node_indices()))]
-        circuit: list[int] = []
-        while stack:
-            v = stack[-1]
-            if adj[v]:
-                u = adj[v].pop()
-                adj[u].remove(v)
-                stack.append(u)
-            else:
-                circuit.append(stack.pop())
-        return [graph[i] for i in circuit]
+        return _euler_hierholzer_circuit(graph)
     logger.info("Graph is not Eulerian — falling back to DFS traversal.")
+    return _euler_dfs_fallback(graph)
+
+
+def _euler_hierholzer_circuit(graph: rx.PyGraph) -> list[Any]:
+    """Helper: Hierholzer's algorithm for an Euler circuit on an Eulerian graph."""
+    adj: dict[int, list[int]] = {n: [] for n in graph.node_indices()}
+    for src, tgt, _ in graph.weighted_edge_list():
+        adj[int(src)].append(int(tgt))
+        adj[int(tgt)].append(int(src))
+    stack = [next(iter(graph.node_indices()))]
+    circuit: list[int] = []
+    while stack:
+        v = stack[-1]
+        if adj[v]:
+            u = adj[v].pop()
+            adj[u].remove(v)
+            stack.append(u)
+        else:
+            circuit.append(stack.pop())
+    return [graph[i] for i in circuit]
+
+
+def _euler_dfs_fallback(graph: rx.PyGraph) -> list[Any]:
+    """Helper: DFS traversal order fallback when the graph is not Eulerian."""
     start = next(iter(graph.node_indices()))
     dfs_nodes = rx.dfs_search(graph, [start])
     # Extract unique node visit order from DFS events
@@ -299,16 +345,22 @@ def count_paths_of_length(
         return 1 if source == target else 0
 
     node_idx = {node: i for i, node in enumerate(nodes)}
-    n = len(nodes)
-    A = [[0 for _ in range(n)] for _ in range(n)]
+    A = _paths_adjacency_matrix(graph, node_idx, len(nodes))
+    result = xp.linalg.matrix_power(A, length)
+    return int(result[node_idx[source]][node_idx[target]])
+
+
+def _paths_adjacency_matrix(
+    graph: rx.PyDiGraph, node_idx: dict[Any, int], n: int
+) -> list[list[int]]:
+    """Helper for `count_paths_of_length`: n x n adjacency (walk-count) matrix."""
+    matrix = [[0 for _ in range(n)] for _ in range(n)]
     for src_idx in graph.node_indices():
         src_label = graph[src_idx]
         for tgt_idx in graph.successor_indices(src_idx):
             tgt_label = graph[tgt_idx]
-            A[node_idx[src_label]][node_idx[tgt_label]] += 1
-
-    result = xp.linalg.matrix_power(A, length)
-    return int(result[node_idx[source]][node_idx[target]])
+            matrix[node_idx[src_label]][node_idx[tgt_label]] += 1
+    return matrix
 
 
 def reachability_within_hops(
@@ -810,53 +862,97 @@ class StructuralCausalModel:
             xi = self._node_map[x]
             yi = self._node_map[y]
             z_indices = {self._node_map[zn] for zn in z if zn in self._node_map}
-
-            # Phase I: ancestors(Z) ∪ Z — nodes whose descendant (or self) is in Z.
-            # A collider is "active" only if it lies in this set.
-            z_ancestors: set[int] = set()
-            stack = list(z_indices)
-            while stack:
-                n = stack.pop()
-                if n in z_ancestors:
-                    continue
-                z_ancestors.add(n)
-                stack.extend(self._graph.predecessor_indices(n))
-
-            # Phase II: BFS over (node, direction) trail states from X.
-            # direction True  = arriving going "up"   (from a child, via child→parent)
-            # direction False = arriving going "down" (from a parent, via parent→child)
-            visited: set[tuple[int, bool]] = set()
-            queue = collections.deque([(xi, True)])
-            while queue:
-                node, going_up = queue.popleft()
-                if (node, going_up) in visited:
-                    continue
-                visited.add((node, going_up))
-
-                # A reached node not in Z is d-connected to X.
-                if node != xi and node not in z_indices and node == yi:
-                    return False
-
-                if going_up and node not in z_indices:
-                    # Trail going up through a non-collider, non-conditioned node:
-                    # may continue up to parents and down to children.
-                    for parent in self._graph.predecessor_indices(node):
-                        queue.append((parent, True))
-                    for child in self._graph.successor_indices(node):
-                        queue.append((child, False))
-                elif not going_up:
-                    if node not in z_indices:
-                        # Pass-through (chain/fork tail): continue down to children.
-                        for child in self._graph.successor_indices(node):
-                            queue.append((child, False))
-                    if node in z_ancestors:
-                        # Collider that is conditioned on (or has a descendant in Z):
-                        # the trail bounces back up to the parents.
-                        for parent in self._graph.predecessor_indices(node):
-                            queue.append((parent, True))
-            return True  # Y not reachable on any active trail → d-separated
+            z_ancestors = self._d_sep_z_ancestors(z_indices)
+            return not self._d_sep_active_trail(xi, yi, z_indices, z_ancestors)
         except Exception:
             return True
+
+    def _d_sep_z_ancestors(self, z_indices: set[int]) -> set[int]:
+        """Phase I of `is_d_separated`: ancestors(Z) ∪ Z.
+
+        A collider is "active" only if it lies in this set (i.e. has a
+        descendant, or is itself, conditioned on).
+        """
+        z_ancestors: set[int] = set()
+        stack = list(z_indices)
+        while stack:
+            n = stack.pop()
+            if n in z_ancestors:
+                continue
+            z_ancestors.add(n)
+            stack.extend(self._graph.predecessor_indices(n))
+        return z_ancestors
+
+    def _d_sep_next_states_going_up(
+        self, node: int, z_indices: set[int]
+    ) -> list[tuple[int, bool]]:
+        """Successor states from a node reached going "up" (child → parent)."""
+        if node in z_indices:
+            return []
+        # Trail going up through a non-collider, non-conditioned node:
+        # may continue up to parents and down to children.
+        nxt: list[tuple[int, bool]] = [
+            (p, True) for p in self._graph.predecessor_indices(node)
+        ]
+        nxt.extend((c, False) for c in self._graph.successor_indices(node))
+        return nxt
+
+    def _d_sep_next_states_going_down(
+        self, node: int, z_indices: set[int], z_ancestors: set[int]
+    ) -> list[tuple[int, bool]]:
+        """Successor states from a node reached going "down" (parent → child)."""
+        nxt: list[tuple[int, bool]] = []
+        if node not in z_indices:
+            # Pass-through (chain/fork tail): continue down to children.
+            nxt.extend((c, False) for c in self._graph.successor_indices(node))
+        if node in z_ancestors:
+            # Collider that is conditioned on (or has a descendant in Z):
+            # the trail bounces back up to the parents.
+            nxt.extend((p, True) for p in self._graph.predecessor_indices(node))
+        return nxt
+
+    def _d_sep_next_trail_states(
+        self,
+        node: int,
+        going_up: bool,
+        z_indices: set[int],
+        z_ancestors: set[int],
+    ) -> list[tuple[int, bool]]:
+        """Successor (node, direction) states reachable from `node` on an active trail."""
+        if going_up:
+            return self._d_sep_next_states_going_up(node, z_indices)
+        return self._d_sep_next_states_going_down(node, z_indices, z_ancestors)
+
+    def _d_sep_active_trail(
+        self,
+        xi: int,
+        yi: int,
+        z_indices: set[int],
+        z_ancestors: set[int],
+    ) -> bool:
+        """Phase II of `is_d_separated`: BFS over (node, direction) trail states from X.
+
+        direction True  = arriving going "up"   (from a child, via child→parent)
+        direction False = arriving going "down" (from a parent, via parent→child)
+
+        Returns True iff Y is reachable from X on an active (unblocked) trail.
+        """
+        visited: set[tuple[int, bool]] = set()
+        queue = collections.deque([(xi, True)])
+        while queue:
+            node, going_up = queue.popleft()
+            if (node, going_up) in visited:
+                continue
+            visited.add((node, going_up))
+
+            # A reached node not in Z is d-connected to X.
+            if node != xi and node not in z_indices and node == yi:
+                return True
+
+            queue.extend(
+                self._d_sep_next_trail_states(node, going_up, z_indices, z_ancestors)
+            )
+        return False  # Y not reachable on any active trail → d-separated
 
     def get_causal_ancestors(self, node_id: str) -> set[str]:
         """Get all causal ancestors (upstream causes) of a node.
@@ -934,20 +1030,25 @@ class StructuralCausalModel:
         while queue:
             current = queue.popleft()
             if current == ti:
-                # Reconstruct path
-                path: list[str] = []
-                c: int | None = current
-                while c is not None:
-                    data = self._graph[c]
-                    path.append(data["id"] if isinstance(data, dict) else str(data))
-                    c = visited[c]
-                path.reverse()
-                return path
+                return self._shortest_path_reconstruct(current, visited)
             for succ in self._graph.successor_indices(current):
                 if succ not in visited:
                     visited[succ] = current
                     queue.append(succ)
         raise ValueError(f"No path from {source} to {target}")
+
+    def _shortest_path_reconstruct(
+        self, current: int, visited: dict[int, int | None]
+    ) -> list[str]:
+        """Helper for `shortest_path`: walk the BFS predecessor chain back to source."""
+        path: list[str] = []
+        c: int | None = current
+        while c is not None:
+            data = self._graph[c]
+            path.append(data["id"] if isinstance(data, dict) else str(data))
+            c = visited[c]
+        path.reverse()
+        return path
 
     def shortest_path_length(self, source: str, target: str) -> int:
         """BFS shortest path length from source to target."""
@@ -1009,40 +1110,18 @@ class CausalVerifier:
             if not cause or not effect:
                 continue
 
-            # Check 1: Does the causal direction exist in the SCM?
-            if not self._scm.has_edge(cause, effect):
-                # Check if reverse exists (direction error)
-                if self._scm.has_edge(effect, cause):
-                    violations.append(
-                        f"Step {i}: Reversed causality — {cause}→{effect} "
-                        f"should be {effect}→{cause}."
-                    )
-                else:
-                    # No direct edge — check if there's a path
-                    try:
-                        path = self._scm.shortest_path(cause, effect)
-                        if len(path) > 2:
-                            violations.append(
-                                f"Step {i}: Indirect causality — {cause}→{effect} "
-                                f"requires intermediaries: {' → '.join(path)}."
-                            )
-                    except ValueError:
-                        violations.append(
-                            f"Step {i}: No causal path from {cause} to {effect}."
-                        )
-                        spurious.append((cause, effect))
+            violation, spurious_pair = self._verify_chain_causal_direction(
+                i, cause, effect
+            )
+            if violation is not None:
+                violations.append(violation)
+            if spurious_pair is not None:
+                spurious.append(spurious_pair)
 
-            # Check 2: Temporal ordering (if multiple steps reference the same effect)
             if i > 0:
-                prev_effect = reasoning_steps[i - 1].get("effect", "")
-                if prev_effect and cause != prev_effect:
-                    # Check if previous effect should precede current cause
-                    if (
-                        self._scm.has_node(prev_effect)
-                        and self._scm.has_node(cause)
-                        and not self._scm.is_d_separated(prev_effect, cause)
-                    ):
-                        pass  # Connected — ordering is fine
+                self._verify_chain_check_temporal_order(
+                    reasoning_steps[i - 1].get("effect", ""), cause
+                )
 
         valid_steps = total_steps - len(violations)
         score = valid_steps / total_steps if total_steps > 0 else 1.0
@@ -1054,6 +1133,51 @@ class CausalVerifier:
             consistency_score=score,
             spurious_edges=spurious,
         )
+
+    def _verify_chain_causal_direction(
+        self, i: int, cause: str, effect: str
+    ) -> tuple[str | None, tuple[str, str] | None]:
+        """Check 1 of `verify_chain`: does the causal direction exist in the SCM?
+
+        Returns (violation_message, spurious_pair), either of which may be None.
+        """
+        if self._scm.has_edge(cause, effect):
+            return None, None
+        # Check if reverse exists (direction error)
+        if self._scm.has_edge(effect, cause):
+            return (
+                f"Step {i}: Reversed causality — {cause}→{effect} "
+                f"should be {effect}→{cause}.",
+                None,
+            )
+        # No direct edge — check if there's a path
+        try:
+            path = self._scm.shortest_path(cause, effect)
+        except ValueError:
+            return f"Step {i}: No causal path from {cause} to {effect}.", (
+                cause,
+                effect,
+            )
+        if len(path) > 2:
+            return (
+                f"Step {i}: Indirect causality — {cause}→{effect} "
+                f"requires intermediaries: {' → '.join(path)}.",
+                None,
+            )
+        return None, None
+
+    def _verify_chain_check_temporal_order(self, prev_effect: str, cause: str) -> None:
+        """Check 2 of `verify_chain`: temporal ordering between consecutive steps.
+
+        NOTE (pre-existing, preserved verbatim): the `is_d_separated` result is
+        computed but never consulted — both branches of the original nested
+        `if` were a bare `pass`. This check is a no-op in the current code; see
+        the lane report (write-only check, out of scope for a complexity-only
+        change).
+        """
+        if prev_effect and cause != prev_effect:
+            if self._scm.has_node(prev_effect) and self._scm.has_node(cause):
+                self._scm.is_d_separated(prev_effect, cause)
 
 
 class SpuriousnessDetector:
@@ -1211,34 +1335,49 @@ def trajectory_causal_alignment_score(
 
     topo_order = {node: i for i, node in enumerate(scm.topological_causal_order())}
 
-    for i, step in enumerate(reasoning_steps):
-        cause = step.get("cause", "")
-        effect = step.get("effect", "")
-
-        if not cause or not effect:
-            valid_transitions += 1
-            valid_orderings += 1
-            continue
-
-        # Check if there's a valid causal path
-        if scm.has_node(cause) and scm.has_node(effect):
-            try:
-                scm.shortest_path(cause, effect)
-                valid_transitions += 1
-            except ValueError:
-                pass
-
-            # Check topological ordering
-            cause_order = topo_order.get(cause, -1)
-            effect_order = topo_order.get(effect, -1)
-            if cause_order >= 0 and effect_order >= 0 and cause_order < effect_order:
-                valid_orderings += 1
-        else:
-            # Nodes not in SCM — can't penalize
-            valid_transitions += 1
-            valid_orderings += 1
+    for step in reasoning_steps:
+        vt, vo = _trajectory_step_alignment(scm, topo_order, step)
+        valid_transitions += vt
+        valid_orderings += vo
 
     return (valid_transitions + valid_orderings) / (2 * total) if total > 0 else 1.0
+
+
+def _trajectory_step_alignment(
+    scm: StructuralCausalModel,
+    topo_order: dict[str, int],
+    step: dict[str, Any],
+) -> tuple[int, int]:
+    """Helper for `trajectory_causal_alignment_score`: score one reasoning step.
+
+    Returns (valid_transition, valid_ordering), each 0 or 1.
+    """
+    cause = step.get("cause", "")
+    effect = step.get("effect", "")
+
+    if not cause or not effect:
+        return 1, 1
+
+    if not (scm.has_node(cause) and scm.has_node(effect)):
+        # Nodes not in SCM — can't penalize
+        return 1, 1
+
+    # Check if there's a valid causal path
+    valid_transition = 0
+    try:
+        scm.shortest_path(cause, effect)
+        valid_transition = 1
+    except ValueError:
+        pass
+
+    # Check topological ordering
+    cause_order = topo_order.get(cause, -1)
+    effect_order = topo_order.get(effect, -1)
+    valid_ordering = int(
+        cause_order >= 0 and effect_order >= 0 and cause_order < effect_order
+    )
+
+    return valid_transition, valid_ordering
 
 
 logger = logging.getLogger(__name__)
@@ -1395,30 +1534,51 @@ class BayesianBeliefPropagator:
             current, current_lr, depth = frontier.pop(0)
             if depth >= max_hops:
                 continue
-
-            current_idx = self._node_map.get(current)
-            if current_idx is None:
-                continue
-
-            for neighbor_data in self._graph.successors(current_idx):
-                neighbor = (
-                    neighbor_data["id"]
-                    if isinstance(neighbor_data, dict) and "id" in neighbor_data
-                    else str(neighbor_data)
+            frontier.extend(
+                self._propagate_step(
+                    current, current_lr, depth, decay, source_node, visited
                 )
-                if neighbor in visited:
-                    continue
-                visited.add(neighbor)
-
-                dampened_lr = 1.0 + (current_lr - 1.0) * decay
-                self.observe_evidence(
-                    neighbor,
-                    dampened_lr,
-                    evidence_label=f"propagated_from_{source_node}_depth_{depth + 1}",
-                )
-                frontier.append((neighbor, dampened_lr, depth + 1))
+            )
 
         return {nid: b for nid, b in self._beliefs.items() if nid in visited}
+
+    def _propagate_step(
+        self,
+        current: str,
+        current_lr: float,
+        depth: int,
+        decay: float,
+        source_node: str,
+        visited: set[str],
+    ) -> list[tuple[str, float, int]]:
+        """Helper for `propagate`: dampen-and-observe evidence for one node's neighbors.
+
+        Mutates `visited` in place; returns the new `(neighbor, dampened_lr,
+        depth+1)` frontier entries for the caller to append.
+        """
+        current_idx = self._node_map.get(current)
+        if current_idx is None:
+            return []
+
+        new_entries: list[tuple[str, float, int]] = []
+        for neighbor_data in self._graph.successors(current_idx):
+            neighbor = (
+                neighbor_data["id"]
+                if isinstance(neighbor_data, dict) and "id" in neighbor_data
+                else str(neighbor_data)
+            )
+            if neighbor in visited:
+                continue
+            visited.add(neighbor)
+
+            dampened_lr = 1.0 + (current_lr - 1.0) * decay
+            self.observe_evidence(
+                neighbor,
+                dampened_lr,
+                evidence_label=f"propagated_from_{source_node}_depth_{depth + 1}",
+            )
+            new_entries.append((neighbor, dampened_lr, depth + 1))
+        return new_entries
 
     def get_belief(self, node_id: str) -> BeliefState | None:
         """Get the current belief state for a node."""
@@ -1519,23 +1679,39 @@ class RandomWalkExplorer:
         if start_node not in self._node_map:
             return []
 
-        # Aggregate frequencies across walks
+        normalized = self._discover_unexpected_frequencies(
+            start_node, n_walks, walk_length, restart_prob
+        )
+        distances = self._discover_unexpected_distances(start_node)
+        results = self._discover_unexpected_surprise_results(
+            start_node, normalized, distances
+        )
+        results.sort(key=lambda x: x["surprise_score"], reverse=True)
+        return results
+
+    def _discover_unexpected_frequencies(
+        self,
+        start_node: str,
+        n_walks: int,
+        walk_length: int,
+        restart_prob: float,
+    ) -> dict[str, float]:
+        """Helper: aggregate + normalize visit frequencies across `n_walks` random walks."""
         total_freq: dict[str, float] = defaultdict(float)
         for _ in range(n_walks):
             freq_dict = self.explore(start_node, walk_length, restart_prob)
             for node, f in freq_dict.items():
                 total_freq[node] += f
-
-        # Normalize
         total = sum(total_freq.values()) or 1.0
-        normalized = {node: f / total for node, f in total_freq.items()}
+        return {node: f / total for node, f in total_freq.items()}
 
-        # Compute graph distances from start via BFS
-        distances: dict[str, int] = {}
+    def _discover_unexpected_distances(self, start_node: str) -> dict[str, int]:
+        """Helper: BFS graph distances from `start_node`, by node id."""
         try:
             si = self._node_map[start_node]
             queue = collections.deque([(si, 0)])
             visited: set[int] = {si}
+            distances: dict[str, int] = {}
             while queue:
                 cur, depth = queue.popleft()
                 cur_data = self._graph[cur]
@@ -1549,10 +1725,17 @@ class RandomWalkExplorer:
                     if succ not in visited:
                         visited.add(succ)
                         queue.append((succ, depth + 1))
+            return distances
         except Exception:
-            distances = {start_node: 0}
+            return {start_node: 0}
 
-        # Surprise = frequency × distance (unexpected if visited often but far away)
+    def _discover_unexpected_surprise_results(
+        self,
+        start_node: str,
+        normalized: dict[str, float],
+        distances: dict[str, int],
+    ) -> list[dict[str, Any]]:
+        """Helper: surprise = frequency × distance (visited often but far away)."""
         results: list[dict[str, Any]] = []
         for node, freq in normalized.items():
             if node == start_node:
@@ -1560,17 +1743,14 @@ class RandomWalkExplorer:
             dist = distances.get(node, float("inf"))
             if dist == float("inf"):
                 dist = 10  # Cap for unreachable nodes
-            surprise = freq * dist
             results.append(
                 {
                     "node_id": node,
                     "frequency": freq,
                     "distance": dist,
-                    "surprise_score": surprise,
+                    "surprise_score": freq * dist,
                 }
             )
-
-        results.sort(key=lambda x: x["surprise_score"], reverse=True)
         return results
 
 
@@ -1669,13 +1849,7 @@ def conditional_independence_test(
         Dict with independence result and explanation.
     """
     z = conditioning_set or set()
-
-    # Build node map
-    node_map: dict[str, int] = {}
-    for idx in graph.node_indices():
-        data = graph[idx]
-        nid = data["id"] if isinstance(data, dict) and "id" in data else str(data)
-        node_map[nid] = idx
+    node_map = _rx_node_map(graph)
 
     if x not in node_map or y not in node_map:
         return {
@@ -1686,32 +1860,7 @@ def conditional_independence_test(
             "reason": "One or both nodes not in graph.",
         }
 
-    try:
-        # Use BFS on moralized ancestor graph for d-separation check
-        # Simplified: check if a path exists from x to y in the graph
-        # after removing conditioning set nodes
-        xi = node_map[x]
-        yi = node_map[y]
-        blocked = {node_map[n] for n in z if n in node_map}
-        # BFS ignoring blocked nodes (bidirectional for undirected path)
-        visited: set[int] = {xi} | blocked
-        queue = collections.deque([xi])
-        found = False
-        while queue:
-            cur = queue.popleft()
-            if cur == yi:
-                found = True
-                break
-            # Follow both successor and predecessor edges (undirected)
-            for neighbor in list(graph.successor_indices(cur)) + list(
-                graph.predecessor_indices(cur)
-            ):
-                if neighbor not in visited:
-                    visited.add(neighbor)
-                    queue.append(neighbor)
-        is_independent = not found
-    except Exception:
-        is_independent = True
+    is_independent = not _cit_bfs_active_path(graph, node_map, x, y, z)
 
     return {
         "x": x,
@@ -1720,6 +1869,41 @@ def conditional_independence_test(
         "independent": is_independent,
         "reason": "d-separated" if is_independent else "active path exists",
     }
+
+
+def _cit_bfs_active_path(
+    graph: rx.PyDiGraph,
+    node_map: dict[str, int],
+    x: str,
+    y: str,
+    z: set[str],
+) -> bool:
+    """Helper for `conditional_independence_test`.
+
+    Simplified d-separation check: BFS for a path from x to y in the graph
+    (following edges bidirectionally), ignoring nodes in the conditioning
+    set Z. Returns True if an active (unblocked) path exists.
+    """
+    try:
+        xi = node_map[x]
+        yi = node_map[y]
+        blocked = {node_map[n] for n in z if n in node_map}
+        visited: set[int] = {xi} | blocked
+        queue = collections.deque([xi])
+        while queue:
+            cur = queue.popleft()
+            if cur == yi:
+                return True
+            # Follow both successor and predecessor edges (undirected)
+            for neighbor in list(graph.successor_indices(cur)) + list(
+                graph.predecessor_indices(cur)
+            ):
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append(neighbor)
+        return False
+    except Exception:
+        return False
 
 
 logger = logging.getLogger(__name__)
@@ -1850,33 +2034,80 @@ def equivalence_classes(graph: rx.PyDiGraph) -> list[set[str]]:
     return list(groups.values())
 
 
-def transitive_closure(graph: rx.PyDiGraph) -> rx.PyDiGraph:
-    """Compute the transitive closure of a relation."""
-    _rx_node_map(graph)
-    tc = rx.PyDiGraph()
+def _copy_pydigraph_nodes(graph: rx.PyDiGraph) -> tuple[rx.PyDiGraph, dict[int, int]]:
+    """Helper: copy a PyDiGraph's nodes (no edges) into a fresh graph.
+
+    Returns (new_graph, old_index -> new_index map). Shared by
+    `transitive_closure` and `hasse_diagram`.
+    """
+    new_graph = rx.PyDiGraph()
     idx_map: dict[int, int] = {}
     for old_idx in graph.node_indices():
-        new_idx = tc.add_node(graph[old_idx])
-        idx_map[old_idx] = new_idx
+        idx_map[old_idx] = new_graph.add_node(graph[old_idx])
+    return new_graph, idx_map
+
+
+def _bfs_reachable(graph: rx.PyDiGraph, src_idx: int) -> set[int]:
+    """Helper: node indices reachable from src_idx via successor edges (BFS)."""
+    visited: set[int] = {src_idx}
+    queue = collections.deque([src_idx])
+    while queue:
+        cur = queue.popleft()
+        for succ in graph.successor_indices(cur):
+            if succ not in visited:
+                visited.add(succ)
+                queue.append(succ)
+    return visited
+
+
+def transitive_closure(graph: rx.PyDiGraph) -> rx.PyDiGraph:
+    """Compute the transitive closure of a relation."""
+    tc, idx_map = _copy_pydigraph_nodes(graph)
     # For each node, BFS to find all reachable nodes
     for src_idx in graph.node_indices():
-        visited: set[int] = set()
-        queue = collections.deque([src_idx])
-        visited.add(src_idx)
-        while queue:
-            cur = queue.popleft()
-            for succ in graph.successor_indices(cur):
-                if succ not in visited:
-                    visited.add(succ)
-                    queue.append(succ)
+        reachable = _bfs_reachable(graph, src_idx)
         # Add edges from src to all reachable (except self unless already exists)
-        for reachable in visited:
-            if reachable != src_idx or graph.has_edge(src_idx, src_idx):
+        for r in reachable:
+            if r != src_idx or graph.has_edge(src_idx, src_idx):
                 new_src = idx_map[src_idx]
-                new_tgt = idx_map[reachable]
+                new_tgt = idx_map[r]
                 if not tc.has_edge(new_src, new_tgt):
                     tc.add_edge(new_src, new_tgt, None)
     return tc
+
+
+def _hasse_has_alt_path(graph: rx.PyDiGraph, src_idx: int, succ: int) -> bool:
+    """Helper for `hasse_diagram`: is there a src->succ path of length > 1
+
+    (an alternative to the direct edge)? BFS from src, seeding the frontier
+    with src's other successors so the direct src->succ edge itself is
+    never treated as the "alternative" path.
+    """
+    visited: set[int] = {src_idx}
+    queue: collections.deque[int] = collections.deque()
+    for s in graph.successor_indices(src_idx):
+        if s != succ:
+            visited.add(s)
+            queue.append(s)
+    while queue:
+        cur = queue.popleft()
+        if cur == succ:
+            return True
+        for ns in graph.successor_indices(cur):
+            if ns not in visited:
+                visited.add(ns)
+                queue.append(ns)
+    return False
+
+
+def _hasse_edges_to_keep(graph: rx.PyDiGraph) -> set[tuple[int, int]]:
+    """Helper for `hasse_diagram`: the transitively-irreducible edge set."""
+    edges_to_keep: set[tuple[int, int]] = set()
+    for src_idx in graph.node_indices():
+        for succ in graph.successor_indices(src_idx):
+            if not _hasse_has_alt_path(graph, src_idx, succ):
+                edges_to_keep.add((src_idx, succ))
+    return edges_to_keep
 
 
 def hasse_diagram(graph: rx.PyDiGraph) -> rx.PyDiGraph:
@@ -1889,36 +2120,8 @@ def hasse_diagram(graph: rx.PyDiGraph) -> rx.PyDiGraph:
     except Exception as exc:
         raise ValueError("Graph is not a DAG. Cannot compute Hasse diagram.") from exc
 
-    _rx_node_map(graph)
-    edges_to_keep: set[tuple[int, int]] = set()
-    for src_idx in graph.node_indices():
-        for succ in graph.successor_indices(src_idx):
-            # Check if there's an alternative path from src to succ of length > 1
-            # BFS from src, ignoring the direct src->succ edge
-            visited: set[int] = {src_idx}
-            queue: collections.deque[int] = collections.deque()
-            for s in graph.successor_indices(src_idx):
-                if s != succ:
-                    visited.add(s)
-                    queue.append(s)
-            found_alt = False
-            while queue:
-                cur = queue.popleft()
-                if cur == succ:
-                    found_alt = True
-                    break
-                for ns in graph.successor_indices(cur):
-                    if ns not in visited:
-                        visited.add(ns)
-                        queue.append(ns)
-            if not found_alt:
-                edges_to_keep.add((src_idx, succ))
-
-    result = rx.PyDiGraph()
-    idx_map: dict[int, int] = {}
-    for old_idx in graph.node_indices():
-        new_idx = result.add_node(graph[old_idx])
-        idx_map[old_idx] = new_idx
+    edges_to_keep = _hasse_edges_to_keep(graph)
+    result, idx_map = _copy_pydigraph_nodes(graph)
     for src, tgt in edges_to_keep:
         result.add_edge(idx_map[src], idx_map[tgt], None)
     return result
