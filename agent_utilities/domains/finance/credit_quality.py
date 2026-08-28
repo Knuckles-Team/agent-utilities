@@ -136,6 +136,79 @@ class DividendQuality:
         )
 
 
+def _dividend_payout_ratio(
+    dividends_paid: float | None, net_income: float | None
+) -> tuple[float | None, str | None]:
+    """``(payout_ratio, flag)`` — ``payout`` is ``None`` when inputs are missing."""
+    if dividends_paid is None or net_income is None:
+        return None, None
+    if net_income > 0:
+        return abs(dividends_paid) / net_income, None
+    return float("inf"), "dividend paid despite non-positive net income"
+
+
+def _dividend_coverage(
+    free_cash_flow: float | None,
+    dividends_paid: float | None,
+    eps: float | None,
+    dps: float | None,
+) -> tuple[float | None, str]:
+    """``(coverage, basis)`` — FCF/dividends preferred, else EPS/DPS."""
+    if (
+        free_cash_flow is not None
+        and dividends_paid is not None
+        and dividends_paid != 0
+    ):
+        return free_cash_flow / abs(dividends_paid), "fcf"
+    if eps is not None and dps is not None and dps != 0:
+        return eps / dps, "earnings"
+    return None, ""
+
+
+def _dividend_growth(
+    dps: float | None, prior_dps: float | None
+) -> tuple[float | None, str | None]:
+    """Trailing per-share DPS growth, plus a cut flag when it is negative."""
+    if dps is None or prior_dps is None or prior_dps == 0:
+        return None, None
+    growth = (dps - prior_dps) / abs(prior_dps)
+    flag = "dividend per share cut year-over-year" if growth < 0 else None
+    return growth, flag
+
+
+def _is_dividend_yield_trap(
+    dividend_yield: float | None,
+    high_yield_threshold: float,
+    payout: float | None,
+    coverage: float | None,
+    growth: float | None,
+) -> bool:
+    """High stated yield + payout > 100% + deteriorating/insufficient coverage."""
+    if dividend_yield is None or dividend_yield < high_yield_threshold:
+        return False
+    if payout is None or payout <= 1.0:
+        return False
+    weak_coverage = coverage is not None and coverage < 1.0
+    declining = growth is not None and growth < 0
+    return weak_coverage or declining
+
+
+def _dividend_verdict(
+    yield_trap: bool, payout: float | None, coverage: float | None
+) -> str:
+    if (
+        yield_trap
+        or (payout is not None and payout > 1.25)
+        or (coverage is not None and coverage < 0.8)
+    ):
+        return "UNSUSTAINABLE"
+    if (payout is not None and payout > 0.8) or (
+        coverage is not None and coverage < 1.25
+    ):
+        return "STRETCHED"
+    return "SAFE"
+
+
 def assess_dividend_quality(
     ticker: str,
     *,
@@ -167,37 +240,22 @@ def assess_dividend_quality(
     flags: list[str] = []
 
     # Payout ratio: dividends / net income (only meaningful for positive income).
-    payout: float | None = None
-    if dividends_paid is not None and net_income is not None:
-        if net_income > 0:
-            payout = abs(dividends_paid) / net_income
-        else:
-            payout = float("inf")  # paying a dividend out of losses
-            flags.append("dividend paid despite non-positive net income")
+    payout, payout_flag = _dividend_payout_ratio(dividends_paid, net_income)
+    if payout_flag:
+        flags.append(payout_flag)
 
     # Coverage: FCF / dividends preferred, else EPS / DPS.
-    coverage: float | None = None
-    coverage_basis = ""
-    if (
-        free_cash_flow is not None
-        and dividends_paid is not None
-        and dividends_paid != 0
-    ):
-        coverage = free_cash_flow / abs(dividends_paid)
-        coverage_basis = "fcf"
-    elif eps is not None and dps is not None and dps != 0:
-        coverage = eps / dps
-        coverage_basis = "earnings"
+    coverage, coverage_basis = _dividend_coverage(
+        free_cash_flow, dividends_paid, eps, dps
+    )
 
     if payout is None and coverage is None:
         return DividendQuality(ticker=ticker, available=False)
 
     # Trailing dividend growth (per share).
-    growth: float | None = None
-    if dps is not None and prior_dps is not None and prior_dps != 0:
-        growth = (dps - prior_dps) / abs(prior_dps)
-        if growth < 0:
-            flags.append("dividend per share cut year-over-year")
+    growth, growth_flag = _dividend_growth(dps, prior_dps)
+    if growth_flag:
+        flags.append(growth_flag)
 
     if payout is not None and payout > 1.0:
         flags.append("payout exceeds 100% of earnings")
@@ -206,34 +264,13 @@ def assess_dividend_quality(
 
     # Yield-trap: a high stated yield, paying out more than earned, with
     # deteriorating/insufficient coverage. Classic value trap.
-    yield_trap = False
-    if (
-        dividend_yield is not None
-        and dividend_yield >= high_yield_threshold
-        and payout is not None
-        and payout > 1.0
-        and (
-            coverage is not None
-            and coverage < 1.0
-            or (growth is not None and growth < 0)
-        )
-    ):
-        yield_trap = True
+    yield_trap = _is_dividend_yield_trap(
+        dividend_yield, high_yield_threshold, payout, coverage, growth
+    )
+    if yield_trap:
         flags.append("yield-trap: high yield + payout>100% + weak/declining coverage")
 
-    # Verdict ladder.
-    if (
-        yield_trap
-        or (payout is not None and payout > 1.25)
-        or (coverage is not None and coverage < 0.8)
-    ):
-        verdict = "UNSUSTAINABLE"
-    elif (payout is not None and payout > 0.8) or (
-        coverage is not None and coverage < 1.25
-    ):
-        verdict = "STRETCHED"
-    else:
-        verdict = "SAFE"
+    verdict = _dividend_verdict(yield_trap, payout, coverage)
 
     return DividendQuality(
         ticker=ticker,
@@ -299,6 +336,21 @@ class CreditQuality:
         )
 
 
+def _merton_engine_crosscheck(client: Any, dd: float, pd: float) -> None:
+    """Best-effort cross-check of Phi(-DD) against the engine; local Phi stays
+    authoritative regardless of the outcome — this only logs agreement."""
+    try:
+        confirm = client.finance.deflated_sharpe(-dd, 1, [0.0, 0.0, 0.0])
+        if (
+            isinstance(confirm, int | float)
+            and math.isfinite(confirm)
+            and abs(float(confirm) - pd) < 1e-3
+        ):
+            logger.debug("engine confirmed Merton PD within tolerance")
+    except Exception as exc:  # noqa: BLE001 — local Phi already authoritative
+        logger.debug("engine Phi cross-check unavailable: %s", exc)
+
+
 def merton_distance_to_default(
     asset_value: float,
     debt_face: float,
@@ -348,15 +400,113 @@ def merton_distance_to_default(
     # value (local Phi is the source of truth).
     client = engine_client if engine_client is not None else _credit_engine()
     if client is not None:
-        try:
-            confirm = client.finance.deflated_sharpe(-dd, 1, [0.0, 0.0, 0.0])
-            if isinstance(confirm, int | float) and math.isfinite(confirm):
-                if abs(float(confirm) - pd) < 1e-3:
-                    logger.debug("engine confirmed Merton PD within tolerance")
-        except Exception as exc:  # noqa: BLE001 — local Phi already authoritative
-            logger.debug("engine Phi cross-check unavailable: %s", exc)
+        _merton_engine_crosscheck(client, dd, pd)
 
     return dd, pd
+
+
+def _merton_dd_and_pd(
+    ticker: str,
+    equity_value: float | None,
+    equity_vol: float | None,
+    total_debt: float | None,
+    asset_drift: float,
+    horizon_years: float,
+    engine_client: Any | None,
+) -> tuple[float | None, float | None]:
+    """Merton DD/PD from equity value/vol + debt, or ``(None, None)`` when the
+    equity inputs are absent or the model rejects them."""
+    if not (
+        equity_value is not None
+        and equity_vol is not None
+        and total_debt is not None
+        and equity_value > 0
+        and equity_vol > 0
+        and total_debt > 0
+    ):
+        return None, None
+    asset_value = equity_value + total_debt
+    # Deflate equity vol by leverage to approximate asset vol.
+    asset_vol = equity_vol * (equity_value / asset_value)
+    try:
+        return merton_distance_to_default(
+            asset_value,
+            total_debt,
+            asset_vol,
+            asset_drift=asset_drift,
+            horizon_years=horizon_years,
+            engine_client=engine_client,
+        )
+    except ValueError as exc:  # noqa: BLE001 — one optional credit-risk sub-factor, caller aggregates several
+        logger.debug("Merton DD skipped for %s: %s", ticker, exc)
+        return None, None
+
+
+def _credit_interest_coverage(
+    ebit: float | None, interest_expense: float | None
+) -> tuple[float | None, str | None]:
+    if ebit is None or interest_expense is None or interest_expense == 0:
+        return None, None
+    coverage = ebit / abs(interest_expense)
+    flag = "interest coverage below 1.5x" if coverage < 1.5 else None
+    return coverage, flag
+
+
+def _credit_leverage_ratios(
+    total_debt: float | None,
+    total_equity: float | None,
+    total_assets: float | None,
+) -> tuple[float | None, float | None, list[str]]:
+    flags: list[str] = []
+    d_to_e: float | None = None
+    if total_debt is not None and total_equity is not None and total_equity != 0:
+        d_to_e = total_debt / abs(total_equity)
+        if d_to_e > 2.0:
+            flags.append("debt/equity above 2.0")
+    d_to_a: float | None = None
+    if total_debt is not None and total_assets is not None and total_assets != 0:
+        d_to_a = total_debt / abs(total_assets)
+        if d_to_a > 0.7:
+            flags.append("debt/assets above 70%")
+    return d_to_e, d_to_a, flags
+
+
+def _is_credit_distressed(
+    pd: float | None, interest_coverage: float | None, dd: float | None
+) -> bool:
+    return (
+        (pd is not None and pd > 0.20)
+        or (interest_coverage is not None and interest_coverage < 1.0)
+        or (dd is not None and dd < 1.0)
+    )
+
+
+def _is_credit_speculative(
+    pd: float | None,
+    interest_coverage: float | None,
+    dd: float | None,
+    d_to_e: float | None,
+) -> bool:
+    return (
+        (pd is not None and 0.02 < pd <= 0.20)
+        or (interest_coverage is not None and interest_coverage < 3.0)
+        or (dd is not None and dd < 3.0)
+        or (d_to_e is not None and d_to_e > 2.0)
+    )
+
+
+def _credit_verdict(
+    pd: float | None,
+    interest_coverage: float | None,
+    dd: float | None,
+    d_to_e: float | None,
+) -> str:
+    # Verdict: distress dominates; otherwise score on DD + coverage + leverage.
+    if _is_credit_distressed(pd, interest_coverage, dd):
+        return "DISTRESSED"
+    if _is_credit_speculative(pd, interest_coverage, dd, d_to_e):
+        return "SPECULATIVE"
+    return "INVESTMENT_GRADE"
 
 
 def assess_credit_quality(
@@ -385,51 +535,28 @@ def assess_credit_quality(
         (DD, coverage, or leverage) can be computed.
     """
     flags: list[str] = []
-    dd: float | None = None
-    pd: float | None = None
 
     # Merton DD from equity value/vol + debt.
-    if (
-        equity_value is not None
-        and equity_vol is not None
-        and total_debt is not None
-        and equity_value > 0
-        and equity_vol > 0
-        and total_debt > 0
-    ):
-        asset_value = equity_value + total_debt
-        # Deflate equity vol by leverage to approximate asset vol.
-        asset_vol = equity_vol * (equity_value / asset_value)
-        try:
-            dd, pd = merton_distance_to_default(
-                asset_value,
-                total_debt,
-                asset_vol,
-                asset_drift=asset_drift,
-                horizon_years=horizon_years,
-                engine_client=engine_client,
-            )
-        except ValueError as exc:  # noqa: BLE001 — one optional credit-risk sub-factor, caller aggregates several
-            logger.debug("Merton DD skipped for %s: %s", ticker, exc)
+    dd, pd = _merton_dd_and_pd(
+        ticker,
+        equity_value,
+        equity_vol,
+        total_debt,
+        asset_drift,
+        horizon_years,
+        engine_client,
+    )
 
     # Interest coverage: EBIT / interest.
-    interest_coverage: float | None = None
-    if ebit is not None and interest_expense is not None and interest_expense != 0:
-        interest_coverage = ebit / abs(interest_expense)
-        if interest_coverage < 1.5:
-            flags.append("interest coverage below 1.5x")
+    interest_coverage, coverage_flag = _credit_interest_coverage(ebit, interest_expense)
+    if coverage_flag:
+        flags.append(coverage_flag)
 
     # Leverage ratios.
-    d_to_e: float | None = None
-    if total_debt is not None and total_equity is not None and total_equity != 0:
-        d_to_e = total_debt / abs(total_equity)
-        if d_to_e > 2.0:
-            flags.append("debt/equity above 2.0")
-    d_to_a: float | None = None
-    if total_debt is not None and total_assets is not None and total_assets != 0:
-        d_to_a = total_debt / abs(total_assets)
-        if d_to_a > 0.7:
-            flags.append("debt/assets above 70%")
+    d_to_e, d_to_a, leverage_flags = _credit_leverage_ratios(
+        total_debt, total_equity, total_assets
+    )
+    flags.extend(leverage_flags)
 
     if dd is None and interest_coverage is None and d_to_e is None and d_to_a is None:
         return CreditQuality(ticker=ticker, available=False)
@@ -437,24 +564,7 @@ def assess_credit_quality(
     if pd is not None and pd > 0.10:
         flags.append("Merton default probability above 10%")
 
-    # Verdict: distress dominates; otherwise score on DD + coverage + leverage.
-    distressed = (
-        (pd is not None and pd > 0.20)
-        or (interest_coverage is not None and interest_coverage < 1.0)
-        or (dd is not None and dd < 1.0)
-    )
-    speculative = (
-        (pd is not None and 0.02 < pd <= 0.20)
-        or (interest_coverage is not None and interest_coverage < 3.0)
-        or (dd is not None and dd < 3.0)
-        or (d_to_e is not None and d_to_e > 2.0)
-    )
-    if distressed:
-        verdict = "DISTRESSED"
-    elif speculative:
-        verdict = "SPECULATIVE"
-    else:
-        verdict = "INVESTMENT_GRADE"
+    verdict = _credit_verdict(pd, interest_coverage, dd, d_to_e)
 
     return CreditQuality(
         ticker=ticker,
