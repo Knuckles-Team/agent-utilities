@@ -68,9 +68,9 @@ independently runnable and combined by ``--wire-first-report``:
   ``pytest.ini``'s ``testpaths`` does not collect AND no pre-commit hook /
   CI workflow explicitly points ``pytest`` at (parsed out of
   ``.pre-commit-config.yaml`` / ``.github/workflows/*.yml`` by regex, so
-  this can't silently drift from what those files actually run). Ratcheted
-  against ``scripts/wire_first_baseline.json`` — new orphans fail, the
-  existing backlog does not (see D-OB-13a).
+  this can't silently drift from what those files actually run). Enforced
+  as an ABSOLUTE ZERO (D-OB-13a) — the repo is measured at zero orphans
+  today (see "NO BASELINE HERE ANY MORE" below), so any orphan fails.
 * ``--check-mock-hygiene`` — ``MagicMock(spec=[])`` / ``Mock(spec=[])`` /
   ``patch(..., create=True)`` sites in test files. Always informational
   (exit 0): whether a given site is a legitimate object-isolation mock or a
@@ -90,9 +90,9 @@ independently runnable and combined by ``--wire-first-report``:
   ONLY from test files (zero non-test, non-defining-file references) is a
   "public capability entrypoint with no non-test caller" — exactly the
   D-OB-9 shape (``PolicyEngine``, KV-fork ``snapshot``/``fork``/
-  ``branch_get``/``branch_put``, ``AdmissionPolicy.decide``, …). Ratcheted
-  against the same baseline file — new test-only symbols fail, the existing
-  backlog does not.
+  ``branch_get``/``branch_put``, ``AdmissionPolicy.decide``, …).
+  DIFF-SCOPED against HEAD (see "NO BASELINE HERE ANY MORE" below) — new
+  test-only symbols since HEAD fail, the existing backlog does not.
 
 Known blind spots of the symbol sweep specifically: word-boundary text
 matching (not import/type resolution) means an alias (``import X as Y``)
@@ -103,6 +103,12 @@ reason — rely on the class-level finding for those. A "0 non-test
 references" result is signal for a human to trace the live path (Wire-First
 step 1), not proof of dead code to delete on sight.
 
+NO BASELINE HERE ANY MORE (retired ratchet — see check_swallowed_errors.py's
+module docstring for the fully-worked-out rationale this gate now follows,
+and the "Diff-scoped enforcement" comment further down this file for the
+measured counts and the extraction-invariance test that justified keeping
+this gate's ``(file, symbol, ordinal)`` key rather than replacing it).
+
 Usage::
 
     python scripts/check_wiring.py --wire-first-report          # everything, human-readable
@@ -110,7 +116,10 @@ Usage::
     python scripts/check_wiring.py --check-mock-hygiene
     python scripts/check_wiring.py --check-extras-gating
     python scripts/check_wiring.py --check-symbol-reachability
-    python scripts/check_wiring.py --update-wire-first-baseline  # freeze current backlog
+
+Exit 0 = no new orphan / no new test-only symbol since HEAD, 1 = one was
+found (or a degraded HEAD comparison could not be safely made), 2 = a
+retired flag was passed.
 """
 
 from __future__ import annotations
@@ -122,6 +131,8 @@ import json
 import re
 import subprocess
 import sys
+import tarfile
+import tempfile
 import tokenize
 from collections import Counter, defaultdict, deque
 from pathlib import Path
@@ -133,7 +144,6 @@ PYPROJECT = ROOT / "pyproject.toml"
 PYTEST_INI = ROOT / "pytest.ini"
 PRECOMMIT_CONFIG = ROOT / ".pre-commit-config.yaml"
 WORKFLOWS_DIR = ROOT / ".github" / "workflows"
-WIRE_FIRST_BASELINE = ROOT / "scripts" / "wire_first_baseline.json"
 
 
 def _tracked_or_walked(root: Path, pattern: str) -> list[Path]:
@@ -288,25 +298,41 @@ def resolve_relative(rel_path: str, node: ast.ImportFrom) -> str | None:
     return ".".join(base) if base else None
 
 
+def _imports_from_import(node: ast.Import) -> set[str]:
+    return {alias.name for alias in node.names}
+
+
+def _imports_from_relative_from(rel_path: str, node: ast.ImportFrom) -> set[str]:
+    """``from . import x`` / ``from ..pkg import mod`` -- resolved via
+    :func:`resolve_relative`. ``from .pkg import mod`` may target submodules,
+    so both the resolved package and each submodule are recorded."""
+    resolved = resolve_relative(rel_path, node)
+    if not resolved:
+        return set()
+    found = {resolved}
+    found.update(f"{resolved}.{alias.name}" for alias in node.names or [])
+    return found
+
+
+def _imports_from_absolute_from(node: ast.ImportFrom) -> set[str]:
+    if not node.module:
+        return set()
+    found = {node.module}
+    found.update(f"{node.module}.{alias.name}" for alias in node.names or [])
+    return found
+
+
 def collect_imports(rel_path: str, tree: ast.AST) -> set[str]:
     """All dotted module names a file imports (absolute + resolved relative)."""
     found: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            for alias in node.names:
-                found.add(alias.name)
+            found.update(_imports_from_import(node))
         elif isinstance(node, ast.ImportFrom):
             if node.level and node.level > 0:
-                resolved = resolve_relative(rel_path, node)
-                if resolved:
-                    found.add(resolved)
-                    # ``from .pkg import mod`` may target submodules.
-                    for alias in node.names or []:
-                        found.add(f"{resolved}.{alias.name}")
-            elif node.module:
-                found.add(node.module)
-                for alias in node.names or []:
-                    found.add(f"{node.module}.{alias.name}")
+                found.update(_imports_from_relative_from(rel_path, node))
+            else:
+                found.update(_imports_from_absolute_from(node))
     return found
 
 
@@ -330,40 +356,63 @@ def load_console_script_roots(modules: set[str]) -> set[str]:
     return roots
 
 
+def _parse_file_imports(py_file: Path) -> tuple[str, set[str]] | None:
+    """``(rel_path, imports)`` for one source file, or None if it should be
+    skipped entirely (``__pycache__``). A parse failure yields an empty
+    import set rather than dropping the file, so it still counts as a
+    known module."""
+    if "__pycache__" in py_file.parts:
+        return None
+    rel = py_file.relative_to(ROOT).as_posix()
+    try:
+        tree = ast.parse(
+            py_file.read_text(encoding="utf-8", errors="ignore"), filename=rel
+        )
+    except SyntaxError:
+        return rel, set()
+    return rel, collect_imports(rel, tree)
+
+
+def _ancestor_init_edges(target: str, modules: set[str], rel: str) -> set[str]:
+    """Importing a module also executes every ancestor package ``__init__``
+    — model those edges so package inits are not falsely orphaned when only
+    deep submodules are imported."""
+    edges: set[str] = set()
+    parent = Path(target).parent
+    while parent != Path("."):
+        init = (parent / "__init__.py").as_posix()
+        if init in modules and init != rel:
+            edges.add(init)
+        parent = parent.parent
+    return edges
+
+
+def _add_import_edges(
+    graph: dict[str, set[str]], rel: str, imps: set[str], modules: set[str]
+) -> None:
+    for modname in imps:
+        target = module_name_to_path(modname, modules)
+        if target and target != rel:
+            graph[rel].add(target)
+            graph[rel].update(_ancestor_init_edges(target, modules, rel))
+
+
 def build_graph() -> tuple[dict[str, set[str]], set[str]]:
     """Return (import_graph, modules) over agent_utilities/."""
     modules: set[str] = set()
     file_imports: dict[str, set[str]] = {}
 
     for py_file in _tracked_or_walked(SRC_DIR, "*.py"):
-        if "__pycache__" in py_file.parts:
+        parsed = _parse_file_imports(py_file)
+        if parsed is None:
             continue
-        rel = py_file.relative_to(ROOT).as_posix()
+        rel, imps = parsed
         modules.add(rel)
-        try:
-            tree = ast.parse(
-                py_file.read_text(encoding="utf-8", errors="ignore"), filename=rel
-            )
-        except SyntaxError:
-            file_imports[rel] = set()
-            continue
-        file_imports[rel] = collect_imports(rel, tree)
+        file_imports[rel] = imps
 
     graph: dict[str, set[str]] = defaultdict(set)
     for rel, imps in file_imports.items():
-        for modname in imps:
-            target = module_name_to_path(modname, modules)
-            if target and target != rel:
-                graph[rel].add(target)
-                # Importing a module also executes every ancestor package
-                # __init__ — model those edges so package inits are not
-                # falsely orphaned when only deep submodules are imported.
-                parent = Path(target).parent
-                while parent != Path("."):
-                    init = (parent / "__init__.py").as_posix()
-                    if init in modules and init != rel:
-                        graph[rel].add(init)
-                    parent = parent.parent
+        _add_import_edges(graph, rel, imps, modules)
     return graph, modules
 
 
@@ -536,18 +585,36 @@ def find_mock_hygiene_issues(
             )
         except (OSError, SyntaxError):
             continue
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            if _is_mock_ctor(node):
-                spec = _kw_value(node, "spec")
-                if isinstance(spec, ast.List) and not spec.elts:
-                    issues.append((rel, node.lineno, "spec=[]"))
-            if _is_patch_call(node):
-                create = _kw_value(node, "create")
-                if isinstance(create, ast.Constant) and create.value is True:
-                    issues.append((rel, node.lineno, "create=True"))
+        issues.extend(_mock_hygiene_issues_in_file(rel, tree))
     return issues
+
+
+def _mock_ctor_issue(node: ast.Call) -> str | None:
+    if not _is_mock_ctor(node):
+        return None
+    spec = _kw_value(node, "spec")
+    return "spec=[]" if isinstance(spec, ast.List) and not spec.elts else None
+
+
+def _patch_call_issue(node: ast.Call) -> str | None:
+    if not _is_patch_call(node):
+        return None
+    create = _kw_value(node, "create")
+    is_true = isinstance(create, ast.Constant) and create.value is True
+    return "create=True" if is_true else None
+
+
+def _mock_hygiene_issues_in_file(
+    rel: str, tree: ast.Module
+) -> list[tuple[str, int, str]]:
+    found: list[tuple[str, int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        shape = _mock_ctor_issue(node) or _patch_call_issue(node)
+        if shape:
+            found.append((rel, node.lineno, shape))
+    return found
 
 
 def find_silent_import_guards(
@@ -568,28 +635,41 @@ def find_silent_import_guards(
             tree = ast.parse(source, filename=rel)
         except (OSError, SyntaxError):
             continue
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.ExceptHandler):
-                continue
-            type_names: set[str] = set()
-            if isinstance(node.type, ast.Tuple):
-                type_names = {t.id for t in node.type.elts if isinstance(t, ast.Name)}
-            elif isinstance(node.type, ast.Name):
-                type_names = {node.type.id}
-            if not type_names & {"ImportError", "ModuleNotFoundError"}:
-                continue
-            body_mod = ast.Module(body=node.body, type_ignores=[])
-            has_skip = any(
-                isinstance(n, ast.Call)
-                and isinstance(n.func, ast.Attribute)
-                and n.func.attr in {"skip", "fail", "xfail"}
-                for n in ast.walk(body_mod)
-            )
-            has_importorskip = "importorskip" in ast.dump(body_mod)
-            has_raise = any(isinstance(n, ast.Raise) for n in ast.walk(body_mod))
-            if not (has_skip or has_importorskip or has_raise):
-                found.append((rel, node.lineno))
+        found.extend(_silent_import_guards_in_file(rel, tree))
     return found
+
+
+def _handler_catches_import_error(node: ast.ExceptHandler) -> bool:
+    type_names: set[str] = set()
+    if isinstance(node.type, ast.Tuple):
+        type_names = {t.id for t in node.type.elts if isinstance(t, ast.Name)}
+    elif isinstance(node.type, ast.Name):
+        type_names = {node.type.id}
+    return bool(type_names & {"ImportError", "ModuleNotFoundError"})
+
+
+def _handler_is_silent(node: ast.ExceptHandler) -> bool:
+    """True when the handler's body neither re-raises nor visibly skips."""
+    body_mod = ast.Module(body=node.body, type_ignores=[])
+    has_skip = any(
+        isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and n.func.attr in {"skip", "fail", "xfail"}
+        for n in ast.walk(body_mod)
+    )
+    has_importorskip = "importorskip" in ast.dump(body_mod)
+    has_raise = any(isinstance(n, ast.Raise) for n in ast.walk(body_mod))
+    return not (has_skip or has_importorskip or has_raise)
+
+
+def _silent_import_guards_in_file(rel: str, tree: ast.Module) -> list[tuple[str, int]]:
+    return [
+        (rel, node.lineno)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ExceptHandler)
+        and _handler_catches_import_error(node)
+        and _handler_is_silent(node)
+    ]
 
 
 def _iter_agent_utilities_files(src_dir: Path = SRC_DIR) -> list[Path]:
@@ -676,17 +756,22 @@ def _index_file(text: str) -> tuple[Counter[str], Counter[str]]:
     idents = Counter(t.string for t in tokens if t.type == tokenize.NAME)
     calls: Counter[str] = Counter()
     for i, t in enumerate(tokens):
-        if (
-            t.type == tokenize.NAME
-            and i >= 2
-            and tokens[i - 1].type == tokenize.OP
-            and tokens[i - 1].string == "."
-            and i + 1 < len(tokens)
-            and tokens[i + 1].type == tokenize.OP
-            and tokens[i + 1].string == "("
-        ):
+        if t.type == tokenize.NAME and _is_dotted_call_token(tokens, i):
             calls[t.string] += 1
     return idents, calls
+
+
+def _is_dotted_call_token(tokens: list[tokenize.TokenInfo], i: int) -> bool:
+    """True when ``tokens[i]`` is the ``name`` in a ``.name(`` sequence."""
+    if i < 2 or i + 1 >= len(tokens):
+        return False
+    prev, nxt = tokens[i - 1], tokens[i + 1]
+    return (
+        prev.type == tokenize.OP
+        and prev.string == "."
+        and nxt.type == tokenize.OP
+        and nxt.string == "("
+    )
 
 
 def find_test_only_symbols(
@@ -748,55 +833,15 @@ def find_test_only_symbols(
     real repo) so ``tests/gates/test_wire_first_gate.py`` can prove this
     trips on a synthetic fixture.
     """
-    au_sources: dict[str, str] = {}
-    for py in _iter_agent_utilities_files(src_dir):
-        rel = py.relative_to(display_root).as_posix()
-        try:
-            au_sources[rel] = py.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            continue
-
-    au_idents: dict[str, Counter[str]] = {}
-    au_calls: dict[str, Counter[str]] = {}
-    total_au_idents: Counter[str] = Counter()
-    total_au_calls: Counter[str] = Counter()
-    for rel, source in au_sources.items():
-        idents, calls = _index_file(source)
-        au_idents[rel] = idents
-        au_calls[rel] = calls
-        total_au_idents.update(idents)
-        total_au_calls.update(calls)
-
-    total_test_idents: Counter[str] = Counter()
-    total_test_calls: Counter[str] = Counter()
-    # Per-file test counters + import sets, kept alongside the aggregate
-    # totals above (D-OP-12): the aggregate is still the fast path for a
-    # symbol name that is only ever defined once in the whole repo, but a
-    # COLLIDING name (see below) needs per-file scoping, which requires
-    # knowing which specific test files reference the name and which
-    # module(s) each of those files actually imports.
-    test_idents_by_file: dict[str, Counter[str]] = {}
-    test_calls_by_file: dict[str, Counter[str]] = {}
-    test_imports_by_file: dict[str, set[str]] = {}
-    if tests_dir.exists():
-        for py in _tracked_or_walked(tests_dir, "*.py"):
-            if "__pycache__" in py.parts:
-                continue
-            try:
-                text = py.read_text(encoding="utf-8", errors="ignore")
-            except OSError:
-                continue
-            idents, calls = _index_file(text)
-            total_test_idents.update(idents)
-            total_test_calls.update(calls)
-            trel = py.relative_to(display_root).as_posix()
-            test_idents_by_file[trel] = idents
-            test_calls_by_file[trel] = calls
-            try:
-                ttree = ast.parse(text, filename=trel)
-            except SyntaxError:
-                continue
-            test_imports_by_file[trel] = collect_imports(trel, ttree)
+    au_sources = _read_au_sources(src_dir, display_root)
+    au_idents, au_calls, total_au_idents, total_au_calls = _index_au_sources(au_sources)
+    (
+        test_idents_by_file,
+        test_calls_by_file,
+        test_imports_by_file,
+        total_test_idents,
+        total_test_calls,
+    ) = _index_test_sources(tests_dir, display_root)
 
     # D-OP-12: caller resolution below is bare-symbol-name text matching,
     # not a type-resolved call graph (see the module/function docstrings).
@@ -807,43 +852,139 @@ def find_test_only_symbols(
     # defining ``parent_of``), the aggregate ``total_test_*`` counters pool
     # every TEST reference to EITHER definition into one number, so adding
     # a test for symbol A's ``parent_of`` silently CREATES a finding for
-    # unrelated symbol B, in a file the change never touched. Confirmed by
-    # construction: adding a test-only caller for ``tenant_registry``'s
-    # ``parent_of`` produced a NEW finding on ``concept_lineage.py``'s
-    # unrelated ``Lineage.parent_of`` — a module that change never opened —
-    # purely because both counted against the same pooled bare-name test
-    # bucket.
-    #
-    # Fix: pre-detect which top-level names / method names are DEFINED more
-    # than once across ``agent_utilities/`` (a "collision"). Non-colliding
-    # names keep the fast pooled-counter path unchanged (identical output
-    # to before this fix for the overwhelming majority of symbols). For a
-    # colliding name, the TEST side is resolved with import-scoped counting
-    # instead of the pooled total: a test file's reference only counts
-    # toward a specific definition if that test file actually imports the
-    # definition's own module (``collect_imports``) — i.e. caller
-    # resolution respects the definition's own file/scope instead of a name
-    # pooled across every test file that happens to share it. Because a
-    # scoped count is always <= the pooled count it replaces, this can only
-    # ever REMOVE a spurious finding, never add one.
-    #
-    # The production (``other_au``) side deliberately stays pooled/unscoped
-    # even for colliding names: agent_utilities leans heavily on factory
-    # functions / dependency injection and composed/inherited concrete
-    # classes that never import the concrete symbol by name (see the
-    # module docstring's "Three broader alternatives" note — import-
-    # qualifying the production side was already tried and reverted because
-    # it flipped >140 genuinely-wired methods to false positives). Reusing
-    # that same import-qualifying approach here, even scoped to collisions
-    # only, reproduces the identical regression (measured: 285 new false
-    # positives against the real repo, e.g. ``SemanticCache.invalidate``,
-    # ``ChannelRegistry.register``, the ``*Backend.plan`` family — all
-    # reached only via DI/factory, never a direct import of the concrete
-    # class). The reported defect's "misdirection" harm — a lane blocked by
-    # a finding in a file it never opened — comes entirely from the TEST
-    # side (a lane's own new test polluting an unrelated symbol's count);
-    # scoping that side closes the defect without reintroducing the
-    # previously-reverted production-side regression.
+    # unrelated symbol B, in a file the change never touched. Fix: pre-detect
+    # which names are DEFINED more than once (a "collision") and resolve
+    # ONLY the test side with import-scoped counting for those — see
+    # ``_colliding_names``/``_scoped_test_count``/``_scoped_test_call_count``
+    # for the full rationale (moved out of this docstring to keep it near the
+    # code it explains). The production (``other_au``) side deliberately
+    # stays pooled/unscoped even for colliding names — see those functions.
+    au_trees, top_level_defs_by_file, methods_by_file = _collect_definitions(au_sources)
+    colliding_top_level_names, colliding_method_names = _colliding_names(
+        top_level_defs_by_file, methods_by_file
+    )
+
+    ordinals: dict[tuple[str, str], int] = {}
+    findings: list[dict] = []
+    for rel in au_trees:
+        findings.extend(
+            _top_level_symbol_findings(
+                rel,
+                top_level_defs_by_file,
+                au_idents,
+                total_au_idents,
+                colliding_top_level_names,
+                test_idents_by_file,
+                test_imports_by_file,
+                total_test_idents,
+                ordinals,
+            )
+        )
+        findings.extend(
+            _method_symbol_findings(
+                rel,
+                methods_by_file,
+                au_calls,
+                total_au_calls,
+                colliding_method_names,
+                test_calls_by_file,
+                test_imports_by_file,
+                total_test_calls,
+                ordinals,
+            )
+        )
+    return findings
+
+
+def _read_au_sources(src_dir: Path, display_root: Path) -> dict[str, str]:
+    au_sources: dict[str, str] = {}
+    for py in _iter_agent_utilities_files(src_dir):
+        rel = py.relative_to(display_root).as_posix()
+        try:
+            au_sources[rel] = py.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+    return au_sources
+
+
+def _index_au_sources(
+    au_sources: dict[str, str],
+) -> tuple[
+    dict[str, Counter[str]], dict[str, Counter[str]], Counter[str], Counter[str]
+]:
+    au_idents: dict[str, Counter[str]] = {}
+    au_calls: dict[str, Counter[str]] = {}
+    total_au_idents: Counter[str] = Counter()
+    total_au_calls: Counter[str] = Counter()
+    for rel, source in au_sources.items():
+        idents, calls = _index_file(source)
+        au_idents[rel] = idents
+        au_calls[rel] = calls
+        total_au_idents.update(idents)
+        total_au_calls.update(calls)
+    return au_idents, au_calls, total_au_idents, total_au_calls
+
+
+def _index_test_sources(
+    tests_dir: Path, display_root: Path
+) -> tuple[
+    dict[str, Counter[str]],
+    dict[str, Counter[str]],
+    dict[str, set[str]],
+    Counter[str],
+    Counter[str],
+]:
+    """Per-file test counters + import sets, alongside aggregate totals
+    (D-OP-12): the aggregate is the fast path for a symbol name defined only
+    once in the whole repo; a COLLIDING name needs the per-file scoping this
+    also returns — see ``_scoped_test_count``/``_scoped_test_call_count``."""
+    test_idents_by_file: dict[str, Counter[str]] = {}
+    test_calls_by_file: dict[str, Counter[str]] = {}
+    test_imports_by_file: dict[str, set[str]] = {}
+    total_test_idents: Counter[str] = Counter()
+    total_test_calls: Counter[str] = Counter()
+    if not tests_dir.exists():
+        return (
+            test_idents_by_file,
+            test_calls_by_file,
+            test_imports_by_file,
+            total_test_idents,
+            total_test_calls,
+        )
+    for py in _tracked_or_walked(tests_dir, "*.py"):
+        if "__pycache__" in py.parts:
+            continue
+        try:
+            text = py.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        idents, calls = _index_file(text)
+        total_test_idents.update(idents)
+        total_test_calls.update(calls)
+        trel = py.relative_to(display_root).as_posix()
+        test_idents_by_file[trel] = idents
+        test_calls_by_file[trel] = calls
+        try:
+            ttree = ast.parse(text, filename=trel)
+        except SyntaxError:
+            continue
+        test_imports_by_file[trel] = collect_imports(trel, ttree)
+    return (
+        test_idents_by_file,
+        test_calls_by_file,
+        test_imports_by_file,
+        total_test_idents,
+        total_test_calls,
+    )
+
+
+def _collect_definitions(
+    au_sources: dict[str, str],
+) -> tuple[
+    dict[str, ast.Module],
+    dict[str, list[tuple[str, str, int]]],
+    dict[str, list[tuple[str, str, int, bool]]],
+]:
     au_trees: dict[str, ast.Module] = {}
     for rel, source in au_sources.items():
         if rel.endswith("__init__.py"):
@@ -852,19 +993,25 @@ def find_test_only_symbols(
             au_trees[rel] = ast.parse(source, filename=rel)
         except SyntaxError:
             continue
-
-    top_level_defs_by_file: dict[str, list[tuple[str, str, int]]] = {
+    top_level_defs_by_file = {
         rel: _public_top_level_defs(tree) for rel, tree in au_trees.items()
     }
-    methods_by_file: dict[str, list[tuple[str, str, int, bool]]] = {
-        rel: _public_methods(tree) for rel, tree in au_trees.items()
-    }
+    methods_by_file = {rel: _public_methods(tree) for rel, tree in au_trees.items()}
+    return au_trees, top_level_defs_by_file, methods_by_file
 
+
+def _colliding_names(
+    top_level_defs_by_file: dict[str, list[tuple[str, str, int]]],
+    methods_by_file: dict[str, list[tuple[str, str, int, bool]]],
+) -> tuple[set[str], set[str]]:
+    """Top-level names / method names DEFINED in more than one file — see
+    ``find_test_only_symbols``'s D-OP-12 note for why these need import-
+    scoped test-reference counting instead of the pooled fast path."""
     top_level_name_files: dict[str, set[str]] = defaultdict(set)
     for rel, defs in top_level_defs_by_file.items():
         for _kind, name, _lineno in defs:
             top_level_name_files[name].add(rel)
-    colliding_top_level_names = {
+    colliding_top_level = {
         name for name, files in top_level_name_files.items() if len(files) > 1
     }
 
@@ -872,112 +1019,137 @@ def find_test_only_symbols(
     for rel, methods in methods_by_file.items():
         for _cls_name, meth_name, _m_lineno, _is_property in methods:
             method_name_files[meth_name].add(rel)
-    colliding_method_names = {
+    colliding_methods = {
         name for name, files in method_name_files.items() if len(files) > 1
     }
+    return colliding_top_level, colliding_methods
 
-    def _scoped_test_count(name: str, defining_rel: str) -> int:
-        defining_module = path_to_module_name(defining_rel)
-        total = 0
-        for trel, idents in test_idents_by_file.items():
-            if defining_module not in test_imports_by_file.get(trel, set()):
-                continue
-            total += idents.get(name, 0)
-        return total
 
-    def _scoped_test_call_count(name: str, defining_rel: str) -> int:
-        defining_module = path_to_module_name(defining_rel)
-        total = 0
-        for trel, calls in test_calls_by_file.items():
-            if defining_module not in test_imports_by_file.get(trel, set()):
-                continue
-            total += calls.get(name, 0)
-        return total
+def _scoped_test_count(
+    name: str,
+    defining_rel: str,
+    test_idents_by_file: dict[str, Counter[str]],
+    test_imports_by_file: dict[str, set[str]],
+) -> int:
+    """A colliding name's test-identifier count, scoped to test files that
+    actually import ``defining_rel``'s own module — see ``find_test_only_
+    symbols``'s D-OP-12 note. A scoped count is always <= the pooled count
+    it replaces, so this can only ever REMOVE a spurious finding."""
+    defining_module = path_to_module_name(defining_rel)
+    return sum(
+        idents.get(name, 0)
+        for trel, idents in test_idents_by_file.items()
+        if defining_module in test_imports_by_file.get(trel, set())
+    )
 
+
+def _scoped_test_call_count(
+    name: str,
+    defining_rel: str,
+    test_calls_by_file: dict[str, Counter[str]],
+    test_imports_by_file: dict[str, set[str]],
+) -> int:
+    """The ``.name(``-call analogue of :func:`_scoped_test_count`."""
+    defining_module = path_to_module_name(defining_rel)
+    return sum(
+        calls.get(name, 0)
+        for trel, calls in test_calls_by_file.items()
+        if defining_module in test_imports_by_file.get(trel, set())
+    )
+
+
+def _next_ordinal(ordinals: dict[tuple[str, str], int], rel: str, symbol: str) -> int:
+    """(file, symbol) -> next ordinal (D-OP-11: the key must be stable under
+    pure line motion elsewhere in the file; a bare (file, symbol) pair is
+    unique for the overwhelming majority of real findings, but this ordinal
+    disambiguates the rare genuine collision — same traversal-order pattern
+    already proven for check_swallowed_errors.py's HandlerKey, D-SWG-1)."""
+    key = (rel, symbol)
+    ordinal = ordinals.get(key, 0)
+    ordinals[key] = ordinal + 1
+    return ordinal
+
+
+def _top_level_symbol_findings(
+    rel: str,
+    top_level_defs_by_file: dict[str, list[tuple[str, str, int]]],
+    au_idents: dict[str, Counter[str]],
+    total_au_idents: Counter[str],
+    colliding_top_level_names: set[str],
+    test_idents_by_file: dict[str, Counter[str]],
+    test_imports_by_file: dict[str, set[str]],
+    total_test_idents: Counter[str],
+    ordinals: dict[tuple[str, str], int],
+) -> list[dict]:
     findings: list[dict] = []
-    # (file, symbol) -> next ordinal (D-OP-11: the baseline key must be
-    # stable under pure line motion elsewhere in the file; a bare (file,
-    # symbol) pair is unique for the overwhelming majority of real findings,
-    # but this ordinal disambiguates the rare genuine collision — same
-    # traversal-order pattern already proven for check_swallowed_errors.py's
-    # HandlerKey, D-SWG-1).
-    ordinals: dict[tuple[str, str], int] = {}
-
-    def _next_ordinal(rel: str, symbol: str) -> int:
-        key = (rel, symbol)
-        ordinal = ordinals.get(key, 0)
-        ordinals[key] = ordinal + 1
-        return ordinal
-
-    for rel in au_trees:
-        for kind, name, lineno in top_level_defs_by_file.get(rel, []):
-            other_au = total_au_idents.get(name, 0) - au_idents[rel].get(name, 0)
-            if name in colliding_top_level_names:
-                test_refs = _scoped_test_count(name, rel)
-            else:
-                test_refs = total_test_idents.get(name, 0)
-            same_file = au_idents[rel].get(name, 0) - 1  # minus the def line itself
-            if other_au == 0 and same_file <= 0 and test_refs > 0:
-                findings.append(
-                    {
-                        "kind": kind,
-                        "symbol": name,
-                        "file": rel,
-                        "line": lineno,
-                        "test_refs": test_refs,
-                        "ordinal": _next_ordinal(rel, name),
-                    }
-                )
-
-        for cls_name, meth_name, m_lineno, is_property in methods_by_file.get(rel, []):
-            if meth_name in _GENERIC_METHOD_STOPLIST:
-                continue
-            if is_property:
-                # A property's only legitimate reference is bare attribute
-                # access (``obj.name``) — it is never validly invoked with
-                # call syntax (``obj.name()``; that would call whatever
-                # value the property returns, not the property itself). The
-                # ``.name(``-call pass this method loop otherwise relies on
-                # therefore cannot produce a genuine reference to a
-                # property in EITHER direction: a real ``.name(`` call
-                # elsewhere in agent_utilities/tests is never actually this
-                # property (so ``other_au``/``test_refs`` can only be
-                # inflated by an unrelated same-named symbol — exactly the
-                # D-OB-9 ``fingerprint`` false positive, three properties
-                # flipped to "test-only" by an unrelated module-level
-                # ``fingerprint()`` helper invoked as ``mod.fingerprint()``
-                # in a new test file). Skip properties from this
-                # call-syntax check entirely rather than switch them to
-                # identifier counting: identifier counting is accurate but
-                # newly surfaces genuinely-latent test-only properties this
-                # gate has never been able to see (no ``.name(`` call
-                # syntax exists for them to match on), which is real D-OB-9
-                # backlog but NOT part of the false positive being fixed
-                # here — expanding detection coverage is a separate,
-                # deliberate change for another day. (Same precedent as
-                # ``_GENERIC_METHOD_STOPLIST``: fall back to the class-level
-                # finding.)
-                continue
-            other_au = total_au_calls.get(meth_name, 0) - au_calls[rel].get(
-                meth_name, 0
+    for kind, name, lineno in top_level_defs_by_file.get(rel, []):
+        other_au = total_au_idents.get(name, 0) - au_idents[rel].get(name, 0)
+        if name in colliding_top_level_names:
+            test_refs = _scoped_test_count(
+                name, rel, test_idents_by_file, test_imports_by_file
             )
-            if meth_name in colliding_method_names:
-                test_refs = _scoped_test_call_count(meth_name, rel)
-            else:
-                test_refs = total_test_calls.get(meth_name, 0)
-            same_file = au_calls[rel].get(meth_name, 0)
-            if other_au == 0 and same_file <= 0 and test_refs > 0:
-                symbol = f"{cls_name}.{meth_name}"
-                findings.append(
-                    {
-                        "kind": "method",
-                        "symbol": symbol,
-                        "file": rel,
-                        "line": m_lineno,
-                        "test_refs": test_refs,
-                        "ordinal": _next_ordinal(rel, symbol),
-                    }
-                )
+        else:
+            test_refs = total_test_idents.get(name, 0)
+        same_file = au_idents[rel].get(name, 0) - 1  # minus the def line itself
+        if other_au == 0 and same_file <= 0 and test_refs > 0:
+            findings.append(
+                {
+                    "kind": kind,
+                    "symbol": name,
+                    "file": rel,
+                    "line": lineno,
+                    "test_refs": test_refs,
+                    "ordinal": _next_ordinal(ordinals, rel, name),
+                }
+            )
+    return findings
+
+
+def _method_is_skippable(meth_name: str, is_property: bool) -> bool:
+    """Excludes the generic-verb stoplist and ``@property``/
+    ``@cached_property`` accessors — see ``find_test_only_symbols``'s
+    docstring ("D-OB-9 method-name collision") for why a property can never
+    be validly referenced with call syntax, so the ``.name(``-call check
+    this loop relies on cannot see a genuine reference to one in either
+    direction."""
+    return meth_name in _GENERIC_METHOD_STOPLIST or is_property
+
+
+def _method_symbol_findings(
+    rel: str,
+    methods_by_file: dict[str, list[tuple[str, str, int, bool]]],
+    au_calls: dict[str, Counter[str]],
+    total_au_calls: Counter[str],
+    colliding_method_names: set[str],
+    test_calls_by_file: dict[str, Counter[str]],
+    test_imports_by_file: dict[str, set[str]],
+    total_test_calls: Counter[str],
+    ordinals: dict[tuple[str, str], int],
+) -> list[dict]:
+    findings: list[dict] = []
+    for cls_name, meth_name, m_lineno, is_property in methods_by_file.get(rel, []):
+        if _method_is_skippable(meth_name, is_property):
+            continue
+        other_au = total_au_calls.get(meth_name, 0) - au_calls[rel].get(meth_name, 0)
+        if meth_name in colliding_method_names:
+            test_refs = _scoped_test_call_count(
+                meth_name, rel, test_calls_by_file, test_imports_by_file
+            )
+        else:
+            test_refs = total_test_calls.get(meth_name, 0)
+        same_file = au_calls[rel].get(meth_name, 0)
+        if other_au == 0 and same_file <= 0 and test_refs > 0:
+            symbol = f"{cls_name}.{meth_name}"
+            findings.append(
+                {
+                    "kind": "method",
+                    "symbol": symbol,
+                    "file": rel,
+                    "line": m_lineno,
+                    "test_refs": test_refs,
+                    "ordinal": _next_ordinal(ordinals, rel, symbol),
+                }
+            )
     return findings
 
 
@@ -1004,124 +1176,395 @@ def _finding_key(entry: dict) -> str:
     )
 
 
-def _load_wire_first_baseline() -> dict[str, list[str]]:
-    if not WIRE_FIRST_BASELINE.exists():
-        return {"orphaned_test_files": [], "test_only_symbols": []}
-    return json.loads(WIRE_FIRST_BASELINE.read_text(encoding="utf-8"))
+# ── Diff-scoped enforcement (the ratchet's replacement) ───────────────────
+#
+# WHY THERE IS NO BASELINE HERE ANY MORE.
+#
+# This gate used to freeze both the orphaned-test-file set and the
+# test-only-symbol set into ``scripts/wire_first_baseline.json`` and fail
+# only on a key absent from that file — a ratchet, which this project does
+# not allow (see ``check_swallowed_errors.py``'s module docstring for the
+# fully-worked-out incident that retired the sibling gate this one mirrors).
+#
+# MEASURED (2026-08-28, see the lane report this commit belongs to): the real
+# current count for BOTH finding sets is EXACTLY equal to what was frozen —
+# 0 orphaned test files, 1107 test-only symbols — even though the complexity-
+# collapse program had already extract-refactored ~20 functions in this repo
+# by the time of this measurement (the same refactor wave that produced 37
+# phantom re-keys on the swallowed-errors gate's OLD enclosing-symbol key).
+# Zero drift is not proof the key is safe on its own — it is corroborating
+# evidence for the EXTRACTION-INVARIANCE TEST actually run against
+# ``_finding_key``: a test-only method's own defining (class, method) name is
+# unaffected by moving code INTO a new nested private helper defined inside
+# it (the exact ``create_agent`` -> ``create_agent._setup_mcp_url_toolset``
+# shape that broke the swallowed-errors key) — nested defs are invisible to
+# ``_public_top_level_defs``/``_public_methods`` in the first place, so this
+# key never even sees that class of refactor. It IS perturbed by a genuine
+# RENAME of the enclosing class (the same class of instability as D-SWG-1) —
+# confirmed by construction, not assumed — but that is a different, much
+# rarer operation than private-helper extraction, and not the technique this
+# program's automation actually applies. So unlike the swallowed-errors key,
+# this one is kept: it already carries the finding's own content (which
+# class, which method/function), not an incidental enclosing scope a
+# refactor tool reaches into.
+#
+# What replaces the ratchet:
+#
+#   * an UNCONDITIONAL CENSUS that prints the real totals every run and never
+#     fails — nothing is written to disk, so no number can go stale;
+#   * an ABSOLUTE-ZERO invariant for orphaned test files (D-OB-13a) — the
+#     repo is measured at zero for this today, so no HEAD comparison is
+#     needed at all: any orphan is a new violation, full stop;
+#   * DIFF-SCOPED enforcement for test-only symbols (D-OB-9), recomputed live
+#     against a ``git archive HEAD`` snapshot of ``agent_utilities/`` +
+#     ``tests/`` — a finding present now but absent at HEAD is new debt and
+#     fails the commit; the rest is pre-existing backlog, printed, not
+#     hidden. The snapshot rebuild (the expensive half — this gate's own
+#     O(total source size) sweep, a second time) only runs when a
+#     ``agent_utilities/**.py`` or ``tests/**.py`` file actually changed
+#     since HEAD, mirroring the same scope this gate's own pre-commit
+#     ``files:`` pattern already uses;
+#   * retired flags (``--update-wire-first-baseline``) exit 2.
 
 
-def _write_wire_first_baseline(orphans: list[str], symbols: list[dict]) -> None:
-    WIRE_FIRST_BASELINE.write_text(
-        json.dumps(
-            {
-                "_comment": (
-                    "Frozen Wire-First backlog (ratchet, D-OB-9/13/16) — burn down "
-                    "toward zero. New entries beyond this baseline fail "
-                    "`check_wiring.py --check-test-collection` / "
-                    "`--check-symbol-reachability`. Refresh with "
-                    "`--update-wire-first-baseline` only after genuinely fixing or "
-                    "deliberately accepting a new backlog item, never to silence a "
-                    "regression."
-                ),
-                "orphaned_test_files": sorted(orphans),
-                "test_only_symbols": sorted(_finding_key(e) for e in symbols),
-            },
-            indent=2,
+def _git(*args: str, cwd: str | None = None) -> subprocess.CompletedProcess:
+    """Run git from the repo toplevel with repo-relative paths — see
+    ``check_swallowed_errors.py``'s identically-named helper for why every
+    invocation runs from the resolved toplevel and never ``git -C <subdir>``
+    (GIT_DIR/GIT_INDEX_FILE ambient-env hazard)."""
+    return subprocess.run(
+        ["git", *args], cwd=cwd, capture_output=True, text=True, check=False
+    )
+
+
+def _repo_root() -> str | None:
+    r = _git("rev-parse", "--show-toplevel")
+    out = r.stdout.strip()
+    return out if r.returncode == 0 and out else None
+
+
+def _relevant_wire_first_files_changed(root: str) -> bool:
+    """True iff a ``agent_utilities/**.py`` or ``tests/**.py`` file differs
+    from HEAD (staged or working tree) — nothing this gate's symbol findings
+    depend on could have moved otherwise."""
+    changed: set[str] = set()
+    for args in (
+        ("diff", "--cached", "--name-only", "--diff-filter=ACMR", "HEAD"),
+        ("diff", "--name-only", "HEAD"),
+    ):
+        r = _git(*args, cwd=root)
+        if r.returncode == 0:
+            changed.update(r.stdout.splitlines())
+    return any(
+        (p.startswith("agent_utilities/") or p.startswith("tests/"))
+        and p.endswith(".py")
+        for p in changed
+    )
+
+
+def _archive_head_bytes(root: str) -> bytes | None:
+    proc = subprocess.run(
+        ["git", "archive", "HEAD", "--", "agent_utilities", "tests"],
+        cwd=root,
+        capture_output=True,
+        check=False,
+    )
+    return proc.stdout if proc.returncode == 0 and proc.stdout else None
+
+
+def _materialize_head_snapshot(root: str, dest: Path) -> bool:
+    """Extract ``agent_utilities/`` + ``tests/`` AS OF HEAD into ``dest``.
+    Returns False when the archive could not be produced at all (e.g. a
+    shallow/synthetic repo with no HEAD) so the caller treats the comparison
+    as unavailable rather than silently diffing against an empty tree."""
+    data = _archive_head_bytes(root)
+    if data is None:
+        return False
+    with tarfile.open(fileobj=io.BytesIO(data)) as tf:
+        tf.extractall(dest, filter="data")
+    return True
+
+
+def _new_symbol_findings_vs_head(
+    root: str, current_symbols: list[dict]
+) -> list[dict] | None:
+    """Test-only symbol findings present now but absent at HEAD, or None
+    when the comparison could not be safely made — the caller must treat
+    that as a degraded read, never a silent pass (AGENTS.md "Fail closed").
+    Skips the expensive snapshot rebuild entirely (returns ``[]``) when
+    nothing this gate's findings could depend on has changed since HEAD."""
+    if not _relevant_wire_first_files_changed(root):
+        return []
+    with tempfile.TemporaryDirectory(prefix="au-wire-first-head-") as tmp:
+        dest = Path(tmp)
+        if not _materialize_head_snapshot(root, dest):
+            return None
+        head_symbols = find_test_only_symbols(
+            src_dir=dest / "agent_utilities",
+            tests_dir=dest / "tests",
+            display_root=dest,
         )
-        + "\n",
-        encoding="utf-8",
-    )
+    head_keys = {_finding_key(e) for e in head_symbols}
+    return [e for e in current_symbols if _finding_key(e) not in head_keys]
 
 
-def _print_ratchet_result(
-    label: str, current_keys: list[str], baseline_keys: list[str]
-) -> bool:
-    """Prints a swallowed-errors-gate-style ratchet report. Returns True if
-    there is at least one NEW (unbaselined) entry."""
-    baseline_set = set(baseline_keys)
-    current_set = set(current_keys)
-    new = sorted(current_set - baseline_set)
-    fixed = sorted(baseline_set - current_set)
-    if new:
-        print(f"\n{label}: {len(new)} NEW finding(s) beyond baseline:")
-        for k in new:
-            # test_only_symbols keys are TAB-separated (file, symbol,
-            # ordinal) — render for a human as "file:symbol" (dropping the
-            # near-always-zero ordinal); orphaned_test_files keys are plain
-            # paths and pass through unchanged.
-            print(
-                f"  {k.replace(_FINDING_KEY_SEP, ':') if _FINDING_KEY_SEP in k else k}"
-            )
-    removed_note = f", {len(fixed)} fixed since baseline" if fixed else ""
+def _report_orphan_zero(orphans: list[str]) -> bool:
+    """The absolute invariant for D-OB-13a: this repo is measured at zero
+    orphaned test files today, so any orphan is a violation with no HEAD
+    comparison needed. Returns True on violation."""
+    if not orphans:
+        return False
+    print(f"\n{len(orphans)} test file(s) not collected by testpaths/CI (D-OB-13a):")
+    for rel in sorted(orphans):
+        print(f"  {rel}")
+    return True
+
+
+def _print_census(
+    orphans: list[str],
+    symbols: list[dict],
+    mock_issues: list[tuple[str, int, str]],
+    silent_guards: list[tuple[str, int]],
+) -> None:
+    """Print the real numbers. Always. This never fails the run."""
     print(
-        f"{label}: {len(current_set)} total "
-        f"({len(baseline_set & current_set)} baselined{removed_note})."
+        f"Wire-First census: {len(symbols)} test-only symbol(s) (D-OB-9), "
+        f"{len(orphans)} orphaned test file(s) (D-OB-13a)"
     )
-    return bool(new)
-
-
-def wire_first_report(update_baseline: bool = False) -> int:
-    orphans = find_orphaned_test_files()
-    mock_issues = find_mock_hygiene_issues()
-    silent_guards = find_silent_import_guards()
-    symbols = find_test_only_symbols()
-
-    if update_baseline:
-        _write_wire_first_baseline(orphans, symbols)
-        print(
-            f"Wire-First baseline updated: {len(orphans)} orphaned test file(s), "
-            f"{len(symbols)} test-only symbol(s) -> {WIRE_FIRST_BASELINE.name}"
-        )
-        return 0
-
-    baseline = _load_wire_first_baseline()
-
-    print("=" * 72)
-    print("Wire-First gate report (D-OB-9 / D-OB-13 / D-OB-16)")
-    print("=" * 72)
-
-    had_new = _print_ratchet_result(
-        "Uncollected test files (D-OB-13a)",
-        orphans,
-        baseline.get("orphaned_test_files", []),
-    )
-    had_new |= _print_ratchet_result(
-        "Test-only public symbols / no non-test caller (D-OB-9)",
-        [_finding_key(e) for e in symbols],
-        baseline.get("test_only_symbols", []),
-    )
-
+    for kind, count in Counter(s["kind"] for s in symbols).most_common():
+        print(f"  {count:5d}  {kind}")
+    for rel, count in Counter(s["file"] for s in symbols).most_common(5):
+        print(f"  top: {count:3d}  {rel}")
     print(
-        f"\nMock hygiene (D-OB-13b, informational — not ratcheted): "
+        f"\nMock hygiene (D-OB-13b, informational — not enforced): "
         f"{len(mock_issues)} spec=[]/create=True site(s)."
     )
     for rel, line, shape in mock_issues[:20]:
         print(f"  {rel}:{line} [{shape}]")
     if len(mock_issues) > 20:
         print(f"  ... and {len(mock_issues) - 20} more")
-
     print(
         f"\nSilently-swallowed optional-extra import guards (D-OB-16, "
-        f"informational — not ratcheted): {len(silent_guards)} site(s)."
+        f"informational — not enforced): {len(silent_guards)} site(s)."
     )
     for rel, line in silent_guards[:20]:
         print(f"  {rel}:{line}")
     if len(silent_guards) > 20:
         print(f"  ... and {len(silent_guards) - 20} more")
 
+
+def _print_new_symbols(new_symbols: list[dict]) -> None:
+    print(
+        f"\nTest-only public symbols / no non-test caller (D-OB-9): "
+        f"{len(new_symbols)} NEW finding(s) since HEAD:"
+    )
+    for e in new_symbols:
+        print(
+            f"  {e['file']}:{e['line']} {e['kind']} {e['symbol']} "
+            f"(referenced in {e['test_refs']} test location(s))"
+        )
+
+
+def wire_first_report() -> int:
+    orphans = find_orphaned_test_files()
+    mock_issues = find_mock_hygiene_issues()
+    silent_guards = find_silent_import_guards()
+    symbols = find_test_only_symbols()
+
+    print("=" * 72)
+    print("Wire-First gate report (D-OB-9 / D-OB-13 / D-OB-16)")
+    print("=" * 72)
+    _print_census(orphans, symbols, mock_issues, silent_guards)
+
+    had_new = _report_orphan_zero(orphans)
+
+    root = _repo_root()
+    if root is None:
+        print("\n(not inside a work tree — diff-scoped symbol check skipped)")
+    else:
+        new_symbols = _new_symbol_findings_vs_head(root, symbols)
+        if new_symbols is None:
+            print(
+                "\nFAIL — could not build the HEAD-snapshot comparison; a "
+                "degraded read must never be treated as a pass. Re-run, or "
+                "investigate `git archive HEAD`."
+            )
+            had_new = True
+        elif new_symbols:
+            _print_new_symbols(new_symbols)
+            had_new = True
+
     print()
     if had_new:
         print(
-            "FAIL — new Wire-First backlog beyond the frozen baseline. Fix it, or "
-            "if genuinely accepted, refresh with --update-wire-first-baseline and "
-            "say why in the commit message."
+            "FAIL — new Wire-First backlog since HEAD. Fix it, or if "
+            "genuinely accepted, document the justification in the commit "
+            "message (see AGENTS.md)."
         )
         return 1
-    print("OK — no NEW Wire-First backlog beyond the frozen baseline.")
+    print("OK — no NEW Wire-First backlog since HEAD.")
     return 0
 
 
-def main() -> int:
+def _handle_check_test_collection() -> int:
+    orphans = find_orphaned_test_files()
+    had_violation = _report_orphan_zero(orphans)
+    print(f"Uncollected test files (D-OB-13a): {len(orphans)} total.")
+    return 1 if had_violation else 0
+
+
+def _handle_check_symbol_reachability() -> int:
+    symbols = find_test_only_symbols()
+    root = _repo_root()
+    if root is None:
+        print("(not inside a work tree — diff-scoped symbol check skipped)")
+        print(
+            f"Test-only public symbols / no non-test caller (D-OB-9): {len(symbols)} total."
+        )
+        return 0
+    new_symbols = _new_symbol_findings_vs_head(root, symbols)
+    if new_symbols is None:
+        print(
+            "FAIL — could not build the HEAD-snapshot comparison; a degraded "
+            "read must never be treated as a pass."
+        )
+        return 1
+    print(
+        f"Test-only public symbols / no non-test caller (D-OB-9): "
+        f"{len(symbols)} total, {len(new_symbols)} NEW since HEAD."
+    )
+    if new_symbols:
+        _print_new_symbols(new_symbols)
+        return 1
+    return 0
+
+
+def _handle_check_mock_hygiene() -> int:
+    issues = find_mock_hygiene_issues()
+    print(f"Mock hygiene: {len(issues)} spec=[]/create=True site(s).")
+    for rel, line, shape in issues:
+        print(f"  {rel}:{line} [{shape}]")
+    return 0
+
+
+def _handle_check_extras_gating() -> int:
+    guards = find_silent_import_guards()
+    print(f"Silent optional-extra import guards: {len(guards)} site(s).")
+    for rel, line in guards:
+        print(f"  {rel}:{line}")
+    return 0
+
+
+def _print_module_chain(
+    target: str, modules: set[str], graph: dict[str, set[str]], roots: set[str]
+) -> int:
+    if target not in modules:
+        print(f"unknown module: {target}", file=sys.stderr)
+        return 2
+    chain = shortest_chain(graph, roots, target)
+    if chain is None:
+        print(
+            f"{target}: NO static import path from any entry-point root.\n"
+            "Check the blind-spot list in this script's docstring before "
+            "concluding it is dead (decorator/pkgutil registration, "
+            "entry-points, lazy imports)."
+        )
+    else:
+        print(f"{target}: reachable in {len(chain) - 1} hop(s):")
+        for i, hop in enumerate(chain):
+            print(f"  {' ' * i}{hop}")
+    return 0
+
+
+def _print_reachability_json(
+    roots: set[str],
+    modules: set[str],
+    dist: dict[str, int],
+    unreachable: list[str],
+    far: list[tuple[str, int]],
+    max_hops: int,
+) -> None:
+    print(
+        json.dumps(
+            {
+                "roots": sorted(roots),
+                "total_modules": len(modules),
+                "reachable": len(dist),
+                "unreachable": unreachable,
+                "beyond_max_hops": [{"module": m, "hops": d} for m, d in far],
+                "max_hops": max_hops,
+            },
+            indent=2,
+        )
+    )
+
+
+def _print_reachability_text(
+    roots: set[str],
+    modules: set[str],
+    dist: dict[str, int],
+    unreachable: list[str],
+    far: list[tuple[str, int]],
+    max_hops: int,
+) -> None:
+    print(f"roots ({len(roots)}):")
+    for r in sorted(roots):
+        print(f"  {r}")
+    print(
+        f"\nmodules: {len(modules)}  reachable: {len(dist)}  "
+        f"unreachable: {len(unreachable)}"
+    )
+    if far:
+        print(f"\nreachable only beyond {max_hops} hops ({len(far)}):")
+        for m, d in far:
+            print(f"  {d:>2}  {m}")
+    if unreachable:
+        print(
+            f"\nno static import path from a root ({len(unreachable)}) — "
+            "verify against the blind-spot list before treating as dead:"
+        )
+        for m in unreachable:
+            print(f"  {m}")
+
+
+def _build_roots(modules: set[str]) -> set[str]:
+    roots = {p for p in DEFAULT_ROOT_PATTERNS if p in modules}
+    roots |= load_console_script_roots(modules)
+    return roots
+
+
+def _emit_reachability(
+    args: argparse.Namespace,
+    roots: set[str],
+    modules: set[str],
+    dist: dict[str, int],
+) -> list[str]:
+    unreachable = sorted(m for m in modules if m not in dist)
+    far = sorted((m, d) for m, d in dist.items() if d > args.max_hops)
+    if args.json:
+        _print_reachability_json(roots, modules, dist, unreachable, far, args.max_hops)
+    else:
+        _print_reachability_text(roots, modules, dist, unreachable, far, args.max_hops)
+    return unreachable
+
+
+def _handle_reachability_report(args: argparse.Namespace) -> int:
+    if not SRC_DIR.exists():
+        print(f"source directory not found: {SRC_DIR}", file=sys.stderr)
+        return 2
+
+    graph, modules = build_graph()
+    roots = _build_roots(modules)
+    dist = bfs_hops(graph, roots)
+
+    if args.module:
+        return _print_module_chain(args.module, modules, graph, roots)
+
+    unreachable = _emit_reachability(args, roots, modules, dist)
+    return 1 if args.fail_on_unreachable and unreachable else 0
+
+
+def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Import-graph wiring check (Wire-First step 4)."
     )
@@ -1149,7 +1592,7 @@ def main() -> int:
         action="store_true",
         help="D-OB-13a: report test files under tests/ not collected by "
         "testpaths nor an explicit pre-commit/CI pytest invocation. "
-        "Ratcheted against the Wire-First baseline (exit 1 on new orphans).",
+        "Enforced as an absolute zero (exit 1 on any orphan).",
     )
     parser.add_argument(
         "--check-mock-hygiene",
@@ -1168,136 +1611,46 @@ def main() -> int:
         action="store_true",
         help="D-OB-9: report public agent_utilities/ classes/functions/"
         "methods referenced only from tests/ (no non-test caller). "
-        "Ratcheted against the Wire-First baseline (exit 1 on new entries).",
+        "Diff-scoped against HEAD (exit 1 on new entries).",
     )
     parser.add_argument(
         "--wire-first-report",
         action="store_true",
         help="Run all four Wire-First checks above and print a combined "
-        "report. Exit 1 if either ratcheted check has a new backlog entry.",
+        "report. Exit 1 on a new orphan or a new test-only symbol since HEAD.",
     )
     parser.add_argument(
         "--update-wire-first-baseline",
         action="store_true",
-        help="Freeze the CURRENT orphaned-test-file + test-only-symbol sets "
-        "as the new baseline (scripts/wire_first_baseline.json). Only after "
-        "genuinely fixing or deliberately accepting a new backlog item.",
+        help=argparse.SUPPRESS,
     )
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> int:
+    args = _build_arg_parser().parse_args()
 
     if args.update_wire_first_baseline:
-        return wire_first_report(update_baseline=True)
-
+        print(
+            "--update-wire-first-baseline is RETIRED. This gate has no "
+            "baseline: it prints the real census every run and enforces an "
+            "absolute zero (orphans) / diff-scoped-against-HEAD (test-only "
+            "symbols) check, so there is nothing to freeze. See the module "
+            "docstring.",
+            file=sys.stderr,
+        )
+        return 2
     if args.wire_first_report:
         return wire_first_report()
-
     if args.check_test_collection:
-        orphans = find_orphaned_test_files()
-        baseline = _load_wire_first_baseline().get("orphaned_test_files", [])
-        had_new = _print_ratchet_result(
-            "Uncollected test files (D-OB-13a)", orphans, baseline
-        )
-        return 1 if had_new else 0
-
+        return _handle_check_test_collection()
     if args.check_mock_hygiene:
-        issues = find_mock_hygiene_issues()
-        print(f"Mock hygiene: {len(issues)} spec=[]/create=True site(s).")
-        for rel, line, shape in issues:
-            print(f"  {rel}:{line} [{shape}]")
-        return 0
-
+        return _handle_check_mock_hygiene()
     if args.check_extras_gating:
-        guards = find_silent_import_guards()
-        print(f"Silent optional-extra import guards: {len(guards)} site(s).")
-        for rel, line in guards:
-            print(f"  {rel}:{line}")
-        return 0
-
+        return _handle_check_extras_gating()
     if args.check_symbol_reachability:
-        symbols = find_test_only_symbols()
-        baseline = _load_wire_first_baseline().get("test_only_symbols", [])
-        had_new = _print_ratchet_result(
-            "Test-only public symbols / no non-test caller (D-OB-9)",
-            [_finding_key(e) for e in symbols],
-            baseline,
-        )
-        if had_new:
-            print("\nFull current findings (file:line kind symbol test_refs):")
-            for e in symbols:
-                print(
-                    f"  {e['file']}:{e['line']} {e['kind']} {e['symbol']} "
-                    f"(referenced in {e['test_refs']} test location(s))"
-                )
-        return 1 if had_new else 0
-
-    if not SRC_DIR.exists():
-        print(f"source directory not found: {SRC_DIR}", file=sys.stderr)
-        return 2
-
-    graph, modules = build_graph()
-    roots = {p for p in DEFAULT_ROOT_PATTERNS if p in modules}
-    roots |= load_console_script_roots(modules)
-    dist = bfs_hops(graph, roots)
-
-    if args.module:
-        target = args.module
-        if target not in modules:
-            print(f"unknown module: {target}", file=sys.stderr)
-            return 2
-        chain = shortest_chain(graph, roots, target)
-        if chain is None:
-            print(
-                f"{target}: NO static import path from any entry-point root.\n"
-                "Check the blind-spot list in this script's docstring before "
-                "concluding it is dead (decorator/pkgutil registration, "
-                "entry-points, lazy imports)."
-            )
-        else:
-            print(f"{target}: reachable in {len(chain) - 1} hop(s):")
-            for i, hop in enumerate(chain):
-                print(f"  {' ' * i}{hop}")
-        return 0
-
-    unreachable = sorted(m for m in modules if m not in dist)
-    far = sorted((m, d) for m, d in dist.items() if d > args.max_hops)
-
-    if args.json:
-        print(
-            json.dumps(
-                {
-                    "roots": sorted(roots),
-                    "total_modules": len(modules),
-                    "reachable": len(dist),
-                    "unreachable": unreachable,
-                    "beyond_max_hops": [{"module": m, "hops": d} for m, d in far],
-                    "max_hops": args.max_hops,
-                },
-                indent=2,
-            )
-        )
-    else:
-        print(f"roots ({len(roots)}):")
-        for r in sorted(roots):
-            print(f"  {r}")
-        print(
-            f"\nmodules: {len(modules)}  reachable: {len(dist)}  "
-            f"unreachable: {len(unreachable)}"
-        )
-        if far:
-            print(f"\nreachable only beyond {args.max_hops} hops ({len(far)}):")
-            for m, d in far:
-                print(f"  {d:>2}  {m}")
-        if unreachable:
-            print(
-                f"\nno static import path from a root ({len(unreachable)}) — "
-                "verify against the blind-spot list before treating as dead:"
-            )
-            for m in unreachable:
-                print(f"  {m}")
-
-    if args.fail_on_unreachable and unreachable:
-        return 1
-    return 0
+        return _handle_check_symbol_reachability()
+    return _handle_reachability_report(args)
 
 
 if __name__ == "__main__":
