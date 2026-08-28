@@ -292,6 +292,40 @@ def _active_goal_types(engine: Any, *, limit: int = 200) -> list[str]:
     return sorted(types)
 
 
+def _resolve_active_goal_types(
+    engine: Any | None, goal_types: list[str] | None
+) -> list[str]:
+    """``goal_types`` (test-friendly bypass) wins when given; otherwise the
+    active goal types are read off the engine, or ``[]`` with no engine."""
+    if goal_types is not None:
+        return list(goal_types)
+    if engine is not None:
+        return _active_goal_types(engine)
+    return []
+
+
+def _apply_goal_type_policy(
+    weights: dict[str, float], active: list[str]
+) -> dict[str, float]:
+    """``weights``, adjusted by each active goal type's
+    :data:`GOAL_TYPE_WEIGHT_POLICY` multiplier (unrecognized goal types and
+    criteria are left unchanged)."""
+    result = dict(weights)
+    for goal_type in active:
+        policy = GOAL_TYPE_WEIGHT_POLICY.get(str(goal_type).strip().lower())
+        if not policy:
+            continue
+        for kind, multiplier in policy.items():
+            if kind in result:
+                result[kind] *= multiplier
+    return result
+
+
+def _normalize_weights(weights: dict[str, float]) -> dict[str, float]:
+    total = sum(weights.values()) or 1.0
+    return {k: v / total for k, v in weights.items()}
+
+
 def resolve_weights(
     engine: Any | None = None,
     *,
@@ -307,23 +341,11 @@ def resolve_weights(
     ``:StrategicGoal`` nodes' ``goalType`` property (best-effort — an
     unreachable/empty engine leaves the default weights unchanged).
     """
-    weights = dict(DEFAULT_WEIGHTS)
-    active = (
-        list(goal_types)
-        if goal_types is not None
-        else (_active_goal_types(engine) if engine is not None else [])
-    )
-    for goal_type in active:
-        policy = GOAL_TYPE_WEIGHT_POLICY.get(str(goal_type).strip().lower())
-        if not policy:
-            continue
-        for kind, multiplier in policy.items():
-            if kind in weights:
-                weights[kind] *= multiplier
+    active = _resolve_active_goal_types(engine, goal_types)
+    weights = _apply_goal_type_policy(DEFAULT_WEIGHTS, active)
     if overrides:
         weights.update({k: v for k, v in overrides.items() if k in weights})
-    total = sum(weights.values()) or 1.0
-    return {k: v / total for k, v in weights.items()}
+    return _normalize_weights(weights)
 
 
 # ── gate tier (design Sec 2c — runs FIRST, a failure is a hard reject) ──────
@@ -366,44 +388,63 @@ def _as_list(value: Any) -> list[str]:
     return [str(value)] if value else []
 
 
+def _declared_scope(engine: Any, reg_id: str) -> tuple[list[str], list[str]]:
+    """The ``:appliesToSector``/``:appliesToDataClass`` targets a Regulation
+    node actually declares (``compliance.ttl``)."""
+    declared_sectors = [
+        tgt for _s, tgt, p in _out(engine, reg_id) if _rel(p) == "appliesToSector"
+    ]
+    declared_data = [
+        tgt for _s, tgt, p in _out(engine, reg_id) if _rel(p) == "appliesToDataClass"
+    ]
+    return declared_sectors, declared_data
+
+
+def _scope_matches(engine: Any, targets: list[str], values: list[str]) -> bool:
+    """Whether ANY of ``values`` matches ANY declared ``targets`` — vacuously
+    true when the Regulation doesn't declare this scope dimension at all."""
+    return not targets or any(
+        _matches(value, tgt, _node_props(engine, tgt))
+        for tgt in targets
+        for value in values
+    )
+
+
+def _regulation_applies(
+    engine: Any, reg_id: str, sector: str, data_classes: list[str]
+) -> bool:
+    """Whether Regulation ``reg_id`` applies: EVERY scope dimension it
+    actually declares must match the candidate's declared value(s) — e.g.
+    HIPAA (declares both ``:MedicalSector`` and ``:PHI``) applies only to a
+    medical-sector candidate handling PHI, not to every medical-sector
+    candidate. No declared scope at all is not resolvable, so it does not
+    apply rather than over-applying."""
+    declared_sectors, declared_data = _declared_scope(engine, reg_id)
+    if not declared_sectors and not declared_data:
+        return False
+    return _scope_matches(engine, declared_sectors, [sector]) and _scope_matches(
+        engine, declared_data, data_classes
+    )
+
+
 def _applicable_regulations(
     request: dict[str, Any], regulations: list[tuple[str, dict[str, Any]]], engine: Any
 ) -> list[tuple[str, dict[str, Any]]]:
     """``:Regulation`` nodes applicable to ``request``'s declared sector/data
     class(es), resolved via the real ``:appliesToSector``/``:appliesToDataClass``
-    edges (``compliance.ttl``). A Regulation applies only when EVERY scope
-    dimension it actually declares matches the candidate's declared value(s) —
-    e.g. HIPAA (declares both ``:MedicalSector`` and ``:PHI``) applies only to a
-    medical-sector candidate handling PHI, not to every medical-sector candidate."""
+    edges (``compliance.ttl``). See :func:`_regulation_applies` for the
+    per-Regulation matching rule."""
     sector = str(request.get("sector") or "").strip()
     data_classes = _as_list(
         request.get("dataClass")
         or request.get("data_class")
         or request.get("dataClasses")
     )
-    applicable: list[tuple[str, dict[str, Any]]] = []
-    for reg_id, reg_props in regulations:
-        declared_sectors = [
-            tgt for _s, tgt, p in _out(engine, reg_id) if _rel(p) == "appliesToSector"
-        ]
-        declared_data = [
-            tgt
-            for _s, tgt, p in _out(engine, reg_id)
-            if _rel(p) == "appliesToDataClass"
-        ]
-        if not declared_sectors and not declared_data:
-            continue  # no declared scope — not resolvable, skip rather than over-apply
-        sector_ok = not declared_sectors or any(
-            _matches(sector, tgt, _node_props(engine, tgt)) for tgt in declared_sectors
-        )
-        data_ok = not declared_data or any(
-            _matches(dc, tgt, _node_props(engine, tgt))
-            for tgt in declared_data
-            for dc in data_classes
-        )
-        if sector_ok and data_ok:
-            applicable.append((reg_id, reg_props))
-    return applicable
+    return [
+        (reg_id, reg_props)
+        for reg_id, reg_props in regulations
+        if _regulation_applies(engine, reg_id, sector, data_classes)
+    ]
 
 
 def _gate_for_requirement(
@@ -809,6 +850,136 @@ def validate_verdict_shape(recommendation: dict[str, Any]) -> dict[str, Any]:
 # ── the public compute entrypoint ───────────────────────────────────────────
 
 
+def _extract_candidate_id(request: dict[str, Any]) -> str:
+    return str(request.get("candidateId") or request.get("candidate_id") or "").strip()
+
+
+def _required_gate_failures(gates: list[GateCheck]) -> list[GateCheck]:
+    return [g for g in gates if g.required and not g.passed]
+
+
+def _empty_assessment(candidate_id: str) -> dict[str, Any]:
+    return {
+        "candidateId": candidate_id,
+        "verdict": "reject",
+        "rationale": "",
+        "confidence": 0.0,
+        "gates": [],
+        "criteria": [],
+        "assessmentScore": 0.0,
+        "financialDelta": 0.0,
+        "peerRanking": [],
+        "consolidates": [],
+    }
+
+
+def _gate_failure_result(
+    empty: dict[str, Any], gates: list[GateCheck], failures: list[GateCheck]
+) -> dict[str, Any]:
+    return {
+        **empty,
+        "rationale": "; ".join(f"{g.name}: {g.reason}" for g in failures),
+        "confidence": 1.0,
+        "gates": [asdict(g) for g in gates],
+    }
+
+
+@dataclass
+class _CandidateRanking:
+    """The candidate + its peers, scored on the same criteria vector and
+    ranked highest-first — an intermediate result threaded through
+    :func:`assess_candidate`'s helpers."""
+
+    ranking: list[dict[str, Any]]
+    candidate_score: float
+    criteria: list[CriterionScore]
+
+
+@dataclass
+class _VerdictResult:
+    """The verdict decided for a scored candidate, and which (if any) peers
+    it can consolidate."""
+
+    verdict: str
+    rationale: str
+    retireable: list[str]
+
+
+def _rank_candidate_and_peers(
+    candidate_id: str,
+    peer_ids: list[str],
+    request: dict[str, Any],
+    engine: Any,
+    weights: dict[str, float],
+) -> _CandidateRanking:
+    """Score the candidate + every peer on the same criteria vector and rank
+    them highest-first (design Sec 2b)."""
+    criteria = score_criteria(candidate_id, peer_ids, request, engine, weights)
+    candidate_score = _weighted_total(criteria)
+    ranking: list[dict[str, Any]] = [
+        {"id": candidate_id, "score": round(candidate_score, 6)}
+    ]
+    for peer_id in peer_ids:
+        peer_peers = [p for p in peer_ids if p != peer_id] + [candidate_id]
+        peer_criteria = score_criteria(peer_id, peer_peers, request, engine, weights)
+        ranking.append(
+            {"id": peer_id, "score": round(_weighted_total(peer_criteria), 6)}
+        )
+    ranking.sort(key=lambda r: (-float(r["score"]), str(r["id"])))
+    return _CandidateRanking(ranking, candidate_score, criteria)
+
+
+def _resolve_verdict_and_consolidation(
+    candidate_id: str,
+    scored: _CandidateRanking,
+    peer_ids: list[str],
+    engine: Any,
+) -> _VerdictResult:
+    """The verdict (design Sec 2b) for a candidate that has already been
+    ranked against its peer group: reject if it doesn't win; otherwise
+    :func:`_decide_verdict` (consolidate/migrate/adopt)."""
+    ranking = scored.ranking
+    wins = bool(ranking) and ranking[0]["id"] == candidate_id
+    if not wins:
+        return _VerdictResult(
+            "reject",
+            f"does not win its peer group (score {scored.candidate_score:.3f}, "
+            f"best peer {ranking[0]['id']} scored {ranking[0]['score']:.3f})",
+            [],
+        )
+    retireable = sorted(_swappable_peers(candidate_id, engine) & set(peer_ids))
+    verdict, rationale = _decide_verdict(ranking, retireable, peer_ids)
+    return _VerdictResult(verdict, rationale, retireable)
+
+
+def _build_assessment_result(
+    candidate_id: str,
+    gates: list[GateCheck],
+    scored: _CandidateRanking,
+    verdict_result: _VerdictResult,
+    peer_ids: list[str],
+    engine: Any,
+) -> dict[str, Any]:
+    financial_delta = round(
+        sum(_annual_cost(p, engine) or 0.0 for p in verdict_result.retireable)
+        - (_annual_cost(candidate_id, engine) or 0.0),
+        2,
+    )
+    return {
+        "candidateId": candidate_id,
+        "verdict": verdict_result.verdict,
+        "rationale": verdict_result.rationale,
+        "confidence": round(min(1.0, 0.5 + scored.candidate_score / 2), 4),
+        "gates": [asdict(g) for g in gates],
+        "criteria": [asdict(c) for c in scored.criteria],
+        "assessmentScore": round(scored.candidate_score, 6),
+        "financialDelta": financial_delta,
+        "peerRanking": scored.ranking,
+        "consolidates": verdict_result.retireable,
+        "peerIds": peer_ids,
+    }
+
+
 def assess_candidate(
     request: dict[str, Any],
     *,
@@ -827,21 +998,8 @@ def assess_candidate(
     graph. Engine-guarded: an unreachable engine (or a missing ``candidateId``)
     degrades to a safe ``reject`` rather than raising.
     """
-    candidate_id = str(
-        request.get("candidateId") or request.get("candidate_id") or ""
-    ).strip()
-    empty = {
-        "candidateId": candidate_id,
-        "verdict": "reject",
-        "rationale": "",
-        "confidence": 0.0,
-        "gates": [],
-        "criteria": [],
-        "assessmentScore": 0.0,
-        "financialDelta": 0.0,
-        "peerRanking": [],
-        "consolidates": [],
-    }
+    candidate_id = _extract_candidate_id(request)
+    empty = _empty_assessment(candidate_id)
     if not candidate_id:
         return {**empty, "rationale": "request requires a candidateId"}
 
@@ -850,65 +1008,20 @@ def assess_candidate(
         return {**empty, "rationale": "no engine reachable — cannot assess"}
 
     gates = evaluate_gates(candidate_id, request, eng)
-    failures = [g for g in gates if g.required and not g.passed]
+    failures = _required_gate_failures(gates)
     if failures:
-        return {
-            **empty,
-            "rationale": "; ".join(f"{g.name}: {g.reason}" for g in failures),
-            "confidence": 1.0,
-            "gates": [asdict(g) for g in gates],
-        }
+        return _gate_failure_result(empty, gates, failures)
 
     peer_ids = resolve_peer_group(candidate_id, eng, explicit=request.get("peerIds"))
     w = weights or resolve_weights(eng, goal_types=request.get("goalTypes"))
 
-    criteria = score_criteria(candidate_id, peer_ids, request, eng, w)
-    candidate_score = _weighted_total(criteria)
-
-    ranking: list[dict[str, Any]] = [
-        {"id": candidate_id, "score": round(candidate_score, 6)}
-    ]
-    for peer_id in peer_ids:
-        peer_peers = [p for p in peer_ids if p != peer_id] + [candidate_id]
-        peer_criteria = score_criteria(peer_id, peer_peers, request, eng, w)
-        ranking.append(
-            {"id": peer_id, "score": round(_weighted_total(peer_criteria), 6)}
-        )
-    ranking.sort(key=lambda r: (-float(r["score"]), str(r["id"])))
-
-    wins = bool(ranking) and ranking[0]["id"] == candidate_id
-    retireable = (
-        sorted(_swappable_peers(candidate_id, eng) & set(peer_ids)) if wins else []
+    scored = _rank_candidate_and_peers(candidate_id, peer_ids, request, eng, w)
+    verdict_result = _resolve_verdict_and_consolidation(
+        candidate_id, scored, peer_ids, eng
     )
-    verdict, rationale = (
-        _decide_verdict(ranking, retireable, peer_ids)
-        if wins
-        else (
-            "reject",
-            f"does not win its peer group (score {candidate_score:.3f}, "
-            f"best peer {ranking[0]['id']} scored {ranking[0]['score']:.3f})",
-        )
+    return _build_assessment_result(
+        candidate_id, gates, scored, verdict_result, peer_ids, eng
     )
-
-    financial_delta = round(
-        sum(_annual_cost(p, eng) or 0.0 for p in retireable)
-        - (_annual_cost(candidate_id, eng) or 0.0),
-        2,
-    )
-
-    return {
-        "candidateId": candidate_id,
-        "verdict": verdict,
-        "rationale": rationale,
-        "confidence": round(min(1.0, 0.5 + candidate_score / 2), 4),
-        "gates": [asdict(g) for g in gates],
-        "criteria": [asdict(c) for c in criteria],
-        "assessmentScore": round(candidate_score, 6),
-        "financialDelta": financial_delta,
-        "peerRanking": ranking,
-        "consolidates": retireable,
-        "peerIds": peer_ids,
-    }
 
 
 # ── graph persistence + writeback (design Sec 4) ───────────────────────────
@@ -979,23 +1092,15 @@ def _route_writeback(
     return {"backend": "servicenow", **out}
 
 
-def _write_assessment(
-    request_id: str, candidate_id: str, outcome: dict[str, Any], *, as_of: str
-) -> dict[str, int] | None:
-    """Persist ``:Assessment`` -> ``:ComparisonCriterion``/``:Recommendation``
-    (design Sec 1b) through the shared native-ingest writer — the same path
-    :mod:`.incident_router`/:mod:`.lifecycle_orchestrator` write typed nodes
-    through.
-
-    ``as_of`` is the SAME instant :func:`run_trm_assessment` passes to
-    :func:`_route_writeback` (X5), so the persisted ``:Assessment``'s own
-    ``runTimestamp`` and the backfed work-note agree on exactly when this
-    verdict's KG state was current.
-    """
-    from agent_utilities.knowledge_graph.memory.native_ingest import ingest_entities
-
-    assessment_id = f"{request_id}:assessment"
-    recommendation_id = f"{request_id}:recommendation"
+def _base_assessment_records(
+    assessment_id: str,
+    recommendation_id: str,
+    candidate_id: str,
+    outcome: dict[str, Any],
+    as_of: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The ``:Assessment``/``:Recommendation`` entities and their linking
+    edges to the candidate — always present, regardless of verdict."""
     entities: list[dict[str, Any]] = [
         {
             "id": assessment_id,
@@ -1021,26 +1126,43 @@ def _write_assessment(
         },
         {"source": recommendation_id, "target": candidate_id, "type": "recommends"},
     ]
-    for peer_id in outcome.get("peerIds") or []:
-        relationships.append(
-            {"source": assessment_id, "target": peer_id, "type": "assessedAgainst"}
-        )
-    for retired_id in outcome.get("consolidates") or []:
-        relationships.append(
-            {"source": recommendation_id, "target": retired_id, "type": "consolidates"}
-        )
-    if outcome.get("verdict") == "migrate":
-        for retired_id in outcome.get("peerIds") or []:
-            relationships.append(
-                {
-                    "source": recommendation_id,
-                    "target": retired_id,
-                    "type": "migratesFrom",
-                }
-            )
-        relationships.append(
-            {"source": recommendation_id, "target": candidate_id, "type": "migratesTo"}
-        )
+    return entities, relationships
+
+
+def _peer_and_consolidation_relationships(
+    assessment_id: str, recommendation_id: str, outcome: dict[str, Any]
+) -> list[dict[str, Any]]:
+    relationships: list[dict[str, Any]] = [
+        {"source": assessment_id, "target": peer_id, "type": "assessedAgainst"}
+        for peer_id in outcome.get("peerIds") or []
+    ]
+    relationships += [
+        {"source": recommendation_id, "target": retired_id, "type": "consolidates"}
+        for retired_id in outcome.get("consolidates") or []
+    ]
+    return relationships
+
+
+def _migration_relationships(
+    recommendation_id: str, candidate_id: str, outcome: dict[str, Any]
+) -> list[dict[str, Any]]:
+    if outcome.get("verdict") != "migrate":
+        return []
+    relationships = [
+        {"source": recommendation_id, "target": retired_id, "type": "migratesFrom"}
+        for retired_id in outcome.get("peerIds") or []
+    ]
+    relationships.append(
+        {"source": recommendation_id, "target": candidate_id, "type": "migratesTo"}
+    )
+    return relationships
+
+
+def _criterion_records(
+    assessment_id: str, outcome: dict[str, Any]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    entities: list[dict[str, Any]] = []
+    relationships: list[dict[str, Any]] = []
     for criterion in outcome.get("criteria") or []:
         crit_id = f"{assessment_id}:criterion:{criterion['kind']}"
         entities.append(
@@ -1055,14 +1177,55 @@ def _write_assessment(
         relationships.append(
             {"source": assessment_id, "target": crit_id, "type": "appliesCriterion"}
         )
+    return entities, relationships
 
-    if request_id:
-        entities.append(
-            {"id": request_id, "type": "TRMRequest", "requestState": "assessed"}
-        )
-        relationships.append(
-            {"source": request_id, "target": assessment_id, "type": "hasAssessment"}
-        )
+
+def _request_records(
+    request_id: str, assessment_id: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if not request_id:
+        return [], []
+    entities = [{"id": request_id, "type": "TRMRequest", "requestState": "assessed"}]
+    relationships = [
+        {"source": request_id, "target": assessment_id, "type": "hasAssessment"}
+    ]
+    return entities, relationships
+
+
+def _write_assessment(
+    request_id: str, candidate_id: str, outcome: dict[str, Any], *, as_of: str
+) -> dict[str, int] | None:
+    """Persist ``:Assessment`` -> ``:ComparisonCriterion``/``:Recommendation``
+    (design Sec 1b) through the shared native-ingest writer — the same path
+    :mod:`.incident_router`/:mod:`.lifecycle_orchestrator` write typed nodes
+    through.
+
+    ``as_of`` is the SAME instant :func:`run_trm_assessment` passes to
+    :func:`_route_writeback` (X5), so the persisted ``:Assessment``'s own
+    ``runTimestamp`` and the backfed work-note agree on exactly when this
+    verdict's KG state was current.
+    """
+    from agent_utilities.knowledge_graph.memory.native_ingest import ingest_entities
+
+    assessment_id = f"{request_id}:assessment"
+    recommendation_id = f"{request_id}:recommendation"
+
+    entities, relationships = _base_assessment_records(
+        assessment_id, recommendation_id, candidate_id, outcome, as_of
+    )
+    relationships += _peer_and_consolidation_relationships(
+        assessment_id, recommendation_id, outcome
+    )
+    relationships += _migration_relationships(recommendation_id, candidate_id, outcome)
+
+    crit_entities, crit_relationships = _criterion_records(assessment_id, outcome)
+    entities += crit_entities
+    relationships += crit_relationships
+
+    req_entities, req_relationships = _request_records(request_id, assessment_id)
+    entities += req_entities
+    relationships += req_relationships
+
     return ingest_entities(entities, relationships, source=_SOURCE, domain="trm")
 
 
@@ -1113,6 +1276,56 @@ def run_trm_assessment(
     }
 
 
+def _capability_providers(products: list[str], engine: Any) -> dict[str, set[str]]:
+    providers: dict[str, set[str]] = {}
+    for pid in products:
+        for cap in _capability_set(pid, engine):
+            providers.setdefault(cap, set()).add(pid)
+    return providers
+
+
+def _redundant_clusters(providers: dict[str, set[str]]) -> dict[str, set[str]]:
+    """Capabilities provided by >= 2 products — the redundant/overlapping
+    ``:RedundantCapability`` clusters (design Sec 5b)."""
+    return {cap: members for cap, members in providers.items() if len(members) >= 2}
+
+
+def _best_cluster_candidate(
+    member_ids: list[str], engine: Any, weights: dict[str, float] | None
+) -> dict[str, Any] | None:
+    """The cluster member with the highest assessment score, each scored with
+    the rest of the cluster as its peer group."""
+    best: dict[str, Any] | None = None
+    for candidate in member_ids:
+        peers = [m for m in member_ids if m != candidate]
+        outcome = assess_candidate(
+            {"candidateId": candidate, "peerIds": peers}, engine=engine, weights=weights
+        )
+        if best is None or outcome["assessmentScore"] > best["assessmentScore"]:
+            best = outcome
+    return best
+
+
+def _record_cluster_recommendation(
+    cap: str,
+    member_ids: list[str],
+    best: dict[str, Any],
+    engine: Any,
+    weights: dict[str, float] | None,
+    write: bool,
+) -> dict[str, Any]:
+    """Persist (if ``write``) and shape the recommendation row for the
+    winning candidate of one redundant-capability cluster."""
+    if write:
+        run_trm_assessment(
+            {"id": f"trm:rationalize:{cap}", "candidateId": best["candidateId"]},
+            engine=engine,
+            weights=weights,
+            write=True,
+        )
+    return {"capability": cap, "members": member_ids, **best}
+
+
 def rationalize_portfolio(
     *,
     engine: Any | None = None,
@@ -1134,11 +1347,7 @@ def rationalize_portfolio(
         return {"clusters": 0, "recommendations": []}
 
     products = [pid for pid, _p in _by_label(eng, "TechnologyProduct", limit)]
-    providers: dict[str, set[str]] = {}
-    for pid in products:
-        for cap in _capability_set(pid, eng):
-            providers.setdefault(cap, set()).add(pid)
-    clusters = {cap: members for cap, members in providers.items() if len(members) >= 2}
+    clusters = _redundant_clusters(_capability_providers(products, eng))
 
     seen: set[frozenset[str]] = set()
     recommendations: list[dict[str, Any]] = []
@@ -1148,28 +1357,13 @@ def rationalize_portfolio(
             continue
         seen.add(key)
         member_ids = sorted(members)
-        best: dict[str, Any] | None = None
-        for candidate in member_ids:
-            peers = [m for m in member_ids if m != candidate]
-            outcome = assess_candidate(
-                {"candidateId": candidate, "peerIds": peers},
-                engine=eng,
-                weights=weights,
-            )
-            if best is None or outcome["assessmentScore"] > best["assessmentScore"]:
-                best = outcome
+        best = _best_cluster_candidate(member_ids, eng, weights)
         if best is not None and best["verdict"] in ("consolidate", "migrate"):
-            recommendations.append({"capability": cap, "members": member_ids, **best})
-            if write:
-                run_trm_assessment(
-                    {
-                        "id": f"trm:rationalize:{cap}",
-                        "candidateId": best["candidateId"],
-                    },
-                    engine=eng,
-                    weights=weights,
-                    write=True,
+            recommendations.append(
+                _record_cluster_recommendation(
+                    cap, member_ids, best, eng, weights, write
                 )
+            )
 
     recommendations.sort(key=lambda r: -float(r.get("financialDelta") or 0.0))
     return {"clusters": len(clusters), "recommendations": recommendations}
