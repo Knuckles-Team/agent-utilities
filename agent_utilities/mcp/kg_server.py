@@ -3728,13 +3728,31 @@ def _read_skill_capability(skill_md) -> tuple[str, str, str, str | None]:
     a stored column rather than a value dropped on the floor at read time
     (CONCEPT:AU-KG.ingest.fleet-catalog-relational-tables).
     """
-    import yaml
-
     path = Path(skill_md)
     payload = path.read_bytes()
     if not payload or len(payload) > 512 * 1024:
         raise ValueError("skill declaration size is invalid")
     content = payload.decode("utf-8")
+    frontmatter, instructions = _parse_skill_capability_frontmatter(content)
+    fallback_name = path.parent.name
+    name = str(frontmatter.get("name") or fallback_name).strip()
+    description = str(frontmatter.get("description") or "").strip()
+    raw_skill_type = frontmatter.get("skill_type")
+    skill_type = str(raw_skill_type).strip().lower() or None if raw_skill_type else None
+    if not name or not instructions.strip():
+        raise ValueError("skill declaration is incomplete")
+    return name, description, instructions, skill_type
+
+
+def _parse_skill_capability_frontmatter(content: str) -> tuple[dict, str]:
+    """Split a skill declaration's YAML frontmatter from its instructions body.
+
+    Returns ``(frontmatter, instructions)``. When there is no ``---``-delimited
+    frontmatter block, ``frontmatter`` is empty and ``instructions`` is the
+    whole content, unchanged.
+    """
+    import yaml
+
     frontmatter: dict = {}
     instructions = content
     if content.startswith("---"):
@@ -3745,14 +3763,7 @@ def _read_skill_capability(skill_md) -> tuple[str, str, str, str | None]:
                 raise ValueError("skill frontmatter must be an object")
             frontmatter = parsed
             instructions = parts[2].strip()
-    fallback_name = path.parent.name
-    name = str(frontmatter.get("name") or fallback_name).strip()
-    description = str(frontmatter.get("description") or "").strip()
-    raw_skill_type = frontmatter.get("skill_type")
-    skill_type = str(raw_skill_type).strip().lower() or None if raw_skill_type else None
-    if not name or not instructions.strip():
-        raise ValueError("skill declaration is incomplete")
-    return name, description, instructions, skill_type
+    return frontmatter, instructions
 
 
 def _ingest_skill_capabilities(
@@ -3780,11 +3791,6 @@ def _ingest_skill_capabilities(
     ONE :func:`get_existing_disabled_batch` call before any per-skill write.
     """
     from agent_utilities.core.providers import is_skill_graph_reference_path
-    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
-        ingest_runnable_skill,
-        skill_reference,
-    )
-    from agent_utilities.security.persistence_privacy import persistence_reference
 
     root = Path(skills_path)
     if not root.is_dir():
@@ -3799,6 +3805,52 @@ def _ingest_skill_capabilities(
             if not is_skill_graph_reference_path(skill_md, root)
         )
     )
+
+    declarations = _collect_skill_declarations(
+        skill_files, include_names=include_names, skip_names=skip_names
+    )
+    if not declarations:
+        return 0
+
+    disabled_by_resource = get_existing_disabled_batch(
+        engine, [declaration[4] for declaration in declarations]
+    )
+
+    total = len(declarations)
+    # Make an in-progress boot pass observable: this loop was previously
+    # indistinguishable, in the container logs, from a hung process — an
+    # operator saw only individual engine-op trace lines with no running
+    # count or total, exactly the ambiguity that turned the 2026-08-16
+    # cold-start incident into an 11-minute unattributed stall before the
+    # startup probe killed the container. A bounded item count up front plus
+    # a periodic "N/total" line lets "still working" be told apart from
+    # "stuck" without reading engine wire traces.
+    logger.info("GraphOS ingesting %d %s skill(s) from %s", total, provider, root)
+    return _write_skill_declarations(
+        engine,
+        declarations,
+        provider=provider,
+        disabled_by_resource=disabled_by_resource,
+    )
+
+
+def _collect_skill_declarations(
+    skill_files: list[Path],
+    *,
+    include_names: frozenset[str] | None,
+    skip_names: frozenset[str],
+) -> list[tuple[Path, str, str, str, str, str | None]]:
+    """Parse candidate ``SKILL.md`` files into declarations, skipping bad ones.
+
+    A malformed skill's parse failure is logged (stage="declaration") and
+    that skill excluded — never blocks the batch (see
+    :func:`_ingest_skill_capabilities`'s docstring for why this is a
+    separate pass from the write loop).
+    """
+    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+        skill_reference,
+    )
+    from agent_utilities.security.persistence_privacy import persistence_reference
 
     declarations: list[tuple[Path, str, str, str, str, str | None]] = []
     for skill_md in skill_files:
@@ -3834,24 +3886,29 @@ def _ingest_skill_capabilities(
                 type(exc).__name__,
                 exc.args[0] if exc.args else "",
             )
+    return declarations
 
-    if not declarations:
-        return 0
 
-    disabled_by_resource = get_existing_disabled_batch(
-        engine, [declaration[4] for declaration in declarations]
+def _write_skill_declarations(
+    engine,
+    declarations: list[tuple[Path, str, str, str, str, str | None]],
+    *,
+    provider: str,
+    disabled_by_resource: dict[str, bool],
+) -> int:
+    """Write each parsed skill declaration as a runnable resource.
+
+    Logs an "N/total" progress line periodically (see
+    :func:`_ingest_skill_capabilities`'s docstring for why). A malformed or
+    failing write is logged (stage="write") and skipped — never blocks the
+    batch.
+    """
+    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+        ingest_runnable_skill,
     )
+    from agent_utilities.security.persistence_privacy import persistence_reference
 
     total = len(declarations)
-    # Make an in-progress boot pass observable: this loop was previously
-    # indistinguishable, in the container logs, from a hung process — an
-    # operator saw only individual engine-op trace lines with no running
-    # count or total, exactly the ambiguity that turned the 2026-08-16
-    # cold-start incident into an 11-minute unattributed stall before the
-    # startup probe killed the container. A bounded item count up front plus
-    # a periodic "N/total" line lets "still working" be told apart from
-    # "stuck" without reading engine wire traces.
-    logger.info("GraphOS ingesting %d %s skill(s) from %s", total, provider, root)
     ingested = 0
     for index, (
         skill_md,
