@@ -16,6 +16,7 @@ from .models import (
     PolicyAuthorization,
     PolicyException,
     PolicyRef,
+    PolicyRule,
     PolicyVersion,
     SignatureVerifier,
 )
@@ -142,6 +143,37 @@ class PolicyAuthority:
                 raise PolicyConflictError("exception_identity_conflict")
             self._exceptions[key] = exception
 
+    def _resolve_rule_for(self, policy: PolicyVersion, operation: str) -> PolicyRule:
+        """The policy's rule for ``operation``, or raise PolicyDomainError."""
+        try:
+            return policy.rule_for(operation)
+        except KeyError as exc:
+            raise PolicyDomainError("policy_operation_unresolved") from exc
+
+    def _check_deny_gate(
+        self,
+        rule: PolicyRule,
+        exception_ref: ExceptionRef | None,
+        exception: PolicyException | None,
+    ) -> None:
+        """Raise if the rule denies the operation and no valid exception overrides it."""
+        if rule.effect == "deny" and (
+            exception_ref is None
+            or exception is None
+            or not exception.allow_denied_operation
+        ):
+            raise PolicyDomainError("policy_denied")
+
+    def _record_if_present(
+        self,
+        approval: ApprovalDecision | None,
+        exception: PolicyException | None,
+    ) -> None:
+        if approval is not None:
+            self.record_approval(approval)
+        if exception is not None:
+            self.record_exception(exception)
+
     def authorize(
         self,
         *,
@@ -159,10 +191,7 @@ class PolicyAuthority:
         ):
             raise PolicyDomainError("request_digest_invalid")
         policy = self.resolve(policy_ref)
-        try:
-            rule = policy.rule_for(operation)
-        except KeyError as exc:
-            raise PolicyDomainError("policy_operation_unresolved") from exc
+        rule = self._resolve_rule_for(policy, operation)
         if not _budget_within(requested_budget, rule.budget):
             raise PolicyDomainError("budget_escalation")
         self._validate_bindings(policy, bindings)
@@ -176,12 +205,7 @@ class PolicyAuthority:
             requested_budget=requested_budget,
             current=current,
         )
-        if rule.effect == "deny" and (
-            exception_ref is None
-            or exception is None
-            or not exception.allow_denied_operation
-        ):
-            raise PolicyDomainError("policy_denied")
+        self._check_deny_gate(rule, exception_ref, exception)
 
         requires_approval = rule.approval_required or policy.approval.required
         approval_ref = self._validate_approval(
@@ -192,10 +216,7 @@ class PolicyAuthority:
             required=requires_approval,
             current=current,
         )
-        if approval is not None:
-            self.record_approval(approval)
-        if exception is not None:
-            self.record_exception(exception)
+        self._record_if_present(approval, exception)
         return PolicyAuthorization(
             policy_ref=policy.ref,
             operation=operation,
@@ -207,6 +228,47 @@ class PolicyAuthority:
             resolved_at=current,
         )
 
+    def _resolve_recorded_approval(
+        self, authorization: PolicyAuthorization
+    ) -> ApprovalDecision | None:
+        """Look up + verify the recorded approval matches ``authorization.approval_ref``."""
+        if authorization.approval_ref is None:
+            return None
+        with self._lock:
+            approval = self._approvals.get(
+                (
+                    authorization.policy_ref.policy_id,
+                    authorization.approval_ref.approval_id,
+                )
+            )
+        if (
+            approval is None
+            or approval.decision_digest != authorization.approval_ref.decision_digest
+        ):
+            raise PolicyConflictError("approval_reference_drift")
+        return approval
+
+    def _resolve_recorded_exception(
+        self, authorization: PolicyAuthorization
+    ) -> PolicyException | None:
+        """Look up + verify the recorded exception matches ``authorization.exception_ref``."""
+        if authorization.exception_ref is None:
+            return None
+        with self._lock:
+            exception = self._exceptions.get(
+                (
+                    authorization.policy_ref.policy_id,
+                    authorization.exception_ref.exception_id,
+                )
+            )
+        if (
+            exception is None
+            or exception.exception_digest
+            != authorization.exception_ref.exception_digest
+        ):
+            raise PolicyConflictError("exception_reference_drift")
+        return exception
+
     def verify_authorization(
         self,
         authorization: PolicyAuthorization,
@@ -216,45 +278,14 @@ class PolicyAuthority:
         """Revalidate persisted authority without resolving a newer policy."""
 
         policy = self.resolve(authorization.policy_ref)
-        try:
-            rule = policy.rule_for(authorization.operation)
-        except KeyError as exc:
-            raise PolicyDomainError("policy_operation_unresolved") from exc
+        rule = self._resolve_rule_for(policy, authorization.operation)
         if not _budget_within(authorization.budget, rule.budget):
             raise PolicyDomainError("budget_escalation")
         self._validate_bindings(policy, authorization.bindings)
         current = self.clock() if now is None else now
 
-        approval = None
-        if authorization.approval_ref is not None:
-            with self._lock:
-                approval = self._approvals.get(
-                    (
-                        authorization.policy_ref.policy_id,
-                        authorization.approval_ref.approval_id,
-                    )
-                )
-            if (
-                approval is None
-                or approval.decision_digest
-                != authorization.approval_ref.decision_digest
-            ):
-                raise PolicyConflictError("approval_reference_drift")
-        exception = None
-        if authorization.exception_ref is not None:
-            with self._lock:
-                exception = self._exceptions.get(
-                    (
-                        authorization.policy_ref.policy_id,
-                        authorization.exception_ref.exception_id,
-                    )
-                )
-            if (
-                exception is None
-                or exception.exception_digest
-                != authorization.exception_ref.exception_digest
-            ):
-                raise PolicyConflictError("exception_reference_drift")
+        approval = self._resolve_recorded_approval(authorization)
+        exception = self._resolve_recorded_exception(authorization)
 
         self._validate_exception(
             exception,
@@ -302,6 +333,30 @@ class PolicyAuthority:
             ) not in allowed:
                 raise PolicyDomainError("binding_unresolved_or_privilege_escalated")
 
+    def _check_approval_identity(
+        self,
+        approval: ApprovalDecision,
+        policy: PolicyVersion,
+        operation: str,
+        request_digest: str,
+    ) -> None:
+        if approval.policy_ref != policy.ref:
+            raise PolicyConflictError("approval_policy_reference_mismatch")
+        if approval.operation != operation or approval.request_digest != request_digest:
+            raise PolicyConflictError("approval_request_drift")
+
+    def _check_approval_freshness(
+        self, approval: ApprovalDecision, policy: PolicyVersion, current: int
+    ) -> None:
+        if approval.decision != "approved":
+            raise PolicyDomainError("approval_denied")
+        if current < approval.issued_at or current >= approval.expires_at:
+            raise PolicyDomainError("approval_expired_or_not_yet_valid")
+        if approval.expires_at - approval.issued_at > policy.approval.max_age_seconds:
+            raise PolicyDomainError("approval_window_exceeded")
+        if len(approval.approver_refs) < policy.approval.min_approvers:
+            raise PolicyDomainError("approval_quorum_missing")
+
     def _validate_approval(
         self,
         approval: ApprovalDecision | None,
@@ -316,18 +371,8 @@ class PolicyAuthority:
             if required:
                 raise PolicyDomainError("approval_required")
             return None
-        if approval.policy_ref != policy.ref:
-            raise PolicyConflictError("approval_policy_reference_mismatch")
-        if approval.operation != operation or approval.request_digest != request_digest:
-            raise PolicyConflictError("approval_request_drift")
-        if approval.decision != "approved":
-            raise PolicyDomainError("approval_denied")
-        if current < approval.issued_at or current >= approval.expires_at:
-            raise PolicyDomainError("approval_expired_or_not_yet_valid")
-        if approval.expires_at - approval.issued_at > policy.approval.max_age_seconds:
-            raise PolicyDomainError("approval_window_exceeded")
-        if len(approval.approver_refs) < policy.approval.min_approvers:
-            raise PolicyDomainError("approval_quorum_missing")
+        self._check_approval_identity(approval, policy, operation, request_digest)
+        self._check_approval_freshness(approval, policy, current)
         self._verify_approval_signature(approval)
         return approval.ref
 
