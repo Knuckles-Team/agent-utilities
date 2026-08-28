@@ -442,6 +442,44 @@ def _resolve_default_remote_bundle_cache() -> Any | None:
     return _default_remote_bundle_cache
 
 
+def _bundle_cache_maxsize() -> int:
+    try:
+        return int(
+            setting(
+                "MODEL_CONTEXT_COMPILER_CACHE_MAXSIZE",
+                _DEFAULT_BUNDLE_CACHE_MAXSIZE,
+            )
+            or _DEFAULT_BUNDLE_CACHE_MAXSIZE
+        )
+    except (TypeError, ValueError):
+        return _DEFAULT_BUNDLE_CACHE_MAXSIZE
+
+
+def _bundle_cache_ttl_s() -> float:
+    try:
+        return float(
+            setting(
+                "MODEL_CONTEXT_COMPILER_CACHE_TTL_S",
+                _DEFAULT_BUNDLE_CACHE_TTL_S,
+            )
+            or _DEFAULT_BUNDLE_CACHE_TTL_S
+        )
+    except (TypeError, ValueError):
+        return _DEFAULT_BUNDLE_CACHE_TTL_S
+
+
+def _build_default_bundle_cache() -> _InProcessBundleCache:
+    """Double-checked-locking build of the single-process bundle cache."""
+    global _default_bundle_cache
+    if _default_bundle_cache is None:
+        with _default_bundle_cache_lock:
+            if _default_bundle_cache is None:
+                _default_bundle_cache = _InProcessBundleCache(
+                    maxsize=_bundle_cache_maxsize(), ttl_s=_bundle_cache_ttl_s()
+                )
+    return _default_bundle_cache
+
+
 def _resolve_compiler_cache() -> Any | None:
     """The ACTIVE kv_backend for :func:`compile_model_context`: an explicit
     override (:func:`set_context_compiler_cache`) if one is installed, else the
@@ -459,34 +497,7 @@ def _resolve_compiler_cache() -> Any | None:
         remote_cache = _resolve_default_remote_bundle_cache()
         if remote_cache is not None:
             return remote_cache
-    global _default_bundle_cache
-    if _default_bundle_cache is None:
-        with _default_bundle_cache_lock:
-            if _default_bundle_cache is None:
-                try:
-                    maxsize = int(
-                        setting(
-                            "MODEL_CONTEXT_COMPILER_CACHE_MAXSIZE",
-                            _DEFAULT_BUNDLE_CACHE_MAXSIZE,
-                        )
-                        or _DEFAULT_BUNDLE_CACHE_MAXSIZE
-                    )
-                except (TypeError, ValueError):
-                    maxsize = _DEFAULT_BUNDLE_CACHE_MAXSIZE
-                try:
-                    ttl_s = float(
-                        setting(
-                            "MODEL_CONTEXT_COMPILER_CACHE_TTL_S",
-                            _DEFAULT_BUNDLE_CACHE_TTL_S,
-                        )
-                        or _DEFAULT_BUNDLE_CACHE_TTL_S
-                    )
-                except (TypeError, ValueError):
-                    ttl_s = _DEFAULT_BUNDLE_CACHE_TTL_S
-                _default_bundle_cache = _InProcessBundleCache(
-                    maxsize=maxsize, ttl_s=ttl_s
-                )
-    return _default_bundle_cache
+    return _build_default_bundle_cache()
 
 
 class ContextCompilationError(PermissionError):
@@ -710,6 +721,26 @@ def _active_engine() -> Any | None:
         return None
 
 
+def _resolve_evidence_source(engine: Any | None) -> Any:
+    """The evidence source for :func:`compile_model_context`, or a fail-closed
+    raise / an empty passthrough source per the module's grounding contract."""
+    source = engine or _active_engine()
+    if source is not None:
+        return source
+    if graph_session_required():
+        raise ContextCompilationError(
+            "authenticated model invocation requires a configured ContextCompiler engine"
+        )
+    return _EmptyEvidenceSource()
+
+
+def _context_token_budget() -> int:
+    try:
+        return max(64, int(setting("MODEL_CONTEXT_TOKEN_BUDGET", "2000") or 2000))
+    except (TypeError, ValueError):
+        return 2000
+
+
 def compile_model_context(
     query: str,
     *,
@@ -725,22 +756,11 @@ def compile_model_context(
     )
 
     authority = resolve_session(session, required_scope="kg:read")
-    source = engine or _active_engine()
-    if source is None:
-        if graph_session_required():
-            raise ContextCompilationError(
-                "authenticated model invocation requires a configured ContextCompiler engine"
-            )
-        source = _EmptyEvidenceSource()
-
-    try:
-        budget = max(64, int(setting("MODEL_CONTEXT_TOKEN_BUDGET", "2000") or 2000))
-    except (TypeError, ValueError):
-        budget = 2000
+    source = _resolve_evidence_source(engine)
     return ContextCompiler(source).compile(
         str(query or ""),
         authority,
-        token_budget=budget,
+        token_budget=_context_token_budget(),
         kv_backend=_resolve_compiler_cache(),
         model_version=str(model_version or ""),
         redaction_version=str(
@@ -1249,6 +1269,97 @@ def wrap_model_with_context(model: Any) -> Any:
     return wrapper(model)
 
 
+def _apply_default_capabilities(kwargs: dict[str, Any]) -> None:
+    """Merge the default-ON reliability capability set into ``kwargs`` in place."""
+    from agent_utilities.capabilities.composition import (
+        default_runtime_capabilities,
+        merge_capabilities,
+    )
+    from agent_utilities.capabilities.hooks import HooksCapability
+    from agent_utilities.capabilities.output_repair import (
+        DEFAULT_MAX_OUTPUT_REPAIRS,
+        output_repair_retries,
+    )
+
+    supplied = list(kwargs.get("capabilities", ()) or ())
+    defaults = default_runtime_capabilities()
+    defaults.append(HooksCapability(hooks=[]))
+    kwargs["capabilities"] = merge_capabilities(supplied, defaults)
+    # The default StructuredOutputRepair capability raises ModelRetry up to
+    # DEFAULT_MAX_OUTPUT_REPAIRS times before failing closed with its own typed
+    # error; pydantic-ai's own output-retry budget defaults to 1, which would
+    # otherwise raise a generic UnexpectedModelBehavior on OUR second retry and
+    # preempt the classified/attempt-recorded exhaustion path. Never override an
+    # explicit caller-supplied ``retries=``.
+    if "retries" not in kwargs:
+        retries = output_repair_retries(
+            structured_output_repair=True,
+            max_output_repairs=DEFAULT_MAX_OUTPUT_REPAIRS,
+        )
+        if retries:
+            kwargs["retries"] = retries
+
+
+def _enforce_raw_mcp_permission_context(
+    toolsets: list[Any],
+    permissions_kernel: Any | None,
+    agent_identity: Any | None,
+    permission_engine: Any | None,
+    kwargs: dict[str, Any],
+) -> None:
+    """Enforce the raw-MCP-toolset permission context, mutating ``kwargs`` in
+    place when raw MCP toolsets are flagged with the verified context."""
+    from agent_utilities.security.permissions_kernel import verify_permission_context
+    from agent_utilities.security.tool_guard import flag_mcp_tool_definitions
+
+    if permissions_kernel is None or agent_identity is None:
+        raise PermissionError(
+            "raw MCP toolsets require an explicitly injected permission context"
+        )
+    permission_context = verify_permission_context(permissions_kernel, agent_identity)
+    if permission_context is None:  # defensive: an explicit pair was supplied
+        raise PermissionError("MCP permission context is required")
+    kwargs["toolsets"] = flag_mcp_tool_definitions(
+        toolsets,
+        permissions_kernel=permission_context.kernel,
+        agent_identity=permission_context.identity,
+        engine=permission_engine,
+    )
+
+
+def _enforce_toolset_permission_context(
+    toolsets: list[Any],
+    permissions_kernel: Any | None,
+    agent_identity: Any | None,
+    permission_engine: Any | None,
+    kwargs: dict[str, Any],
+) -> None:
+    """Enforce the raw-MCP-toolset / permission-context injection contract.
+
+    Raw MCP toolsets require an explicitly injected permission context; a
+    non-MCP agent that supplies only one of the pair is rejected; a fully
+    injected pair without raw MCP toolsets is still verified.
+    """
+    raw_mcp_bound = any(
+        hasattr(toolset, "list_tools") or hasattr(toolset, "direct_call_tool")
+        for toolset in toolsets
+    )
+    if raw_mcp_bound:
+        _enforce_raw_mcp_permission_context(
+            toolsets, permissions_kernel, agent_identity, permission_engine, kwargs
+        )
+    elif (permissions_kernel is None) != (agent_identity is None):
+        raise PermissionError(
+            "permission kernel and agent identity must be injected together"
+        )
+    elif permissions_kernel is not None and agent_identity is not None:
+        from agent_utilities.security.permissions_kernel import (
+            verify_permission_context,
+        )
+
+        verify_permission_context(permissions_kernel, agent_identity)
+
+
 def create_context_agent(
     model: Any = _MISSING_MODEL,
     *,
@@ -1282,70 +1393,11 @@ def create_context_agent(
             "governed agent construction requires an explicit model"
         )
     if default_capabilities:
-        from agent_utilities.capabilities.composition import (
-            default_runtime_capabilities,
-            merge_capabilities,
-        )
-        from agent_utilities.capabilities.hooks import HooksCapability
-        from agent_utilities.capabilities.output_repair import (
-            DEFAULT_MAX_OUTPUT_REPAIRS,
-            output_repair_retries,
-        )
-
-        supplied = list(kwargs.get("capabilities", ()) or ())
-        defaults = default_runtime_capabilities()
-        defaults.append(HooksCapability(hooks=[]))
-        kwargs["capabilities"] = merge_capabilities(supplied, defaults)
-        # The default StructuredOutputRepair capability raises ModelRetry up to
-        # DEFAULT_MAX_OUTPUT_REPAIRS times before failing closed with its own typed
-        # error; pydantic-ai's own output-retry budget defaults to 1, which would
-        # otherwise raise a generic UnexpectedModelBehavior on OUR second retry and
-        # preempt the classified/attempt-recorded exhaustion path. Never override an
-        # explicit caller-supplied ``retries=``.
-        if "retries" not in kwargs:
-            retries = output_repair_retries(
-                structured_output_repair=True,
-                max_output_repairs=DEFAULT_MAX_OUTPUT_REPAIRS,
-            )
-            if retries:
-                kwargs["retries"] = retries
+        _apply_default_capabilities(kwargs)
     toolsets = list(kwargs.get("toolsets", ()) or ())
-    raw_mcp_bound = any(
-        hasattr(toolset, "list_tools") or hasattr(toolset, "direct_call_tool")
-        for toolset in toolsets
+    _enforce_toolset_permission_context(
+        toolsets, permissions_kernel, agent_identity, permission_engine, kwargs
     )
-    if raw_mcp_bound:
-        if permissions_kernel is None or agent_identity is None:
-            raise PermissionError(
-                "raw MCP toolsets require an explicitly injected permission context"
-            )
-        from agent_utilities.security.permissions_kernel import (
-            verify_permission_context,
-        )
-        from agent_utilities.security.tool_guard import flag_mcp_tool_definitions
-
-        permission_context = verify_permission_context(
-            permissions_kernel,
-            agent_identity,
-        )
-        if permission_context is None:  # defensive: an explicit pair was supplied
-            raise PermissionError("MCP permission context is required")
-        kwargs["toolsets"] = flag_mcp_tool_definitions(
-            toolsets,
-            permissions_kernel=permission_context.kernel,
-            agent_identity=permission_context.identity,
-            engine=permission_engine,
-        )
-    elif (permissions_kernel is None) != (agent_identity is None):
-        raise PermissionError(
-            "permission kernel and agent identity must be injected together"
-        )
-    elif permissions_kernel is not None and agent_identity is not None:
-        from agent_utilities.security.permissions_kernel import (
-            verify_permission_context,
-        )
-
-        verify_permission_context(permissions_kernel, agent_identity)
     from pydantic_ai import Agent as _PydanticAgent
 
     return _PydanticAgent(model=wrap_model_with_context(model), **kwargs)
