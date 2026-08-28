@@ -17,6 +17,7 @@ import json
 import os
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -529,14 +530,60 @@ def _ingest_sessions(args: argparse.Namespace) -> dict[str, Any]:
     return collect_local_sessions(only_changed=not args.all)
 
 
+def _concept_resolve(args: argparse.Namespace) -> dict[str, Any]:
+    """CONCEPT:AU-OS.governance.concept-id-canonicalization — validate and project a canonical OKF-CIS id."""
+    from agent_utilities.governance import concept_hierarchy as ch
+
+    if not args.concept_id:
+        return {"error": "resolve requires --id"}
+    try:
+        parsed = ch.parse_okf_id(args.concept_id)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    return {
+        "raw": parsed.raw,
+        "canonical": parsed.canonical,
+        "slug": parsed.slug,
+        "pillar": parsed.pillar,
+        "domain": parsed.domain,
+        "concept": parsed.concept,
+        "facets": list(parsed.facets),
+        "path": parsed.path,
+        "iri": parsed.iri,
+    }
+
+
+def _concept_release(
+    args: argparse.Namespace, ca: Any, repo_root: Path | None
+) -> dict[str, Any]:
+    if not args.concept_id:
+        return {"error": "release requires --id"}
+    return {"released": ca.release_concept_id(args.concept_id, repo_root=repo_root)}
+
+
+def _concept_reserve(
+    args: argparse.Namespace, ca: Any, repo_root: Path | None
+) -> dict[str, Any]:
+    import uuid
+
+    if not args.concept_id:
+        return {"error": "reserve requires --id"}
+    sid = args.session or f"session-{uuid.uuid4().hex}"
+    return ca.reserve_concept_id(
+        args.concept_id,
+        session_id=sid,
+        design_doc=args.design_doc or None,
+        ttl_seconds=int(args.ttl),
+        repo_root=repo_root,
+    )
+
+
 def _concept(args: argparse.Namespace) -> dict[str, Any]:
     """Same-host compatibility concept reservation against the file ledger.
 
     Separate-host callers must use graph-os' native concept authority; this
     legacy CLI path is intentionally not advertised as globally atomic.
     """
-    import uuid
-
     from agent_utilities.governance import concept_allocator as ca
 
     repo_root = Path(args.repo).expanduser().resolve() if args.repo else None
@@ -550,141 +597,108 @@ def _concept(args: argparse.Namespace) -> dict[str, Any]:
     if action == "reconcile":
         return ca.reconcile(repo_root=repo_root)
     if action == "resolve":
-        # CONCEPT:AU-OS.governance.concept-id-canonicalization — validate and project a canonical OKF-CIS id.
-        from agent_utilities.governance import concept_hierarchy as ch
-
-        if not args.concept_id:
-            return {"error": "resolve requires --id"}
-        try:
-            parsed = ch.parse_okf_id(args.concept_id)
-        except ValueError as exc:
-            return {"error": str(exc)}
-        return {
-            "raw": parsed.raw,
-            "canonical": parsed.canonical,
-            "slug": parsed.slug,
-            "pillar": parsed.pillar,
-            "domain": parsed.domain,
-            "concept": parsed.concept,
-            "facets": list(parsed.facets),
-            "path": parsed.path,
-            "iri": parsed.iri,
-        }
+        return _concept_resolve(args)
     if action == "release":
-        if not args.concept_id:
-            return {"error": "release requires --id"}
-        return {"released": ca.release_concept_id(args.concept_id, repo_root=repo_root)}
+        return _concept_release(args, ca, repo_root)
     # reserve
-    if not args.concept_id:
-        return {"error": "reserve requires --id"}
-    sid = args.session or f"session-{uuid.uuid4().hex}"
-    return ca.reserve_concept_id(
-        args.concept_id,
-        session_id=sid,
-        design_doc=args.design_doc or None,
-        ttl_seconds=int(args.ttl),
-        repo_root=repo_root,
-    )
+    return _concept_reserve(args, ca, repo_root)
 
 
-def _lane(args: argparse.Namespace) -> dict[str, Any]:
-    """Lane arbitration — the operator/agent surface over ``governance.lanes``.
+def _lane_env(lanes: Any, path: str | None) -> dict[str, Any]:
+    parts = lanes.partitioned_paths(path)
+    orphaned = lanes.orphaned_precommit_patches(path)
+    return {
+        "exports": {
+            "CARGO_TARGET_DIR": str(parts.cargo_target_dir),
+            "PYTEST_ADDOPTS": f"--basetemp={parts.pytest_basetemp}",
+            "TMPDIR": str(parts.scratch_dir),
+            "PRE_COMMIT_HOME": str(parts.precommit_home),
+        },
+        "stash_ref": parts.stash_ref,
+        "note": (
+            "never `git stash` — refs/stash is one ref shared by every "
+            "worktree. To READ a pristine file while yours is dirty use "
+            "`git show HEAD:<path>` (mutates nothing). To PARK work use a "
+            f"scratch commit on your branch, or `lane park` -> {parts.stash_ref}"
+        ),
+        "precommit_home_note": (
+            "PRE_COMMIT_HOME is also per-lane: a shared pre-commit store "
+            "means a killed/OOMed/power-lost pre-commit orphans another "
+            "lane's uncommitted work as an unreplayed patch file (D-OB-12), "
+            "and the store's shared SQLite db.db raises `OperationalError: "
+            "database is locked` under concurrent lanes. See D-ORC-37."
+        ),
+        "orphaned_precommit_patches": [
+            p for p in orphaned if p["state"] in ("ORPHANED", "unknown")
+        ],
+    }
 
-    Every action here exists so the *safe* path is the convenient one: you get
-    your isolated paths from ``env``, you run a contended operation through
-    ``lease``, and ``guard`` refuses the mutation that would eat someone's work.
-    """
+
+def _lane_bind_cargo(lanes: Any, path: str | None, force: bool) -> dict[str, Any]:
+    try:
+        return lanes.write_cargo_partition_config(path, force=force)
+    except lanes.LaneArbitrationError as exc:
+        return {"written": False, "refused": str(exc), "exit_code": 1}
+
+
+def _lane_classify(lanes: Any, resource: str | None) -> dict[str, Any]:
+    rules = lanes.resource_rules()
+    if resource:
+        return {
+            "resource": resource,
+            "class": lanes.resource_class(resource).value,
+        }
+    return {
+        "resources": [
+            {
+                "name": r.name,
+                "class": r.arbitration.value,
+                "mechanism": r.mechanism,
+                "evidence": r.evidence,
+            }
+            for r in rules
+        ]
+    }
+
+
+def _lane_guard(
+    lanes: Any, args: argparse.Namespace, path: str | None
+) -> dict[str, Any]:
     import subprocess
 
-    from agent_utilities.governance import lanes
-
-    path = args.path or None
-    action = args.lane_action
-    if action == "status":
-        return lanes.lane_report(path)
-    if action == "env":
-        parts = lanes.partitioned_paths(path)
-        orphaned = lanes.orphaned_precommit_patches(path)
-        return {
-            "exports": {
-                "CARGO_TARGET_DIR": str(parts.cargo_target_dir),
-                "PYTEST_ADDOPTS": f"--basetemp={parts.pytest_basetemp}",
-                "TMPDIR": str(parts.scratch_dir),
-                "PRE_COMMIT_HOME": str(parts.precommit_home),
-            },
-            "stash_ref": parts.stash_ref,
-            "note": (
-                "never `git stash` — refs/stash is one ref shared by every "
-                "worktree. To READ a pristine file while yours is dirty use "
-                "`git show HEAD:<path>` (mutates nothing). To PARK work use a "
-                f"scratch commit on your branch, or `lane park` -> {parts.stash_ref}"
-            ),
-            "precommit_home_note": (
-                "PRE_COMMIT_HOME is also per-lane: a shared pre-commit store "
-                "means a killed/OOMed/power-lost pre-commit orphans another "
-                "lane's uncommitted work as an unreplayed patch file (D-OB-12), "
-                "and the store's shared SQLite db.db raises `OperationalError: "
-                "database is locked` under concurrent lanes. See D-ORC-37."
-            ),
-            "orphaned_precommit_patches": [
-                p for p in orphaned if p["state"] in ("ORPHANED", "unknown")
-            ],
-        }
-    if action == "park":
-        return lanes.park_worktree(path)
-    if action == "unpark":
-        return lanes.unpark_worktree(path)
-    if action == "bind-cargo":
-        try:
-            return lanes.write_cargo_partition_config(path, force=args.force)
-        except lanes.LaneArbitrationError as exc:
-            return {"written": False, "refused": str(exc), "exit_code": 1}
-    if action == "classify":
-        rules = lanes.resource_rules()
-        if args.resource:
-            return {
-                "resource": args.resource,
-                "class": lanes.resource_class(args.resource).value,
-            }
-        return {
-            "resources": [
-                {
-                    "name": r.name,
-                    "class": r.arbitration.value,
-                    "mechanism": r.mechanism,
-                    "evidence": r.evidence,
-                }
-                for r in rules
-            ]
-        }
-    if action == "guard":
-        command = [a for a in getattr(args, "command_args", []) if a != "--"]
-        try:
-            if args.reset:
-                owner = args.owner or "unknown"
-                if not command:
-                    lanes.require_resettable_tree(
-                        args.reset, operation=args.operation, owner=owner
-                    )
-                    return {"allowed": True, "target": args.reset}
-                # The mutation itself runs INSIDE the guard, so the tree cannot go
-                # dirty between the check and the command — the whole point of the
-                # single choke point.
-                with lanes.guarded_tree_mutation(
+    command = [a for a in getattr(args, "command_args", []) if a != "--"]
+    try:
+        if args.reset:
+            owner = args.owner or "unknown"
+            if not command:
+                lanes.require_resettable_tree(
                     args.reset, operation=args.operation, owner=owner
-                ) as scope:
-                    completed = subprocess.run(command, check=False)  # noqa: S603
-                return {
-                    "allowed": True,
-                    "target": str(scope.tree),
-                    "command": command,
-                    "exit_code": completed.returncode,
-                }
-            scope = lanes.require_mutable_tree(path, operation=args.operation)
-            return {"allowed": True, "lane": scope.lane, "tree": str(scope.tree)}
-        except lanes.LaneArbitrationError as exc:
-            return {"allowed": False, "refused": str(exc), "exit_code": 1}
-    # lease
+                )
+                return {"allowed": True, "target": args.reset}
+            # The mutation itself runs INSIDE the guard, so the tree cannot go
+            # dirty between the check and the command — the whole point of the
+            # single choke point.
+            with lanes.guarded_tree_mutation(
+                args.reset, operation=args.operation, owner=owner
+            ) as scope:
+                completed = subprocess.run(command, check=False)  # noqa: S603
+            return {
+                "allowed": True,
+                "target": str(scope.tree),
+                "command": command,
+                "exit_code": completed.returncode,
+            }
+        scope = lanes.require_mutable_tree(path, operation=args.operation)
+        return {"allowed": True, "lane": scope.lane, "tree": str(scope.tree)}
+    except lanes.LaneArbitrationError as exc:
+        return {"allowed": False, "refused": str(exc), "exit_code": 1}
+
+
+def _lane_lease(
+    lanes: Any, args: argparse.Namespace, path: str | None
+) -> dict[str, Any]:
+    import subprocess
+
     if not args.resource:
         return {"exit_code": 2, "error": "lease requires --resource"}
     if lanes.resource_class(args.resource) is not lanes.ArbitrationClass.LEASE:
@@ -714,6 +728,35 @@ def _lane(args: argparse.Namespace) -> dict[str, Any]:
         }
     except lanes.LeaseUnavailable as exc:
         return {"deferred": True, "holder": exc.holder, "exit_code": 75}
+
+
+def _lane(args: argparse.Namespace) -> dict[str, Any]:
+    """Lane arbitration — the operator/agent surface over ``governance.lanes``.
+
+    Every action here exists so the *safe* path is the convenient one: you get
+    your isolated paths from ``env``, you run a contended operation through
+    ``lease``, and ``guard`` refuses the mutation that would eat someone's work.
+    """
+    from agent_utilities.governance import lanes
+
+    path = args.path or None
+    action = args.lane_action
+    if action == "status":
+        return lanes.lane_report(path)
+    if action == "env":
+        return _lane_env(lanes, path)
+    if action == "park":
+        return lanes.park_worktree(path)
+    if action == "unpark":
+        return lanes.unpark_worktree(path)
+    if action == "bind-cargo":
+        return _lane_bind_cargo(lanes, path, args.force)
+    if action == "classify":
+        return _lane_classify(lanes, args.resource)
+    if action == "guard":
+        return _lane_guard(lanes, args, path)
+    # lease
+    return _lane_lease(lanes, args, path)
 
 
 def _merge_queue(args: argparse.Namespace) -> dict[str, Any]:
@@ -873,6 +916,32 @@ def _voice_model(args: argparse.Namespace) -> dict[str, Any]:
     return {"error": f"unknown voice-model action {action!r}"}
 
 
+_COMMAND_HANDLERS: dict[str, Callable[[argparse.Namespace], dict[str, Any]]] = {
+    "status": lambda args: status(args.namespace),
+    "run": lambda args: run(
+        args.namespace, args.agent, args.task, project=args.project
+    ),
+    "harness-fence": _harness_fence,
+    "sleep-run": _sleep_run,
+    "install": _install,
+    "ingest-sessions": _ingest_sessions,
+    "concept": _concept,
+    "lane": _lane,
+    "merge-queue": _merge_queue,
+    "deploy-plan": _deploy_plan,
+    "voice-model": _voice_model,
+}
+
+
+def _default_command_output(args: argparse.Namespace) -> dict[str, Any]:
+    """start/stop/logs/inspect orchestrate the existing console-scripts; report intent + namespace."""
+    return {
+        "command": args.command,
+        "namespace": args.namespace,
+        "components": list(COMPONENTS),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     raw_argv = list(argv) if argv is not None else sys.argv[1:]
     if raw_argv[:1] == ["graph-os"]:
@@ -892,35 +961,8 @@ def main(argv: list[str] | None = None) -> int:
         # Prints ONLY the verdict JSON (Claude Code reads stdout); bypass the
         # generic envelope below.
         return _harness_gate()
-    if args.command == "status":
-        out = status(args.namespace)
-    elif args.command == "run":
-        out = run(args.namespace, args.agent, args.task, project=args.project)
-    elif args.command == "harness-fence":
-        out = _harness_fence(args)
-    elif args.command == "sleep-run":
-        out = _sleep_run(args)
-    elif args.command == "install":
-        out = _install(args)
-    elif args.command == "ingest-sessions":
-        out = _ingest_sessions(args)
-    elif args.command == "concept":
-        out = _concept(args)
-    elif args.command == "lane":
-        out = _lane(args)
-    elif args.command == "merge-queue":
-        out = _merge_queue(args)
-    elif args.command == "deploy-plan":
-        out = _deploy_plan(args)
-    elif args.command == "voice-model":
-        out = _voice_model(args)
-    else:
-        # start/stop/logs/inspect orchestrate the existing console-scripts; report intent + namespace.
-        out = {
-            "command": args.command,
-            "namespace": args.namespace,
-            "components": list(COMPONENTS),
-        }
+    handler = _COMMAND_HANDLERS.get(args.command)
+    out = handler(args) if handler is not None else _default_command_output(args)
     print(json.dumps(out, indent=None if args.json else 2))
     # A refusal or a deferral must be actionable by a shell/hook, not just
     # readable — the guard is worthless if `&&` still proceeds after it.
