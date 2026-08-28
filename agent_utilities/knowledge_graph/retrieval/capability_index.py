@@ -358,6 +358,20 @@ def compute_eligibility(
     return result
 
 
+def _first_truthy(getter: Any, *keys: str) -> Any:
+    """Return the first truthy ``getter(key)`` across ``keys``, or ``None``."""
+    for k in keys:
+        v = getter(k)
+        if v:
+            return v
+    return None
+
+
+def _merge_candidate(candidate: set[str] | None, ids: set[str]) -> set[str]:
+    """Intersect ``ids`` into ``candidate``, or seed ``candidate`` from ``ids`` when unset."""
+    return set(ids) if candidate is None else candidate & ids
+
+
 class CapabilityIndex:
     """Capability-filtered ANN index over entity embeddings.
 
@@ -589,57 +603,10 @@ class CapabilityIndex:
             EmbeddingVersionMismatchError: ``embedding_version`` disagrees with
                 this index's already-pinned version.
         """
-        if embedding_version is not None:
-            if self._embedding_version is None:
-                self._embedding_version = embedding_version
-            elif self._embedding_version != embedding_version:
-                from agent_utilities.observability.gateway_metrics import (
-                    EMBEDDING_VERSION_MISMATCHES,
-                )
-
-                EMBEDDING_VERSION_MISMATCHES.labels(site="capability_index_add").inc()
-                raise EmbeddingVersionMismatchError(
-                    expected=self._embedding_version,
-                    actual=embedding_version,
-                    context=f"CapabilityIndex.add(id={id!r})",
-                )
-        raw_embedding = to_builtin(embedding)
-        if not isinstance(raw_embedding, (list, tuple)):
-            raise TypeError("CapabilityIndex embeddings must be builtin sequences")
-        vec = [float(value) for value in raw_embedding]
-        if not vec:
-            raise ValueError(f"Empty embedding for id {id!r}")
-        if self._dim is None:
-            self._dim = len(vec)
-        elif len(vec) != self._dim:
-            raise ValueError(
-                f"Embedding dim mismatch for {id!r}: expected {self._dim}, "
-                f"got {len(vec)}"
-            )
-
-        norm_vec = _l2_normalize(vec)
+        self._pin_or_check_embedding_version(id, embedding_version)
+        norm_vec = self._validate_and_normalize_embedding(id, embedding)
         is_update = id in self._id_to_vec
-        # CONCEPT:AU-KG.memory.generation-scoped-selective-reward — selective reward erasure on the ingestion upsert path.
-        # A re-add whose representation has materially diverged from the stored one is a
-        # new generation: the reward EMA accrued under the old content is stale
-        # evidence, so erase only that id's record (RQGM selective erasure). The
-        # cosine distance is a near-free dot product on two already-normalized
-        # vectors, so this runs natively on every ingestion upsert with no flag.
-        if is_update and id in self._reward:
-            prev_vec = self._id_to_vec[id]
-            distance = 1.0 - sum(
-                left * right for left, right in zip(prev_vec, norm_vec, strict=True)
-            )
-            if distance > _REWARD_REGEN_DISTANCE:
-                self._reward.pop(id, None)
-                self._reward_erasures += 1
-                logger.debug(
-                    "[KG-2.276] selective reward erasure for %r "
-                    "(embedding drift %.3f > %.2f)",
-                    id,
-                    distance,
-                    _REWARD_REGEN_DISTANCE,
-                )
+        self._maybe_erase_stale_reward(id, norm_vec, is_update)
         self._id_to_vec[id] = norm_vec
         if embedding_version is not None:
             self._id_to_embedding_version[id] = embedding_version
@@ -649,21 +616,8 @@ class CapabilityIndex:
         if node_type:
             self._id_to_type[id] = str(node_type)
 
-        # Capability maps — clear old assignments on update.
-        if is_update:
-            for cap in self._id_to_caps.get(id, set()):
-                self._cap_to_ids.get(cap, set()).discard(id)
-        caps = {str(c) for c in (capabilities or [])}
-        self._id_to_caps[id] = caps
-        for cap in caps:
-            self._cap_to_ids.setdefault(cap, set()).add(id)
-
-        # swappableWith — symmetric.
-        if swappable_with:
-            partners = {str(p) for p in swappable_with if str(p) != id}
-            self._swappable.setdefault(id, set()).update(partners)
-            for p in partners:
-                self._swappable.setdefault(p, set()).add(id)
+        self._update_capability_maps(id, capabilities, is_update)
+        self._update_swappable_with(id, swappable_with)
 
         # Tenant/policy scoping (CONCEPT:AU-P1-3). Only overwrite when a value is
         # supplied so an unscoped update never erases a known tenant/policy set.
@@ -678,23 +632,112 @@ class CapabilityIndex:
         if reward is not None and id not in self._reward:
             self._reward[id] = min(1.0, max(0.0, float(reward)))
 
-        # ANN index maintenance.
-        if self._backend == "hnsw":
-            self._ensure_hnsw(capacity_hint=len(self._id_to_vec))
-            if id in self._id_to_label:
-                label = self._id_to_label[id]
-            else:
-                label = self._next_label
-                self._next_label += 1
-                self._id_to_label[id] = label
-                self._label_to_id[label] = id
-            self._hnsw_resize_if_needed(additional=1)
-            self._hnsw.add_items([norm_vec], [label])
+        self._update_ann_index(id, norm_vec)
+        self._evict_lru_overflow(id)
 
-        # Bounded-cache LRU eviction (CONCEPT:AU-P1-3) — touch ``id`` as most-recently
-        # used, then evict the oldest entries beyond the cap via :meth:`remove` so
-        # every backing structure (HNSW label, capability/tenant/policy/reward maps)
-        # stays in lockstep.
+    def _pin_or_check_embedding_version(
+        self, id: str, embedding_version: str | None
+    ) -> None:
+        """Pin ``embedding_version`` on first sight; raise if a later call disagrees."""
+        if embedding_version is None:
+            return
+        if self._embedding_version is None:
+            self._embedding_version = embedding_version
+        elif self._embedding_version != embedding_version:
+            from agent_utilities.observability.gateway_metrics import (
+                EMBEDDING_VERSION_MISMATCHES,
+            )
+
+            EMBEDDING_VERSION_MISMATCHES.labels(site="capability_index_add").inc()
+            raise EmbeddingVersionMismatchError(
+                expected=self._embedding_version,
+                actual=embedding_version,
+                context=f"CapabilityIndex.add(id={id!r})",
+            )
+
+    def _validate_and_normalize_embedding(self, id: str, embedding: Any) -> Any:
+        """Validate ``embedding`` against this index's pinned ``dim`` and return it L2-normalized."""
+        raw_embedding = to_builtin(embedding)
+        if not isinstance(raw_embedding, (list, tuple)):
+            raise TypeError("CapabilityIndex embeddings must be builtin sequences")
+        vec = [float(value) for value in raw_embedding]
+        if not vec:
+            raise ValueError(f"Empty embedding for id {id!r}")
+        if self._dim is None:
+            self._dim = len(vec)
+        elif len(vec) != self._dim:
+            raise ValueError(
+                f"Embedding dim mismatch for {id!r}: expected {self._dim}, "
+                f"got {len(vec)}"
+            )
+        return _l2_normalize(vec)
+
+    def _maybe_erase_stale_reward(
+        self, id: str, norm_vec: Any, is_update: bool
+    ) -> None:
+        """CONCEPT:AU-KG.memory.generation-scoped-selective-reward — erase a reward EMA whose embedding has drifted.
+
+        A re-add whose representation has materially diverged from the stored one is a
+        new generation: the reward EMA accrued under the old content is stale
+        evidence, so erase only that id's record (RQGM selective erasure). The
+        cosine distance is a near-free dot product on two already-normalized
+        vectors, so this runs natively on every ingestion upsert with no flag.
+        """
+        if not (is_update and id in self._reward):
+            return
+        prev_vec = self._id_to_vec[id]
+        distance = 1.0 - sum(
+            left * right for left, right in zip(prev_vec, norm_vec, strict=True)
+        )
+        if distance > _REWARD_REGEN_DISTANCE:
+            self._reward.pop(id, None)
+            self._reward_erasures += 1
+            logger.debug(
+                "[KG-2.276] selective reward erasure for %r "
+                "(embedding drift %.3f > %.2f)",
+                id,
+                distance,
+                _REWARD_REGEN_DISTANCE,
+            )
+
+    def _update_capability_maps(
+        self, id: str, capabilities: Any, is_update: bool
+    ) -> None:
+        """Refresh ``id``'s capability set, clearing old assignments on update."""
+        if is_update:
+            for cap in self._id_to_caps.get(id, set()):
+                self._cap_to_ids.get(cap, set()).discard(id)
+        caps = {str(c) for c in (capabilities or [])}
+        self._id_to_caps[id] = caps
+        for cap in caps:
+            self._cap_to_ids.setdefault(cap, set()).add(id)
+
+    def _update_swappable_with(self, id: str, swappable_with: Any) -> None:
+        """Record ``swappableWith`` edges symmetrically."""
+        if not swappable_with:
+            return
+        partners = {str(p) for p in swappable_with if str(p) != id}
+        self._swappable.setdefault(id, set()).update(partners)
+        for p in partners:
+            self._swappable.setdefault(p, set()).add(id)
+
+    def _update_ann_index(self, id: str, norm_vec: Any) -> None:
+        """Add/refresh ``id`` in the ANN backend (HNSW label bookkeeping) when active."""
+        if self._backend != "hnsw":
+            return
+        self._ensure_hnsw(capacity_hint=len(self._id_to_vec))
+        if id in self._id_to_label:
+            label = self._id_to_label[id]
+        else:
+            label = self._next_label
+            self._next_label += 1
+            self._id_to_label[id] = label
+            self._label_to_id[label] = id
+        self._hnsw_resize_if_needed(additional=1)
+        self._hnsw.add_items([norm_vec], [label])
+
+    def _evict_lru_overflow(self, id: str) -> None:
+        """CONCEPT:AU-P1-3 — touch ``id`` as most-recently used, then evict overflow via :meth:`remove`."""
         self._lru[id] = None
         self._lru.move_to_end(id)
         while len(self._lru) > self._bounded_cache_size:
@@ -751,42 +794,39 @@ class CapabilityIndex:
             nodes: Iterable of node descriptors.
         """
         for node in nodes:
-            if isinstance(node, dict):
-                getter = node.get
-            else:
+            self._add_one_edge_node(node)
 
-                def getter(key: str, default: Any = None, _n: Any = node) -> Any:
-                    return getattr(_n, key, default)
+    def _add_one_edge_node(self, node: Any) -> None:
+        """Add a single :meth:`build_from_edges` node descriptor, if it has an id and embedding."""
+        if isinstance(node, dict):
+            getter = node.get
+        else:
 
-            nid = getter("id")
-            if nid is None:
-                continue
-            emb = getter("embedding")
-            if emb is None:
-                continue
-            caps = (
-                getter("capabilities")
-                or getter("provides")
-                or getter("providesCapability")
-                or []
-            )
-            swap = getter("swappable_with") or getter("swappableWith") or None
-            node_type = (
-                getter("type") or getter("node_type") or getter("nodeType") or None
-            )
-            tenant = getter("tenant")
-            policy_tags = getter("policy_tags") or getter("policyTags")
-            reward = getter("capability_reward") or getter("reward")
-            self.add(
-                str(nid),
-                emb,
-                caps,
-                swappable_with=swap,
-                node_type=node_type,
-                tenant=tenant,
-                policy_tags=policy_tags,
-                reward=reward,
-            )
+            def getter(key: str, default: Any = None, _n: Any = node) -> Any:
+                return getattr(_n, key, default)
+
+        nid = getter("id", None)
+        if nid is None:
+            return
+        emb = getter("embedding", None)
+        if emb is None:
+            return
+        caps = (
+            _first_truthy(getter, "capabilities", "provides", "providesCapability")
+            or []
+        )
+        swap = _first_truthy(getter, "swappable_with", "swappableWith")
+        node_type = _first_truthy(getter, "type", "node_type", "nodeType")
+        self.add(
+            str(nid),
+            emb,
+            caps,
+            swappable_with=swap,
+            node_type=node_type,
+            tenant=getter("tenant", None),
+            policy_tags=_first_truthy(getter, "policy_tags", "policyTags"),
+            reward=_first_truthy(getter, "capability_reward", "reward"),
+        )
 
     def capabilities_of(self, id: str) -> frozenset[str]:
         """The declared (literal) capability set for ``id`` (empty if unknown)."""
@@ -825,36 +865,50 @@ class CapabilityIndex:
         if required_caps:
             # Intersection of provider sets — O(sum of set sizes). Each provider
             # set is subsumption-widened (X-4) when a hierarchy is attached.
-            for cap in required_caps:
-                providers = self._providers_for(cap)
-                candidate = (
-                    set(providers) if candidate is None else candidate & providers
-                )
-                if not candidate:
-                    return set()
+            candidate = self._providers_intersection(required_caps)
+            if not candidate:
+                return set()
         if tenant is not None:
             # Fail-open on tenant: an entity with no recorded tenant is global (visible
             # to every tenant); one with a DIFFERENT tenant is excluded.
-            tenant_ids = {
-                i
-                for i in self._id_to_vec
-                if self._id_to_tenant.get(i) in (None, tenant)
-            }
-            candidate = tenant_ids if candidate is None else candidate & tenant_ids
+            candidate = _merge_candidate(candidate, self._tenant_matching_ids(tenant))
             if not candidate:
                 return set()
         if required_policy_tags:
             # Fail-closed on policy: an entity must explicitly carry EVERY required
             # tag — an untagged entity does not satisfy a non-empty requirement.
-            policy_ids = {
-                i
-                for i in self._id_to_vec
-                if required_policy_tags <= self._id_to_policy_tags.get(i, set())
-            }
-            candidate = policy_ids if candidate is None else candidate & policy_ids
+            candidate = _merge_candidate(
+                candidate, self._policy_matching_ids(required_policy_tags)
+            )
             if not candidate:
                 return set()
         return candidate
+
+    def _providers_intersection(self, required_caps: set[str]) -> set[str]:
+        """Intersect the (subsumption-widened) provider sets for every required capability."""
+        candidate: set[str] = set()
+        first = True
+        for cap in required_caps:
+            providers = self._providers_for(cap)
+            candidate = set(providers) if first else candidate & providers
+            first = False
+            if not candidate:
+                break
+        return candidate
+
+    def _tenant_matching_ids(self, tenant: str) -> set[str]:
+        """ids with no recorded tenant (global) or exactly ``tenant``."""
+        return {
+            i for i in self._id_to_vec if self._id_to_tenant.get(i) in (None, tenant)
+        }
+
+    def _policy_matching_ids(self, required_policy_tags: set[str]) -> set[str]:
+        """ids carrying every tag in ``required_policy_tags``."""
+        return {
+            i
+            for i in self._id_to_vec
+            if required_policy_tags <= self._id_to_policy_tags.get(i, set())
+        }
 
     def designate(
         self,
