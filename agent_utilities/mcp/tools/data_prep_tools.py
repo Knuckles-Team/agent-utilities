@@ -1021,6 +1021,225 @@ def _fetch_blob_via_client(compute: Any, engine: Any, digest: str) -> bytes | No
     return fetch(digest)
 
 
+def _metadata_node_type(props: Mapping[str, Any]) -> str:
+    """Validate and return the node's governed artifact type."""
+
+    node_type_raw = props.get("node_type")
+    if node_type_raw is None:
+        node_type_raw = props.get("type")
+    if not isinstance(node_type_raw, str):
+        raise DataPrepToolError("native artifact type authority is unavailable")
+    if node_type_raw not in {"AssetOccurrence", "Artifact"}:
+        raise DataPrepToolError("artifact reference is not a governed tabular artifact")
+    return node_type_raw
+
+
+def _metadata_tenant_policy(
+    props: Mapping[str, Any], *, session: GraphSession
+) -> tuple[str, str]:
+    """Validate tenant/policy authority facts and bind them to the session."""
+
+    tenant_raw = props.get("tenant_id")
+    if tenant_raw is None:
+        tenant_raw = props.get("tenant")
+    policy_raw = props.get("policy_version")
+    if not isinstance(tenant_raw, str) or not isinstance(policy_raw, str):
+        raise ArtifactAuthorityUnavailable(
+            "native artifact tenant or policy authority is unavailable"
+        )
+    if not tenant_raw or not policy_raw:
+        raise ArtifactAuthorityUnavailable(
+            "native artifact tenant or policy authority is unavailable"
+        )
+    if tenant_raw != session.tenant:
+        raise PermissionError("artifact access is denied")
+    if policy_raw != str(session.policy_version or ""):
+        raise PermissionError("artifact access is denied")
+    return tenant_raw, policy_raw
+
+
+def _metadata_expiry_ok(props: Mapping[str, Any]) -> None:
+    """Validate the expiry field's shape and that it has not passed.
+
+    The value itself is re-read directly from ``props`` by the caller that
+    builds the returned ``ResolvedArtifact`` -- this is a validate-only gate.
+    """
+
+    expires_raw = props.get("expires_at_ms", 0)
+    if isinstance(expires_raw, bool) or not isinstance(expires_raw, int):
+        raise DataPrepToolError("native artifact expiry is invalid")
+    if expires_raw and int(time.time() * 1000) >= expires_raw:
+        raise PermissionError("artifact access is denied")
+
+
+def _metadata_legal_hold_ok(props: Mapping[str, Any]) -> None:
+    """Validate-only: the legal-hold field's shape.
+
+    The value itself is re-read directly from ``props`` by the caller that
+    builds the returned ``ResolvedArtifact``.
+    """
+
+    legal_hold = props.get("legal_hold", False)
+    if not isinstance(legal_hold, bool):
+        raise DataPrepToolError("native artifact legal-hold policy is invalid")
+
+
+def _metadata_owner(props: Mapping[str, Any]) -> str:
+    """Validate and return the owner id, defaulting to the empty string."""
+
+    owner_raw = props.get("_owner_id")
+    if owner_raw is None:
+        owner_raw = props.get("owner")
+    if owner_raw is not None and not isinstance(owner_raw, str):
+        raise DataPrepToolError("native artifact owner authority is invalid")
+    return owner_raw or ""
+
+
+def _metadata_classification(props: Mapping[str, Any]) -> DataClassification:
+    """Validate and return the artifact's data classification."""
+
+    classification_raw = props.get("classification")
+    try:
+        if isinstance(classification_raw, DataClassification):
+            return classification_raw
+        if isinstance(classification_raw, str):
+            return DataClassification(classification_raw)
+        raise TypeError(
+            "native artifact classification must be str or DataClassification"
+        )
+    except (TypeError, ValueError) as exc:
+        raise DataPrepToolError(
+            "native artifact classification authority is unavailable"
+        ) from exc
+
+
+def _metadata_retention_ok(props: Mapping[str, Any]) -> None:
+    """Validate-only: the retention field's shape."""
+
+    if props.get("retention") is not None and not isinstance(props["retention"], str):
+        raise DataPrepToolError("native artifact retention policy is invalid")
+
+
+def _metadata_acl(
+    props: Mapping[str, Any], *, owner_id: str, classification: DataClassification
+) -> ArtifactACL:
+    """Resolve the ACL and check it is consistent with the classification."""
+
+    acl = _native_acl(props, owner_id=owner_id)
+    if classification is DataClassification.PUBLIC and not acl.is_public:
+        raise DataPrepToolError("public classification lacks a public ACL proof")
+    if acl.is_public and classification is not DataClassification.PUBLIC:
+        raise DataPrepToolError("public ACL lacks a matching public classification")
+    return acl
+
+
+def _session_actor_identity(session: GraphSession) -> tuple[str, set[str], set[str]]:
+    """Resolve the session actor's id, roles and groups as plain sets."""
+
+    actor_id = str(getattr(session.actor, "actor_id", "") or "")
+    roles = {str(role) for role in getattr(session.actor, "roles", ()) or ()}
+    groups = {str(group) for group in getattr(session.actor, "groups", ()) or ()}
+    return actor_id, roles, groups
+
+
+def _acl_grants_access(
+    acl: ArtifactACL,
+    *,
+    actor_id: str,
+    roles: set[str],
+    groups: set[str],
+    owner_id: str,
+) -> bool:
+    """True if the actor is proven authorized by the ACL, without a raise."""
+
+    return (
+        acl.is_public
+        or actor_id == owner_id
+        or actor_id in acl.principal_ids
+        or bool(groups.intersection(acl.group_ids))
+        or bool(roles.intersection(acl.roles))
+    )
+
+
+def _metadata_access_check(
+    session: GraphSession, *, acl: ArtifactACL, owner_id: str
+) -> None:
+    """Deny access unless the session's actor is proven by the ACL."""
+
+    actor_id, roles, groups = _session_actor_identity(session)
+    if not _acl_grants_access(
+        acl, actor_id=actor_id, roles=roles, groups=groups, owner_id=owner_id
+    ):
+        raise PermissionError("artifact access is denied")
+
+
+def _metadata_content_digest_present(props: Mapping[str, Any]) -> None:
+    """Validate-only: the content digest is present and well-formed.
+
+    The digest itself is recomputed by the caller from the same ``props``
+    fields for the actual blob fetch.
+    """
+
+    _native_digest(
+        props.get("content_digest")
+        or props.get("content_hash")
+        or props.get("digest")
+        or props.get("blob_digest")
+    )
+
+
+def _metadata_media_type_ok(props: Mapping[str, Any]) -> None:
+    """Validate-only: the media type is an approved Arrow type.
+
+    The value itself is re-read directly from ``props`` by the caller.
+    """
+
+    media_type_raw = props.get("media_type")
+    if media_type_raw is None:
+        media_type_raw = props.get("mime_type")
+    if not isinstance(media_type_raw, str):
+        raise DataPrepToolError("native artifact media type is invalid")
+    if media_type_raw not in {
+        "application/vnd.apache.arrow.stream",
+        "application/vnd.apache.arrow.file",
+    }:
+        raise DataPrepToolError("artifact media type is not an approved Arrow type")
+
+
+def _metadata_budget_limits(props: Mapping[str, Any], *, budget: PrepBudget) -> None:
+    """Validate every optional bounded-int metadata field against the budget."""
+
+    for key, limit, label in (
+        ("compressed_bytes", budget.max_compressed_bytes, "compressed size"),
+        ("file_size_bytes", budget.max_compressed_bytes, "compressed size"),
+        ("decoded_bytes", budget.max_decoded_bytes, "decoded size"),
+        ("rows", budget.max_rows, "row count"),
+        ("columns", budget.max_columns, "column count"),
+        ("nesting_depth", budget.max_depth, "nesting depth"),
+    ):
+        value = props.get(key)
+        if value is not None and (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value < 0
+            or value > limit
+        ):
+            raise DataPrepToolError(f"artifact {label} exceeds the request budget")
+
+
+def _metadata_digest_refs(props: Mapping[str, Any]) -> None:
+    """Validate-only: any present schema/shape digests and refs are well-formed."""
+
+    if props.get("schema_digest") is not None:
+        _native_digest(props["schema_digest"])
+    if props.get("shape_digest") is not None:
+        _native_digest(props["shape_digest"])
+    if props.get("schema_ref") is not None:
+        _native_ref(props["schema_ref"], fallback="schema:unused")
+    if props.get("shape_ref") is not None:
+        _native_ref(props["shape_ref"], fallback="shape:unused")
+
+
 class _GraphNativeDataPrepProvider:
     """Concrete provider over the authoritative graph node/blob substrate.
 
@@ -1302,123 +1521,19 @@ class _GraphNativeDataPrepProvider:
     ) -> tuple[str, str, str, str, DataClassification, ArtifactACL]:
         """Validate every access fact before touching native blob bytes."""
 
-        node_type_raw = props.get("node_type")
-        if node_type_raw is None:
-            node_type_raw = props.get("type")
-        if not isinstance(node_type_raw, str):
-            raise DataPrepToolError("native artifact type authority is unavailable")
-        node_type = node_type_raw
-        if node_type not in {"AssetOccurrence", "Artifact"}:
-            raise DataPrepToolError(
-                "artifact reference is not a governed tabular artifact"
-            )
-        tenant_raw = props.get("tenant_id")
-        if tenant_raw is None:
-            tenant_raw = props.get("tenant")
-        policy_raw = props.get("policy_version")
-        if not isinstance(tenant_raw, str) or not isinstance(policy_raw, str):
-            raise ArtifactAuthorityUnavailable(
-                "native artifact tenant or policy authority is unavailable"
-            )
-        tenant_id = tenant_raw
-        policy_version = policy_raw
-        if not tenant_id or not policy_version:
-            raise ArtifactAuthorityUnavailable(
-                "native artifact tenant or policy authority is unavailable"
-            )
-        if tenant_id != session.tenant:
-            raise PermissionError("artifact access is denied")
-        if policy_version != str(session.policy_version or ""):
-            raise PermissionError("artifact access is denied")
-        expires_raw = props.get("expires_at_ms", 0)
-        if isinstance(expires_raw, bool) or not isinstance(expires_raw, int):
-            raise DataPrepToolError("native artifact expiry is invalid")
-        if expires_raw and int(time.time() * 1000) >= expires_raw:
-            raise PermissionError("artifact access is denied")
-        legal_hold = props.get("legal_hold", False)
-        if not isinstance(legal_hold, bool):
-            raise DataPrepToolError("native artifact legal-hold policy is invalid")
-        owner_raw = props.get("_owner_id")
-        if owner_raw is None:
-            owner_raw = props.get("owner")
-        if owner_raw is not None and not isinstance(owner_raw, str):
-            raise DataPrepToolError("native artifact owner authority is invalid")
-        owner_id = owner_raw or ""
-        classification_raw = props.get("classification")
-        try:
-            if isinstance(classification_raw, DataClassification):
-                classification = classification_raw
-            elif isinstance(classification_raw, str):
-                classification = DataClassification(classification_raw)
-            else:
-                raise TypeError(
-                    "native artifact classification must be str or DataClassification"
-                )
-        except (TypeError, ValueError) as exc:
-            raise DataPrepToolError(
-                "native artifact classification authority is unavailable"
-            ) from exc
-        if props.get("retention") is not None and not isinstance(
-            props["retention"], str
-        ):
-            raise DataPrepToolError("native artifact retention policy is invalid")
-        acl = _native_acl(props, owner_id=owner_id)
-        if classification is DataClassification.PUBLIC and not acl.is_public:
-            raise DataPrepToolError("public classification lacks a public ACL proof")
-        if acl.is_public and classification is not DataClassification.PUBLIC:
-            raise DataPrepToolError("public ACL lacks a matching public classification")
-        actor_id = str(getattr(session.actor, "actor_id", "") or "")
-        roles = {str(role) for role in getattr(session.actor, "roles", ()) or ()}
-        groups = {str(group) for group in getattr(session.actor, "groups", ()) or ()}
-        if not (
-            acl.is_public
-            or actor_id == owner_id
-            or actor_id in acl.principal_ids
-            or groups.intersection(acl.group_ids)
-            or roles.intersection(acl.roles)
-        ):
-            raise PermissionError("artifact access is denied")
-        _native_digest(
-            props.get("content_digest")
-            or props.get("content_hash")
-            or props.get("digest")
-            or props.get("blob_digest")
-        )
-        media_type_raw = props.get("media_type")
-        if media_type_raw is None:
-            media_type_raw = props.get("mime_type")
-        if not isinstance(media_type_raw, str):
-            raise DataPrepToolError("native artifact media type is invalid")
-        media_type = media_type_raw
-        if media_type not in {
-            "application/vnd.apache.arrow.stream",
-            "application/vnd.apache.arrow.file",
-        }:
-            raise DataPrepToolError("artifact media type is not an approved Arrow type")
-        for key, limit, label in (
-            ("compressed_bytes", budget.max_compressed_bytes, "compressed size"),
-            ("file_size_bytes", budget.max_compressed_bytes, "compressed size"),
-            ("decoded_bytes", budget.max_decoded_bytes, "decoded size"),
-            ("rows", budget.max_rows, "row count"),
-            ("columns", budget.max_columns, "column count"),
-            ("nesting_depth", budget.max_depth, "nesting depth"),
-        ):
-            value = props.get(key)
-            if value is not None and (
-                isinstance(value, bool)
-                or not isinstance(value, int)
-                or value < 0
-                or value > limit
-            ):
-                raise DataPrepToolError(f"artifact {label} exceeds the request budget")
-        if props.get("schema_digest") is not None:
-            _native_digest(props["schema_digest"])
-        if props.get("shape_digest") is not None:
-            _native_digest(props["shape_digest"])
-        if props.get("schema_ref") is not None:
-            _native_ref(props["schema_ref"], fallback="schema:unused")
-        if props.get("shape_ref") is not None:
-            _native_ref(props["shape_ref"], fallback="shape:unused")
+        node_type = _metadata_node_type(props)
+        tenant_id, policy_version = _metadata_tenant_policy(props, session=session)
+        _metadata_expiry_ok(props)
+        _metadata_legal_hold_ok(props)
+        owner_id = _metadata_owner(props)
+        classification = _metadata_classification(props)
+        _metadata_retention_ok(props)
+        acl = _metadata_acl(props, owner_id=owner_id, classification=classification)
+        _metadata_access_check(session, acl=acl, owner_id=owner_id)
+        _metadata_content_digest_present(props)
+        _metadata_media_type_ok(props)
+        _metadata_budget_limits(props, budget=budget)
+        _metadata_digest_refs(props)
         return node_type, tenant_id, policy_version, owner_id, classification, acl
 
     @staticmethod
