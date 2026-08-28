@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic import Field
@@ -678,6 +679,209 @@ def _ontology_sampling_profile_owl(registry: Any) -> str:
     return json.dumps({"owl": inference_owl_ttl(registry)})
 
 
+@dataclass
+class _WritebackCtx:
+    """Bundled writeback destination + engine handles shared across
+    `graph_writeback`'s action/flag branches."""
+
+    target: str
+    backend: Any
+    engine: Any
+    dry_run: bool
+
+
+def _graph_writeback_proposals() -> str:
+    from agent_utilities.knowledge_graph.enrichment.writeback import ProposalQueue
+
+    return json.dumps({"proposals": ProposalQueue().list(status="pending")})
+
+
+def _graph_writeback_approve(proposal_id: str, ctx: _WritebackCtx) -> str:
+    from agent_utilities.knowledge_graph.enrichment.writeback import approve_proposal
+
+    return json.dumps(
+        approve_proposal(str(proposal_id), backend=ctx.backend, engine=ctx.engine)
+    )
+
+
+def _graph_writeback_asset_mirror(ctx: _WritebackCtx) -> str:
+    from agent_utilities.knowledge_graph.enrichment.writeback import run_asset_mirror
+
+    return json.dumps(
+        run_asset_mirror(backend=ctx.backend, engine=ctx.engine, dry_run=ctx.dry_run)
+    )
+
+
+def _graph_writeback_inventory(ctx: _WritebackCtx) -> str:
+    from agent_utilities.knowledge_graph.enrichment.writeback import push_inventory
+
+    return json.dumps(
+        push_inventory(
+            str(ctx.target), backend=ctx.backend, engine=ctx.engine, dry_run=ctx.dry_run
+        )
+    )
+
+
+def _graph_writeback_findings(ctx: _WritebackCtx, creations_json: str) -> str:
+    from agent_utilities.knowledge_graph.enrichment.writeback import push_findings
+
+    project = (
+        json.loads(creations_json)[0]
+        if creations_json and creations_json != "[]"
+        else None
+    )
+    return json.dumps(
+        push_findings(
+            str(ctx.target),
+            backend=ctx.backend,
+            engine=ctx.engine,
+            project=project,
+            dry_run=ctx.dry_run,
+        )
+    )
+
+
+def _graph_writeback_default(
+    ctx: _WritebackCtx,
+    inferences_json: str,
+    enrichments_json: str,
+    creations_json: str,
+    retirements_json: str,
+    process_ids_json: str,
+) -> str:
+    from agent_utilities.knowledge_graph.enrichment.writeback import run_writeback
+
+    ops = {
+        "inferences": json.loads(inferences_json) if inferences_json else [],
+        "enrichments": json.loads(enrichments_json) if enrichments_json else [],
+        "creations": json.loads(creations_json) if creations_json else [],
+        "retirements": json.loads(retirements_json) if retirements_json else [],
+        "process_ids": json.loads(process_ids_json) if process_ids_json else None,
+    }
+    return json.dumps(
+        run_writeback(
+            str(ctx.target),
+            backend=ctx.backend,
+            engine=ctx.engine,
+            dry_run=ctx.dry_run,
+            **ops,
+        )
+    )
+
+
+@dataclass
+class _SpecTicketCtx:
+    """Bundled writeback destination + engine handles shared across
+    `spec_ticket`'s link/pull branches."""
+
+    target: str
+    backend: Any
+    dry_run: bool
+
+
+def _spec_ticket_pull(target: str, user: str, project_id: str) -> str:
+    from agent_utilities.knowledge_graph.enrichment.writeback import pull_assigned
+
+    return json.dumps(
+        pull_assigned(str(target), user=user or None, project_id=project_id or None)
+    )
+
+
+def _spec_ticket_link(
+    ctx: _SpecTicketCtx,
+    spec_json: str,
+    issue_id: str,
+    project_id: str,
+    assignee: str,
+    agent: str,
+    comment: str,
+) -> str:
+    from agent_utilities.knowledge_graph.enrichment.writeback import link_spec
+
+    spec = json.loads(spec_json) if spec_json else {}
+    return json.dumps(
+        link_spec(
+            spec,
+            target=ctx.target,
+            issue_id=str(issue_id),
+            project_id=project_id or None,
+            assignee=assignee or None,
+            agent=agent or None,
+            comment=comment or None,
+            backend=ctx.backend,
+            dry_run=ctx.dry_run,
+        )
+    )
+
+
+def _concept_registry_list(repo_root: Any, status: str) -> str:
+    from agent_utilities.governance import concept_allocator as ca
+
+    return json.dumps(
+        {
+            "reservations": ca.list_reservations(
+                repo_root=repo_root, status=status or None
+            )
+        }
+    )
+
+
+def _concept_registry_reconcile(repo_root: Any) -> str:
+    from agent_utilities.governance import concept_allocator as ca
+
+    return json.dumps(ca.reconcile(repo_root=repo_root))
+
+
+def _concept_registry_release(repo_root: Any, concept_id: str) -> str:
+    from agent_utilities.governance import concept_allocator as ca
+
+    if not concept_id:
+        return json.dumps({"error": "release requires concept_id"})
+    return json.dumps(
+        {"released": ca.release_concept_id(concept_id, repo_root=repo_root)}
+    )
+
+
+def _concept_registry_reserve(
+    repo_root: Any,
+    concept_id: str,
+    session_id: str,
+    design_doc: str,
+    ttl_seconds: int,
+) -> str:
+    import uuid
+
+    from agent_utilities.governance import concept_allocator as ca
+
+    if not concept_id:
+        return json.dumps({"error": "reserve requires concept_id"})
+    sid = session_id or f"session-{uuid.uuid4().hex}"
+    record = ca.reserve_concept_id(
+        concept_id,
+        session_id=sid,
+        design_doc=design_doc or None,
+        ttl_seconds=int(ttl_seconds),
+        repo_root=repo_root,
+    )
+    # Compatibility projection through this already-authenticated
+    # GraphOS execution context. The local ledger is authoritative
+    # for this legacy path only; it is not a separate-host authority.
+    try:
+        _run_coro(
+            kg_server._execute_tool(
+                "graph_write",
+                action="add_node",
+                node_id=record["id"],
+                node_type="ConceptReservation",
+                properties=json.dumps(record),
+            )
+        )
+        record["kg_projected"] = True
+    except Exception:  # noqa: BLE001 - projection is advisory
+        record["kg_projected"] = False
+    return json.dumps(record)
+
+
 def register_ontology_tools(mcp):
     """Register the ontology_tools group on the given FastMCP server."""
 
@@ -1292,76 +1496,35 @@ def register_ontology_tools(mcp):
         ),
     ) -> str:
         """Unified fail-closed write-back to any target system (dry-run-first)."""
-        from agent_utilities.knowledge_graph.enrichment.writeback import (
-            ProposalQueue,
-            approve_proposal,
-            push_findings,
-            push_inventory,
-            run_asset_mirror,
-            run_writeback,
-        )
-
         try:
             try:
                 engine = kg_server._get_engine()
             except Exception:  # noqa: BLE001 - offline → no backend resolver
                 engine = None
             backend = getattr(engine, "backend", None) if engine is not None else None
+            ctx = _WritebackCtx(
+                target=str(target),
+                backend=backend,
+                engine=engine,
+                dry_run=bool(dry_run),
+            )
             if str(action) == "proposals":
-                return json.dumps({"proposals": ProposalQueue().list(status="pending")})
+                return _graph_writeback_proposals()
             if str(action) == "approve":
-                return json.dumps(
-                    approve_proposal(str(proposal_id), backend=backend, engine=engine)
-                )
+                return _graph_writeback_approve(proposal_id, ctx)
             if bool(asset_mirror):
-                return json.dumps(
-                    run_asset_mirror(
-                        backend=backend,
-                        engine=engine,
-                        dry_run=bool(dry_run),
-                    )
-                )
+                return _graph_writeback_asset_mirror(ctx)
             if bool(inventory):
-                return json.dumps(
-                    push_inventory(
-                        str(target),
-                        backend=backend,
-                        engine=engine,
-                        dry_run=bool(dry_run),
-                    )
-                )
+                return _graph_writeback_inventory(ctx)
             if bool(findings):
-                project = (
-                    json.loads(creations_json)[0]
-                    if creations_json and creations_json != "[]"
-                    else None
-                )
-                return json.dumps(
-                    push_findings(
-                        str(target),
-                        backend=backend,
-                        engine=engine,
-                        project=project,
-                        dry_run=bool(dry_run),
-                    )
-                )
-            ops = {
-                "inferences": json.loads(inferences_json) if inferences_json else [],
-                "enrichments": json.loads(enrichments_json) if enrichments_json else [],
-                "creations": json.loads(creations_json) if creations_json else [],
-                "retirements": json.loads(retirements_json) if retirements_json else [],
-                "process_ids": json.loads(process_ids_json)
-                if process_ids_json
-                else None,
-            }
-            return json.dumps(
-                run_writeback(
-                    str(target),
-                    backend=backend,
-                    engine=engine,
-                    dry_run=bool(dry_run),
-                    **ops,
-                )
+                return _graph_writeback_findings(ctx, creations_json)
+            return _graph_writeback_default(
+                ctx,
+                inferences_json,
+                enrichments_json,
+                creations_json,
+                retirements_json,
+                process_ids_json,
             )
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
@@ -1399,11 +1562,6 @@ def register_ontology_tools(mcp):
         ),
     ) -> str:
         """Spec↔ticket↔agent linking + assignment + assigned-items read."""
-        from agent_utilities.knowledge_graph.enrichment.writeback import (
-            link_spec,
-            pull_assigned,
-        )
-
         try:
             try:
                 engine = kg_server._get_engine()
@@ -1411,24 +1569,12 @@ def register_ontology_tools(mcp):
                 engine = None
             backend = getattr(engine, "backend", None) if engine is not None else None
             if str(action) == "pull":
-                return json.dumps(
-                    pull_assigned(
-                        str(target), user=user or None, project_id=project_id or None
-                    )
-                )
-            spec = json.loads(spec_json) if spec_json else {}
-            return json.dumps(
-                link_spec(
-                    spec,
-                    target=str(target),
-                    issue_id=str(issue_id),
-                    project_id=project_id or None,
-                    assignee=assignee or None,
-                    agent=agent or None,
-                    comment=comment or None,
-                    backend=backend,
-                    dry_run=bool(dry_run),
-                )
+                return _spec_ticket_pull(target, user, project_id)
+            ctx = _SpecTicketCtx(
+                target=str(target), backend=backend, dry_run=bool(dry_run)
+            )
+            return _spec_ticket_link(
+                ctx, spec_json, issue_id, project_id, assignee, agent, comment
             )
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
@@ -1477,57 +1623,20 @@ def register_ontology_tools(mcp):
         ),
     ) -> str:
         """Concept-ID reservation ledger operations (see docs/concept_coordination.md)."""
-        import uuid
         from pathlib import Path
-
-        from agent_utilities.governance import concept_allocator as ca
 
         try:
             repo_root = Path(repo).expanduser().resolve() if repo else None
             if str(action) == "list":
-                return json.dumps(
-                    {
-                        "reservations": ca.list_reservations(
-                            repo_root=repo_root, status=status or None
-                        )
-                    }
-                )
+                return _concept_registry_list(repo_root, status)
             if str(action) == "reconcile":
-                return json.dumps(ca.reconcile(repo_root=repo_root))
+                return _concept_registry_reconcile(repo_root)
             if str(action) == "release":
-                if not concept_id:
-                    return json.dumps({"error": "release requires concept_id"})
-                return json.dumps(
-                    {"released": ca.release_concept_id(concept_id, repo_root=repo_root)}
-                )
+                return _concept_registry_release(repo_root, concept_id)
             if str(action) == "reserve":
-                if not concept_id:
-                    return json.dumps({"error": "reserve requires concept_id"})
-                sid = session_id or f"session-{uuid.uuid4().hex}"
-                record = ca.reserve_concept_id(
-                    concept_id,
-                    session_id=sid,
-                    design_doc=design_doc or None,
-                    ttl_seconds=int(ttl_seconds),
-                    repo_root=repo_root,
+                return _concept_registry_reserve(
+                    repo_root, concept_id, session_id, design_doc, ttl_seconds
                 )
-                # Compatibility projection through this already-authenticated
-                # GraphOS execution context. The local ledger is authoritative
-                # for this legacy path only; it is not a separate-host authority.
-                try:
-                    _run_coro(
-                        kg_server._execute_tool(
-                            "graph_write",
-                            action="add_node",
-                            node_id=record["id"],
-                            node_type="ConceptReservation",
-                            properties=json.dumps(record),
-                        )
-                    )
-                    record["kg_projected"] = True
-                except Exception:  # noqa: BLE001 - projection is advisory
-                    record["kg_projected"] = False
-                return json.dumps(record)
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
