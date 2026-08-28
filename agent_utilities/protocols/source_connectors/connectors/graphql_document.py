@@ -1758,6 +1758,101 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
         _opaque, target = self._entity_node_id(identity_key, kind=kind, raw_id=raw_id)
         return target if target in known_ids else None
 
+    def _parent_link(
+        self,
+        identity_key: str,
+        *,
+        mapping: dict[str, Any],
+        record: dict[str, Any],
+        source: str,
+        parent_raw: Any,
+        known_ids: set[str],
+    ) -> dict[str, Any] | None:
+        parent_path = str(mapping.get("parent_id_path") or "")
+        if parent_raw in (None, "") and parent_path:
+            parent_raw = _dig(record, parent_path)
+        if parent_raw in (None, ""):
+            return None
+        parent_kind = str(mapping.get("parent_kind") or "hierarchy").lower()
+        if parent_kind not in _ENTITY_KINDS:
+            parent_kind = "hierarchy"
+        target = self._target_node_id(
+            identity_key, kind=parent_kind, raw_id=parent_raw, known_ids=known_ids
+        )
+        if not target:
+            return None
+        return {
+            "source": source,
+            "target": target,
+            "type": _safe_entity_type(
+                mapping.get("parent_relation"), fallback="PART_OF"
+            ),
+        }
+
+    def _application_link(
+        self,
+        identity_key: str,
+        *,
+        mapping: dict[str, Any],
+        record: dict[str, Any],
+        source: str,
+        known_ids: set[str],
+    ) -> dict[str, Any] | None:
+        application_path = str(mapping.get("application_id_path") or "")
+        if not application_path:
+            return None
+        target = self._target_node_id(
+            identity_key,
+            kind="application",
+            raw_id=_dig(record, application_path),
+            known_ids=known_ids,
+        )
+        if not target:
+            return None
+        return {
+            "source": source,
+            "target": target,
+            "type": _safe_entity_type(
+                mapping.get("application_relation"),
+                fallback="DESCRIBES_APPLICATION",
+            ),
+        }
+
+    def _dependency_link(
+        self,
+        identity_key: str,
+        *,
+        mapping: dict[str, Any],
+        record: dict[str, Any],
+        source: str,
+        known_ids: set[str],
+    ) -> dict[str, Any] | None:
+        source_path = str(mapping.get("source_id_path") or "")
+        target_path = str(mapping.get("target_id_path") or "")
+        dependency_source = self._target_node_id(
+            identity_key,
+            kind="application",
+            raw_id=_dig(record, source_path) if source_path else None,
+            known_ids=known_ids,
+        )
+        dependency_target = self._target_node_id(
+            identity_key,
+            kind="application",
+            raw_id=_dig(record, target_path) if target_path else None,
+            known_ids=known_ids,
+        )
+        if not (dependency_source and dependency_target):
+            return None
+        return {
+            "source": dependency_source,
+            "target": dependency_target,
+            "type": _safe_entity_type(
+                mapping.get("dependency_relation"),
+                fallback="DEPENDS_ON",
+            ),
+            "evidence": source,
+        }
+
     def _entity_links(
         self,
         *,
@@ -1771,78 +1866,37 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
         source = str(item["node_id"])
         links: list[dict[str, Any]] = []
 
-        parent_raw = item.get("parent_raw")
-        parent_path = str(mapping.get("parent_id_path") or "")
-        if parent_raw in (None, "") and parent_path:
-            parent_raw = _dig(record, parent_path)
-        if parent_raw not in (None, ""):
-            parent_kind = str(mapping.get("parent_kind") or "hierarchy").lower()
-            if parent_kind not in _ENTITY_KINDS:
-                parent_kind = "hierarchy"
-            target = self._target_node_id(
-                identity_key,
-                kind=parent_kind,
-                raw_id=parent_raw,
-                known_ids=known_ids,
-            )
-            if target:
-                links.append(
-                    {
-                        "source": source,
-                        "target": target,
-                        "type": _safe_entity_type(
-                            mapping.get("parent_relation"), fallback="PART_OF"
-                        ),
-                    }
-                )
+        parent_link = self._parent_link(
+            identity_key,
+            mapping=mapping,
+            record=record,
+            source=source,
+            parent_raw=item.get("parent_raw"),
+            known_ids=known_ids,
+        )
+        if parent_link is not None:
+            links.append(parent_link)
 
-        application_path = str(mapping.get("application_id_path") or "")
-        if application_path:
-            target = self._target_node_id(
-                identity_key,
-                kind="application",
-                raw_id=_dig(record, application_path),
-                known_ids=known_ids,
-            )
-            if target:
-                links.append(
-                    {
-                        "source": source,
-                        "target": target,
-                        "type": _safe_entity_type(
-                            mapping.get("application_relation"),
-                            fallback="DESCRIBES_APPLICATION",
-                        ),
-                    }
-                )
+        application_link = self._application_link(
+            identity_key,
+            mapping=mapping,
+            record=record,
+            source=source,
+            known_ids=known_ids,
+        )
+        if application_link is not None:
+            links.append(application_link)
 
         if kind == "dependency":
-            source_path = str(mapping.get("source_id_path") or "")
-            target_path = str(mapping.get("target_id_path") or "")
-            dependency_source = self._target_node_id(
+            dependency_link = self._dependency_link(
                 identity_key,
-                kind="application",
-                raw_id=_dig(record, source_path) if source_path else None,
+                mapping=mapping,
+                record=record,
+                source=source,
                 known_ids=known_ids,
             )
-            dependency_target = self._target_node_id(
-                identity_key,
-                kind="application",
-                raw_id=_dig(record, target_path) if target_path else None,
-                known_ids=known_ids,
-            )
-            if dependency_source and dependency_target:
-                links.append(
-                    {
-                        "source": dependency_source,
-                        "target": dependency_target,
-                        "type": _safe_entity_type(
-                            mapping.get("dependency_relation"),
-                            fallback="DEPENDS_ON",
-                        ),
-                        "evidence": source,
-                    }
-                )
+            if dependency_link is not None:
+                links.append(dependency_link)
         return links
 
     def _checkpoint_batch(
