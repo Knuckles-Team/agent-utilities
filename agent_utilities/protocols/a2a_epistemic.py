@@ -1317,6 +1317,61 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
         binding.expected_context_payload_ref = context_ref
         binding.expected_task_revision = task_revision
 
+    def _check_completion_fence(
+        self,
+        context_record: dict[str, Any],
+        task_record: dict[str, Any],
+        binding: _ExecutionBinding,
+    ) -> None:
+        if (
+            context_record["revision"] != binding.expected_context_revision
+            or context_record["payload_ref"] != binding.expected_context_payload_ref
+            or not self._binding_matches(binding, task_record)
+            or task_record["state"] != "working"
+        ):
+            raise A2AStorageConflict("A2A completion lost its execution fence")
+
+    def _apply_completion_content(
+        self, updated: Task, artifacts: list[Artifact], messages: list[Message]
+    ) -> None:
+        if artifacts:
+            updated["artifacts"] = [
+                *(updated.get("artifacts") or []),
+                *artifacts,
+            ][-self.max_artifacts :]
+        if messages:
+            updated["history"] = [
+                *(updated.get("history") or []),
+                *messages,
+            ][-self.max_history :]
+
+    def _completion_updates(
+        self,
+        context_record: dict[str, Any],
+        task_record: dict[str, Any],
+        normalized: list[Any],
+        updated: Task,
+    ) -> tuple[dict[str, Any], dict[str, Any], str, str, int]:
+        context_ref = _payload_ref(normalized, tenant_key=self.runtime.tenant_key)
+        task_ref = _payload_ref(updated, tenant_key=self.runtime.tenant_key)
+        task_revision = task_record["revision"] + 1
+        context_updates = {
+            "revision": context_record["revision"] + 1,
+            "payload": normalized,
+            "payload_ref": context_ref,
+        }
+        task_updates = {
+            "revision": task_revision,
+            "state": "completed",
+            "payload": updated,
+            "payload_ref": task_ref,
+            "context_revision": context_record["revision"] + 1,
+            "context_payload_ref": context_ref,
+            "execution_tag": None,
+            "execution_consumer": None,
+        }
+        return context_updates, task_updates, context_ref, task_ref, task_revision
+
     async def complete_task(
         self,
         task_id: str,
@@ -1341,13 +1396,7 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
         context_record = self._context_record(context_properties)
         task_properties = await self.runtime.call("nodes", "properties", task_id)
         task_record, current = self._task_record(task_properties, task_id)
-        if (
-            context_record["revision"] != binding.expected_context_revision
-            or context_record["payload_ref"] != binding.expected_context_payload_ref
-            or not self._binding_matches(binding, task_record)
-            or task_record["state"] != "working"
-        ):
-            raise A2AStorageConflict("A2A completion lost its execution fence")
+        self._check_completion_fence(context_record, task_record, binding)
         normalized = self._normalize_context(context)
         artifacts = [self._artifact(item) for item in new_artifacts]
         messages = [
@@ -1356,40 +1405,18 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
         ]
         updated = cast(Task, json.loads(_json_bytes(current)))
         updated["status"] = TaskStatus(state="completed", timestamp=_now_iso())
-        if artifacts:
-            updated["artifacts"] = [
-                *(updated.get("artifacts") or []),
-                *artifacts,
-            ][-self.max_artifacts :]
-        if messages:
-            updated["history"] = [
-                *(updated.get("history") or []),
-                *messages,
-            ][-self.max_history :]
+        self._apply_completion_content(updated, artifacts, messages)
         updated = _validated_json(_TASK_ADAPTER, updated, label="completed A2A task")
         _bounded(updated, maximum=self.max_payload_bytes, label="completed A2A task")
-        context_ref = _payload_ref(normalized, tenant_key=self.runtime.tenant_key)
-        task_ref = _payload_ref(updated, tenant_key=self.runtime.tenant_key)
-        task_revision = task_record["revision"] + 1
+        context_updates, task_updates, context_ref, task_ref, task_revision = (
+            self._completion_updates(context_record, task_record, normalized, updated)
+        )
         await self._atomic_context_task_update(
             binding=binding,
             context_record=context_record,
-            context_updates={
-                "revision": context_record["revision"] + 1,
-                "payload": normalized,
-                "payload_ref": context_ref,
-            },
+            context_updates=context_updates,
             task_record=task_record,
-            task_updates={
-                "revision": task_revision,
-                "state": "completed",
-                "payload": updated,
-                "payload_ref": task_ref,
-                "context_revision": context_record["revision"] + 1,
-                "context_payload_ref": context_ref,
-                "execution_tag": None,
-                "execution_consumer": None,
-            },
+            task_updates=task_updates,
         )
         binding.expected_context_revision = context_record["revision"] + 1
         binding.expected_context_payload_ref = context_ref
