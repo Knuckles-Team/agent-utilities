@@ -1674,6 +1674,228 @@ def _native_evidence_rows(
     return rows, governed
 
 
+def _native_content_state(
+    client: Any, envelope: ChangeEnvelope, node_id: str, material: dict[str, Any]
+) -> tuple[str, str, dict[str, Any], str | None]:
+    """``(material_digest, content_digest, source_position, previous_digest)``."""
+    material_digest = _digest(material)
+    current_version = client.changes.content_version(node_id)
+    source_position = _content_position(
+        envelope.source_version or envelope.checkpoint,
+        current_version,
+        material_digest,
+    )
+    content_digest = _digest(
+        {
+            "material": material_digest,
+            "source_position": source_position,
+            "operation": envelope.operation,
+        }
+    )
+    previous_digest = (
+        str(current_version.get("digest"))
+        if isinstance(current_version, dict) and current_version.get("digest")
+        else None
+    )
+    return material_digest, content_digest, source_position, previous_digest
+
+
+def _native_cursor(
+    client: Any, envelope: ChangeEnvelope, chained_cursor_position: Any
+) -> tuple[dict[str, Any] | None, bool]:
+    """The source-cursor advance this envelope commits, if any.
+
+    ``(None, False)`` means "do NOT advance the watermark": an envelope with no
+    checkpoint, or one whose checkpoint does not strictly advance the current
+    position, must never move the cursor forward.
+    """
+    if not envelope.checkpoint:
+        return None, False
+    partition = _cursor_partition(envelope.source_instance)
+    next_position = _typed_position(envelope.checkpoint, content=False)
+    if chained_cursor_position is _CURSOR_READ_LIVE:
+        current_cursor = client.changes.cursor(envelope.connector, partition)
+        current_position = (
+            current_cursor.get("position")
+            if isinstance(current_cursor, dict)
+            and isinstance(current_cursor.get("position"), dict)
+            else None
+        )
+    else:
+        current_position = chained_cursor_position
+    if current_position is not None and not _position_advances(
+        next_position, current_position
+    ):
+        return None, False
+    cursor: dict[str, Any] = {
+        "source": envelope.connector,
+        "partition": partition,
+        "position": next_position,
+    }
+    if current_position is not None:
+        cursor["expected_previous"] = current_position
+    return cursor, True
+
+
+def _structured_evidence_row(node_id: str, structured_evidence: Any) -> dict[str, Any]:
+    """The evidence row an envelope's inline ``structured_evidence`` contributes."""
+    return {
+        "evidence_id": f"evidence:{_digest([node_id, structured_evidence])}",
+        "object_id": node_id,
+        "modality": "structured",
+        "locus": structured_evidence,
+        "content_digest": _digest(structured_evidence),
+    }
+
+
+def _native_policies(
+    session: Any, envelope: ChangeEnvelope, governed_ids: set[str]
+) -> list[dict[str, Any]]:
+    """One durable policy row per governed object, fail-closed on a missing ACL.
+
+    An envelope with no ``source_acl`` yields a ``{"deny_all": True}`` subject
+    set — never an empty/permissive one.
+    """
+    access = envelope.source_acl
+    access_material = access.model_dump() if access is not None else {"deny_all": True}
+    subject_set_digest = _digest(access_material)
+    tenant = str(session.tenant)
+    policy_version = str(session.policy_version or "unversioned")
+    return [
+        {
+            "policy_id": (
+                f"policy:{_digest([tenant, object_id, policy_version, subject_set_digest])}"
+            ),
+            "operation": "upsert",
+            "object_id": object_id,
+            "tenant": tenant,
+            "classification": envelope.classification.value,
+            "policy_version": policy_version,
+            "subject_set_digest": subject_set_digest,
+            "retention_policy": str(envelope.retention or "unspecified"),
+            "legal_hold": bool(envelope.legal_hold),
+        }
+        for object_id in sorted(governed_ids)
+    ]
+
+
+def _native_blob_rows(
+    envelope: ChangeEnvelope, node_id: str, operation_name: str
+) -> list[dict[str, Any]]:
+    """The blob row this envelope commits, or ``[]`` when it carries no blob."""
+    if not envelope.blob_ref:
+        return []
+    return [
+        {
+            "blob_id": node_id,
+            "operation": operation_name,
+            "digest_algorithm": "sha256",
+            "digest": (
+                envelope.blob_digest.removeprefix("sha256:")
+                if envelope.blob_digest
+                else hashlib.sha256(envelope.blob_ref.encode("utf-8")).hexdigest()
+            ),
+            "media_type": str(
+                envelope.blob_media_type
+                or envelope.payload_type
+                or "application/octet-stream"
+            ),
+            "length": int(envelope.blob_length or 0),
+        }
+    ]
+
+
+def _native_placement(authority: _NativeAuthority, session: Any) -> tuple[int, Any]:
+    """``(placement_epoch, placement_group)`` — verified session first, compute next."""
+    placement_epoch = int(
+        session.catalog_epoch
+        if session.catalog_epoch is not None
+        else (getattr(authority.compute, "catalog_epoch", 0) or 0)
+    )
+    placement_group = (
+        session.placement_group
+        if session.placement_group is not None
+        else getattr(authority.compute, "placement_group", None)
+    )
+    return placement_epoch, placement_group
+
+
+def _native_mutation(
+    session: Any,
+    envelope: ChangeEnvelope,
+    operations: list[dict[str, Any]],
+    content_digest: str,
+    *,
+    expected_graph_version: int,
+    created_at_ms: int,
+    placement: tuple[int, Any],
+) -> dict[str, Any]:
+    """The engine's durable mutation DTO for this envelope."""
+    placement_epoch, placement_group = placement
+    policy_version = str(session.policy_version or "unversioned")
+    mutation: dict[str, Any] = {
+        # Epistemic Graph's current-only durable mutation contract is v2.
+        # The enclosing ChangeEnvelope remains v1; these are distinct wire
+        # schemas and neither side accepts the retired mutation v1 shape.
+        "schema_version": 2,
+        "batch_id": f"batch:{envelope.idempotency_key}",
+        "context": {
+            "request_id": 0,
+            "principal": "",
+            "purpose": "external_change_ingestion",
+            "policy_fingerprint": policy_version,
+            "trace_id": str(session.trace_context or envelope.trace_context or ""),
+        },
+        "tenant": str(session.tenant),
+        "graph": str(session.graph),
+        "placement_epoch": placement_epoch,
+        "idempotency_key": envelope.idempotency_key,
+        "expected_graph_version": int(expected_graph_version),
+        "operations": operations,
+        "outbox": [
+            {
+                "topic": "kg.mutations",
+                "key": _native_envelope_id(envelope),
+                "payload": _pack(
+                    {
+                        "schema": "agent-utilities.change-committed.v1",
+                        "content_digest": content_digest,
+                        "operation": envelope.operation,
+                    }
+                ),
+                "headers": {"schema": "agent-utilities.change-committed.v1"},
+            }
+        ],
+        "created_at_ms": created_at_ms,
+    }
+    if placement_group is not None:
+        mutation["fencing_token"] = int(placement_group)
+    return mutation
+
+
+def _native_counts(
+    envelope: ChangeEnvelope,
+    node_rows: list[tuple[str, dict[str, Any]]],
+    links: list[dict[str, Any]],
+    features: list[dict[str, Any]],
+    evidence: list[dict[str, Any]],
+    blobs: list[dict[str, Any]],
+) -> dict[str, int]:
+    """Per-envelope write counts reported back to the caller."""
+    return {
+        "nodes": len(node_rows),
+        "edges": len(links),
+        "features": len(features),
+        "evidence": len(evidence),
+        "blobs": len(blobs),
+        "tombstoned": (
+            max(0, len(node_rows) - 1)
+            if envelope.operation == "snapshot_complete"
+            else int(envelope.operation == "delete")
+        ),
+    }
+
+
 def _native_material(
     authority: _NativeAuthority,
     session: Any,
@@ -1701,65 +1923,26 @@ def _native_material(
         properties["tenant_id"] = str(session.tenant)
     _shacl_validate_rows(client, node_rows)
     operations = _graph_operations(node_rows, links, node_id)
-    material_digest = _digest(
-        {
-            "operation": envelope.operation,
-            "nodes": node_rows,
-            "links": links,
-            "blob_ref": envelope.blob_ref,
-            "blob_digest": envelope.blob_digest,
-            "blob_length": envelope.blob_length,
-            "blob_media_type": envelope.blob_media_type,
-            "features": raw_features,
-            "evidence": raw_evidence,
-            "structured_evidence": envelope.structured_evidence,
-        }
+    material_digest, content_digest, source_position, previous_digest = (
+        _native_content_state(
+            client,
+            envelope,
+            node_id,
+            {
+                "operation": envelope.operation,
+                "nodes": node_rows,
+                "links": links,
+                "blob_ref": envelope.blob_ref,
+                "blob_digest": envelope.blob_digest,
+                "blob_length": envelope.blob_length,
+                "blob_media_type": envelope.blob_media_type,
+                "features": raw_features,
+                "evidence": raw_evidence,
+                "structured_evidence": envelope.structured_evidence,
+            },
+        )
     )
-    current_version = client.changes.content_version(node_id)
-    source_position = _content_position(
-        envelope.source_version or envelope.checkpoint,
-        current_version,
-        material_digest,
-    )
-    content_digest = _digest(
-        {
-            "material": material_digest,
-            "source_position": source_position,
-            "operation": envelope.operation,
-        }
-    )
-    previous_digest = (
-        str(current_version.get("digest"))
-        if isinstance(current_version, dict) and current_version.get("digest")
-        else None
-    )
-
-    cursor: dict[str, Any] | None = None
-    cursor_advanced = False
-    if envelope.checkpoint:
-        partition = _cursor_partition(envelope.source_instance)
-        next_position = _typed_position(envelope.checkpoint, content=False)
-        if chained_cursor_position is _CURSOR_READ_LIVE:
-            current_cursor = client.changes.cursor(envelope.connector, partition)
-            current_position = (
-                current_cursor.get("position")
-                if isinstance(current_cursor, dict)
-                and isinstance(current_cursor.get("position"), dict)
-                else None
-            )
-        else:
-            current_position = chained_cursor_position
-        if current_position is None or _position_advances(
-            next_position, current_position
-        ):
-            cursor = {
-                "source": envelope.connector,
-                "partition": partition,
-                "position": next_position,
-            }
-            if current_position is not None:
-                cursor["expected_previous"] = current_position
-            cursor_advanced = True
+    cursor, cursor_advanced = _native_cursor(client, envelope, chained_cursor_position)
 
     operation_name = "delete" if envelope.operation == "delete" else "upsert"
     features, feature_objects = _native_feature_rows(
@@ -1768,13 +1951,7 @@ def _native_material(
     if envelope.structured_evidence is not None:
         raw_evidence = [
             *raw_evidence,
-            {
-                "evidence_id": f"evidence:{_digest([node_id, envelope.structured_evidence])}",
-                "object_id": node_id,
-                "modality": "structured",
-                "locus": envelope.structured_evidence,
-                "content_digest": _digest(envelope.structured_evidence),
-            },
+            _structured_evidence_row(node_id, envelope.structured_evidence),
         ]
     evidence, evidence_objects = _native_evidence_rows(
         raw_evidence, node_id, operation_name, content_digest
@@ -1783,102 +1960,19 @@ def _native_material(
     governed_ids.update(feature_objects)
     governed_ids.update(evidence_objects)
 
-    access = envelope.source_acl
-    access_material = access.model_dump() if access is not None else {"deny_all": True}
-    subject_set_digest = _digest(access_material)
-    tenant = str(session.tenant)
-    graph = str(session.graph)
-    policy_version = str(session.policy_version or "unversioned")
-    policies = [
-        {
-            "policy_id": (
-                f"policy:{_digest([tenant, object_id, policy_version, subject_set_digest])}"
-            ),
-            "operation": "upsert",
-            "object_id": object_id,
-            "tenant": tenant,
-            "classification": envelope.classification.value,
-            "policy_version": policy_version,
-            "subject_set_digest": subject_set_digest,
-            "retention_policy": str(envelope.retention or "unspecified"),
-            "legal_hold": bool(envelope.legal_hold),
-        }
-        for object_id in sorted(governed_ids)
-    ]
-
-    blobs: list[dict[str, Any]] = []
-    if envelope.blob_ref:
-        blobs.append(
-            {
-                "blob_id": node_id,
-                "operation": operation_name,
-                "digest_algorithm": "sha256",
-                "digest": (
-                    envelope.blob_digest.removeprefix("sha256:")
-                    if envelope.blob_digest
-                    else hashlib.sha256(envelope.blob_ref.encode("utf-8")).hexdigest()
-                ),
-                "media_type": str(
-                    envelope.blob_media_type
-                    or envelope.payload_type
-                    or "application/octet-stream"
-                ),
-                "length": int(envelope.blob_length or 0),
-            }
-        )
-
-    placement_epoch = int(
-        session.catalog_epoch
-        if session.catalog_epoch is not None
-        else (getattr(authority.compute, "catalog_epoch", 0) or 0)
-    )
-    placement_group = (
-        session.placement_group
-        if session.placement_group is not None
-        else getattr(authority.compute, "placement_group", None)
-    )
-    mutation: dict[str, Any] = {
-        # Epistemic Graph's current-only durable mutation contract is v2.
-        # The enclosing ChangeEnvelope remains v1; these are distinct wire
-        # schemas and neither side accepts the retired mutation v1 shape.
-        "schema_version": 2,
-        "batch_id": f"batch:{envelope.idempotency_key}",
-        "context": {
-            "request_id": 0,
-            "principal": "",
-            "purpose": "external_change_ingestion",
-            "policy_fingerprint": policy_version,
-            "trace_id": str(session.trace_context or envelope.trace_context or ""),
-        },
-        "tenant": tenant,
-        "graph": graph,
-        "placement_epoch": placement_epoch,
-        "idempotency_key": envelope.idempotency_key,
-        "expected_graph_version": int(expected_graph_version),
-        "operations": operations,
-        "outbox": [
-            {
-                "topic": "kg.mutations",
-                "key": _native_envelope_id(envelope),
-                "payload": _pack(
-                    {
-                        "schema": "agent-utilities.change-committed.v1",
-                        "content_digest": content_digest,
-                        "operation": envelope.operation,
-                    }
-                ),
-                "headers": {"schema": "agent-utilities.change-committed.v1"},
-            }
-        ],
-        "created_at_ms": created_at_ms,
-    }
-    if placement_group is not None:
-        mutation["fencing_token"] = int(placement_group)
-
+    blobs = _native_blob_rows(envelope, node_id, operation_name)
     native: dict[str, Any] = {
         "schema_version": 1,
         "envelope_id": _native_envelope_id(envelope),
-        "mutation": mutation,
+        "mutation": _native_mutation(
+            session,
+            envelope,
+            operations,
+            content_digest,
+            expected_graph_version=expected_graph_version,
+            created_at_ms=created_at_ms,
+            placement=_native_placement(authority, session),
+        ),
         "content_version": {
             "object_id": node_id,
             "digest_algorithm": "sha256",
@@ -1888,7 +1982,7 @@ def _native_material(
         "blobs": blobs,
         "features": features,
         "evidence": evidence,
-        "policies": policies,
+        "policies": _native_policies(session, envelope, governed_ids),
         "lineage": [
             {
                 "lineage_id": f"lineage:{envelope.idempotency_key}",
@@ -1912,18 +2006,7 @@ def _native_material(
         native["content_version"]["previous_digest"] = previous_digest
     if cursor is not None:
         native["cursor"] = cursor
-    counts = {
-        "nodes": len(node_rows),
-        "edges": len(links),
-        "features": len(features),
-        "evidence": len(evidence),
-        "blobs": len(blobs),
-        "tombstoned": (
-            max(0, len(node_rows) - 1)
-            if envelope.operation == "snapshot_complete"
-            else int(envelope.operation == "delete")
-        ),
-    }
+    counts = _native_counts(envelope, node_rows, links, features, evidence, blobs)
     return native, counts, sorted(governed_ids), cursor_advanced
 
 
@@ -2462,6 +2545,101 @@ def _apply_native_change_envelopes(
 # an entity's write (embedding is a retrieval nicety, not a durability gate) —
 # every failure path below degrades to "no vector this write" and is logged at
 # most once per call, never raised.
+def _primary_upsert_targets(
+    envelopes: list[ChangeEnvelope],
+) -> list[tuple[int, str, dict[str, Any]]]:
+    """``(position, node_id, rendered row)`` for each primary typed upsert."""
+    primary: list[tuple[int, str, dict[str, Any]]] = []
+    for position, envelope in enumerate(envelopes):
+        if envelope.operation != "upsert" or envelope.typed_payload is None:
+            continue
+        node_id, row = _resolve_identity(envelope)
+        if node_id and row is not None:
+            primary.append((position, str(node_id), row))
+    return primary
+
+
+def _stage_embedding_change(
+    payload: dict[str, Any], current: dict[str, Any], row: dict[str, Any]
+) -> tuple[list[float] | None, str] | None:
+    """Stage one envelope's fail-closed embedding change, in place on ``payload``.
+
+    ``None`` means "leave the durable vector exactly as it is". Otherwise
+    ``payload["embedding"]`` has been nulled and the index-ready flag cleared —
+    a stale vector can never outlive the text it described — and the result is
+    ``(supplied_vector_or_None, effective_text)``: a non-``None`` vector was
+    supplied by the caller, while ``None`` with a non-empty text means "generate
+    one" and ``None`` with an empty text means "nothing to embed".
+    """
+    from ..enrichment.semantic import (
+        EMBEDDING_BACKFILL_STATE_FIELD,
+        EMBEDDING_INDEX_READY_FIELD,
+        derive_entity_text,
+    )
+
+    payload[EMBEDDING_BACKFILL_STATE_FIELD] = None
+    effective = dict(current)
+    effective.update(row)
+    old_text = derive_entity_text(current)
+    new_text = derive_entity_text(effective)
+
+    if "embedding" in payload:
+        # Explicit null/empty is an invalidation request. A supplied vector
+        # also passes through null first, then becomes visible atomically with
+        # its ANN replacement after the source envelope commits.
+        incoming_embedding = payload.get("embedding")
+        payload["embedding"] = None
+        payload[EMBEDDING_INDEX_READY_FIELD] = False
+        if incoming_embedding:
+            return list(incoming_embedding), new_text
+        return None
+
+    if current.get("embedding") and old_text == new_text:
+        # D-BFR-10: a partial ACL/classification/operational field merge did
+        # not alter the effective embedding text, so preserve the current
+        # vector and avoid needless embedder + ANN work.
+        return None
+
+    # New/missing vectors and real text changes are fail-closed. If the
+    # embedder is unavailable the source write still lands, but the obsolete
+    # ANN candidate is rejected because its durable vector property is null.
+    payload["embedding"] = None
+    payload[EMBEDDING_INDEX_READY_FIELD] = False
+    return None, new_text
+
+
+def _auto_embed_enabled() -> bool:
+    """Is ingest-time auto-embedding on? An unreadable config defaults to ON."""
+    try:
+        from agent_utilities.core.config import config
+
+        return bool(getattr(config, "kg_ingest_auto_embed", True))
+    except Exception:  # noqa: BLE001 - config unavailable defaults to enabled
+        return True
+
+
+def _generate_pending_vectors(
+    pending: list[tuple[int, str]],
+) -> list[list[float]] | None:
+    """Batch-generate replacement vectors, or ``None`` when the embedder failed.
+
+    ``None`` is deliberately distinct from an empty list: it means "no vectors
+    this write" and the caller keeps whatever was already durable, rather than
+    zipping an empty result against ``pending`` as if the embedder had answered.
+    """
+    try:
+        from ..enrichment.semantic import make_embed_fn, validate_embedding_vectors
+
+        embed_fn = make_embed_fn()
+        return validate_embedding_vectors(
+            embed_fn([text for _, text in pending]),
+            expected_count=len(pending),
+        )
+    except Exception as exc:  # noqa: BLE001 - embedding is not a durability gate
+        logger.debug("ingest-time auto-embed skipped (%s): %s", type(exc).__name__, exc)
+        return None
+
+
 def _prepare_embedding_envelopes(
     client: Any, envelopes: list[ChangeEnvelope]
 ) -> dict[int, tuple[list[float], str]]:
@@ -2474,87 +2652,112 @@ def _prepare_embedding_envelopes(
     Replacement vectors are returned for a later atomic field+ANN transaction;
     they are deliberately *not* made durable in the source mutation first.
     """
-    from ..enrichment.semantic import (
-        EMBEDDING_BACKFILL_STATE_FIELD,
-        EMBEDDING_INDEX_READY_FIELD,
-        derive_entity_text,
-    )
-
-    primary: list[tuple[int, str, dict[str, Any]]] = []
-    for position, envelope in enumerate(envelopes):
-        if envelope.operation != "upsert" or envelope.typed_payload is None:
-            continue
-        node_id, row = _resolve_identity(envelope)
-        if node_id and row is not None:
-            primary.append((position, str(node_id), row))
+    primary = _primary_upsert_targets(envelopes)
     existing = _node_properties_batch(client, [node_id for _, node_id, _ in primary])
 
     supplied: dict[int, tuple[list[float], str]] = {}
     pending: list[tuple[int, str]] = []
     for position, node_id, row in primary:
-        envelope = envelopes[position]
-        payload = envelope.typed_payload
+        payload = envelopes[position].typed_payload
         assert payload is not None
-        payload[EMBEDDING_BACKFILL_STATE_FIELD] = None
-
-        current = existing.get(node_id, {})
-        effective = dict(current)
-        effective.update(row)
-        old_text = derive_entity_text(current)
-        new_text = derive_entity_text(effective)
-        explicit_embedding = "embedding" in payload
-        incoming_embedding = payload.get("embedding")
-
-        if explicit_embedding:
-            # Explicit null/empty is an invalidation request. A supplied vector
-            # also passes through null first, then becomes visible atomically with
-            # its ANN replacement after the source envelope commits.
-            payload["embedding"] = None
-            payload[EMBEDDING_INDEX_READY_FIELD] = False
-            if incoming_embedding:
-                supplied[position] = (list(incoming_embedding), new_text)
+        staged = _stage_embedding_change(payload, existing.get(node_id, {}), row)
+        if staged is None:
             continue
-
-        if current.get("embedding") and old_text == new_text:
-            # D-BFR-10: a partial ACL/classification/operational field merge did
-            # not alter the effective embedding text, so preserve the current
-            # vector and avoid needless embedder + ANN work.
-            continue
-
-        # New/missing vectors and real text changes are fail-closed. If the
-        # embedder is unavailable the source write still lands, but the obsolete
-        # ANN candidate is rejected because its durable vector property is null.
-        payload["embedding"] = None
-        payload[EMBEDDING_INDEX_READY_FIELD] = False
-        if new_text:
+        vector, new_text = staged
+        if vector is not None:
+            supplied[position] = (vector, new_text)
+        elif new_text:
             pending.append((position, new_text))
 
-    try:
-        from agent_utilities.core.config import config
-
-        if not bool(getattr(config, "kg_ingest_auto_embed", True)):
-            return supplied
-    except Exception:  # noqa: BLE001 - config unavailable defaults to enabled
-        pass
-
-    if not pending:
+    if not pending or not _auto_embed_enabled():
         return supplied
-    try:
-        from ..enrichment.semantic import make_embed_fn, validate_embedding_vectors
-
-        embed_fn = make_embed_fn()
-        vectors = validate_embedding_vectors(
-            embed_fn([text for _, text in pending]),
-            expected_count=len(pending),
-        )
-    except Exception as exc:  # noqa: BLE001 - embedding is not a durability gate
-        logger.debug("ingest-time auto-embed skipped (%s): %s", type(exc).__name__, exc)
+    vectors = _generate_pending_vectors(pending)
+    if vectors is None:
         return supplied
 
     embedded = dict(supplied)
     for (position, text), vector in zip(pending, vectors, strict=True):
         embedded[position] = (list(vector), text)
     return embedded
+
+
+def _atomic_embedding_fn(
+    authority: Any,
+) -> Callable[[str, dict[str, Any], dict[str, Any], list[float]], bool] | None:
+    """The authority's atomic field+ANN embedding transaction, or ``None``.
+
+    ``None`` means the capability is absent, which the caller reports and
+    skips — it never falls back to a non-atomic property write.
+    """
+    compute = getattr(authority, "compute", None)
+    publisher = getattr(authority, "backend", None)
+    scoped_atomic_embedding = getattr(
+        publisher, "compare_and_set_node_embedding_for_graph", None
+    )
+    if callable(scoped_atomic_embedding):
+        graph_name = str(getattr(compute, "graph_name", "") or "")
+
+        def _scoped_atomic_embedding(
+            node_id: str,
+            conditions: dict[str, Any],
+            updates: dict[str, Any],
+            vector: list[float],
+        ) -> bool:
+            return bool(
+                scoped_atomic_embedding(
+                    graph_name, node_id, conditions, updates, vector
+                )
+            )
+
+        return _scoped_atomic_embedding
+    candidate = getattr(compute, "compare_and_set_node_embedding", None)
+    return candidate if callable(candidate) else None
+
+
+def _commit_one_embedded_vector(
+    atomic_embedding: Callable[
+        [str, dict[str, Any], dict[str, Any], list[float]], bool
+    ],
+    node_id: str,
+    current: dict[str, Any],
+    vector: list[float],
+    expected_text: str,
+) -> None:
+    """Cross-modal CAS for one node.
+
+    A text change between generation and this transaction loses the exact-field
+    CAS and applies NEITHER side; a failed commit leaves the durable vector null
+    (the source write itself stays valid).
+    """
+    from ..enrichment.semantic import (
+        EMBEDDING_BACKFILL_STATE_FIELD,
+        EMBEDDING_INDEX_READY_FIELD,
+        derive_entity_text_snapshot,
+    )
+
+    text, text_conditions = derive_entity_text_snapshot(current)
+    if text != expected_text:
+        logger.debug("ingest-time embedding text changed before atomic commit")
+        return
+    conditions = {
+        "embedding": None,
+        EMBEDDING_BACKFILL_STATE_FIELD: None,
+        EMBEDDING_INDEX_READY_FIELD: False,
+        **text_conditions,
+    }
+    updates = {
+        "embedding": list(vector),
+        EMBEDDING_BACKFILL_STATE_FIELD: None,
+    }
+    try:
+        atomic_embedding(str(node_id), conditions, updates, list(vector))
+    except Exception as exc:  # noqa: BLE001 - source write remains valid and vector stays null
+        logger.debug(
+            "ingest-time atomic embedding commit skipped for %s (%s): %s",
+            node_id,
+            type(exc).__name__,
+            exc,
+        )
 
 
 def _commit_embedded_vectors(
@@ -2573,45 +2776,13 @@ def _commit_embedded_vectors(
     loses the exact-field CAS and applies neither side.
     """
     compute = getattr(authority, "compute", None)
-    publisher = getattr(authority, "backend", None)
-    scoped_atomic_embedding = getattr(
-        publisher, "compare_and_set_node_embedding_for_graph", None
-    )
-    atomic_embedding: (
-        Callable[[str, dict[str, Any], dict[str, Any], list[float]], bool] | None
-    )
-    if callable(scoped_atomic_embedding):
-        graph_name = str(getattr(compute, "graph_name", "") or "")
-
-        def _scoped_atomic_embedding(
-            node_id: str,
-            conditions: dict[str, Any],
-            updates: dict[str, Any],
-            vector: list[float],
-        ) -> bool:
-            return bool(
-                scoped_atomic_embedding(
-                    graph_name, node_id, conditions, updates, vector
-                )
-            )
-
-        atomic_embedding = _scoped_atomic_embedding
-
-    else:
-        candidate = getattr(compute, "compare_and_set_node_embedding", None)
-        atomic_embedding = candidate if callable(candidate) else None
-    if not callable(atomic_embedding):
+    atomic_embedding = _atomic_embedding_fn(authority)
+    if atomic_embedding is None:
         logger.warning(
             "ingest-time embedding remains unavailable: authority lacks atomic "
             "field+ANN transactions"
         )
         return
-    from ..enrichment.semantic import (
-        EMBEDDING_BACKFILL_STATE_FIELD,
-        EMBEDDING_INDEX_READY_FIELD,
-        derive_entity_text_snapshot,
-    )
-
     client = getattr(compute, "client", None)
     if client is None:
         logger.warning(
@@ -2628,30 +2799,13 @@ def _commit_embedded_vectors(
         node_id = node_ids.get(position)
         if not node_id:
             continue
-        current = properties.get(str(node_id), {})
-        text, text_conditions = derive_entity_text_snapshot(current)
-        if text != expected_text:
-            logger.debug("ingest-time embedding text changed before atomic commit")
-            continue
-        conditions = {
-            "embedding": None,
-            EMBEDDING_BACKFILL_STATE_FIELD: None,
-            EMBEDDING_INDEX_READY_FIELD: False,
-            **text_conditions,
-        }
-        updates = {
-            "embedding": list(vector),
-            EMBEDDING_BACKFILL_STATE_FIELD: None,
-        }
-        try:
-            atomic_embedding(str(node_id), conditions, updates, list(vector))
-        except Exception as exc:  # noqa: BLE001 - source write remains valid and vector stays null
-            logger.debug(
-                "ingest-time atomic embedding commit skipped for %s (%s): %s",
-                node_id,
-                type(exc).__name__,
-                exc,
-            )
+        _commit_one_embedded_vector(
+            atomic_embedding,
+            str(node_id),
+            properties.get(str(node_id), {}),
+            vector,
+            expected_text,
+        )
 
 
 def ingest_envelopes(
