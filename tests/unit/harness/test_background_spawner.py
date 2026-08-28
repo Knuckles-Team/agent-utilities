@@ -31,7 +31,7 @@ def test_check_context_shifts_synthesizes_team_from_description_value():
             alias_match = re.search(r"e\.description AS (\w+)", query)
             assert alias_match, "query must alias e.description"
             alias = alias_match.group(1)
-            return [{"event_id": "evt-1", alias: "Disk usage critical on r820"}]
+            return [{"event_id": "evt-1", alias: "Disk usage critical on node-7"}]
         # The follow-up "mark resolved" write.
         return []
 
@@ -54,5 +54,5 @@ def test_check_context_shifts_synthesizes_team_from_description_value():
     # the Cypher query changed.
     assert spawner.orchestrator.synthesize_team.call_count == 1
     _, kwargs = spawner.orchestrator.synthesize_team.call_args
-    assert kwargs["query"] == "Disk usage critical on r820"
+    assert kwargs["query"] == "Disk usage critical on node-7"
     assert kwargs["domain"] == "background_operations"
