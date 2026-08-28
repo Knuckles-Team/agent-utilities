@@ -201,20 +201,21 @@ class EngineScaleIntentStore:
     def __init__(self, engine: Any):
         self.engine = engine
 
-    def latest(self, service: str) -> tuple[bool, dict[str, Any] | None]:
-        reader = getattr(self.engine, "read_scale_intent", None)
-        if callable(reader):
-            try:
-                value = reader(service)
-                if isinstance(value, dict) and "intent" in value:
-                    value = value.get("intent")
-                return True, value if isinstance(value, dict) else None
-            except Exception as exc:  # noqa: BLE001 — incomplete read is fail-closed
-                logger.warning("scale intent read failed for %s: %s", service, exc)
-                return False, None
-        query = getattr(self.engine, "query_cypher", None)
-        if not callable(query):
+    def _latest_via_reader(
+        self, reader: Callable[[str], Any], service: str
+    ) -> tuple[bool, dict[str, Any] | None]:
+        try:
+            value = reader(service)
+            if isinstance(value, dict) and "intent" in value:
+                value = value.get("intent")
+            return True, value if isinstance(value, dict) else None
+        except Exception as exc:  # noqa: BLE001 — incomplete read is fail-closed
+            logger.warning("scale intent read failed for %s: %s", service, exc)
             return False, None
+
+    def _latest_via_query(
+        self, query: Callable[..., Any], service: str
+    ) -> tuple[bool, dict[str, Any] | None]:
         try:
             rows = (
                 query(
@@ -230,6 +231,15 @@ class EngineScaleIntentStore:
         except Exception as exc:  # noqa: BLE001 — incomplete read is fail-closed
             logger.warning("scale intent query failed for %s: %s", service, exc)
             return False, None
+
+    def latest(self, service: str) -> tuple[bool, dict[str, Any] | None]:
+        reader = getattr(self.engine, "read_scale_intent", None)
+        if callable(reader):
+            return self._latest_via_reader(reader, service)
+        query = getattr(self.engine, "query_cypher", None)
+        if not callable(query):
+            return False, None
+        return self._latest_via_query(query, service)
 
     def cas(self, request: dict[str, Any]) -> dict[str, Any]:
         writer = getattr(self.engine, "cas_scale_intent", None)
@@ -364,6 +374,11 @@ class ScalingSpec:
     controller_mode: str = SCALE_CONTROLLER_NATIVE
 
     def __post_init__(self) -> None:
+        self._validate_replica_bounds()
+        self._validate_signal()
+        self._validate_numeric_fields()
+
+    def _validate_replica_bounds(self) -> None:
         integer_fields = (
             ("min_replicas", self.min_replicas, 0, _MAX_SCALING_REPLICAS),
             ("max_replicas", self.max_replicas, 0, _MAX_SCALING_REPLICAS),
@@ -389,10 +404,18 @@ class ScalingSpec:
                 raise ValueError(f"{field_name} must be between {lower} and {upper}")
         if self.max_replicas < self.min_replicas:
             raise ValueError("max_replicas must be >= min_replicas")
+
+    def _validate_signal(self) -> None:
         if not isinstance(self.signal, str) or not self.signal.strip():
             raise ValueError("signal must be a non-empty string")
         if len(self.signal) > 128:
             raise ValueError("signal is too long")
+
+    def _validate_numeric_fields(self) -> None:
+        self._validate_numeric_types()
+        self._validate_numeric_bounds()
+
+    def _validate_numeric_types(self) -> None:
         for field_name, numeric_value in (
             ("target", self.target),
             ("cooldown_s", self.cooldown_s),
@@ -408,6 +431,8 @@ class ScalingSpec:
                 raise ValueError(f"{field_name} must be finite") from exc
             if not math.isfinite(parsed):
                 raise ValueError(f"{field_name} must be finite")
+
+    def _validate_numeric_bounds(self) -> None:
         if self.target <= 0 or self.target > _MAX_SCALING_TARGET:
             raise ValueError("target is outside its bounded range")
         if self.cooldown_s < 0 or self.cooldown_s > _MAX_SCALING_COOLDOWN_S:
@@ -451,19 +476,11 @@ class KubernetesResourceRef:
         }
 
 
-def parse_kubernetes_resource(raw: Any, service: str) -> KubernetesResourceRef | None:
-    """Parse a registry-owned Kubernetes identity without guessing fields.
+def _kubernetes_resource_fields(
+    raw: dict[str, Any], service: str
+) -> dict[str, str] | None:
+    """Resolve the aliased field set for one k8s resource block, or None if incomplete."""
 
-    A malformed block is omitted, which intentionally makes any later k8s
-    action fail closed in ``KubernetesActuator`` rather than silently deriving
-    identity from a service name or configured namespace.
-    """
-
-    if raw is None:
-        return None
-    if not isinstance(raw, dict):
-        logger.warning("kubernetes resource for %s is not a mapping", service)
-        return None
     aliases = {
         "cluster": ("cluster", "kube_cluster"),
         "context": ("context", "kube_context"),
@@ -491,6 +508,14 @@ def parse_kubernetes_resource(raw: Any, service: str) -> KubernetesResourceRef |
             ", ".join(missing),
         )
         return None
+    return values
+
+
+def _kubernetes_kind_and_mode(
+    values: dict[str, str], service: str
+) -> tuple[str, str] | None:
+    """Normalize the workload kind + controller mode, or None if unsupported."""
+
     kind_aliases = {
         "deployment": "Deployment",
         "deployments": "Deployment",
@@ -504,20 +529,48 @@ def parse_kubernetes_resource(raw: Any, service: str) -> KubernetesResourceRef |
             "kubernetes resource for %s has unsupported kind/controller", service
         )
         return None
+    return kind, mode
+
+
+def _kubernetes_quorum_required(raw: dict[str, Any], service: str) -> tuple[bool, bool]:
+    """Return (valid, value); value is only meaningful when valid is True."""
+
+    quorum_raw = raw.get("quorum_required", raw.get("quorum", False))
+    if isinstance(quorum_raw, bool):
+        return True, quorum_raw
+    if str(quorum_raw).strip().lower() in {"1", "true", "yes"}:
+        return True, True
+    if str(quorum_raw).strip().lower() in {"0", "false", "no", ""}:
+        return True, False
+    logger.warning("kubernetes resource for %s has invalid quorum_required", service)
+    return False, False
+
+
+def parse_kubernetes_resource(raw: Any, service: str) -> KubernetesResourceRef | None:
+    """Parse a registry-owned Kubernetes identity without guessing fields.
+
+    A malformed block is omitted, which intentionally makes any later k8s
+    action fail closed in ``KubernetesActuator`` rather than silently deriving
+    identity from a service name or configured namespace.
+    """
+
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        logger.warning("kubernetes resource for %s is not a mapping", service)
+        return None
+    values = _kubernetes_resource_fields(raw, service)
+    if values is None:
+        return None
+    kind_mode = _kubernetes_kind_and_mode(values, service)
+    if kind_mode is None:
+        return None
+    kind, mode = kind_mode
     if values["name"] != service:
         logger.warning("kubernetes resource for %s names a different workload", service)
         return None
-    quorum_raw = raw.get("quorum_required", raw.get("quorum", False))
-    if isinstance(quorum_raw, bool):
-        quorum_required = quorum_raw
-    elif str(quorum_raw).strip().lower() in {"1", "true", "yes"}:
-        quorum_required = True
-    elif str(quorum_raw).strip().lower() in {"0", "false", "no", ""}:
-        quorum_required = False
-    else:
-        logger.warning(
-            "kubernetes resource for %s has invalid quorum_required", service
-        )
+    quorum_valid, quorum_required = _kubernetes_quorum_required(raw, service)
+    if not quorum_valid:
         return None
     return KubernetesResourceRef(
         cluster=values["cluster"],
@@ -530,6 +583,89 @@ def parse_kubernetes_resource(raw: Any, service: str) -> KubernetesResourceRef |
         controller_mode=mode,
         quorum_required=quorum_required,
     )
+
+
+def _resolve_declared_controller_mode(raw: dict[str, Any]) -> str:
+    """Resolve the ``controller_mode``/``controller``/``mode`` alias set.
+
+    Multiple aliases must agree; an invalid or conflicting declaration cannot
+    silently choose a replica authority.
+    """
+
+    declared_modes = [
+        raw[key]
+        for key in ("controller_mode", "controller", "mode")
+        if key in raw and raw[key] is not None
+    ]
+    normalized_modes = [
+        normalize_scale_controller_mode(value) for value in declared_modes
+    ]
+    if not declared_modes:
+        return SCALE_CONTROLLER_NATIVE
+    if (
+        normalized_modes
+        and normalized_modes[0] in SCALE_CONTROLLER_MODES
+        and all(value == normalized_modes[0] for value in normalized_modes)
+    ):
+        return normalized_modes[0]
+    return "__invalid__"
+
+
+def _build_scaling_spec(raw: dict[str, Any], controller_mode: str) -> ScalingSpec:
+    return ScalingSpec(
+        min_replicas=_strict_scaling_int(
+            raw.get("min", 1), "min", 0, _MAX_SCALING_REPLICAS
+        ),
+        max_replicas=_strict_scaling_int(
+            raw["max"], "max", 0, _MAX_SCALING_REPLICAS
+        ),  # required: no implicit ceiling
+        signal=str(raw.get("signal") or ""),
+        target=_strict_scaling_float(raw.get("target"), "target"),
+        scale_up_step=_strict_scaling_int(
+            raw.get("scale_up_step", 1),
+            "scale_up_step",
+            1,
+            _MAX_SCALING_STEP,
+        ),
+        scale_down_step=_strict_scaling_int(
+            raw.get("scale_down_step", 1),
+            "scale_down_step",
+            1,
+            _MAX_SCALING_STEP,
+        ),
+        cooldown_s=_strict_scaling_float(raw.get("cooldown_s", 300.0), "cooldown_s"),
+        deadband=_strict_scaling_float(raw.get("deadband", 0.05), "deadband"),
+        scale_up_stabilization_samples=_strict_scaling_int(
+            raw.get("scale_up_stabilization_samples", 1),
+            "scale_up_stabilization_samples",
+            1,
+            _MAX_STABILIZATION_SAMPLES,
+        ),
+        scale_down_stabilization_samples=_strict_scaling_int(
+            raw.get("scale_down_stabilization_samples", 3),
+            "scale_down_stabilization_samples",
+            1,
+            _MAX_STABILIZATION_SAMPLES,
+        ),
+        controller_mode=controller_mode,
+    )
+
+
+def _scaling_spec_problems(spec: ScalingSpec) -> list[str]:
+    problems: list[str] = []
+    if spec.min_replicas < 0:
+        problems.append(f"min={spec.min_replicas} < 0")
+    if spec.max_replicas < spec.min_replicas:
+        problems.append(f"max={spec.max_replicas} < min={spec.min_replicas}")
+    if not spec.signal:
+        problems.append("signal missing")
+    if spec.target <= 0:
+        problems.append(f"target={spec.target} must be > 0")
+    if spec.controller_mode not in SCALE_CONTROLLER_MODES:
+        problems.append(
+            "controller_mode must be native, hpa, keda, external_hpa, or external_keda"
+        )
+    return problems
 
 
 def parse_scaling_spec(raw: Any, service: str) -> ScalingSpec | None:
@@ -547,81 +683,12 @@ def parse_scaling_spec(raw: Any, service: str) -> ScalingSpec | None:
         logger.warning("scaling spec for %s is not a mapping — ignored", service)
         return None
     try:
-        declared_modes = [
-            raw[key]
-            for key in ("controller_mode", "controller", "mode")
-            if key in raw and raw[key] is not None
-        ]
-        normalized_modes = [
-            normalize_scale_controller_mode(value) for value in declared_modes
-        ]
-        if not declared_modes:
-            controller_mode = SCALE_CONTROLLER_NATIVE
-        elif (
-            normalized_modes
-            and normalized_modes[0] in SCALE_CONTROLLER_MODES
-            and all(value == normalized_modes[0] for value in normalized_modes)
-        ):
-            controller_mode = normalized_modes[0]
-        else:
-            # Multiple aliases must agree; an invalid or conflicting
-            # declaration cannot silently choose a replica authority.
-            controller_mode = "__invalid__"
-        spec = ScalingSpec(
-            min_replicas=_strict_scaling_int(
-                raw.get("min", 1), "min", 0, _MAX_SCALING_REPLICAS
-            ),
-            max_replicas=_strict_scaling_int(
-                raw["max"], "max", 0, _MAX_SCALING_REPLICAS
-            ),  # required: no implicit ceiling
-            signal=str(raw.get("signal") or ""),
-            target=_strict_scaling_float(raw.get("target"), "target"),
-            scale_up_step=_strict_scaling_int(
-                raw.get("scale_up_step", 1),
-                "scale_up_step",
-                1,
-                _MAX_SCALING_STEP,
-            ),
-            scale_down_step=_strict_scaling_int(
-                raw.get("scale_down_step", 1),
-                "scale_down_step",
-                1,
-                _MAX_SCALING_STEP,
-            ),
-            cooldown_s=_strict_scaling_float(
-                raw.get("cooldown_s", 300.0), "cooldown_s"
-            ),
-            deadband=_strict_scaling_float(raw.get("deadband", 0.05), "deadband"),
-            scale_up_stabilization_samples=_strict_scaling_int(
-                raw.get("scale_up_stabilization_samples", 1),
-                "scale_up_stabilization_samples",
-                1,
-                _MAX_STABILIZATION_SAMPLES,
-            ),
-            scale_down_stabilization_samples=_strict_scaling_int(
-                raw.get("scale_down_stabilization_samples", 3),
-                "scale_down_stabilization_samples",
-                1,
-                _MAX_STABILIZATION_SAMPLES,
-            ),
-            controller_mode=controller_mode,
-        )
+        controller_mode = _resolve_declared_controller_mode(raw)
+        spec = _build_scaling_spec(raw, controller_mode)
     except (KeyError, TypeError, ValueError) as e:
         logger.warning("scaling spec for %s is invalid (%s) — ignored", service, e)
         return None
-    problems: list[str] = []
-    if spec.min_replicas < 0:
-        problems.append(f"min={spec.min_replicas} < 0")
-    if spec.max_replicas < spec.min_replicas:
-        problems.append(f"max={spec.max_replicas} < min={spec.min_replicas}")
-    if not spec.signal:
-        problems.append("signal missing")
-    if spec.target <= 0:
-        problems.append(f"target={spec.target} must be > 0")
-    if spec.controller_mode not in SCALE_CONTROLLER_MODES:
-        problems.append(
-            "controller_mode must be native, hpa, keda, external_hpa, or external_keda"
-        )
+    problems = _scaling_spec_problems(spec)
     if problems:
         logger.warning(
             "scaling spec for %s rejected: %s — ignored", service, "; ".join(problems)
@@ -658,6 +725,23 @@ class FleetRegistryError(RuntimeError):
     """The fleet registry cannot answer a question it is the authority for."""
 
 
+def _collect_registry_aliases(services: list[Any]) -> dict[str, str]:
+    """Build the package -> server-alias map from a registry's ``services:`` list."""
+
+    aliases: dict[str, str] = {}
+    for entry in services:
+        if not isinstance(entry, dict):
+            raise FleetRegistryError("the MCP fleet registry has an invalid entry")
+        package = str(entry.get("package") or "")
+        name = str(entry.get("name") or "")
+        if not package or not name:
+            raise FleetRegistryError("a registry service is missing name or package")
+        if package in aliases and aliases[package] != name:
+            raise FleetRegistryError("a provider maps to two registry server aliases")
+        aliases[package] = name
+    return aliases
+
+
 def registry_server_aliases(registry_path: str | Path | None = None) -> dict[str, str]:
     """Map every provider distribution name to its ONE registered server alias.
 
@@ -680,18 +764,7 @@ def registry_server_aliases(registry_path: str | Path | None = None) -> dict[str
         raise FleetRegistryError("the MCP fleet registry is unreadable") from exc
     if not isinstance(services, list) or not services:
         raise FleetRegistryError("the MCP fleet registry declares no services")
-    aliases: dict[str, str] = {}
-    for entry in services:
-        if not isinstance(entry, dict):
-            raise FleetRegistryError("the MCP fleet registry has an invalid entry")
-        package = str(entry.get("package") or "")
-        name = str(entry.get("name") or "")
-        if not package or not name:
-            raise FleetRegistryError("a registry service is missing name or package")
-        if package in aliases and aliases[package] != name:
-            raise FleetRegistryError("a provider maps to two registry server aliases")
-        aliases[package] = name
-    return aliases
+    return _collect_registry_aliases(services)
 
 
 def registry_server_alias(package: str, registry_path: str | Path | None = None) -> str:
