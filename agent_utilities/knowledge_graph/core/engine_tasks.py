@@ -294,6 +294,52 @@ def _encode_metadata(data: dict[str, Any]) -> str:
     return base64.b64encode(json.dumps(data).encode()).decode()
 
 
+def _decode_metadata_json(raw: str) -> dict[str, Any] | None:
+    """Attempt 1: a valid JSON object string."""
+    try:
+        result = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return None  # nosec B110
+    return result if isinstance(result, dict) else None
+
+
+def _decode_metadata_b64_json(raw: str) -> dict[str, Any] | None:
+    """Attempt 2: base64-encoded JSON."""
+    try:
+        result = json.loads(base64.b64decode(raw).decode())
+    except Exception:
+        return None  # nosec B110
+    return result if isinstance(result, dict) else None
+
+
+def _decode_metadata_kv(raw: str) -> dict[str, Any] | None:
+    """Attempt 3: regex fallback for malformed key-value strings.
+
+    Handles patterns like ``{error: some message, target: /path/to/file}``.
+    """
+    try:
+        stripped = raw.strip()
+        if not stripped.startswith("{") or not stripped.endswith("}"):
+            return None
+        pairs: dict[str, Any] = {}
+        # Split on ", " that precedes a key pattern (word followed by colon)
+        for part in re.split(r",\s*(?=\w+:)", stripped[1:-1]):
+            match = re.match(r"(\w+):\s*(.+)", part.strip())
+            if match:
+                pairs[match.group(1)] = match.group(2).strip()
+        return pairs or None
+    except Exception:
+        return None  # nosec B110
+
+
+# Tried in order; the first decoder that returns a dict wins.
+_METADATA_DECODERS = (
+    _decode_metadata_json,
+    _decode_metadata_b64_json,
+    _decode_metadata_kv,
+)
+
+
 def _decode_metadata(raw: str | None) -> dict[str, Any]:
     """Robustly decode metadata from any stored format.
 
@@ -305,42 +351,10 @@ def _decode_metadata(raw: str | None) -> dict[str, Any]:
     """
     if not raw:
         return {}
-
-    # Attempt 1: Direct JSON parse
-    try:
-        result = json.loads(raw)
-        if isinstance(result, dict):
-            return result
-    except (json.JSONDecodeError, TypeError):
-        pass  # nosec B110
-
-    # Attempt 2: Base64-encoded JSON
-    try:
-        decoded = base64.b64decode(raw).decode()
-        result = json.loads(decoded)
-        if isinstance(result, dict):
-            return result
-    except Exception:
-        pass  # nosec B110
-
-    # Attempt 3: Regex fallback for malformed key-value strings
-    # Handles patterns like: {error: some message, target: /path/to/file}
-    try:
-        stripped = raw.strip()
-        if stripped.startswith("{") and stripped.endswith("}"):
-            inner = stripped[1:-1]
-            pairs = {}
-            # Split on ", " that precedes a key pattern (word followed by colon)
-            parts = re.split(r",\s*(?=\w+:)", inner)
-            for part in parts:
-                match = re.match(r"(\w+):\s*(.+)", part.strip())
-                if match:
-                    pairs[match.group(1)] = match.group(2).strip()
-            if pairs:
-                return pairs
-    except Exception:
-        pass  # nosec B110
-
+    for decode in _METADATA_DECODERS:
+        decoded = decode(raw)
+        if decoded is not None:
+            return decoded
     logger.warning("Failed to decode task metadata: %.100s...", raw)
     return {"_raw": raw}
 
@@ -803,6 +817,1195 @@ def _retryable_partial_materialization(error: BaseException) -> dict[str, Any] |
 # delta-skip (summary != '') keeps subsequent ticks cheap.
 _ENRICH_BATCH = 16
 _ENRICH_MAX_BATCHES = 64
+
+
+class _WorkerPollState:
+    """Per-thread mutable state of one ``_task_worker_loop`` worker.
+
+    A worker's ``poll_count`` / ``miss_streak`` are per-thread by construction (each
+    worker runs its own loop), and ``job_id`` must survive from the poll body into the
+    loop's ``except`` handler — which is exactly what this holder carries across the
+    extracted poll/error helpers.
+    """
+
+    __slots__ = ("job_id", "miss_streak", "poll_count", "worker_id")
+
+    def __init__(self, worker_id: str) -> None:
+        self.worker_id = worker_id
+        self.poll_count = 0
+        # U-65/BUG-111: this worker's own consecutive-empty-poll streak, driving
+        # the bounded exponential idle backoff.
+        self.miss_streak = 0
+        self.job_id: str | None = None
+
+
+def _claim_task_through_gate(
+    worker: Any, worker_id: str, hydration_reserved: bool
+) -> tuple[bool, Any]:
+    """Claim one work item behind the process-local NONBLOCKING claim gate.
+
+    Returns ``(gate_acquired, claimed)``; ``claimed`` is meaningless when the gate
+    was not acquired.
+
+    U-65/BUG-111: a live pod ran 69 host-sized workers that all independently hit
+    native claim_next()+AdmissionPolicy on every poll, producing 2,278 claim calls
+    in 5 minutes and amplifying engine write contention. Only one worker thread
+    performs that round trip at a time; every other worker that finds the gate held
+    skips this poll with NO engine call at all, backs off, and tries again -- this
+    bounds concurrent claim traffic to 1 in-flight per process regardless of pool
+    size, without blocking (a busy gate is a fast, local, non-blocking no-op, never
+    a wait). The gate is released the instant the claim decision is made, well
+    before task execution starts, so it never throttles the actual work -- only the
+    scan/lease/admit decision that precedes it. ``gate_skipped`` is recorded HERE
+    (not inside ``_claim_next_task``) because it is the one outcome that never
+    reaches that method at all -- "claimed" and "empty" are recorded once, at the
+    deeper ``_claim_next_task``/``_record_workitem_claim_outcome`` seam, so the poll
+    loop must not also record them or every claim would be double-counted.
+    """
+    from agent_utilities.observability.gateway_metrics import (
+        WORKITEM_CLAIM_IN_FLIGHT,
+        WORKITEM_CLAIM_LATENCY,
+        WORKITEM_CLAIMS,
+    )
+
+    if not worker._claim_gate.acquire(blocking=False):
+        WORKITEM_CLAIMS.labels(queue="ingest_task", outcome="gate_skipped").inc()
+        return False, None
+    WORKITEM_CLAIM_IN_FLIGHT.set(1)
+    try:
+        claim_started = time.monotonic()
+        claimed = worker._claim_next_task(
+            worker_id=worker_id, hydration_reserved=hydration_reserved
+        )
+        WORKITEM_CLAIM_LATENCY.observe(time.monotonic() - claim_started)
+    finally:
+        WORKITEM_CLAIM_IN_FLIGHT.set(0)
+        worker._claim_gate.release()
+    return True, claimed
+
+
+def _decode_claimed_task_meta(meta: Any) -> tuple[Path | None, bool, str]:
+    """Unpack a claim's metadata into ``(target_path, is_codebase, task_type)``."""
+    target_path: Path | None = None
+    task_type = "document"
+    if meta:
+        if "target" in meta:
+            target_path = _resolve_task_target(str(meta["target"]))
+        task_type = meta.get("type", "document")
+    return target_path, task_type == "codebase", task_type
+
+
+def _task_worker_idle_backoff(miss_streak: int) -> None:
+    """Sleep the bounded exponential + jitter idle backoff for an empty poll.
+
+    ``_idle_backoff_seconds`` replaced the old fixed 2s that made every idle worker
+    wake in lockstep. During a bulk ingest, back off at least as hard as before: one
+    worker holds the ingest while the other idle workers repeatedly polling flooded
+    the single client event loop + engine and starved the ingest worker (profiled:
+    24% of daemon CPU in poll query_cypher vs 10% in the actual ingest). A new task
+    still waits at most one backoff to be claimed — fine while a multi-minute ingest
+    drains. (CONCEPT:AU-KG.compute.registered-edge-type)
+    """
+    from agent_utilities.core.background_throttle import get_throttle
+    from agent_utilities.observability.gateway_metrics import (
+        WORKITEM_IDLE_BACKOFF_SECONDS,
+    )
+
+    backoff = _idle_backoff_seconds(miss_streak)
+    if get_throttle().should_yield_background:
+        backoff = max(backoff, 15.0)
+    WORKITEM_IDLE_BACKOFF_SECONDS.observe(backoff)
+    time.sleep(backoff)
+
+
+def _task_worker_release(worker: Any, worker_id: str) -> None:
+    """ORCH-1.81: ensure the worker is freed even on the error path."""
+    try:
+        worker._worker_registry().finish(worker_id)
+    except Exception as exc:  # noqa: BLE001 — worker-registry cleanup is best-effort
+        logger.debug("worker registry finish() failed for %s: %s", worker_id, exc)  # nosec B110
+
+
+def _task_worker_reject_targetless(worker: Any, job_id: str, worker_id: str) -> None:
+    """Fail a claimed task whose metadata carries no ingest target."""
+    logger.error(f"Task {job_id} has no target in metadata, skipping.")
+    worker._update_task_status(
+        job_id,
+        "failed",
+        {"error": "Missing target in task metadata", "type": "unknown"},
+    )
+    # ORCH-1.81: free this worker in the admission registry.
+    worker._worker_registry().finish(worker_id)
+    time.sleep(2.0)
+
+
+def _task_worker_poll(
+    worker: Any,
+    state: _WorkerPollState,
+    hydration_reserved: bool,
+    hydration_alternate: bool,
+) -> None:
+    """One poll iteration of :meth:`TaskManagerMixin._task_worker_loop`."""
+    state.job_id = None
+
+    effective_hydration_reserved = hydration_reserved or (
+        hydration_alternate and state.poll_count % 2 == 0
+    )
+    state.poll_count += 1
+
+    acquired, claimed = _claim_task_through_gate(
+        worker, state.worker_id, effective_hydration_reserved
+    )
+    if not acquired:
+        state.miss_streak += 1
+        time.sleep(_idle_backoff_seconds(state.miss_streak))
+        return
+
+    target_path: Path | None = None
+    is_codebase = False
+    task_type = "document"
+    if claimed:
+        state.job_id, meta = claimed
+        target_path, is_codebase, task_type = _decode_claimed_task_meta(meta)
+
+    if not state.job_id:
+        state.miss_streak += 1
+        _task_worker_idle_backoff(state.miss_streak)
+        return
+
+    state.miss_streak = 0
+
+    if not target_path:
+        _task_worker_reject_targetless(worker, state.job_id, state.worker_id)
+        return
+
+    try:
+        worker._execute_claimed_task(state.job_id, target_path, is_codebase, task_type)
+    finally:
+        # ORCH-1.81: mark the worker free the moment its task is done (success or
+        # raise), so the next worker's admission and the codebase cap see the freed
+        # slot immediately.
+        worker._worker_registry().finish(state.worker_id)
+
+
+def _task_worker_handle_materialization(
+    worker: Any, materialization: dict[str, Any], job_id: str | None
+) -> None:
+    """Handle a retryable PARTIAL_MATERIALIZATION escaping the worker body.
+
+    A materialization transition is infrastructure state, never an application
+    attempt, so the caller must NOT fall through to the generic retry/dead-letter
+    path even if the fenced control transition was lost to another owner.
+    """
+    if not job_id:
+        logger.info(
+            "TaskManager waiting for graph materialization before "
+            "claiming work (phase=%s cursor=%s)",
+            materialization.get("phase"),
+            materialization.get("completeness_cursor"),
+        )
+        time.sleep(5)
+        return
+    try:
+        deferred = worker._defer_task_for_materialization(job_id, materialization)
+    except Exception as defer_error:  # noqa: BLE001 - infrastructure transition is logged here
+        worker._active_work_item_claim(job_id, pop=True)
+        logger.error(
+            "TaskManager could not defer %s while the graph was materializing: %s",
+            job_id,
+            defer_error,
+        )
+        return
+    if deferred:
+        logger.info(
+            "TaskManager deferred materializing task %s (phase=%s cursor=%s)",
+            job_id,
+            materialization.get("phase"),
+            materialization.get("completeness_cursor"),
+        )
+    else:
+        logger.warning(
+            "TaskManager discarded fenced claim for materializing task %s "
+            "(phase=%s cursor=%s)",
+            job_id,
+            materialization.get("phase"),
+            materialization.get("completeness_cursor"),
+        )
+
+
+def _task_worker_fail_or_retry(worker: Any, job_id: str, error: Exception) -> None:
+    """Route an ordinary worker failure to the retry / dead-letter path."""
+    try:
+        worker._fail_or_retry_task(job_id, str(error))
+    except Exception as inner_e:
+        logger.error(f"Failed to update task status to failed for {job_id}: {inner_e}")
+
+
+def _task_worker_handle_error(
+    worker: Any, error: Exception, state: _WorkerPollState
+) -> None:
+    """The worker loop's whole ``except Exception`` body."""
+    materialization = _retryable_partial_materialization(error)
+    if materialization is not None:
+        _task_worker_handle_materialization(worker, materialization, state.job_id)
+        return
+
+    logger.error(f"TaskManager worker error: {error}")
+    if state.job_id:
+        _task_worker_fail_or_retry(worker, state.job_id, error)
+    _task_worker_release(worker, state.worker_id)
+    time.sleep(5)
+
+
+def _existing_ingest_job(work_index: dict[str, Any], durable_target: str) -> str | None:
+    """The payload ref of a live (non-terminal) ingest job already on ``durable_target``.
+
+    ``None`` means "nothing to dedupe against"; an empty string is a real answer (a
+    live item whose ``payload_ref`` is unset) and is returned as-is, exactly as the
+    inline dedupe scan did.
+    """
+    from agent_utilities.orchestration import work_item as _wi
+
+    for item in work_index.values():
+        meta = item.get("metadata") or {}
+        if meta and meta.get("target") == durable_target:
+            if item.get("status") not in _wi.TERMINAL_WORK_ITEM_STATUSES:
+                return str(item.get("payload_ref") or "")
+    return None
+
+
+def _task_metadata_base(
+    durable_target: str,
+    task_type: str,
+    max_attempts: int,
+    extra_meta: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """The immutable execution definition stamped onto a submitted WorkItem."""
+    task_data: dict[str, Any] = {
+        "target": durable_target,
+        "type": task_type,
+        "submitted_at": datetime.now(UTC).isoformat(),
+        "attempts": 0,
+        "max_attempts": int(max_attempts),
+    }
+    if extra_meta:
+        task_data.update(extra_meta)
+        only_files = task_data.get("only_files")
+        if isinstance(only_files, list):
+            task_data["only_files"] = [
+                _portable_task_target(str(path)) for path in only_files
+            ]
+    return task_data
+
+
+def _stamp_task_scheduling(
+    task_data: dict[str, Any],
+    graph: str,
+    depends_on: list[str] | None,
+    scheduled_for: float | None,
+    provenance: dict,
+    now: float,
+) -> None:
+    """Stamp the scheduling/routing keys onto a task's metadata, in order.
+
+    U-06: the explicit ``graph`` kwarg is the caller-validated selector (already
+    checked against the engine's own catalog by ``resolve_explicit_graph`` at the
+    MCP/REST boundary) — it always wins over any same-named key an ``extra_meta``
+    caller might have set, and is stamped AFTER that merge (see
+    :func:`_task_metadata_base`) so it can never be spoofed via ``extra_meta``.
+    """
+    explicit_graph = str(graph or "").strip()
+    if explicit_graph:
+        task_data["graph"] = explicit_graph
+    if depends_on:
+        task_data["depends_on"] = list(depends_on)
+    if scheduled_for and float(scheduled_for) > now:
+        task_data["eta_unix"] = float(scheduled_for)
+    if provenance:
+        task_data["provenance"] = dict(provenance)
+
+
+def _submitting_tenant() -> str:
+    """The submitting session's tenant, or ``""`` outside a session."""
+    try:
+        from agent_utilities.knowledge_graph.core.session import current_session
+
+        active_session = current_session()
+        return active_session.tenant if active_session is not None else ""
+    except Exception:  # pragma: no cover - local bootstrap
+        return ""
+
+
+def _notify_kafka_submission(
+    host: Any, job_id: str, task_type: str, durable_target: str, tenant: str
+) -> None:
+    """Publish the Kafka notification for a submitted task, when Kafka-backed.
+
+    Kafka remains a notification transport only. Its consumers must win the same
+    native WorkItem claim before executing; non-Kafka workers discover ready
+    WorkItems directly and need no second queue record.
+    """
+    if getattr(host, "_task_queue_backend_name", "sqlite") != "kafka":
+        return
+    from agent_utilities.security.persistence_privacy import persistence_reference
+
+    _submit_kafka_notification(
+        host._submission_queue,
+        task_type,
+        {
+            "job_id": job_id,
+            "partition_ref": persistence_reference(
+                "ingest_partition", durable_target, namespace=tenant
+            ),
+        },
+    )
+
+
+def _drop_task_vector_indices(host: Any, task_type: str) -> None:
+    """Pre-ingestion: drop ONLY the HNSW indexes for tables this task writes to.
+
+    (Kuzu can't SET on indexed columns.) Unaffected indexes stay active.
+    """
+    _TASK_TABLE_MAP = {
+        "codebase": ["Code"],
+        "document": ["Article"],
+        "conversation": ["Message"],
+    }
+    affected_tables = _TASK_TABLE_MAP.get(task_type, [])
+    if not affected_tables or not host.backend:
+        return
+    if not hasattr(host.backend, "drop_vector_indices"):
+        return
+    if not hasattr(host, "_dropped_tables"):
+        host._dropped_tables = set()
+    new_tables = [t for t in affected_tables if t not in host._dropped_tables]
+    if not new_tables:
+        return
+    try:
+        host.backend.drop_vector_indices(tables=new_tables)
+        # D-DST-3 (CONCEPT:AU-AHE.evaluation.debug-swallow-justification): only
+        # mark these tables dropped AFTER drop_vector_indices actually succeeds.
+        # Marking them first (the prior order) meant a failed drop was never
+        # retried on the next submit_task call for this task_type — the write-
+        # then-mark-seen shape this triage was scoped to find — while the still-
+        # indexed columns kept failing the ingestion SET the comment above warns
+        # about ("Kuzu can't SET on indexed columns").
+        host._dropped_tables.update(new_tables)
+    except Exception as e:  # noqa: BLE001 — the drop stays un-marked on failure (see above), so the next task submission for this task_type retries it instead of permanently believing the indexes are gone
+        logger.debug(f"Pre-ingestion index drop skipped: {e}")
+
+
+def _lane_work_counts(
+    work_index: dict[str, Any],
+) -> tuple[dict[tuple[str, str], int], dict[str, int]]:
+    """``({(lane, state): n}, {task_type: pending_n})`` over the WorkItem index."""
+    counts: dict[tuple[str, str], int] = {}
+    type_pending: dict[str, int] = {}
+    for item in work_index.values():
+        state = _task_status_from_work_item(item)
+        lane = str(item.get("resource_class") or "")
+        counts[(lane, state)] = counts.get((lane, state), 0) + 1
+        if state == "pending":
+            kind = str(item.get("fairness_group") or "")
+            type_pending[kind] = type_pending.get(kind, 0) + 1
+    return counts, type_pending
+
+
+def _lane_residual(
+    counts: dict[tuple[str, str], int], rows: dict[str, Any], status: str
+) -> int:
+    """How much of ``status`` the named lanes do NOT account for (the ``lane_less`` bucket)."""
+    total = sum(v for (_lane, st), v in counts.items() if st == status)
+    return max(0, total - sum(r[status] for r in rows.values() if status in r))
+
+
+def _lane_congestion_rows(
+    counts: dict[tuple[str, str], int], live_running: dict[str, int]
+) -> dict[str, Any]:
+    """Per-lane ``{pending, running, live_running, model_role}`` + the ``lane_less`` bucket."""
+    from agent_utilities.knowledge_graph.core.task_lanes import (
+        LANE_NAMES,
+        lane_model_role,
+    )
+
+    out: dict[str, Any] = {}
+    for lane in LANE_NAMES:
+        out[lane] = {
+            "pending": counts.get((lane, "pending"), 0),
+            "running": counts.get((lane, "running"), 0),
+            "live_running": int(live_running.get(lane, 0)),
+            "model_role": lane_model_role(lane),
+        }
+    out["lane_less"] = {
+        "pending": _lane_residual(counts, out, "pending"),
+        "running": _lane_residual(counts, out, "running"),
+        "model_role": None,
+    }
+    return out
+
+
+def _model_concurrency_snapshot() -> dict[str, Any]:
+    """KG-2.145: the adaptive LLM/embedding concurrency targets, so over/under-
+    utilisation of the vLLM serving tier is visible in the same snapshot as lane
+    congestion. Throttled internally; best-effort."""
+    try:
+        from agent_utilities.core.model_capacity_autoscale import get_utilization
+
+        return {
+            role: get_utilization(role) for role in ("embedding", "lite", "default")
+        }
+    except Exception:  # noqa: BLE001 — observability is best-effort, never fatal
+        return {}
+
+
+def _scheduler_snapshot(reg: Any, cfg: Any) -> dict[str, Any]:
+    """ORCH-1.81: surface the scheduler's pool/reservation picture for ops."""
+    return {
+        "worker_count": getattr(cfg, "worker_count", None),
+        "reserved": getattr(cfg, "reserved", None),
+        "per_lane_min": getattr(cfg, "per_lane_min", None),
+        "codebase_cap": getattr(cfg, "codebase_cap", None),
+        "busy_workers": reg.busy_count() if reg is not None else 0,
+        "free_workers": (
+            reg.free_count(getattr(cfg, "worker_count", 0))
+            if reg is not None and cfg is not None
+            else None
+        ),
+        "running_by_type": reg.running_by_type() if reg is not None else {},
+    }
+
+
+def _apply_content_url_pool_override(
+    pool_out: dict[str, Any], type_pending: dict[str, int]
+) -> None:
+    """content_url rides the ingestion lane but is budgeted as acquisition; move its
+    pending count to the acquisition rollup for an accurate view."""
+    from agent_utilities.knowledge_graph.core.task_lanes import pool_for_task_type
+
+    cu_pending = type_pending.get("content_url", 0)
+    cu_pool = pool_for_task_type("content_url")
+    if cu_pool not in pool_out or cu_pool == "memory_gen":
+        return
+    pool_out[cu_pool]["pending"] += cu_pending
+    if "memory_gen" in pool_out:
+        pool_out["memory_gen"]["pending"] = max(
+            0, pool_out["memory_gen"]["pending"] - cu_pending
+        )
+
+
+def _pool_snapshot(
+    rows: dict[str, Any], type_pending: dict[str, int], reg: Any, cfg: Any
+) -> dict[str, Any]:
+    """CONCEPT:AU-ORCH.dispatch.two-pool — per-pool congestion + budget, so an
+    operator can see whether memory-gen is at its cap (back-pressured on the write
+    lock) while acquisition still has headroom. Pending is summed over each pool's
+    lanes (+ the content_url override); running is the live registry's per-pool view.
+    """
+    from agent_utilities.knowledge_graph.core.task_lanes import POOLS
+
+    live_by_pool = reg.running_by_pool() if reg is not None else {}
+    pool_out: dict[str, Any] = {}
+    for pool, lanes in POOLS.items():
+        pool_out[pool] = {
+            "pending": sum(rows.get(ln, {}).get("pending", 0) for ln in lanes),
+            "live_running": int(live_by_pool.get(pool, 0)),
+        }
+    _apply_content_url_pool_override(pool_out, type_pending)
+    if cfg is not None:
+        pool_out["acquisition_floor"] = getattr(cfg, "acquisition_floor", None)
+        pool_out["memory_gen_cap"] = getattr(cfg, "memory_gen_cap", None)
+    return pool_out
+
+
+_UNFILTERED_SOURCE = object()
+"""Sentinel: :func:`_fetch_unembedded` should not filter on ``source_system`` at all."""
+
+
+def _table_columns(cur: Any, tbl: str) -> set[str]:
+    """The column names of ``tbl``, read from ``information_schema``."""
+    cur.execute(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = %s",
+        (tbl,),
+    )
+    return {r[0] for r in cur.fetchall()}
+
+
+def _fetch_unembedded(
+    cur: Any, tbl: str, expr: str, source_system: object, limit: int
+) -> list[tuple[Any, str]]:
+    """Bounded NULL-embedding ``(id, text)`` scan, optionally scoped to one channel.
+
+    ``source_system`` is :data:`_UNFILTERED_SOURCE` for no channel filter, ``None``
+    for the un-stamped channel, or the channel name itself.
+    """
+    tbl = _require_database_identifier(tbl)
+    if source_system is _UNFILTERED_SOURCE:
+        source_clause = ""
+        params: tuple[object, ...] = (limit,)
+    elif source_system is None:
+        source_clause = " AND source_system IS NULL"
+        params = (limit,)
+    else:
+        source_clause = " AND source_system = %s"
+        params = (str(source_system), limit)
+    cur.execute(
+        # Both identifiers are selected from fixed allowlists and
+        # ``tbl`` was validated by ``_require_database_identifier``.
+        f'SELECT id, {expr} FROM "{tbl}" '  # nosec B608
+        f"WHERE embedding IS NULL{source_clause} LIMIT %s",
+        params,
+    )
+    got = [(r[0], (r[1] or "").strip()) for r in cur.fetchall()]
+    return [(nid, txt) for nid, txt in got if txt]
+
+
+def _unembedded_channels(cur: Any, tbl: str) -> list[str]:
+    """Distinct channels that still have unembedded rows (bounded scan, no
+    GROUP BY ORDER BY — equality-friendly DISTINCT only)."""
+    tbl = _require_database_identifier(tbl)
+    cur.execute(
+        # ``tbl`` was validated by ``_require_database_identifier``.
+        f'SELECT DISTINCT source_system FROM "{tbl}" '  # nosec B608
+        "WHERE embedding IS NULL LIMIT 64"
+    )
+    return sorted(str(r[0]) if r[0] is not None else "" for r in cur.fetchall())
+
+
+def _rotate_embed_channels(
+    cursors: dict[str, int], tbl: str, channels: list[str]
+) -> list[str]:
+    """Rotate which channel leads this tick (fair sharing of the remainder)."""
+    cur_idx = cursors.get(tbl, 0) % len(channels)
+    cursors[tbl] = (cur_idx + 1) % len(channels)
+    return channels[cur_idx:] + channels[:cur_idx]
+
+
+def _fetch_round_robin(
+    cur: Any, tbl: str, expr: str, ordered_ch: list[str], take: int
+) -> list[tuple[Any, str]]:
+    """Give each channel a slice of ``take``, in ``ordered_ch`` order."""
+    per_channel = max(1, take // len(ordered_ch))
+    items: list[tuple[Any, str]] = []
+    for ch in ordered_ch:
+        if len(items) >= take:
+            break
+        slot = min(per_channel, take - len(items))
+        items.extend(_fetch_unembedded(cur, tbl, expr, ch or None, slot))
+    return items[:take]
+
+
+def _pgvector_backfill_ready(target: Any, conn_factory: Any, get_tables: Any) -> bool:
+    """True only for a pgvector-capable backend the row-level backfill can drive."""
+    return bool(
+        callable(conn_factory)
+        and callable(get_tables)
+        and getattr(target, "pgvector_available", False)
+    )
+
+
+def _ordered_embedding_tables(tables: Any) -> list[str]:
+    """Retrieval-critical labels first, then the rest."""
+    prio = ["Code", "Concept", "Document", "Feature", "Skill", "Message"]
+    return [t for t in prio if t in tables] + [t for t in tables if t not in prio]
+
+
+def _backfill_embed_function(host: Any) -> Any:
+    """The (memoised) embed callable used by the row-level backfill."""
+    from ..enrichment.semantic import make_embed_fn
+
+    embed_fn = getattr(host, "_backfill_embed_fn", None)
+    if embed_fn is None:
+        embed_fn = make_embed_fn()
+        host._backfill_embed_fn = embed_fn
+    return embed_fn
+
+
+def _select_unembedded_for_backfill(
+    host: Any, conn_factory: Any, tbl: str, take: int
+) -> list[tuple[Any, str]]:
+    """One table's row selection for this backfill tick; ``[]`` if it fails.
+
+    Returning empty on failure makes the caller skip to the next table, so a single
+    bad table doesn't stop the whole backfill pass, and nothing is marked embedded
+    for the skipped table.
+    """
+    try:
+        return host._collect_unembedded_rows(conn_factory, tbl, take)
+    except Exception as e:  # noqa: BLE001 — see the docstring: one table's row-selection query, skipped so the pass continues
+        logger.debug("embed backfill query failed: %s", e)
+        return []
+
+
+def _embed_and_store(
+    host: Any, conn_factory: Any, tbl: str, items: list[Any], embed_fn: Any, now: float
+) -> int | None:
+    """Embed ``items`` and write the vectors back; ``None`` means "stop this tick".
+
+    KG-2.144: fan the embed calls out to the embedding model's parallel capacity —
+    ``make_embed_fn`` batches at 64 and runs up to ``capacity`` batches concurrently
+    via the shared controller, so with capacity 1 it stays sequential and with K it
+    does K at once (scales with the number of vLLM instances). Same nodes, same
+    vectors, idempotent.
+    """
+    tbl = _require_database_identifier(tbl)
+    try:
+        vecs = embed_fn([t for _, t in items])
+        with conn_factory() as conn, conn.cursor() as cur:
+            for (nid, _), vec in zip(items, vecs, strict=False):
+                cur.execute(
+                    # ``tbl`` was validated by
+                    # ``_require_database_identifier``.
+                    f'UPDATE "{tbl}" SET embedding = %s::vector '  # nosec B608
+                    "WHERE id = %s AND embedding IS NULL",
+                    (str(vec), nid),
+                )
+            conn.commit()
+        host._embed_circuit_record(True, now)  # healthy → close breaker
+        return len(items)
+    except Exception as e:  # noqa: BLE001 — already the safe direction: the caller only advances its totals on a non-None return, and the circuit breaker is explicitly recorded False + the tick stops rather than continuing to hammer a down endpoint
+        logger.debug("embed backfill store failed: %s", e)
+        # An embed/store failure means the endpoint is likely down for
+        # every table — record it and stop hammering the rest this tick.
+        host._embed_circuit_record(False, now)
+        return None
+
+
+def _run_embed_backfill_tables(
+    host: Any, conn_factory: Any, ordered: list[str], embed_fn: Any, now: float
+) -> int:
+    """Drain the per-tick embedding budget across ``ordered``, fairly.
+
+    Fair per-table share so retrieval-critical labels (e.g. Concept) aren't starved
+    behind a huge table (e.g. Code). Each table gets up to ``per_table`` rows per
+    tick, still bounded by the total budget.
+    """
+    budget = _EMBED_BACKFILL_BUDGET
+    per_table = max(16, budget // max(1, len(ordered)))
+    total = 0
+    remaining = budget
+    for tbl in ordered:
+        if remaining <= 0:
+            break
+        items = _select_unembedded_for_backfill(
+            host, conn_factory, tbl, min(per_table, remaining)
+        )
+        if not items:
+            continue
+        stored = _embed_and_store(host, conn_factory, tbl, items, embed_fn, now)
+        if stored is None:
+            break
+        total += stored
+        remaining -= stored
+    return total
+
+
+def _ingest_metrics_cutoff(window_sec: int) -> datetime | None:
+    """The window start for :meth:`aggregate_ingest_metrics`, or ``None``."""
+    if not window_sec:
+        return None
+    try:
+        return datetime.now(UTC) - timedelta(seconds=window_sec)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _work_item_completed_at(item: dict[str, Any]) -> datetime | None:
+    """An item's parsed ``completed_at``; ``None`` when absent or unparseable.
+
+    An unparseable timestamp yields ``None`` so the item is included
+    un-window-filtered rather than silently dropped from the aggregate — the safer
+    direction for a metrics report.
+    """
+    ca = item.get("completed_at")
+    if not ca:
+        return None
+    try:
+        if isinstance(ca, int | float):
+            return datetime.fromtimestamp(float(ca), UTC)
+        return datetime.fromisoformat(str(ca))
+    except (ValueError, TypeError) as exc:  # noqa: BLE001 — see the docstring
+        logger.debug(
+            "ingest metrics: unparseable completed_at %r, not window-filtered: %s",
+            ca,
+            exc,
+        )
+        return None
+
+
+def _fold_ingest_counters(
+    bucket: dict[str, Any], item: dict[str, Any], meta: dict[str, Any]
+) -> None:
+    """Fold one WorkItem's outcome/volume/duration into its category bucket."""
+    bucket["jobs"] += 1
+    st = _task_status_from_work_item(item)
+    if st in ("completed", "done", "success"):
+        bucket["completed"] += 1
+    elif st in ("failed", "dead_letter", "error"):
+        bucket["failed"] += 1
+    bucket["nodes"] += int(meta.get("nodes_added", meta.get("nodes_created", 0)) or 0)
+    bucket["edges"] += int(meta.get("edges_added", meta.get("edges_created", 0)) or 0)
+    submitted = item.get("submitted_at")
+    completed_at = item.get("completed_at")
+    if isinstance(submitted, int | float) and isinstance(completed_at, int | float):
+        bucket["duration_ms"] += max(0.0, (completed_at - submitted) * 1000.0)
+
+
+def _accumulate_ingest_metrics(
+    cats: dict[str, dict[str, Any]], item: dict[str, Any], cutoff: datetime | None
+) -> None:
+    """Fold one WorkItem into the per-category ingest aggregate, honouring the window."""
+    meta = item.get("metadata") or {}
+    if cutoff is not None:
+        completed = _work_item_completed_at(item)
+        if completed is not None and completed < cutoff:
+            return
+    cat = meta.get("type") or meta.get("content_type") or "unknown"
+    bucket = cats.setdefault(
+        cat,
+        {
+            "jobs": 0,
+            "completed": 0,
+            "failed": 0,
+            "nodes": 0,
+            "edges": 0,
+            "duration_ms": 0.0,
+        },
+    )
+    _fold_ingest_counters(bucket, item, meta)
+
+
+def _claim_hydration_first(host: Any, token: Any) -> dict[str, Any] | None:
+    """Try each :data:`HYDRATION_TASK_TYPES` lane in turn; first claim wins.
+
+    Scoped per type via ``resource_class``/``fairness_group`` so a reserved worker
+    never picks up an ordinary ``connector_sync`` sharing the same lane.
+    """
+    from agent_utilities.core.resource_priority import HYDRATION_TASK_TYPES
+    from agent_utilities.knowledge_graph.core.task_lanes import lane_for_task_type
+    from agent_utilities.orchestration import work_item as _wi
+
+    for hydration_type in sorted(HYDRATION_TASK_TYPES):
+        claim = _wi.claim_next(
+            host._work_item_engine,
+            queue="ingest_task",
+            resource_class=lane_for_task_type(hydration_type),
+            fairness_group=hydration_type,
+            token=token,
+            lease_ttl_s=_TASK_WORK_ITEM_LEASE_SEC,
+        )
+        if claim is not None:
+            return claim
+    return None
+
+
+def _claim_ingest_work_item(
+    host: Any, hydration_reserved: bool
+) -> dict[str, Any] | None:
+    """Claim the next runnable ingest WorkItem, hydration-first when reserved."""
+    from agent_utilities.orchestration import work_item as _wi
+
+    token = host._get_host_token()
+    claim = _claim_hydration_first(host, token) if hydration_reserved else None
+    if claim is not None:
+        return claim
+    return _wi.claim_next(
+        host._work_item_engine,
+        queue="ingest_task",
+        token=token,
+        lease_ttl_s=_TASK_WORK_ITEM_LEASE_SEC,
+    )
+
+
+def _claimed_job_id(claim: dict[str, Any]) -> str:
+    """The ingest job id a claim refers to."""
+    from agent_utilities.orchestration import work_item as _wi
+
+    job_id = str(
+        claim.get("payload_ref")
+        or _wi.ingest_task_job_id_from_work_item_id(claim["work_item_id"])
+        or ""
+    )
+    if not job_id:
+        raise _wi.WorkItemBackendUnavailable(
+            "ClaimWorkItem returned an ingest item without payload_ref"
+        )
+    return job_id
+
+
+def _defer_claim_for_materialization(
+    host: Any, job_id: str, materialization: dict[str, Any]
+) -> None:
+    """Mirror _task_worker_loop's in-body materialization handling.
+
+    An unexpected failure releasing the native lease must still drop the in-memory
+    claim so it cannot be mistaken for a live local reservation. The native WorkItem
+    itself self-heals via its own lease TTL + the pre-existing expired-lease reaper —
+    never converted into an application failed/dead-letter path.
+    """
+    try:
+        host._defer_task_for_materialization(job_id, materialization)
+    except Exception as defer_error:  # noqa: BLE001 - infrastructure transition is logged below
+        host._active_work_item_claim(job_id, pop=True)
+        logger.error(
+            "TaskManager could not defer %s while the graph was materializing: %s",
+            job_id,
+            defer_error,
+        )
+
+
+def _recover_claim_metadata_failure(
+    host: Any, exc: Exception, job_id: str, claim: dict[str, Any]
+) -> bool:
+    """Clean up after a failed post-claim metadata read.
+
+    Returns ``True`` when the caller must return ``None`` (a retryable
+    materialization transition — infrastructure state, never an application
+    attempt); ``False`` when the caller must re-raise, the local bookkeeping having
+    been dropped first.
+    """
+    from agent_utilities.orchestration import work_item as _wi
+
+    materialization = _retryable_partial_materialization(exc)
+    if materialization is not None:
+        _defer_claim_for_materialization(host, job_id, materialization)
+        return True
+    if isinstance(exc, _wi.WorkItemBackendUnavailable):
+        try:
+            _wi.commit_result(
+                host._work_item_engine,
+                claim["work_item_id"],
+                claim,
+                outcome="failed",
+                error_ref=f"invalid_ingest_definition:{job_id}",
+                retryable=False,
+            )
+        finally:
+            host._active_work_item_claim(job_id, pop=True)
+    else:
+        # Every OTHER failure of the metadata read (a transient engine /
+        # connection error surfacing as a bare RuntimeError, say) must
+        # drop the in-memory claim too, or it strands forever: the
+        # claim is now remembered BEFORE the read, so unlike
+        # the previous ordering this path could leak one. The
+        # native WorkItem lease still self-heals via its TTL + the
+        # expired-lease reaper; this only keeps the local bookkeeping
+        # honest so a dead claim is never mistaken for a live local
+        # reservation. The exception itself is always re-raised.
+        host._active_work_item_claim(job_id, pop=True)
+    return False
+
+
+def _stamp_claim_lease_identity(meta: dict[str, Any], claim: dict[str, Any]) -> None:
+    """Stamp the winning claim's own lease identity onto the returned metadata.
+
+    ``claim`` (from ``_wi.claim_next``/``claim_specific``) already carries the
+    authoritative ``lease_owner``/``lease_epoch`` native WorkItem fields; nothing
+    downstream previously surfaced them, so a caller/log line had no way to say WHO
+    holds this task or WHICH fencing generation it's running under. This is an
+    in-memory enrichment of the dict handed back to the caller ONLY — it is never
+    persisted onto another node's durable metadata (that would create a second
+    writable ownership authority; the native WorkItem lease remains the sole source
+    of truth, per ``_remember_work_item_claim``).
+    """
+    meta["claimed_by"] = claim.get("lease_owner")
+    meta["work_item_epoch"] = claim.get("lease_epoch")
+    meta["work_item_id"] = claim.get("work_item_id")
+
+
+def _admit_claimed_task(
+    host: Any, worker_id: str, job_id: str, tkind: str, hydration_reserved: bool
+) -> bool:
+    """CONCEPT:AU-ORCH.dispatch.worker-scheduling — gate the claim through the
+    reserved-worker fair AdmissionPolicy before this worker commits to the task.
+
+    Only applied to the general/unrestricted claim: the ``hydration_reserved``
+    priority-floor path must never be second-guessed here — that floor exists
+    specifically so hydration work can't be starved, which is the opposite of what
+    admission's hot-spare/heavy-type/coverage rules are for. A denied admission
+    releases the native lease without consuming a retry attempt, so a later
+    (better-suited) poll — by this worker or another — picks the task back up once
+    the pool's live picture allows it. Returns ``False`` when admission denied.
+    """
+    from agent_utilities.knowledge_graph.core.task_lanes import lane_for_task_type
+
+    lane = lane_for_task_type(tkind)
+    if not hydration_reserved:
+        decision = host._admission_policy().decide(lane, tkind, host._pending_by_lane())
+        if not decision.admit:
+            logger.debug(
+                "worker %s admission denied for %s/%s: %s — deferring claim",
+                worker_id,
+                lane,
+                tkind,
+                decision.reason,
+            )
+            host._defer_task_for_admission(job_id)
+            _record_workitem_admission_deferral(tkind)
+            return False
+    host._worker_registry().start(worker_id, lane, tkind)
+    return True
+
+
+_TASK_STATUS_BUCKETS = (
+    "running",
+    "pending",
+    "scheduled",
+    "blocked",
+    "completed",
+    "failed",
+    "cancelled",
+    "dead_letter",
+    "unknown",
+)
+
+# Result-summary keys copied onto a completed job's public listing entry.
+_COMPLETED_SUMMARY_KEYS = (
+    "chunks_added",
+    "nodes_added",
+    "edges_added",
+    "diffs_added",
+    "chunks_skipped",
+    "skip_reason",
+)
+
+
+def _task_list_entry(job_id: str, item: dict[str, Any], status: str) -> dict[str, Any]:
+    """The public per-job record rendered into a ``list_tasks`` bucket."""
+    meta = item.get("metadata") or {}
+    job_info: dict[str, Any] = {
+        "job_id": job_id,
+        "target": meta.get("target", "unknown"),
+    }
+    if status in {"failed", "dead_letter"}:
+        job_info["error"] = item.get("error_ref") or "Unknown error"
+    elif status == "completed":
+        # Include result summary for completed jobs
+        for key in _COMPLETED_SUMMARY_KEYS:
+            if key in meta:
+                job_info[key] = meta[key]
+    return job_info
+
+
+def _stamp_task_progress(response: dict[str, Any], total_tasks: int) -> None:
+    """Add the progress rollup onto a rendered ``list_tasks`` response."""
+    completed_count = len(response["completed"])
+    progress = round((completed_count / total_tasks) * 100, 2)
+    response["progress_percentage"] = f"{progress}% complete"
+    response["progress_stats"] = {
+        "total_tasks": total_tasks,
+        "completed": completed_count,
+        "pending_in_graph": len(response["pending"]),
+        "running_in_graph": len(response["running"]),
+        "scheduled": len(response["scheduled"]),
+        "blocked": len(response["blocked"]),
+    }
+
+
+def _repo_from_code_path(path: str) -> str:
+    """The repository a ``Code`` node's path belongs to, or ``""``.
+
+    Resolved by the portable tree marker, independent of checkout depth, account
+    name, or operating system.
+    """
+    parts = [part for part in path.replace("\\", "/").split("/") if part]
+    if "agent-packages" not in parts:
+        return ""
+    marker = parts.index("agent-packages")
+    return parts[marker + 1] if marker + 1 < len(parts) else ""
+
+
+def _sample_submission_queue_depth(host: Any) -> None:
+    """Backpressure visibility (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer): sample the durable
+    submission-queue depth every pass so depth (and, for Kafka, kg-ingest consumer
+    lag) lands on the OS-5.23 gateway Prometheus registry — including under load,
+    exactly when it matters most.
+    """
+    q = getattr(host, "_submission_queue", None)
+    if q is None:
+        return
+    try:
+        host._record_queue_telemetry(q.get_queue_size())
+    except Exception:  # noqa: BLE001 — queue probe best-effort
+        pass  # nosec B110
+
+
+def _run_maintenance_job(name: str, tick: Any) -> None:
+    """Run one due maintenance job; one job's failure never stops others."""
+    logger.info("[maint-loop] running job %r", name)
+    try:
+        tick()
+        logger.info("[maint-loop] job %r done", name)
+    except Exception as e:  # one job's failure never stops others
+        logger.error("Maintenance job '%s' error: %s", name, e)
+
+
+def _maintenance_scheduler_pass(
+    host: Any,
+    jobs: list[tuple[str, float, Any]],
+    last_run: dict[str, float],
+    leadership: Any,
+) -> None:
+    """One pass of :meth:`TaskManagerMixin._maintenance_scheduler_loop`."""
+    POLL = 5.0
+    if not getattr(host, "backend", None):
+        time.sleep(10.0)
+        return
+
+    # Leader-only gate (CONCEPT:AU-OS.state.cross-host-daemon-leadership): non-leader hosts skip all
+    # singleton maintenance ticks and re-check for fail-over.
+    if not leadership.is_leader():
+        time.sleep(10.0)
+        return
+
+    _sample_submission_queue_depth(host)
+
+    # This loop now runs ONLY the scheduler, including stale-tick
+    # collapse (CONCEPT:AU-OS.state.stale-tick-collapse). Native
+    # ClaimWorkItem owns lease recovery, dependency release, and
+    # delayed availability. Unlike the heavy job *bodies* it
+    # enqueues, scheduler plumbing must run even when workers are
+    # saturated. It is therefore
+    # deliberately NOT gated by the foreground throttle or a
+    # bulk-ingest auto-defer: gating it was the regression that let a
+    # stale-tick backlog and dead-worker leases pile up *precisely*
+    # while ingestion was busy and the queue most needed healing.
+    now = time.time()
+    for name, interval, tick in jobs:
+        if now - last_run[name] < interval:
+            continue
+        _run_maintenance_job(name, tick)
+        last_run[name] = time.time()
+    time.sleep(POLL)
+
+
+def _leaked_comm_tenants(client: Any) -> list[str]:
+    """Ephemeral ``__enrich_comm_`` tenants currently present — never a real graph."""
+    try:
+        tenants = client.tenants.list()
+    except Exception:  # noqa: BLE001 — best-effort sweep
+        return []
+    return [
+        t["name"]
+        for t in tenants
+        if isinstance(t, dict) and "__enrich_comm_" in t.get("name", "")
+    ]
+
+
+def _delete_tenants(client: Any, names: list[str]) -> int:
+    """Drop each named tenant; returns how many went. One failure never stops the sweep."""
+    deleted = 0
+    for name in names:
+        try:
+            client.tenants.delete(name)
+            deleted += 1
+        except Exception:  # noqa: BLE001 — one failure never stops the sweep
+            pass  # nosec B110
+    return deleted
+
+
+def _mirror_drift_totals(summaries: list[dict[str, Any]]) -> tuple[int, int, int]:
+    """``(nodes_missing, edges_missing, errors)`` across per-mirror reconcile reports."""
+    nodes_missing = sum(int(r.get("nodes_missing", 0)) for r in summaries)
+    edges_missing = sum(int(r.get("edges_missing", 0)) for r in summaries)
+    errs = sum(int(r.get("errors", 0)) for r in summaries) + sum(
+        1 for r in summaries if "error" in r
+    )
+    return nodes_missing, edges_missing, errs
+
+
+def _log_mirror_reconcile(reports: dict[str, Any]) -> None:
+    """Report whatever drift survived a mirror reconcile pass."""
+    summaries = [r for r in reports.values() if isinstance(r, dict)]
+    nodes_missing, edges_missing, errs = _mirror_drift_totals(summaries)
+    if not (nodes_missing + edges_missing) and not errs:
+        logger.debug("mirror reconcile: all configured mirrors are in sync")
+        return
+    logger.warning(
+        "mirror reconcile: drift remains after repair — "
+        "%d nodes / %d edges missing, %d write errors (%s)",
+        nodes_missing,
+        edges_missing,
+        errs,
+        reports,
+    )
+
+
+def _count_scorable_items(
+    host: Any, primary_codebase: str | None, topic_count: int
+) -> int:
+    """Relevance-sweep candidates, when there is a codebase target at all."""
+    if not primary_codebase or topic_count <= 0:
+        return 0
+    try:
+        count_result = host.query_cypher(
+            "MATCH (n) WHERE n:Document OR n:Codebase RETURN count(n) AS total",
+        )
+        papers_scored = count_result[0].get("total", 0) if count_result else 0
+        logger.info(
+            "Evolution: %d items available for relevance sweep against '%s'",
+            papers_scored,
+            primary_codebase,
+        )
+        return papers_scored
+    except Exception as e:
+        logger.warning(f"Evolution: relevance count failed: {e}")
+        return 0
+
+
+def _evolution_optimization_throughput(host: Any, cycle_start: datetime) -> int:
+    """``OptimizationTrajectory`` nodes created since the previous evolution cycle."""
+    try:
+        throughput_query = host.query_cypher(
+            "MATCH (n:OptimizationTrajectory) WHERE n.created_at >= $timestamp "
+            "RETURN count(n) AS throughput",
+            params={
+                "timestamp": (
+                    cycle_start - timedelta(seconds=_EVOLUTION_INTERVAL)
+                ).isoformat()
+            },
+        )
+        throughput = throughput_query[0].get("throughput", 0) if throughput_query else 0
+        logger.info("Evolution: OptimizationTrajectoryNode throughput = %d", throughput)
+        return throughput
+    except Exception as e:
+        logger.warning(f"Evolution: failed to get throughput: {e}")
+        return 0
+
+
+def _log_evolution_cycle(
+    host: Any,
+    cycle_id: str,
+    cycle_start: datetime,
+    topic_count: int,
+    papers_scored: int,
+    primary_codebase: str | None,
+) -> None:
+    """Log one evolution cycle as an ``EvolutionCycle`` KG node (best-effort)."""
+    try:
+        from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+
+        throughput = _evolution_optimization_throughput(host, cycle_start)
+        if isinstance(host, IntelligenceGraphEngine):
+            host.add_node(
+                node_id=cycle_id,
+                node_type="EvolutionCycle",
+                properties={
+                    "triggered_by": "daemon",
+                    "topics_scanned": topic_count,
+                    "papers_scored": papers_scored,
+                    "primary_codebase": primary_codebase or "unknown",
+                    "optimization_throughput": throughput,
+                    "created_at": cycle_start.isoformat(),
+                },
+            )
+            logger.info(
+                "Evolution: logged cycle %s (topics=%d, scored=%d)",
+                cycle_id,
+                topic_count,
+                papers_scored,
+            )
+    except Exception as e:
+        logger.warning(f"Evolution: failed to log cycle node: {e}")
 
 
 class SQLiteTaskQueue(QueueBackend):
@@ -1666,25 +2869,12 @@ class TaskManagerMixin(GraphEngineProtocol):
                 "MATCH (c:Code) WHERE c.file_path IS NOT NULL "
                 "RETURN c.id AS id, c.file_path AS path LIMIT 500"
             )
-            if not results:
-                return None
-
             # Extract repository roots from paths
             repo_counts: dict[str, int] = {}
-            for row in results:
-                path = row.get("path", "")
-                if not path:
-                    continue
-                # Resolve the repository by the portable tree marker, independent
-                # of checkout depth, account name, or operating system.
-                parts = [part for part in path.replace("\\", "/").split("/") if part]
-                if "agent-packages" in parts:
-                    marker = parts.index("agent-packages")
-                    repo_name = parts[marker + 1] if marker + 1 < len(parts) else ""
-                    if not repo_name:
-                        continue
+            for row in results or []:
+                repo_name = _repo_from_code_path(row.get("path", "") or "")
+                if repo_name:
                     repo_counts[repo_name] = repo_counts.get(repo_name, 0) + 1
-
             if repo_counts:
                 return max(repo_counts, key=repo_counts.get)  # type: ignore[arg-type]
         except Exception as e:  # noqa: BLE001 — best-effort heuristic; returns None (the documented 'unknown' case) exactly like when repo_counts is empty, so callers already handle this return uniformly
@@ -2392,8 +3582,6 @@ class TaskManagerMixin(GraphEngineProtocol):
         default ``is_leader()`` is always true (flock already enforces a single
         per-host daemon).
         """
-        import time
-
         from agent_utilities.core.leadership import get_leadership
 
         jobs = self._maintenance_jobs()
@@ -2402,57 +3590,13 @@ class TaskManagerMixin(GraphEngineProtocol):
         names = ", ".join(n for n, _, _ in jobs)
         logger.info("KG maintenance scheduler started with jobs: %s", names)
 
-        POLL = 5.0
         leadership = get_leadership("kg-maintenance")
         # Stagger first runs so a startup burst doesn't fire everything at once.
         last_run = {name: time.time() - interval + 15.0 for name, interval, _ in jobs}
 
         while True:
             try:
-                if not getattr(self, "backend", None):
-                    time.sleep(10.0)
-                    continue
-
-                # Leader-only gate (CONCEPT:AU-OS.state.cross-host-daemon-leadership): non-leader hosts skip all
-                # singleton maintenance ticks and re-check for fail-over.
-                if not leadership.is_leader():
-                    time.sleep(10.0)
-                    continue
-
-                # Backpressure visibility (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer): sample the durable
-                # submission-queue depth every pass so depth (and, for Kafka,
-                # kg-ingest consumer lag) lands on the OS-5.23 gateway Prometheus
-                # registry — including under load, exactly when it matters most.
-                q = getattr(self, "_submission_queue", None)
-                if q is not None:
-                    try:
-                        self._record_queue_telemetry(q.get_queue_size())
-                    except Exception:  # noqa: BLE001 — queue probe best-effort
-                        pass
-
-                # This loop now runs ONLY the scheduler, including stale-tick
-                # collapse (CONCEPT:AU-OS.state.stale-tick-collapse). Native
-                # ClaimWorkItem owns lease recovery, dependency release, and
-                # delayed availability. Unlike the heavy job *bodies* it
-                # enqueues, scheduler plumbing must run even when workers are
-                # saturated. It is therefore
-                # deliberately NOT gated by the foreground throttle or a
-                # bulk-ingest auto-defer: gating it was the regression that let a
-                # stale-tick backlog and dead-worker leases pile up *precisely*
-                # while ingestion was busy and the queue most needed healing.
-
-                now = time.time()
-                for name, interval, tick in jobs:
-                    if now - last_run[name] < interval:
-                        continue
-                    logger.info("[maint-loop] running job %r", name)
-                    try:
-                        tick()
-                        logger.info("[maint-loop] job %r done", name)
-                    except Exception as e:  # one job's failure never stops others
-                        logger.error("Maintenance job '%s' error: %s", name, e)
-                    last_run[name] = time.time()
-                time.sleep(POLL)
+                _maintenance_scheduler_pass(self, jobs, last_run, leadership)
             except Exception as e:
                 logger.error(f"MaintenanceScheduler error: {e}")
                 time.sleep(30.0)
@@ -2481,10 +3625,9 @@ class TaskManagerMixin(GraphEngineProtocol):
         CONCEPT:AU-KG.coordination.embedder-breaker. Cards are cached by ``ast_hash`` so unchanged code is
         never re-summarised; only non-empty summaries are written back (so a
         transient LLM outage doesn't poison nodes). Drains up to
-        ``KG_ENRICH_MAX_BATCHES`` batches per tick, re-checking the foreground
+        ``_ENRICH_MAX_BATCHES`` batches per tick, re-checking the foreground
         throttle between batches so it yields promptly to interactive runs.
         """
-        import json
         import time
 
         backend = getattr(self, "backend", None)
@@ -2499,136 +3642,189 @@ class TaskManagerMixin(GraphEngineProtocol):
         if self._card_circuit_open(now):
             return
 
-        from ..enrichment.cards import (
-            generate_symbol_cards,
-            make_lite_llm_fn,
-            make_llm_fn,
-        )
-        from ..enrichment.models import CodeEntity
-
-        BATCH = _ENRICH_BATCH
-        MAX_BATCHES = _ENRICH_MAX_BATCHES
         max_workers = compute_ingest_worker_count()
-        llm_fn = getattr(self, "_enrich_llm_fn", None)
-
-        for _ in range(MAX_BATCHES):
-            # Yield between batches to interactive runs AND to a bulk ingest.
-            try:
-                from agent_utilities.core.background_throttle import get_throttle
-
-                if get_throttle().should_yield_background:
-                    return
-            except ImportError as exc:  # noqa: BLE001 — ImportError-guarded optional background-throttle signal; when unavailable the tick proceeds without the early-yield check rather than the enrichment batch being lost
-                logger.debug(
-                    "background-throttle check skipped (optional dependency): %s", exc
-                )
-
-            # Select nodes STILL needing a card: no summary AND not yet attempted
-            # (``card_status`` is set to 'ok'/'skip' once a node is resolved, so a trivial
-            # or genuinely-un-summarizable symbol drops out and the window ADVANCES instead
-            # of re-fetching the same rows forever). A transient LLM failure leaves
-            # card_status unset, so it is retried next tick — governed by the breaker.
-            # ORDER BY makes the scan deterministic. (CONCEPT:AU-KG.enrichment.card-attempt-status)
-            rows = self.query_cypher(
-                "MATCH (n:Code) WHERE n.summary = '' AND n.ast_hash IS NOT NULL "
-                "AND n.card_status IS NULL "
-                "RETURN n.id AS id, n.name AS name, n.kind AS kind, "
-                "n.file_path AS file_path, n.patterns AS patterns, "
-                "n.language AS language, n.ast_hash AS ast_hash "
-                "ORDER BY n.id LIMIT " + str(BATCH)
-            )
-            if not rows:
+        for _ in range(_ENRICH_MAX_BATCHES):
+            if not self._enrich_run_batch(backend, max_workers, now):
                 return
-            if llm_fn is None:
-                # Card summaries are a structured extraction task — route to the
-                # LITE chat model by default (markedly faster than the heavy KG
-                # model, which is what saturated the engine on a full backfill).
-                # ``KG_CARD_MODEL=heavy`` forces the heavy model. (CONCEPT:AU-KG.coordination.embedder-breaker)
-                from agent_utilities.core.config import setting
 
-                use_heavy = setting("KG_CARD_MODEL", "lite").lower() == "heavy"
-                llm_fn = make_llm_fn() if use_heavy else make_lite_llm_fn()
-                self._enrich_llm_fn = llm_fn
-
-            ents = [
-                CodeEntity(
-                    id=r["id"],
-                    name=r.get("name") or r["id"],
-                    qualname=r.get("name") or r["id"],
-                    kind=r.get("kind") or "function",
-                    language=r.get("language") or "",
-                    file_path=r.get("file_path") or "",
-                    line=0,
-                    ast_hash=r.get("ast_hash") or "",
-                    patterns=[p for p in (r.get("patterns") or "").split(",") if p],
-                )
-                for r in rows
-            ]
-            # Respect the global background throttle: skip this tick if foreground
-            # (interactive) work is active, and cap concurrent background LLM load
-            # via the shared semaphore so card backfill can't saturate the engine
-            # (CONCEPT:AU-KG.compute.registered-edge-type). The per-batch foreground check above stays as a
-            # fast-path; this adds the concurrency cap shared with other daemons.
+    def _enrich_should_yield(self) -> bool:
+        """True when the shared background throttle wants this tick to stand down."""
+        try:
             from agent_utilities.core.background_throttle import get_throttle
 
-            with get_throttle().background_slot(wait_foreground=False) as slot:
-                if not slot:
-                    return
-                cards = generate_symbol_cards(
-                    ents,
-                    llm_fn,
-                    cache=self._enrich_card_cache,
-                    max_workers=max_workers,
-                    store=self._card_store(),
-                )
-            written = 0
-            attempted = (
-                0  # nodes resolved this batch (ok + skip) — real forward progress
+            return bool(get_throttle().should_yield_background)
+        except ImportError as exc:  # noqa: BLE001 — ImportError-guarded optional background-throttle signal; when unavailable the tick proceeds without the early-yield check rather than the enrichment batch being lost
+            logger.debug(
+                "background-throttle check skipped (optional dependency): %s", exc
             )
-            failed = 0  # transient LLM failures — NOT marked done, retried next tick
-            for card in cards:
-                status = getattr(card, "status", "ok" if card.summary else "skip")
-                if status == "failed":
-                    failed += 1
-                    continue
-                try:
-                    if status == "ok" and card.summary:
-                        backend.execute(
-                            "MATCH (n:Code {id: $id}) SET n.summary = $summary, "
-                            "n.responsibilities = $resp, n.card_status = 'ok'",
-                            {
-                                "id": card.id,
-                                "summary": card.summary,
-                                "resp": json.dumps(card.responsibilities),
-                            },
-                        )
-                        written += 1
-                    else:
-                        # PERMANENT empty (trivial accessor / un-summarizable): mark
-                        # 'skip' so it never re-selects (fixes the never-100% stall).
-                        backend.execute(
-                            "MATCH (n:Code {id: $id}) SET n.card_status = 'skip'",
-                            {"id": card.id},
-                        )
-                    attempted += 1
-                except Exception:
-                    logger.debug("card writeback failed for %s", card.id, exc_info=True)
-            logger.info(
-                "KG enrichment: %d summarized, %d skipped, %d failed (of %d)",
-                written,
-                attempted - written,
-                failed,
-                len(rows),
+            return False
+
+    def _enrich_select_rows(self, batch: int) -> list[dict[str, Any]]:
+        """Select ``Code`` nodes STILL needing a card.
+
+        No summary AND not yet attempted (``card_status`` is set to 'ok'/'skip' once
+        a node is resolved, so a trivial or genuinely-un-summarizable symbol drops out
+        and the window ADVANCES instead of re-fetching the same rows forever). A
+        transient LLM failure leaves ``card_status`` unset, so it is retried next tick
+        — governed by the breaker. ORDER BY makes the scan deterministic.
+        (CONCEPT:AU-KG.enrichment.card-attempt-status)
+        """
+        return self.query_cypher(
+            "MATCH (n:Code) WHERE n.summary = '' AND n.ast_hash IS NOT NULL "
+            "AND n.card_status IS NULL "
+            "RETURN n.id AS id, n.name AS name, n.kind AS kind, "
+            "n.file_path AS file_path, n.patterns AS patterns, "
+            "n.language AS language, n.ast_hash AS ast_hash "
+            "ORDER BY n.id LIMIT " + str(batch)
+        )
+
+    def _enrich_llm_function(self) -> Any:
+        """The (memoised) LLM callable used to summarise capability cards.
+
+        Card summaries are a structured extraction task — route to the LITE chat
+        model by default (markedly faster than the heavy KG model, which is what
+        saturated the engine on a full backfill). ``KG_CARD_MODEL=heavy`` forces the
+        heavy model. (CONCEPT:AU-KG.coordination.embedder-breaker)
+        """
+        llm_fn = getattr(self, "_enrich_llm_fn", None)
+        if llm_fn is not None:
+            return llm_fn
+        from agent_utilities.core.config import setting
+
+        from ..enrichment.cards import make_lite_llm_fn, make_llm_fn
+
+        use_heavy = setting("KG_CARD_MODEL", "lite").lower() == "heavy"
+        llm_fn = make_llm_fn() if use_heavy else make_lite_llm_fn()
+        self._enrich_llm_fn = llm_fn
+        return llm_fn
+
+    @staticmethod
+    def _enrich_code_entity(row: dict[str, Any]) -> Any:
+        """Build one ``CodeEntity`` from a selected ``Code`` row."""
+        from ..enrichment.models import CodeEntity
+
+        name = row.get("name") or row["id"]
+        patterns = [p for p in (row.get("patterns") or "").split(",") if p]
+        return CodeEntity(
+            id=row["id"],
+            name=name,
+            qualname=name,
+            kind=row.get("kind") or "function",
+            language=row.get("language") or "",
+            file_path=row.get("file_path") or "",
+            line=0,
+            ast_hash=row.get("ast_hash") or "",
+            patterns=patterns,
+        )
+
+    def _enrich_generate_cards(
+        self, rows: list[dict[str, Any]], llm_fn: Any, max_workers: int
+    ) -> list[Any] | None:
+        """Summarise ``rows`` into cards, or ``None`` when no background slot is free.
+
+        Respects the global background throttle: skips this tick if foreground
+        (interactive) work is active, and caps concurrent background LLM load via the
+        shared semaphore so card backfill can't saturate the engine
+        (CONCEPT:AU-KG.compute.registered-edge-type). The per-batch foreground check in
+        ``_enrich_run_batch`` stays as a fast-path; this adds the concurrency cap
+        shared with other daemons.
+        """
+        from agent_utilities.core.background_throttle import get_throttle
+
+        from ..enrichment.cards import generate_symbol_cards
+
+        ents = [self._enrich_code_entity(r) for r in rows]
+        with get_throttle().background_slot(wait_foreground=False) as slot:
+            if not slot:
+                return None
+            return generate_symbol_cards(
+                ents,
+                llm_fn,
+                cache=self._enrich_card_cache,
+                max_workers=max_workers,
+                store=self._card_store(),
             )
-            # Breaker: a batch that produced ONLY failures (no node resolved) signals a
-            # down LLM → count toward opening the circuit and stop this tick. Any forward
-            # progress (a summary OR a skip mark) resets it. Because attempted nodes are
-            # now marked, an all-trivial window no longer freezes the tick (the old
-            # ``written == 0 → return`` bug); only a genuine outage stops it.
-            if attempted == 0 and failed > 0:
-                self._card_circuit_record(False, now)
-                return
-            self._card_circuit_record(True, now)
+
+    @staticmethod
+    def _enrich_write_card(backend: Any, card: Any, status: str) -> None:
+        """Write one resolved card back onto its ``Code`` node."""
+        import json
+
+        if status == "ok" and card.summary:
+            backend.execute(
+                "MATCH (n:Code {id: $id}) SET n.summary = $summary, "
+                "n.responsibilities = $resp, n.card_status = 'ok'",
+                {
+                    "id": card.id,
+                    "summary": card.summary,
+                    "resp": json.dumps(card.responsibilities),
+                },
+            )
+            return
+        # PERMANENT empty (trivial accessor / un-summarizable): mark
+        # 'skip' so it never re-selects (fixes the never-100% stall).
+        backend.execute(
+            "MATCH (n:Code {id: $id}) SET n.card_status = 'skip'",
+            {"id": card.id},
+        )
+
+    def _enrich_write_cards(
+        self, backend: Any, cards: list[Any]
+    ) -> tuple[int, int, int]:
+        """Write back ``cards``; return ``(written, attempted, failed)``.
+
+        ``attempted`` counts nodes resolved this batch (ok + skip) — real forward
+        progress. ``failed`` counts transient LLM failures, which are NOT marked done
+        and are retried next tick.
+        """
+        written = 0
+        attempted = 0
+        failed = 0
+        for card in cards:
+            status = getattr(card, "status", "ok" if card.summary else "skip")
+            if status == "failed":
+                failed += 1
+                continue
+            try:
+                self._enrich_write_card(backend, card, status)
+                if status == "ok" and card.summary:
+                    written += 1
+                attempted += 1
+            except Exception:
+                logger.debug("card writeback failed for %s", card.id, exc_info=True)
+        return written, attempted, failed
+
+    def _enrich_run_batch(self, backend: Any, max_workers: int, now: float) -> bool:
+        """Run one enrichment batch; return True to keep draining this tick."""
+        # Yield between batches to interactive runs AND to a bulk ingest.
+        if self._enrich_should_yield():
+            return False
+        rows = self._enrich_select_rows(_ENRICH_BATCH)
+        if not rows:
+            return False
+        cards = self._enrich_generate_cards(
+            rows, self._enrich_llm_function(), max_workers
+        )
+        if cards is None:
+            return False
+        written, attempted, failed = self._enrich_write_cards(backend, cards)
+        logger.info(
+            "KG enrichment: %d summarized, %d skipped, %d failed (of %d)",
+            written,
+            attempted - written,
+            failed,
+            len(rows),
+        )
+        # Breaker: a batch that produced ONLY failures (no node resolved) signals a
+        # down LLM → count toward opening the circuit and stop this tick. Any forward
+        # progress (a summary OR a skip mark) resets it. Because attempted nodes are
+        # now marked, an all-trivial window no longer freezes the tick (the old
+        # ``written == 0 → return`` bug); only a genuine outage stops it.
+        if attempted == 0 and failed > 0:
+            self._card_circuit_record(False, now)
+            return False
+        self._card_circuit_record(True, now)
+        return True
 
     # Candidate text columns used to build embedding input, in priority order.
     _EMBED_TEXT_COLS = (
@@ -2713,74 +3909,24 @@ class TaskManagerMixin(GraphEngineProtocol):
         """
         tbl = _require_database_identifier(tbl)
         with conn_factory() as conn, conn.cursor() as cur:
-            cur.execute(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_name = %s",
-                (tbl,),
-            )
-            cols = {r[0] for r in cur.fetchall()}
+            cols = _table_columns(cur, tbl)
             text_cols = [c for c in self._EMBED_TEXT_COLS if c in cols]
             if not text_cols or "embedding" not in cols:
                 return []
             expr = " || ' ' || ".join(f"COALESCE(\"{c}\",'')" for c in text_cols)
-            has_source = "source_system" in cols
 
-            unfiltered = object()
+            if "source_system" not in cols:
+                return _fetch_unembedded(cur, tbl, expr, _UNFILTERED_SOURCE, take)
 
-            def _fetch(source_system: object, limit: int) -> list[tuple[Any, str]]:
-                if source_system is unfiltered:
-                    source_clause = ""
-                    params: tuple[object, ...] = (limit,)
-                elif source_system is None:
-                    source_clause = " AND source_system IS NULL"
-                    params = (limit,)
-                else:
-                    source_clause = " AND source_system = %s"
-                    params = (str(source_system), limit)
-                cur.execute(
-                    # Both identifiers are selected from fixed allowlists and
-                    # ``tbl`` was validated by ``_require_database_identifier``.
-                    f'SELECT id, {expr} FROM "{tbl}" '  # nosec B608
-                    f"WHERE embedding IS NULL{source_clause} LIMIT %s",
-                    params,
-                )
-                got = [(r[0], (r[1] or "").strip()) for r in cur.fetchall()]
-                return [(nid, txt) for nid, txt in got if txt]
-
-            if not has_source:
-                return _fetch(unfiltered, take)
-
-            # Distinct channels that still have unembedded rows (bounded scan, no
-            # GROUP BY ORDER BY — equality-friendly DISTINCT only).
-            cur.execute(
-                # ``tbl`` was validated by ``_require_database_identifier``.
-                f'SELECT DISTINCT source_system FROM "{tbl}" '  # nosec B608
-                "WHERE embedding IS NULL LIMIT 64"
-            )
-            channels = sorted(
-                str(r[0]) if r[0] is not None else "" for r in cur.fetchall()
-            )
+            channels = _unembedded_channels(cur, tbl)
             if len(channels) <= 1:
                 # One (or zero) channel — nothing to round-robin; plain scan.
-                return _fetch(unfiltered, take)
+                return _fetch_unembedded(cur, tbl, expr, _UNFILTERED_SOURCE, take)
 
-            # Rotate which channel leads this tick (fair sharing of the remainder).
-            cur_idx = self._EMBED_SOURCE_CURSORS.get(tbl, 0) % len(channels)
-            self._EMBED_SOURCE_CURSORS[tbl] = (cur_idx + 1) % len(channels)
-            ordered_ch = channels[cur_idx:] + channels[:cur_idx]
-
-            per_channel = max(1, take // len(ordered_ch))
-            items: list[tuple[Any, str]] = []
-            for ch in ordered_ch:
-                if len(items) >= take:
-                    break
-                slot = min(per_channel, take - len(items))
-                if ch == "":
-                    rows = _fetch(None, slot)
-                else:
-                    rows = _fetch(ch, slot)
-                items.extend(rows)
-            return items[:take]
+            ordered_ch = _rotate_embed_channels(
+                self._EMBED_SOURCE_CURSORS, tbl, channels
+            )
+            return _fetch_round_robin(cur, tbl, expr, ordered_ch, take)
 
     def _tick_embedding_backfill_generic(self) -> int:
         """Non-pgvector fallback for :meth:`_tick_embedding_backfill` (D-EMB).
@@ -2848,34 +3994,18 @@ class TaskManagerMixin(GraphEngineProtocol):
         target = self.backend
         conn_factory = getattr(target, "_conn", None)
         get_tables = getattr(target, "_get_embedding_tables", None)
-        if (
-            not callable(conn_factory)
-            or not callable(get_tables)
-            or not getattr(target, "pgvector_available", False)
-        ):
+        if not _pgvector_backfill_ready(target, conn_factory, get_tables):
             # D-EMB: not a pgvector backend — try the native-engine fallback
             # instead of unconditionally returning 0 (see
             # `_tick_embedding_backfill_generic`'s docstring for why this
             # branch was previously a silent permanent no-op in production).
             return self._tick_embedding_backfill_generic()
 
-        budget = _EMBED_BACKFILL_BUDGET
-
         tables = get_tables()
         if not tables:
             return 0
-        # Retrieval-critical labels first, then the rest.
-        prio = ["Code", "Concept", "Document", "Feature", "Skill", "Message"]
-        ordered = [t for t in prio if t in tables] + [
-            t for t in tables if t not in prio
-        ]
-
-        from ..enrichment.semantic import make_embed_fn
-
-        embed_fn = getattr(self, "_backfill_embed_fn", None)
-        if embed_fn is None:
-            embed_fn = make_embed_fn()
-            self._backfill_embed_fn = embed_fn
+        ordered = _ordered_embedding_tables(tables)
+        embed_fn = _backfill_embed_function(self)
 
         # Circuit breaker: while OPEN (embedder recently failed repeatedly), skip
         # all embed work so we don't retry-storm a dead endpoint and peg the daemon.
@@ -2885,51 +4015,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         if self._embed_circuit_open(now):
             return 0
 
-        # Fair per-table share so retrieval-critical labels (e.g. Concept) aren't
-        # starved behind a huge table (e.g. Code). Each table gets up to
-        # ``per_table`` rows per tick, still bounded by the total budget.
-        per_table = max(16, budget // max(1, len(ordered)))
-        total = 0
-        remaining = budget
-        for tbl in ordered:
-            if remaining <= 0:
-                break
-            take = min(per_table, remaining)
-            try:
-                items = self._collect_unembedded_rows(conn_factory, tbl, take)
-            except Exception as e:  # noqa: BLE001 — one table's row-selection query for this backfill tick; `continue`s to the next table so a single bad table doesn't stop the whole backfill pass, and nothing is marked embedded for the skipped table
-                logger.debug("embed backfill query failed: %s", e)
-                continue
-
-            if not items:
-                continue
-            try:
-                # KG-2.144: fan the embed calls out to the embedding model's
-                # parallel capacity — ``make_embed_fn`` batches at 64 and runs up
-                # to ``capacity`` batches concurrently via the shared controller,
-                # so with capacity 1 it stays sequential and with K it does K at
-                # once (scales with the number of vLLM instances). Same nodes,
-                # same vectors, idempotent.
-                vecs = embed_fn([t for _, t in items])
-                with conn_factory() as conn, conn.cursor() as cur:
-                    for (nid, _), vec in zip(items, vecs, strict=False):
-                        cur.execute(
-                            # ``tbl`` was validated by
-                            # ``_require_database_identifier``.
-                            f'UPDATE "{tbl}" SET embedding = %s::vector '  # nosec B608
-                            "WHERE id = %s AND embedding IS NULL",
-                            (str(vec), nid),
-                        )
-                    conn.commit()
-                total += len(items)
-                remaining -= len(items)
-                self._embed_circuit_record(True, now)  # healthy → close breaker
-            except Exception as e:  # noqa: BLE001 — already the safe direction: `total`/`remaining` are only advanced above this except (never inside it), and the circuit breaker is explicitly recorded False + the tick breaks rather than continuing to hammer a down endpoint
-                logger.debug("embed backfill store failed: %s", e)
-                # An embed/store failure means the endpoint is likely down for
-                # every table — record it and stop hammering the rest this tick.
-                self._embed_circuit_record(False, now)
-                break
+        total = _run_embed_backfill_tables(self, conn_factory, ordered, embed_fn, now)
         if total:
             logger.info("KG embedding backfill: embedded %d nodes", total)
         return total
@@ -3335,22 +4421,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         client = getattr(graph, "_client", None)
         if client is None:
             return
-        try:
-            tenants = client.tenants.list()
-        except Exception:  # noqa: BLE001 — best-effort sweep
-            return
-        leaked = [
-            t["name"]
-            for t in tenants
-            if isinstance(t, dict) and "__enrich_comm_" in t.get("name", "")
-        ]
-        deleted = 0
-        for name in leaked:
-            try:
-                client.tenants.delete(name)
-                deleted += 1
-            except Exception:  # noqa: BLE001 — one failure never stops the sweep
-                pass
+        deleted = _delete_tenants(client, _leaked_comm_tenants(client))
         if deleted:
             logger.info(
                 "tenant GC: dropped %d leaked community tenant(s) (checkpoint sprawl)",
@@ -3366,25 +4437,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         if not isinstance(fanout, FanOutBackend):
             return
         try:
-            reports = fanout.reconcile()
-            summaries = [r for r in reports.values() if isinstance(r, dict)]
-            nodes_missing = sum(int(r.get("nodes_missing", 0)) for r in summaries)
-            edges_missing = sum(int(r.get("edges_missing", 0)) for r in summaries)
-            errs = sum(int(r.get("errors", 0)) for r in summaries) + sum(
-                1 for r in summaries if "error" in r
-            )
-            missing = nodes_missing + edges_missing
-            if missing or errs:
-                logger.warning(
-                    "mirror reconcile: drift remains after repair — "
-                    "%d nodes / %d edges missing, %d write errors (%s)",
-                    nodes_missing,
-                    edges_missing,
-                    errs,
-                    reports,
-                )
-            else:
-                logger.debug("mirror reconcile: all configured mirrors are in sync")
+            _log_mirror_reconcile(fanout.reconcile())
         except Exception as e:  # noqa: BLE001
             logger.warning("mirror reconcile tick failed: %s", e)
 
@@ -3438,9 +4491,6 @@ class TaskManagerMixin(GraphEngineProtocol):
         primary codebase, logs an ``EvolutionCycle`` node, and triggers the
         telemetry-ingestion sweep. Run by the consolidated maintenance scheduler.
         """
-        from datetime import datetime
-
-        EVOLUTION_INTERVAL = _EVOLUTION_INTERVAL
         cycle_start = datetime.now(UTC)
         cycle_id = f"evo_cycle_{cycle_start.strftime('%Y%m%d_%H%M%S')}"
         logger.info("Evolution: starting cycle %s", cycle_id)
@@ -3457,68 +4507,12 @@ class TaskManagerMixin(GraphEngineProtocol):
         primary_codebase = self._detect_primary_codebase()
 
         # 3. Count scorable items if we have a codebase target
-        papers_scored = 0
-        if primary_codebase and topic_count > 0:
-            try:
-                count_result = self.query_cypher(
-                    "MATCH (n) WHERE n:Document OR n:Codebase RETURN count(n) AS total",
-                )
-                papers_scored = count_result[0].get("total", 0) if count_result else 0
-                logger.info(
-                    "Evolution: %d items available for relevance sweep against '%s'",
-                    papers_scored,
-                    primary_codebase,
-                )
-            except Exception as e:
-                logger.warning(f"Evolution: relevance count failed: {e}")
+        papers_scored = _count_scorable_items(self, primary_codebase, topic_count)
 
         # 4. Log evolution cycle as a KG node
-        try:
-            from agent_utilities.knowledge_graph.core.engine import (
-                IntelligenceGraphEngine,
-            )
-
-            throughput = 0
-            try:
-                throughput_query = self.query_cypher(
-                    "MATCH (n:OptimizationTrajectory) WHERE n.created_at >= $timestamp "
-                    "RETURN count(n) AS throughput",
-                    params={
-                        "timestamp": (
-                            cycle_start - timedelta(seconds=EVOLUTION_INTERVAL)
-                        ).isoformat()
-                    },
-                )
-                throughput = (
-                    throughput_query[0].get("throughput", 0) if throughput_query else 0
-                )
-                logger.info(
-                    "Evolution: OptimizationTrajectoryNode throughput = %d", throughput
-                )
-            except Exception as e:
-                logger.warning(f"Evolution: failed to get throughput: {e}")
-
-            if isinstance(self, IntelligenceGraphEngine):
-                self.add_node(
-                    node_id=cycle_id,
-                    node_type="EvolutionCycle",
-                    properties={
-                        "triggered_by": "daemon",
-                        "topics_scanned": topic_count,
-                        "papers_scored": papers_scored,
-                        "primary_codebase": primary_codebase or "unknown",
-                        "optimization_throughput": throughput,
-                        "created_at": cycle_start.isoformat(),
-                    },
-                )
-                logger.info(
-                    "Evolution: logged cycle %s (topics=%d, scored=%d)",
-                    cycle_id,
-                    topic_count,
-                    papers_scored,
-                )
-        except Exception as e:
-            logger.warning(f"Evolution: failed to log cycle node: {e}")
+        _log_evolution_cycle(
+            self, cycle_id, cycle_start, topic_count, papers_scored, primary_codebase
+        )
 
         # 5. Telemetry/failure ingestion now runs as its own dedicated maintenance
         # job (``failure_ingest`` → _tick_failure_ingest, CONCEPT:AU-AHE.harness.failure-evolution), opt-in
@@ -3697,16 +4691,15 @@ class TaskManagerMixin(GraphEngineProtocol):
         into the async execution otherwise. Empty (default) preserves the
         unchanged behavior: content lands on the worker's own ambient graph.
         """
+        from agent_utilities.knowledge_graph.core.task_lanes import lane_for_task_type
         from agent_utilities.orchestration import work_item as _wi
 
         durable_target = _portable_task_target(target_path)
         # WorkItem owns both the immutable execution definition and lifecycle.
         if not skip_dedupe:
-            for item in self._ingest_work_item_index().values():
-                meta = item.get("metadata") or {}
-                if meta and meta.get("target") == durable_target:
-                    if item.get("status") not in _wi.TERMINAL_WORK_ITEM_STATUSES:
-                        return str(item.get("payload_ref") or "")
+            live = _existing_ingest_job(self._ingest_work_item_index(), durable_target)
+            if live is not None:
+                return live
 
         if not job_id:
             job_id = f"job-{uuid.uuid4().hex}"
@@ -3714,58 +4707,20 @@ class TaskManagerMixin(GraphEngineProtocol):
         if not task_type:
             task_type = "codebase" if is_codebase else "document"
 
-        now = time.time()
-        task_data: dict[str, Any] = {
-            "target": durable_target,
-            "type": task_type,
-            "submitted_at": datetime.now(UTC).isoformat(),
-            "attempts": 0,
-            "max_attempts": int(max_attempts),
-        }
-        if extra_meta:
-            task_data.update(extra_meta)
-            only_files = task_data.get("only_files")
-            if isinstance(only_files, list):
-                task_data["only_files"] = [
-                    _portable_task_target(str(path)) for path in only_files
-                ]
+        task_data = _task_metadata_base(
+            durable_target, task_type, max_attempts, extra_meta
+        )
+        _stamp_task_scheduling(
+            task_data, graph, depends_on, scheduled_for, provenance, time.time()
+        )
 
-        # U-06: the explicit `graph` kwarg is the caller-validated selector
-        # (already checked against the engine's own catalog by
-        # `resolve_explicit_graph` at the MCP/REST boundary) — it always wins
-        # over any same-named key an `extra_meta` caller might have set, and
-        # is stamped AFTER the merge above so it can never be spoofed via
-        # `extra_meta`.
-        explicit_graph = str(graph or "").strip()
-        if explicit_graph:
-            task_data["graph"] = explicit_graph
-
-        prio_bucket = _coerce_prio_bucket(priority)
-        if depends_on:
-            task_data["depends_on"] = list(depends_on)
-        if scheduled_for and float(scheduled_for) > now:
-            task_data["eta_unix"] = float(scheduled_for)
-
-        from agent_utilities.knowledge_graph.core.task_lanes import lane_for_task_type
-
-        lane = lane_for_task_type(task_type)
-        if provenance:
-            task_data["provenance"] = dict(provenance)
-
-        try:
-            from agent_utilities.knowledge_graph.core.session import current_session
-
-            active_session = current_session()
-            tenant = active_session.tenant if active_session is not None else ""
-        except Exception:  # pragma: no cover - local bootstrap
-            tenant = ""
-        work_item_id = _wi.ingest_task_work_item_id(job_id)
-        task_data["work_item_id"] = work_item_id
+        tenant = _submitting_tenant()
+        task_data["work_item_id"] = _wi.ingest_task_work_item_id(job_id)
         _wi.ensure_ingest_task_work_item(
             self._work_item_engine,
             job_id,
-            prio_bucket=prio_bucket,
-            resource_class=lane or "default",
+            prio_bucket=_coerce_prio_bucket(priority),
+            resource_class=lane_for_task_type(task_type) or "default",
             fairness_group=task_type,
             tenant=tenant,
             depends_on=depends_on or (),
@@ -3773,54 +4728,8 @@ class TaskManagerMixin(GraphEngineProtocol):
             max_attempts=max_attempts,
             metadata=task_data,
         )
-        # Kafka remains a notification transport only. Its consumers must win
-        # the same native WorkItem claim before executing; non-Kafka workers
-        # discover ready WorkItems directly and need no second queue record.
-        if getattr(self, "_task_queue_backend_name", "sqlite") == "kafka":
-            from agent_utilities.security.persistence_privacy import (
-                persistence_reference,
-            )
-
-            _submit_kafka_notification(
-                self._submission_queue,
-                task_type,
-                {
-                    "job_id": job_id,
-                    "partition_ref": persistence_reference(
-                        "ingest_partition", durable_target, namespace=tenant
-                    ),
-                },
-            )
-
-        # Pre-ingestion: drop ONLY the HNSW indexes for tables this task writes to.
-        # (Kuzu can't SET on indexed columns.) Unaffected indexes stay active.
-        _TASK_TABLE_MAP = {
-            "codebase": ["Code"],
-            "document": ["Article"],
-            "conversation": ["Message"],
-        }
-        affected_tables = _TASK_TABLE_MAP.get(task_type, [])
-        if (
-            affected_tables
-            and self.backend
-            and hasattr(self.backend, "drop_vector_indices")
-        ):
-            if not hasattr(self, "_dropped_tables"):
-                self._dropped_tables: set[str] = set()
-            new_tables = [t for t in affected_tables if t not in self._dropped_tables]
-            if new_tables:
-                try:
-                    self.backend.drop_vector_indices(tables=new_tables)
-                    # D-DST-3 (CONCEPT:AU-AHE.evaluation.debug-swallow-justification): only
-                    # mark these tables dropped AFTER drop_vector_indices actually succeeds.
-                    # Marking them first (the prior order) meant a failed drop was never
-                    # retried on the next submit_task call for this task_type — the write-
-                    # then-mark-seen shape this triage was scoped to find — while the still-
-                    # indexed columns kept failing the ingestion SET the comment above warns
-                    # about ("Kuzu can't SET on indexed columns").
-                    self._dropped_tables.update(new_tables)
-                except Exception as e:  # noqa: BLE001 — the drop stays un-marked on failure (see above), so the next task submission for this task_type retries it instead of permanently believing the indexes are gone
-                    logger.debug(f"Pre-ingestion index drop skipped: {e}")
+        _notify_kafka_submission(self, job_id, task_type, durable_target, tenant)
+        _drop_task_vector_indices(self, task_type)
 
         # Lazily start workers if they aren't already running
         self.start_task_workers()
@@ -4161,119 +5070,21 @@ class TaskManagerMixin(GraphEngineProtocol):
         that was missing when codebase ingestion silently sat at 75-pending/0-running. Returns
         ``{lane: {pending, running, model_role}}`` + a ``lane_less`` bucket for un-stamped tasks.
         """
-        from agent_utilities.knowledge_graph.core.task_lanes import (
-            LANE_NAMES,
-            lane_model_role,
-        )
-
-        work = self._ingest_work_item_index()
-        counts: dict[tuple[str, str], int] = {}
-        type_pending: dict[str, int] = {}
-        for item in work.values():
-            state = _task_status_from_work_item(item)
-            lane = str(item.get("resource_class") or "")
-            counts[(lane, state)] = counts.get((lane, state), 0) + 1
-            if state == "pending":
-                kind = str(item.get("fairness_group") or "")
-                type_pending[kind] = type_pending.get(kind, 0) + 1
+        counts, type_pending = _lane_work_counts(self._ingest_work_item_index())
 
         # ORCH-1.81: overlay the LIVE in-process worker registry so the snapshot
         # also shows how many workers each lane is *actually occupying right now*
         # (the queue's ``running`` status is set on claim; ``live_running`` is the
         # admission registry's view, which also drives the reservation/cap math).
         reg = getattr(self, "_worker_reg", None)
-        live_running = reg.running_by_lane() if reg is not None else {}
-
-        out: dict[str, Any] = {}
-        for lane in LANE_NAMES:
-            p = counts.get((lane, "pending"), 0)
-            r = counts.get((lane, "running"), 0)
-            out[lane] = {
-                "pending": p,
-                "running": r,
-                "live_running": int(live_running.get(lane, 0)),
-                "model_role": lane_model_role(lane),
-            }
-        total_pending = sum(
-            v for (lane, status), v in counts.items() if status == "pending"
-        )
-        total_running = sum(
-            v for (lane, status), v in counts.items() if status == "running"
-        )
-        out["lane_less"] = {
-            "pending": max(
-                0,
-                total_pending
-                - sum(v["pending"] for v in out.values() if "pending" in v),
-            ),
-            "running": max(
-                0,
-                total_running
-                - sum(v["running"] for v in out.values() if "running" in v),
-            ),
-            "model_role": None,
-        }
-        # KG-2.145: surface the adaptive LLM/embedding concurrency targets next to
-        # lane congestion, so over/under-utilisation of the vLLM serving tier is
-        # visible in the same snapshot. Throttled internally; best-effort.
-        try:
-            from agent_utilities.core.model_capacity_autoscale import get_utilization
-
-            out["model_concurrency"] = {
-                role: get_utilization(role) for role in ("embedding", "lite", "default")
-            }
-        except Exception:  # noqa: BLE001 — observability is best-effort, never fatal
-            out["model_concurrency"] = {}
-
-        # ORCH-1.81: surface the scheduler's pool/reservation picture for ops.
         cfg = getattr(self, "_sched_config", None)
-        out["scheduler"] = {
-            "worker_count": getattr(cfg, "worker_count", None),
-            "reserved": getattr(cfg, "reserved", None),
-            "per_lane_min": getattr(cfg, "per_lane_min", None),
-            "codebase_cap": getattr(cfg, "codebase_cap", None),
-            "busy_workers": reg.busy_count() if reg is not None else 0,
-            "free_workers": (
-                reg.free_count(getattr(cfg, "worker_count", 0))
-                if reg is not None and cfg is not None
-                else None
-            ),
-            "running_by_type": reg.running_by_type() if reg is not None else {},
-        }
 
-        # CONCEPT:AU-ORCH.dispatch.two-pool — per-pool congestion + budget, so an
-        # operator can see whether memory-gen is at its cap (back-pressured on the
-        # write lock) while acquisition still has headroom. Pending is summed over
-        # each pool's lanes (+ the content_url override); running is the live
-        # registry's per-pool view.
-        from agent_utilities.knowledge_graph.core.task_lanes import (
-            POOLS,
-            pool_for_task_type,
+        out = _lane_congestion_rows(
+            counts, reg.running_by_lane() if reg is not None else {}
         )
-
-        live_by_pool = reg.running_by_pool() if reg is not None else {}
-        pool_out: dict[str, Any] = {}
-        for pool, lanes in POOLS.items():
-            pending = sum(out.get(ln, {}).get("pending", 0) for ln in lanes)
-            # content_url rides the ingestion lane but is budgeted as acquisition;
-            # move its pending count to the acquisition rollup for an accurate view.
-            pool_out[pool] = {
-                "pending": pending,
-                "live_running": int(live_by_pool.get(pool, 0)),
-            }
-        # Reflect the per-type pool override in the pending rollup (content_url).
-        cu_pending = type_pending.get("content_url", 0)
-        cu_pool = pool_for_task_type("content_url")
-        if cu_pool in pool_out and cu_pool != "memory_gen":
-            pool_out[cu_pool]["pending"] += cu_pending
-            if "memory_gen" in pool_out:
-                pool_out["memory_gen"]["pending"] = max(
-                    0, pool_out["memory_gen"]["pending"] - cu_pending
-                )
-        if cfg is not None:
-            pool_out["acquisition_floor"] = getattr(cfg, "acquisition_floor", None)
-            pool_out["memory_gen_cap"] = getattr(cfg, "memory_gen_cap", None)
-        out["pools"] = pool_out
+        out["model_concurrency"] = _model_concurrency_snapshot()
+        out["scheduler"] = _scheduler_snapshot(reg, cfg)
+        out["pools"] = _pool_snapshot(out, type_pending, reg, cfg)
         return out
 
     # -- Reserved-worker fair scheduler (CONCEPT:AU-ORCH.dispatch.worker-scheduling) ------------------
@@ -4549,32 +5360,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         """
         from agent_utilities.orchestration import work_item as _wi
 
-        token = self._get_host_token()
-        claim = None
-        if hydration_reserved:
-            from agent_utilities.core.resource_priority import HYDRATION_TASK_TYPES
-            from agent_utilities.knowledge_graph.core.task_lanes import (
-                lane_for_task_type,
-            )
-
-            for hydration_type in sorted(HYDRATION_TASK_TYPES):
-                claim = _wi.claim_next(
-                    self._work_item_engine,
-                    queue="ingest_task",
-                    resource_class=lane_for_task_type(hydration_type),
-                    fairness_group=hydration_type,
-                    token=token,
-                    lease_ttl_s=_TASK_WORK_ITEM_LEASE_SEC,
-                )
-                if claim is not None:
-                    break
-        if claim is None:
-            claim = _wi.claim_next(
-                self._work_item_engine,
-                queue="ingest_task",
-                token=token,
-                lease_ttl_s=_TASK_WORK_ITEM_LEASE_SEC,
-            )
+        claim = _claim_ingest_work_item(self, hydration_reserved)
         if claim is None:
             _record_workitem_claim_outcome("empty")
             return None  # authoritative negative; no secondary scan/fallback
@@ -4582,15 +5368,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             return None
         _record_workitem_claim_outcome("claimed")
 
-        job_id = str(
-            claim.get("payload_ref")
-            or _wi.ingest_task_job_id_from_work_item_id(claim["work_item_id"])
-            or ""
-        )
-        if not job_id:
-            raise _wi.WorkItemBackendUnavailable(
-                "ClaimWorkItem returned an ingest item without payload_ref"
-            )
+        job_id = _claimed_job_id(claim)
         # Claim authority must be locally visible before the metadata read. The
         # read is graph-scoped and can be the first operation to observe a lazy
         # materialization transition; remembering only afterwards stranded an
@@ -4599,95 +5377,15 @@ class TaskManagerMixin(GraphEngineProtocol):
         try:
             meta = self._ingest_task_metadata(job_id)
         except Exception as exc:
-            materialization = _retryable_partial_materialization(exc)
-            if materialization is not None:
-                # Mirror _task_worker_loop's in-body materialization handling:
-                # an unexpected failure releasing the native lease must still
-                # drop the in-memory claim so it cannot be mistaken for a live
-                # local reservation. The native WorkItem itself self-heals via
-                # its own lease TTL + the pre-existing expired-lease reaper —
-                # never converted into an application failed/dead-letter path.
-                try:
-                    self._defer_task_for_materialization(job_id, materialization)
-                except Exception as defer_error:  # noqa: BLE001 - infrastructure transition is logged below
-                    self._active_work_item_claim(job_id, pop=True)
-                    logger.error(
-                        "TaskManager could not defer %s while the graph was "
-                        "materializing: %s",
-                        job_id,
-                        defer_error,
-                    )
+            if _recover_claim_metadata_failure(self, exc, job_id, claim):
                 return None
-            if isinstance(exc, _wi.WorkItemBackendUnavailable):
-                try:
-                    _wi.commit_result(
-                        self._work_item_engine,
-                        claim["work_item_id"],
-                        claim,
-                        outcome="failed",
-                        error_ref=f"invalid_ingest_definition:{job_id}",
-                        retryable=False,
-                    )
-                finally:
-                    self._active_work_item_claim(job_id, pop=True)
-            else:
-                # Every OTHER failure of the metadata read (a transient engine /
-                # connection error surfacing as a bare RuntimeError, say) must
-                # drop the in-memory claim too, or it strands here forever: the
-                # claim is now remembered BEFORE the read (see above), so unlike
-                # the previous ordering this except path can leak one. The
-                # native WorkItem lease still self-heals via its TTL + the
-                # expired-lease reaper; this only keeps the local bookkeeping
-                # honest so a dead claim is never mistaken for a live local
-                # reservation. The exception itself is always re-raised.
-                self._active_work_item_claim(job_id, pop=True)
             raise
-        # Stamp the winning claim's own lease identity onto the returned
-        # metadata — ``claim`` (from ``_wi.claim_next``/``claim_specific``)
-        # already carries the authoritative ``lease_owner``/``lease_epoch``
-        # native WorkItem fields; nothing downstream previously surfaced them,
-        # so a caller/log line had no way to say WHO holds this task or WHICH
-        # fencing generation it's running under. This is an in-memory
-        # enrichment of the dict handed back to the caller ONLY — it is never
-        # persisted onto another node's durable metadata (that would create a
-        # second writable ownership authority; the native WorkItem lease
-        # remains the sole source of truth, per ``_remember_work_item_claim``).
-        meta["claimed_by"] = claim.get("lease_owner")
-        meta["work_item_epoch"] = claim.get("lease_epoch")
-        meta["work_item_id"] = claim.get("work_item_id")
+        _stamp_claim_lease_identity(meta, claim)
         tkind = str(meta.get("type") or "document")
-        if worker_id is not None:
-            from agent_utilities.knowledge_graph.core.task_lanes import (
-                lane_for_task_type,
-            )
-
-            lane = lane_for_task_type(tkind)
-            # CONCEPT:AU-ORCH.dispatch.worker-scheduling — gate the claim through the
-            # reserved-worker fair AdmissionPolicy before this worker commits to the
-            # task. Only applied to the general/unrestricted claim: the
-            # ``hydration_reserved`` priority-floor path above must never be
-            # second-guessed here — that floor exists specifically so hydration
-            # work can't be starved, which is the opposite of what admission's
-            # hot-spare/heavy-type/coverage rules are for. A denied admission
-            # releases the native lease without consuming a retry attempt, so a
-            # later (better-suited) poll — by this worker or another — picks the
-            # task back up once the pool's live picture allows it.
-            if not hydration_reserved:
-                decision = self._admission_policy().decide(
-                    lane, tkind, self._pending_by_lane()
-                )
-                if not decision.admit:
-                    logger.debug(
-                        "worker %s admission denied for %s/%s: %s — deferring claim",
-                        worker_id,
-                        lane,
-                        tkind,
-                        decision.reason,
-                    )
-                    self._defer_task_for_admission(job_id)
-                    _record_workitem_admission_deferral(tkind)
-                    return None
-            self._worker_registry().start(worker_id, lane, tkind)
+        if worker_id is not None and not _admit_claimed_task(
+            self, worker_id, job_id, tkind, hydration_reserved
+        ):
+            return None
         return job_id, meta
 
     def _task_worker_loop(
@@ -4708,12 +5406,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         """
         # ORCH-1.81: a stable per-thread id keys this worker in the admission
         # registry, so the policy knows what THIS worker is processing.
-        worker_id = threading.current_thread().name
-        poll_count = 0
-        # U-65/BUG-111: this worker's own consecutive-empty-poll streak, driving
-        # the bounded exponential idle backoff below. Per-thread by construction
-        # (a plain local, not shared state) since each worker runs its own loop.
-        miss_streak = 0
+        state = _WorkerPollState(threading.current_thread().name)
         # BUG-047 gap-fill (CONCEPT:AU-ORCH.scheduling.resource-priority-edict): this
         # dedicated background thread polls and claims work for its entire life —
         # tag it BACKGROUND_INGESTION ONCE so every engine call the claim decision
@@ -4726,196 +5419,22 @@ class TaskManagerMixin(GraphEngineProtocol):
         # interactive/orchestration traffic to the engine's reserved read lane,
         # even though this thread does nothing but background ingestion work.
         # The edict WAS already wired for an already-claimed task's own body
-        # (``_run_body``'s ``priority_scope(priority_for_task_type(task_type))``
-        # below, entered only after a claim succeeds) — this closes the gap for
+        # (``_run_body``'s ``priority_scope(priority_for_task_type(task_type))``,
+        # entered only after a claim succeeds) — this closes the gap for
         # the claim/admission decision that runs before that. ``set_priority``
         # (not a ``with`` block) is correct here: this OS thread never does
         # anything else, so setting its default once is equivalent to wrapping
         # the whole loop, without reindenting it; the per-task ``priority_scope``
-        # below still correctly nests — it overrides this default for the
+        # still correctly nests — it overrides this default for the
         # claimed task's duration, then restores it on exit.
         from agent_utilities.core.resource_priority import PriorityClass, set_priority
 
         set_priority(PriorityClass.BACKGROUND_INGESTION)
         while True:
             try:
-                job_id = None
-                target_path = None
-                is_codebase = False
-                task_type = "document"
-
-                effective_hydration_reserved = hydration_reserved or (
-                    hydration_alternate and poll_count % 2 == 0
-                )
-                poll_count += 1
-
-                from agent_utilities.observability.gateway_metrics import (
-                    WORKITEM_CLAIM_IN_FLIGHT,
-                    WORKITEM_CLAIM_LATENCY,
-                    WORKITEM_CLAIMS,
-                )
-
-                # U-65/BUG-111: process-local NONBLOCKING claim/admission gate.
-                # A live pod ran 69 host-sized workers that all independently
-                # hit native claim_next()+AdmissionPolicy on every poll,
-                # producing 2,278 claim calls in 5 minutes and amplifying engine
-                # write contention. Only one worker thread performs that round
-                # trip at a time; every other worker that finds the gate held
-                # skips this poll with NO engine call at all, backs off, and
-                # tries again -- this bounds concurrent claim traffic to 1
-                # in-flight per process regardless of pool size, without
-                # blocking (a busy gate is a fast, local, non-blocking no-op,
-                # never a wait). The gate is released the instant the claim
-                # decision is made, well before task execution starts, so it
-                # never throttles the actual work -- only the scan/lease/admit
-                # decision that precedes it. ``gate_skipped`` is recorded HERE
-                # (not inside ``_claim_next_task``) because it is the one
-                # outcome that never reaches that method at all -- "claimed"
-                # and "empty" are recorded once, at the deeper
-                # ``_claim_next_task``/``_record_workitem_claim_outcome`` seam,
-                # so this poll loop must not also record them or every claim
-                # would be double-counted.
-                if not self._claim_gate.acquire(blocking=False):
-                    WORKITEM_CLAIMS.labels(
-                        queue="ingest_task", outcome="gate_skipped"
-                    ).inc()
-                    miss_streak += 1
-                    time.sleep(_idle_backoff_seconds(miss_streak))
-                    continue
-                WORKITEM_CLAIM_IN_FLIGHT.set(1)
-                try:
-                    claim_started = time.monotonic()
-                    claimed = self._claim_next_task(
-                        worker_id=worker_id,
-                        hydration_reserved=effective_hydration_reserved,
-                    )
-                    WORKITEM_CLAIM_LATENCY.observe(time.monotonic() - claim_started)
-                finally:
-                    WORKITEM_CLAIM_IN_FLIGHT.set(0)
-                    self._claim_gate.release()
-                if claimed:
-                    job_id, meta = claimed
-                    if meta:
-                        if "target" in meta:
-                            target_path = _resolve_task_target(str(meta["target"]))
-                        task_type = meta.get("type", "document")
-                        is_codebase = task_type == "codebase"
-
-                if not job_id:
-                    miss_streak += 1
-                    # Idle backoff: bounded exponential + jitter
-                    # (_idle_backoff_seconds), replacing the old fixed 2s that
-                    # made every idle worker wake in lockstep. During a bulk
-                    # ingest, back off at least as hard as before: one worker
-                    # holds the ingest while the other idle workers repeatedly
-                    # polling flooded the single client event loop + engine and
-                    # starved the ingest worker (profiled: 24% of daemon CPU in
-                    # poll query_cypher vs 10% in the actual ingest). A new task
-                    # still waits at most one backoff to be claimed — fine while
-                    # a multi-minute ingest drains. (CONCEPT:AU-KG.compute.registered-edge-type)
-                    from agent_utilities.core.background_throttle import get_throttle
-                    from agent_utilities.observability.gateway_metrics import (
-                        WORKITEM_IDLE_BACKOFF_SECONDS,
-                    )
-
-                    backoff = _idle_backoff_seconds(miss_streak)
-                    if get_throttle().should_yield_background:
-                        backoff = max(backoff, 15.0)
-                    WORKITEM_IDLE_BACKOFF_SECONDS.observe(backoff)
-                    time.sleep(backoff)
-                    continue
-
-                miss_streak = 0
-
-                if not target_path:
-                    logger.error(f"Task {job_id} has no target in metadata, skipping.")
-                    self._update_task_status(
-                        job_id,
-                        "failed",
-                        {
-                            "error": "Missing target in task metadata",
-                            "type": "unknown",
-                        },
-                    )
-                    # ORCH-1.81: free this worker in the admission registry.
-                    self._worker_registry().finish(worker_id)
-                    time.sleep(2.0)
-                    continue
-
-                try:
-                    self._execute_claimed_task(
-                        job_id, target_path, is_codebase, task_type
-                    )
-                finally:
-                    # ORCH-1.81: mark the worker free the moment its task is done
-                    # (success or raise), so the next worker's admission and the
-                    # codebase cap see the freed slot immediately.
-                    self._worker_registry().finish(worker_id)
-
+                _task_worker_poll(self, state, hydration_reserved, hydration_alternate)
             except Exception as e:
-                materialization = _retryable_partial_materialization(e)
-                if materialization is not None:
-                    if job_id:
-                        try:
-                            deferred = self._defer_task_for_materialization(
-                                job_id, materialization
-                            )
-                        except Exception as defer_error:  # noqa: BLE001 - infrastructure transition is logged below
-                            self._active_work_item_claim(job_id, pop=True)
-                            logger.error(
-                                "TaskManager could not defer %s while the graph was "
-                                "materializing: %s",
-                                job_id,
-                                defer_error,
-                            )
-                        else:
-                            if deferred:
-                                logger.info(
-                                    "TaskManager deferred materializing task %s "
-                                    "(phase=%s cursor=%s)",
-                                    job_id,
-                                    materialization.get("phase"),
-                                    materialization.get("completeness_cursor"),
-                                )
-                            else:
-                                logger.warning(
-                                    "TaskManager discarded fenced claim for "
-                                    "materializing task %s (phase=%s cursor=%s)",
-                                    job_id,
-                                    materialization.get("phase"),
-                                    materialization.get("completeness_cursor"),
-                                )
-                        # A materialization transition is infrastructure state,
-                        # never an application attempt. Do not fall through to
-                        # the generic retry/dead-letter path even if the fenced
-                        # control transition was lost to another owner.
-                        continue
-                    else:
-                        logger.info(
-                            "TaskManager waiting for graph materialization before "
-                            "claiming work (phase=%s cursor=%s)",
-                            materialization.get("phase"),
-                            materialization.get("completeness_cursor"),
-                        )
-                        time.sleep(5)
-                        continue
-
-                logger.error(f"TaskManager worker error: {e}")
-                if job_id:
-                    try:
-                        self._fail_or_retry_task(job_id, str(e))
-                    except Exception as inner_e:
-                        logger.error(
-                            f"Failed to update task status to failed for {job_id}: {inner_e}"
-                        )
-                # ORCH-1.81: ensure the worker is freed even on the error path.
-                try:
-                    self._worker_registry().finish(worker_id)
-                except Exception as exc:  # noqa: BLE001 — worker-registry cleanup is best-effort
-                    logger.debug(
-                        "worker registry finish() failed for %s: %s", worker_id, exc
-                    )  # nosec B110
-                time.sleep(5)
+                _task_worker_handle_error(self, e, state)
 
     def _execute_claimed_task(
         self,
@@ -6904,63 +7423,10 @@ class TaskManagerMixin(GraphEngineProtocol):
         time/nodes/edges/failures per content type — the same view the harness
         writes to ``progress.json``.
         """
-        work = self._ingest_work_item_index()
-        cutoff = None
-        if window_sec:
-            try:
-                cutoff = datetime.now(UTC) - timedelta(seconds=window_sec)
-            except Exception:  # noqa: BLE001
-                cutoff = None
+        cutoff = _ingest_metrics_cutoff(window_sec)
         cats: dict[str, dict[str, Any]] = {}
-        for item in work.values():
-            meta = item.get("metadata") or {}
-            if cutoff is not None:
-                ca = item.get("completed_at")
-                if ca:
-                    try:
-                        completed = (
-                            datetime.fromtimestamp(float(ca), UTC)
-                            if isinstance(ca, int | float)
-                            else datetime.fromisoformat(str(ca))
-                        )
-                        if completed < cutoff:
-                            continue
-                    except (ValueError, TypeError) as exc:  # noqa: BLE001 — unparseable completed_at timestamp; the item is included un-window-filtered (as the log message and the comment above it describe) rather than silently dropped from the aggregate — the safer direction for a metrics report
-                        logger.debug(
-                            "ingest metrics: unparseable completed_at %r, not window-filtered: %s",
-                            ca,
-                            exc,
-                        )
-            cat = meta.get("type") or meta.get("content_type") or "unknown"
-            c = cats.setdefault(
-                cat,
-                {
-                    "jobs": 0,
-                    "completed": 0,
-                    "failed": 0,
-                    "nodes": 0,
-                    "edges": 0,
-                    "duration_ms": 0.0,
-                },
-            )
-            c["jobs"] += 1
-            st = _task_status_from_work_item(item)
-            if st in ("completed", "done", "success"):
-                c["completed"] += 1
-            elif st in ("failed", "dead_letter", "error"):
-                c["failed"] += 1
-            c["nodes"] += int(
-                meta.get("nodes_added", meta.get("nodes_created", 0)) or 0
-            )
-            c["edges"] += int(
-                meta.get("edges_added", meta.get("edges_created", 0)) or 0
-            )
-            submitted = item.get("submitted_at")
-            completed_at = item.get("completed_at")
-            if isinstance(submitted, int | float) and isinstance(
-                completed_at, int | float
-            ):
-                c["duration_ms"] += max(0.0, (completed_at - submitted) * 1000.0)
+        for item in self._ingest_work_item_index().values():
+            _accumulate_ingest_metrics(cats, item, cutoff)
         for c in cats.values():
             c["duration_ms"] = round(c["duration_ms"], 1)
         return cats
@@ -7296,59 +7762,17 @@ class TaskManagerMixin(GraphEngineProtocol):
 
     def list_tasks(self) -> dict:
         """Group ingestion WorkItems by their rendered public status."""
-        work = self._ingest_work_item_index()
-        response: dict[str, Any] = {
-            "running": [],
-            "pending": [],
-            "scheduled": [],
-            "blocked": [],
-            "completed": [],
-            "failed": [],
-            "cancelled": [],
-            "dead_letter": [],
-            "unknown": [],
-        }
+        response: dict[str, Any] = {name: [] for name in _TASK_STATUS_BUCKETS}
 
-        for job_id, item in work.items():
+        for job_id, item in self._ingest_work_item_index().items():
             status = _task_status_from_work_item(item)
-            meta = item.get("metadata") or {}
-            job_info: dict[str, Any] = {
-                "job_id": job_id,
-                "target": meta.get("target", "unknown"),
-            }
-            if status in {"failed", "dead_letter"}:
-                job_info["error"] = item.get("error_ref") or "Unknown error"
-                response[status].append(job_info)
-            elif status in response:
-                if status == "completed":
-                    # Include result summary for completed jobs
-                    for key in (
-                        "chunks_added",
-                        "nodes_added",
-                        "edges_added",
-                        "diffs_added",
-                        "chunks_skipped",
-                        "skip_reason",
-                    ):
-                        if key in meta:
-                            job_info[key] = meta[key]
-                response[status].append(job_info)
+            if status not in response:
+                continue
+            response[status].append(_task_list_entry(job_id, item, status))
 
         total_tasks = sum(len(items) for items in response.values())
-
         if total_tasks > 0:
-            completed_count = len(response["completed"])
-            progress = round((completed_count / total_tasks) * 100, 2)
-            response["progress_percentage"] = f"{progress}% complete"
-            response["progress_stats"] = {
-                "total_tasks": total_tasks,
-                "completed": completed_count,
-                "pending_in_graph": len(response["pending"]),
-                "running_in_graph": len(response["running"]),
-                "scheduled": len(response["scheduled"]),
-                "blocked": len(response["blocked"]),
-            }
-
+            _stamp_task_progress(response, total_tasks)
         return response
 
     def remove_task(self, job_id: str) -> bool:
