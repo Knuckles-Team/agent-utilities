@@ -96,6 +96,80 @@ class DigestArtifact(BaseModel):
     markdown: str = ""
 
 
+def _authored_names(
+    engine: IntelligenceGraphEngine, article_id: str, succ: str
+) -> list[str]:
+    """Author names on the AUTHORED edge(s) from ``article_id`` to ``succ``."""
+    edge_data = engine.graph.get_edge_data(article_id, succ)
+    if not edge_data:
+        return []
+    names = []
+    for _, edata in edge_data.items():
+        if edata.get("relationship") in ("AUTHORED", "authored"):
+            name = engine.graph.nodes.get(succ, {}).get("name", "")
+            if name:
+                names.append(name)
+    return names
+
+
+def _render_domain_distribution(domain_counts: dict[str, int]) -> list[str]:
+    """Render the ``## Domain Distribution`` bar-chart section, or ``[]`` if empty."""
+    if not domain_counts:
+        return []
+    lines = ["## Domain Distribution", ""]
+    for domain, count in sorted(domain_counts.items(), key=lambda x: -x[1]):
+        bar = "█" * count
+        lines.append(f"- **{domain}**: {bar} ({count})")
+    lines.append("")
+    return lines
+
+
+def _render_themes(themes: list[str]) -> list[str]:
+    """Render the ``## Emerging Themes`` section, or ``[]`` if empty."""
+    if not themes:
+        return []
+    lines = ["## Emerging Themes", ""]
+    for theme in themes:
+        lines.append(f"- {theme}")
+    lines.append("")
+    return lines
+
+
+def _render_paper_entry(index: int, art: ResearchArtifact) -> list[str]:
+    """Render one paper's ``### N. Title`` entry."""
+    lines = [f"### {index}. {art.title}", ""]
+    if art.authors:
+        lines.append(f"**Authors**: {', '.join(art.authors[:5])}")
+    if art.importance_score > 0:
+        lines.append(f"**Importance**: {art.importance_score:.1f}")
+    lines.append("")
+    if art.summary:
+        lines.append(art.summary[:300])
+        lines.append("")
+    for heading, items in (
+        ("Key Contributions", art.key_contributions),
+        ("Potential Applications", art.potential_applications),
+        ("Suggested Experiments", art.suggested_experiments),
+    ):
+        if items:
+            lines.append(f"**{heading}:**")
+            lines.extend(f"- {item}" for item in items)
+            lines.append("")
+    lines.append("---")
+    lines.append("")
+    return lines
+
+
+def _render_papers_section(artifacts: list[ResearchArtifact]) -> list[str]:
+    """Render the ``## Papers`` section, or ``[]`` if there are none."""
+    if not artifacts:
+        return []
+    lines = ["## Papers", ""]
+    for i, art in enumerate(artifacts, 1):
+        lines.extend(_render_paper_entry(i, art))
+    return lines
+
+
 class ResearchArtifactGenerator:
     """CONCEPT:AU-KG.research.research-pipeline-runner — Generates actionable LLM artifacts from KG-ingested research.
 
@@ -382,15 +456,9 @@ class ResearchArtifactGenerator:
         if not self.engine:
             return []
 
-        authors = []
+        authors: list[str] = []
         for succ in self.engine.graph.successors(article_id):
-            edge_data = self.engine.graph.get_edge_data(article_id, succ)
-            if edge_data:
-                for _, edata in edge_data.items():
-                    if edata.get("relationship") in ("AUTHORED", "authored"):
-                        name = self.engine.graph.nodes.get(succ, {}).get("name", "")
-                        if name:
-                            authors.append(name)
+            authors.extend(_authored_names(self.engine, article_id, succ))
         return authors
 
     def _render_digest_markdown(
@@ -408,52 +476,7 @@ class ResearchArtifactGenerator:
             f"**Papers analyzed**: {len(artifacts)}",
             "",
         ]
-
-        if domain_counts:
-            lines.append("## Domain Distribution")
-            lines.append("")
-            for domain, count in sorted(domain_counts.items(), key=lambda x: -x[1]):
-                bar = "█" * count
-                lines.append(f"- **{domain}**: {bar} ({count})")
-            lines.append("")
-
-        if themes:
-            lines.append("## Emerging Themes")
-            lines.append("")
-            for theme in themes:
-                lines.append(f"- {theme}")
-            lines.append("")
-
-        if artifacts:
-            lines.append("## Papers")
-            lines.append("")
-            for i, art in enumerate(artifacts, 1):
-                lines.append(f"### {i}. {art.title}")
-                lines.append("")
-                if art.authors:
-                    lines.append(f"**Authors**: {', '.join(art.authors[:5])}")
-                if art.importance_score > 0:
-                    lines.append(f"**Importance**: {art.importance_score:.1f}")
-                lines.append("")
-                if art.summary:
-                    lines.append(art.summary[:300])
-                    lines.append("")
-                if art.key_contributions:
-                    lines.append("**Key Contributions:**")
-                    for c in art.key_contributions:
-                        lines.append(f"- {c}")
-                    lines.append("")
-                if art.potential_applications:
-                    lines.append("**Potential Applications:**")
-                    for a in art.potential_applications:
-                        lines.append(f"- {a}")
-                    lines.append("")
-                if art.suggested_experiments:
-                    lines.append("**Suggested Experiments:**")
-                    for e in art.suggested_experiments:
-                        lines.append(f"- {e}")
-                    lines.append("")
-                lines.append("---")
-                lines.append("")
-
+        lines.extend(_render_domain_distribution(domain_counts))
+        lines.extend(_render_themes(themes))
+        lines.extend(_render_papers_section(artifacts))
         return "\n".join(lines)

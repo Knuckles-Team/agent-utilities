@@ -79,29 +79,17 @@ def _mark_consumed(engine: Any, anomaly_id: str) -> bool:
         return False
 
 
-def consume_anomalies(
-    engine: Any, *, limit: int = DEFAULT_SCAN_LIMIT, graph_writer: Any = None
-) -> dict[str, Any]:
-    """One consumer pass: scan → cluster → file failure_gap topics → stamp.
+def _cluster_by_signature(
+    anomalies: list[dict[str, Any]], evidencing: set[str]
+) -> tuple[dict[str, dict[str, Any]], int]:
+    """Group fresh anomalies by ``(target, anomaly_type)`` signature.
 
-    Returns a JSON-able report (``scanned`` / ``already_evidenced`` /
-    ``gaps_filed`` / ``consumed`` / ``gap_ids``). Propose-only: the only
-    writes are gap ``Concept`` topics, ``EVIDENCES`` edges, and the
-    ``consumed`` stamps.
-
-    ``graph_writer`` is threaded straight through to :func:`file_gap_topic`'s
-    own explicit in-memory test adapter (see ``_commit_graph_slice`` /
-    :class:`FailureAnalyzer`, which accepts the same parameter for the
-    identical seam) — the daemon tick never passes it, so production always
-    takes the native ChangeEnvelope path unchanged.
+    Anomalies already evidencing a gap Concept are skipped and counted
+    separately, so a noisy target files ONE remediation topic with all its
+    anomalies as evidence rather than one topic per anomaly.
     """
-    from .failure_analyzer import FailurePattern, _sig, file_gap_topic
+    from .failure_analyzer import FailurePattern, _sig
 
-    anomalies = _unconsumed_anomalies(engine, limit)
-    evidencing = _already_evidencing(engine) if anomalies else set()
-
-    # Cluster fresh anomalies by (target, anomaly_type) so a noisy target
-    # files ONE remediation topic with all its anomalies as evidence.
     clusters: dict[str, dict[str, Any]] = {}
     already = 0
     for a in anomalies:
@@ -129,15 +117,27 @@ def consume_anomalies(
         )
         cluster["pattern"].count += 1
         cluster["anomaly_ids"].append(a["id"])
+    return clusters, already
+
+
+def _file_cluster_gaps(
+    engine: Any, clusters: dict[str, dict[str, Any]], graph_writer: Any
+) -> tuple[list[str], set[str]]:
+    """File one ``failure_gap`` topic per cluster and link EVIDENCES provenance.
+
+    Returns ``(gap_ids, unfileable_anomaly_ids)``.
+
+    CONCEPT:AU-AHE.evaluation.debug-swallow-justification (D-DST-1): anomalies whose cluster
+    failed to file (``file_gap_topic`` returned None — the Concept persist itself raised) must
+    NOT be stamped `consumed` by the caller. Marking them consumed regardless of write success
+    was the exact write-then-mark-seen defect this triage was scoped to find (mirrors the
+    sdd/watcher.py content-hash bug the gate lane fixed): a transient persist failure would
+    otherwise permanently foreclose retry, since ``_unconsumed_anomalies`` only rescans rows
+    where ``a.consumed IS NULL``.
+    """
+    from .failure_analyzer import file_gap_topic
 
     gaps: list[str] = []
-    # CONCEPT:AU-AHE.evaluation.debug-swallow-justification (D-DST-1): anomalies whose cluster
-    # failed to file (file_gap_topic returned None — the Concept persist itself raised) must
-    # NOT be stamped `consumed` below. Marking them consumed regardless of write success was
-    # the exact write-then-mark-seen defect this triage was scoped to find (mirrors the
-    # sdd/watcher.py content-hash bug the gate lane fixed): a transient persist failure would
-    # otherwise permanently foreclose retry, since `_unconsumed_anomalies` only rescans rows
-    # where `a.consumed IS NULL`.
     unfileable_ids: set[str] = set()
     for cluster in clusters.values():
         anomaly_ids = cluster["anomaly_ids"]
@@ -163,6 +163,30 @@ def consume_anomalies(
                 )
             except Exception as e:  # noqa: BLE001 — the gap Concept itself already persisted (this anomaly's cluster is remediated); a missing secondary EVIDENCES edge only weakens provenance completeness, it does not lose the remediation, so it stays consumed rather than being retried forever for a link that keeps failing
                 logger.debug("EVIDENCES edge failed: %s", e)
+    return gaps, unfileable_ids
+
+
+def consume_anomalies(
+    engine: Any, *, limit: int = DEFAULT_SCAN_LIMIT, graph_writer: Any = None
+) -> dict[str, Any]:
+    """One consumer pass: scan → cluster → file failure_gap topics → stamp.
+
+    Returns a JSON-able report (``scanned`` / ``already_evidenced`` /
+    ``gaps_filed`` / ``consumed`` / ``gap_ids``). Propose-only: the only
+    writes are gap ``Concept`` topics, ``EVIDENCES`` edges, and the
+    ``consumed`` stamps.
+
+    ``graph_writer`` is threaded straight through to :func:`file_gap_topic`'s
+    own explicit in-memory test adapter (see ``_commit_graph_slice`` /
+    :class:`FailureAnalyzer`, which accepts the same parameter for the
+    identical seam) — the daemon tick never passes it, so production always
+    takes the native ChangeEnvelope path unchanged.
+    """
+    anomalies = _unconsumed_anomalies(engine, limit)
+    evidencing = _already_evidencing(engine) if anomalies else set()
+
+    clusters, already = _cluster_by_signature(anomalies, evidencing)
+    gaps, unfileable_ids = _file_cluster_gaps(engine, clusters, graph_writer)
 
     consumed = sum(
         1

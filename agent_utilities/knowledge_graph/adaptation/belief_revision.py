@@ -46,7 +46,7 @@ from typing import Any
 
 from agent_utilities.models.knowledge_graph import BeliefNode
 
-from .contradiction_detector import Claim, ContradictionDetector
+from .contradiction_detector import Claim, ContradictionDetector, FrictionFinding
 
 logger = logging.getLogger(__name__)
 
@@ -306,6 +306,22 @@ def _invoke_engine_propagate(
     connected engine build has none of them, ``_invoke`` degrades cleanly and
     the Python formula remains the real implementation for that build.
     """
+    payload = _call_engine_propagate(belief, supporting_beliefs, contradicting_beliefs)
+    if payload is None:
+        return None
+    return _parse_propagate_payload(payload)
+
+
+def _call_engine_propagate(
+    belief: BeliefNode,
+    supporting_beliefs: Sequence[BeliefNode],
+    contradicting_beliefs: Sequence[BeliefNode],
+) -> Any | None:
+    """Invoke the engine's ``propagate``/``propagate_confidence`` surface, best-effort.
+
+    Returns the decoded JSON payload, or ``None`` on any import/call failure
+    (the surface is optional and this delegation is never fatal).
+    """
     import json as _json
 
     try:
@@ -337,11 +353,16 @@ def _invoke_engine_propagate(
                 ],
             },
         )
-        payload = _json.loads(raw)
+        return _json.loads(raw)
     except Exception as e:  # noqa: BLE001 — delegation is best-effort only
         logger.debug("belief_revision: engine propagate invoke failed: %s", e)
         return None
 
+
+def _parse_propagate_payload(
+    payload: Any,
+) -> tuple[float, list[dict[str, Any]]] | None:
+    """Validate and unpack an engine propagate payload, or ``None`` if malformed."""
     if not (isinstance(payload, dict) and "error" not in payload):
         return None
     result = payload.get("result") or {}
@@ -353,6 +374,46 @@ def _invoke_engine_propagate(
         return float(new_confidence), trace
     except (TypeError, ValueError):
         return None
+
+
+def _fresh_conflicts_from_friction(
+    beliefs: Sequence[BeliefNode],
+    friction: Sequence[FrictionFinding],
+    threshold_rank: int,
+) -> dict[str, set[str]]:
+    """Union friction findings at/above ``threshold_rank`` into a per-belief conflict set."""
+    fresh_conflicts: dict[str, set[str]] = {b.id: set() for b in beliefs}
+    for finding in friction:
+        if _SEVERITY_RANK.get(finding.severity, 0) < threshold_rank:
+            continue
+        fresh_conflicts.setdefault(finding.new_id, set()).add(finding.conflict_id)
+        fresh_conflicts.setdefault(finding.conflict_id, set()).add(finding.new_id)
+    return fresh_conflicts
+
+
+def _resolve_support_contradict(
+    belief: BeliefNode,
+    by_id: dict[str, BeliefNode],
+    fresh_conflicts: dict[str, set[str]],
+) -> tuple[list[BeliefNode], list[BeliefNode]]:
+    """Resolve one belief's support/contradiction neighborhood from recorded + fresh edges.
+
+    Contradiction takes precedence over support (preserves the mutex);
+    anything unresolvable in ``by_id`` is left untouched rather than guessed at.
+    """
+    contradicting_ids = (
+        set(belief.contradicted_by_node_ids) | fresh_conflicts.get(belief.id, set())
+    ) & by_id.keys()
+    contradicting_ids.discard(belief.id)
+
+    supporting_ids = {
+        i for i in belief.supported_by_node_ids if i in by_id
+    } - contradicting_ids
+    supporting_ids.discard(belief.id)
+
+    supporting = [by_id[i] for i in sorted(supporting_ids)]
+    contradicting = [by_id[i] for i in sorted(contradicting_ids)]
+    return supporting, contradicting
 
 
 class BeliefRevisionPass:
@@ -469,29 +530,13 @@ class BeliefRevisionPass:
         claims = [Claim(id=b.id, text=b.statement) for b in beliefs]
         friction = self.detector.scan(claims)
         threshold_rank = _SEVERITY_RANK.get(self.severity_threshold, 1)
-
-        fresh_conflicts: dict[str, set[str]] = {b.id: set() for b in beliefs}
-        for finding in friction:
-            if _SEVERITY_RANK.get(finding.severity, 0) < threshold_rank:
-                continue
-            fresh_conflicts.setdefault(finding.new_id, set()).add(finding.conflict_id)
-            fresh_conflicts.setdefault(finding.conflict_id, set()).add(finding.new_id)
+        fresh_conflicts = _fresh_conflicts_from_friction(beliefs, friction, threshold_rank)
 
         revisions: list[BeliefRevision] = []
         for belief in beliefs:
-            contradicting_ids = (
-                set(belief.contradicted_by_node_ids)
-                | fresh_conflicts.get(belief.id, set())
-            ) & by_id.keys()
-            contradicting_ids.discard(belief.id)
-
-            supporting_ids = {
-                i for i in belief.supported_by_node_ids if i in by_id
-            } - contradicting_ids
-            supporting_ids.discard(belief.id)
-
-            supporting = [by_id[i] for i in sorted(supporting_ids)]
-            contradicting = [by_id[i] for i in sorted(contradicting_ids)]
+            supporting, contradicting = _resolve_support_contradict(
+                belief, by_id, fresh_conflicts
+            )
             revisions.append(self.check(belief, supporting, contradicting))
 
         revisions.sort(key=lambda r: r.belief_id)

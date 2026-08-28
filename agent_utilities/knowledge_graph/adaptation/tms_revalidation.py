@@ -57,6 +57,7 @@ report and is logged, never raised.
 
 import logging
 import time
+from collections.abc import Callable
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -213,6 +214,52 @@ _OWNER_ACTIONS = {
 }
 
 
+def _stale_candidates(engine: Any, errors: list[str]) -> list[Any]:
+    """Call ``engine.stale_materializations()``.
+
+    Returns ``[]`` — logged to ``errors`` — when the surface is missing or the
+    probe itself raises; the cheap gate degrades, it never raises.
+    """
+    stale_probe = getattr(engine, "stale_materializations", None)
+    if not callable(stale_probe):
+        errors.append("engine has no stale_materializations")
+        return []
+    try:
+        return stale_probe() or []
+    except Exception as e:  # noqa: BLE001 — the cheap gate degrades, never raises
+        errors.append(f"stale_materializations failed: {e}")
+        return []
+
+
+def _revalidate_candidate(
+    engine: Any,
+    kind: str,
+    row: dict[str, Any],
+    status_probe: Callable[[str], Any],
+    errors: list[str],
+) -> tuple[bool, bool] | None:
+    """Probe one candidate's staleness and revalidate it if stale.
+
+    Returns ``(is_stale, acted)``, or ``None`` if the status probe itself
+    failed (the caller still counts the candidate as scanned).
+    """
+    candidate_id = str(row["id"])
+    try:
+        status = status_probe(candidate_id)
+    except Exception as e:  # noqa: BLE001 — a probe failure degrades, never raises
+        errors.append(f"{kind}:{candidate_id} status probe failed: {e}")
+        return None
+    if status != "Stale":
+        return False, False
+    if kind == "context_bundle":
+        acted = _revalidate_context_bundle(
+            engine, candidate_id, str(row.get("cache_key") or ""), errors
+        )
+    else:
+        acted = _OWNER_ACTIONS[kind](engine, candidate_id, errors)
+    return True, acted
+
+
 def revalidate_stale_materializations(
     engine: Any, *, limit: int = DEFAULT_CANDIDATE_LIMIT
 ) -> dict[str, Any]:
@@ -227,15 +274,7 @@ def revalidate_stale_materializations(
     every count at zero.
     """
     errors: list[str] = []
-    stale_probe = getattr(engine, "stale_materializations", None)
-    if not callable(stale_probe):
-        errors.append("engine has no stale_materializations")
-        return {"scanned": 0, "stale": 0, "revalidated": {}, "errors": errors}
-    try:
-        stale_refs = stale_probe()
-    except Exception as e:  # noqa: BLE001 — the cheap gate degrades, never raises
-        errors.append(f"stale_materializations failed: {e}")
-        return {"scanned": 0, "stale": 0, "revalidated": {}, "errors": errors}
+    stale_refs = _stale_candidates(engine, errors)
     if not stale_refs:
         # Nothing stale anywhere in this graph — skip every per-candidate probe.
         return {"scanned": 0, "stale": 0, "revalidated": {}, "errors": errors}
@@ -254,22 +293,14 @@ def revalidate_stale_materializations(
     }
     for kind in ("claim", "capability_index", "context_bundle"):
         for row in _candidates(engine, kind, limit, errors):
-            candidate_id = str(row["id"])
             scanned += 1
-            try:
-                status = status_probe(candidate_id)
-            except Exception as e:  # noqa: BLE001 — a probe failure degrades, never raises
-                errors.append(f"{kind}:{candidate_id} status probe failed: {e}")
+            result = _revalidate_candidate(engine, kind, row, status_probe, errors)
+            if result is None:
                 continue
-            if status != "Stale":
+            is_stale, acted = result
+            if not is_stale:
                 continue
             stale += 1
-            if kind == "context_bundle":
-                acted = _revalidate_context_bundle(
-                    engine, candidate_id, str(row.get("cache_key") or ""), errors
-                )
-            else:
-                acted = _OWNER_ACTIONS[kind](engine, candidate_id, errors)
             if acted:
                 revalidated[kind] += 1
 

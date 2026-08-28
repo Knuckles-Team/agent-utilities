@@ -123,6 +123,14 @@ class SkillMergeCandidate(BaseModel):
     recommendation: str = "keep_both"
 
 
+def _uncovered_gap_words(skills: list[SkillNode], task_words: set[str]) -> list[str]:
+    """Task words (len>3) not covered by any existing skill's keywords."""
+    covered_words: set[str] = set()
+    for skill in skills:
+        covered_words.update(kw.lower() for kw in skill.keywords)
+    return [w for w in task_words if w not in covered_words and len(w) > 3]
+
+
 # ---------------------------------------------------------------------------
 # Skill Neologism Detector
 # ---------------------------------------------------------------------------
@@ -166,16 +174,38 @@ class SkillNeologismDetector:
                 suggested_name=self._suggest_name(task_text),
             )
 
-        # Find the closest matching skill
+        task_words = set(task_text.lower().split())
+        match = self._closest_match(task_text, task_words)
+        if match is None:
+            return None  # Covered by existing skill
+        best_score, best_skill = match
+
+        if best_score < self.gap_threshold:
+            gap_words = _uncovered_gap_words(self.skills, task_words)
+            return SkillGap(
+                task_text=task_text,
+                closest_skill=best_skill,
+                similarity_score=best_score,
+                gap_keywords=gap_words[:15],
+                suggested_name=self._suggest_name(task_text),
+            )
+
+        return None
+
+    def _closest_match(
+        self, task_text: str, task_words: set[str]
+    ) -> tuple[float, str] | None:
+        """Find the closest matching skill's (score, skill_id).
+
+        Returns ``None`` if an existing skill already covers the task
+        directly (``skill.matches``), which short-circuits gap detection.
+        """
         best_score = 0.0
         best_skill = ""
-        task_words = set(task_text.lower().split())
-
         for skill in self.skills:
             if skill.matches(task_text):
-                return None  # Covered by existing skill
+                return None
 
-            # Keyword similarity
             skill_words = set(kw.lower() for kw in skill.keywords) | set(
                 skill.name.lower().split()
             )
@@ -188,24 +218,7 @@ class SkillNeologismDetector:
             if score > best_score:
                 best_score = score
                 best_skill = skill.skill_id
-
-        if best_score < self.gap_threshold:
-            # Gap detected
-            covered_words: set[str] = set()
-            for skill in self.skills:
-                covered_words.update(kw.lower() for kw in skill.keywords)
-
-            gap_words = [w for w in task_words if w not in covered_words and len(w) > 3]
-
-            return SkillGap(
-                task_text=task_text,
-                closest_skill=best_skill,
-                similarity_score=best_score,
-                gap_keywords=gap_words[:15],
-                suggested_name=self._suggest_name(task_text),
-            )
-
-        return None
+        return best_score, best_skill
 
     @staticmethod
     def _suggest_name(task_text: str) -> str:
@@ -405,26 +418,31 @@ class SkillMerger:
 
         for i, skill_a in enumerate(skills):
             for skill_b in skills[i + 1 :]:
-                overlap = self._compute_overlap(skill_a, skill_b)
-                if overlap > 0.1:  # Report any non-trivial overlap
-                    shared = list(
-                        set(k.lower() for k in skill_a.keywords)
-                        & set(k.lower() for k in skill_b.keywords)
-                    )
-                    recommendation = (
-                        "merge" if overlap >= self.merge_threshold else "keep_both"
-                    )
-                    candidates.append(
-                        SkillMergeCandidate(
-                            skill_a_id=skill_a.skill_id,
-                            skill_b_id=skill_b.skill_id,
-                            overlap_score=overlap,
-                            shared_keywords=shared,
-                            recommendation=recommendation,
-                        )
-                    )
+                candidate = self._maybe_merge_candidate(skill_a, skill_b)
+                if candidate is not None:
+                    candidates.append(candidate)
 
         return candidates
+
+    def _maybe_merge_candidate(
+        self, skill_a: SkillNode, skill_b: SkillNode
+    ) -> SkillMergeCandidate | None:
+        """Build a merge candidate for one pair, or ``None`` for trivial overlap."""
+        overlap = self._compute_overlap(skill_a, skill_b)
+        if overlap <= 0.1:  # Only non-trivial overlap is reportable
+            return None
+        shared = list(
+            set(k.lower() for k in skill_a.keywords)
+            & set(k.lower() for k in skill_b.keywords)
+        )
+        recommendation = "merge" if overlap >= self.merge_threshold else "keep_both"
+        return SkillMergeCandidate(
+            skill_a_id=skill_a.skill_id,
+            skill_b_id=skill_b.skill_id,
+            overlap_score=overlap,
+            shared_keywords=shared,
+            recommendation=recommendation,
+        )
 
     def merge(self, skill_a: SkillNode, skill_b: SkillNode) -> SkillNode:
         """Merge two skills into one.

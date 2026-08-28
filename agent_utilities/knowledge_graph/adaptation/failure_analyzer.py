@@ -458,16 +458,9 @@ class FailureAnalyzer:
             low_score_threshold=float(cfg.langfuse_dataset_capture_threshold),
         )
 
-    # ── pull ────────────────────────────────────────────────────────────
-    async def _pull(self) -> list[FailureRecord]:
-        """Pull error/low-score/anomaly telemetry and normalize to records."""
-        if self.trace_backend is None:
-            return []
-        since = time.strftime(
-            "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - self.window_seconds)
-        )
+    async def _pull_error_records(self, since: str) -> list[FailureRecord]:
+        """Normalize error observations into ``FailureRecord``s."""
         records: list[FailureRecord] = []
-
         for obs in await self.trace_backend.get_error_observations(since=since):
             records.append(
                 FailureRecord(
@@ -478,7 +471,11 @@ class FailureAnalyzer:
                     trace_id=obs.get("traceId") or obs.get("id"),
                 )
             )
+        return records
 
+    async def _pull_low_score_records(self, since: str) -> list[FailureRecord]:
+        """Normalize below-threshold scored traces into ``FailureRecord``s."""
+        records: list[FailureRecord] = []
         for sc in await self.trace_backend.get_low_score_traces(
             max_value=self.low_score_threshold, since=since
         ):
@@ -493,7 +490,11 @@ class FailureAnalyzer:
                     baseline=self.low_score_threshold,
                 )
             )
+        return records
 
+    async def _pull_anomaly_records(self, since: str) -> list[FailureRecord]:
+        """Normalize cost/latency budget breaches into ``FailureRecord``s."""
+        records: list[FailureRecord] = []
         for an in await self.trace_backend.get_cost_latency_anomalies(
             since=since,
             p95_latency_ms=self.latency_budget_ms,
@@ -523,59 +524,67 @@ class FailureAnalyzer:
                 )
         return records
 
-    # ── materialize ─────────────────────────────────────────────────────
-    def _materialize(self, patterns: list[FailurePattern]) -> dict[str, Any]:
-        """Persist ExecutionSummary / PerformanceAnomaly / failure_gap Concept nodes."""
-        ts = _now_iso()
-        gap_concepts: list[dict[str, Any]] = []
-        anomalies = 0
-        summaries: dict[str, int] = {}
+    # ── pull ────────────────────────────────────────────────────────────
+    async def _pull(self) -> list[FailureRecord]:
+        """Pull error/low-score/anomaly telemetry and normalize to records."""
+        if self.trace_backend is None:
+            return []
+        since = time.strftime(
+            "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - self.window_seconds)
+        )
+        records: list[FailureRecord] = []
+        records.extend(await self._pull_error_records(since))
+        records.extend(await self._pull_low_score_records(since))
+        records.extend(await self._pull_anomaly_records(since))
+        return records
 
-        for raw_pattern in patterns:
-            p = _safe_pattern(raw_pattern)
-            if p.count < self.min_occurrences:
-                continue
-            anomaly_id = f"perf_anomaly:{p.signature}"
+    def _persist_pattern_anomaly_and_gap(
+        self, p: FailurePattern, anomaly_id: str, ts: str
+    ) -> tuple[bool, dict[str, Any] | None]:
+        """Persist one pattern's PerformanceAnomaly, then file its failure_gap Concept.
 
-            # 1. PerformanceAnomaly (target = the failing workflow/agent name).
-            try:
-                _commit_graph_slice(
-                    self.engine,
-                    [
-                        {
-                            "id": anomaly_id,
-                            "node_type": "PerformanceAnomaly",
-                            "target_node_id": p.name,
-                            "anomaly_type": p.anomaly_type,
-                            "threshold_exceeded": float(p.value or 0.0),
-                            "baseline": float(p.baseline or 0.0),
-                            "timestamp": ts,
-                            "metadata": f"failure_detail_ref={p.sample_detail}",
-                        }
-                    ],
-                    graph_writer=self.graph_writer,
-                )
-                anomalies += 1
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("anomaly node persist failed (%s)", type(exc).__name__)
-
-            # 2.+3. failure_gap Concept (+EVIDENCES provenance) via the shared
-            #    gap-topic creation path — NO ADDRESSED_BY edge, so the golden
-            #    loop's unresolved_topics() picks it up automatically.
-            gap = file_gap_topic(
+        Returns ``(anomaly_persisted, gap)`` — ``gap`` is the shared gap-topic
+        path's result (``None`` if unfileable). No ADDRESSED_BY edge is written,
+        so the golden loop's ``unresolved_topics()`` picks the gap up automatically.
+        """
+        anomaly_persisted = False
+        try:
+            _commit_graph_slice(
                 self.engine,
-                p,
-                anomaly_id=anomaly_id,
+                [
+                    {
+                        "id": anomaly_id,
+                        "node_type": "PerformanceAnomaly",
+                        "target_node_id": p.name,
+                        "anomaly_type": p.anomaly_type,
+                        "threshold_exceeded": float(p.value or 0.0),
+                        "baseline": float(p.baseline or 0.0),
+                        "timestamp": ts,
+                        "metadata": f"failure_detail_ref={p.sample_detail}",
+                    }
+                ],
                 graph_writer=self.graph_writer,
             )
-            if gap is None:
-                continue
+            anomaly_persisted = True
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("anomaly node persist failed (%s)", type(exc).__name__)
 
-            summaries[p.name] = summaries.get(p.name, 0) + p.count
-            gap_concepts.append(gap)
+        gap = file_gap_topic(
+            self.engine,
+            p,
+            anomaly_id=anomaly_id,
+            graph_writer=self.graph_writer,
+        )
+        return anomaly_persisted, gap
 
-        # 4. ExecutionSummary rollup per failing workflow name (success_rate<1.0 so
-        #    maintainer.trigger_self_improvement picks it up).
+    def _persist_summary_rollups(
+        self,
+        summaries: dict[str, int],
+        gap_concepts: list[dict[str, Any]],
+        ts: str,
+    ) -> None:
+        """ExecutionSummary rollup per failing workflow name (success_rate<1.0 so
+        ``maintainer.trigger_self_improvement`` picks it up)."""
         for name, fail_count in summaries.items():
             summary_id = f"exec_summary:{_sig(name, 'rollup', '')}"
             try:
@@ -608,6 +617,29 @@ class FailureAnalyzer:
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.debug("ExecutionSummary persist failed (%s)", type(exc).__name__)
+
+    # ── materialize ─────────────────────────────────────────────────────
+    def _materialize(self, patterns: list[FailurePattern]) -> dict[str, Any]:
+        """Persist ExecutionSummary / PerformanceAnomaly / failure_gap Concept nodes."""
+        ts = _now_iso()
+        gap_concepts: list[dict[str, Any]] = []
+        anomalies = 0
+        summaries: dict[str, int] = {}
+
+        for raw_pattern in patterns:
+            p = _safe_pattern(raw_pattern)
+            if p.count < self.min_occurrences:
+                continue
+            anomaly_id = f"perf_anomaly:{p.signature}"
+            persisted, gap = self._persist_pattern_anomaly_and_gap(p, anomaly_id, ts)
+            if persisted:
+                anomalies += 1
+            if gap is None:
+                continue
+            summaries[p.name] = summaries.get(p.name, 0) + p.count
+            gap_concepts.append(gap)
+
+        self._persist_summary_rollups(summaries, gap_concepts, ts)
 
         return {
             "gap_concepts": gap_concepts,

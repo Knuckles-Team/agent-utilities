@@ -40,6 +40,18 @@ _DEFAULT_CHUNK_SIZE = 2000
 _DEFAULT_CHUNK_OVERLAP = 200
 
 
+def _trim_to_overlap(sentences: list[str], overlap: int) -> tuple[list[str], int]:
+    """Keep the trailing sentences of ``sentences`` that fit within ``overlap`` chars, in order."""
+    overlap_chunk: list[str] = []
+    overlap_len = 0
+    for s in reversed(sentences):
+        if overlap_len + len(s) > overlap:
+            break
+        overlap_chunk.insert(0, s)
+        overlap_len += len(s)
+    return overlap_chunk, overlap_len
+
+
 def chunk_text(
     text: str,
     chunk_size: int = _DEFAULT_CHUNK_SIZE,
@@ -75,20 +87,8 @@ def chunk_text(
         sentence_len = len(sentence)
 
         if current_length + sentence_len > chunk_size and current_chunk:
-            # Emit current chunk
             chunks.append(" ".join(current_chunk))
-
-            # Calculate overlap: keep last sentences that fit within overlap
-            overlap_chunk: list[str] = []
-            overlap_len = 0
-            for s in reversed(current_chunk):
-                if overlap_len + len(s) > overlap:
-                    break
-                overlap_chunk.insert(0, s)
-                overlap_len += len(s)
-
-            current_chunk = overlap_chunk
-            current_length = overlap_len
+            current_chunk, current_length = _trim_to_overlap(current_chunk, overlap)
 
         current_chunk.append(sentence)
         current_length += sentence_len
@@ -283,6 +283,31 @@ class DistillationEngine:
 
         return block
 
+    def _select_blocks_to_distill(
+        self, block_ids: list[str] | None
+    ) -> list[dict[str, Any]]:
+        """Resolve the IdeaBlocks to distill: the named ids, or every registered block."""
+        if block_ids:
+            return [self._blocks[bid] for bid in block_ids if bid in self._blocks]
+        return list(self._blocks.values())
+
+    def _persist_merged_blocks(self, blocks: list[dict[str, Any]]) -> None:
+        """Persist merged IdeaBlocks to the KG with DISTILLED_FROM provenance edges."""
+        if not self.kg_engine:
+            return
+        for block in blocks:
+            merged_from = block.get("merged_from", [])
+            if not merged_from:
+                continue
+            self.kg_engine.graph.add_node(block["id"], **block)
+            for source_id in merged_from:
+                self.kg_engine.link_nodes(
+                    block["id"],
+                    source_id,
+                    "DISTILLED_FROM",
+                    {"confidence": 1.0, "source": "distillation"},
+                )
+
     def distill(
         self,
         block_ids: list[str] | None = None,
@@ -300,11 +325,7 @@ class DistillationEngine:
         Returns:
             Distillation result with stats and updated blocks.
         """
-        # Select blocks to distill
-        if block_ids:
-            blocks = [self._blocks[bid] for bid in block_ids if bid in self._blocks]
-        else:
-            blocks = list(self._blocks.values())
+        blocks = self._select_blocks_to_distill(block_ids)
 
         if len(blocks) < 2:
             return {
@@ -333,20 +354,7 @@ class DistillationEngine:
         for block in result["blocks"]:
             self._blocks[block["id"]] = block
 
-        # Persist merged blocks to KG with provenance
-        if self.kg_engine:
-            for block in result["blocks"]:
-                merged_from = block.get("merged_from", [])
-                if merged_from:
-                    # This is a merged block — add with provenance
-                    self.kg_engine.graph.add_node(block["id"], **block)
-                    for source_id in merged_from:
-                        self.kg_engine.link_nodes(
-                            block["id"],
-                            source_id,
-                            "DISTILLED_FROM",
-                            {"confidence": 1.0, "source": "distillation"},
-                        )
+        self._persist_merged_blocks(result["blocks"])
 
         # Record history
         self._distillation_history.append(result["stats"])
