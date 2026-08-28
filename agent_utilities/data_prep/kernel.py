@@ -13,8 +13,8 @@ import json
 import math
 import re
 import time
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Literal
 
@@ -342,6 +342,178 @@ def _profile_warning(value: str) -> ProfileWarningCode:
     return value  # type: ignore[return-value]
 
 
+@dataclass(frozen=True, slots=True)
+class _ColumnScanContext:
+    """Shared Arrow/limit/deadline handles threaded through one column scan."""
+
+    pa: Any
+    pc: Any
+    limits: ProfileLimits
+    deadline: float
+
+
+@dataclass(frozen=True, slots=True)
+class _NullDistinctStats:
+    null_count: int
+    null_rate: float
+    distinct_count: int | None
+
+
+def _column_null_and_distinct(
+    ctx: _ColumnScanContext, values: Any, rows: int
+) -> tuple[_NullDistinctStats, list[ProfileWarningCode]]:
+    pa, pc = ctx.pa, ctx.pc
+    null_count = int(pc.sum(pc.cast(pc.is_null(values), pa.int64())).as_py() or 0)
+    null_rate = null_count / rows if rows else 0.0
+    warnings: list[ProfileWarningCode] = []
+    distinct_count: int | None
+    try:
+        distinct_count = int(pc.count_distinct(values).as_py() or 0)
+    except (pa.ArrowException, NotImplementedError, TypeError, ValueError):
+        distinct_count = None
+        warnings.append(_profile_warning("cardinality_unavailable"))
+    if distinct_count is not None and distinct_count > ctx.limits.max_cardinality:
+        raise ProfileLimitError("profile cardinality exceeds the declared limit")
+    return _NullDistinctStats(null_count, null_rate, distinct_count), warnings
+
+
+def _column_shape_warnings(
+    rows: int, stats: _NullDistinctStats
+) -> list[ProfileWarningCode]:
+    warnings: list[ProfileWarningCode] = []
+    if rows == 0 or stats.null_count == rows:
+        warnings.append(_profile_warning("all_null"))
+    if rows and stats.null_rate >= 0.5:
+        warnings.append(_profile_warning("high_null_rate"))
+    if rows and stats.distinct_count == 1:
+        warnings.append(_profile_warning("single_value"))
+    if rows > 1 and stats.distinct_count == rows:
+        warnings.append(_profile_warning("high_cardinality"))
+    return warnings
+
+
+def _suppressed_column_profile(
+    ordinal: int,
+    values: Any,
+    ctx: _ColumnScanContext,
+    stats: _NullDistinctStats,
+    warnings: list[ProfileWarningCode],
+    *,
+    numeric: bool,
+) -> ColumnProfile:
+    warnings = [*warnings, _profile_warning("small_group_suppressed")]
+    if numeric:
+        warnings.append(_profile_warning("stats_suppressed"))
+    if ctx.limits.max_top_k:
+        warnings.append(_profile_warning("topk_suppressed"))
+    return ColumnProfile(
+        ordinal=ordinal,
+        dtype=_profile_dtype(values.type, ctx.pa),
+        null_count=stats.null_count,
+        null_rate=stats.null_rate,
+        distinct_count=stats.distinct_count,
+        warning_codes=warnings,
+    )
+
+
+def _column_numeric_stats(
+    ctx: _ColumnScanContext, non_null: Any
+) -> tuple[
+    int | float | None, int | float | None, float | None, list[ProfileWarningCode]
+]:
+    pa, pc = ctx.pa, ctx.pc
+    warnings: list[ProfileWarningCode] = []
+    min_value: int | float | None = None
+    max_value: int | float | None = None
+    mean: float | None = None
+    try:
+        min_value = _profile_number(pc.min(non_null).as_py())
+        max_value = _profile_number(pc.max(non_null).as_py())
+        mean_value = _profile_number(pc.mean(non_null).as_py())
+        if min_value is None or max_value is None or mean_value is None:
+            warnings.append(_profile_warning("stats_suppressed"))
+        else:
+            mean = float(mean_value)
+    except (pa.ArrowException, NotImplementedError, TypeError, ValueError):
+        warnings.append(_profile_warning("stats_suppressed"))
+    return min_value, max_value, mean, warnings
+
+
+def _column_quantiles(
+    ctx: _ColumnScanContext, non_null: Any
+) -> tuple[list[QuantilePoint], bool, list[ProfileWarningCode]]:
+    pa, pc = ctx.pa, ctx.pc
+    warnings: list[ProfileWarningCode] = []
+    quantiles: list[QuantilePoint] = []
+    truncated = False
+    probabilities = [0.25, 0.5, 0.75]
+    if len(probabilities) > ctx.limits.max_quantiles:
+        probabilities = probabilities[: ctx.limits.max_quantiles]
+        truncated = True
+        warnings.append(_profile_warning("quantiles_truncated"))
+    if not ctx.limits.max_quantiles:
+        return quantiles, truncated, warnings
+    try:
+        quantile_values = pc.quantile(non_null, q=probabilities, interpolation="linear")
+        for probability, value in zip(probabilities, quantile_values, strict=False):
+            number = _profile_number(value.as_py())
+            if number is not None:
+                quantiles.append(
+                    QuantilePoint(probability=float(probability), value=float(number))
+                )
+    except (pa.ArrowException, NotImplementedError, TypeError, ValueError):
+        warnings.append(_profile_warning("quantiles_unavailable"))
+    return quantiles, truncated, warnings
+
+
+def _normalize_topk_counts(
+    counts: list[Any], disclosure_threshold: int
+) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for item in counts:
+        if not isinstance(item, dict):
+            continue
+        count = item.get("counts", item.get("count"))
+        value = item.get("values")
+        if (
+            not isinstance(count, int)
+            or count < disclosure_threshold
+            or not isinstance(value, (bool, int, float, str))
+        ):
+            continue
+        normalized.append({"values": value, "count": count})
+    return normalized
+
+
+def _column_top_k(
+    ctx: _ColumnScanContext, non_null: Any
+) -> tuple[list[TopKEntry], bool, list[ProfileWarningCode]]:
+    pa, pc = ctx.pa, ctx.pc
+    warnings: list[ProfileWarningCode] = []
+    top_k: list[TopKEntry] = []
+    truncated = False
+    if not ctx.limits.max_top_k:
+        return top_k, truncated, warnings
+    try:
+        counts = _normalize_topk_counts(
+            pc.value_counts(non_null).to_pylist(), ctx.limits.disclosure_threshold
+        )
+        counts.sort(
+            key=lambda item: (-int(item["count"]), _canonical_json(item["values"]))
+        )
+        if len(counts) > ctx.limits.max_top_k:
+            truncated = True
+            warnings.append(_profile_warning("topk_truncated"))
+        for item in counts[: ctx.limits.max_top_k]:
+            value = item["values"]
+            if isinstance(value, float) and not math.isfinite(value):
+                continue
+            top_k.append(TopKEntry(value=value, count=int(item["count"])))
+    except (pa.ArrowException, NotImplementedError, TypeError, ValueError):
+        warnings.append(_profile_warning("topk_suppressed"))
+    return top_k, truncated, warnings
+
+
 def _column_profile(
     table: Any,
     ordinal: int,
@@ -356,134 +528,50 @@ def _column_profile(
     _check_profile_deadline(deadline)
     values = table.column(ordinal).combine_chunks()
     rows = table.num_rows
-    null_count = int(pc.sum(pc.cast(pc.is_null(values), pa.int64())).as_py() or 0)
-    null_rate = null_count / rows if rows else 0.0
-    distinct_count: int | None
-    warnings: list[ProfileWarningCode] = []
-    try:
-        distinct_count = int(pc.count_distinct(values).as_py() or 0)
-    except (pa.ArrowException, NotImplementedError, TypeError, ValueError):
-        distinct_count = None
-        warnings.append(_profile_warning("cardinality_unavailable"))
-    if distinct_count is not None and distinct_count > limits.max_cardinality:
-        raise ProfileLimitError("profile cardinality exceeds the declared limit")
-    if rows == 0 or null_count == rows:
-        warnings.append(_profile_warning("all_null"))
-    if rows and null_rate >= 0.5:
-        warnings.append(_profile_warning("high_null_rate"))
-    if rows and distinct_count == 1:
-        warnings.append(_profile_warning("single_value"))
-    if rows > 1 and distinct_count == rows:
-        warnings.append(_profile_warning("high_cardinality"))
+    ctx = _ColumnScanContext(pa=pa, pc=pc, limits=limits, deadline=deadline)
 
+    stats, warnings = _column_null_and_distinct(ctx, values, rows)
+    warnings += _column_shape_warnings(rows, stats)
+
+    non_null_count = rows - stats.null_count
+    numeric = pa.types.is_integer(values.type) or pa.types.is_floating(values.type)
+    if non_null_count < limits.disclosure_threshold:
+        profile = _suppressed_column_profile(
+            ordinal, values, ctx, stats, warnings, numeric=numeric
+        )
+        return profile, stats.null_count, False
+
+    non_null = pc.drop_null(values)
     min_value: int | float | None = None
     max_value: int | float | None = None
     mean: float | None = None
     quantiles: list[QuantilePoint] = []
-    top_k: list[TopKEntry] = []
     truncated = False
-    non_null_count = rows - null_count
-    numeric = pa.types.is_integer(values.type) or pa.types.is_floating(values.type)
-    if non_null_count < limits.disclosure_threshold:
-        warnings.append(_profile_warning("small_group_suppressed"))
-        if numeric:
-            warnings.append(_profile_warning("stats_suppressed"))
-        if limits.max_top_k:
-            warnings.append(_profile_warning("topk_suppressed"))
-        return (
-            ColumnProfile(
-                ordinal=ordinal,
-                dtype=_profile_dtype(values.type, pa),
-                null_count=null_count,
-                null_rate=null_rate,
-                distinct_count=distinct_count,
-                warning_codes=warnings,
-            ),
-            null_count,
-            truncated,
-        )
-
-    non_null = pc.drop_null(values)
     if numeric:
-        try:
-            min_value = _profile_number(pc.min(non_null).as_py())
-            max_value = _profile_number(pc.max(non_null).as_py())
-            mean_value = _profile_number(pc.mean(non_null).as_py())
-            if min_value is None or max_value is None or mean_value is None:
-                warnings.append(_profile_warning("stats_suppressed"))
-            else:
-                mean = float(mean_value)
-        except (pa.ArrowException, NotImplementedError, TypeError, ValueError):
-            warnings.append(_profile_warning("stats_suppressed"))
+        min_value, max_value, mean, numeric_warnings = _column_numeric_stats(
+            ctx, non_null
+        )
+        warnings += numeric_warnings
         _check_profile_deadline(deadline)
-        probabilities = [0.25, 0.5, 0.75]
-        if len(probabilities) > limits.max_quantiles:
-            probabilities = probabilities[: limits.max_quantiles]
-            truncated = True
-            warnings.append(_profile_warning("quantiles_truncated"))
-        if limits.max_quantiles:
-            try:
-                quantile_values = pc.quantile(
-                    non_null,
-                    q=probabilities,
-                    interpolation="linear",
-                )
-                for probability, value in zip(
-                    probabilities, quantile_values, strict=False
-                ):
-                    number = _profile_number(value.as_py())
-                    if number is not None:
-                        quantiles.append(
-                            QuantilePoint(
-                                probability=float(probability),
-                                value=float(number),
-                            )
-                        )
-            except (pa.ArrowException, NotImplementedError, TypeError, ValueError):
-                warnings.append(_profile_warning("quantiles_unavailable"))
+        quantiles, quantiles_truncated, quantile_warnings = _column_quantiles(
+            ctx, non_null
+        )
+        truncated = truncated or quantiles_truncated
+        warnings += quantile_warnings
         _check_profile_deadline(deadline)
 
-    if limits.max_top_k:
-        try:
-            counts = pc.value_counts(non_null).to_pylist()
-            normalized_counts = []
-            for item in counts:
-                if not isinstance(item, dict):
-                    continue
-                count = item.get("counts", item.get("count"))
-                value = item.get("values")
-                if (
-                    not isinstance(count, int)
-                    or count < limits.disclosure_threshold
-                    or not isinstance(value, (bool, int, float, str))
-                ):
-                    continue
-                normalized_counts.append({"values": value, "count": count})
-            counts = normalized_counts
-            counts.sort(
-                key=lambda item: (
-                    -int(item["count"]),
-                    _canonical_json(item["values"]),
-                )
-            )
-            if len(counts) > limits.max_top_k:
-                truncated = True
-                warnings.append(_profile_warning("topk_truncated"))
-            for item in counts[: limits.max_top_k]:
-                value = item["values"]
-                if isinstance(value, float) and not math.isfinite(value):
-                    continue
-                top_k.append(TopKEntry(value=value, count=int(item["count"])))
-        except (pa.ArrowException, NotImplementedError, TypeError, ValueError):
-            warnings.append(_profile_warning("topk_suppressed"))
+    top_k, topk_truncated, topk_warnings = _column_top_k(ctx, non_null)
+    truncated = truncated or topk_truncated
+    warnings += topk_warnings
     _check_profile_deadline(deadline)
+
     return (
         ColumnProfile(
             ordinal=ordinal,
             dtype=_profile_dtype(values.type, pa),
-            null_count=null_count,
-            null_rate=null_rate,
-            distinct_count=distinct_count,
+            null_count=stats.null_count,
+            null_rate=stats.null_rate,
+            distinct_count=stats.distinct_count,
             min_value=min_value,
             max_value=max_value,
             mean=mean,
@@ -491,9 +579,62 @@ def _column_profile(
             top_k=top_k,
             warning_codes=warnings,
         ),
-        null_count,
+        stats.null_count,
         truncated,
     )
+
+
+def _resolve_profile_ordinals(
+    table: Any, selector: ProfileSelector | None, digest: str
+) -> list[int]:
+    if selector is not None and selector.schema_digest != digest:
+        raise ProfileSelectorError("profile selector schema digest is stale")
+    if selector is None:
+        return list(range(table.num_columns))
+    ordinals = list(selector.ordinals)
+    if any(ordinal >= table.num_columns for ordinal in ordinals):
+        raise ProfileSelectorError("profile selector ordinal is outside the schema")
+    return ordinals
+
+
+def _profile_columns(
+    table: Any,
+    pa: Any,
+    pc: Any,
+    ordinals: list[int],
+    *,
+    limits: ProfileLimits,
+    deadline: float,
+) -> tuple[list[ColumnProfile], int, bool, list[ProfileWarningCode]]:
+    null_cells = 0
+    column_profiles: list[ColumnProfile] = []
+    warnings: list[ProfileWarningCode] = []
+    truncated = False
+    for ordinal in ordinals:
+        column_profile, null_count, column_truncated = _column_profile(
+            table,
+            ordinal,
+            pa,
+            pc,
+            limits=limits,
+            deadline=deadline,
+        )
+        null_cells += null_count
+        column_profiles.append(column_profile)
+        warnings.extend(column_profile.warning_codes)
+        truncated = truncated or column_truncated
+    return column_profiles, null_cells, truncated, warnings
+
+
+def _cap_profile_warnings(
+    warnings: list[ProfileWarningCode], truncated: bool, max_warnings: int
+) -> tuple[list[ProfileWarningCode], bool]:
+    warning_values = list(dict.fromkeys(warnings))
+    if len(warning_values) > max_warnings:
+        truncated = True
+        warning_values = warning_values[: max_warnings - 1]
+        warning_values.append(_profile_warning("profile_truncated"))
+    return warning_values, truncated
 
 
 def profile_table(
@@ -517,41 +658,21 @@ def profile_table(
     if table.nbytes > effective_limits.max_bytes:
         raise ProfileLimitError("profile bytes exceed the declared limit")
     digest = schema_digest(table)
-    if selector is not None and selector.schema_digest != digest:
-        raise ProfileSelectorError("profile selector schema digest is stale")
-    ordinals = list(range(table.num_columns))
-    if selector is not None:
-        ordinals = list(selector.ordinals)
-        if any(ordinal >= table.num_columns for ordinal in ordinals):
-            raise ProfileSelectorError("profile selector ordinal is outside the schema")
+    ordinals = _resolve_profile_ordinals(table, selector, digest)
     if len(ordinals) > effective_limits.max_columns:
         raise ProfileLimitError("profile columns exceed the declared limit")
     started = time.monotonic()
     deadline = _profile_deadline(started, effective_limits)
-    null_cells = 0
-    column_profiles: list[ColumnProfile] = []
     warnings: list[ProfileWarningCode] = []
-    truncated = False
     if table.num_rows == 0:
         warnings.append(_profile_warning("empty_dataset"))
-    for ordinal in ordinals:
-        column_profile, null_count, column_truncated = _column_profile(
-            table,
-            ordinal,
-            pa,
-            pc,
-            limits=effective_limits,
-            deadline=deadline,
-        )
-        null_cells += null_count
-        column_profiles.append(column_profile)
-        warnings.extend(column_profile.warning_codes)
-        truncated = truncated or column_truncated
-    warning_values = list(dict.fromkeys(warnings))
-    if len(warning_values) > effective_limits.max_warnings:
-        truncated = True
-        warning_values = warning_values[: effective_limits.max_warnings - 1]
-        warning_values.append(_profile_warning("profile_truncated"))
+    column_profiles, null_cells, truncated, column_warnings = _profile_columns(
+        table, pa, pc, ordinals, limits=effective_limits, deadline=deadline
+    )
+    warnings.extend(column_warnings)
+    warning_values, truncated = _cap_profile_warnings(
+        warnings, truncated, effective_limits.max_warnings
+    )
     _check_profile_deadline(deadline)
     target = ProfileTarget(
         target_kind=target_kind,
@@ -640,30 +761,26 @@ def _apply_null_policy(
 
 
 def _arrow_type_name(data_type: Any, pa: Any) -> str | None:
-    if pa.types.is_boolean(data_type):
-        return "bool"
-    if pa.types.is_int8(data_type):
-        return "int8"
-    if pa.types.is_int16(data_type):
-        return "int16"
-    if pa.types.is_int32(data_type):
-        return "int32"
-    if pa.types.is_int64(data_type):
-        return "int64"
-    if pa.types.is_uint8(data_type):
-        return "uint8"
-    if pa.types.is_uint16(data_type):
-        return "uint16"
-    if pa.types.is_uint32(data_type):
-        return "uint32"
-    if pa.types.is_uint64(data_type):
-        return "uint64"
-    if pa.types.is_float32(data_type):
-        return "float32"
-    if pa.types.is_float64(data_type):
-        return "float64"
-    if pa.types.is_string(data_type):
-        return "string"
+    # A dispatch TABLE (scan, not an unrolled if/elif chain): each predicate
+    # is evaluated once and matched by position, so cccc counts one loop, not
+    # twelve branches.
+    checks: list[tuple[bool, str]] = [
+        (pa.types.is_boolean(data_type), "bool"),
+        (pa.types.is_int8(data_type), "int8"),
+        (pa.types.is_int16(data_type), "int16"),
+        (pa.types.is_int32(data_type), "int32"),
+        (pa.types.is_int64(data_type), "int64"),
+        (pa.types.is_uint8(data_type), "uint8"),
+        (pa.types.is_uint16(data_type), "uint16"),
+        (pa.types.is_uint32(data_type), "uint32"),
+        (pa.types.is_uint64(data_type), "uint64"),
+        (pa.types.is_float32(data_type), "float32"),
+        (pa.types.is_float64(data_type), "float64"),
+        (pa.types.is_string(data_type), "string"),
+    ]
+    for matched, name in checks:
+        if matched:
+            return name
     return None
 
 
@@ -700,29 +817,55 @@ def _apply_safe_cast(table: Any, step: SafeCast) -> Any:
     return table.set_column(index, step.column, casted)
 
 
+def _validate_bool_fill(value: Any) -> None:
+    if not isinstance(value, bool):
+        raise PlanExecutionError("boolean null fills require a strict boolean")
+
+
+def _validate_int_fill(value: Any) -> None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise PlanExecutionError("integer null fills require a strict integer")
+
+
+def _validate_float_fill(value: Any) -> None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, float)
+        or not math.isfinite(value)
+    ):
+        raise PlanExecutionError("floating null fills require a finite strict float")
+
+
+def _validate_string_fill(value: Any) -> None:
+    if not isinstance(value, str):
+        raise PlanExecutionError("string null fills require a strict string")
+
+
+_FILL_VALIDATOR_BY_KIND: tuple[tuple[str, Callable[[Any], None]], ...] = (
+    ("is_boolean", _validate_bool_fill),
+    ("is_integer", _validate_int_fill),
+    ("is_floating", _validate_float_fill),
+    ("is_string", _validate_string_fill),
+)
+
+
+def _fill_type_validator(target: Any, pa: Any) -> Callable[[Any], None] | None:
+    """The strict-scalar validator for ``target``'s Arrow type kind, dict
+    dispatch over ``pa.types.is_*`` predicates in place of an if/elif chain.
+    """
+    for predicate_name, validator in _FILL_VALIDATOR_BY_KIND:
+        if getattr(pa.types, predicate_name)(target):
+            return validator
+    return None
+
+
 def _fill_scalar(value: Any, target: Any, pa: Any) -> Any:
     """Create a target-typed scalar without a lossy conversion."""
 
-    if pa.types.is_boolean(target):
-        if not isinstance(value, bool):
-            raise PlanExecutionError("boolean null fills require a strict boolean")
-    elif pa.types.is_integer(target):
-        if isinstance(value, bool) or not isinstance(value, int):
-            raise PlanExecutionError("integer null fills require a strict integer")
-    elif pa.types.is_floating(target):
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, float)
-            or not math.isfinite(value)
-        ):
-            raise PlanExecutionError(
-                "floating null fills require a finite strict float"
-            )
-    elif pa.types.is_string(target):
-        if not isinstance(value, str):
-            raise PlanExecutionError("string null fills require a strict string")
-    else:
+    validator = _fill_type_validator(target, pa)
+    if validator is None:
         raise PlanExecutionError("null fills are unsupported for this Arrow type")
+    validator(value)
     try:
         scalar = pa.scalar(value, type=target)
     except (pa.ArrowException, TypeError, ValueError) as exc:
@@ -903,6 +1046,135 @@ def _apply_step(
     raise PlanExecutionError("unsupported clean-plan verb")
 
 
+@dataclass(slots=True)
+class _RunState:
+    """Mutable accumulator threaded through :meth:`CleanPipeline.run`'s step
+    loop — bundles what would otherwise be six-plus loop-carried locals into
+    one object so each extracted step-handler stays under the parameter cap.
+    """
+
+    current: Any
+    row_ids: list[int]
+    dropped_rows: int = 0
+    quarantined_rows: int = 0
+    quarantine: list[QuarantineOutcome] = field(default_factory=list)
+    row_outcomes: list[RowOutcome] = field(default_factory=list)
+    step_evidence: list[StepEvidence] = field(default_factory=list)
+
+
+def _apply_null_quarantine(
+    state: _RunState,
+    before_row_ids: tuple[int, ...],
+    quarantine_indexes: tuple[int, ...],
+    count: int,
+    plan: CleanPlan,
+) -> None:
+    state.quarantined_rows += count
+    if state.quarantined_rows > min(
+        plan.profile.max_quarantine_rows, plan.profile.max_rows
+    ):
+        raise ProfileLimitError("quarantine rows exceed the local profile limit")
+    state.quarantine.append(
+        QuarantineOutcome(reason_code="null_rejected", row_count=count)
+    )
+    state.row_outcomes.extend(
+        RowOutcome(
+            row_index=before_row_ids[index],
+            status="quarantined",
+            reason_code="null_rejected",
+        )
+        for index in quarantine_indexes
+    )
+    if len(state.row_outcomes) > plan.profile.max_outcome_rows:
+        raise ProfileLimitError("row outcomes exceed the local profile limit")
+    invalid_positions = set(quarantine_indexes)
+    state.row_ids = [
+        row_id
+        for index, row_id in enumerate(before_row_ids)
+        if index not in invalid_positions
+    ]
+
+
+def _apply_dedupe_drop(
+    state: _RunState,
+    before_row_ids: tuple[int, ...],
+    rows_in: int,
+    retained_indexes: tuple[int, ...],
+    plan: CleanPlan,
+) -> None:
+    if len(retained_indexes) != state.current.num_rows:
+        raise PlanExecutionError("row identity accounting does not match the table")
+    state.row_ids = [before_row_ids[index] for index in retained_indexes]
+    dropped_indexes = set(range(rows_in)) - set(retained_indexes)
+    if not dropped_indexes:
+        return
+    state.dropped_rows += len(dropped_indexes)
+    state.row_outcomes.extend(
+        RowOutcome(
+            row_index=before_row_ids[index],
+            status="dropped",
+            reason_code="deduplicated",
+        )
+        for index in sorted(dropped_indexes)
+    )
+    if len(state.row_outcomes) > plan.profile.max_outcome_rows:
+        raise ProfileLimitError("row outcomes exceed the local profile limit")
+
+
+def _run_one_step(state: _RunState, step: Any, plan: CleanPlan) -> None:
+    rows_in = state.current.num_rows
+    before_row_ids = tuple(state.row_ids)
+    state.current, quarantine_indexes, reason, retained_indexes = _apply_step(
+        state.current,
+        step,
+        disposition=plan.invalid_row_disposition,
+        profile=plan.profile,
+    )
+    _check_profile(state.current, plan.profile)
+    count = len(quarantine_indexes)
+    if reason == "null_rejected" and count:
+        _apply_null_quarantine(state, before_row_ids, quarantine_indexes, count, plan)
+    elif retained_indexes is not None:
+        _apply_dedupe_drop(state, before_row_ids, rows_in, retained_indexes, plan)
+    if len(state.row_ids) != state.current.num_rows:
+        raise PlanExecutionError("row identity accounting does not match the table")
+    dropped = max(0, rows_in - state.current.num_rows - count)
+    state.step_evidence.append(
+        StepEvidence(
+            verb=step.verb,
+            rows_in=rows_in,
+            rows_out=state.current.num_rows,
+            dropped_rows=dropped,
+            quarantined_rows=count,
+        )
+    )
+
+
+def _finalize_model_validation(
+    state: _RunState, model_entry: RegisteredRowModel, plan: CleanPlan
+) -> int:
+    state.current, model_outcomes, model_rejected = _validate_rows(
+        state.current,
+        model_entry.model,
+        row_ids=state.row_ids,
+        disposition=plan.invalid_row_disposition,
+        profile=plan.profile,
+    )
+    state.row_outcomes.extend(model_outcomes)
+    if len(state.row_outcomes) > plan.profile.max_outcome_rows:
+        raise ProfileLimitError("row outcomes exceed the local profile limit")
+    if model_rejected:
+        state.quarantined_rows += model_rejected
+        state.quarantine.append(
+            QuarantineOutcome(reason_code="model_rejected", row_count=model_rejected)
+        )
+        if state.quarantined_rows > min(
+            plan.profile.max_quarantine_rows, plan.profile.max_rows
+        ):
+            raise ProfileLimitError("quarantine rows exceed the local profile limit")
+    return model_rejected
+
+
 class CleanPipeline:
     """Apply a typed, deterministic clean plan to an Arrow table."""
 
@@ -942,8 +1214,7 @@ class CleanPipeline:
         """Apply the plan and return the table plus content-free evidence."""
 
         ArrowAdapter.as_table(table, profile=self._plan.profile)
-        current = table
-        input_rows = current.num_rows
+        input_rows = table.num_rows
         if input_rows > self._plan.profile.max_outcome_rows:
             raise ProfileLimitError("row outcomes exceed the local profile limit")
         if self._registry is None:
@@ -952,136 +1223,33 @@ class CleanPipeline:
             self._plan.model_ref,
             self._plan.model_digest,
         )
-        row_ids = list(range(input_rows))
-        input_schema = schema_digest(current)
-        dropped_rows = 0
-        quarantined_rows = 0
-        quarantine: list[QuarantineOutcome] = []
-        row_outcomes: list[RowOutcome] = []
-        step_evidence: list[StepEvidence] = []
+        input_schema = schema_digest(table)
 
+        state = _RunState(current=table, row_ids=list(range(input_rows)))
         for step in self._plan.steps:
-            rows_in = current.num_rows
-            before_row_ids = tuple(row_ids)
-            current, quarantine_indexes, reason, retained_indexes = _apply_step(
-                current,
-                step,
-                disposition=self._plan.invalid_row_disposition,
-                profile=self._plan.profile,
-            )
-            _check_profile(current, self._plan.profile)
-            count = len(quarantine_indexes)
-            if reason == "null_rejected" and count:
-                quarantined_rows += count
-                if quarantined_rows > min(
-                    self._plan.profile.max_quarantine_rows,
-                    self._plan.profile.max_rows,
-                ):
-                    raise ProfileLimitError(
-                        "quarantine rows exceed the local profile limit"
-                    )
-                quarantine.append(
-                    QuarantineOutcome(reason_code="null_rejected", row_count=count)
-                )
-                row_outcomes.extend(
-                    RowOutcome(
-                        row_index=before_row_ids[index],
-                        status="quarantined",
-                        reason_code="null_rejected",
-                    )
-                    for index in quarantine_indexes
-                )
-                if len(row_outcomes) > self._plan.profile.max_outcome_rows:
-                    raise ProfileLimitError(
-                        "row outcomes exceed the local profile limit"
-                    )
-                invalid_positions = set(quarantine_indexes)
-                row_ids = [
-                    row_id
-                    for index, row_id in enumerate(before_row_ids)
-                    if index not in invalid_positions
-                ]
-            elif retained_indexes is not None:
-                if len(retained_indexes) != current.num_rows:
-                    raise PlanExecutionError(
-                        "row identity accounting does not match the table"
-                    )
-                row_ids = [before_row_ids[index] for index in retained_indexes]
-                dropped_indexes = set(range(rows_in)) - set(retained_indexes)
-                if dropped_indexes:
-                    dropped_rows += len(dropped_indexes)
-                    row_outcomes.extend(
-                        RowOutcome(
-                            row_index=before_row_ids[index],
-                            status="dropped",
-                            reason_code="deduplicated",
-                        )
-                        for index in sorted(dropped_indexes)
-                    )
-                    if len(row_outcomes) > self._plan.profile.max_outcome_rows:
-                        raise ProfileLimitError(
-                            "row outcomes exceed the local profile limit"
-                        )
-            if len(row_ids) != current.num_rows:
-                raise PlanExecutionError(
-                    "row identity accounting does not match the table"
-                )
-            dropped = max(0, rows_in - current.num_rows - count)
-            step_evidence.append(
-                StepEvidence(
-                    verb=step.verb,
-                    rows_in=rows_in,
-                    rows_out=current.num_rows,
-                    dropped_rows=dropped,
-                    quarantined_rows=count,
-                )
-            )
+            _run_one_step(state, step, self._plan)
 
-        current, model_outcomes, model_rejected = _validate_rows(
-            current,
-            model_entry.model,
-            row_ids=row_ids,
-            disposition=self._plan.invalid_row_disposition,
-            profile=self._plan.profile,
-        )
-        row_outcomes.extend(model_outcomes)
-        if len(row_outcomes) > self._plan.profile.max_outcome_rows:
-            raise ProfileLimitError("row outcomes exceed the local profile limit")
-        if model_rejected:
-            quarantined_rows += model_rejected
-            quarantine.append(
-                QuarantineOutcome(
-                    reason_code="model_rejected",
-                    row_count=model_rejected,
-                )
-            )
-            if quarantined_rows > min(
-                self._plan.profile.max_quarantine_rows,
-                self._plan.profile.max_rows,
-            ):
-                raise ProfileLimitError(
-                    "quarantine rows exceed the local profile limit"
-                )
-        _check_profile(current, self._plan.profile)
-        row_outcomes.sort(key=lambda item: item.row_index)
+        model_rejected = _finalize_model_validation(state, model_entry, self._plan)
+        _check_profile(state.current, self._plan.profile)
+        state.row_outcomes.sort(key=lambda item: item.row_index)
 
-        output_schema = schema_digest(current)
+        output_schema = schema_digest(state.current)
         outcome: Literal["complete", "quarantined"] = (
-            "quarantined" if quarantined_rows else "complete"
+            "quarantined" if state.quarantined_rows else "complete"
         )
         evidence = PrepEvidence(
             evidence_version="data-prep-evidence.v1",
             algorithm="arrow-clean-pipeline",
             algorithm_version="1",
             outcome=outcome,
-            checkpoint_eligible=not quarantined_rows,
+            checkpoint_eligible=not state.quarantined_rows,
             plan_digest=plan_digest(self._plan),
             input_schema_digest=input_schema,
             output_schema_digest=output_schema,
             rows_in=input_rows,
-            rows_out=current.num_rows,
-            dropped_rows=dropped_rows,
-            quarantined_rows=quarantined_rows,
+            rows_out=state.current.num_rows,
+            dropped_rows=state.dropped_rows,
+            quarantined_rows=state.quarantined_rows,
             invalid_row_disposition=self._plan.invalid_row_disposition,
             plan_ref=self._plan.plan_ref,
             policy_ref=self._plan.policy_ref,
@@ -1089,12 +1257,12 @@ class CleanPipeline:
             model_digest=model_entry.digest,
             source_ref=self._plan.source_ref,
             artifact_ref=self._plan.artifact_ref,
-            quarantine=quarantine,
-            row_outcomes=row_outcomes,
+            quarantine=state.quarantine,
+            row_outcomes=state.row_outcomes,
             model_rejected_rows=model_rejected,
-            steps=step_evidence,
+            steps=state.step_evidence,
         )
-        return PrepResult(table=current, evidence=evidence)
+        return PrepResult(table=state.current, evidence=evidence)
 
 
 __all__ = [

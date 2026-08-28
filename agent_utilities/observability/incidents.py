@@ -43,6 +43,7 @@ import hashlib
 import json
 import logging
 import time
+from dataclasses import dataclass
 from typing import Any
 
 from agent_utilities.observability import health_ingest
@@ -215,12 +216,7 @@ def _notify(message: str) -> None:
         logger.debug("incident notify skipped: error_type=%s", type(exc).__name__)
 
 
-def _synthesize_and_write(
-    asset: str, cluster: list[dict[str, Any]], open_signatures: set[str]
-) -> dict[str, Any]:
-    """Build one incident dict from a time-clustered group of anomalies on
-    ``asset`` and write it (unless an open incident with the same signature
-    already exists)."""
+def _build_incident_record(asset: str, cluster: list[dict[str, Any]]) -> dict[str, Any]:
     entity = str(cluster[0].get("entity"))
     layers = [_layer_of(str(a.get("entity") or "")) for a in cluster]
     signals = [str(a.get("signal")) for a in cluster if a.get("signal")]
@@ -236,8 +232,7 @@ def _synthesize_and_write(
         f"{asset}: {' + '.join(pairs)} — correlated within "
         f"{len(cluster)} anomal{'y' if len(cluster) == 1 else 'ies'}"
     )
-
-    incident: dict[str, Any] = {
+    return {
         "id": f"health:incident:{asset}:{sig}",
         "kind": root_cause_layer,
         "entity": entity,
@@ -253,6 +248,15 @@ def _synthesize_and_write(
         "opened_at": _iso(opened_at),
     }
 
+
+def _synthesize_and_write(
+    asset: str, cluster: list[dict[str, Any]], open_signatures: set[str]
+) -> dict[str, Any]:
+    """Build one incident dict from a time-clustered group of anomalies on
+    ``asset`` and write it (unless an open incident with the same signature
+    already exists)."""
+    incident = _build_incident_record(asset, cluster)
+    sig = incident["signature"]
     if sig in open_signatures:
         incident["deduped"] = True
         return incident
@@ -261,8 +265,51 @@ def _synthesize_and_write(
     incident["written"] = result is not None
     open_signatures.add(sig)
     if result is not None:
-        _notify(f"[incident-brain] opened {incident['id']} ({severity}): {summary}")
+        _notify(
+            f"[incident-brain] opened {incident['id']} "
+            f"({incident['severity']}): {incident['summary']}"
+        )
     return incident
+
+
+def _recent_anomalies(engine: Any, cutoff: float) -> list[dict[str, Any]]:
+    try:
+        rows = engine.get_nodes_by_label("HealthAnomaly", 0) or []
+    except Exception as e:  # noqa: BLE001 — read is best-effort
+        logger.debug("incident correlation: anomaly read failed: %s", e)
+        return []
+    anomalies: list[dict[str, Any]] = []
+    for node_id, props in rows:
+        if not isinstance(props, dict):
+            continue
+        ts = _parse_ts(props.get("observedAt"))
+        if ts is None or ts < cutoff:
+            continue
+        entity = props.get("entity")
+        if not entity:
+            continue
+        anomalies.append(
+            {**props, "id": node_id, "_ts": ts, "_asset": _asset_key(str(entity))}
+        )
+    return anomalies
+
+
+def _cluster_by_window(
+    items: list[dict[str, Any]], window_s: int
+) -> list[list[dict[str, Any]]]:
+    """Time-window clustering over ``items`` (already sorted by ``_ts``): a
+    new cluster starts whenever the gap to the previous item exceeds
+    ``window_s``."""
+    clusters: list[list[dict[str, Any]]] = []
+    cluster: list[dict[str, Any]] = []
+    for a in items:
+        if cluster and a["_ts"] - cluster[-1]["_ts"] > window_s:
+            clusters.append(cluster)
+            cluster = []
+        cluster.append(a)
+    if cluster:
+        clusters.append(cluster)
+    return clusters
 
 
 def correlate_incidents(*, window_s: int = 300, days: int = 1) -> list[dict[str, Any]]:
@@ -291,26 +338,9 @@ def correlate_incidents(*, window_s: int = 300, days: int = 1) -> list[dict[str,
     engine = health_ingest._engine()
     if engine is None:
         return []
-    try:
-        rows = engine.get_nodes_by_label("HealthAnomaly", 0) or []
-    except Exception as e:  # noqa: BLE001 — read is best-effort
-        logger.debug("incident correlation: anomaly read failed: %s", e)
-        return []
 
     cutoff = time.time() - days * 86400
-    anomalies: list[dict[str, Any]] = []
-    for node_id, props in rows:
-        if not isinstance(props, dict):
-            continue
-        ts = _parse_ts(props.get("observedAt"))
-        if ts is None or ts < cutoff:
-            continue
-        entity = props.get("entity")
-        if not entity:
-            continue
-        anomalies.append(
-            {**props, "id": node_id, "_ts": ts, "_asset": _asset_key(str(entity))}
-        )
+    anomalies = _recent_anomalies(engine, cutoff)
 
     by_asset: dict[str, list[dict[str, Any]]] = {}
     for a in anomalies:
@@ -320,13 +350,7 @@ def correlate_incidents(*, window_s: int = 300, days: int = 1) -> list[dict[str,
     incidents: list[dict[str, Any]] = []
     for asset, items in by_asset.items():
         items.sort(key=lambda a: a["_ts"])
-        cluster: list[dict[str, Any]] = []
-        for a in items:
-            if cluster and a["_ts"] - cluster[-1]["_ts"] > window_s:
-                incidents.append(_synthesize_and_write(asset, cluster, open_signatures))
-                cluster = []
-            cluster.append(a)
-        if cluster:
+        for cluster in _cluster_by_window(items, window_s):
             incidents.append(_synthesize_and_write(asset, cluster, open_signatures))
     return incidents
 
@@ -353,6 +377,25 @@ def get_incident(incident_id: str, *, engine: Any = None) -> dict[str, Any] | No
     return None
 
 
+def _read_incident_neighbors(eng: Any, incident_id: str) -> set[Any]:
+    try:
+        return set(eng.get_neighbors(incident_id) or [])
+    except Exception as e:  # noqa: BLE001 — read is best-effort
+        logger.debug(
+            "incident evidence: neighbor read failed for %s: %s", incident_id, e
+        )
+        return set()
+
+
+def _read_anomaly_rows_by_id(eng: Any) -> dict[Any, dict[str, Any]]:
+    try:
+        rows = eng.get_nodes_by_label("HealthAnomaly", 0) or []
+    except Exception as e:  # noqa: BLE001 — props are enrichment only; the anomaly/entity split in get_incident_evidence already stands without them
+        logger.debug("incident evidence: anomaly read failed: %s", e)
+        rows = []
+    return {node_id: props for node_id, props in rows if isinstance(props, dict)}
+
+
 def get_incident_evidence(
     incident_id: str, *, engine: Any = None
 ) -> dict[str, Any] | None:
@@ -375,13 +418,7 @@ def get_incident_evidence(
     eng = engine or health_ingest._engine()
     if eng is None:
         return None
-    try:
-        neighbor_ids = set(eng.get_neighbors(incident_id) or [])
-    except Exception as e:  # noqa: BLE001 — read is best-effort
-        logger.debug(
-            "incident evidence: neighbor read failed for %s: %s", incident_id, e
-        )
-        neighbor_ids = set()
+    neighbor_ids = _read_incident_neighbors(eng, incident_id)
     # D-DST-6: classify anomaly-vs-entity by the documented id namespace
     # (health:anomaly:...) FIRST, independent of whether the enrichment read
     # below succeeds. The prior code derived `entities` as `neighbor_ids -
@@ -394,12 +431,7 @@ def get_incident_evidence(
     }
     anomalies: list[dict[str, Any]] = []
     if anomaly_neighbor_ids:
-        try:
-            rows = eng.get_nodes_by_label("HealthAnomaly", 0) or []
-        except Exception as e:  # noqa: BLE001 — props are enrichment only; the anomaly/entity split above already stands without them
-            logger.debug("incident evidence: anomaly read failed: %s", e)
-            rows = []
-        by_id = {node_id: props for node_id, props in rows if isinstance(props, dict)}
+        by_id = _read_anomaly_rows_by_id(eng)
         anomalies = [{"id": nid, **by_id.get(nid, {})} for nid in anomaly_neighbor_ids]
         anomalies.sort(key=lambda a: str(a.get("observedAt") or ""))
     entities = sorted(neighbor_ids - anomaly_neighbor_ids)
@@ -443,6 +475,60 @@ def get_incident_evidence(
 # neither function below needs to change when that gate lands.
 
 
+def _incident_entity_ids(incident_id: str, eng: Any) -> set[str]:
+    evidence = get_incident_evidence(incident_id, engine=eng)
+    if evidence is None:
+        return set()
+    return {str(e) for e in evidence.get("entities") or [] if e}
+
+
+def _id_or_asset_match(
+    node_id: Any,
+    props: dict[str, Any],
+    query_ids: set[str],
+    query_asset_keys: set[str],
+    candidate_ids: set[str],
+) -> dict[str, Any] | None:
+    """A B17-bridge match record: an exact id overlap first, then a shared
+    asset key (:func:`_asset_key`) as the "same physical asset, different id
+    scheme" fallback. Shared by both match directions
+    (:func:`_match_claim_row` / :func:`_match_incident_row`)."""
+    id_overlap = query_ids & candidate_ids
+    if id_overlap:
+        return {
+            "id": node_id,
+            "match_kind": "id",
+            "matched": sorted(id_overlap),
+            **props,
+        }
+    asset_overlap = query_asset_keys & {_asset_key(e) for e in candidate_ids}
+    if asset_overlap:
+        return {
+            "id": node_id,
+            "match_kind": "asset",
+            "matched": sorted(asset_overlap),
+            **props,
+        }
+    return None
+
+
+def _match_claim_row(
+    node_id: Any,
+    props: dict[str, Any],
+    entity_ids: set[str],
+    asset_keys: set[str],
+) -> dict[str, Any] | None:
+    from agent_utilities.knowledge_graph.research.candidate_insight import (
+        _claim_evidence_ids,
+        _is_ops_causal_claim,
+    )
+
+    if not _is_ops_causal_claim(props):
+        return None
+    claim_evidence = _claim_evidence_ids(props)
+    return _id_or_asset_match(node_id, props, entity_ids, asset_keys, claim_evidence)
+
+
 def related_causal_claims(
     incident_id: str, *, engine: Any = None, limit: int = 20
 ) -> list[dict[str, Any]]:
@@ -454,18 +540,10 @@ def related_causal_claims(
     Best-effort: ``[]`` with no reachable engine, an unknown ``incident_id``,
     or no matching Claim. Matches are sorted highest-confidence first.
     """
-    from agent_utilities.knowledge_graph.research.candidate_insight import (
-        _claim_evidence_ids,
-        _is_ops_causal_claim,
-    )
-
     eng = engine or health_ingest._engine()
     if eng is None:
         return []
-    evidence = get_incident_evidence(incident_id, engine=eng)
-    if evidence is None:
-        return []
-    entity_ids = {str(e) for e in evidence.get("entities") or [] if e}
+    entity_ids = _incident_entity_ids(incident_id, eng)
     if not entity_ids:
         return []
     asset_keys = {_asset_key(e) for e in entity_ids}
@@ -480,32 +558,12 @@ def related_causal_claims(
         )
         return []
 
-    matches: list[dict[str, Any]] = []
-    for node_id, props in rows:
-        if not _is_ops_causal_claim(props):
-            continue
-        claim_evidence = _claim_evidence_ids(props)
-        id_overlap = entity_ids & claim_evidence
-        if id_overlap:
-            matches.append(
-                {
-                    "id": node_id,
-                    "match_kind": "id",
-                    "matched": sorted(id_overlap),
-                    **props,
-                }
-            )
-            continue
-        asset_overlap = asset_keys & {_asset_key(e) for e in claim_evidence}
-        if asset_overlap:
-            matches.append(
-                {
-                    "id": node_id,
-                    "match_kind": "asset",
-                    "matched": sorted(asset_overlap),
-                    **props,
-                }
-            )
+    matches = [
+        match
+        for node_id, props in rows
+        if (match := _match_claim_row(node_id, props, entity_ids, asset_keys))
+        is not None
+    ]
     matches.sort(key=lambda c: -(float(c.get("confidence") or 0.0)))
     return matches[: max(0, int(limit))]
 
@@ -520,6 +578,46 @@ def related_causal_claims(
 #: mints every correlated Incident as ``health:incident:<asset>:<signature>``
 #: (:func:`_synthesize_and_write`) — a TICKET-stage node never starts with it.
 _HEALTH_INCIDENT_ID_PREFIX = "health:incident:"
+
+
+def _causal_claim_evidence_ids(seed: str, engine: Any) -> set[str]:
+    """``seed``'s own id plus, if it names a materialized ``:Claim``, that
+    claim's evidence ids."""
+    from agent_utilities.knowledge_graph.research.candidate_insight import (
+        _claim_evidence_ids,
+    )
+
+    evidence_ids = {str(seed)}
+    try:
+        claim_rows = engine.get_nodes_by_label("Claim", 0) or []
+    except Exception as e:  # noqa: BLE001 — read is best-effort
+        logger.debug(
+            "causal-claim->incident bridge: claim read failed for %s: %s", seed, e
+        )
+        claim_rows = []
+    for node_id, props in claim_rows:
+        if node_id == seed and isinstance(props, dict):
+            evidence_ids |= _claim_evidence_ids(props)
+            break
+    return evidence_ids
+
+
+def _match_incident_row(
+    node_id: Any,
+    props: Any,
+    engine: Any,
+    evidence_ids: set[str],
+    asset_keys: set[str],
+) -> dict[str, Any] | None:
+    if not str(node_id).startswith(_HEALTH_INCIDENT_ID_PREFIX):
+        return None
+    if not isinstance(props, dict):
+        return None
+    resolved = get_incident_evidence(node_id, engine=engine) or {"entities": []}
+    entity_ids = {str(e) for e in resolved.get("entities") or [] if e}
+    if not entity_ids:
+        return None
+    return _id_or_asset_match(node_id, props, evidence_ids, asset_keys, entity_ids)
 
 
 def incidents_for_causal_claim(
@@ -549,25 +647,10 @@ def incidents_for_causal_claim(
     entity-list property) — fine for an interactive/bounded bridge query, not
     meant for a hot loop.
     """
-    from agent_utilities.knowledge_graph.research.candidate_insight import (
-        _claim_evidence_ids,
-    )
-
     if engine is None or not seed:
         return []
 
-    evidence_ids = {str(seed)}
-    try:
-        claim_rows = engine.get_nodes_by_label("Claim", 0) or []
-    except Exception as e:  # noqa: BLE001 — read is best-effort
-        logger.debug(
-            "causal-claim->incident bridge: claim read failed for %s: %s", seed, e
-        )
-        claim_rows = []
-    for node_id, props in claim_rows:
-        if node_id == seed and isinstance(props, dict):
-            evidence_ids |= _claim_evidence_ids(props)
-            break
+    evidence_ids = _causal_claim_evidence_ids(seed, engine)
     asset_keys = {_asset_key(e) for e in evidence_ids}
 
     try:
@@ -578,37 +661,16 @@ def incidents_for_causal_claim(
         )
         return []
 
-    matches: list[dict[str, Any]] = []
-    for node_id, props in incident_rows:
-        if not str(node_id).startswith(_HEALTH_INCIDENT_ID_PREFIX):
-            continue
-        if not isinstance(props, dict):
-            continue
-        resolved = get_incident_evidence(node_id, engine=engine) or {"entities": []}
-        entity_ids = {str(e) for e in resolved.get("entities") or [] if e}
-        if not entity_ids:
-            continue
-        id_overlap = evidence_ids & entity_ids
-        if id_overlap:
-            matches.append(
-                {
-                    "id": node_id,
-                    "match_kind": "id",
-                    "matched": sorted(id_overlap),
-                    **props,
-                }
+    matches = [
+        match
+        for node_id, props in incident_rows
+        if (
+            match := _match_incident_row(
+                node_id, props, engine, evidence_ids, asset_keys
             )
-            continue
-        asset_overlap = asset_keys & {_asset_key(e) for e in entity_ids}
-        if asset_overlap:
-            matches.append(
-                {
-                    "id": node_id,
-                    "match_kind": "asset",
-                    "matched": sorted(asset_overlap),
-                    **props,
-                }
-            )
+        )
+        is not None
+    ]
     matches.sort(key=lambda i: str(i.get("observedAt") or ""), reverse=True)
     return matches[: max(0, int(limit))]
 
@@ -715,6 +777,55 @@ _SAFE_ACTUATION_KINDS: dict[str, str] = {
 }
 
 
+def _build_action_request(proposal: dict[str, Any], kind: str, target: str) -> Any:
+    from agent_utilities.orchestration.action_policy import ActionRequest
+
+    return ActionRequest(
+        kind=kind,
+        target=target,
+        source="incident-brain",
+        reason=str(proposal.get("summary") or proposal.get("id") or "incident-brain"),
+        params={
+            "incident": str(proposal.get("incident") or ""),
+            "proposal": str(proposal.get("id") or ""),
+        },
+    )
+
+
+def _remediation_result(
+    decision: Any,
+    kind: str,
+    target: str,
+    engine: Any,
+    request: Any,
+    actuator: Any,
+    proposal: dict[str, Any],
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "status": "executed" if decision.allowed else "held",
+        "decision": decision.decision,
+        "tier": decision.tier,
+        "approval_id": decision.approval_id,
+        "reason": decision.reason,
+        "action_kind": kind,
+        "target": target,
+    }
+    if decision.allowed:
+        from agent_utilities.orchestration.fleet_actuation import execute_action
+
+        result["execution"] = execute_action(engine, request, actuator)
+        _notify(
+            f"[incident-brain] actuated {kind}({target}) for proposal "
+            f"{proposal.get('id')} — policy allowed ({decision.tier})"
+        )
+    else:
+        _notify(
+            f"[incident-brain] remediation HELD for {kind}({target}): "
+            f"{decision.reason} (approval_id={decision.approval_id})"
+        )
+    return result
+
+
 def actuate_remediation(
     proposal: dict[str, Any],
     *,
@@ -758,24 +869,9 @@ def actuate_remediation(
         return {"status": "not_actuatable", "reason": "no target entity on proposal"}
 
     try:
-        from agent_utilities.orchestration.action_policy import (
-            ActionRequest,
-            get_action_policy,
-        )
-        from agent_utilities.orchestration.fleet_actuation import execute_action
+        from agent_utilities.orchestration.action_policy import get_action_policy
 
-        request = ActionRequest(
-            kind=kind,
-            target=target,
-            source="incident-brain",
-            reason=str(
-                proposal.get("summary") or proposal.get("id") or "incident-brain"
-            ),
-            params={
-                "incident": str(proposal.get("incident") or ""),
-                "proposal": str(proposal.get("id") or ""),
-            },
-        )
+        request = _build_action_request(proposal, kind, target)
         decision = get_action_policy(engine).decide(request)
     except Exception as e:  # noqa: BLE001 — the seam fails CLOSED, never silently allows
         logger.warning(
@@ -783,27 +879,9 @@ def actuate_remediation(
         )
         return {"status": "error", "reason": str(e)}
 
-    result: dict[str, Any] = {
-        "status": "executed" if decision.allowed else "held",
-        "decision": decision.decision,
-        "tier": decision.tier,
-        "approval_id": decision.approval_id,
-        "reason": decision.reason,
-        "action_kind": kind,
-        "target": target,
-    }
-    if decision.allowed:
-        result["execution"] = execute_action(engine, request, actuator)
-        _notify(
-            f"[incident-brain] actuated {kind}({target}) for proposal "
-            f"{proposal.get('id')} — policy allowed ({decision.tier})"
-        )
-    else:
-        _notify(
-            f"[incident-brain] remediation HELD for {kind}({target}): "
-            f"{decision.reason} (approval_id={decision.approval_id})"
-        )
-    return result
+    return _remediation_result(
+        decision, kind, target, engine, request, actuator, proposal
+    )
 
 
 def propose_remediation(incident: dict[str, Any]) -> dict[str, Any] | None:
@@ -870,6 +948,70 @@ def _write_remediation_proposal(
     )
 
 
+@dataclass(slots=True)
+class _CorrelationTally:
+    """Per-pass counters threaded through the incident loop — one object in
+    place of four loop-carried locals, so each extracted per-incident step
+    stays under the parameter cap."""
+
+    routed: int = 0
+    proposed: int = 0
+    actuated: int = 0
+    held: int = 0
+
+
+def _route_one_incident(incident: dict[str, Any], tally: _CorrelationTally) -> None:
+    try:
+        from agent_utilities.observability.incident_router import route_incident
+
+        if route_incident(incident):
+            tally.routed += 1
+    except Exception as e:  # noqa: BLE001 — routing must never break correlation
+        logger.debug("incident routing failed for %s: %s", incident.get("id"), e)
+
+
+def _propose_one_incident(
+    incident: dict[str, Any], tally: _CorrelationTally
+) -> dict[str, Any] | None:
+    try:
+        proposal = propose_remediation(incident)
+        if proposal is not None:
+            tally.proposed += 1
+        return proposal
+    except Exception as e:  # noqa: BLE001 — remediation must never break correlation
+        logger.debug("remediation proposal failed for %s: %s", incident.get("id"), e)
+        return None
+
+
+def _actuate_one_incident(
+    incident: dict[str, Any],
+    proposal: dict[str, Any],
+    engine: Any,
+    tally: _CorrelationTally,
+) -> None:
+    try:
+        outcome = actuate_remediation(proposal, engine=engine)
+        if outcome.get("status") == "executed":
+            tally.actuated += 1
+        elif outcome.get("status") == "held":
+            tally.held += 1
+    except Exception as e:  # noqa: BLE001 — actuation must never break correlation
+        logger.debug("remediation actuation failed for %s: %s", incident.get("id"), e)
+
+
+def _process_one_incident(
+    incident: dict[str, Any],
+    *,
+    actuation_enabled: bool,
+    engine: Any,
+    tally: _CorrelationTally,
+) -> None:
+    _route_one_incident(incident, tally)
+    proposal = _propose_one_incident(incident, tally)
+    if actuation_enabled and proposal is not None:
+        _actuate_one_incident(incident, proposal, engine, tally)
+
+
 def run_incident_correlation(*, window_s: int = 300, days: int = 1) -> dict[str, Any]:
     """One correlate → write → route → propose-remediation pass.
 
@@ -895,52 +1037,25 @@ def run_incident_correlation(*, window_s: int = 300, days: int = 1) -> dict[str,
     engine = health_ingest._engine() if actuation_enabled else None
 
     incidents = correlate_incidents(window_s=window_s, days=days)
-    routed = 0
-    proposed = 0
-    actuated = 0
-    held = 0
+    tally = _CorrelationTally()
     for incident in incidents:
-        try:
-            from agent_utilities.observability.incident_router import route_incident
-
-            if route_incident(incident):
-                routed += 1
-        except Exception as e:  # noqa: BLE001 — routing must never break correlation
-            logger.debug("incident routing failed for %s: %s", incident.get("id"), e)
-        proposal = None
-        try:
-            proposal = propose_remediation(incident)
-            if proposal is not None:
-                proposed += 1
-        except Exception as e:  # noqa: BLE001 — remediation must never break correlation
-            logger.debug(
-                "remediation proposal failed for %s: %s", incident.get("id"), e
-            )
-        if actuation_enabled and proposal is not None:
-            try:
-                outcome = actuate_remediation(proposal, engine=engine)
-                if outcome.get("status") == "executed":
-                    actuated += 1
-                elif outcome.get("status") == "held":
-                    held += 1
-            except Exception as e:  # noqa: BLE001 — actuation must never break correlation
-                logger.debug(
-                    "remediation actuation failed for %s: %s", incident.get("id"), e
-                )
+        _process_one_incident(
+            incident, actuation_enabled=actuation_enabled, engine=engine, tally=tally
+        )
 
     new = sum(1 for i in incidents if not i.get("deduped"))
     summary = {
         "incidents": len(incidents),
         "new": new,
         "deduped": len(incidents) - new,
-        "routed": routed,
-        "proposed": proposed,
+        "routed": tally.routed,
+        "proposed": tally.proposed,
     }
     # Only present when actuation was attempted this pass — keeps the summary
     # shape byte-identical to the pre-actuator-seam report-only default.
     if actuation_enabled:
-        summary["actuated"] = actuated
-        summary["held"] = held
+        summary["actuated"] = tally.actuated
+        summary["held"] = tally.held
     return summary
 
 
