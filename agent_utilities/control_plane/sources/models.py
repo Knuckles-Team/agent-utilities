@@ -105,16 +105,20 @@ def _opaque_ref(value: str, field_name: str) -> str:
     return value
 
 
-def _validate_relative_path(value: str) -> str:
-    """Accept one repository-relative POSIX path and reject escape aliases."""
-
-    if (
+def _is_unsafe_relative_path_shape(value: str) -> bool:
+    return (
         not value
         or "\\" in value
         or "\x00" in value
         or value.startswith("/")
         or PurePosixPath(value).is_absolute()
-    ):
+    )
+
+
+def _validate_relative_path(value: str) -> str:
+    """Accept one repository-relative POSIX path and reject escape aliases."""
+
+    if _is_unsafe_relative_path_shape(value):
         raise ValueError("source identity path must be repository-relative POSIX text")
     parts = value.split("/")
     if any(part in {"", ".", ".."} for part in parts):
@@ -464,12 +468,13 @@ class SourceManifest(ProtocolModel):
     def entry_ids(self) -> tuple[str, ...]:
         return tuple(entry.entry_id for entry in self.entries)
 
-    @model_validator(mode="after")
-    def manifest_is_normalized_and_self_consistent(self) -> SourceManifest:
+    def _check_entry_scope_consistency(self) -> None:
         if any(entry.authority_id != self.authority_id for entry in self.entries):
             raise ValueError("source manifest contains a cross-authority entry")
         if any(entry.tenant_id != self.tenant_id for entry in self.entries):
             raise ValueError("source manifest contains a cross-tenant entry")
+
+    def _check_entries_normalized(self) -> None:
         if self.dirty:
             raise ValueError("dirty source manifests are not admissible")
         if len(set(self.entry_ids)) != len(self.entry_ids):
@@ -479,33 +484,39 @@ class SourceManifest(ProtocolModel):
             != self.entries
         ):
             raise ValueError("source manifest entries must be sorted")
-        if self.entries:
-            if self.verified_empty or self.empty_evidence_ref is not None:
-                raise ValueError(
-                    "non-empty source manifest cannot claim verified empty"
-                )
-            if self.empty_evidence_digest is not None:
-                raise ValueError(
-                    "non-empty source manifest cannot carry empty evidence"
-                )
-        else:
-            if self.observation_status == "complete":
-                if (
-                    not self.verified_empty
-                    or self.empty_evidence_ref is None
-                    or self.empty_evidence_digest is None
-                ):
-                    raise ValueError(
-                        "complete empty source manifest requires verified evidence"
-                    )
-            elif (
-                self.verified_empty
-                or self.empty_evidence_ref is not None
-                or self.empty_evidence_digest is not None
+
+    def _check_non_empty_manifest_carries_no_empty_evidence(self) -> None:
+        if self.verified_empty or self.empty_evidence_ref is not None:
+            raise ValueError("non-empty source manifest cannot claim verified empty")
+        if self.empty_evidence_digest is not None:
+            raise ValueError("non-empty source manifest cannot carry empty evidence")
+
+    def _check_empty_manifest_evidence_matches_status(self) -> None:
+        if self.observation_status == "complete":
+            if (
+                not self.verified_empty
+                or self.empty_evidence_ref is None
+                or self.empty_evidence_digest is None
             ):
                 raise ValueError(
-                    "incomplete empty source manifest cannot claim verified empty"
+                    "complete empty source manifest requires verified evidence"
                 )
+        elif (
+            self.verified_empty
+            or self.empty_evidence_ref is not None
+            or self.empty_evidence_digest is not None
+        ):
+            raise ValueError(
+                "incomplete empty source manifest cannot claim verified empty"
+            )
+
+    def _check_empty_evidence_consistency(self) -> None:
+        if self.entries:
+            self._check_non_empty_manifest_carries_no_empty_evidence()
+            return
+        self._check_empty_manifest_evidence_matches_status()
+
+    def _check_manifest_digest_and_id(self) -> None:
         if self.empty_evidence_ref is not None:
             _opaque_ref(self.empty_evidence_ref, "empty_evidence_ref")
         expected_digest = manifest_digest_for(
@@ -527,6 +538,13 @@ class SourceManifest(ProtocolModel):
             self.authority_id, self.manifest_revision, self.manifest_digest
         ):
             raise ValueError("source manifest id is not content-derived")
+
+    @model_validator(mode="after")
+    def manifest_is_normalized_and_self_consistent(self) -> SourceManifest:
+        self._check_entry_scope_consistency()
+        self._check_entries_normalized()
+        self._check_empty_evidence_consistency()
+        self._check_manifest_digest_and_id()
         return self
 
 
@@ -546,6 +564,42 @@ class EntryReconciliation(ProtocolModel):
     absence_verification: AbsenceVerification = "not_applicable"
     terminal: bool
 
+    def _check_added_outcome_evidence(self) -> None:
+        if self.expected_entry_digest is not None or self.observed_entry_digest is None:
+            raise ValueError("added entry evidence must contain only observed digest")
+
+    def _check_updated_outcome_evidence(self) -> None:
+        if (
+            self.expected_entry_digest is None
+            or self.observed_entry_digest is None
+            or self.expected_entry_digest == self.observed_entry_digest
+        ):
+            raise ValueError("updated entry evidence must prove digest drift")
+
+    def _check_unchanged_outcome_evidence(self) -> None:
+        if (
+            self.expected_entry_digest is None
+            or self.observed_entry_digest != self.expected_entry_digest
+        ):
+            raise ValueError("unchanged entry evidence must match its prior digest")
+
+    def _check_tombstoned_outcome_evidence(self) -> None:
+        if (
+            self.expected_entry_digest is None
+            or self.observed_entry_digest is not None
+            or self.absence_verification != "verified"
+        ):
+            raise ValueError("tombstone requires verified absence evidence")
+
+    def _check_incomplete_outcome_evidence(self) -> None:
+        if (
+            self.expected_entry_digest is not None
+            or self.observed_entry_digest is not None
+        ):
+            raise ValueError("incomplete entry outcomes cannot carry a digest")
+        if self.absence_verification != "not_applicable":
+            raise ValueError("incomplete entry outcomes cannot verify absence")
+
     @model_validator(mode="after")
     def outcome_is_explicit_and_fail_closed(self) -> EntryReconciliation:
         _validate_relative_path(self.relative_path)
@@ -558,42 +612,13 @@ class EntryReconciliation(ProtocolModel):
         }
         if self.terminal != expected_terminal:
             raise ValueError("entry reconciliation terminal state is inconsistent")
-        if self.outcome == "added":
-            if (
-                self.expected_entry_digest is not None
-                or self.observed_entry_digest is None
-            ):
-                raise ValueError(
-                    "added entry evidence must contain only observed digest"
-                )
-        elif self.outcome == "updated":
-            if (
-                self.expected_entry_digest is None
-                or self.observed_entry_digest is None
-                or self.expected_entry_digest == self.observed_entry_digest
-            ):
-                raise ValueError("updated entry evidence must prove digest drift")
-        elif self.outcome == "unchanged":
-            if (
-                self.expected_entry_digest is None
-                or self.observed_entry_digest != self.expected_entry_digest
-            ):
-                raise ValueError("unchanged entry evidence must match its prior digest")
-        elif self.outcome == "tombstoned":
-            if (
-                self.expected_entry_digest is None
-                or self.observed_entry_digest is not None
-                or self.absence_verification != "verified"
-            ):
-                raise ValueError("tombstone requires verified absence evidence")
-        else:
-            if (
-                self.expected_entry_digest is not None
-                or self.observed_entry_digest is not None
-            ):
-                raise ValueError("incomplete entry outcomes cannot carry a digest")
-            if self.absence_verification != "not_applicable":
-                raise ValueError("incomplete entry outcomes cannot verify absence")
+        outcome_checks = {
+            "added": self._check_added_outcome_evidence,
+            "updated": self._check_updated_outcome_evidence,
+            "unchanged": self._check_unchanged_outcome_evidence,
+            "tombstoned": self._check_tombstoned_outcome_evidence,
+        }
+        outcome_checks.get(self.outcome, self._check_incomplete_outcome_evidence)()
         if (
             self.outcome != "tombstoned"
             and self.absence_verification != "not_applicable"
@@ -617,14 +642,13 @@ class SourceReconciliation(ProtocolModel):
     complete: bool
     reconciliation_digest: Digest
 
-    @model_validator(mode="after")
-    def reconciliation_is_complete_or_honestly_incomplete(
-        self,
-    ) -> SourceReconciliation:
+    def _check_selected_entries_normalized(self) -> None:
         if len(set(self.selected_entry_ids)) != len(self.selected_entry_ids):
             raise ValueError("selected source entries must be unique")
         if tuple(sorted(self.selected_entry_ids)) != self.selected_entry_ids:
             raise ValueError("selected source entries must be sorted")
+
+    def _check_outcomes_normalized_and_cover_selection(self) -> None:
         outcome_ids = tuple(outcome.entry_id for outcome in self.outcomes)
         if len(set(outcome_ids)) != len(outcome_ids):
             raise ValueError("source reconciliation outcomes must be unique")
@@ -635,6 +659,8 @@ class SourceReconciliation(ProtocolModel):
             raise ValueError("source reconciliation outcomes must be sorted")
         if set(outcome_ids) != set(self.selected_entry_ids):
             raise ValueError("source reconciliation outcomes must cover the selection")
+
+    def _check_outcomes_scope_and_terminal_count(self) -> None:
         if any(
             outcome.authority_id != self.authority_id
             or outcome.tenant_id != self.tenant_id
@@ -646,6 +672,8 @@ class SourceReconciliation(ProtocolModel):
             raise ValueError("source reconciliation terminal count is inconsistent")
         if self.complete != (terminal_count == len(self.selected_entry_ids)):
             raise ValueError("source reconciliation completion is inconsistent")
+
+    def _check_reconciliation_digest_and_id(self) -> None:
         expected_digest = reconciliation_digest_for(
             self.authority_id,
             self.tenant_id,
@@ -660,6 +688,15 @@ class SourceReconciliation(ProtocolModel):
             self.authority_id, self.manifest_id, self.reconciliation_digest
         ):
             raise ValueError("source reconciliation id is not content-derived")
+
+    @model_validator(mode="after")
+    def reconciliation_is_complete_or_honestly_incomplete(
+        self,
+    ) -> SourceReconciliation:
+        self._check_selected_entries_normalized()
+        self._check_outcomes_normalized_and_cover_selection()
+        self._check_outcomes_scope_and_terminal_count()
+        self._check_reconciliation_digest_and_id()
         return self
 
 
