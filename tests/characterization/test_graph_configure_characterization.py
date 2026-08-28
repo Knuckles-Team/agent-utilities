@@ -100,3 +100,36 @@ async def test_config_reference_and_list_connections_are_independently_routed():
     assert add != remove
     assert "add_connection" in add
     assert "remove_connection" in remove
+
+
+# ---------------------------------------------------------------------------
+# BUG-CX-025: graph_configure's ``action`` Field description -- the documented
+# surface a caller actually reads to know what actions exist -- must name
+# every action ``_CONFIGURE_ACTION_DISPATCH`` actually dispatches. Five
+# dispatchable actions (profile_connection, setup_databases,
+# verify_databases, doctor, set_role_routing) were missing from it.
+# ---------------------------------------------------------------------------
+
+
+def test_every_dispatchable_action_is_named_in_the_action_field_description():
+    import inspect
+    import re
+
+    from agent_utilities.mcp.tools import analysis_tools
+
+    kg_server.ensure_tools_registered()
+    tool = kg_server.REGISTERED_TOOLS["graph_configure"]
+    action_param = inspect.signature(tool).parameters["action"]
+    description = action_param.default.description
+    assert description, "graph_configure's 'action' Field has no description"
+
+    dispatch_actions = set(analysis_tools._CONFIGURE_ACTION_DISPATCH.keys())
+    undocumented = {
+        action
+        for action in dispatch_actions
+        if not re.search(rf"\b{re.escape(action)}\b", description)
+    }
+    assert undocumented == set(), (
+        "graph_configure dispatches action(s) absent from its own 'action' "
+        f"Field description: {sorted(undocumented)}"
+    )
