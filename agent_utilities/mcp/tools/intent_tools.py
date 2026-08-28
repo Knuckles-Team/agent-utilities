@@ -844,6 +844,173 @@ def _hint_argument_error(tool: str, unsupported: list[str]) -> str:
     )
 
 
+#: Action-name prefixes treated as read-only when nothing more authoritative
+#: (a declared ``mutates``, the destructive-terms check, or the reviewed
+#: READ_ONLY_ACTIONS allowlist) has already classified the operation. Used
+#: only by :func:`_resolve_mutates`.
+_READ_ACTION_PREFIXES = frozenset(
+    {
+        "check",
+        "count",
+        "describe",
+        "discover",
+        "doctor",
+        "explain",
+        "export",
+        "fetch",
+        "find",
+        "get",
+        "has",
+        "history",
+        "inspect",
+        "list",
+        "lookup",
+        "metrics",
+        "preflight",
+        "profile",
+        "query",
+        "read",
+        "recall",
+        "report",
+        "search",
+        "show",
+        "status",
+        "validate",
+        "view",
+    }
+)
+
+
+def _mutates_from_declaration(
+    declared_mutation: bool | None, destructive: bool
+) -> bool | None:
+    """Helper for `_resolve_mutates`: declared/destructive authority (None = inconclusive)."""
+    if declared_mutation is not None:
+        return declared_mutation
+    if destructive:
+        return True
+    return None
+
+
+def _mutates_from_action_policy(
+    tool: str, action: str | None, action_is_declared_read: bool
+) -> bool | None:
+    """Helper for `_resolve_mutates`: the READ_ONLY_ACTIONS allowlist policy."""
+    if action_is_declared_read:
+        return False
+    if action is not None and tool in READ_ONLY_ACTIONS:
+        # The reviewed allowlist is the action policy for a mixed surface:
+        # anything not explicitly declared read-only is non-read.
+        return True
+    return None
+
+
+def _mutates_from_verb_and_prefix(
+    verb: str, action: str | None, action_prefix: str
+) -> bool | None:
+    """Helper for `_resolve_mutates`: name/verb-based inference fallback."""
+    if action_prefix in _READ_ACTION_PREFIXES:
+        return False
+    if action is None and verb in _READ_ONLY_VERBS:
+        return False
+    if verb in _NON_READ_VERBS:
+        return True
+    return None
+
+
+def _resolve_mutates(
+    verb: str,
+    tool: str,
+    action: str | None,
+    declared_mutation: bool | None,
+    destructive: bool,
+) -> bool | None:
+    """Helper for `_operation_plan`: resolve the operation's mutation classification.
+
+    Tries, in priority order: declared/destructive authority, the
+    READ_ONLY_ACTIONS allowlist policy, then name/verb-based inference.
+    """
+    result = _mutates_from_declaration(declared_mutation, destructive)
+    if result is not None:
+        return result
+    action_is_declared_read = action in READ_ONLY_ACTIONS.get(tool, frozenset())
+    result = _mutates_from_action_policy(tool, action, action_is_declared_read)
+    if result is not None:
+        return result
+    action_prefix = str(action or "").split("_", 1)[0]
+    return _mutates_from_verb_and_prefix(verb, action, action_prefix)
+
+
+def _execution_class_and_impact(
+    destructive: bool, mutates: bool | None
+) -> tuple[str, str]:
+    """Helper for `_operation_plan`: (execution_class, impact_summary)."""
+    if destructive:
+        return "destructive", "May remove or irreversibly invalidate governed state."
+    if mutates is True:
+        return (
+            "mutation",
+            "Changes governed state within the selected capability scope.",
+        )
+    if mutates is False:
+        return "read_only", "Reads or computes without a declared state mutation."
+    return "unclassified", "Effect metadata is insufficient; execution fails closed."
+
+
+def _approval_info(cpd: dict[str, Any], destructive: bool) -> dict[str, Any]:
+    """Helper for `_operation_plan`: the ``approval`` block."""
+    raw_policy = cpd.get("policy")
+    policy = raw_policy if isinstance(raw_policy, dict) else {}
+    approval_class = str(policy.get("approval_class") or "unclassified")
+    approval_required = destructive or approval_class != "auto"
+    return {
+        "class": approval_class,
+        "required": approval_required,
+        "route": "exact_tool" if approval_required else "intent_policy",
+    }
+
+
+def _declared_flag(operation: dict[str, Any] | None, key: str) -> bool | None:
+    """Helper for `_operation_plan`: a declared boolean CPD operation flag, or None."""
+    return _literal_bool(operation.get(key) if operation is not None else None)
+
+
+def _operation_cost_latency(cpd: dict[str, Any]) -> dict[str, Any]:
+    """Helper for `_operation_metadata`: cost/latency, with fallbacks applied."""
+    cost = cpd.get("cost") if isinstance(cpd.get("cost"), dict) else {}
+    latency = cpd.get("latency") if isinstance(cpd.get("latency"), dict) else {}
+    return {
+        "cost": cost or {"estimate": "not_available"},
+        "latency": latency or {"estimate": "not_available"},
+    }
+
+
+def _operation_impact_fields(
+    cpd: dict[str, Any], operation: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Helper for `_operation_metadata`: scopes/durability/transaction, with fallbacks applied."""
+    scopes = sorted(str(scope) for scope in (cpd.get("scopes") or ()))
+    durability = str(operation.get("durability") or "") if operation is not None else ""
+    transaction = (
+        str(operation.get("txn_participation") or "") if operation is not None else ""
+    )
+    return {
+        "scopes": scopes,
+        "durability": durability or "unclassified",
+        "transaction": transaction or "unclassified",
+    }
+
+
+def _operation_metadata(
+    cpd: dict[str, Any], operation: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Helper for `_operation_plan`: cost/latency/scopes/durability/transaction, fallbacks applied."""
+    return {
+        **_operation_cost_latency(cpd),
+        **_operation_impact_fields(cpd, operation),
+    }
+
+
 def _operation_plan(
     verb: str,
     tool: str,
@@ -854,93 +1021,16 @@ def _operation_plan(
 
     cpd = _load_cpds_required()[tool]
     operation = _operation_record(cpd, action)
-    declared_mutation = _literal_bool(
-        operation.get("mutates") if operation is not None else None
-    )
+    declared_mutation = _declared_flag(operation, "mutates")
     destructive = _operation_is_destructive(tool, action)
+    mutates = _resolve_mutates(verb, tool, action, declared_mutation, destructive)
 
-    read_prefixes = frozenset(
-        {
-            "check",
-            "count",
-            "describe",
-            "discover",
-            "doctor",
-            "explain",
-            "export",
-            "fetch",
-            "find",
-            "get",
-            "has",
-            "history",
-            "inspect",
-            "list",
-            "lookup",
-            "metrics",
-            "preflight",
-            "profile",
-            "query",
-            "read",
-            "recall",
-            "report",
-            "search",
-            "show",
-            "status",
-            "validate",
-            "view",
-        }
-    )
-    action_prefix = str(action or "").split("_", 1)[0]
-    action_is_declared_read = action in READ_ONLY_ACTIONS.get(tool, frozenset())
-    if declared_mutation is not None:
-        mutates: bool | None = declared_mutation
-    elif destructive:
-        mutates = True
-    elif action_is_declared_read:
-        mutates = False
-    elif action is not None and tool in READ_ONLY_ACTIONS:
-        # The reviewed allowlist is the action policy for a mixed surface:
-        # anything not explicitly declared read-only is non-read.
-        mutates = True
-    elif action_prefix in read_prefixes:
-        mutates = False
-    elif action is None and verb in _READ_ONLY_VERBS:
-        mutates = False
-    elif verb in _NON_READ_VERBS:
-        mutates = True
-    else:
-        mutates = None
-
-    declared_idempotency = _literal_bool(
-        operation.get("idempotent") if operation is not None else None
-    )
+    declared_idempotency = _declared_flag(operation, "idempotent")
     if declared_idempotency is None and mutates is False:
         declared_idempotency = True
 
-    _raw_policy = cpd.get("policy")
-    policy = _raw_policy if isinstance(_raw_policy, dict) else {}
-    approval_class = str(policy.get("approval_class") or "unclassified")
-    approval_required = destructive or approval_class != "auto"
-    cost = cpd.get("cost") if isinstance(cpd.get("cost"), dict) else {}
-    latency = cpd.get("latency") if isinstance(cpd.get("latency"), dict) else {}
-    scopes = sorted(str(scope) for scope in (cpd.get("scopes") or ()))
-    durability = str(operation.get("durability") or "") if operation is not None else ""
-    transaction = (
-        str(operation.get("txn_participation") or "") if operation is not None else ""
-    )
-
-    if destructive:
-        execution_class = "destructive"
-        impact_summary = "May remove or irreversibly invalidate governed state."
-    elif mutates is True:
-        execution_class = "mutation"
-        impact_summary = "Changes governed state within the selected capability scope."
-    elif mutates is False:
-        execution_class = "read_only"
-        impact_summary = "Reads or computes without a declared state mutation."
-    else:
-        execution_class = "unclassified"
-        impact_summary = "Effect metadata is insufficient; execution fails closed."
+    metadata = _operation_metadata(cpd, operation)
+    execution_class, impact_summary = _execution_class_and_impact(destructive, mutates)
 
     return {
         "tool": tool,
@@ -950,19 +1040,15 @@ def _operation_plan(
         "destructive": destructive,
         "idempotent": declared_idempotency,
         "preview_required": verb in _NON_READ_VERBS,
-        "approval": {
-            "class": approval_class,
-            "required": approval_required,
-            "route": "exact_tool" if approval_required else "intent_policy",
-        },
+        "approval": _approval_info(cpd, destructive),
         "impact": {
             "summary": impact_summary,
-            "scopes": scopes,
-            "durability": durability or "unclassified",
-            "transaction": transaction or "unclassified",
+            "scopes": metadata["scopes"],
+            "durability": metadata["durability"],
+            "transaction": metadata["transaction"],
         },
-        "cost": cost or {"estimate": "not_available"},
-        "latency": latency or {"estimate": "not_available"},
+        "cost": metadata["cost"],
+        "latency": metadata["latency"],
         "forwarded_fields": sorted(call_kwargs),
     }
 
