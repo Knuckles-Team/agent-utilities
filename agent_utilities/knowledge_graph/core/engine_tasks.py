@@ -15,6 +15,12 @@ from typing import Any, Protocol, cast
 
 from agent_utilities.core.config import setting
 
+from .engine_task_query import (
+    TaskQueryMixin,
+    _coerce_prio_bucket,
+    _task_status_from_work_item,
+)
+
 logger = logging.getLogger(__name__)
 _DATABASE_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 _GRAPH_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
@@ -425,19 +431,6 @@ def _submit_kafka_notification(
         queue.put(envelope)
 
 
-def _coerce_prio_bucket(value: Any, default: int = 2) -> int:
-    """Validate a current WorkItem claim bucket in the closed interval 0..3."""
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        raise TypeError("WorkItem prio_bucket must be an integer")
-    if isinstance(value, int):
-        if 0 <= value <= 3:
-            return value
-        raise ValueError("WorkItem prio_bucket must be between 0 and 3")
-    raise TypeError("WorkItem prio_bucket must be an integer")
-
-
 import sqlite3
 
 from .queue_backend import QueueBackend
@@ -727,26 +720,6 @@ def _pct(values: list[float], p: float) -> float:
     hi = min(lo + 1, len(values) - 1)
     frac = k - lo
     return values[lo] * (1 - frac) + values[hi] * frac
-
-
-def _task_status_from_work_item(item: dict[str, Any] | None) -> str:
-    """Render the public job-status vocabulary from the sole WorkItem."""
-    status = str((item or {}).get("status") or "")
-    if (
-        status == "ready"
-        and float((item or {}).get("next_retry_at") or 0) > time.time()
-    ):
-        return "scheduled"
-    return {
-        "submitted": "blocked",
-        "ready": "pending",
-        "leased": "running",
-        "running": "running",
-        "succeeded": "completed",
-        "failed": "failed",
-        "cancelled": "cancelled",
-        "dead_letter": "dead_letter",
-    }.get(status, "unknown")
 
 
 def _record_workitem_claim_outcome(outcome: str) -> None:
@@ -1756,61 +1729,6 @@ def _admit_claimed_task(
     return True
 
 
-_TASK_STATUS_BUCKETS = (
-    "running",
-    "pending",
-    "scheduled",
-    "blocked",
-    "completed",
-    "failed",
-    "cancelled",
-    "dead_letter",
-    "unknown",
-)
-
-# Result-summary keys copied onto a completed job's public listing entry.
-_COMPLETED_SUMMARY_KEYS = (
-    "chunks_added",
-    "nodes_added",
-    "edges_added",
-    "diffs_added",
-    "chunks_skipped",
-    "skip_reason",
-)
-
-
-def _task_list_entry(job_id: str, item: dict[str, Any], status: str) -> dict[str, Any]:
-    """The public per-job record rendered into a ``list_tasks`` bucket."""
-    meta = item.get("metadata") or {}
-    job_info: dict[str, Any] = {
-        "job_id": job_id,
-        "target": meta.get("target", "unknown"),
-    }
-    if status in {"failed", "dead_letter"}:
-        job_info["error"] = item.get("error_ref") or "Unknown error"
-    elif status == "completed":
-        # Include result summary for completed jobs
-        for key in _COMPLETED_SUMMARY_KEYS:
-            if key in meta:
-                job_info[key] = meta[key]
-    return job_info
-
-
-def _stamp_task_progress(response: dict[str, Any], total_tasks: int) -> None:
-    """Add the progress rollup onto a rendered ``list_tasks`` response."""
-    completed_count = len(response["completed"])
-    progress = round((completed_count / total_tasks) * 100, 2)
-    response["progress_percentage"] = f"{progress}% complete"
-    response["progress_stats"] = {
-        "total_tasks": total_tasks,
-        "completed": completed_count,
-        "pending_in_graph": len(response["pending"]),
-        "running_in_graph": len(response["running"]),
-        "scheduled": len(response["scheduled"]),
-        "blocked": len(response["blocked"]),
-    }
-
-
 def _repo_from_code_path(path: str) -> str:
     """The repository a ``Code`` node's path belongs to, or ``""``.
 
@@ -2509,10 +2427,16 @@ class _ControlPlaneWorkItemEngine:
             return self._native_work_item_method("cas_work_item_metadata")(request)
 
 
-class TaskManagerMixin(GraphEngineProtocol):
+class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
     """Mixin for the native persistent WorkItem queue.
 
     CONCEPT:AU-KG.compute.persistent-task-tracking - Persistent Task Tracking
+
+    The public task-query/control surface (``get_task_status``, ``list_tasks``,
+    ``cancel_task``, ``prioritize_task``, ...) is composed in from
+    :class:`~.engine_task_query.TaskQueryMixin` (CX wD10 file-decomposition,
+    ``engine_tasks.py`` was 7,917 lines); everything below is scheduling,
+    claiming, execution, and maintenance-tick state.
     """
 
     def __init__(self, *args, **kwargs):
@@ -7772,146 +7696,3 @@ class TaskManagerMixin(GraphEngineProtocol):
         except Exception as e:  # noqa: BLE001 — checkpoint is best-effort
             logger.debug("WAL checkpoint skipped: %s", e)
 
-    def get_task_status(self, job_id: str) -> dict | None:
-        """Render one ingestion WorkItem using the public job vocabulary."""
-        from agent_utilities.orchestration import work_item as _wi
-
-        item = _wi.get_work_item(
-            self._work_item_engine, _wi.ingest_task_work_item_id(job_id)
-        )
-        if item is None or item.get("kind") != "ingest_task":
-            return None
-        status = _task_status_from_work_item(item)
-
-        return {
-            "job_id": job_id,
-            "status": status,
-            "metadata": dict(item.get("metadata") or {}),
-            "attempt": item.get("attempt"),
-            "max_attempts": item.get("max_attempts"),
-            "resource_class": item.get("resource_class"),
-            "lease_expires_at": item.get("lease_expires_at"),
-            "heartbeat_at": item.get("heartbeat_at"),
-            "updated_at": item.get("updated_at"),
-        }
-
-    def list_tasks(self) -> dict:
-        """Group ingestion WorkItems by their rendered public status."""
-        response: dict[str, Any] = {name: [] for name in _TASK_STATUS_BUCKETS}
-
-        for job_id, item in self._ingest_work_item_index().items():
-            status = _task_status_from_work_item(item)
-            if status not in response:
-                continue
-            response[status].append(_task_list_entry(job_id, item, status))
-
-        total_tasks = sum(len(items) for items in response.values())
-        if total_tasks > 0:
-            _stamp_task_progress(response, total_tasks)
-        return response
-
-    def remove_task(self, job_id: str) -> bool:
-        """WorkItem audit records are immutable and cannot be removed."""
-        return False
-
-    def clear_completed_tasks(self) -> dict:
-        """Reject deletion of immutable WorkItem audit records."""
-        return {
-            "status": "error",
-            "error": "WorkItem audit records cannot be cleared",
-            "cleared": 0,
-            "remaining": len(self._ingest_work_item_index()),
-        }
-
-    def cancel_task(self, job_id: str) -> dict:
-        """Cancel a single queued/running task by id (terminal 'cancelled').
-
-        The native engine owns cancellation and preserves the audit record.
-        """
-        if not job_id:
-            return {"status": "error", "error": "job_id required"}
-        try:
-            from agent_utilities.orchestration import work_item as _wi
-
-            item_id = _wi.ingest_task_work_item_id(job_id)
-            prior = _wi.get_work_item(self._work_item_engine, item_id)
-            if prior is None:
-                return {"status": "error", "error": f"job {job_id} not found"}
-            cancelled = _wi.cancel_work_item(
-                self._work_item_engine,
-                item_id,
-                reason="cancel_task",
-            )
-        except Exception as e:  # noqa: BLE001 — public control API is structured
-            return {"status": "error", "error": f"WorkItem cancel failed: {e}"}
-        if not cancelled:
-            return {
-                "status": "error",
-                "error": "WorkItem cancellation was rejected by its current lease",
-            }
-        self._active_work_item_claim(job_id, pop=True)
-        return {
-            "status": "success",
-            "job_id": job_id,
-            "prev_status": _task_status_from_work_item(prior),
-        }
-
-    def clear_tasks(self, status: str = "completed") -> dict:
-        """Reject deletion of immutable WorkItem audit records."""
-        status = (status or "completed").strip().lower()
-        valid = {
-            "pending",
-            "running",
-            "scheduled",
-            "blocked",
-            "completed",
-            "failed",
-            "cancelled",
-            "dead_letter",
-            "all",
-        }
-        if status not in valid:
-            return {
-                "status": "error",
-                "error": f"status must be one of {sorted(valid)}",
-            }
-
-        return {
-            "status": "error",
-            "error": "WorkItem audit records cannot be cleared",
-            "cleared": 0,
-            "filter": status,
-            "remaining": len(self._ingest_work_item_index()),
-        }
-
-    def prioritize_task(self, job_id: str, priority: int = 1) -> dict:
-        """Re-prioritize a task by setting its claim bucket (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task).
-
-        The worker claim iterates integer buckets 0..3 in ascending order, so
-        a lower bucket runs first. Named priority aliases are not accepted.
-        """
-        try:
-            bucket = _coerce_prio_bucket(priority)
-        except (TypeError, ValueError):
-            return {
-                "status": "error",
-                "error": "priority must be an integer bucket from 0 through 3",
-            }
-        from agent_utilities.orchestration import work_item as _wi
-
-        item_id = _wi.ingest_task_work_item_id(job_id)
-        if _wi.get_work_item(self._work_item_engine, item_id) is None:
-            return {"status": "error", "error": f"job {job_id} not found"}
-        if not _wi.set_work_item_priority(self._work_item_engine, item_id, bucket):
-            return {
-                "status": "error",
-                "error": "WorkItem priority update was rejected",
-            }
-        return {
-            "status": "success",
-            "job_id": job_id,
-            "prio_bucket": bucket,
-            "task_status": _task_status_from_work_item(
-                _wi.get_work_item(self._work_item_engine, item_id)
-            ),
-        }
