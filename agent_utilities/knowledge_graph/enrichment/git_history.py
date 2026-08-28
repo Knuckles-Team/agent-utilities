@@ -111,48 +111,59 @@ def _normalize_rename(path: str) -> tuple[str, str | None]:
     return _clean_path(path), None
 
 
+def _parse_numstat_line(ln: str) -> FileChange | None:
+    """Parse one ``--numstat`` data line into a FileChange, or None if malformed/blank."""
+    if not ln.strip():
+        return None
+    parts = ln.split("\t")
+    if len(parts) < 3:
+        return None
+    add_s, del_s = parts[0], parts[1]
+    raw_path = "\t".join(parts[2:])
+    # Binary files report "-" for adds/dels.
+    adds = 0 if add_s.strip() in ("-", "") else int(add_s)
+    dels = 0 if del_s.strip() in ("-", "") else int(del_s)
+    new_path, old_path = _normalize_rename(raw_path)
+    return FileChange(new_path, adds, dels, old_path)
+
+
+def _parse_commit_block(block: str) -> CommitRecord | None:
+    """Parse one ``\\x1e``-delimited commit block into a CommitRecord, or None
+    if the block is empty or its header is malformed."""
+    block = block.strip("\n")
+    if not block:
+        return None
+    lines = block.split("\n")
+    fields = lines[0].split(_US)
+    if len(fields) < 7:
+        return None
+    sha, parents_s, an, ae, iso, at, subject = fields[:7]
+    try:
+        ts = int(at) if at else 0
+    except ValueError:
+        ts = 0
+    files = [
+        change for ln in lines[1:] if (change := _parse_numstat_line(ln)) is not None
+    ]
+    return CommitRecord(
+        sha=sha,
+        parents=parents_s.split() if parents_s else [],
+        author_name=an,
+        author_email=ae,
+        timestamp=ts,
+        iso_date=iso,
+        subject=subject,
+        files=files,
+    )
+
+
 def _parse_log(text: str) -> list[CommitRecord]:
     """Parse the raw ``git log --numstat`` stream into ``CommitRecord``s."""
     commits: list[CommitRecord] = []
     for block in text.split(_RS):
-        block = block.strip("\n")
-        if not block:
-            continue
-        lines = block.split("\n")
-        fields = lines[0].split(_US)
-        if len(fields) < 7:
-            continue
-        sha, parents_s, an, ae, iso, at, subject = fields[:7]
-        try:
-            ts = int(at) if at else 0
-        except ValueError:
-            ts = 0
-        files: list[FileChange] = []
-        for ln in lines[1:]:
-            if not ln.strip():
-                continue
-            parts = ln.split("\t")
-            if len(parts) < 3:
-                continue
-            add_s, del_s = parts[0], parts[1]
-            raw_path = "\t".join(parts[2:])
-            # Binary files report "-" for adds/dels.
-            adds = 0 if add_s.strip() in ("-", "") else int(add_s)
-            dels = 0 if del_s.strip() in ("-", "") else int(del_s)
-            new_path, old_path = _normalize_rename(raw_path)
-            files.append(FileChange(new_path, adds, dels, old_path))
-        commits.append(
-            CommitRecord(
-                sha=sha,
-                parents=parents_s.split() if parents_s else [],
-                author_name=an,
-                author_email=ae,
-                timestamp=ts,
-                iso_date=iso,
-                subject=subject,
-                files=files,
-            )
-        )
+        record = _parse_commit_block(block)
+        if record is not None:
+            commits.append(record)
     return commits
 
 
@@ -228,6 +239,17 @@ def aggregate_churn(commits: list[CommitRecord]) -> dict[str, dict[str, Any]]:
     return churn
 
 
+def _commit_sha_from_row(
+    nid: Any, props: dict[str, Any] | None, repo_name: str | None
+) -> str | None:
+    """Sha for one ``:Commit`` label-scan row, or None if it's out of ``repo_name`` scope."""
+    props = props or {}
+    if repo_name and props.get("repo") not in (None, "", repo_name):
+        return None
+    sha = props.get("sha") or (nid.split(":", 1)[1] if ":" in str(nid) else nid)
+    return str(sha) if sha else None
+
+
 def existing_commit_shas(backend: Any, repo_name: str | None = None) -> set[str]:
     """Shas of commits already in the KG (the delta watermark for re-ingest).
 
@@ -244,73 +266,53 @@ def existing_commit_shas(backend: Any, repo_name: str | None = None) -> set[str]
     except Exception:  # noqa: BLE001 — read best-effort
         return out
     for nid, props in rows:
-        props = props or {}
-        if repo_name and props.get("repo") not in (None, "", repo_name):
-            continue
-        sha = props.get("sha") or (nid.split(":", 1)[1] if ":" in str(nid) else nid)
+        sha = _commit_sha_from_row(nid, props, repo_name)
         if sha:
-            out.add(str(sha))
+            out.add(sha)
     return out
 
 
-def ingest_commit_history(
-    backend: Any,
-    repo_path: str,
-    *,
-    repo_name: str | None = None,
-    existing_shas: set[str] | None = None,
-    min_support: int = DEFAULT_MIN_SUPPORT,
-    max_count: int = DEFAULT_MAX_COMMITS,
-    since: str | None = None,
-) -> dict[str, Any]:
-    """Ingest a repo's commit history into the KG as a graph (CONCEPT:AU-KG.ingest.normal-codebase-ingest-also).
+def _empty_ingest_result() -> dict[str, Any]:
+    """Result for a repo with no history at all."""
+    return {
+        "commits": 0,
+        "authors": 0,
+        "files": 0,
+        "touched_edges": 0,
+        "parent_edges": 0,
+        "coupling_edges": 0,
+        "skipped": 0,
+        "no_op": True,
+        "capped": False,
+        "commits_per_sec": 0.0,
+    }
 
-    Fast: ONE ``git log`` pass, batch-written through the engine bulk path.
-    Delta: commits already present (``existing_shas``) are skipped; a re-ingest
-    with no new commits is a no-op. Churn + change-coupling aggregates are
-    recomputed over the full window and upserted idempotently so incremental
-    ingests keep them correct.
 
-    Returns a counts dict (``commits``/``authors``/``files``/edges/``capped``…).
+def _no_new_commits_result(res: ExtractResult) -> dict[str, Any]:
+    """True no-op result: nothing new since last ingest → no writes at all."""
+    return {
+        "commits": 0,
+        "authors": 0,
+        "files": 0,
+        "touched_edges": 0,
+        "parent_edges": 0,
+        "coupling_edges": 0,
+        "skipped": len(res.commits),
+        "no_op": True,
+        "capped": res.capped,
+        "commits_per_sec": (
+            round(len(res.commits) / res.elapsed_s, 1) if res.elapsed_s else 0.0
+        ),
+    }
+
+
+def _write_commit_batch(
+    batched: Any, new_commits: list[CommitRecord], repo_name: str
+) -> tuple[set[str], int, int]:
+    """Write Commit/Author nodes + AUTHORED/PARENT/TOUCHED edges for new_commits.
+
+    Returns ``(authors_written, touched_edge_count, parent_edge_count)``.
     """
-    from .pipeline import _BatchedBackend  # local import avoids an import cycle
-
-    repo_name = repo_name or Path(repo_path).name
-    res = extract_commits(repo_path, max_count=max_count, since=since)
-    if not res.commits:
-        return {
-            "commits": 0,
-            "authors": 0,
-            "files": 0,
-            "touched_edges": 0,
-            "parent_edges": 0,
-            "coupling_edges": 0,
-            "skipped": 0,
-            "no_op": True,
-            "capped": False,
-            "commits_per_sec": 0.0,
-        }
-
-    existing = existing_shas or set()
-    new_commits = [c for c in res.commits if c.sha not in existing]
-    if not new_commits:
-        # True no-op: nothing new since last ingest → no writes at all.
-        return {
-            "commits": 0,
-            "authors": 0,
-            "files": 0,
-            "touched_edges": 0,
-            "parent_edges": 0,
-            "coupling_edges": 0,
-            "skipped": len(res.commits),
-            "no_op": True,
-            "capped": res.capped,
-            "commits_per_sec": (
-                round(len(res.commits) / res.elapsed_s, 1) if res.elapsed_s else 0.0
-            ),
-        }
-
-    batched = _BatchedBackend(backend, batch_size=1000)
     authors_written: set[str] = set()
     touched = 0
     parents = 0
@@ -352,11 +354,16 @@ def ingest_commit_history(
             batched.add_edge(cid, f"file:{f.path}", rel_type="TOUCHED", **props)
             touched += 1
 
-    # File nodes carry churn aggregates (hotspots) computed over the FULL window
-    # — written once with the full props (upsert), so incremental ingests refresh
-    # them. ``_BatchedBackend.flush`` writes all nodes before any edges, so the
-    # TOUCHED / FILE_CHANGES_WITH endpoints always exist.
-    churn = aggregate_churn(res.commits)
+    return authors_written, touched, parents
+
+
+def _write_churn_nodes(
+    batched: Any, churn: dict[str, dict[str, Any]], repo_name: str
+) -> None:
+    """File nodes carry churn aggregates (hotspots) computed over the FULL window
+    — written once with the full props (upsert), so incremental ingests refresh
+    them. ``_BatchedBackend.flush`` writes all nodes before any edges, so the
+    TOUCHED / FILE_CHANGES_WITH endpoints always exist."""
     for path, d in churn.items():
         batched.add_node(
             f"file:{path}",
@@ -371,17 +378,20 @@ def ingest_commit_history(
             author_count=len(d["authors"]),
         )
 
-    # Change-coupling (KG-2.104) — files that co-change get a symmetric
-    # FILE_CHANGES_WITH edge. Recomputed over the full window for correctness.
+
+def _write_coupling_edges(
+    batched: Any, commits: list[CommitRecord], min_support: int
+) -> list[Any]:
+    """Compute + write FILE_CHANGES_WITH edges (KG-2.104) over the full window."""
     coupling = parse_change_coupling(
-        [[f.path for f in c.files] for c in res.commits], min_support
+        [[f.path for f in c.files] for c in commits], min_support
     )
     for e in coupling:
         batched.add_edge(e.source, e.target, rel_type=e.rel_type, **e.props)
+    return coupling
 
-    batched.flush()
 
-    cps = round(len(res.commits) / res.elapsed_s, 1) if res.elapsed_s else 0.0
+def _log_if_capped(res: ExtractResult, max_count: int, repo_name: str) -> None:
     if res.capped:
         logger.info(
             "[KG-2.282] commit-history capped at %d commits for %s "
@@ -389,6 +399,55 @@ def ingest_commit_history(
             max_count,
             repo_name,
         )
+
+
+def ingest_commit_history(
+    backend: Any,
+    repo_path: str,
+    *,
+    repo_name: str | None = None,
+    existing_shas: set[str] | None = None,
+    min_support: int = DEFAULT_MIN_SUPPORT,
+    max_count: int = DEFAULT_MAX_COMMITS,
+    since: str | None = None,
+) -> dict[str, Any]:
+    """Ingest a repo's commit history into the KG as a graph (CONCEPT:AU-KG.ingest.normal-codebase-ingest-also).
+
+    Fast: ONE ``git log`` pass, batch-written through the engine bulk path.
+    Delta: commits already present (``existing_shas``) are skipped; a re-ingest
+    with no new commits is a no-op. Churn + change-coupling aggregates are
+    recomputed over the full window and upserted idempotently so incremental
+    ingests keep them correct.
+
+    Returns a counts dict (``commits``/``authors``/``files``/edges/``capped``…).
+    """
+    from .pipeline import _BatchedBackend  # local import avoids an import cycle
+
+    repo_name = repo_name or Path(repo_path).name
+    res = extract_commits(repo_path, max_count=max_count, since=since)
+    if not res.commits:
+        return _empty_ingest_result()
+
+    existing = existing_shas or set()
+    new_commits = [c for c in res.commits if c.sha not in existing]
+    if not new_commits:
+        return _no_new_commits_result(res)
+
+    batched = _BatchedBackend(backend, batch_size=1000)
+    authors_written, touched, parents = _write_commit_batch(
+        batched, new_commits, repo_name
+    )
+
+    churn = aggregate_churn(res.commits)
+    _write_churn_nodes(batched, churn, repo_name)
+    # Change-coupling (KG-2.104) — files that co-change get a symmetric
+    # FILE_CHANGES_WITH edge. Recomputed over the full window for correctness.
+    coupling = _write_coupling_edges(batched, res.commits, min_support)
+
+    batched.flush()
+
+    _log_if_capped(res, max_count, repo_name)
+    cps = round(len(res.commits) / res.elapsed_s, 1) if res.elapsed_s else 0.0
     return {
         "commits": len(new_commits),
         "authors": len(authors_written),
@@ -426,91 +485,85 @@ def _as_int(v: Any) -> int:
         return 0
 
 
-def query_evolution(
-    query_service: Any, mode: str, target: str = "", limit: int = 20
-) -> dict[str, Any]:
-    """Answer codebase-evolution questions over the ingested history graph.
+def _query_hotspots(query_service: Any, limit: int) -> dict[str, Any]:
+    """The highest-churn files (refactor / bus-factor risks)."""
+    node_rows = _rows(
+        query_service,
+        "MATCH (f:File) RETURN f.id AS id, f.path AS path, "
+        "f.churn AS churn, f.commit_count AS commit_count, "
+        "f.author_count AS author_count",
+        {},
+    )
+    files: list[dict[str, Any]] = [
+        {
+            "file": row.get("path") or row.get("id"),
+            "churn": _as_int(row.get("churn")),
+            "commits": _as_int(row.get("commit_count")),
+            "authors": _as_int(row.get("author_count")),
+        }
+        for row in node_rows
+    ]
+    files.sort(key=lambda d: d["churn"], reverse=True)
+    return {"mode": "hotspots", "hotspots": files[:limit]}
 
-    Modes (the queries Gource/SourceTree can't answer — they only render):
 
-    * ``file``     — the timeline of commits that touched ``target`` (a file
-      path), newest first, with author + churn (the "evolution of file X").
-    * ``owners``   — who owns subsystem ``target`` (path substring): authors
-      ranked by how many commits they made to files under it.
-    * ``hotspots`` — the highest-churn files (refactor / bus-factor risks).
-    * ``coupled``  — files that historically co-change with ``target`` (the
-      hidden blast-radius the AST can't see — KG-2.104).
-    """
-    mode = (mode or "file").strip().lower()
-    if mode == "hotspots":
-        node_rows = _rows(
-            query_service,
-            "MATCH (f:File) RETURN f.id AS id, f.path AS path, "
-            "f.churn AS churn, f.commit_count AS commit_count, "
-            "f.author_count AS author_count",
-            {},
-        )
-        files: list[dict[str, Any]] = [
+def _query_owners(query_service: Any, target: str, limit: int) -> dict[str, Any]:
+    """Who owns subsystem ``target`` (path substring): authors ranked by
+    how many commits they made to files under it."""
+    if not target:
+        return {"mode": "owners", "error": "owners needs a path substring in target"}
+    rows = _rows(
+        query_service,
+        "MATCH (c)-[r]->(f) WHERE type(r) IN ['TOUCHED','touched'] "
+        "AND f.path CONTAINS $p "
+        "RETURN c.id AS id, c.sha AS sha, c.author_email AS email, "
+        "c.author_name AS name",
+        {"p": target},
+    )
+    by_author: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        key = r.get("email") or r.get("name") or "?"
+        d = by_author.setdefault(
+            key,
             {
-                "file": row.get("path") or row.get("id"),
-                "churn": _as_int(row.get("churn")),
-                "commits": _as_int(row.get("commit_count")),
-                "authors": _as_int(row.get("author_count")),
-            }
-            for row in node_rows
-        ]
-        files.sort(key=lambda d: d["churn"], reverse=True)
-        return {"mode": mode, "hotspots": files[:limit]}
-
-    if mode == "owners":
-        if not target:
-            return {"mode": mode, "error": "owners needs a path substring in target"}
-        rows = _rows(
-            query_service,
-            "MATCH (c)-[r]->(f) WHERE type(r) IN ['TOUCHED','touched'] "
-            "AND f.path CONTAINS $p "
-            "RETURN c.id AS id, c.sha AS sha, c.author_email AS email, "
-            "c.author_name AS name",
-            {"p": target},
+                "author": r.get("name") or key,
+                "email": r.get("email") or "",
+                "commits": set(),
+            },
         )
-        by_author: dict[str, dict[str, Any]] = {}
-        for r in rows:
-            key = r.get("email") or r.get("name") or "?"
-            d = by_author.setdefault(
-                key,
-                {
-                    "author": r.get("name") or key,
-                    "email": r.get("email") or "",
-                    "commits": set(),
-                },
-            )
-            if r.get("sha"):
-                d["commits"].add(r["sha"])
-        owners = [
-            {"author": d["author"], "email": d["email"], "commits": len(d["commits"])}
-            for d in by_author.values()
-        ]
-        owners.sort(key=lambda d: d["commits"], reverse=True)
-        return {"mode": mode, "subsystem": target, "owners": owners[:limit]}
+        if r.get("sha"):
+            d["commits"].add(r["sha"])
+    owners = [
+        {"author": d["author"], "email": d["email"], "commits": len(d["commits"])}
+        for d in by_author.values()
+    ]
+    owners.sort(key=lambda d: d["commits"], reverse=True)
+    return {"mode": "owners", "subsystem": target, "owners": owners[:limit]}
 
-    if mode == "coupled":
-        if not target:
-            return {"mode": mode, "error": "coupled needs a file path in target"}
-        rows = _rows(
-            query_service,
-            "MATCH (a)-[r]-(b) WHERE type(r) IN ['FILE_CHANGES_WITH','file_changes_with'] "
-            "AND (a.path = $fp OR a.id = $fid OR a.id CONTAINS $fp) "
-            "RETURN DISTINCT b.path AS path, b.id AS id, r.support AS support",
-            {"fp": target, "fid": f"file:{target}"},
-        )
-        coupled = [
-            {"file": r.get("path") or r.get("id"), "support": _as_int(r.get("support"))}
-            for r in rows
-        ]
-        coupled.sort(key=lambda d: cast(int, d["support"]), reverse=True)
-        return {"mode": mode, "file": target, "coupled": coupled[:limit]}
 
-    # default: file timeline
+def _query_coupled(query_service: Any, target: str, limit: int) -> dict[str, Any]:
+    """Files that historically co-change with ``target`` (the hidden
+    blast-radius the AST can't see — KG-2.104)."""
+    if not target:
+        return {"mode": "coupled", "error": "coupled needs a file path in target"}
+    rows = _rows(
+        query_service,
+        "MATCH (a)-[r]-(b) WHERE type(r) IN ['FILE_CHANGES_WITH','file_changes_with'] "
+        "AND (a.path = $fp OR a.id = $fid OR a.id CONTAINS $fp) "
+        "RETURN DISTINCT b.path AS path, b.id AS id, r.support AS support",
+        {"fp": target, "fid": f"file:{target}"},
+    )
+    coupled = [
+        {"file": r.get("path") or r.get("id"), "support": _as_int(r.get("support"))}
+        for r in rows
+    ]
+    coupled.sort(key=lambda d: cast(int, d["support"]), reverse=True)
+    return {"mode": "coupled", "file": target, "coupled": coupled[:limit]}
+
+
+def _query_file_timeline(query_service: Any, target: str, limit: int) -> dict[str, Any]:
+    """The timeline of commits that touched ``target`` (a file path), newest
+    first, with author + churn (the "evolution of file X")."""
     if not target:
         return {"mode": "file", "error": "file mode needs a file path in target"}
     rows = _rows(
@@ -536,3 +589,29 @@ def query_evolution(
     ]
     timeline.sort(key=lambda d: cast(int, d["ts"]), reverse=True)
     return {"mode": "file", "file": target, "timeline": timeline[:limit]}
+
+
+def query_evolution(
+    query_service: Any, mode: str, target: str = "", limit: int = 20
+) -> dict[str, Any]:
+    """Answer codebase-evolution questions over the ingested history graph.
+
+    Modes (the queries Gource/SourceTree can't answer — they only render):
+
+    * ``file``     — the timeline of commits that touched ``target`` (a file
+      path), newest first, with author + churn (the "evolution of file X").
+    * ``owners``   — who owns subsystem ``target`` (path substring): authors
+      ranked by how many commits they made to files under it.
+    * ``hotspots`` — the highest-churn files (refactor / bus-factor risks).
+    * ``coupled``  — files that historically co-change with ``target`` (the
+      hidden blast-radius the AST can't see — KG-2.104).
+    """
+    mode = (mode or "file").strip().lower()
+    if mode == "hotspots":
+        return _query_hotspots(query_service, limit)
+    if mode == "owners":
+        return _query_owners(query_service, target, limit)
+    if mode == "coupled":
+        return _query_coupled(query_service, target, limit)
+    # default: file timeline
+    return _query_file_timeline(query_service, target, limit)
