@@ -437,7 +437,11 @@ def _connect_route_client(
 ) -> Any:
     if client_factory is not None:
         return client_factory(contact)
-    assert auth_secret is not None and verified_context is not None
+    if auth_secret is None or verified_context is None:
+        raise RuntimeError(
+            "route client requires a broker identity: auth_secret and verified "
+            "context must both resolve when no client_factory is supplied"
+        )
     return _default_connect(
         contact,
         auth_secret,
