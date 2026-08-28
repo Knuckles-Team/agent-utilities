@@ -1658,49 +1658,68 @@ def _runtime_integrations_result(
     )
 
 
-def _check_engine() -> dict[str, Any]:
-    try:
-        from agent_utilities.core.config import AgentConfig
-        from agent_utilities.knowledge_graph.core.engine_resolver import resolve_engine
-        from agent_utilities.knowledge_graph.core.graph_compute import (
-            engine_encryption_readiness,
-        )
-        from agent_utilities.knowledge_graph.core.placement_catalog import (
-            discovery_reachable,
-        )
-        from agent_utilities.knowledge_graph.core.shard_topology import (
-            default_graph_name,
-            shard_topology_status,
-        )
+def _engine_endpoint_reachability(
+    st: dict[str, Any], cfg: Any
+) -> tuple[list, list, Any]:
+    """``(endpoints, reachable, discovery_ready)`` for the resolved topology.
 
-        cfg = AgentConfig()
-        st = shard_topology_status(cfg, probe=True, timeout=0.5)
-        resolved = resolve_engine(cfg, default_graph_name(cfg))
-        encryption = engine_encryption_readiness(cfg, remote=resolved.mode == "remote")
-    except Exception as exc:  # noqa: BLE001
-        return _result(
-            "engine",
-            "error",
-            f"shard topology probe failed ({type(exc).__name__})",
-        )
-    st["resolved_mode"] = resolved.mode
+    A static group map is retained for migration/configuration audit only; it
+    cannot satisfy the live placement authority. Probe whether authenticated
+    ClusterMembers answers from a reachable seed for every multi-contact
+    topology, even when legacy map data is present. The probe is an
+    authenticated RPC (unlike the cheap raw-connect check), and the hermetic
+    testing guard makes it fail closed without dialing.
+    """
+    from agent_utilities.knowledge_graph.core.placement_catalog import (
+        discovery_reachable,
+    )
+
     endpoints = st.get("endpoints", [])
     reachable = [e for e in endpoints if e.get("reachable")]
-    # A static group map is retained for migration/configuration audit only; it
-    # cannot satisfy the live placement authority. Probe whether authenticated
-    # ClusterMembers answers from a reachable seed for every multi-contact
-    # topology, even when legacy map data is present. The probe is an
-    # authenticated RPC (unlike the cheap raw-connect check above), and the
-    # hermetic testing guard makes it fail closed without dialing.
     discovery_ready = (
         discovery_reachable([e["endpoint"] for e in reachable], cfg)
         if len(endpoints) > 1
         else None
     )
-    # Endpoint strings can contain hostnames, usernames, local socket paths, or
-    # customer-specific topology names. Doctor is frequently copied into issue
-    # reports and traces, so expose readiness counts only.
-    redacted_status = {
+    return endpoints, reachable, discovery_ready
+
+
+def _engine_resource_limits(cfg: Any) -> dict[str, Any]:
+    """The engine's configured request/response and extraction size bounds."""
+    return {
+        "request_bytes": getattr(cfg, "epistemic_graph_max_request_bytes", 0),
+        "response_bytes": getattr(cfg, "epistemic_graph_max_response_bytes", 0),
+        "msgpack_items": getattr(cfg, "epistemic_graph_max_msgpack_items", 0),
+        "ast_files": getattr(cfg, "epistemic_graph_ast_max_files", 0),
+        "ast_source_bytes": getattr(cfg, "epistemic_graph_ast_max_source_bytes", 0),
+        "ast_total_bytes": getattr(cfg, "epistemic_graph_ast_max_total_bytes", 0),
+        "modality_bundle_bytes": getattr(
+            cfg, "epistemic_graph_modality_max_bundle_bytes", 0
+        ),
+        "modality_source_bytes": getattr(
+            cfg, "epistemic_graph_modality_max_source_bytes", 0
+        ),
+        "sqlite_bytes": getattr(cfg, "epistemic_graph_sqlite_max_bytes", 0),
+        "sqlite_rows": getattr(cfg, "epistemic_graph_sqlite_max_rows", 0),
+    }
+
+
+def _engine_redacted_status(
+    cfg: Any,
+    st: dict[str, Any],
+    resolved: Any,
+    encryption: dict[str, Any],
+    reachable: list,
+    discovery_ready: Any,
+) -> dict[str, Any]:
+    """Readiness counts only.
+
+    Endpoint strings can contain hostnames, usernames, local socket paths, or
+    customer-specific topology names. Doctor is frequently copied into issue
+    reports and traces, so expose readiness counts only.
+    """
+    endpoints = st.get("endpoints", [])
+    return {
         "resolved_mode": resolved.mode,
         "topology_mode": st.get("mode", "unknown"),
         "configured_endpoint_count": len(endpoints),
@@ -1719,24 +1738,193 @@ def _check_engine() -> dict[str, Any]:
                 getattr(cfg, "epistemic_graph_backup_root_ref", None),
             )
         ),
-        "resource_limits": {
-            "request_bytes": getattr(cfg, "epistemic_graph_max_request_bytes", 0),
-            "response_bytes": getattr(cfg, "epistemic_graph_max_response_bytes", 0),
-            "msgpack_items": getattr(cfg, "epistemic_graph_max_msgpack_items", 0),
-            "ast_files": getattr(cfg, "epistemic_graph_ast_max_files", 0),
-            "ast_source_bytes": getattr(cfg, "epistemic_graph_ast_max_source_bytes", 0),
-            "ast_total_bytes": getattr(cfg, "epistemic_graph_ast_max_total_bytes", 0),
-            "modality_bundle_bytes": getattr(
-                cfg, "epistemic_graph_modality_max_bundle_bytes", 0
-            ),
-            "modality_source_bytes": getattr(
-                cfg, "epistemic_graph_modality_max_source_bytes", 0
-            ),
-            "sqlite_bytes": getattr(cfg, "epistemic_graph_sqlite_max_bytes", 0),
-            "sqlite_rows": getattr(cfg, "epistemic_graph_sqlite_max_rows", 0),
-        },
+        "resource_limits": _engine_resource_limits(cfg),
         "redacted": True,
     }
+
+
+def _engine_runtime_directory_refs(cfg: Any) -> tuple[Any, ...]:
+    """The configured local runtime-directory references, in check order."""
+    return tuple(
+        reference
+        for reference in (
+            getattr(cfg, "epistemic_graph_sqlite_transfer_root_ref", None),
+            getattr(cfg, "epistemic_graph_backup_root_ref", None),
+        )
+        if reference
+    )
+
+
+def _rendered_directory_reference(resolver: Any, reference: Any) -> str:
+    """Resolve one reference to a bounded, control-character-free directory string."""
+    raw = resolver.resolve_ref(reference)
+    rendered = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw or "")
+    if (
+        not rendered
+        or len(rendered.encode("utf-8")) > 4_096
+        or any(ord(character) < 32 for character in rendered)
+    ):
+        raise ValueError("invalid runtime directory")
+    return rendered
+
+
+def _assert_private_runtime_directory(resolver: Any, reference: Any) -> None:
+    """Raise unless the reference names an existing, non-symlink, private directory."""
+    import os
+    from pathlib import Path
+
+    candidate = Path(_rendered_directory_reference(resolver, reference))
+    metadata = candidate.lstat()
+    if candidate.is_symlink() or not candidate.is_dir():
+        raise ValueError("unsafe runtime directory")
+    candidate.resolve(strict=True)
+    if os.name == "posix" and stat.S_IMODE(metadata.st_mode) & 0o077:
+        raise ValueError("runtime directory is not private")
+
+
+def _engine_runtime_directory_gate(
+    resolved: Any, runtime_directory_refs: tuple[Any, ...], redacted_status: dict
+) -> dict[str, Any] | None:
+    """Every local runtime-directory reference must resolve to a private directory.
+
+    Any failure -- unresolvable reference, symlink, non-directory, or group/other
+    permissions -- marks the refs not ready and fails; it never reports ok.
+    """
+    if resolved.mode == "remote" or not runtime_directory_refs:
+        return None
+    try:
+        from agent_utilities.security.secrets_client import create_secrets_client
+
+        resolver = create_secrets_client()
+        for reference in runtime_directory_refs:
+            _assert_private_runtime_directory(resolver, reference)
+        redacted_status["runtime_directory_refs_ready"] = True
+    except Exception:  # noqa: BLE001 - diagnostics must not reveal paths/providers
+        redacted_status["runtime_directory_refs_ready"] = False
+        return _result(
+            "engine",
+            "fail",
+            "an enabled engine file capability has an unavailable or unsafe runtime directory",
+            remediation=(
+                "Resolve each configured engine directory reference to an existing, "
+                "non-symlink private directory; do not place host paths in AgentConfig."
+            ),
+            data=redacted_status,
+        )
+    return None
+
+
+def _engine_remote_result(
+    reachable: list,
+    endpoints: list,
+    runtime_directory_refs: tuple[Any, ...],
+    redacted_status: dict[str, Any],
+) -> dict[str, Any]:
+    """Verdict for ``resolved mode=remote``; remote never autostarts a stand-in."""
+    if not reachable:
+        return _result(
+            "engine",
+            "fail",
+            "configured remote engine is unreachable — "
+            "remote mode never autostarts a local stand-in (fail-loud)",
+            remediation="start the external engine (Docker/host) or fix GRAPH_SERVICE_ENDPOINTS",
+            skill="agent-utilities-deployment",
+            data=redacted_status,
+        )
+    if runtime_directory_refs:
+        return _result(
+            "engine",
+            "warn",
+            "remote engine reachable, but local runtime directory references are not applied remotely",
+            remediation=(
+                "Configure backup/SQLite roots in the remote engine deployment, "
+                "or remove the local-only references."
+            ),
+            data=redacted_status,
+        )
+    return _result(
+        "engine",
+        "ok",
+        f"remote engine reachable ({len(reachable)}/{len(endpoints)} "
+        "endpoint(s)) — resolved mode=remote (deployed elsewhere)",
+        data=redacted_status,
+    )
+
+
+def _engine_local_result(
+    resolved: Any, reachable: list, endpoints: list, redacted_status: dict[str, Any]
+) -> dict[str, Any]:
+    """Verdict for a local engine: shared, autostart-on-demand, or unreachable."""
+    if reachable:
+        return _result(
+            "engine",
+            "ok",
+            "engine reachable — resolved mode=shared "
+            "(reusing the already-running local engine)",
+            data=redacted_status,
+        )
+    # Nothing up locally — describe the autostart behaviour the resolver WILL
+    # take on first use, including the idle-shutdown lifecycle.
+    if resolved.autostart_allowed:
+        life = (
+            f"reference-counted (auto-stops {resolved.idle_shutdown_secs}s "
+            "after the last client disconnects)"
+            if resolved.idle_shutdown_secs > 0
+            else "persistent (never auto-stops — runs like a local service)"
+        )
+        return _result(
+            "engine",
+            "warn",
+            "no engine running yet — resolved mode=autostart: "
+            f"a detached, supervised engine will be spawned on first use, {life}",
+            remediation="no action needed (auto-provisions on demand); start eagerly with `graph-os-daemon` if preferred",
+            skill="agent-utilities-deployment",
+            data=redacted_status,
+        )
+    return _result(
+        "engine",
+        "fail",
+        f"no epistemic-graph engine endpoint reachable ({len(endpoints)} configured) and autostart disabled",
+        remediation="remove GRAPH_SERVICE_ENDPOINTS for the packaged local lifecycle, or start the configured external engine",
+        skill="agent-utilities-deployment",
+        data=redacted_status,
+    )
+
+
+def _check_engine() -> dict[str, Any]:
+    try:
+        from agent_utilities.core.config import AgentConfig
+        from agent_utilities.knowledge_graph.core.engine_resolver import resolve_engine
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            engine_encryption_readiness,
+        )
+
+        # Import gate only: _engine_endpoint_reachability re-imports it. Kept
+        # here so an engine install missing the placement catalog still reports
+        # `error` up front, exactly as it did before this check was split.
+        from agent_utilities.knowledge_graph.core.placement_catalog import (  # noqa: F401
+            discovery_reachable,
+        )
+        from agent_utilities.knowledge_graph.core.shard_topology import (
+            default_graph_name,
+            shard_topology_status,
+        )
+
+        cfg = AgentConfig()
+        st = shard_topology_status(cfg, probe=True, timeout=0.5)
+        resolved = resolve_engine(cfg, default_graph_name(cfg))
+        encryption = engine_encryption_readiness(cfg, remote=resolved.mode == "remote")
+    except Exception as exc:  # noqa: BLE001
+        return _result(
+            "engine",
+            "error",
+            f"shard topology probe failed ({type(exc).__name__})",
+        )
+    st["resolved_mode"] = resolved.mode
+    endpoints, reachable, discovery_ready = _engine_endpoint_reachability(st, cfg)
+    redacted_status = _engine_redacted_status(
+        cfg, st, resolved, encryption, reachable, discovery_ready
+    )
 
     if not encryption["ready"]:
         return _result(
@@ -1767,123 +1955,20 @@ def _check_engine() -> dict[str, Any]:
             data=redacted_status,
         )
 
-    runtime_directory_refs = tuple(
-        reference
-        for reference in (
-            getattr(cfg, "epistemic_graph_sqlite_transfer_root_ref", None),
-            getattr(cfg, "epistemic_graph_backup_root_ref", None),
-        )
-        if reference
+    runtime_directory_refs = _engine_runtime_directory_refs(cfg)
+    directory_failure = _engine_runtime_directory_gate(
+        resolved, runtime_directory_refs, redacted_status
     )
-    if resolved.mode != "remote" and runtime_directory_refs:
-        try:
-            import os
-            import stat
-            from pathlib import Path
-
-            from agent_utilities.security.secrets_client import create_secrets_client
-
-            resolver = create_secrets_client()
-            for reference in runtime_directory_refs:
-                raw = resolver.resolve_ref(reference)
-                rendered = (
-                    raw.decode("utf-8") if isinstance(raw, bytes) else str(raw or "")
-                )
-                if (
-                    not rendered
-                    or len(rendered.encode("utf-8")) > 4_096
-                    or any(ord(character) < 32 for character in rendered)
-                ):
-                    raise ValueError("invalid runtime directory")
-                candidate = Path(rendered)
-                metadata = candidate.lstat()
-                if candidate.is_symlink() or not candidate.is_dir():
-                    raise ValueError("unsafe runtime directory")
-                candidate.resolve(strict=True)
-                if os.name == "posix" and stat.S_IMODE(metadata.st_mode) & 0o077:
-                    raise ValueError("runtime directory is not private")
-            redacted_status["runtime_directory_refs_ready"] = True
-        except Exception:  # noqa: BLE001 - diagnostics must not reveal paths/providers
-            redacted_status["runtime_directory_refs_ready"] = False
-            return _result(
-                "engine",
-                "fail",
-                "an enabled engine file capability has an unavailable or unsafe runtime directory",
-                remediation=(
-                    "Resolve each configured engine directory reference to an existing, "
-                    "non-symlink private directory; do not place host paths in AgentConfig."
-                ),
-                data=redacted_status,
-            )
+    if directory_failure is not None:
+        return directory_failure
 
     # CONCEPT:AU-OS.deployment.report-resolved-mode — report the RESOLVED mode (how this process reaches the
     # engine), not just transport reachability.
     if resolved.mode == "remote":
-        if reachable:
-            if runtime_directory_refs:
-                return _result(
-                    "engine",
-                    "warn",
-                    "remote engine reachable, but local runtime directory references are not applied remotely",
-                    remediation=(
-                        "Configure backup/SQLite roots in the remote engine deployment, "
-                        "or remove the local-only references."
-                    ),
-                    data=redacted_status,
-                )
-            return _result(
-                "engine",
-                "ok",
-                f"remote engine reachable ({len(reachable)}/{len(endpoints)} "
-                "endpoint(s)) — resolved mode=remote (deployed elsewhere)",
-                data=redacted_status,
-            )
-        return _result(
-            "engine",
-            "fail",
-            "configured remote engine is unreachable — "
-            "remote mode never autostarts a local stand-in (fail-loud)",
-            remediation="start the external engine (Docker/host) or fix GRAPH_SERVICE_ENDPOINTS",
-            skill="agent-utilities-deployment",
-            data=redacted_status,
+        return _engine_remote_result(
+            reachable, endpoints, runtime_directory_refs, redacted_status
         )
-
-    if reachable:
-        return _result(
-            "engine",
-            "ok",
-            "engine reachable — resolved mode=shared "
-            "(reusing the already-running local engine)",
-            data=redacted_status,
-        )
-
-    # Nothing up locally — describe the autostart behaviour the resolver WILL
-    # take on first use, including the idle-shutdown lifecycle.
-    if resolved.autostart_allowed:
-        if resolved.idle_shutdown_secs > 0:
-            life = (
-                f"reference-counted (auto-stops {resolved.idle_shutdown_secs}s "
-                "after the last client disconnects)"
-            )
-        else:
-            life = "persistent (never auto-stops — runs like a local service)"
-        return _result(
-            "engine",
-            "warn",
-            "no engine running yet — resolved mode=autostart: "
-            f"a detached, supervised engine will be spawned on first use, {life}",
-            remediation="no action needed (auto-provisions on demand); start eagerly with `graph-os-daemon` if preferred",
-            skill="agent-utilities-deployment",
-            data=redacted_status,
-        )
-    return _result(
-        "engine",
-        "fail",
-        f"no epistemic-graph engine endpoint reachable ({len(endpoints)} configured) and autostart disabled",
-        remediation="remove GRAPH_SERVICE_ENDPOINTS for the packaged local lifecycle, or start the configured external engine",
-        skill="agent-utilities-deployment",
-        data=redacted_status,
-    )
+    return _engine_local_result(resolved, reachable, endpoints, redacted_status)
 
 
 def _check_engine_domains() -> dict[str, Any]:
@@ -2487,6 +2572,194 @@ def _check_skill_certification() -> dict[str, Any]:
     )
 
 
+def _cert_required_values(cfg: Any, command_maps: tuple[Any, ...]) -> tuple[Any, ...]:
+    """The 13 required production-certification configuration facts, in order."""
+    return (
+        cfg.certification_mode == "production",
+        bool(cfg.cert_release_manifest),
+        bool(cfg.cert_artifacts_dir),
+        bool(cfg.cert_hardware_class),
+        bool(cfg.cert_load_command),
+        bool(cfg.cert_metrics_command),
+        *(bool(value) for value in command_maps),
+        bool(cfg.cert_evidence_signer_command),
+        bool(cfg.cert_evidence_verifier_command),
+        bool(cfg.cert_prometheus_url),
+        bool(cfg.cert_prometheus_tls_profile or cfg.cert_prometheus_tls_profile_ref),
+    )
+
+
+def _cert_configuration_gate(
+    cfg: Any,
+    command_maps: tuple[Any, ...],
+    base_data: dict[str, Any],
+    required_count: int,
+) -> dict[str, Any] | None:
+    """Skip when nothing is configured; fail when the 13 fields are incomplete.
+
+    Partial certification authority is never accepted: anything short of all
+    13 configured fields fails rather than proceeding to the material checks.
+    """
+    required_values = _cert_required_values(cfg, command_maps)
+    base_data.update(
+        {
+            "configured_count": sum(required_values),
+            "scenario_count": len(cfg.cert_hook_commands),
+            "bearer_auth_configured": bool(cfg.cert_prometheus_bearer_token_ref),
+        }
+    )
+    configured_material = any(required_values[1:]) or bool(
+        cfg.cert_prometheus_bearer_token_ref
+    )
+    if cfg.certification_mode == "disabled" and not configured_material:
+        return _result(
+            "production_certification",
+            "skip",
+            "production certification is not configured",
+            data=base_data,
+        )
+    if base_data["configured_count"] != required_count:
+        return _result(
+            "production_certification",
+            "fail",
+            "production certification configuration is incomplete",
+            remediation=(
+                "Set CERTIFICATION_MODE=production and configure the release, "
+                "private artifacts directory, non-identifying hardware class, "
+                "load/metrics commands, all three exact scenario command maps, "
+                "evidence signer/verifier commands, HTTPS Prometheus endpoint, "
+                "and its dedicated TLS profile selector through AgentConfig."
+            ),
+            data=base_data,
+        )
+    return None
+
+
+def _cert_validated_commands(cfg: Any, command_maps: tuple[Any, ...]) -> list[Any]:
+    """Every certification command, proven exact-scenario and non-shell argv."""
+    from agent_utilities.core.config import PRODUCTION_CERTIFICATION_SCENARIOS
+    from agent_utilities.skills.runtime_validation import (
+        _validate_external_command_argv,
+    )
+
+    expected = set(PRODUCTION_CERTIFICATION_SCENARIOS)
+    if any(set(command_map) != expected for command_map in command_maps):
+        raise RuntimeError("production_certification_scenarios_not_exact")
+    commands = [
+        cfg.cert_load_command,
+        cfg.cert_metrics_command,
+        cfg.cert_evidence_signer_command,
+        cfg.cert_evidence_verifier_command,
+    ]
+    for command_map in command_maps:
+        commands.extend(
+            command_map[scenario] for scenario in PRODUCTION_CERTIFICATION_SCENARIOS
+        )
+    if not any("{report_file}" in part for part in cfg.cert_load_command):
+        raise RuntimeError("production_certification_load_report_missing")
+    for command in commands:
+        _validate_external_command_argv(command)
+    return commands
+
+
+def _cert_verify_release_manifest(cfg: Any) -> None:
+    """The release manifest must verify -- signatures included -- against the matrix."""
+    from importlib.resources import as_file, files
+    from pathlib import Path
+
+    import yaml
+
+    from agent_utilities.deployment.skill_validation_assets import (
+        _json_without_duplicates,
+        _read_regular,
+    )
+    from scripts.release import check_compatibility as compatibility
+
+    release_path = Path(str(cfg.cert_release_manifest))
+    release = _json_without_duplicates(
+        _read_regular(
+            release_path,
+            limit=64 * 1024 * 1024,
+            code="production_release_manifest_invalid",
+        ),
+        code="production_release_manifest_invalid",
+    )
+    if not isinstance(release, dict):
+        raise RuntimeError("production_release_manifest_invalid")
+    matrix_resource = files("deploy.release").joinpath("compatibility-matrix.yml")
+    with as_file(matrix_resource) as matrix_path:
+        matrix = yaml.safe_load(
+            _read_regular(
+                matrix_path,
+                limit=4 * 1024 * 1024,
+                code="production_compatibility_matrix_invalid",
+            )
+        )
+        if not isinstance(matrix, dict):
+            raise RuntimeError("production_compatibility_matrix_invalid")
+        release_report = compatibility.verify_release_manifest(
+            release,
+            matrix,
+            matrix_path=matrix_path,
+            manifest_path=release_path,
+            verify_signatures=True,
+        )
+    if (
+        release_report.get("ok") is not True
+        or release_report.get("signaturesVerified") is not True
+    ):
+        raise RuntimeError("production_release_signature_unverified")
+
+
+def _cert_verify_artifacts_dir(cfg: Any) -> None:
+    """The artifacts directory must be an empty, private, writable real directory."""
+    import os
+    from pathlib import Path
+
+    artifacts_path = Path(str(cfg.cert_artifacts_dir))
+    artifacts_metadata = artifacts_path.lstat()
+    if (
+        artifacts_path.is_symlink()
+        or not stat.S_ISDIR(artifacts_metadata.st_mode)
+        or stat.S_IMODE(artifacts_metadata.st_mode) & 0o077
+        or not os.access(artifacts_path, os.R_OK | os.W_OK | os.X_OK)
+        or any(artifacts_path.iterdir())
+    ):
+        raise RuntimeError("production_artifacts_directory_invalid")
+
+
+def _cert_verify_bearer_token(cfg: Any) -> None:
+    """A configured Prometheus bearer ref must resolve to bounded, clean material."""
+    from agent_utilities.security.cli_secrets import resolve_runtime_secret_reference
+
+    if not cfg.cert_prometheus_bearer_token_ref:
+        return
+    token = resolve_runtime_secret_reference(cfg.cert_prometheus_bearer_token_ref)
+    if (
+        not token
+        or len(token.encode("utf-8")) > 16_384
+        or any(character in token for character in "\x00\r\n")
+    ):
+        raise RuntimeError("production_prometheus_bearer_token_invalid")
+
+
+def _cert_resolve_prometheus_trust(cfg: Any) -> Any:
+    """Resolve the certification Prometheus TLS profile.
+
+    The ``verify_enabled`` assertion deliberately stays with the caller: the
+    resolved profile owns temporary trust material and must reach the caller's
+    ``finally`` for cleanup even when verification turns out to be disabled.
+    """
+    from agent_utilities.core.transport_security import resolve_configured_tls_profile
+
+    return resolve_configured_tls_profile(
+        "certification-prometheus",
+        profile_name=cfg.cert_prometheus_tls_profile,
+        profile_ref=cfg.cert_prometheus_tls_profile_ref,
+        config=cfg,
+    )
+
+
 def _check_production_certification() -> dict[str, Any]:
     """Validate the complete production-campaign authority without disclosing it."""
 
@@ -2501,9 +2774,6 @@ def _check_production_certification() -> dict[str, Any]:
         "redacted": True,
     }
     try:
-        import os
-        from pathlib import Path
-
         from agent_utilities.core.config import (
             PRODUCTION_CERTIFICATION_SCENARIOS,
             AgentConfig,
@@ -2528,158 +2798,23 @@ def _check_production_certification() -> dict[str, Any]:
         cfg.cert_fault_action_commands,
         cfg.cert_fault_probe_commands,
     )
-    tls_selector_configured = bool(
-        cfg.cert_prometheus_tls_profile or cfg.cert_prometheus_tls_profile_ref
+    configuration = _cert_configuration_gate(
+        cfg, command_maps, base_data, required_count
     )
-    required_values = (
-        cfg.certification_mode == "production",
-        bool(cfg.cert_release_manifest),
-        bool(cfg.cert_artifacts_dir),
-        bool(cfg.cert_hardware_class),
-        bool(cfg.cert_load_command),
-        bool(cfg.cert_metrics_command),
-        *(bool(value) for value in command_maps),
-        bool(cfg.cert_evidence_signer_command),
-        bool(cfg.cert_evidence_verifier_command),
-        bool(cfg.cert_prometheus_url),
-        tls_selector_configured,
-    )
-    configured_count = sum(required_values)
-    base_data.update(
-        {
-            "configured_count": configured_count,
-            "scenario_count": len(cfg.cert_hook_commands),
-            "bearer_auth_configured": bool(cfg.cert_prometheus_bearer_token_ref),
-        }
-    )
-    configured_material = any(required_values[1:]) or bool(
-        cfg.cert_prometheus_bearer_token_ref
-    )
-    if cfg.certification_mode == "disabled" and not configured_material:
-        return _result(
-            "production_certification",
-            "skip",
-            "production certification is not configured",
-            data=base_data,
-        )
-    if configured_count != required_count:
-        return _result(
-            "production_certification",
-            "fail",
-            "production certification configuration is incomplete",
-            remediation=(
-                "Set CERTIFICATION_MODE=production and configure the release, "
-                "private artifacts directory, non-identifying hardware class, "
-                "load/metrics commands, all three exact scenario command maps, "
-                "evidence signer/verifier commands, HTTPS Prometheus endpoint, "
-                "and its dedicated TLS profile selector through AgentConfig."
-            ),
-            data=base_data,
-        )
+    if configuration is not None:
+        return configuration
 
     trust = None
     try:
-        from importlib.resources import as_file, files
-
-        import yaml
-
-        from agent_utilities.core.transport_security import (
-            resolve_configured_tls_profile,
-        )
-        from agent_utilities.deployment.skill_validation_assets import (
-            _json_without_duplicates,
-            _read_regular,
-        )
-        from agent_utilities.security.cli_secrets import (
-            resolve_runtime_secret_reference,
-        )
-        from agent_utilities.skills.runtime_validation import (
-            _validate_external_command_argv,
-        )
-        from scripts.release import check_compatibility as compatibility
-
-        expected = set(PRODUCTION_CERTIFICATION_SCENARIOS)
-        if any(set(command_map) != expected for command_map in command_maps):
-            raise RuntimeError("production_certification_scenarios_not_exact")
-
-        commands = [
-            cfg.cert_load_command,
-            cfg.cert_metrics_command,
-            cfg.cert_evidence_signer_command,
-            cfg.cert_evidence_verifier_command,
-        ]
-        for command_map in command_maps:
-            commands.extend(
-                command_map[scenario] for scenario in PRODUCTION_CERTIFICATION_SCENARIOS
-            )
-        if not any("{report_file}" in part for part in cfg.cert_load_command):
-            raise RuntimeError("production_certification_load_report_missing")
-        for command in commands:
-            _validate_external_command_argv(command)
-
-        release_path = Path(str(cfg.cert_release_manifest))
-        release_payload = _read_regular(
-            release_path,
-            limit=64 * 1024 * 1024,
-            code="production_release_manifest_invalid",
-        )
-        release = _json_without_duplicates(
-            release_payload,
-            code="production_release_manifest_invalid",
-        )
-        if not isinstance(release, dict):
-            raise RuntimeError("production_release_manifest_invalid")
-        matrix_resource = files("deploy.release").joinpath("compatibility-matrix.yml")
-        with as_file(matrix_resource) as matrix_path:
-            matrix_payload = _read_regular(
-                matrix_path,
-                limit=4 * 1024 * 1024,
-                code="production_compatibility_matrix_invalid",
-            )
-            matrix = yaml.safe_load(matrix_payload)
-            if not isinstance(matrix, dict):
-                raise RuntimeError("production_compatibility_matrix_invalid")
-            release_report = compatibility.verify_release_manifest(
-                release,
-                matrix,
-                matrix_path=matrix_path,
-                manifest_path=release_path,
-                verify_signatures=True,
-            )
-        if (
-            release_report.get("ok") is not True
-            or release_report.get("signaturesVerified") is not True
-        ):
-            raise RuntimeError("production_release_signature_unverified")
-
-        artifacts_path = Path(str(cfg.cert_artifacts_dir))
-        artifacts_metadata = artifacts_path.lstat()
-        if (
-            artifacts_path.is_symlink()
-            or not stat.S_ISDIR(artifacts_metadata.st_mode)
-            or stat.S_IMODE(artifacts_metadata.st_mode) & 0o077
-            or not os.access(artifacts_path, os.R_OK | os.W_OK | os.X_OK)
-            or any(artifacts_path.iterdir())
-        ):
-            raise RuntimeError("production_artifacts_directory_invalid")
-
-        if cfg.cert_prometheus_bearer_token_ref:
-            token = resolve_runtime_secret_reference(
-                cfg.cert_prometheus_bearer_token_ref
-            )
-            if (
-                not token
-                or len(token.encode("utf-8")) > 16_384
-                or any(character in token for character in "\x00\r\n")
-            ):
-                raise RuntimeError("production_prometheus_bearer_token_invalid")
-
-        trust = resolve_configured_tls_profile(
-            "certification-prometheus",
-            profile_name=cfg.cert_prometheus_tls_profile,
-            profile_ref=cfg.cert_prometheus_tls_profile_ref,
-            config=cfg,
-        )
+        # Ordered exactly as before the split: commands, then the signed
+        # release, then the artifacts directory, then the bearer token, then
+        # TLS -- so an authority invalid in several ways still reports the same
+        # first failure it always did.
+        commands = _cert_validated_commands(cfg, command_maps)
+        _cert_verify_release_manifest(cfg)
+        _cert_verify_artifacts_dir(cfg)
+        _cert_verify_bearer_token(cfg)
+        trust = _cert_resolve_prometheus_trust(cfg)
         if not trust.verify_enabled:
             raise RuntimeError("production_prometheus_tls_verification_disabled")
     except Exception as exc:  # noqa: BLE001 - never report paths or values
