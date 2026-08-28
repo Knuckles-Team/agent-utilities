@@ -2104,6 +2104,45 @@ class EpistemicGraphAgentWorker(AgentWorker):
                 return
             raise
 
+    def _a2a_messages_from_agent_result(self, result: Any) -> list[Message]:
+        a2a_messages: list[Message] = []
+        for message in result.new_messages():
+            from pydantic_ai.messages import ModelRequest
+
+            if isinstance(message, ModelRequest):
+                continue
+            a2a_parts = self._response_parts_to_a2a(message.parts)
+            if a2a_parts:
+                a2a_messages.append(
+                    Message(
+                        role="agent",
+                        parts=a2a_parts,
+                        kind="message",
+                        message_id=str(uuid.uuid4()),
+                    )
+                )
+        return a2a_messages
+
+    async def _run_task_body(self, task: Task) -> None:
+        message_history = await self.storage.load_context(task["context_id"]) or []
+        message_history.extend(self.build_message_history(task.get("history", [])))
+        try:
+            result = await self.agent.run(message_history=message_history)
+        except Exception:
+            await self._mark_failed(task["id"])
+            return
+        a2a_messages = self._a2a_messages_from_agent_result(result)
+        artifacts = self.build_artifacts(result.output)
+        try:
+            await self.storage.complete_task(
+                task["id"],
+                result.all_messages(),
+                new_artifacts=artifacts,
+                new_messages=a2a_messages,
+            )
+        except ValueError:
+            await self._mark_failed(task["id"])
+
     async def run_task(self, params: TaskSendParams) -> None:
         task = await self.storage.load_task(params["id"])
         if task is None:
@@ -2114,40 +2153,7 @@ class EpistemicGraphAgentWorker(AgentWorker):
             raise A2AStorageConflict("A2A task is not executable")
         await self.storage.update_task(task["id"], state="working")
         try:
-            message_history = await self.storage.load_context(task["context_id"]) or []
-            message_history.extend(self.build_message_history(task.get("history", [])))
-            try:
-                result = await self.agent.run(message_history=message_history)
-            except Exception:
-                await self._mark_failed(task["id"])
-                return
-
-            a2a_messages: list[Message] = []
-            for message in result.new_messages():
-                from pydantic_ai.messages import ModelRequest
-
-                if isinstance(message, ModelRequest):
-                    continue
-                a2a_parts = self._response_parts_to_a2a(message.parts)
-                if a2a_parts:
-                    a2a_messages.append(
-                        Message(
-                            role="agent",
-                            parts=a2a_parts,
-                            kind="message",
-                            message_id=str(uuid.uuid4()),
-                        )
-                    )
-            artifacts = self.build_artifacts(result.output)
-            try:
-                await self.storage.complete_task(
-                    task["id"],
-                    result.all_messages(),
-                    new_artifacts=artifacts,
-                    new_messages=a2a_messages,
-                )
-            except ValueError:
-                await self._mark_failed(task["id"])
+            await self._run_task_body(task)
         except asyncio.CancelledError:
             raise
         except A2AStorageConflict:
