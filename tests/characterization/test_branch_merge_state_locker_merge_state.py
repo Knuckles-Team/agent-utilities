@@ -52,29 +52,34 @@ def test_default_merge_new_branch_key_is_added():
     assert merged["y"] == 2
 
 
-def test_default_merge_branch_value_wins_even_when_branch_did_not_change_it():
-    # OBSERVED (not the apparent intent): `merged_data = dict(base_data)`, so for
-    # the FIRST (and only) time a key k is processed, `merged_data[k] ==
-    # base_data.get(k)` is trivially always true. That makes the first `elif`
-    # unconditionally take `merged_data[k] = v` -- the branch's value -- for
-    # every scalar key present in both dicts. The `elif v == base_data.get(k):
-    # pass` arm and the final `else: merged_data[k] = v` arm are therefore
-    # DEAD CODE: unreachable given the loop's own structure. Pinning the
-    # actual behaviour (branch always wins for a shared scalar key), not the
-    # apparent 3-way-merge intent. See BUGS FOUND in the lane report.
+def test_default_merge_preserves_a_concurrent_base_change_the_branch_never_touched():
+    # BUG-CX-037 (fixed): `_default_dict_merge` used to compare
+    # `merged_data[k] == base_data.get(k)` to decide whether the branch's
+    # edit should win -- but `merged_data` starts as `dict(base_data)`, so
+    # that comparison was trivially true the FIRST (and only) time key `k`
+    # is processed, for every scalar key present in both dicts. That made
+    # the branch's value win unconditionally, even for a key the branch
+    # never touched, silently discarding a legitimate concurrent base-side
+    # change -- the opposite of the apparent 3-way-merge intent (`elif v ==
+    # base_data.get(k): pass` and the final `else` arm were dead code).
+    #
+    # The fix threads the branch's ORIGINAL fork-time snapshot
+    # (``forked_data``, captured once in ``fork_state`` and never mutated by
+    # ``update_branch_state``) through as the real three-way-merge
+    # reference, instead of re-comparing against the CURRENT (already
+    # concurrently-changed) ``base_data``.
     locker = BranchMergeStateLocker(use_redis=False)
     base_key = "k3"
     locker.update_state(base_key, {"shared": "orig"}, expected_version=0)
     locker.fork_state(base_key, "b3")
     locker.update_state(base_key, {"shared": "concurrent-change"}, expected_version=1)
-    # Branch never modified "shared" -- still "orig". Under the apparent
-    # 3-way-merge intent this SHOULD keep "concurrent-change" (base's
-    # unilateral change survives an untouched branch key). It does not.
+    # Branch never modified "shared" -- still "orig" (its fork-time value).
+    # Base's unilateral concurrent change must survive an untouched branch key.
     locker.update_branch_state(base_key, "b3", {"shared": "orig"})
 
     assert locker.merge_state(base_key, "b3") is True
     merged = locker.get_state(base_key)["data"]
-    assert merged["shared"] == "orig"  # branch's value, not base's concurrent change
+    assert merged["shared"] == "concurrent-change"
 
 
 def test_default_merge_true_conflict_also_prefers_branch_value():

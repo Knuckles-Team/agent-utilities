@@ -914,15 +914,24 @@ async def test_priority_early_literal_type_beats_is_codebase_flag():
 
 
 @pytest.mark.asyncio
-async def test_priority_is_codebase_flag_beats_later_literal_type():
-    """``relevance_sweep`` is checked AFTER the ``is_codebase`` catch-all in
-    the original chain, so is_codebase=True must steal it."""
+async def test_priority_explicit_late_literal_type_beats_is_codebase_flag():
+    """BUG-CX-051 (fixed): an explicit ``task_type`` that has its own
+    dedicated handler in ``_LATE_TASK_HANDLERS`` (e.g. ``relevance_sweep``)
+    must route to THAT handler regardless of ``is_codebase`` -- the
+    ``is_codebase``/``"codebase"`` branch is the generic catch-all for a task
+    with no more specific ``task_type``, not a flag that should silently
+    override an explicit, more specific task_type. The previous ordering let
+    ``is_codebase=True`` silently misroute ``relevance_sweep`` (and
+    ``self_tool_surface``/``connector_drain``/etc.) to ``_bg_codebase``
+    purely by if/elif position -- latent because no live caller combined
+    both, but any caller that does must not get silently wrong routing.
+    """
     engine = _FakeTaskEngine()
     swept = {"called": False}
 
     async def _fake_sweep(job_id, target_codebase):
         swept["called"] = True
-        return {}
+        return {"status": "completed", "type": "relevance_sweep"}
 
     engine._run_relevance_sweep = _fake_sweep
     ing_instance = MagicMock()
@@ -937,9 +946,12 @@ async def test_priority_is_codebase_flag_beats_later_literal_type():
             is_codebase=True,
             task_type="relevance_sweep",
         )
-    assert swept["called"] is False
-    ing_instance.ingest.assert_called_once()
-    assert engine.updates[-1][2]["type"] == "codebase"
+    assert swept["called"] is True, (
+        "is_codebase=True silently pre-empted the explicit relevance_sweep "
+        "task_type instead of routing to its dedicated handler"
+    )
+    ing_instance.ingest.assert_not_called()
+    assert engine.updates[-1][2]["type"] == "relevance_sweep"
 
 
 # ---------------------------------------------------------------------------

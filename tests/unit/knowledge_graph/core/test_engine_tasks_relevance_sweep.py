@@ -50,7 +50,11 @@ async def test_relevance_sweep_defers_when_bulk_ingest_active():
         return_value=MagicMock(should_yield_background=True),
     ):
         result = await engine._run_relevance_sweep("job-1", "some-repo")
-    assert result == {"status": "deferred", "reason": "bulk_ingest_or_foreground"}
+    assert result == {
+        "status": "deferred",
+        "reason": "bulk_ingest_or_foreground",
+        "job_id": "job-1",
+    }
     # Deferred before any Cypher query is issued.
     assert engine.queries == []
 
@@ -75,7 +79,10 @@ async def test_relevance_sweep_reports_no_target_data_when_no_embeddings_found()
 @pytest.mark.asyncio
 async def test_relevance_sweep_scores_papers_and_repos_and_sorts_descending():
     responses = [
-        ("c.embedding AS emb LIMIT 200", [{"id": "c1", "emb": [1.0, 0.0]}]),  # target centroid
+        (
+            "c.embedding AS emb LIMIT 200",
+            [{"id": "c1", "emb": [1.0, 0.0]}],
+        ),  # target centroid
         (
             "DISTINCT a.target_path",
             [{"paper_path": "papers/one.pdf"}],
@@ -174,3 +181,68 @@ async def test_relevance_sweep_swallows_per_paper_scoring_failure_and_continues(
     assert result["items_scored"] == 0
     assert result["top_10"] == []
     assert engine.persisted == []
+
+
+# ---------------------------------------------------------------------------
+# BUG-CX-062: ``job_id`` is accepted by ``_run_relevance_sweep`` but never
+# forwarded anywhere -- not into the log lines, not into the returned result
+# dict on any of its three exit paths (deferred / no_target_data /
+# completed). That breaks job correlation: a caller (or anything reading a
+# persisted task result) that only has the result payload cannot tell which
+# job produced it. The fix threads ``job_id`` into every returned dict.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_relevance_sweep_completed_result_carries_the_job_id():
+    responses = [
+        ("c.embedding AS emb LIMIT 200", [{"id": "c1", "emb": [1.0, 0.0]}]),
+        ("DISTINCT a.target_path", []),
+        ("c.file_path AS path LIMIT 2000", []),
+    ]
+    engine = _FakeRelevanceEngine(responses=responses)
+    with patch(
+        "agent_utilities.core.background_throttle.get_throttle",
+        return_value=_not_throttled(),
+    ):
+        result = await engine._run_relevance_sweep("job-xyz-789", "reponame")
+
+    assert result["status"] == "completed"
+    assert result["job_id"] == "job-xyz-789", (
+        "job_id was accepted but not forwarded into the completed-sweep result"
+    )
+
+
+@pytest.mark.asyncio
+async def test_relevance_sweep_no_target_data_result_carries_the_job_id():
+    engine = _FakeRelevanceEngine(
+        responses=[
+            ("c.embedding AS emb LIMIT 200", []),
+            ("a.target_path CONTAINS $name", []),
+        ]
+    )
+    with patch(
+        "agent_utilities.core.background_throttle.get_throttle",
+        return_value=_not_throttled(),
+    ):
+        result = await engine._run_relevance_sweep("job-abc-123", "ghost-repo")
+
+    assert result["status"] == "no_target_data"
+    assert result["job_id"] == "job-abc-123", (
+        "job_id was accepted but not forwarded into the no-target-data result"
+    )
+
+
+@pytest.mark.asyncio
+async def test_relevance_sweep_deferred_result_carries_the_job_id():
+    engine = _FakeRelevanceEngine(responses=[])
+    with patch(
+        "agent_utilities.core.background_throttle.get_throttle",
+        return_value=MagicMock(should_yield_background=True),
+    ):
+        result = await engine._run_relevance_sweep("job-def-456", "some-repo")
+
+    assert result["status"] == "deferred"
+    assert result["job_id"] == "job-def-456", (
+        "job_id was accepted but not forwarded into the deferred result"
+    )

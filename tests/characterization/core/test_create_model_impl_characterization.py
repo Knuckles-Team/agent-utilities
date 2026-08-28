@@ -141,22 +141,22 @@ def test_mistral_provider_falls_back_to_config_api_key(monkeypatch):
     assert type(model).__name__ == "MistralModel"
 
 
-def test_huggingface_provider_is_observably_broken_in_this_pydantic_ai_version(
-    monkeypatch,
-):
-    # BUG (CX-AU-07, filed not fixed): the huggingface branch always passes the
-    # factory's real (non-None) http_client straight into HuggingFaceProvider,
-    # but pydantic-ai's HuggingFaceProvider.__init__ in the version installed
-    # here (see agent_utilities.security... no -- .venv/lib/.../pydantic_ai/
-    # providers/huggingface.py) raises ValueError whenever http_client is not
-    # None ("`http_client` is ignored for HuggingFace provider, please use
-    # `hf_client` instead."). Since _create_model_impl unconditionally builds a
-    # real http_client before the provider dispatch, the huggingface branch is
-    # observably 100% broken today -- pinning that exact failure, not a
-    # successful build, because this test pins OBSERVED behaviour.
+def test_huggingface_provider_builds_a_model_instead_of_raising(monkeypatch):
+    # BUG-CX-024 (was CX-AU-07, filed not fixed): the huggingface branch used
+    # to always pass the factory's real (non-None) http_client straight into
+    # HuggingFaceProvider, but pydantic-ai's HuggingFaceProvider.__init__ in
+    # the installed version (.venv/lib/.../pydantic_ai/providers/
+    # huggingface.py) raises ValueError whenever http_client is not None
+    # ("`http_client` is ignored for HuggingFace provider, please use
+    # `hf_client` instead."). Since _create_model_impl unconditionally built a
+    # real http_client before the provider dispatch, the huggingface branch
+    # was observably 100% broken -- every call raised instead of returning a
+    # model. Fixed in ``_build_huggingface_model`` by no longer forwarding the
+    # shared http_client to a provider whose SDK explicitly rejects it.
     monkeypatch.setattr(model_factory, "config", _base_config())
-    with pytest.raises(ValueError, match="http_client.*ignored for HuggingFace"):
-        model_factory._create_model_impl(provider="huggingface", model_id="hf-x")
+    model = model_factory._create_model_impl(provider="huggingface", model_id="hf-x")
+    assert type(model).__name__ == "HuggingFaceModel"
+    assert model.model_name == "hf-x"
 
 
 def test_custom_and_proxy_provider_names_both_reach_the_same_branch(monkeypatch):

@@ -1037,11 +1037,18 @@ async def _router_call_planning_llm(
 # branch's model-selection line); the unstructured-fallback except block then
 # referenced that bare name, so a failure on the RLM path always hit an
 # ``UnboundLocalError`` there, silently swallowed by the fallback's own broad
-# ``except Exception``. This sentinel reproduces that same fail-fast-and-swallow
-# control flow explicitly (see ``_router_attempt_unstructured_fallback``) instead
-# of relying on frame-local unbound-name semantics across a function boundary.
-# BUGS FOUND (preserved, not fixed — see lane report): the unstructured fallback
-# can therefore never actually succeed for a failure on the RLM planning path.
+# ``except Exception``.
+#
+# BUG-CX-061 (fixed): that meant the "multi-level fallback chain" (R13) --
+# whose entire purpose is to rescue a turn when structured planning fails --
+# could NEVER actually run for a failure on the RLM path (or any failure
+# before the non-RLM branch's model-selection line): it hit the sentinel and
+# died before attempting a single fallback LLM call. ``adaptive_model`` is
+# not optional to the fallback's own logic (only to how planning happened to
+# reach it), so ``_router_run_unstructured_fallback_agent`` now falls back to
+# the same default ``deps.router_model`` that ``_router_select_adaptive_model``
+# itself falls back to when no other selection criterion applies, instead of
+# treating "never computed by planning" as fatal.
 _ADAPTIVE_MODEL_UNSET = object()
 
 
@@ -1053,19 +1060,16 @@ async def _router_run_unstructured_fallback_agent(
 ) -> str:
     """Create + run the unstructured-fallback agent, bounded by the router timeout.
 
-    Extracted verbatim from ``_router_attempt_unstructured_fallback`` (pure
-    extract-method, no behaviour change). Raises on the ``_ADAPTIVE_MODEL_UNSET``
-    sentinel (see that sentinel's docstring) or on a timeout; the caller's broad
-    ``except`` handles both identically. ``deps`` is currently unused here (kept
-    for a uniform helper signature with its siblings; the original inline block
-    it was extracted from also never referenced it directly in this span).
+    Extracted from ``_router_attempt_unstructured_fallback``. On the
+    ``_ADAPTIVE_MODEL_UNSET`` sentinel (see that sentinel's docstring / BUG-CX-061),
+    falls back to ``deps.router_model`` so a planning failure that never
+    reached the non-RLM branch's model selection can still attempt a real
+    fallback call, rather than failing before ever trying.
     """
     from .routing.strategies.fallback import unstructured_fallback_prompt
 
     if adaptive_model is _ADAPTIVE_MODEL_UNSET:
-        raise UnboundLocalError(
-            "local variable 'adaptive_model' referenced before assignment"
-        )
+        adaptive_model = deps.router_model
 
     fallback_agent = create_context_agent(
         model=adaptive_model,
@@ -1155,9 +1159,10 @@ async def _router_attempt_unstructured_fallback(
 ) -> tuple[str | None, str | None]:
     """R13 multi-level fallback chain: unstructured natural-language extraction.
 
-    Extracted verbatim from ``_router_plan_and_dispatch``'s outer ``except`` block
-    (pure extract-method). See the ``_ADAPTIVE_MODEL_UNSET`` sentinel docstring for
-    the one preserved-not-fixed latent-bug shape this carries forward.
+    Extracted from ``_router_plan_and_dispatch``'s outer ``except`` block. See
+    the ``_ADAPTIVE_MODEL_UNSET`` sentinel docstring / BUG-CX-061 for why an
+    unset ``adaptive_model`` no longer makes this fallback unconditionally
+    unreachable.
 
     Returns ``("dispatcher", None)`` on a successful fallback extraction (having
     already set ``ctx.state.plan``), or ``(None, fallback_failure_detail)`` if the
@@ -2008,38 +2013,47 @@ async def _expert_execute_attempt(
     """Execute one retry attempt of an expert step: contract checks, state
     fork, dispatch, state merge.
 
-    Extracted verbatim from ``expert_executor_step`` (pure extract-method, no
-    behaviour change) -- the body of the per-attempt ``try:`` block, including
-    both nested contract-check ``try/except`` blocks exactly as before (the
-    ``validator`` name is intentionally shared across both, matching the
-    pre-refactor scoping -- see BUGS FOUND in the lane report for the latent
-    UnboundLocalError-on-swallow this preserves). Raises on failure; the
-    caller's retry loop catches and handles it.
+    Extracted from ``expert_executor_step`` -- the body of the per-attempt
+    ``try:`` block. ``validator`` is shared across both contract checks
+    (matching the pre-refactor scoping); since a genuine crash on the
+    pre-condition check now always re-raises (see below, BUG-CX-070), it can
+    no longer reach the post-condition check with ``validator`` unassigned.
+    Raises on failure; the caller's retry loop catches and handles it.
     """
     logger.info(
         f"Expert Execution: Attempt {ctx.state.current_node_retries + 1}/{max_retries + 1} for node '{node_id}'"
     )
 
     # Declarative Pre-condition Contract Check (CONCEPT: OS-5.3 / AHE-3.7)
-    try:
-        from ..harness.contract_validator import ContractValidator
+    #
+    # BUG-CX-070 (fixed): ``ContractValidator.validate_pre``/``validate_post``
+    # (agent_utilities/harness/contract_validator.py) already catch every
+    # exception a REGISTERED contract callable can raise internally and turn
+    # it into a plain ``False`` return -- so an exception reaching this
+    # try/except can only come from the contract-check plumbing itself (e.g.
+    # ``ContractValidator.instance()`` raising, or ``state_context``
+    # construction raising), never from a "no contract configured for this
+    # node" condition (that returns ``True`` here, no exception at all). This
+    # used to catch ANY exception here and treat it identically to "not
+    # configured" -- logging it at DEBUG as "skipped" and letting execution
+    # proceed as though nothing happened, silently masking a real bug in the
+    # validation path as an all-clear. Fail closed: only the explicit
+    # ValueError this block itself raises for an actual failed validation is
+    # expected; anything else is a genuine crash and must propagate.
+    from ..harness.contract_validator import ContractValidator
 
-        validator = ContractValidator.instance()
-        state_context = {
-            "query": ctx.state.query,
-            "results_registry": ctx.state.results_registry,
-            "step": step.model_dump() if hasattr(step, "model_dump") else str(step),
-        }
-        if not validator.validate_pre(node_id, state_context):
-            logger.error(f"Contract: Pre-condition check failed for node '{node_id}'")
-            raise ValueError(
-                f"Pre-condition contract validation failed for node '{node_id}'"
-            )
-        logger.info(f"Contract: Pre-condition check passed for node '{node_id}'")
-    except Exception as ce:
-        if "validation failed" in str(ce):
-            raise
-        logger.debug(f"Contract pre-validation skipped: {ce}")
+    validator = ContractValidator.instance()
+    state_context = {
+        "query": ctx.state.query,
+        "results_registry": ctx.state.results_registry,
+        "step": step.model_dump() if hasattr(step, "model_dump") else str(step),
+    }
+    if not validator.validate_pre(node_id, state_context):
+        logger.error(f"Contract: Pre-condition check failed for node '{node_id}'")
+        raise ValueError(
+            f"Pre-condition contract validation failed for node '{node_id}'"
+        )
+    logger.info(f"Contract: Pre-condition check passed for node '{node_id}'")
 
     # Transactional State Forking (CONCEPT: AHE-3.7)
     from ..harness.distributed_state_manager import BranchMergeStateLocker

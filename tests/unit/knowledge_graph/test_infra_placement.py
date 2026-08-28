@@ -196,14 +196,69 @@ def test_parse_tm_system_nested_and_gpu():
 
 
 def test_kg_server_exposes_placement_actions():
+    """BUG-CX-026: the previous form asserted the literal source text
+    ``'action == "placement_plan"'`` / ``'action == "infra_sweep"'`` -- an
+    if/elif-chain shape. The dispatch is a dict (``_ANALYSIS_ACTION_DISPATCH``)
+    now, so that text never appears at all regardless of whether the wiring
+    works; a source-text assertion can't distinguish a refactor from a
+    regression. Assert the actual PROPERTY instead: each action name routes
+    to its handler in the dispatch table, and ``optimize_from_graph`` is
+    reachable from the ``placement_plan`` handler via the real call graph
+    (resolved with an AST walk, not a literal grep), matching the pattern in
+    ``tests/unit/agent/test_orch_1_92_warm_skills.py::
+    test_factory_used_in_create_agent``.
+    """
+    import ast
     import inspect
 
     from agent_utilities.mcp.tools import analysis_tools
 
-    src = inspect.getsource(analysis_tools)
-    assert 'action == "placement_plan"' in src
-    assert 'action == "infra_sweep"' in src
-    assert "optimize_from_graph" in src
+    dispatch = analysis_tools._ANALYSIS_ACTION_DISPATCH
+    assert dispatch["placement_plan"] is analysis_tools._analysis_action_placement_plan
+    assert dispatch["infra_sweep"] is analysis_tools._analysis_action_infra_sweep
+
+    module = ast.parse(inspect.getsource(analysis_tools))
+    defs = {
+        n.name: n
+        for n in module.body
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+    def called_names(node):
+        out = set()
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Call):
+                fn = sub.func
+                if isinstance(fn, ast.Name):
+                    out.add(fn.id)
+                elif isinstance(fn, ast.Attribute):
+                    out.add(fn.attr)
+            elif isinstance(sub, (ast.Name, ast.Attribute)):
+                if isinstance(sub, ast.Name):
+                    out.add(sub.id)
+                else:
+                    out.add(sub.attr)
+        return out
+
+    seen: set[str] = set()
+    frontier = ["_analysis_action_placement_plan"]
+    reachable: set[str] = set()
+    while frontier:
+        name = frontier.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        node = defs.get(name)
+        if node is None:
+            continue
+        names = called_names(node)
+        reachable |= names
+        frontier.extend(n for n in names if n in defs and n not in seen)
+
+    assert "optimize_from_graph" in reachable, (
+        "optimize_from_graph is no longer reachable from the placement_plan "
+        f"handler; reachable names were {sorted(reachable)}"
+    )
 
 
 def test_collect_and_persist_idempotent(tmp_path):

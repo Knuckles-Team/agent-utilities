@@ -28,6 +28,7 @@ from typing import Any, Literal
 from agent_utilities.knowledge_graph.ingestion.change_envelope import ChangeEnvelope
 from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
     ingest_envelope,
+    ingest_envelopes,
     read_change_cursor,
 )
 from agent_utilities.models.company_brain import DataClassification
@@ -1844,9 +1845,20 @@ def _build_delete_envelopes(
 def _ingest_envelopes(
     authority_engine: Any, envelopes: list[ChangeEnvelope]
 ) -> Counter[str]:
+    """Commit ``envelopes`` through the batch primitive, not one round trip each.
+
+    BUG-CX-010: this used to loop ``ingest_envelope`` per entity -- N engine
+    round-trips for N envelopes, the "N elements in a loop = N round-trips =
+    catastrophic" defect class this repo's own ``check_no_per_element_ingest_loop.py``
+    gate exists to catch (it never saw this site: wrong scope, wrong method
+    name). ``ingest_envelopes`` (plural) is the existing native
+    ``ApplyChangeEnvelopes`` batch primitive -- one round trip for the whole
+    page, same per-envelope result shape/status vocabulary, with its own
+    built-in fallback to per-record processing when the native batch method
+    is unavailable.
+    """
     statuses: Counter[str] = Counter()
-    for envelope in envelopes:
-        result = ingest_envelope(authority_engine, envelope)
+    for result in ingest_envelopes(authority_engine, envelopes):
         statuses[str(result.get("status") or "unknown")] += 1
     return statuses
 
