@@ -107,55 +107,92 @@ def dag_critical_path(
     topo_order = [graph[i] for i in topo_indices]
     idx_map = {graph[i]: i for i in graph.node_indices()}
 
+    earliest, predecessor = _dag_forward_earliest(
+        graph, topo_order, idx_map, weight_attr, default_weight
+    )
+
+    sink = max(topo_order, key=lambda n: earliest[n])
+    makespan = earliest[sink]
+
+    latest = _dag_backward_latest(
+        graph, topo_order, idx_map, earliest, makespan, weight_attr, default_weight
+    )
+    slack = {n: latest[n] - earliest[n] for n in topo_order}
+
+    return {
+        "makespan": makespan,
+        "critical_path": _dag_reconstruct_critical_path(sink, predecessor),
+        "node_earliest_start": earliest,
+        "node_slack": slack,
+    }
+
+
+def _dag_edge_weight(
+    graph: rx.PyDiGraph,
+    ni: int,
+    succ_idx: int,
+    weight_attr: str,
+    default_weight: float,
+) -> float:
+    """Helper: resolve a `ni -> succ_idx` edge's weight, defaulting when absent/untyped."""
+    edge_data = graph.get_edge_data(ni, succ_idx)
+    if isinstance(edge_data, dict):
+        return float(edge_data.get(weight_attr, default_weight))
+    return default_weight
+
+
+def _dag_forward_earliest(
+    graph: rx.PyDiGraph,
+    topo_order: list[Any],
+    idx_map: dict[Any, int],
+    weight_attr: str,
+    default_weight: float,
+) -> tuple[dict[Any, float], dict[Any, Any]]:
+    """Helper: forward DP pass computing each node's earliest start + predecessor."""
     earliest: dict[Any, float] = {n: 0.0 for n in topo_order}
     predecessor: dict[Any, Any] = {n: None for n in topo_order}
 
     for node in topo_order:
         ni = idx_map[node]
-        for edge_idx in graph.incident_edges(ni):
-            _src, _tgt, _data = graph.get_edge_data_by_index(edge_idx), None, None
         for succ_idx in graph.successor_indices(ni):
             succ = graph[succ_idx]
-            edge_data = graph.get_edge_data(ni, succ_idx)
-            if isinstance(edge_data, dict):
-                w = float(edge_data.get(weight_attr, default_weight))
-            else:
-                w = default_weight
+            w = _dag_edge_weight(graph, ni, succ_idx, weight_attr, default_weight)
             candidate = earliest[node] + w
             if candidate > earliest[succ]:
                 earliest[succ] = candidate
                 predecessor[succ] = node
+    return earliest, predecessor
 
-    sink = max(topo_order, key=lambda n: earliest[n])
-    makespan = earliest[sink]
 
+def _dag_backward_latest(
+    graph: rx.PyDiGraph,
+    topo_order: list[Any],
+    idx_map: dict[Any, int],
+    earliest: dict[Any, float],
+    makespan: float,
+    weight_attr: str,
+    default_weight: float,
+) -> dict[Any, float]:
+    """Helper: backward DP pass computing each node's latest allowable start."""
     latest: dict[Any, float] = {n: makespan for n in topo_order}
     for node in reversed(topo_order):
         ni = idx_map[node]
         for succ_idx in graph.successor_indices(ni):
             succ = graph[succ_idx]
-            edge_data = graph.get_edge_data(ni, succ_idx)
-            if isinstance(edge_data, dict):
-                w = float(edge_data.get(weight_attr, default_weight))
-            else:
-                w = default_weight
+            w = _dag_edge_weight(graph, ni, succ_idx, weight_attr, default_weight)
             latest[node] = min(latest[node], latest[succ] - w)
+    return latest
 
-    slack = {n: latest[n] - earliest[n] for n in topo_order}
 
+def _dag_reconstruct_critical_path(sink: Any, predecessor: dict[Any, Any]) -> list[Any]:
+    """Helper: walk the predecessor chain from the sink back to a source."""
     critical_path: list[Any] = []
     current: Any = sink
     while current is not None:
         critical_path.append(current)
         current = predecessor[current]
     critical_path.reverse()
-
-    return {
-        "makespan": makespan,
-        "critical_path": critical_path,
-        "node_earliest_start": earliest,
-        "node_slack": slack,
-    }
+    return critical_path
 
 
 def vertex_connectivity(graph: rx.PyGraph) -> Any:
@@ -810,53 +847,97 @@ class StructuralCausalModel:
             xi = self._node_map[x]
             yi = self._node_map[y]
             z_indices = {self._node_map[zn] for zn in z if zn in self._node_map}
-
-            # Phase I: ancestors(Z) ∪ Z — nodes whose descendant (or self) is in Z.
-            # A collider is "active" only if it lies in this set.
-            z_ancestors: set[int] = set()
-            stack = list(z_indices)
-            while stack:
-                n = stack.pop()
-                if n in z_ancestors:
-                    continue
-                z_ancestors.add(n)
-                stack.extend(self._graph.predecessor_indices(n))
-
-            # Phase II: BFS over (node, direction) trail states from X.
-            # direction True  = arriving going "up"   (from a child, via child→parent)
-            # direction False = arriving going "down" (from a parent, via parent→child)
-            visited: set[tuple[int, bool]] = set()
-            queue = collections.deque([(xi, True)])
-            while queue:
-                node, going_up = queue.popleft()
-                if (node, going_up) in visited:
-                    continue
-                visited.add((node, going_up))
-
-                # A reached node not in Z is d-connected to X.
-                if node != xi and node not in z_indices and node == yi:
-                    return False
-
-                if going_up and node not in z_indices:
-                    # Trail going up through a non-collider, non-conditioned node:
-                    # may continue up to parents and down to children.
-                    for parent in self._graph.predecessor_indices(node):
-                        queue.append((parent, True))
-                    for child in self._graph.successor_indices(node):
-                        queue.append((child, False))
-                elif not going_up:
-                    if node not in z_indices:
-                        # Pass-through (chain/fork tail): continue down to children.
-                        for child in self._graph.successor_indices(node):
-                            queue.append((child, False))
-                    if node in z_ancestors:
-                        # Collider that is conditioned on (or has a descendant in Z):
-                        # the trail bounces back up to the parents.
-                        for parent in self._graph.predecessor_indices(node):
-                            queue.append((parent, True))
-            return True  # Y not reachable on any active trail → d-separated
+            z_ancestors = self._d_sep_z_ancestors(z_indices)
+            return not self._d_sep_active_trail(xi, yi, z_indices, z_ancestors)
         except Exception:
             return True
+
+    def _d_sep_z_ancestors(self, z_indices: set[int]) -> set[int]:
+        """Phase I of `is_d_separated`: ancestors(Z) ∪ Z.
+
+        A collider is "active" only if it lies in this set (i.e. has a
+        descendant, or is itself, conditioned on).
+        """
+        z_ancestors: set[int] = set()
+        stack = list(z_indices)
+        while stack:
+            n = stack.pop()
+            if n in z_ancestors:
+                continue
+            z_ancestors.add(n)
+            stack.extend(self._graph.predecessor_indices(n))
+        return z_ancestors
+
+    def _d_sep_next_states_going_up(
+        self, node: int, z_indices: set[int]
+    ) -> list[tuple[int, bool]]:
+        """Successor states from a node reached going "up" (child → parent)."""
+        if node in z_indices:
+            return []
+        # Trail going up through a non-collider, non-conditioned node:
+        # may continue up to parents and down to children.
+        nxt: list[tuple[int, bool]] = [
+            (p, True) for p in self._graph.predecessor_indices(node)
+        ]
+        nxt.extend((c, False) for c in self._graph.successor_indices(node))
+        return nxt
+
+    def _d_sep_next_states_going_down(
+        self, node: int, z_indices: set[int], z_ancestors: set[int]
+    ) -> list[tuple[int, bool]]:
+        """Successor states from a node reached going "down" (parent → child)."""
+        nxt: list[tuple[int, bool]] = []
+        if node not in z_indices:
+            # Pass-through (chain/fork tail): continue down to children.
+            nxt.extend((c, False) for c in self._graph.successor_indices(node))
+        if node in z_ancestors:
+            # Collider that is conditioned on (or has a descendant in Z):
+            # the trail bounces back up to the parents.
+            nxt.extend((p, True) for p in self._graph.predecessor_indices(node))
+        return nxt
+
+    def _d_sep_next_trail_states(
+        self,
+        node: int,
+        going_up: bool,
+        z_indices: set[int],
+        z_ancestors: set[int],
+    ) -> list[tuple[int, bool]]:
+        """Successor (node, direction) states reachable from `node` on an active trail."""
+        if going_up:
+            return self._d_sep_next_states_going_up(node, z_indices)
+        return self._d_sep_next_states_going_down(node, z_indices, z_ancestors)
+
+    def _d_sep_active_trail(
+        self,
+        xi: int,
+        yi: int,
+        z_indices: set[int],
+        z_ancestors: set[int],
+    ) -> bool:
+        """Phase II of `is_d_separated`: BFS over (node, direction) trail states from X.
+
+        direction True  = arriving going "up"   (from a child, via child→parent)
+        direction False = arriving going "down" (from a parent, via parent→child)
+
+        Returns True iff Y is reachable from X on an active (unblocked) trail.
+        """
+        visited: set[tuple[int, bool]] = set()
+        queue = collections.deque([(xi, True)])
+        while queue:
+            node, going_up = queue.popleft()
+            if (node, going_up) in visited:
+                continue
+            visited.add((node, going_up))
+
+            # A reached node not in Z is d-connected to X.
+            if node != xi and node not in z_indices and node == yi:
+                return True
+
+            queue.extend(
+                self._d_sep_next_trail_states(node, going_up, z_indices, z_ancestors)
+            )
+        return False  # Y not reachable on any active trail → d-separated
 
     def get_causal_ancestors(self, node_id: str) -> set[str]:
         """Get all causal ancestors (upstream causes) of a node.
@@ -1009,40 +1090,18 @@ class CausalVerifier:
             if not cause or not effect:
                 continue
 
-            # Check 1: Does the causal direction exist in the SCM?
-            if not self._scm.has_edge(cause, effect):
-                # Check if reverse exists (direction error)
-                if self._scm.has_edge(effect, cause):
-                    violations.append(
-                        f"Step {i}: Reversed causality — {cause}→{effect} "
-                        f"should be {effect}→{cause}."
-                    )
-                else:
-                    # No direct edge — check if there's a path
-                    try:
-                        path = self._scm.shortest_path(cause, effect)
-                        if len(path) > 2:
-                            violations.append(
-                                f"Step {i}: Indirect causality — {cause}→{effect} "
-                                f"requires intermediaries: {' → '.join(path)}."
-                            )
-                    except ValueError:
-                        violations.append(
-                            f"Step {i}: No causal path from {cause} to {effect}."
-                        )
-                        spurious.append((cause, effect))
+            violation, spurious_pair = self._verify_chain_causal_direction(
+                i, cause, effect
+            )
+            if violation is not None:
+                violations.append(violation)
+            if spurious_pair is not None:
+                spurious.append(spurious_pair)
 
-            # Check 2: Temporal ordering (if multiple steps reference the same effect)
             if i > 0:
-                prev_effect = reasoning_steps[i - 1].get("effect", "")
-                if prev_effect and cause != prev_effect:
-                    # Check if previous effect should precede current cause
-                    if (
-                        self._scm.has_node(prev_effect)
-                        and self._scm.has_node(cause)
-                        and not self._scm.is_d_separated(prev_effect, cause)
-                    ):
-                        pass  # Connected — ordering is fine
+                self._verify_chain_check_temporal_order(
+                    reasoning_steps[i - 1].get("effect", ""), cause
+                )
 
         valid_steps = total_steps - len(violations)
         score = valid_steps / total_steps if total_steps > 0 else 1.0
@@ -1054,6 +1113,51 @@ class CausalVerifier:
             consistency_score=score,
             spurious_edges=spurious,
         )
+
+    def _verify_chain_causal_direction(
+        self, i: int, cause: str, effect: str
+    ) -> tuple[str | None, tuple[str, str] | None]:
+        """Check 1 of `verify_chain`: does the causal direction exist in the SCM?
+
+        Returns (violation_message, spurious_pair), either of which may be None.
+        """
+        if self._scm.has_edge(cause, effect):
+            return None, None
+        # Check if reverse exists (direction error)
+        if self._scm.has_edge(effect, cause):
+            return (
+                f"Step {i}: Reversed causality — {cause}→{effect} "
+                f"should be {effect}→{cause}.",
+                None,
+            )
+        # No direct edge — check if there's a path
+        try:
+            path = self._scm.shortest_path(cause, effect)
+        except ValueError:
+            return f"Step {i}: No causal path from {cause} to {effect}.", (
+                cause,
+                effect,
+            )
+        if len(path) > 2:
+            return (
+                f"Step {i}: Indirect causality — {cause}→{effect} "
+                f"requires intermediaries: {' → '.join(path)}.",
+                None,
+            )
+        return None, None
+
+    def _verify_chain_check_temporal_order(self, prev_effect: str, cause: str) -> None:
+        """Check 2 of `verify_chain`: temporal ordering between consecutive steps.
+
+        NOTE (pre-existing, preserved verbatim): the `is_d_separated` result is
+        computed but never consulted — both branches of the original nested
+        `if` were a bare `pass`. This check is a no-op in the current code; see
+        the lane report (write-only check, out of scope for a complexity-only
+        change).
+        """
+        if prev_effect and cause != prev_effect:
+            if self._scm.has_node(prev_effect) and self._scm.has_node(cause):
+                self._scm.is_d_separated(prev_effect, cause)
 
 
 class SpuriousnessDetector:
