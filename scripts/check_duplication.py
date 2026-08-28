@@ -76,6 +76,25 @@ Traps verified in THIS workspace 2026-08-28, all defended below:
           with `invalid digit found in string`. Combined with TRAP-J4, this
           script never passes `--exit-code` at all — see TRAP-J4's fix.
 
+ TRAP-J7  `enforce` mode's two throwaway worktrees (~5,400 files each on this
+          repo) land wherever `tempfile.gettempdir()` points, which defaults
+          to `/tmp` — a FIXED-SIZE tmpfs (inode count set at boot from RAM,
+          independent of how much space is actually used). On this shared,
+          heavily multi-lane box that ceiling was hit live twice while
+          verifying this script: `df -i /tmp` swung from 100% (7,650 free)
+          to 87% (143,499 free) to 100% again within one hour with no
+          action of this script's own — other concurrent lanes' own temp
+          usage, not this script, drives it. A worktree checkout that dies
+          97% of the way through from ENOSPC is indistinguishable from a
+          real jscpd/git failure unless you know to check `df -i`. Fix:
+          `_workdir()` below defaults enforce mode's throwaway worktrees to
+          `<repo>/../.cx-dup-enforce-tmp` on the SAME real disk as the repo
+          (`/home`, 62M inodes / 17% used at the time of writing — orders of
+          magnitude more headroom than tmpfs's fixed ceiling), overridable
+          with `$CX_DUP_WORKDIR`. `census` mode's report tempdir stays on
+          tmpfs (small, short-lived, auto-cleaned) since it never remotely
+          approaches this ceiling on its own.
+
  TRAP-J6  jscpd reports file counts in TWO places that sound like the same
           thing and are not. The CONSOLE table's "Files analyzed" column
           only counts files that participate in an ALREADY-detected clone
@@ -458,6 +477,19 @@ def cmd_census(paths: list[str]) -> int:
 # ─── enforce mode ────────────────────────────────────────────────────────
 
 
+def _workdir() -> Path:
+    """Where enforce mode's throwaway worktrees live. TRAP-J7 — defaults to
+    a real-disk sibling of the repo, NOT tempfile.gettempdir()/tmpfs."""
+    env = os.environ.get("CX_DUP_WORKDIR")
+    if env:
+        d = Path(env)
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+    d = _AU_ROOT.parent / ".cx-dup-enforce-tmp"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def _git(args: list[str], **kw) -> str:
     r = subprocess.run(
         ["git", *args],
@@ -528,8 +560,9 @@ def cmd_enforce(base_ref: str) -> int:
     )
 
     uid = uuid.uuid4().hex[:8]
-    before_wt = Path(tempfile.gettempdir()) / f"cx-jscpd-before-{uid}"
-    after_wt = Path(tempfile.gettempdir()) / f"cx-jscpd-after-{uid}"
+    workdir = _workdir()
+    before_wt = workdir / f"cx-jscpd-before-{uid}"
+    after_wt = workdir / f"cx-jscpd-after-{uid}"
     try:
         _git(["worktree", "add", "--detach", str(before_wt), base_sha])
         _git(["worktree", "add", "--detach", str(after_wt), synth_commit])
