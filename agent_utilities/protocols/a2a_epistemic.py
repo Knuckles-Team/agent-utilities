@@ -230,6 +230,91 @@ def _bounded(value: Any, *, maximum: int, label: str) -> bytes:
     return encoded
 
 
+def _utf8_char_cost(character: str) -> int:
+    """UTF-8 byte length of one character, without allocating a second copy."""
+
+    codepoint = ord(character)
+    if codepoint < 0x80:
+        return 1
+    if codepoint < 0x800:
+        return 2
+    if codepoint < 0x10000:
+        return 3
+    return 4
+
+
+def _utf8_str_cost(value: str) -> int:
+    return sum(_utf8_char_cost(character) for character in value)
+
+
+def _mark_noncyclic(containers: set[int], current: Any, label: str) -> None:
+    """Register a container's identity, or raise if already on the stack path."""
+
+    identity = id(current)
+    if identity in containers:
+        raise ValueError(f"{label} contains a cyclic structure")
+    containers.add(identity)
+
+
+def _admit_dict_cost(
+    current: dict[Any, Any], depth: int, containers: set[int], label: str
+) -> tuple[int, list[tuple[Any, int]]]:
+    _mark_noncyclic(containers, current, label)
+    cost = 2
+    children: list[tuple[Any, int]] = []
+    for key, item in current.items():
+        if not isinstance(key, str):
+            raise ValueError(f"{label} contains a non-string object key")
+        cost += _utf8_str_cost(key) + 3
+        children.append((item, depth + 1))
+    return cost, children
+
+
+def _admit_scalar_cost(current: Any) -> int | None:
+    """Fixed budget cost for a leaf value, or ``None`` if not a scalar."""
+
+    if current is None or isinstance(current, bool):
+        return 4
+    if isinstance(current, int | float):
+        return 32
+    if isinstance(current, str):
+        return _utf8_str_cost(current) + 2
+    if isinstance(current, datetime):
+        return 40
+    return None
+
+
+def _admit_dataclass_cost(
+    current: Any, depth: int, containers: set[int], label: str
+) -> tuple[int, list[tuple[Any, int]]]:
+    _mark_noncyclic(containers, current, label)
+    children = [(getattr(current, item.name), depth + 1) for item in fields(current)]
+    return 2, children
+
+
+def _admit_structure_item(
+    current: Any, depth: int, containers: set[int], label: str
+) -> tuple[int, list[tuple[Any, int]]]:
+    """Return (budget cost, children to push) for one admitted structure item."""
+
+    scalar_cost = _admit_scalar_cost(current)
+    if scalar_cost is not None:
+        return scalar_cost, []
+    if isinstance(current, dict):
+        return _admit_dict_cost(current, depth, containers, label)
+    if isinstance(current, list | tuple):
+        _mark_noncyclic(containers, current, label)
+        return 2, [(item, depth + 1) for item in current]
+    if is_dataclass(current) and not isinstance(current, type):
+        return _admit_dataclass_cost(current, depth, containers, label)
+    # Typed model objects are projected only after the caller has bounded their
+    # containing collection. Arbitrary object reprs are never read.
+    values = getattr(current, "__dict__", None)
+    if not isinstance(values, dict):
+        raise ValueError(f"{label} contains unsupported execution material")
+    return 0, [(values, depth + 1)]
+
+
 def _admit_structure(
     value: Any,
     *,
@@ -250,74 +335,9 @@ def _admit_structure(
         items += 1
         if items > maximum_items:
             raise ValueError(f"{label} exceeds the configured collection bound")
-        if current is None or isinstance(current, bool):
-            budget -= 4
-        elif isinstance(current, int | float):
-            budget -= 32
-        elif isinstance(current, str):
-            # Count UTF-8 bytes without allocating a second copy of an attacker-
-            # controlled string.
-            budget -= (
-                sum(
-                    1
-                    if ord(character) < 0x80
-                    else 2
-                    if ord(character) < 0x800
-                    else 3
-                    if ord(character) < 0x10000
-                    else 4
-                    for character in current
-                )
-                + 2
-            )
-        elif isinstance(current, dict):
-            identity = id(current)
-            if identity in containers:
-                raise ValueError(f"{label} contains a cyclic structure")
-            containers.add(identity)
-            budget -= 2
-            for key, item in current.items():
-                if not isinstance(key, str):
-                    raise ValueError(f"{label} contains a non-string object key")
-                budget -= (
-                    sum(
-                        1
-                        if ord(character) < 0x80
-                        else 2
-                        if ord(character) < 0x800
-                        else 3
-                        if ord(character) < 0x10000
-                        else 4
-                        for character in key
-                    )
-                    + 3
-                )
-                stack.append((item, depth + 1))
-        elif isinstance(current, list | tuple):
-            identity = id(current)
-            if identity in containers:
-                raise ValueError(f"{label} contains a cyclic structure")
-            containers.add(identity)
-            budget -= 2
-            stack.extend((item, depth + 1) for item in current)
-        elif isinstance(current, datetime):
-            budget -= 40
-        elif is_dataclass(current) and not isinstance(current, type):
-            identity = id(current)
-            if identity in containers:
-                raise ValueError(f"{label} contains a cyclic structure")
-            containers.add(identity)
-            budget -= 2
-            stack.extend(
-                (getattr(current, item.name), depth + 1) for item in fields(current)
-            )
-        else:
-            # Typed model objects are projected only after the caller has bounded
-            # their containing collection. Arbitrary object reprs are never read.
-            values = getattr(current, "__dict__", None)
-            if not isinstance(values, dict):
-                raise ValueError(f"{label} contains unsupported execution material")
-            stack.append((values, depth + 1))
+        cost, children = _admit_structure_item(current, depth, containers, label)
+        budget -= cost
+        stack.extend(children)
         if budget < 0:
             raise ValueError(f"{label} exceeds the configured admission bound")
 
