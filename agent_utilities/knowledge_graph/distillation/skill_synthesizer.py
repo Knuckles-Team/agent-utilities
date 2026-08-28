@@ -40,6 +40,7 @@ import logging
 import os
 import re
 import secrets
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -271,6 +272,47 @@ class ConnectorSkillDistiller:
                 pass
         return {}
 
+    def _iter_nodes_from_graph(
+        self, node_types: tuple[str, ...]
+    ) -> list[tuple[str, dict[str, Any]]] | None:
+        """``None`` means the graph path is unavailable/failed — distinct from
+        a successful call that returned an empty list (which IS the answer,
+        no backend fallback)."""
+
+        from ..assimilation.dedup import iter_typed_nodes
+
+        graph = getattr(self.engine, "graph", None)
+        if graph is None:
+            return None
+        try:
+            return [
+                (nid, dict(d or {})) for nid, d in iter_typed_nodes(graph, node_types)
+            ]
+        except (TypeError, AttributeError):
+            return None
+
+    def _iter_nodes_from_backend(
+        self, node_types: tuple[str, ...]
+    ) -> list[tuple[str, dict[str, Any]]]:
+        backend = getattr(self.engine, "backend", None)
+        if backend is None:
+            return []
+        try:
+            wanted = {t.lower() for t in node_types}
+            rows = backend.execute("MATCH (n) RETURN n", {})
+            out: list[tuple[str, dict[str, Any]]] = []
+            for row in rows or []:
+                node = row.get("n")
+                if (
+                    isinstance(node, dict)
+                    and node.get("id")
+                    and str(node.get("type", "")).lower() in wanted
+                ):
+                    out.append((str(node["id"]), dict(node)))
+            return out
+        except Exception:  # noqa: BLE001 — empty graph
+            return []
+
     def _iter_nodes(
         self, node_types: tuple[str, ...]
     ) -> list[tuple[str, dict[str, Any]]]:
@@ -280,94 +322,90 @@ class ConnectorSkillDistiller:
         ``GetNodes`` dump, which the engine refuses (``RESULT_TOO_LARGE``) on a large
         multi-tenant graph and which previously failed the distill_skills stage.
         """
-        from ..assimilation.dedup import iter_typed_nodes
+        graph_result = self._iter_nodes_from_graph(node_types)
+        if graph_result is not None:
+            return graph_result
+        return self._iter_nodes_from_backend(node_types)
 
+    def _tasks_from_graph(self, process_id: str) -> dict[str, dict[str, Any]]:
         graph = getattr(self.engine, "graph", None)
-        if graph is not None:
-            try:
-                return [
-                    (nid, dict(d or {}))
-                    for nid, d in iter_typed_nodes(graph, node_types)
-                ]
-            except (TypeError, AttributeError):
-                pass
+        if graph is None:
+            return {}
+        tasks: dict[str, dict[str, Any]] = {}
+        try:
+            for src, _tgt, edata in graph.in_edges(process_id, data=True):
+                if self._edge_rel(edata or {}) != "PART_OF":
+                    continue
+                props = self._node_props(src)
+                if str(props.get("type", "")).lower() == _TASK_TYPE:
+                    tasks[src] = props
+        except Exception:  # noqa: BLE001 — native graph unavailable
+            return {}
+        return tasks
+
+    def _tasks_from_backend(self, process_id: str) -> dict[str, dict[str, Any]]:
         backend = getattr(self.engine, "backend", None)
-        if backend is not None:
-            try:
-                wanted = {t.lower() for t in node_types}
-                rows = backend.execute("MATCH (n) RETURN n", {})
-                out: list[tuple[str, dict[str, Any]]] = []
-                for row in rows or []:
-                    node = row.get("n")
-                    if (
-                        isinstance(node, dict)
-                        and node.get("id")
-                        and str(node.get("type", "")).lower() in wanted
-                    ):
-                        out.append((str(node["id"]), dict(node)))
-                return out
-            except Exception:  # noqa: BLE001 — empty graph
-                pass
-        return []
+        if backend is None:
+            return {}
+        tasks: dict[str, dict[str, Any]] = {}
+        try:
+            rows = backend.execute(
+                "MATCH (t)-[:PART_OF]->(p) WHERE p.id = $pid RETURN t",
+                {"pid": process_id},
+            )
+            for row in rows or []:
+                node = row.get("t")
+                if isinstance(node, dict) and node.get("id"):
+                    if str(node.get("type", "")).lower() == _TASK_TYPE:
+                        tasks[str(node["id"])] = dict(node)
+        except Exception:  # noqa: BLE001
+            pass
+        return tasks
 
     def _tasks_of(self, process_id: str) -> dict[str, dict[str, Any]]:
         """Return BusinessTask nodes that are PART_OF ``process_id``."""
-        tasks: dict[str, dict[str, Any]] = {}
+        tasks = self._tasks_from_graph(process_id)
+        if tasks:
+            return tasks
+        return self._tasks_from_backend(process_id)
+
+    def _flows_from_graph(self, task_ids: set[str]) -> list[tuple[str, str]]:
         graph = getattr(self.engine, "graph", None)
-        if graph is not None:
-            try:
-                for src, _tgt, edata in graph.in_edges(process_id, data=True):
-                    if self._edge_rel(edata or {}) != "PART_OF":
-                        continue
-                    props = self._node_props(src)
-                    if str(props.get("type", "")).lower() == _TASK_TYPE:
-                        tasks[src] = props
-            except Exception:  # noqa: BLE001 — native graph unavailable
-                tasks = {}
+        if graph is None:
+            return []
+        flows: list[tuple[str, str]] = []
+        try:
+            for tid in task_ids:
+                for _src, tgt, edata in graph.out_edges(tid, data=True):
+                    if self._edge_rel(edata or {}) == "FLOWS_TO" and tgt in task_ids:
+                        flows.append((tid, tgt))
+        except Exception:  # noqa: BLE001
+            return []
+        return flows
+
+    def _flows_from_backend(self, task_ids: set[str]) -> list[tuple[str, str]]:
         backend = getattr(self.engine, "backend", None)
-        if not tasks and backend is not None:
-            try:
-                rows = backend.execute(
-                    "MATCH (t)-[:PART_OF]->(p) WHERE p.id = $pid RETURN t",
-                    {"pid": process_id},
-                )
-                for row in rows or []:
-                    node = row.get("t")
-                    if isinstance(node, dict) and node.get("id"):
-                        if str(node.get("type", "")).lower() == _TASK_TYPE:
-                            tasks[str(node["id"])] = dict(node)
-            except Exception:  # noqa: BLE001
-                pass
-        return tasks
+        if backend is None:
+            return []
+        flows: list[tuple[str, str]] = []
+        try:
+            rows = backend.execute(
+                "MATCH (a)-[f:FLOWS_TO]->(b) RETURN a.id AS src, b.id AS tgt", {}
+            )
+            for row in rows or []:
+                s, t = row.get("src"), row.get("tgt")
+                if s in task_ids and t in task_ids:
+                    flows.append((str(s), str(t)))
+        except Exception:  # noqa: BLE001
+            pass
+        return flows
 
     def _flows(self, task_ids: set[str]) -> list[tuple[str, str]]:
         """Return FLOWS_TO edges within ``task_ids``."""
-        flows: list[tuple[str, str]] = []
-        graph = getattr(self.engine, "graph", None)
-        if graph is not None:
-            try:
-                for tid in task_ids:
-                    for _src, tgt, edata in graph.out_edges(tid, data=True):
-                        if (
-                            self._edge_rel(edata or {}) == "FLOWS_TO"
-                            and tgt in task_ids
-                        ):
-                            flows.append((tid, tgt))
-            except Exception:  # noqa: BLE001
-                flows = []
-        backend = getattr(self.engine, "backend", None)
-        if not flows and backend is not None:
-            try:
-                rows = backend.execute(
-                    "MATCH (a)-[f:FLOWS_TO]->(b) RETURN a.id AS src, b.id AS tgt", {}
-                )
-                for row in rows or []:
-                    s, t = row.get("src"), row.get("tgt")
-                    if s in task_ids and t in task_ids:
-                        flows.append((str(s), str(t)))
-            except Exception:  # noqa: BLE001
-                pass
-        return flows
+        flows = self._flows_from_graph(task_ids)
+        if flows:
+            return flows
+        return self._flows_from_backend(task_ids)
 
     @staticmethod
     def _label(props: dict[str, Any], fallback: str) -> str:
@@ -520,112 +558,156 @@ class ConnectorSkillDistiller:
             candidates.append(c)
 
         for proc in discovered.get("processes", []):
-            tasks = proc["tasks"]
-            flows = proc["flows"]
-            system = proc["system"]
-            proc_label = self._label(proc["props"], proc["id"])
-            # order the tasks by the flowsTo chain (topological-ish; falls back to
-            # insertion order for disconnected/parallel tasks).
-            ordered = self._order_tasks(tasks, flows)
-            # action tasks only (skip gateways) for the workflow body.
-            action_ids = [tid for tid in ordered if not tasks[tid].get("is_gateway")]
-            if len(action_ids) >= _WORKFLOW_MIN_STEPS:
-                steps = []
-                for tid in action_ids:
-                    step_name = _slug(self._label(tasks[tid], tid))
-                    atomic = SkillCandidate(
-                        candidate_id=f"cand:atomic:{tid}",
-                        name=step_name,
-                        description=f"Atomic step '{step_name}' of the {proc_label} process.",
-                        kind="atomic",
-                        source_id=tid,
-                        source_system=system,
-                        automates=proc["id"],
-                        trigger_patterns=[self._label(tasks[tid], tid)],
-                        rationale=f"flowsTo step in process {proc['id']}",
-                    )
-                    _add(atomic)
-                    steps.append({"name": step_name, "atomic_id": atomic.candidate_id})
-                # link each step's depends_on by the flow predecessors.
-                self._wire_step_deps(steps, action_ids, flows)
-                wf = SkillCandidate(
-                    candidate_id=f"cand:workflow:{proc['id']}",
-                    name=_slug(proc_label),
-                    description=(
-                        f"Automate the {proc_label} business process end-to-end "
-                        f"({len(steps)} steps) — distilled from {system}."
-                    ),
-                    kind="workflow",
-                    source_id=proc["id"],
-                    source_system=system,
-                    automates=proc["id"],
-                    trigger_patterns=[proc_label, f"run {proc_label}"],
-                    steps=steps,
-                    rationale=f"flowsTo-chain of {len(steps)} tasks",
-                )
-                _add(wf)
-            else:
-                # a single coherent action → atomic-skill candidate
-                for tid in action_ids:
-                    name = _slug(self._label(tasks[tid], tid))
-                    _add(
-                        SkillCandidate(
-                            candidate_id=f"cand:atomic:{tid}",
-                            name=name,
-                            description=f"Automate the '{self._label(tasks[tid], tid)}' task ({system}).",
-                            kind="atomic",
-                            source_id=tid,
-                            source_system=system,
-                            automates=proc["id"],
-                            trigger_patterns=[self._label(tasks[tid], tid)],
-                            rationale="single coherent action",
-                        )
-                    )
+            self._candidates_for_process(proc, _add)
 
         for cap in discovered.get("capabilities", []):
-            label = self._label(cap["props"], cap["id"])
-            _add(
-                SkillCandidate(
-                    candidate_id=f"cand:atomic:{cap['id']}",
-                    name=_slug(label),
-                    description=f"Provide the '{label}' capability as an atomic skill ({cap['system']}).",
-                    kind="atomic",
-                    source_id=cap["id"],
-                    source_system=cap["system"],
-                    automates=cap["id"],
-                    trigger_patterns=[label],
-                    rationale="capability → atomic skill",
-                )
-            )
+            _add(self._capability_candidate(cap))
 
         for gap in discovered.get("unresolved", []):
-            label = str(gap["label"])
-            _add(
-                SkillCandidate(
-                    candidate_id=f"cand:atomic:manual:{_slug(label)}",
-                    name=_slug(label),
-                    description=f"Automate the currently-manual '{label}' task ({gap['system']}).",
-                    kind="atomic",
-                    source_id=gap["process_id"],
-                    source_system=gap["system"],
-                    automates=gap["process_id"],
-                    trigger_patterns=[label],
-                    rationale="unresolved manual task (automation gap)",
-                )
-            )
+            _add(self._unresolved_candidate(gap))
+
         return candidates
 
+    def _candidates_for_process(
+        self, proc: dict[str, Any], add: Callable[[SkillCandidate], None]
+    ) -> None:
+        tasks = proc["tasks"]
+        flows = proc["flows"]
+        # order the tasks by the flowsTo chain (topological-ish; falls back to
+        # insertion order for disconnected/parallel tasks).
+        ordered = self._order_tasks(tasks, flows)
+        # action tasks only (skip gateways) for the workflow body.
+        action_ids = [tid for tid in ordered if not tasks[tid].get("is_gateway")]
+        if len(action_ids) >= _WORKFLOW_MIN_STEPS:
+            self._process_workflow_candidates(proc, action_ids, tasks, flows, add)
+        else:
+            self._process_single_action_candidates(proc, action_ids, tasks, add)
+
+    def _process_workflow_candidates(
+        self,
+        proc: dict[str, Any],
+        action_ids: list[str],
+        tasks: dict[str, dict[str, Any]],
+        flows: list[tuple[str, str]],
+        add: Callable[[SkillCandidate], None],
+    ) -> None:
+        """Emit one atomic-skill candidate per action step, plus the
+        workflow candidate that wires them together."""
+
+        system = proc["system"]
+        proc_label = self._label(proc["props"], proc["id"])
+        steps = []
+        for tid in action_ids:
+            step_name = _slug(self._label(tasks[tid], tid))
+            atomic = SkillCandidate(
+                candidate_id=f"cand:atomic:{tid}",
+                name=step_name,
+                description=f"Atomic step '{step_name}' of the {proc_label} process.",
+                kind="atomic",
+                source_id=tid,
+                source_system=system,
+                automates=proc["id"],
+                trigger_patterns=[self._label(tasks[tid], tid)],
+                rationale=f"flowsTo step in process {proc['id']}",
+            )
+            add(atomic)
+            steps.append({"name": step_name, "atomic_id": atomic.candidate_id})
+        # link each step's depends_on by the flow predecessors.
+        self._wire_step_deps(steps, action_ids, flows)
+        wf = SkillCandidate(
+            candidate_id=f"cand:workflow:{proc['id']}",
+            name=_slug(proc_label),
+            description=(
+                f"Automate the {proc_label} business process end-to-end "
+                f"({len(steps)} steps) — distilled from {system}."
+            ),
+            kind="workflow",
+            source_id=proc["id"],
+            source_system=system,
+            automates=proc["id"],
+            trigger_patterns=[proc_label, f"run {proc_label}"],
+            steps=steps,
+            rationale=f"flowsTo-chain of {len(steps)} tasks",
+        )
+        add(wf)
+
+    def _process_single_action_candidates(
+        self,
+        proc: dict[str, Any],
+        action_ids: list[str],
+        tasks: dict[str, dict[str, Any]],
+        add: Callable[[SkillCandidate], None],
+    ) -> None:
+        """A single coherent action → one atomic-skill candidate per task."""
+
+        system = proc["system"]
+        for tid in action_ids:
+            name = _slug(self._label(tasks[tid], tid))
+            add(
+                SkillCandidate(
+                    candidate_id=f"cand:atomic:{tid}",
+                    name=name,
+                    description=f"Automate the '{self._label(tasks[tid], tid)}' task ({system}).",
+                    kind="atomic",
+                    source_id=tid,
+                    source_system=system,
+                    automates=proc["id"],
+                    trigger_patterns=[self._label(tasks[tid], tid)],
+                    rationale="single coherent action",
+                )
+            )
+
+    def _capability_candidate(self, cap: dict[str, Any]) -> SkillCandidate:
+        label = self._label(cap["props"], cap["id"])
+        return SkillCandidate(
+            candidate_id=f"cand:atomic:{cap['id']}",
+            name=_slug(label),
+            description=f"Provide the '{label}' capability as an atomic skill ({cap['system']}).",
+            kind="atomic",
+            source_id=cap["id"],
+            source_system=cap["system"],
+            automates=cap["id"],
+            trigger_patterns=[label],
+            rationale="capability → atomic skill",
+        )
+
     @staticmethod
-    def _order_tasks(
+    def _unresolved_candidate(gap: dict[str, Any]) -> SkillCandidate:
+        label = str(gap["label"])
+        return SkillCandidate(
+            candidate_id=f"cand:atomic:manual:{_slug(label)}",
+            name=_slug(label),
+            description=f"Automate the currently-manual '{label}' task ({gap['system']}).",
+            kind="atomic",
+            source_id=gap["process_id"],
+            source_system=gap["system"],
+            automates=gap["process_id"],
+            trigger_patterns=[label],
+            rationale="unresolved manual task (automation gap)",
+        )
+
+    @staticmethod
+    def _build_succ_and_indeg(
         tasks: dict[str, dict[str, Any]], flows: list[tuple[str, str]]
-    ) -> list[str]:
-        """Topologically order tasks by FLOWS_TO; stable fallback for cycles."""
+    ) -> tuple[dict[str, list[str]], dict[str, int]]:
         succ: dict[str, list[str]] = {tid: [] for tid in tasks}
         indeg: dict[str, int] = {tid: 0 for tid in tasks}
         for s, t in flows:
             if s in tasks and t in tasks:
                 succ[s].append(t)
                 indeg[t] += 1
+        return succ, indeg
+
+    @staticmethod
+    def _kahn_order(
+        tasks: dict[str, dict[str, Any]],
+        succ: dict[str, list[str]],
+        indeg: dict[str, int],
+    ) -> tuple[list[str], set[str]]:
+        """Kahn's algorithm BFS. Returns ``(order, seen)`` — ``seen`` marks
+        every task placed by the topological pass (the rest are cycle /
+        disconnected leftovers for the caller to append)."""
+
         ready = [tid for tid in tasks if indeg[tid] == 0]
         order: list[str] = []
         seen: set[str] = set()
@@ -639,6 +721,15 @@ class ConnectorSkillDistiller:
                 indeg[nxt] -= 1
                 if indeg[nxt] == 0:
                     ready.append(nxt)
+        return order, seen
+
+    @staticmethod
+    def _order_tasks(
+        tasks: dict[str, dict[str, Any]], flows: list[tuple[str, str]]
+    ) -> list[str]:
+        """Topologically order tasks by FLOWS_TO; stable fallback for cycles."""
+        succ, indeg = ConnectorSkillDistiller._build_succ_and_indeg(tasks, flows)
+        order, seen = ConnectorSkillDistiller._kahn_order(tasks, succ, indeg)
         # any leftover (cycle / disconnected) appended in stable order
         for tid in tasks:
             if tid not in seen:
@@ -672,8 +763,18 @@ class ConnectorSkillDistiller:
             return candidates
 
         existing_names = {n.lower() for n in existing.values()}
-        kept: list[SkillCandidate] = []
         # deterministic name pass (always runs; offline-safe)
+        self._mark_name_covered(candidates, existing_names)
+        # semantic pass — only if an embedder is reachable AND there are still
+        # name-novel candidates.
+        self._apply_semantic_dedup(candidates, existing)
+
+        return [c for c in candidates if c.novelty != "covered"]
+
+    @staticmethod
+    def _mark_name_covered(
+        candidates: list[SkillCandidate], existing_names: set[str]
+    ) -> None:
         for c in candidates:
             if c.name.lower() in existing_names:
                 c.novelty = "covered"
@@ -681,18 +782,19 @@ class ConnectorSkillDistiller:
             else:
                 c.novelty = "novel"
 
-        # semantic pass — only if an embedder is reachable AND there are still
-        # name-novel candidates. Best-effort; an embedding outage leaves the
-        # name-pass verdicts intact.
-        novel = [c for c in candidates if c.novelty == "novel"]
-        if novel:
-            try:
-                self._semantic_dedup(novel, existing)
-            except Exception as exc:  # noqa: BLE001 — embedder/LLM optional
-                logger.debug("Skill dedup skipped: error_type=%s", type(exc).__name__)
+    def _apply_semantic_dedup(
+        self, candidates: list[SkillCandidate], existing: dict[str, str]
+    ) -> None:
+        """Best-effort semantic pass; an embedding outage leaves the
+        name-pass verdicts intact."""
 
-        kept = [c for c in candidates if c.novelty != "covered"]
-        return kept
+        novel = [c for c in candidates if c.novelty == "novel"]
+        if not novel:
+            return
+        try:
+            self._semantic_dedup(novel, existing)
+        except Exception as exc:  # noqa: BLE001 — embedder/LLM optional
+            logger.debug("Skill dedup skipped: error_type=%s", type(exc).__name__)
 
     def _existing_skills(self) -> dict[str, str]:
         """Map existing ``skill`` node id to name."""
@@ -737,43 +839,60 @@ class ConnectorSkillDistiller:
         """
         ids: list[str] = []
         for c in candidates:
-            node_type = (
-                RegistryNodeType.SKILL_WORKFLOW_PROPOSAL.value
-                if c.kind == "workflow"
-                else RegistryNodeType.SKILL_PROPOSAL.value
-            )
-            pid = _proposal_node_id(node_type, c.name)
-            try:
-                self.engine.add_node(pid, node_type, properties=c.to_props())
-            except Exception as exc:  # noqa: BLE001 — persistence best-effort
-                logger.debug(
-                    "Skill proposal persistence failed: error_type=%s",
-                    type(exc).__name__,
-                )
+            pid = self._persist_proposal_node(c)
+            if pid is None:
                 continue
-            link = getattr(self.engine, "link_nodes", None)
-            if callable(link):
-                try:
-                    if c.automates:
-                        link(pid, c.automates, RegistryEdgeType.AUTOMATES.value)
-                    link(pid, c.source_id, RegistryEdgeType.DERIVED_FROM.value)
-                    if c.kind == "workflow":
-                        for step in c.steps:
-                            aid = step.get("atomic_id")
-                            if aid:
-                                # COMPOSES → the atomic step proposal node id.
-                                step_pid = _proposal_node_id(
-                                    RegistryNodeType.SKILL_PROPOSAL.value,
-                                    str(step["name"]),
-                                )
-                                link(pid, step_pid, RegistryEdgeType.COMPOSES.value)
-                except Exception as exc:  # noqa: BLE001 — edge writes best-effort
-                    logger.debug(
-                        "Skill proposal edge persistence failed: error_type=%s",
-                        type(exc).__name__,
-                    )
+            self._link_proposal_edges(pid, c)
             ids.append(pid)
         return ids
+
+    def _persist_proposal_node(self, c: SkillCandidate) -> str | None:
+        """Write the proposal node; returns its id, or ``None`` on failure."""
+
+        node_type = (
+            RegistryNodeType.SKILL_WORKFLOW_PROPOSAL.value
+            if c.kind == "workflow"
+            else RegistryNodeType.SKILL_PROPOSAL.value
+        )
+        pid = _proposal_node_id(node_type, c.name)
+        try:
+            self.engine.add_node(pid, node_type, properties=c.to_props())
+        except Exception as exc:  # noqa: BLE001 — persistence best-effort
+            logger.debug(
+                "Skill proposal persistence failed: error_type=%s", type(exc).__name__
+            )
+            return None
+        return pid
+
+    @staticmethod
+    def _link_workflow_step_edges(
+        pid: str, c: SkillCandidate, link: Callable[..., Any]
+    ) -> None:
+        for step in c.steps:
+            aid = step.get("atomic_id")
+            if not aid:
+                continue
+            # COMPOSES → the atomic step proposal node id.
+            step_pid = _proposal_node_id(
+                RegistryNodeType.SKILL_PROPOSAL.value, str(step["name"])
+            )
+            link(pid, step_pid, RegistryEdgeType.COMPOSES.value)
+
+    def _link_proposal_edges(self, pid: str, c: SkillCandidate) -> None:
+        link = getattr(self.engine, "link_nodes", None)
+        if not callable(link):
+            return
+        try:
+            if c.automates:
+                link(pid, c.automates, RegistryEdgeType.AUTOMATES.value)
+            link(pid, c.source_id, RegistryEdgeType.DERIVED_FROM.value)
+            if c.kind == "workflow":
+                self._link_workflow_step_edges(pid, c, link)
+        except Exception as exc:  # noqa: BLE001 — edge writes best-effort
+            logger.debug(
+                "Skill proposal edge persistence failed: error_type=%s",
+                type(exc).__name__,
+            )
 
     # ── stage 5: draft_artifact (STAGING dir — never a repo) ───────────────── #
     def draft_artifact(self, candidate: SkillCandidate) -> str:
@@ -934,6 +1053,90 @@ def render_atomic_skill_md(candidate: SkillCandidate) -> str:
     )
 
 
+def _dep_to_step_num(dep: Any, name_to_idx: dict[str, int]) -> int | None:
+    sd = str(dep).strip()
+    m = re.fullmatch(r"(?:step\s*)?(\d+)", sd, re.IGNORECASE)
+    if m:
+        return int(m.group(1))
+    return name_to_idx.get(sd)
+
+
+def _truncate_description(description: str, suffix: str, limit: int = 1024) -> str:
+    """Keep description + suffix within ``limit`` chars (the Claude frontmatter
+    cap the universal-skills gate enforces)."""
+
+    if len(description) + len(suffix) > limit:
+        return description[: limit - len(suffix) - 3] + "..."
+    return description
+
+
+def _workflow_frontmatter_lines(
+    candidate: SkillCandidate, desc: str, suffix: str, specialist_ids: list[str]
+) -> list[str]:
+    lines: list[str] = ["---", f"name: {candidate.name}"]
+    # Quote the description: it contains ": " (the Triggers suffix) which would make
+    # an unquoted YAML scalar parse as a mapping. A JSON string literal is a valid
+    # double-quoted YAML scalar (handles colons, quotes, unicode).
+    lines.append(f"description: {json.dumps(desc + suffix)}")
+    lines.append("domain: process-automation")
+    lines.append("tags: [skill-workflow, dual-mode, governed-source]")
+    lines.append("team_config:")
+    lines.append("  specialist_ids: [" + ", ".join(specialist_ids) + "]")
+    lines.append("  tool_assignments:")
+    for s in candidate.steps:
+        lines.append(f"    {s['name']}: [{s['name']}]")
+    lines.append("concept: KG-2.90")
+    lines.append("---")
+    return lines
+
+
+def _render_workflow_step(
+    i: int, s: dict[str, Any], name_to_idx: dict[str, int]
+) -> list[str]:
+    dep_nums = sorted(
+        {
+            n
+            for d in set(s.get("depends_on", []))
+            if (n := _dep_to_step_num(d, name_to_idx)) is not None
+        }
+    )
+    lines: list[str] = []
+    if dep_nums:
+        dep_str = ", ".join(f"Step {n}" for n in dep_nums)
+        lines.append(f"### Step {i}: {s['name']} [depends_on: {dep_str}]")
+        lines.append(f"Run after {dep_str} completes.")
+    else:
+        lines.append(f"### Step {i}: {s['name']}")
+        lines.append(
+            "No dependencies — safe to run in parallel with other independent steps."
+        )
+    lines.append("")
+    return lines
+
+
+def _workflow_footer_lines() -> list[str]:
+    return [
+        "## Execution",
+        "",
+        "Execute the steps above as a dependency DAG. Run every step with NO "
+        "`depends_on` in parallel; run each dependent step only after all the "
+        "steps it lists in `depends_on` have completed. Each step names an atomic "
+        "skill — invoke that skill for the step.",
+        "",
+        "If graph-os is reachable, offload the whole DAG via `graph_workflows "
+        "action=execute` (or the graph-orchestration-and-automation "
+        "skill); otherwise "
+        "execute steps natively in dependency order.",
+        "",
+        "## Provenance",
+        "",
+        "Distilled (propose-only) from a governed external process. This is a "
+        "PROPOSAL for human review — it has "
+        "not landed in any repository.",
+        "",
+    ]
+
+
 def render_workflow_skill_md(candidate: SkillCandidate) -> str:
     """Render the DUAL-MODE skill-workflow SKILL.md (Claude AND graph-os).
 
@@ -948,84 +1151,14 @@ def render_workflow_skill_md(candidate: SkillCandidate) -> str:
     # (the distiller's own shape), "Step N", or step names — normalize all three.
     name_to_idx = {s["name"]: i for i, s in enumerate(candidate.steps, start=1)}
 
-    def _dep_to_num(dep: Any) -> int | None:
-        sd = str(dep).strip()
-        m = re.fullmatch(r"(?:step\s*)?(\d+)", sd, re.IGNORECASE)
-        if m:
-            return int(m.group(1))
-        return name_to_idx.get(sd)
-
     # Keep the description + appended "Triggers:" suffix within the 1024-char Claude
     # frontmatter limit that the universal-skills gate enforces.
     suffix = f" Triggers: {triggers}."
-    desc = candidate.description
-    if len(desc) + len(suffix) > 1024:
-        desc = desc[: 1024 - len(suffix) - 3] + "..."
+    desc = _truncate_description(candidate.description, suffix)
 
-    lines: list[str] = []
-    lines.append("---")
-    lines.append(f"name: {candidate.name}")
-    # Quote the description: it contains ": " (the Triggers suffix) which would make
-    # an unquoted YAML scalar parse as a mapping. A JSON string literal is a valid
-    # double-quoted YAML scalar (handles colons, quotes, unicode).
-    lines.append(f"description: {json.dumps(desc + suffix)}")
-    lines.append("domain: process-automation")
-    lines.append("tags: [skill-workflow, dual-mode, governed-source]")
-    lines.append("team_config:")
-    lines.append("  specialist_ids: [" + ", ".join(specialist_ids) + "]")
-    lines.append("  tool_assignments:")
-    for s in candidate.steps:
-        lines.append(f"    {s['name']}: [{s['name']}]")
-    lines.append("concept: KG-2.90")
-    lines.append("---")
-    lines.append("")
-    lines.append(f"# {candidate.name}")
-    lines.append("")
-    lines.append(desc)
-    lines.append("")
-    lines.append("## Steps")
-    lines.append("")
+    lines = _workflow_frontmatter_lines(candidate, desc, suffix, specialist_ids)
+    lines.extend(["", f"# {candidate.name}", "", desc, "", "## Steps", ""])
     for i, s in enumerate(candidate.steps, start=1):
-        dep_nums = sorted(
-            {
-                n
-                for d in set(s.get("depends_on", []))
-                if (n := _dep_to_num(d)) is not None
-            }
-        )
-        if dep_nums:
-            dep_str = ", ".join(f"Step {n}" for n in dep_nums)
-            lines.append(f"### Step {i}: {s['name']} [depends_on: {dep_str}]")
-            lines.append(f"Run after {dep_str} completes.")
-        else:
-            lines.append(f"### Step {i}: {s['name']}")
-            lines.append(
-                "No dependencies — safe to run in parallel with other "
-                "independent steps."
-            )
-        lines.append("")
-    lines.append("## Execution")
-    lines.append("")
-    lines.append(
-        "Execute the steps above as a dependency DAG. Run every step with NO "
-        "`depends_on` in parallel; run each dependent step only after all the "
-        "steps it lists in `depends_on` have completed. Each step names an atomic "
-        "skill — invoke that skill for the step."
-    )
-    lines.append("")
-    lines.append(
-        "If graph-os is reachable, offload the whole DAG via `graph_workflows "
-        "action=execute` (or the graph-orchestration-and-automation "
-        "skill); otherwise "
-        "execute steps natively in dependency order."
-    )
-    lines.append("")
-    lines.append("## Provenance")
-    lines.append("")
-    lines.append(
-        "Distilled (propose-only) from a governed external process. This is a "
-        "PROPOSAL for human review — it has "
-        "not landed in any repository."
-    )
-    lines.append("")
+        lines.extend(_render_workflow_step(i, s, name_to_idx))
+    lines.extend(_workflow_footer_lines())
     return "\n".join(lines)
