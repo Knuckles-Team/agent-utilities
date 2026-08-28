@@ -182,6 +182,15 @@ _PROGRAM_OPTIMIZER_EXECUTIONS = {
     "infer_rules": "model_transport_plan",
 }
 _PROGRAM_CANDIDATE_ROLES = frozenset({"proposal", "ensemble_member", "ensemble"})
+_PROGRAM_ROW_KINDS = frozenset({"program_candidate", "program_optimization_plan_step"})
+# Fields a plan-step row owns; a candidate row must carry none of them.
+_PROGRAM_PLAN_ONLY_FIELDS = (
+    "plan_step_kinds",
+    "plan_executors",
+    "plan_input_refs",
+    "plan_output_refs",
+    "plan_depends_on",
+)
 _PROGRAM_PLAN_STEP_KINDS = frozenset(
     {
         "query_similarity",
@@ -382,6 +391,25 @@ def _is_graph_already_exists_error(error: BaseException, graph_name: str) -> boo
     return f"Graph '{graph_name}' already exists" in str(error)
 
 
+def _render_engine_path_reference(rendered_reference: str) -> str:
+    """Render one runtime directory reference to text, by SCHEME.
+
+    ``env://VAR`` is answered from this process's settings and needs no engine;
+    only a store-backed scheme (``vault://`` / ``secret://``) falls through to
+    the engine-backed secrets client. Never logs the reference or the value.
+    """
+    scheme, separator, target = rendered_reference.partition("://")
+    if separator and scheme == "env":
+        value: Any = setting(target)
+    else:
+        from agent_utilities.security.secrets_client import create_secrets_client
+
+        value = create_secrets_client().resolve_ref(rendered_reference)
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return str(value or "")
+
+
 def _resolve_engine_path_ref(reference: str) -> str:
     """Resolve one runtime-only directory reference without logging its value.
 
@@ -404,18 +432,8 @@ def _resolve_engine_path_ref(reference: str) -> str:
     """
 
     rendered_reference = str(reference or "").strip()
-    scheme, separator, target = rendered_reference.partition("://")
     try:
-        if separator and scheme == "env":
-            value: Any = setting(target)
-        else:
-            from agent_utilities.security.secrets_client import create_secrets_client
-
-            value = create_secrets_client().resolve_ref(rendered_reference)
-        if isinstance(value, bytes):
-            rendered = value.decode("utf-8")
-        else:
-            rendered = str(value or "")
+        rendered = _render_engine_path_reference(rendered_reference)
     except Exception as exc:
         raise RuntimeError("engine runtime directory reference is unavailable") from exc
     if (
@@ -581,6 +599,27 @@ def _traced_rpc(func: Any) -> Any:
             )
 
     return _send_traced
+
+
+def _program_job_succeeded(state: Any) -> bool:
+    """Whether a polled optimization job has succeeded.
+
+    Raises on a terminal-but-failed state and on any state outside the known
+    Submitted/Running/Publishing/Succeeded/Failed/Cancelled set, so an unknown
+    state can never be mistaken for "still working".
+    """
+    if not isinstance(state, Mapping):
+        if state != "Submitted":
+            raise RuntimeError("program optimization state is invalid")
+        return False
+    marker = set(state)
+    if marker == {"Succeeded"}:
+        return True
+    if marker in ({"Failed"}, {"Cancelled"}):
+        raise RuntimeError("program optimization job terminated")
+    if marker not in ({"Running"}, {"Publishing"}):
+        raise RuntimeError("program optimization state is invalid")
+    return False
 
 
 def _parse_semantic_hits(raw_hits: Any) -> list[tuple[str, float]]:
@@ -1378,21 +1417,43 @@ def _validate_engine_encryption_material(value: Any) -> str:
     return rendered
 
 
+def _assert_private_key_source(before_open: Any) -> None:
+    """Refuse a key source that is a symlink, not a regular file, or not private."""
+    import stat
+
+    if stat.S_ISLNK(before_open.st_mode) or not stat.S_ISREG(before_open.st_mode):
+        raise PermissionError("unsafe local key source")
+    if os.name != "posix":
+        return
+    if before_open.st_uid not in {0, os.geteuid()}:
+        raise PermissionError("untrusted local key owner")
+    if stat.S_IMODE(before_open.st_mode) != 0o600:
+        raise PermissionError("local key permissions are not private")
+
+
+def _assert_private_key_unchanged(opened: Any, after_read: Any, payload: bytes) -> None:
+    """Refuse a key file that was swapped or truncated between open and read."""
+    if (
+        opened.st_dev,
+        opened.st_ino,
+        opened.st_size,
+        opened.st_mtime_ns,
+    ) != (
+        after_read.st_dev,
+        after_read.st_ino,
+        after_read.st_size,
+        after_read.st_mtime_ns,
+    ) or len(payload) != opened.st_size:
+        raise PermissionError("local key source changed during read")
+
+
 def _read_private_engine_encryption_key(path: Any) -> str:
     """Read one stable local data key through a no-follow private descriptor."""
-
-    import stat
 
     descriptor = -1
     try:
         before_open = path.lstat()
-        if stat.S_ISLNK(before_open.st_mode) or not stat.S_ISREG(before_open.st_mode):
-            raise PermissionError("unsafe local key source")
-        if os.name == "posix":
-            if before_open.st_uid not in {0, os.geteuid()}:
-                raise PermissionError("untrusted local key owner")
-            if stat.S_IMODE(before_open.st_mode) != 0o600:
-                raise PermissionError("local key permissions are not private")
+        _assert_private_key_source(before_open)
         flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
         flags |= getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
         descriptor = os.open(str(path), flags)
@@ -1409,18 +1470,7 @@ def _read_private_engine_encryption_key(path: Any) -> str:
             descriptor = -1
             payload = handle.read(_ENGINE_ENCRYPTION_KEY_MAX_BYTES + 1)
             after_read = os.fstat(handle.fileno())
-        if (
-            opened.st_dev,
-            opened.st_ino,
-            opened.st_size,
-            opened.st_mtime_ns,
-        ) != (
-            after_read.st_dev,
-            after_read.st_ino,
-            after_read.st_size,
-            after_read.st_mtime_ns,
-        ) or len(payload) != opened.st_size:
-            raise PermissionError("local key source changed during read")
+        _assert_private_key_unchanged(opened, after_read, payload)
         return _validate_engine_encryption_material(payload)
     except FileNotFoundError:
         raise
@@ -1507,49 +1557,37 @@ def _warn_new_engine_encryption_key() -> None:
     )
 
 
-def _load_or_create_engine_encryption_key() -> str:
-    """Load or atomically create the stable private key for local tiny mode.
-
-    Unlike an authentication-only process-local fallback, encryption-at-rest
-    must remain decryptable after restart. Failure to persist or privately read
-    this key therefore fails closed.
-    """
-
-    import secrets as _secrets
+def _assert_private_key_directory(metadata: Any) -> None:
+    """Refuse a key directory that is a symlink, not a directory, or not private."""
     import stat
 
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+        raise PermissionError("unsafe local key directory")
+    if os.name != "posix":
+        return
+    if metadata.st_uid not in {0, os.geteuid()}:
+        raise PermissionError("untrusted local key directory owner")
+    if stat.S_IMODE(metadata.st_mode) != 0o700:
+        raise PermissionError("local key directory is not private")
+
+
+def _ensure_private_key_directory() -> Any:
+    """Create (0700) and validate the directory holding the local key."""
     from agent_utilities.core.paths import data_dir
 
     private_directory = data_dir() / "engine-private"
     try:
         private_directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        metadata = private_directory.lstat()
-        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
-            raise PermissionError("unsafe local key directory")
-        if os.name == "posix":
-            if metadata.st_uid not in {0, os.geteuid()}:
-                raise PermissionError("untrusted local key directory owner")
-            if stat.S_IMODE(metadata.st_mode) != 0o700:
-                raise PermissionError("local key directory is not private")
+        _assert_private_key_directory(private_directory.lstat())
     except Exception as exc:
         raise RuntimeError("local engine encryption key is unavailable") from exc
+    return private_directory
 
-    path = private_directory / "encryption_key"
-    try:
-        return _read_private_engine_encryption_key(path)
-    except FileNotFoundError:  # noqa: BLE001 — first run creates the key atomically
-        pass
 
-    material = _secrets.token_urlsafe(48)
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-    flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-    flags |= getattr(os, "O_BINARY", 0)
-    try:
-        descriptor = os.open(str(path), flags, 0o600)
-    except FileExistsError:
-        return _read_private_engine_encryption_key(path)
-    except OSError as exc:
-        raise RuntimeError("local engine encryption key is unavailable") from exc
+def _write_private_engine_encryption_key(
+    descriptor: int, path: Any, material: str
+) -> None:
+    """Persist the freshly minted key, unlinking a partial file on failure."""
     try:
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(material.encode("ascii"))
@@ -1561,8 +1599,45 @@ def _load_or_create_engine_encryption_key() -> str:
         with contextlib.suppress(OSError):
             path.unlink()
         raise RuntimeError("local engine encryption key is unavailable") from exc
+
+
+def _create_private_engine_encryption_key(path: Any) -> str:
+    """Atomically mint the private local key, then read it back through the guard.
+
+    A concurrent peer that won the O_EXCL race owns the authoritative key, so
+    that case reads rather than mints.
+    """
+    import secrets as _secrets
+
+    material = _secrets.token_urlsafe(48)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    flags |= getattr(os, "O_BINARY", 0)
+    try:
+        descriptor = os.open(str(path), flags, 0o600)
+    except FileExistsError:
+        return _read_private_engine_encryption_key(path)
+    except OSError as exc:
+        raise RuntimeError("local engine encryption key is unavailable") from exc
+    _write_private_engine_encryption_key(descriptor, path, material)
     _warn_new_engine_encryption_key()
     return _read_private_engine_encryption_key(path)
+
+
+def _load_or_create_engine_encryption_key() -> str:
+    """Load or atomically create the stable private key for local tiny mode.
+
+    Unlike an authentication-only process-local fallback, encryption-at-rest
+    must remain decryptable after restart. Failure to persist or privately read
+    this key therefore fails closed.
+    """
+
+    path = _ensure_private_key_directory() / "encryption_key"
+    try:
+        return _read_private_engine_encryption_key(path)
+    except FileNotFoundError:  # noqa: BLE001 — first run creates the key atomically
+        pass
+    return _create_private_engine_encryption_key(path)
 
 
 def _resolve_engine_encryption_key(config: Any) -> str:
@@ -2249,6 +2324,29 @@ def _spawn_engine_child(
         _coupled_children.append(child)
         _install_coupled_handlers()
     return child
+
+
+def _rollback_embedding_transaction(txn: Any, txn_id: Any) -> None:
+    """Best-effort rollback that never masks the staging failure it unwinds."""
+    try:
+        txn.rollback(txn_id)
+    except Exception:  # noqa: BLE001 - preserve the staging failure
+        logger.debug("atomic embedding transaction rollback failed", exc_info=True)
+
+
+def _signal_event_bridge_loop(loop: Any, async_stop: Any) -> None:
+    """Queue the bridge's async stop signal on its own loop, if still open."""
+    if loop is None or async_stop is None or loop.is_closed():
+        return
+    try:
+        # Queue the signal even before ``run_until_complete`` begins; otherwise
+        # a close in that startup window can strand a worker.
+        loop.call_soon_threadsafe(async_stop.set)
+    except RuntimeError:
+        logger.debug(
+            "Event bridge loop closed before stop signal could be queued",
+            exc_info=True,
+        )
 
 
 class GraphComputeEngine:
@@ -3065,16 +3163,7 @@ class GraphComputeEngine:
             async_stop = getattr(self, "_event_bridge_async_stop", None)
         if stop_event is not None:
             stop_event.set()
-        if loop is not None and async_stop is not None and not loop.is_closed():
-            try:
-                # Queue the signal even before ``run_until_complete`` begins;
-                # otherwise a close in that startup window can strand a worker.
-                loop.call_soon_threadsafe(async_stop.set)
-            except RuntimeError:
-                logger.debug(
-                    "Event bridge loop closed before stop signal could be queued",
-                    exc_info=True,
-                )
+        _signal_event_bridge_loop(loop, async_stop)
         if worker is not None and worker is not threading.current_thread():
             worker.join(timeout=2.0)
         with self._PROCESS_ENGINE_LOCK:
@@ -3334,22 +3423,9 @@ class GraphComputeEngine:
         txn_id = txn.begin()
         commit_started = False
         try:
-            if not txn.cas(txn_id, node_id, conditions, staged_updates):
-                txn.rollback(txn_id)
-                return False
-
-            # TxnCas captures its OCC fingerprint at stage time but deliberately
-            # does not evaluate conditions until commit. Read AFTER staging: if
-            # this snapshot mismatches, rollback before a vector is staged; if it
-            # changes later, commit's fingerprint validation rejects everything.
-            current = self._get_node_properties(node_id)
-            if any(
-                current.get(field) != expected for field, expected in conditions.items()
+            if not self._stage_embedding_transaction(
+                txn, txn_id, node_id, conditions, staged_updates, vector
             ):
-                txn.rollback(txn_id)
-                return False
-            if not txn.add_embedding(txn_id, node_id, vector):
-                txn.rollback(txn_id)
                 return False
 
             commit_started = True
@@ -3367,13 +3443,38 @@ class GraphComputeEngine:
             )
         except BaseException:
             if not commit_started:
-                try:
-                    txn.rollback(txn_id)
-                except Exception:  # noqa: BLE001 - preserve the staging failure
-                    logger.debug(
-                        "atomic embedding transaction rollback failed", exc_info=True
-                    )
+                _rollback_embedding_transaction(txn, txn_id)
             raise
+
+    def _stage_embedding_transaction(
+        self,
+        txn: Any,
+        txn_id: Any,
+        node_id: str,
+        conditions: dict[str, Any],
+        staged_updates: dict[str, Any],
+        vector: list[float],
+    ) -> bool:
+        """Stage the field CAS and the vector, rolling back on any mismatch.
+
+        TxnCas captures its OCC fingerprint at stage time but deliberately does
+        not evaluate conditions until commit. Read AFTER staging: if this
+        snapshot mismatches, rollback before a vector is staged; if it changes
+        later, commit's fingerprint validation rejects everything.
+        """
+        if not txn.cas(txn_id, node_id, conditions, staged_updates):
+            txn.rollback(txn_id)
+            return False
+        current = self._get_node_properties(node_id)
+        if any(
+            current.get(field) != expected for field, expected in conditions.items()
+        ):
+            txn.rollback(txn_id)
+            return False
+        if not txn.add_embedding(txn_id, node_id, vector):
+            txn.rollback(txn_id)
+            return False
+        return True
 
     def create_node_if_absent(
         self, node_id: str, properties: Any = None, **kwargs: Any
@@ -3816,6 +3917,25 @@ class GraphComputeEngine:
         return rows
 
     @staticmethod
+    def _candidate_tool_policy_binding_ok(
+        row: Mapping[str, Any], optimizer: str
+    ) -> bool:
+        """Whether the row's tool-policy reference matches its optimizer's contract.
+
+        ``avatar`` binds a tool policy that must also appear in ``artifact_refs``
+        and excludes an instruction reference; every other optimizer must carry
+        no tool policy at all.
+        """
+        tool_policy_ref = row.get("tool_policy_ref")
+        if optimizer == "avatar":
+            return (
+                tool_policy_ref is not None
+                and tool_policy_ref in row.get("artifact_refs", [])
+                and row.get("instruction_ref") is None
+            )
+        return tool_policy_ref is None
+
+    @staticmethod
     def _validate_program_candidate_row(
         row: Mapping[str, Any],
         *,
@@ -3823,31 +3943,40 @@ class GraphComputeEngine:
         candidate_role: str | None,
         max_operations: int | None,
     ) -> None:
-        tool_policy_ref = row.get("tool_policy_ref")
-        valid_tool_policy_binding = (
-            optimizer == "avatar"
-            and tool_policy_ref is not None
-            and tool_policy_ref in row.get("artifact_refs", [])
-            and row.get("instruction_ref") is None
-        ) or (optimizer != "avatar" and tool_policy_ref is None)
         if (
             candidate_role not in _PROGRAM_CANDIDATE_ROLES
-            or not valid_tool_policy_binding
+            or not GraphComputeEngine._candidate_tool_policy_binding_ok(row, optimizer)
             or row.get("plan_ref") is not None
             or not row.get("demonstration_refs")
-            or any(
-                row.get(field)
-                for field in (
-                    "plan_step_kinds",
-                    "plan_executors",
-                    "plan_input_refs",
-                    "plan_output_refs",
-                    "plan_depends_on",
-                )
-            )
+            or any(row.get(field) for field in _PROGRAM_PLAN_ONLY_FIELDS)
             or max_operations is not None
         ):
             raise RuntimeError("program optimization candidate shape is invalid")
+
+    @staticmethod
+    def _plan_step_scalar_shape_ok(row: Mapping[str, Any]) -> bool:
+        """Whether the plan-step row carries plan fields and no candidate fields."""
+        return (
+            row.get("instruction_ref") is None
+            and row.get("tool_policy_ref") is None
+            and row.get("model_profile_ref") is None
+            and row.get("plan_ref") is not None
+            and row.get("selected") is False
+        )
+
+    @staticmethod
+    def _plan_step_lists_shape_ok(row: Mapping[str, Any]) -> bool:
+        """Whether the plan-step row's list fields are exactly one known value each."""
+        kinds = row.get("plan_step_kinds") or []
+        executors = row.get("plan_executors") or []
+        return (
+            len(kinds) == 1
+            and kinds[0] in _PROGRAM_PLAN_STEP_KINDS
+            and len(executors) == 1
+            and executors[0] in _PROGRAM_PLAN_EXECUTORS
+            and bool(row.get("plan_input_refs"))
+            and bool(row.get("plan_output_refs"))
+        )
 
     @staticmethod
     def _validate_program_plan_step_row(
@@ -3858,38 +3987,25 @@ class GraphComputeEngine:
     ) -> None:
         if (
             candidate_role is not None
-            or row.get("instruction_ref") is not None
-            or row.get("tool_policy_ref") is not None
-            or row.get("model_profile_ref") is not None
-            or row.get("plan_ref") is None
-            or row.get("selected") is not False
-            or len(row.get("plan_step_kinds") or []) != 1
-            or row["plan_step_kinds"][0] not in _PROGRAM_PLAN_STEP_KINDS
-            or len(row.get("plan_executors") or []) != 1
-            or row["plan_executors"][0] not in _PROGRAM_PLAN_EXECUTORS
-            or not row.get("plan_input_refs")
-            or not row.get("plan_output_refs")
             or max_operations is None
+            or not GraphComputeEngine._plan_step_scalar_shape_ok(row)
+            or not GraphComputeEngine._plan_step_lists_shape_ok(row)
         ):
             raise RuntimeError("program optimization plan shape is invalid")
 
     @staticmethod
-    def _validate_program_row_identity(row: Any) -> str:
-        if not isinstance(row, Mapping) or set(row) != _PROGRAM_RESULT_FIELDS:
-            raise RuntimeError("program optimization row schema is invalid")
-        kind = row.get("kind")
-        if kind not in {
-            "program_candidate",
-            "program_optimization_plan_step",
-        }:
-            raise RuntimeError("program optimization row kind is invalid")
-        confidence = row.get("confidence")
+    def _validate_program_confidence(confidence: Any) -> None:
+        """Reject a missing, non-numeric, boolean or out-of-range confidence."""
         if (
             not isinstance(confidence, int | float)
             or isinstance(confidence, bool)
             or not 0.0 <= float(confidence) <= 1.0
         ):
             raise RuntimeError("program optimization confidence is invalid")
+
+    @staticmethod
+    def _validate_program_row_refs(row: Mapping[str, Any]) -> None:
+        """Check the row's mandatory and optional opaque program references."""
         for field in ("id", "program_ref"):
             value = row.get(field)
             if not isinstance(value, str) or not _OPAQUE_PROGRAM_REF.fullmatch(value):
@@ -3900,6 +4016,16 @@ class GraphComputeEngine:
                 not isinstance(value, str) or not _OPAQUE_PROGRAM_REF.fullmatch(value)
             ):
                 raise RuntimeError("program optimization optional reference is invalid")
+
+    @staticmethod
+    def _validate_program_row_identity(row: Any) -> str:
+        if not isinstance(row, Mapping) or set(row) != _PROGRAM_RESULT_FIELDS:
+            raise RuntimeError("program optimization row schema is invalid")
+        kind = row.get("kind")
+        if kind not in _PROGRAM_ROW_KINDS:
+            raise RuntimeError("program optimization row kind is invalid")
+        GraphComputeEngine._validate_program_confidence(row.get("confidence"))
+        GraphComputeEngine._validate_program_row_refs(row)
         return kind
 
     @staticmethod
@@ -3918,11 +4044,8 @@ class GraphComputeEngine:
             raise RuntimeError("program optimization lineage references are missing")
 
     @staticmethod
-    def _validate_program_row_semantics(
-        row: Mapping[str, Any],
-    ) -> tuple[str, str | None, int | None]:
-        if not isinstance(row.get("selected"), bool):
-            raise RuntimeError("program optimization selection flag is invalid")
+    def _validate_program_row_lineage(row: Mapping[str, Any]) -> str:
+        """Check the optimizer/execution pair against the known lineage table."""
         optimizer = row.get("optimizer")
         execution = row.get("execution")
         if (
@@ -3931,12 +4054,11 @@ class GraphComputeEngine:
             or _PROGRAM_OPTIMIZER_EXECUTIONS.get(optimizer) != execution
         ):
             raise RuntimeError("program optimization lineage is invalid")
-        candidate_role = row.get("candidate_role")
-        if candidate_role is not None and not isinstance(candidate_role, str):
-            raise RuntimeError("program optimization candidate role is invalid")
-        modalities = row.get("modalities")
-        if not modalities or not set(modalities) <= _PROGRAM_MODALITIES:
-            raise RuntimeError("program optimization modalities are invalid")
+        return optimizer
+
+    @staticmethod
+    def _validated_program_operation_bound(row: Mapping[str, Any]) -> int | None:
+        """Check an optional operation bound is a positive, non-boolean int."""
         max_operations = row.get("max_operations")
         if max_operations is not None and (
             not isinstance(max_operations, int)
@@ -3944,6 +4066,22 @@ class GraphComputeEngine:
             or max_operations <= 0
         ):
             raise RuntimeError("program optimization operation bound is invalid")
+        return max_operations
+
+    @staticmethod
+    def _validate_program_row_semantics(
+        row: Mapping[str, Any],
+    ) -> tuple[str, str | None, int | None]:
+        if not isinstance(row.get("selected"), bool):
+            raise RuntimeError("program optimization selection flag is invalid")
+        optimizer = GraphComputeEngine._validate_program_row_lineage(row)
+        candidate_role = row.get("candidate_role")
+        if candidate_role is not None and not isinstance(candidate_role, str):
+            raise RuntimeError("program optimization candidate role is invalid")
+        modalities = row.get("modalities")
+        if not modalities or not set(modalities) <= _PROGRAM_MODALITIES:
+            raise RuntimeError("program optimization modalities are invalid")
+        max_operations = GraphComputeEngine._validated_program_operation_bound(row)
         return optimizer, candidate_role, max_operations
 
     @staticmethod
@@ -3996,20 +4134,12 @@ class GraphComputeEngine:
         deadline = time.monotonic() + timeout
         current = dict(submitted)
         while time.monotonic() < deadline:
-            state = current.get("state")
-            if isinstance(state, Mapping):
-                if set(state) == {"Succeeded"}:
-                    result = self.program_optimization_result(current)
-                    return {
-                        "status": "proposed",
-                        "result": {"job_id": job_id, **result},
-                    }
-                if set(state) in ({"Failed"}, {"Cancelled"}):
-                    raise RuntimeError("program optimization job terminated")
-                if set(state) not in ({"Running"}, {"Publishing"}):
-                    raise RuntimeError("program optimization state is invalid")
-            elif state != "Submitted":
-                raise RuntimeError("program optimization state is invalid")
+            if _program_job_succeeded(current.get("state")):
+                result = self.program_optimization_result(current)
+                return {
+                    "status": "proposed",
+                    "result": {"job_id": job_id, **result},
+                }
             time.sleep(interval)
             current = self.program_optimization_status(job_id)
         raise TimeoutError("program optimization job timed out")
