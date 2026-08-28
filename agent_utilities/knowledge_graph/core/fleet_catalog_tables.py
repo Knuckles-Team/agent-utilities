@@ -1013,6 +1013,91 @@ def _detect_diverged_schema(current_columns: dict[str, set[str]]) -> str | None:
     return None
 
 
+def _backfill_tenant_id_set(
+    row: Mapping[str, Any], added_columns: list[str]
+) -> str | None:
+    if "tenant_id" in added_columns and not row.get("tenant_id"):
+        return f"tenant_id = {_sql_literal(LEGACY_TENANT_SENTINEL)}"
+    return None
+
+
+def _backfill_revision_set(
+    row: Mapping[str, Any], added_columns: list[str]
+) -> str | None:
+    if "revision" in added_columns and not row.get("revision"):
+        return f"revision = {_sql_literal(0)}"
+    return None
+
+
+def _backfill_idempotency_key_set(
+    row: Mapping[str, Any], added_columns: list[str], row_id: Any
+) -> str | None:
+    if "idempotency_key" in added_columns and not row.get("idempotency_key"):
+        return f"idempotency_key = {_sql_literal(f'legacy-migration-{row_id}')}"
+    return None
+
+
+def _backfill_schema_digest_set(
+    table: str, row: Mapping[str, Any], added_columns: list[str]
+) -> str | None:
+    if not (
+        table == TABLE_MCP_TOOLS
+        and "schema_digest" in added_columns
+        and not row.get("schema_digest")
+    ):
+        return None
+    raw_schema = row.get("input_schema")
+    try:
+        parsed_schema = (
+            json.loads(raw_schema) if isinstance(raw_schema, str) and raw_schema else {}
+        )
+    except (TypeError, ValueError):
+        parsed_schema = {}
+    if not isinstance(parsed_schema, dict):
+        parsed_schema = {}
+    return f"schema_digest = {_sql_literal(_schema_digest(parsed_schema))}"
+
+
+def _backfill_kg_node_id_set(
+    table: str, row: Mapping[str, Any], added_columns: list[str], row_id: Any
+) -> str | None:
+    if not (
+        table in (TABLE_MCP_TOOLS, TABLE_SKILLS)
+        and "kg_node_id" in added_columns
+        and not row.get("kg_node_id")
+    ):
+        return None
+    # Deterministic reconstruction, not a guess: every row's ``id`` is
+    # EITHER the bare KG node id verbatim (a genuinely pre-NE-007 row,
+    # written before ``_bound_row_id`` ever appended a discovery-grant
+    # suffix) OR that same bare id with ``__<digest-or-"tenant_local">``
+    # appended (see :func:`_bound_row_id`) -- and the exact digest this row
+    # was bound with is itself already stored in ``discovery_grant_digest``
+    # (backfilled/left-NULL identically to every other discovery-binding
+    # column). Stripping that exact, known suffix when present, and leaving
+    # ``id`` unchanged when it is not, recovers the true KG node id in both
+    # cases with no placeholder value.
+    digest = str(row.get("discovery_grant_digest") or "")
+    suffix = f"__{digest or DISCOVERY_AUTHORITY_TENANT_LOCAL}"
+    base_id = str(row_id)
+    if base_id.endswith(suffix):
+        base_id = base_id[: -len(suffix)]
+    return f"kg_node_id = {_sql_literal(base_id)}"
+
+
+def _backfill_row_set_parts(
+    table: str, row: Mapping[str, Any], added_columns: list[str], row_id: Any
+) -> list[str]:
+    parts = [
+        _backfill_tenant_id_set(row, added_columns),
+        _backfill_revision_set(row, added_columns),
+        _backfill_idempotency_key_set(row, added_columns, row_id),
+        _backfill_schema_digest_set(table, row, added_columns),
+        _backfill_kg_node_id_set(table, row, added_columns, row_id),
+    ]
+    return [part for part in parts if part is not None]
+
+
 def _backfill_legacy_rows(gc: Any, table: str, added_columns: list[str]) -> None:
     """One-time backfill of newly-added columns for a table's pre-existing rows.
 
@@ -1031,57 +1116,7 @@ def _backfill_legacy_rows(gc: Any, table: str, added_columns: list[str]) -> None
         row_id = row.get("id")
         if row_id is None:
             continue
-        set_parts: list[str] = []
-        if "tenant_id" in added_columns and not row.get("tenant_id"):
-            set_parts.append(f"tenant_id = {_sql_literal(LEGACY_TENANT_SENTINEL)}")
-        if "revision" in added_columns and not row.get("revision"):
-            set_parts.append(f"revision = {_sql_literal(0)}")
-        if "idempotency_key" in added_columns and not row.get("idempotency_key"):
-            set_parts.append(
-                f"idempotency_key = {_sql_literal(f'legacy-migration-{row_id}')}"
-            )
-        if (
-            table == TABLE_MCP_TOOLS
-            and "schema_digest" in added_columns
-            and not row.get("schema_digest")
-        ):
-            raw_schema = row.get("input_schema")
-            try:
-                parsed_schema = (
-                    json.loads(raw_schema)
-                    if isinstance(raw_schema, str) and raw_schema
-                    else {}
-                )
-            except (TypeError, ValueError):
-                parsed_schema = {}
-            if not isinstance(parsed_schema, dict):
-                parsed_schema = {}
-            set_parts.append(
-                f"schema_digest = {_sql_literal(_schema_digest(parsed_schema))}"
-            )
-        if (
-            table in (TABLE_MCP_TOOLS, TABLE_SKILLS)
-            and "kg_node_id" in added_columns
-            and not row.get("kg_node_id")
-        ):
-            # Deterministic reconstruction, not a guess: every row's ``id``
-            # is EITHER the bare KG node id verbatim (a genuinely pre-NE-007
-            # row, written before ``_bound_row_id`` ever appended a
-            # discovery-grant suffix) OR that same bare id with
-            # ``__<digest-or-"tenant_local">`` appended (see
-            # :func:`_bound_row_id`) -- and the exact digest this row was
-            # bound with is itself already stored in
-            # ``discovery_grant_digest`` (backfilled/left-NULL identically to
-            # every other discovery-binding column). Stripping that exact,
-            # known suffix when present, and leaving ``id`` unchanged when it
-            # is not, recovers the true KG node id in both cases with no
-            # placeholder value.
-            digest = str(row.get("discovery_grant_digest") or "")
-            suffix = f"__{digest or DISCOVERY_AUTHORITY_TENANT_LOCAL}"
-            base_id = str(row_id)
-            if base_id.endswith(suffix):
-                base_id = base_id[: -len(suffix)]
-            set_parts.append(f"kg_node_id = {_sql_literal(base_id)}")
+        set_parts = _backfill_row_set_parts(table, row, added_columns, row_id)
         if not set_parts:
             continue
         gc.sql_exec(
@@ -1290,6 +1325,42 @@ def _claim_and_migrate(engine: Any) -> bool:
     if gc is None or not hasattr(gc, "sql_exec"):
         return False
 
+    current_columns = _collect_current_columns(gc)
+    if current_columns is None:
+        return False
+
+    diverged_reason = _detect_diverged_schema(current_columns)
+    if diverged_reason:
+        raise FleetCatalogSchemaDivergedError(diverged_reason)
+
+    lock_row = _read_ledger_row(gc, _LOCK_ROW_ID)
+    _reject_unknown_recorded_migration(lock_row)
+
+    needed = _steps_needed(current_columns)
+    if not needed:
+        if _ledger_needs_finalization(lock_row):
+            _finalize_ledger(gc, current_columns, claimant="")
+        return True
+
+    if not _claim_is_available(lock_row):
+        return False
+
+    token, already_complete = _acquire_migration_claim(gc)
+    if token is None:
+        return already_complete
+
+    for migration_id in needed:
+        _apply_step(gc, migration_id, current_columns)
+
+    verified_columns = _verify_post_migration_columns(gc)
+    _finalize_ledger(gc, verified_columns, claimant=token)
+    return True
+
+
+def _collect_current_columns(gc: Any) -> dict[str, set[str]] | None:
+    """DDL-ensure every table + ledger, then read back each table's actual
+    columns. Returns ``None`` (caller returns ``False``) if any table's
+    columns could not be read."""
     for ddl in _DDL.values():
         gc.sql_exec(ddl)
     gc.sql_exec(_LEDGER_DDL)
@@ -1298,46 +1369,57 @@ def _claim_and_migrate(engine: Any) -> bool:
     for table in _DDL:
         cols = _existing_table_columns(gc, table)
         if cols is None:
-            return False
+            return None
         current_columns[table] = cols
+    return current_columns
 
-    diverged_reason = _detect_diverged_schema(current_columns)
-    if diverged_reason:
-        raise FleetCatalogSchemaDivergedError(diverged_reason)
 
-    lock_row = _read_ledger_row(gc, _LOCK_ROW_ID)
-    if lock_row is not None:
-        recorded = str(lock_row.get("migration_id") or "")
-        if (
-            recorded
-            and recorded != _CURRENT_MARKER
-            and recorded not in _KNOWN_MIGRATION_IDS
-        ):
-            raise FleetCatalogSchemaTooNewError(
-                f"fleet catalog migration ledger records unknown migration "
-                f"{recorded!r}; this code version cannot verify or extend "
-                "that schema"
-            )
-
-    needed = _steps_needed(current_columns)
-    if not needed:
-        if lock_row is None or lock_row.get("status") != "complete":
-            _finalize_ledger(gc, current_columns, claimant="")
-        return True
-
-    if lock_row is not None and str(lock_row.get("status")) == "migrating":
-        if _claim_is_live(lock_row):
-            # Another process holds a LIVE claim — never take that over.
-            logger.info(
-                "fleet catalog schema migration already claimed by another "
-                "process; skipping this attempt (will retry on the next call)"
-            )
-            return False
-        logger.warning(
-            "fleet catalog schema migration claim from %s has expired; taking it over",
-            lock_row.get("claimed_at"),
+def _reject_unknown_recorded_migration(lock_row: dict[str, Any] | None) -> None:
+    if lock_row is None:
+        return
+    recorded = str(lock_row.get("migration_id") or "")
+    if (
+        recorded
+        and recorded != _CURRENT_MARKER
+        and recorded not in _KNOWN_MIGRATION_IDS
+    ):
+        raise FleetCatalogSchemaTooNewError(
+            f"fleet catalog migration ledger records unknown migration "
+            f"{recorded!r}; this code version cannot verify or extend "
+            "that schema"
         )
 
+
+def _ledger_needs_finalization(lock_row: dict[str, Any] | None) -> bool:
+    return lock_row is None or lock_row.get("status") != "complete"
+
+
+def _claim_is_available(lock_row: dict[str, Any] | None) -> bool:
+    """``False`` when another process holds a LIVE ``migrating`` claim
+    (caller must not proceed); ``True`` either when there is no conflicting
+    claim, or when a prior claim has expired and may be taken over."""
+    if lock_row is None or str(lock_row.get("status")) != "migrating":
+        return True
+    if _claim_is_live(lock_row):
+        # Another process holds a LIVE claim — never take that over.
+        logger.info(
+            "fleet catalog schema migration already claimed by another "
+            "process; skipping this attempt (will retry on the next call)"
+        )
+        return False
+    logger.warning(
+        "fleet catalog schema migration claim from %s has expired; taking it over",
+        lock_row.get("claimed_at"),
+    )
+    return True
+
+
+def _acquire_migration_claim(gc: Any) -> tuple[str | None, bool]:
+    """Attempt the ``migrating`` claim. Returns ``(token, False)`` when this
+    call won the claim; ``(None, True)`` when it lost the race but another
+    process already finished (a no-op success); ``(None, False)`` when it
+    lost the race and no one has finished (a no-op non-success, retry on the
+    next call)."""
     token = uuid.uuid4().hex
     # ``overwrite=True``, deliberately: a ``schema_state`` row marked
     # ``complete`` records that the schema was current AT THE TIME — it is
@@ -1365,18 +1447,18 @@ def _claim_and_migrate(engine: Any) -> bool:
         overwrite=True,
     )
     claimed = _read_ledger_row(gc, _LOCK_ROW_ID)
-    if claimed is None or str(claimed.get("claimant")) != token:
-        if claimed is not None and claimed.get("status") == "complete":
-            return True  # someone else already finished -- no-op success
-        logger.info(
-            "fleet catalog schema migration already claimed by another "
-            "process; skipping this attempt (will retry on the next call)"
-        )
-        return False  # lost the race -- a genuine no-op, not an error
+    if claimed is not None and str(claimed.get("claimant")) == token:
+        return token, False
+    if claimed is not None and claimed.get("status") == "complete":
+        return None, True  # someone else already finished -- no-op success
+    logger.info(
+        "fleet catalog schema migration already claimed by another "
+        "process; skipping this attempt (will retry on the next call)"
+    )
+    return None, False  # lost the race -- a genuine no-op, not an error
 
-    for migration_id in needed:
-        _apply_step(gc, migration_id, current_columns)
 
+def _verify_post_migration_columns(gc: Any) -> dict[str, set[str]]:
     verified_columns: dict[str, set[str]] = {}
     for table in _DDL:
         cols = _existing_table_columns(gc, table)
@@ -1390,9 +1472,7 @@ def _claim_and_migrate(engine: Any) -> bool:
             "post-migration verification failed: schema still does not "
             "match the expected current shape"
         )
-
-    _finalize_ledger(gc, verified_columns, claimant=token)
-    return True
+    return verified_columns
 
 
 def ensure_fleet_catalog_tables(engine: Any) -> bool:
