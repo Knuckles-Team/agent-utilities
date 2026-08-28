@@ -277,6 +277,51 @@ def experience_score(backend: Any, employee_id: str) -> float:
         return 0.0
 
 
+def _load_experience_profile(node: dict[str, Any]) -> dict[str, Any]:
+    """Parse a node's ``experienceProfile`` (JSON text or already a dict)."""
+    raw = node.get("experienceProfile")
+    if isinstance(raw, str) and raw:
+        try:
+            return json.loads(raw)
+        except Exception:  # noqa: BLE001 — corrupt profile → restart clean
+            return {}
+    if isinstance(raw, dict):
+        return dict(raw)
+    return {}
+
+
+def _apply_outcome(
+    profile: dict[str, Any],
+    dom_counts: dict[str, int],
+    *,
+    success: bool,
+    reward: float,
+    domains: list[str] | None,
+) -> None:
+    """Bucket one outcome into successes/partials/failures + domain counts (mutates both)."""
+    r = max(0.0, min(1.0, float(reward)))
+    if success and r >= 0.75:
+        profile["successes"] = int(profile["successes"]) + 1
+    elif success or r > 0.0:
+        profile["partials"] = int(profile["partials"]) + 1
+    else:
+        profile["failures"] = int(profile["failures"]) + 1
+    for dom in domains or []:
+        dom_counts[dom] = dom_counts.get(dom, 0) + 1
+
+
+def _experience_score(profile: dict[str, Any], dom_counts: dict[str, int]) -> float:
+    """Successes reward, partials half, failures penalize; domain breadth a small
+    bonus (adapts EmployeeEvolutionManager.get_experience_score)."""
+    score = (
+        int(profile["successes"])
+        + 0.5 * int(profile["partials"])
+        - 0.25 * int(profile["failures"])
+        + 0.5 * len(dom_counts)
+    )
+    return max(0.0, score)
+
+
 def record_role_experience(
     backend: Any,
     role_id: str,
@@ -300,17 +345,7 @@ def record_role_experience(
     """
     emp = employee_id or role_id
     node = _read_node(backend, emp)
-    raw = node.get("experienceProfile")
-    profile: dict[str, Any]
-    if isinstance(raw, str) and raw:
-        try:
-            profile = json.loads(raw)
-        except Exception:  # noqa: BLE001 — corrupt profile → restart clean
-            profile = {}
-    elif isinstance(raw, dict):
-        profile = dict(raw)
-    else:
-        profile = {}
+    profile = _load_experience_profile(node)
 
     profile.setdefault("successes", 0)
     profile.setdefault("partials", 0)
@@ -318,26 +353,10 @@ def record_role_experience(
     profile.setdefault("role_id", role_id)
     dom_counts: dict[str, int] = dict(profile.get("domains", {}) or {})
 
-    r = max(0.0, min(1.0, float(reward)))
-    if success and r >= 0.75:
-        profile["successes"] = int(profile["successes"]) + 1
-    elif success or r > 0.0:
-        profile["partials"] = int(profile["partials"]) + 1
-    else:
-        profile["failures"] = int(profile["failures"]) + 1
-    for dom in domains or []:
-        dom_counts[dom] = dom_counts.get(dom, 0) + 1
+    _apply_outcome(profile, dom_counts, success=success, reward=reward, domains=domains)
     profile["domains"] = dom_counts
 
-    # Score: successes reward, partials half, failures penalize; domain breadth
-    # is a small bonus (adapts EmployeeEvolutionManager.get_experience_score).
-    score = (
-        int(profile["successes"])
-        + 0.5 * int(profile["partials"])
-        - 0.25 * int(profile["failures"])
-        + 0.5 * len(dom_counts)
-    )
-    score = max(0.0, score)
+    score = _experience_score(profile, dom_counts)
     seniority = _seniority_for_score(score)
     profile["experience_score"] = round(score, 3)
     profile["seniority"] = seniority
@@ -746,47 +765,178 @@ class OrgRuntime:
         state.status = str((row or {}).get("status") or "missing")
         return state.status
 
+    async def _fail_item(
+        self,
+        state: _ExecutionState,
+        claim: Any,
+        item: OrgPlanItem,
+        error_ref: str,
+        reward: float = 0.0,
+    ) -> None:
+        """Commit a failed outcome, refresh status, and record the experience.
+
+        Extracted from :meth:`_run_item`'s ``fail`` closure.
+        """
+        result = commit_result(
+            self.engine,
+            state.work_item_id,
+            claim,
+            outcome="failed",
+            error_ref=error_ref,
+            retryable=False,
+        )
+        if result not in {"committed", "noop"}:
+            logger.warning(
+                "org native failure commit rejected [%s]: %s",
+                state.work_item_id,
+                result,
+            )
+        self._refresh_status(state)
+        self._record_experience(item, success=False, reward=reward)
+
+    async def _execute_item_role(
+        self,
+        item: OrgPlanItem,
+        state: _ExecutionState,
+        claim: Any,
+        framed: str,
+        feedback_ctx: str | None,
+    ) -> bool:
+        """Run the owner role and record its output.
+
+        Extracted from :meth:`_run_item`. ``False`` means the item already
+        failed (via :meth:`_fail_item`) and the caller must return.
+        """
+        try:
+            out = await self._execute_role(item.owner_role, framed, feedback_ctx)
+        except Exception as exc:  # noqa: BLE001 — isolate one DAG item
+            state.output = f"error: {type(exc).__name__}"
+            await self._fail_item(state, claim, item, "org-execution-error")
+            return False
+        state.output = str(out)
+        if state.output.startswith("Agent execution failed"):
+            await self._fail_item(state, claim, item, "org-agent-execution-failed")
+            return False
+        return True
+
+    async def _resolve_review_outcome(
+        self, item: OrgPlanItem, state: _ExecutionState, claim: Any
+    ) -> tuple[str, float]:
+        """Run the review gate (if any). Extracted from :meth:`_run_item`.
+
+        Returns ``(action, reward)`` where ``action`` is ``"continue"`` (loop
+        again after a rework), ``"fail"`` (already failed via
+        :meth:`_fail_item` -- caller must return), or ``"commit"`` (proceed to
+        ``commit_result`` with ``reward``).
+        """
+        if not (item.reviewer_role and state.manager_mode is not ManagerMode.REVIEW):
+            return "commit", 1.0
+        verdict, feedback = await self._review(item, state.output)
+        if verdict == "approve":
+            return "commit", 1.0
+        if state.rework_count >= _MAX_REWORK:
+            resolution = await self.escalation_cb(
+                item,
+                f"review rejected {state.rework_count + 1}x: {feedback[:200]}",
+            )
+            if resolution != "approve":
+                await self._fail_item(
+                    state, claim, item, "org-review-escalated", reward=0.25
+                )
+                return "fail", 0.0
+            return "commit", 0.75
+        import asyncio  # local import keeps module import light
+
+        state.rework_count += 1
+        state.review_feedback = feedback
+        self._record_experience(item, success=False, reward=0.4)
+        await asyncio.sleep(0)
+        return "continue", 0.0
+
+    def _claim_and_start(self, state: _ExecutionState) -> Any | None:
+        """Claim + mark running. Extracted from :meth:`_run_item`.
+
+        ``None`` means the item could not start (status already refreshed --
+        the caller must return).
+        """
+        claim = claim_specific(self.engine, state.work_item_id)
+        if claim is None:
+            self._refresh_status(state)
+            return None
+        if not mark_running(self.engine, state.work_item_id, claim):
+            self._refresh_status(state)
+            return None
+        state.status = "running"
+        return claim
+
+    @staticmethod
+    def _feedback_context(ctx: str, review_feedback: str) -> str:
+        """``ctx`` with the reviewer's feedback appended, when there is any."""
+        if not review_feedback:
+            return ctx
+        return f"{ctx}\n\nReviewer feedback to address:\n{review_feedback}".strip()
+
+    def _commit_success(self, state: _ExecutionState, claim: Any) -> bool:
+        """Commit the succeeded outcome. Extracted from :meth:`_run_item`.
+
+        ``False`` means the commit was rejected (status already refreshed --
+        the caller must return).
+        """
+        result = commit_result(
+            self.engine,
+            state.work_item_id,
+            claim,
+            outcome="succeeded",
+            result_ref=f"org-result:{state.work_item_id}",
+            retryable=False,
+        )
+        if result not in {"committed", "noop"}:
+            logger.warning(
+                "org native success commit rejected [%s]: %s",
+                state.work_item_id,
+                result,
+            )
+            self._refresh_status(state)
+            return False
+        self._refresh_status(state)
+        return True
+
+    async def _review_and_commit(
+        self, item: OrgPlanItem, state: _ExecutionState, claim: Any
+    ) -> bool:
+        """Resolve the review gate and, if approved, commit success.
+
+        Extracted from :meth:`_run_item`. ``True`` means the caller's loop
+        should ``continue`` (a rework was requested); ``False`` means the item
+        is finished either way (committed, or already failed via
+        :meth:`_resolve_review_outcome`/:meth:`_commit_success`).
+        """
+        action, reward = await self._resolve_review_outcome(item, state, claim)
+        if action == "fail":
+            return False
+        if action == "continue":
+            return True
+        if not self._commit_success(state, claim):
+            return False
+        self._record_experience(item, success=True, reward=reward)
+        return False
+
     async def _run_item(
         self,
         state: _ExecutionState,
         outputs: dict[str, str],
     ) -> None:
         """Claim, renew, and commit one item through native WorkItem verbs."""
-        import asyncio  # local import keeps module import light
-
         item = state.plan
-        claim = claim_specific(self.engine, state.work_item_id)
+        claim = self._claim_and_start(state)
         if claim is None:
-            self._refresh_status(state)
             return
-        if not mark_running(self.engine, state.work_item_id, claim):
-            self._refresh_status(state)
-            return
-        state.status = "running"
         state.manager_mode = infer_manager_mode(item)
         ctx = "\n\n".join(
             f"Output of dependency {index + 1}:\n{outputs.get(dep, '')}"
             for index, dep in enumerate(item.dependencies)
             if outputs.get(dep)
         )
-
-        async def fail(error_ref: str, reward: float = 0.0) -> None:
-            result = commit_result(
-                self.engine,
-                state.work_item_id,
-                claim,
-                outcome="failed",
-                error_ref=error_ref,
-                retryable=False,
-            )
-            if result not in {"committed", "noop"}:
-                logger.warning(
-                    "org native failure commit rejected [%s]: %s",
-                    state.work_item_id,
-                    result,
-                )
-            self._refresh_status(state)
-            self._record_experience(item, success=False, reward=reward)
 
         while True:
             state.manager_mode = infer_manager_mode(
@@ -795,70 +945,18 @@ class OrgRuntime:
                 review_feedback=state.review_feedback,
             )
             framed = self._frame_task(item, state.manager_mode)
-            feedback_ctx = ctx
-            if state.review_feedback:
-                feedback_ctx = (
-                    f"{ctx}\n\nReviewer feedback to address:\n{state.review_feedback}"
-                ).strip()
-            try:
-                out = await self._execute_role(
-                    item.owner_role, framed, feedback_ctx or None
-                )
-            except Exception as exc:  # noqa: BLE001 — isolate one DAG item
-                state.output = f"error: {type(exc).__name__}"
-                await fail("org-execution-error")
-                return
-            state.output = str(out)
-            if state.output.startswith("Agent execution failed"):
-                await fail("org-agent-execution-failed")
+            feedback_ctx = self._feedback_context(ctx, state.review_feedback)
+            if not await self._execute_item_role(
+                item, state, claim, framed, feedback_ctx or None
+            ):
                 return
             if not heartbeat(self.engine, state.work_item_id, claim):
                 self._refresh_status(state)
                 logger.warning("org native WorkItem lease lost before review/commit")
                 return
 
-            if item.reviewer_role and state.manager_mode is not ManagerMode.REVIEW:
-                verdict, feedback = await self._review(item, state.output)
-                if verdict != "approve":
-                    if state.rework_count >= _MAX_REWORK:
-                        resolution = await self.escalation_cb(
-                            item,
-                            f"review rejected {state.rework_count + 1}x: "
-                            f"{feedback[:200]}",
-                        )
-                        if resolution != "approve":
-                            await fail("org-review-escalated", reward=0.25)
-                            return
-                        reward = 0.75
-                    else:
-                        state.rework_count += 1
-                        state.review_feedback = feedback
-                        self._record_experience(item, success=False, reward=0.4)
-                        await asyncio.sleep(0)
-                        continue
-                else:
-                    reward = 1.0
-            else:
-                reward = 1.0
-
-            result = commit_result(
-                self.engine,
-                state.work_item_id,
-                claim,
-                outcome="succeeded",
-                result_ref=f"org-result:{state.work_item_id}",
-                retryable=False,
-            )
-            if result not in {"committed", "noop"}:
-                logger.warning(
-                    "org native success commit rejected [%s]: %s",
-                    state.work_item_id,
-                    result,
-                )
-                self._refresh_status(state)
-                return
-            self._refresh_status(state)
-            self._record_experience(item, success=True, reward=reward)
+            if await self._review_and_commit(item, state, claim):
+                continue
             return
 
     @staticmethod
@@ -933,20 +1031,14 @@ class OrgRuntime:
                 domains=domains,
             )
 
-    def _submit_plan(
-        self, items: Sequence[OrgPlanItem], *, run_id: str
-    ) -> dict[str, _ExecutionState]:
-        """Materialize immutable plan inputs as native WorkItems.
+    @staticmethod
+    def _topological_order(
+        items: Sequence[OrgPlanItem], by_id: dict[str, OrgPlanItem]
+    ) -> list[OrgPlanItem]:
+        """Parent-before-child order; missing/cyclic remnants are appended as-is.
 
-        Parent definitions are submitted before children where possible so the
-        native reverse dependency index is complete. Missing/cyclic references
-        remain conservatively blocked and are handled through native cancel.
+        Extracted from :meth:`_submit_plan`.
         """
-        by_id = {item.plan_item_id: item for item in items}
-        if len(by_id) != len(items) or any(not key for key in by_id):
-            raise ValueError("organization plan item ids must be unique and non-empty")
-        native_ids = {key: new_work_item_id() for key in by_id}
-        missing_ids: dict[str, str] = {}
         pending = list(items)
         ordered: list[OrgPlanItem] = []
         submitted: set[str] = set()
@@ -965,7 +1057,20 @@ class OrgRuntime:
                 ordered.append(item)
                 submitted.add(item.plan_item_id)
                 pending.remove(item)
+        return ordered
 
+    def _submit_ordered_items(
+        self,
+        ordered: list[OrgPlanItem],
+        native_ids: dict[str, str],
+        missing_ids: dict[str, str],
+        *,
+        run_id: str,
+    ) -> dict[str, _ExecutionState]:
+        """Submit each item (in ``ordered``) as a native WorkItem.
+
+        Extracted from :meth:`_submit_plan`.
+        """
         states: dict[str, _ExecutionState] = {}
         for item in ordered:
             dependencies = [
@@ -991,6 +1096,118 @@ class OrgRuntime:
             states[item.plan_item_id] = state
         return states
 
+    def _submit_plan(
+        self, items: Sequence[OrgPlanItem], *, run_id: str
+    ) -> dict[str, _ExecutionState]:
+        """Materialize immutable plan inputs as native WorkItems.
+
+        Parent definitions are submitted before children where possible so the
+        native reverse dependency index is complete. Missing/cyclic references
+        remain conservatively blocked and are handled through native cancel.
+        """
+        by_id = {item.plan_item_id: item for item in items}
+        if len(by_id) != len(items) or any(not key for key in by_id):
+            raise ValueError("organization plan item ids must be unique and non-empty")
+        native_ids = {key: new_work_item_id() for key in by_id}
+        missing_ids: dict[str, str] = {}
+        ordered = self._topological_order(items, by_id)
+        return self._submit_ordered_items(
+            ordered, native_ids, missing_ids, run_id=run_id
+        )
+
+    def _cancel_remaining_on_guard_trip(
+        self, remaining: list[_ExecutionState], run_id: str
+    ) -> None:
+        """The scheduler-guard-tripped remediation: cancel every remaining item.
+
+        Extracted from :meth:`run`.
+        """
+        logger.error("org run %s: scheduler guard tripped", run_id)
+        for state in remaining:
+            cancel_work_item(
+                self.engine,
+                state.work_item_id,
+                reason="org-scheduler-guard",
+            )
+            self._refresh_status(state)
+
+    async def _escalate_blocked(
+        self, remaining: list[_ExecutionState], terminal: set[str]
+    ) -> None:
+        """Escalate + cancel every non-terminal item when nothing is ready.
+
+        Extracted from :meth:`run`.
+        """
+        blocked = [state for state in remaining if state.status not in terminal]
+        for state in blocked:
+            await self.escalation_cb(
+                state.plan, "unsatisfiable dependencies (DAG deadlock)"
+            )
+            cancel_work_item(
+                self.engine,
+                state.work_item_id,
+                reason="org-unsatisfiable-dependencies",
+            )
+            self._refresh_status(state)
+
+    async def _schedule_tick(
+        self,
+        remaining: list[_ExecutionState],
+        outputs: dict[str, str],
+        *,
+        terminal: set[str],
+    ) -> list[_ExecutionState] | None:
+        """One scheduling iteration: run the ready set, then recompute `remaining`.
+
+        Extracted from :meth:`_run_schedule`. ``None`` means the schedule must
+        stop (a deadlock was escalated).
+        """
+        import asyncio
+
+        ready = [state for state in remaining if self._refresh_status(state) == "ready"]
+        if not ready:
+            await self._escalate_blocked(remaining, terminal)
+            return None
+
+        await asyncio.gather(*(self._run_item(state, outputs) for state in ready))
+        for state in ready:
+            self._refresh_status(state)
+            if state.status == "succeeded":
+                outputs[state.plan.plan_item_id] = state.output
+        return [
+            state for state in remaining if self._refresh_status(state) not in terminal
+        ]
+
+    async def _run_schedule(
+        self,
+        states: dict[str, _ExecutionState],
+        items: Sequence[OrgPlanItem],
+        outputs: dict[str, str],
+        *,
+        run_id: str,
+    ) -> None:
+        """Drive the WorkItem DAG to completion. Extracted from :meth:`run`."""
+        terminal = {
+            "succeeded",
+            "failed",
+            "cancelled",
+            "dead_letter",
+            "missing",
+        }
+        remaining = list(states.values())
+        guard = 0
+        while remaining:
+            guard += 1
+            if guard > len(items) * (2 + _MAX_REWORK) + 5:
+                self._cancel_remaining_on_guard_trip(remaining, run_id)
+                break
+            next_remaining = await self._schedule_tick(
+                remaining, outputs, terminal=terminal
+            )
+            if next_remaining is None:
+                break
+            remaining = next_remaining
+
     # -- top-level run -------------------------------------------------
     async def run(
         self,
@@ -1005,8 +1222,6 @@ class OrgRuntime:
         The return value is only a process-local presentation. Durable status is
         read from the engine-native WorkItems identified in ``plan_items``.
         """
-        import asyncio
-
         if chart is None:
             chart = Recruiter(self.engine).synthesize_org(goal, domains=domains)
         items = (
@@ -1017,54 +1232,7 @@ class OrgRuntime:
         outputs: dict[str, str] = {}
         run_id = f"org-{uuid.uuid4().hex}"
         states = self._submit_plan(items, run_id=run_id)
-        terminal = {
-            "succeeded",
-            "failed",
-            "cancelled",
-            "dead_letter",
-            "missing",
-        }
-        remaining = list(states.values())
-        guard = 0
-        while remaining:
-            guard += 1
-            if guard > len(items) * (2 + _MAX_REWORK) + 5:
-                logger.error("org run %s: scheduler guard tripped", run_id)
-                for state in remaining:
-                    cancel_work_item(
-                        self.engine,
-                        state.work_item_id,
-                        reason="org-scheduler-guard",
-                    )
-                    self._refresh_status(state)
-                break
-            ready = [
-                state for state in remaining if self._refresh_status(state) == "ready"
-            ]
-            if not ready:
-                blocked = [state for state in remaining if state.status not in terminal]
-                for state in blocked:
-                    await self.escalation_cb(
-                        state.plan, "unsatisfiable dependencies (DAG deadlock)"
-                    )
-                    cancel_work_item(
-                        self.engine,
-                        state.work_item_id,
-                        reason="org-unsatisfiable-dependencies",
-                    )
-                    self._refresh_status(state)
-                break
-
-            await asyncio.gather(*(self._run_item(state, outputs) for state in ready))
-            for state in ready:
-                self._refresh_status(state)
-                if state.status == "succeeded":
-                    outputs[state.plan.plan_item_id] = state.output
-            remaining = [
-                state
-                for state in remaining
-                if self._refresh_status(state) not in terminal
-            ]
+        await self._run_schedule(states, items, outputs, run_id=run_id)
 
         succeeded = sum(
             self._refresh_status(state) == "succeeded" for state in states.values()

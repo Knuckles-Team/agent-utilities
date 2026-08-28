@@ -17,6 +17,7 @@ import json
 import math
 import re
 from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
@@ -683,18 +684,40 @@ class ScaleUnitContract(ProtocolModel):
     @model_validator(mode="after")
     def validate_surface_and_identity(self) -> ScaleUnitContract:
         profile = _SURFACE_PROFILES[self.surface]
+        self._validate_signal_vocabulary(profile)
+        required_axes = self._validate_capacity_axes(profile)
+        self._validate_continuity_and_lease(profile)
+        self._validate_replica_demands(required_axes)
+        self._validate_quota_bindings(profile)
+        self._stamp_contract_identity()
+        return self
+
+    def _validate_signal_vocabulary(self, profile: SurfaceProfile) -> set[SignalKind]:
+        """Uniqueness + vocabulary checks on ``allowed_signals``/``target_signal``.
+
+        Extracted from :meth:`validate_surface_and_identity`.
+        """
         allowed = set(self.allowed_signals)
-        required_axes = set(self.required_capacity_axes)
         if len(allowed) != len(self.allowed_signals):
             raise ScaleContractError("allowed signal names must be unique")
-        if len(required_axes) != len(self.required_capacity_axes):
-            raise ScaleContractError("required capacity axes must be unique")
         if not allowed or not allowed.issubset(profile.allowed_signals):
             raise ScaleContractError(
                 f"{self.surface} contract declares a signal outside its allowed vocabulary"
             )
         if self.policy.target_signal not in allowed:
             raise ScaleContractError("target_signal must be in allowed_signals")
+        return allowed
+
+    def _validate_capacity_axes(self, profile: SurfaceProfile) -> set[CapacityAxis]:
+        """Uniqueness + coverage checks on capacity/engine-authority axes.
+
+        Extracted from :meth:`validate_surface_and_identity`. Returns the
+        validated ``required_axes`` set for reuse by
+        :meth:`_validate_replica_demands`.
+        """
+        required_axes = set(self.required_capacity_axes)
+        if len(required_axes) != len(self.required_capacity_axes):
+            raise ScaleContractError("required capacity axes must be unique")
         if not set(profile.required_capacity_axes).issubset(required_axes):
             raise ScaleContractError(
                 f"{self.surface} contract omitted a required hard capacity axis"
@@ -710,6 +733,13 @@ class ScaleUnitContract(ProtocolModel):
             raise ScaleContractError(
                 "engine_authority_axes must match the surface profile"
             )
+        return required_axes
+
+    def _validate_continuity_and_lease(self, profile: SurfaceProfile) -> None:
+        """Continuity-mode + partition/lease checks.
+
+        Extracted from :meth:`validate_surface_and_identity`.
+        """
         if self.continuity.mode not in profile.continuity_modes:
             raise ScaleContractError(
                 f"{self.surface} does not support continuity mode {self.continuity.mode}"
@@ -722,6 +752,12 @@ class ScaleUnitContract(ProtocolModel):
             raise ScaleContractError(
                 f"{self.surface} requires partition and fenced lease contracts"
             )
+
+    def _validate_replica_demands(self, required_axes: set[CapacityAxis]) -> None:
+        """Uniqueness + coverage checks on ``replica_demands``.
+
+        Extracted from :meth:`validate_surface_and_identity`.
+        """
         demand_axes = {demand.axis for demand in self.replica_demands}
         if len(demand_axes) != len(self.replica_demands):
             raise ScaleContractError("replica demand axes must be unique")
@@ -729,6 +765,12 @@ class ScaleUnitContract(ProtocolModel):
             raise ScaleContractError(
                 "every required capacity axis needs a per-replica demand"
             )
+
+    def _validate_quota_bindings(self, profile: SurfaceProfile) -> None:
+        """Uniqueness + provider-quota checks on ``quotas``.
+
+        Extracted from :meth:`validate_surface_and_identity`.
+        """
         quota_refs = [quota.quota_ref for quota in self.quotas]
         if len(quota_refs) != len(set(quota_refs)):
             raise ScaleContractError("quota bindings must be unique")
@@ -746,6 +788,12 @@ class ScaleUnitContract(ProtocolModel):
                 raise ScaleContractError(
                     f"{self.surface} provider quota binding has an unsupported axis"
                 )
+
+    def _stamp_contract_identity(self) -> None:
+        """Compute + verify + stamp ``contract_id``/``contract_digest``.
+
+        Extracted from :meth:`validate_surface_and_identity`.
+        """
         identity = {
             "schema_version": self.schema_version,
             "unit_ref": self.unit_ref,
@@ -777,7 +825,6 @@ class ScaleUnitContract(ProtocolModel):
             )
         object.__setattr__(self, "contract_id", expected_id)
         object.__setattr__(self, "contract_digest", expected_digest)
-        return self
 
 
 class DecisionEvidence(ProtocolModel):
@@ -829,6 +876,23 @@ class ScaleDecision(ProtocolModel):
 
     @model_validator(mode="after")
     def validate_decision(self) -> ScaleDecision:
+        self._validate_action_transition()
+        self._stamp_decision_identity()
+        return self
+
+    def _validate_action_transition(self) -> None:
+        """Action-vs-replica-count + reasons-required checks.
+
+        Extracted from :meth:`validate_decision`.
+        """
+        self._validate_replica_delta()
+        self._validate_reasons_required()
+
+    def _validate_replica_delta(self) -> None:
+        """scale_up/scale_down/hold vs current<->desired replica-count checks.
+
+        Extracted from :meth:`_validate_action_transition`.
+        """
         if self.action == "scale_up" and self.desired_replicas <= self.current_replicas:
             raise ScaleContractError("scale_up must increase replicas")
         if (
@@ -838,10 +902,22 @@ class ScaleDecision(ProtocolModel):
             raise ScaleContractError("scale_down must decrease replicas")
         if self.action == "hold" and self.desired_replicas != self.current_replicas:
             raise ScaleContractError("hold must preserve replica count")
+
+    def _validate_reasons_required(self) -> None:
+        """``blocked``/scale_* actions require at least one reason.
+
+        Extracted from :meth:`_validate_action_transition`.
+        """
         if self.action == "blocked" and not self.reasons:
             raise ScaleContractError("blocked decisions require reasons")
         if self.action in {"scale_up", "scale_down"} and not self.reasons:
             raise ScaleContractError("scale decisions require a reason")
+
+    def _stamp_decision_identity(self) -> None:
+        """Compute + verify + stamp ``decision_id``/``decision_digest``.
+
+        Extracted from :meth:`validate_decision`.
+        """
         identity = {
             "schema_version": self.schema_version,
             "contract_id": self.contract_id,
@@ -867,7 +943,6 @@ class ScaleDecision(ProtocolModel):
             )
         object.__setattr__(self, "decision_id", expected_id)
         object.__setattr__(self, "decision_digest", expected_digest)
-        return self
 
 
 def _profile_evidence(
@@ -1023,6 +1098,146 @@ def _check_capacity_axes(
         reasons.append("capacity_stale")
 
 
+@dataclass
+class _QuotaCheckState:
+    """Accumulated flags from :func:`_check_quota_binding`, one per :func:`_check_quotas` call."""
+
+    missing_provider_quota: bool = False
+    stale_provider_quota: bool = False
+    missing_local_quota: bool = False
+    stale_local_quota: bool = False
+    quota_scope_mismatch: bool = False
+    provider_quota_exhausted: bool = False
+    local_quota_exhausted: bool = False
+
+
+def _record_missing_quota(
+    binding: QuotaBinding, evidence: list[DecisionEvidence], state: _QuotaCheckState
+) -> None:
+    """Extracted from :func:`_check_quota_binding`."""
+    is_provider = binding.scope == "provider_global"
+    if is_provider:
+        state.missing_provider_quota = True
+    else:
+        state.missing_local_quota = True
+    evidence.append(
+        _profile_evidence(
+            "quota",
+            binding.quota_ref,
+            content_digest({"quota_ref": binding.quota_ref, "state": "missing"}),
+            "missing",
+            "provider_quota_missing" if is_provider else "quota_missing",
+        )
+    )
+
+
+def _record_quota_scope_mismatch(
+    quota_observation: QuotaObservation,
+    evidence: list[DecisionEvidence],
+    state: _QuotaCheckState,
+) -> None:
+    """Extracted from :func:`_check_quota_binding`."""
+    state.quota_scope_mismatch = True
+    evidence.append(
+        _profile_evidence(
+            "quota",
+            quota_observation.source_ref,
+            quota_observation.source_digest,
+            "blocked",
+            "quota_scope_mismatch",
+        )
+    )
+
+
+def _record_stale_quota(
+    binding: QuotaBinding,
+    quota_observation: QuotaObservation,
+    evidence: list[DecisionEvidence],
+    state: _QuotaCheckState,
+) -> None:
+    """Extracted from :func:`_check_quota_binding`."""
+    is_provider = binding.scope == "provider_global"
+    if is_provider:
+        state.stale_provider_quota = True
+    else:
+        state.stale_local_quota = True
+    evidence.append(
+        _profile_evidence(
+            "quota",
+            quota_observation.source_ref,
+            quota_observation.source_digest,
+            "stale",
+            "provider_quota_stale" if is_provider else "quota_stale",
+        )
+    )
+
+
+def _record_accepted_quota(
+    binding: QuotaBinding,
+    quota_observation: QuotaObservation,
+    evidence: list[DecisionEvidence],
+    state: _QuotaCheckState,
+) -> None:
+    """Extracted from :func:`_check_quota_binding`."""
+    evidence.append(
+        _profile_evidence(
+            "quota",
+            quota_observation.source_ref,
+            quota_observation.source_digest,
+            "accepted",
+            binding.scope,
+        )
+    )
+    if quota_observation.used >= quota_observation.limit:
+        if binding.scope == "provider_global":
+            state.provider_quota_exhausted = True
+        else:
+            state.local_quota_exhausted = True
+
+
+def _check_quota_binding(
+    binding: QuotaBinding,
+    quota_map: dict[str, QuotaObservation],
+    current: datetime,
+    evidence: list[DecisionEvidence],
+    state: _QuotaCheckState,
+) -> None:
+    """Evaluate one quota binding; mutates ``evidence``/``state``.
+
+    Extracted from :func:`_check_quotas`.
+    """
+    quota_observation = quota_map.get(binding.quota_ref)
+    if quota_observation is None:
+        _record_missing_quota(binding, evidence, state)
+        return
+    if quota_observation.scope != binding.scope:
+        _record_quota_scope_mismatch(quota_observation, evidence, state)
+        return
+    if not _fresh(quota_observation.observed_at, quota_observation.expires_at, current):
+        _record_stale_quota(binding, quota_observation, evidence, state)
+        return
+    _record_accepted_quota(binding, quota_observation, evidence, state)
+
+
+def _quota_state_to_reasons(
+    state: _QuotaCheckState, reasons: list[DecisionReason]
+) -> None:
+    """Translate the accumulated :class:`_QuotaCheckState` into reason codes.
+
+    Extracted from :func:`_check_quotas`.
+    """
+    if state.missing_provider_quota:
+        reasons.append("provider_quota_missing")
+    if state.stale_provider_quota:
+        reasons.append("provider_quota_stale")
+    if state.missing_local_quota:
+        reasons.append("quota_missing")
+    if state.stale_local_quota:
+        reasons.append("quota_stale")
+    if state.quota_scope_mismatch:
+        reasons.append("quota_scope_mismatch")
+
+
 def _check_quotas(
     contract: ScaleUnitContract,
     quota_map: dict[str, QuotaObservation],
@@ -1031,88 +1246,11 @@ def _check_quotas(
     reasons: list[DecisionReason],
 ) -> tuple[bool, bool]:
     """Returns (provider_quota_exhausted, local_quota_exhausted)."""
-    missing_provider_quota = False
-    stale_provider_quota = False
-    missing_local_quota = False
-    stale_local_quota = False
-    quota_scope_mismatch = False
-    provider_quota_exhausted = False
-    local_quota_exhausted = False
+    state = _QuotaCheckState()
     for binding in contract.quotas:
-        quota_observation = quota_map.get(binding.quota_ref)
-        if quota_observation is None:
-            if binding.scope == "provider_global":
-                missing_provider_quota = True
-            else:
-                missing_local_quota = True
-            evidence.append(
-                _profile_evidence(
-                    "quota",
-                    binding.quota_ref,
-                    content_digest(
-                        {"quota_ref": binding.quota_ref, "state": "missing"}
-                    ),
-                    "missing",
-                    "provider_quota_missing"
-                    if binding.scope == "provider_global"
-                    else "quota_missing",
-                )
-            )
-        elif quota_observation.scope != binding.scope:
-            quota_scope_mismatch = True
-            evidence.append(
-                _profile_evidence(
-                    "quota",
-                    quota_observation.source_ref,
-                    quota_observation.source_digest,
-                    "blocked",
-                    "quota_scope_mismatch",
-                )
-            )
-        elif not _fresh(
-            quota_observation.observed_at, quota_observation.expires_at, current
-        ):
-            if binding.scope == "provider_global":
-                stale_provider_quota = True
-            else:
-                stale_local_quota = True
-            evidence.append(
-                _profile_evidence(
-                    "quota",
-                    quota_observation.source_ref,
-                    quota_observation.source_digest,
-                    "stale",
-                    "provider_quota_stale"
-                    if binding.scope == "provider_global"
-                    else "quota_stale",
-                )
-            )
-        else:
-            evidence.append(
-                _profile_evidence(
-                    "quota",
-                    quota_observation.source_ref,
-                    quota_observation.source_digest,
-                    "accepted",
-                    binding.scope,
-                )
-            )
-            if quota_observation.used >= quota_observation.limit:
-                if binding.scope == "provider_global":
-                    provider_quota_exhausted = True
-                else:
-                    local_quota_exhausted = True
-    if missing_provider_quota:
-        reasons.append("provider_quota_missing")
-    if stale_provider_quota:
-        reasons.append("provider_quota_stale")
-    if missing_local_quota:
-        reasons.append("quota_missing")
-    if stale_local_quota:
-        reasons.append("quota_stale")
-    if quota_scope_mismatch:
-        reasons.append("quota_scope_mismatch")
-    return provider_quota_exhausted, local_quota_exhausted
+        _check_quota_binding(binding, quota_map, current, evidence, state)
+    _quota_state_to_reasons(state, reasons)
+    return state.provider_quota_exhausted, state.local_quota_exhausted
 
 
 def _check_continuity(
@@ -1218,30 +1356,32 @@ def _check_safety(
                 reasons.append("noisy_neighbor")
 
 
-def _check_scale_up_feasibility(
+def _capacity_exhaustion_reasons(
     contract: ScaleUnitContract,
     cap_map: dict[CapacityAxis, CapacityObservation],
-    quota_map: dict[str, QuotaObservation],
-    *,
-    desired: int,
-    current_replicas: int,
-    current: datetime,
-    evidence: list[DecisionEvidence],
-    provider_quota_exhausted: bool,
-    local_quota_exhausted: bool,
-) -> ScaleDecision | None:
-    """Returns a blocked ScaleDecision if scale-up is infeasible, else None."""
-    reasons: list[DecisionReason] = []
-    additional = desired - current_replicas
+    additional: int,
+) -> list[DecisionReason]:
+    """``["capacity_exhausted"]`` iff any replica demand axis lacks headroom.
+
+    Extracted from :func:`_check_scale_up_feasibility`.
+    """
     for demand in contract.replica_demands:
         observation = cap_map[demand.axis]
         if additional * demand.per_replica > observation.available:
-            reasons.append("capacity_exhausted")
-            break
-    if provider_quota_exhausted:
-        reasons.append("provider_quota_exhausted")
-    if local_quota_exhausted:
-        reasons.append("capacity_exhausted")
+            return ["capacity_exhausted"]
+    return []
+
+
+def _quota_growth_reasons(
+    contract: ScaleUnitContract,
+    quota_map: dict[str, QuotaObservation],
+    additional: int,
+) -> list[DecisionReason]:
+    """Reasons from projecting every quota binding's usage forward by ``additional``.
+
+    Extracted from :func:`_check_scale_up_feasibility`.
+    """
+    reasons: list[DecisionReason] = []
     for binding in contract.quotas:
         quota_observation = quota_map[binding.quota_ref]
         if binding.scope == "provider_global":
@@ -1257,10 +1397,45 @@ def _check_scale_up_feasibility(
             > quota_observation.limit
         ):
             reasons.append("capacity_exhausted")
+    return reasons
+
+
+def _engine_authority_reasons(
+    contract: ScaleUnitContract, cap_map: dict[CapacityAxis, CapacityObservation]
+) -> list[DecisionReason]:
+    """``["engine_authority_saturated"]`` iff any engine-authority axis is exhausted.
+
+    Extracted from :func:`_check_scale_up_feasibility`.
+    """
     for axis in contract.engine_authority_axes:
         if cap_map[axis].available <= 0:
-            reasons.append("engine_authority_saturated")
-            break
+            return ["engine_authority_saturated"]
+    return []
+
+
+def _check_scale_up_feasibility(
+    contract: ScaleUnitContract,
+    cap_map: dict[CapacityAxis, CapacityObservation],
+    quota_map: dict[str, QuotaObservation],
+    *,
+    desired: int,
+    current_replicas: int,
+    current: datetime,
+    evidence: list[DecisionEvidence],
+    provider_quota_exhausted: bool,
+    local_quota_exhausted: bool,
+) -> ScaleDecision | None:
+    """Returns a blocked ScaleDecision if scale-up is infeasible, else None."""
+    additional = desired - current_replicas
+    reasons: list[DecisionReason] = list(
+        _capacity_exhaustion_reasons(contract, cap_map, additional)
+    )
+    if provider_quota_exhausted:
+        reasons.append("provider_quota_exhausted")
+    if local_quota_exhausted:
+        reasons.append("capacity_exhausted")
+    reasons.extend(_quota_growth_reasons(contract, quota_map, additional))
+    reasons.extend(_engine_authority_reasons(contract, cap_map))
     if reasons:
         return _decision(
             contract,
@@ -1273,6 +1448,222 @@ def _check_scale_up_feasibility(
             evaluated_at=current,
         )
     return None
+
+
+@dataclass(frozen=True)
+class _ScaleDecisionContext:
+    """The scale-decision inputs threaded through every terminal-decision call.
+
+    Extracted from :func:`_compute_scale_decision`, to avoid repeating the same
+    contract/current_replicas/current/evidence quadruple at every call site.
+    """
+
+    contract: ScaleUnitContract
+    current_replicas: int
+    current: datetime
+    evidence: list[DecisionEvidence]
+
+
+def _terminal_decision(
+    ctx: _ScaleDecisionContext,
+    *,
+    action: ActionKind,
+    reasons: tuple[DecisionReason, ...],
+    drain_required: bool = False,
+) -> ScaleDecision:
+    """A decision holding replicas at their current count.
+
+    Extracted from :func:`_compute_scale_decision`.
+    """
+    return _decision(
+        ctx.contract,
+        current=ctx.current_replicas,
+        desired=ctx.current_replicas,
+        action=action,
+        reasons=reasons,
+        evidence=ctx.evidence,
+        drain_required=drain_required,
+        evaluated_at=ctx.current,
+    )
+
+
+def _check_scale_from_zero(
+    ctx: _ScaleDecisionContext, policy: ScalePolicy, action: ActionKind
+) -> ScaleDecision | None:
+    """Extracted from :func:`_compute_scale_decision`."""
+    if (
+        action == "scale_up"
+        and ctx.current_replicas == 0
+        and not policy.allow_scale_from_zero
+    ):
+        return _terminal_decision(
+            ctx, action="blocked", reasons=("scale_from_zero_disabled",)
+        )
+    return None
+
+
+def _adjust_scale_to_zero(
+    ctx: _ScaleDecisionContext,
+    policy: ScalePolicy,
+    desired: int,
+    reasons: list[DecisionReason],
+) -> tuple[int, ScaleDecision | None]:
+    """Clamp ``desired`` up when scale-to-zero is disabled; hold if that clamp
+    lands back on the current replica count.
+
+    Extracted from :func:`_compute_scale_decision`. ``reasons.append`` here is
+    pre-existing DEBT (not created by this diff): ``reasons`` is a write-only
+    list in the caller -- every terminal ``_decision``/``_terminal_decision``
+    call passes a literal reasons tuple instead of reading it back. Kept
+    verbatim, not fixed, per lane scope.
+    """
+    if desired != 0 or policy.allow_scale_to_zero:
+        return desired, None
+    desired = max(1, policy.min_replicas)
+    if desired == ctx.current_replicas:
+        return desired, _terminal_decision(
+            ctx, action="hold", reasons=("scale_to_zero_disabled",)
+        )
+    reasons.append("scale_to_zero_disabled")
+    return desired, None
+
+
+def _check_active_sessions_block_drain(
+    ctx: _ScaleDecisionContext, continuity: ContinuityObservation | None
+) -> ScaleDecision | None:
+    """Extracted from :func:`_compute_scale_decision`."""
+    if (
+        continuity is not None
+        and ctx.contract.continuity.block_scale_down_with_active
+        and continuity.active_sessions + continuity.active_streams > 0
+    ):
+        return _terminal_decision(
+            ctx,
+            action="blocked",
+            reasons=("active_sessions_block_drain",),
+            drain_required=True,
+        )
+    return None
+
+
+def _evaluate_scale_down_gates(
+    ctx: _ScaleDecisionContext,
+    policy: ScalePolicy,
+    desired: int,
+    reasons: list[DecisionReason],
+    continuity: ContinuityObservation | None,
+) -> tuple[int, ScaleDecision | None]:
+    """The scale_down-only gates: zero-clamp, then the active-sessions block.
+
+    Extracted from :func:`_compute_scale_decision` so its own ``if action ==
+    "scale_down":`` branch stays flat (one call, not two nested checks).
+    """
+    desired, blocked = _adjust_scale_to_zero(ctx, policy, desired, reasons)
+    if blocked is not None:
+        return desired, blocked
+    return desired, _check_active_sessions_block_drain(ctx, continuity)
+
+
+def _check_cooldown(
+    ctx: _ScaleDecisionContext,
+    policy: ScalePolicy,
+    action: ActionKind,
+    last_action_at: datetime | None,
+) -> ScaleDecision | None:
+    """Extracted from :func:`_compute_scale_decision`."""
+    if last_action_at is None:
+        return None
+    previous = _utc(last_action_at, name="last_action_at")
+    cooldown = (
+        policy.scale_up_cooldown_s
+        if action == "scale_up"
+        else policy.scale_down_cooldown_s
+    )
+    if (ctx.current - previous).total_seconds() < cooldown:
+        return _terminal_decision(ctx, action="hold", reasons=("cooldown",))
+    return None
+
+
+def _check_drain_feasibility(
+    ctx: _ScaleDecisionContext, drain_required: bool
+) -> ScaleDecision | None:
+    """Extracted from :func:`_compute_scale_decision`."""
+    if (
+        drain_required
+        and ctx.contract.policy.drain_seconds
+        > ctx.contract.continuity.max_drain_seconds
+    ):
+        return _terminal_decision(
+            ctx, action="blocked", reasons=("drain_required",), drain_required=True
+        )
+    return None
+
+
+def _resolve_scale_target(
+    ctx: _ScaleDecisionContext, policy: ScalePolicy, raw_desired: int
+) -> tuple[int, ActionKind, ScaleDecision | None]:
+    """The stepped ``(desired, action)`` target, or the "at_target" hold decision.
+
+    Extracted from :func:`_compute_scale_decision`. The third element is
+    ``None`` unless ``raw_desired`` already equals the current replica count.
+    """
+    if raw_desired > ctx.current_replicas:
+        desired = min(ctx.current_replicas + policy.scale_up_step, raw_desired)
+        return desired, "scale_up", None
+    if raw_desired < ctx.current_replicas:
+        desired = max(ctx.current_replicas - policy.scale_down_step, raw_desired)
+        return desired, "scale_down", None
+    return (
+        ctx.current_replicas,
+        "hold",
+        _terminal_decision(ctx, action="hold", reasons=("at_target",)),
+    )
+
+
+def _finalize_scale_decision(
+    ctx: _ScaleDecisionContext,
+    cap_map: dict[CapacityAxis, CapacityObservation],
+    quota_map: dict[str, QuotaObservation],
+    *,
+    action: ActionKind,
+    desired: int,
+    provider_quota_exhausted: bool,
+    local_quota_exhausted: bool,
+) -> ScaleDecision:
+    """The scale_up feasibility gate, the drain-feasibility gate, and (absent a
+    block) the final ``target_tracking`` decision.
+
+    Extracted from :func:`_compute_scale_decision`.
+    """
+    if action == "scale_up":
+        blocked = _check_scale_up_feasibility(
+            ctx.contract,
+            cap_map,
+            quota_map,
+            desired=desired,
+            current_replicas=ctx.current_replicas,
+            current=ctx.current,
+            evidence=ctx.evidence,
+            provider_quota_exhausted=provider_quota_exhausted,
+            local_quota_exhausted=local_quota_exhausted,
+        )
+        if blocked is not None:
+            return blocked
+
+    drain_required = action == "scale_down" and ctx.contract.continuity.drain_required
+    blocked = _check_drain_feasibility(ctx, drain_required)
+    if blocked is not None:
+        return blocked
+    return _decision(
+        ctx.contract,
+        current=ctx.current_replicas,
+        desired=desired,
+        action=action,
+        reasons=("target_tracking",),
+        evidence=ctx.evidence,
+        drain_required=drain_required,
+        evaluated_at=ctx.current,
+    )
 
 
 def _compute_scale_decision(
@@ -1294,129 +1685,41 @@ def _compute_scale_decision(
         raise ScaleContractError(
             "signal validation unexpectedly completed without a signal"
         )
-    raw_desired = _target_replicas(contract.policy, signal.value)
-    if raw_desired > current_replicas:
-        desired = min(current_replicas + contract.policy.scale_up_step, raw_desired)
-        action: ActionKind = "scale_up"
-    elif raw_desired < current_replicas:
-        desired = max(current_replicas - contract.policy.scale_down_step, raw_desired)
-        action = "scale_down"
-    else:
-        return _decision(
-            contract,
-            current=current_replicas,
-            desired=current_replicas,
-            action="hold",
-            reasons=("at_target",),
-            evidence=evidence,
-            drain_required=False,
-            evaluated_at=current,
-        )
+    ctx = _ScaleDecisionContext(
+        contract=contract,
+        current_replicas=current_replicas,
+        current=current,
+        evidence=evidence,
+    )
+    policy = contract.policy
+    raw_desired = _target_replicas(policy, signal.value)
+    desired, action, blocked = _resolve_scale_target(ctx, policy, raw_desired)
+    if blocked is not None:
+        return blocked
 
-    if (
-        action == "scale_up"
-        and current_replicas == 0
-        and not contract.policy.allow_scale_from_zero
-    ):
-        return _decision(
-            contract,
-            current=current_replicas,
-            desired=current_replicas,
-            action="blocked",
-            reasons=("scale_from_zero_disabled",),
-            evidence=evidence,
-            drain_required=False,
-            evaluated_at=current,
-        )
+    blocked = _check_scale_from_zero(ctx, policy, action)
+    if blocked is not None:
+        return blocked
+
     if action == "scale_down":
-        if desired == 0 and not contract.policy.allow_scale_to_zero:
-            desired = max(1, contract.policy.min_replicas)
-            if desired == current_replicas:
-                return _decision(
-                    contract,
-                    current=current_replicas,
-                    desired=current_replicas,
-                    action="hold",
-                    reasons=("scale_to_zero_disabled",),
-                    evidence=evidence,
-                    drain_required=False,
-                    evaluated_at=current,
-                )
-            reasons.append("scale_to_zero_disabled")
-        if (
-            continuity is not None
-            and contract.continuity.block_scale_down_with_active
-            and continuity.active_sessions + continuity.active_streams > 0
-        ):
-            return _decision(
-                contract,
-                current=current_replicas,
-                desired=current_replicas,
-                action="blocked",
-                reasons=("active_sessions_block_drain",),
-                evidence=evidence,
-                drain_required=True,
-                evaluated_at=current,
-            )
-
-    if last_action_at is not None:
-        previous = _utc(last_action_at, name="last_action_at")
-        cooldown = (
-            contract.policy.scale_up_cooldown_s
-            if action == "scale_up"
-            else contract.policy.scale_down_cooldown_s
-        )
-        if (current - previous).total_seconds() < cooldown:
-            return _decision(
-                contract,
-                current=current_replicas,
-                desired=current_replicas,
-                action="hold",
-                reasons=("cooldown",),
-                evidence=evidence,
-                drain_required=False,
-                evaluated_at=current,
-            )
-
-    if action == "scale_up":
-        blocked = _check_scale_up_feasibility(
-            contract,
-            cap_map,
-            quota_map,
-            desired=desired,
-            current_replicas=current_replicas,
-            current=current,
-            evidence=evidence,
-            provider_quota_exhausted=provider_quota_exhausted,
-            local_quota_exhausted=local_quota_exhausted,
+        desired, blocked = _evaluate_scale_down_gates(
+            ctx, policy, desired, reasons, continuity
         )
         if blocked is not None:
             return blocked
 
-    drain_required = action == "scale_down" and contract.continuity.drain_required
-    if (
-        drain_required
-        and contract.policy.drain_seconds > contract.continuity.max_drain_seconds
-    ):
-        return _decision(
-            contract,
-            current=current_replicas,
-            desired=current_replicas,
-            action="blocked",
-            reasons=("drain_required",),
-            evidence=evidence,
-            drain_required=True,
-            evaluated_at=current,
-        )
-    return _decision(
-        contract,
-        current=current_replicas,
-        desired=desired,
+    blocked = _check_cooldown(ctx, policy, action, last_action_at)
+    if blocked is not None:
+        return blocked
+
+    return _finalize_scale_decision(
+        ctx,
+        cap_map,
+        quota_map,
         action=action,
-        reasons=("target_tracking",),
-        evidence=evidence,
-        drain_required=drain_required,
-        evaluated_at=current,
+        desired=desired,
+        provider_quota_exhausted=provider_quota_exhausted,
+        local_quota_exhausted=local_quota_exhausted,
     )
 
 

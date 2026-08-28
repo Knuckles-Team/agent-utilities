@@ -32,6 +32,7 @@ REAL spans and metric instruments, never a placeholder/no-op facade.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 from agent_utilities.core.config import setting
@@ -245,6 +246,25 @@ def _resolve_otel_endpoint() -> str:
         return ""
 
 
+@dataclass(slots=True, frozen=True)
+class _ContextCompilerAttrs:
+    """:meth:`TelemetryEngine.annotate_context_compiler`'s own parameters, bundled.
+
+    ``annotate_context_compiler``'s public signature is unchanged (pre-existing
+    callers depend on it); this wraps the call's arguments once so
+    ``_set_context_compiler_attributes`` stays under the lane's <=7-parameter cap.
+    """
+
+    items_selected: int | None = None
+    tokens_in: int | None = None
+    tokens_selected: int | None = None
+    token_budget: int | None = None
+    dropped_policy: int | None = None
+    dropped_redundant: int | None = None
+    dropped_budget: int | None = None
+    kv_cache_hit: bool | None = None
+
+
 class TelemetryEngine:
     """Synthesized observability engine.
 
@@ -358,22 +378,69 @@ class TelemetryEngine:
             )
             return False
 
+        if not self._otel_sdk_available():
+            return False
+
+        headers = self._resolve_base_otel_headers(endpoint)
+        if headers is None:
+            return False
+
+        service_ref = self._resolve_service_ref()
+        base, traces_endpoint, metrics_endpoint = self._resolve_signal_endpoints(
+            endpoint
+        )
+        trace_headers = self._resolve_trace_headers(base, traces_endpoint, headers)
+        metric_headers = self._resolve_metric_headers(base, metrics_endpoint, headers)
+
+        built = self._build_providers(
+            endpoint,
+            service_ref=service_ref,
+            traces_endpoint=traces_endpoint,
+            trace_headers=trace_headers,
+            metrics_endpoint=metrics_endpoint,
+            metric_headers=metric_headers,
+        )
+        if built is None:
+            return False
+        tracer_provider, meter_provider, trust = built
+
+        self._apply_providers(tracer_provider, meter_provider, trust, service_ref)
+        self._register_global_providers(tracer_provider, meter_provider)
+
+        self._otel_configured = True
+        logger.info(
+            "TelemetryEngine: real OTel pipeline configured (service=%s)", service_ref
+        )
+        return True
+
+    @staticmethod
+    def _otel_sdk_available() -> bool:
+        """Probe: is the OpenTelemetry SDK + OTLP/HTTP exporters importable?
+
+        Extracted from :meth:`_setup_otel`, which must log this SPECIFIC
+        "SDK unavailable" warning and return early -- before any header
+        resolution work -- distinct from a later provider-BUILD failure
+        (:meth:`_build_providers` logs its own, different, message). The
+        imported names are intentionally unused here: only whether the
+        import raises matters; the real construction re-imports what it
+        needs in :meth:`_build_providers` / :meth:`_register_global_providers`.
+        """
         try:
-            from opentelemetry import metrics as otel_metrics
-            from opentelemetry import trace as otel_trace
-            from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+            from opentelemetry import metrics as otel_metrics  # noqa: F401
+            from opentelemetry import trace as otel_trace  # noqa: F401
+            from opentelemetry.exporter.otlp.proto.http.metric_exporter import (  # noqa: F401
                 OTLPMetricExporter,
             )
-            from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            from opentelemetry.exporter.otlp.proto.http.trace_exporter import (  # noqa: F401
                 OTLPSpanExporter,
             )
-            from opentelemetry.sdk.metrics import MeterProvider
-            from opentelemetry.sdk.metrics.export import (
+            from opentelemetry.sdk.metrics import MeterProvider  # noqa: F401
+            from opentelemetry.sdk.metrics.export import (  # noqa: F401
                 PeriodicExportingMetricReader,
             )
-            from opentelemetry.sdk.resources import Resource
-            from opentelemetry.sdk.trace import TracerProvider
-            from opentelemetry.sdk.trace.export import BatchSpanProcessor
+            from opentelemetry.sdk.resources import Resource  # noqa: F401
+            from opentelemetry.sdk.trace import TracerProvider  # noqa: F401
+            from opentelemetry.sdk.trace.export import BatchSpanProcessor  # noqa: F401
         except ImportError as exc:
             logger.warning(
                 "TelemetryEngine: OpenTelemetry SDK unavailable — OTel export "
@@ -381,12 +448,17 @@ class TelemetryEngine:
                 type(exc).__name__,
             )
             return False
+        return True
 
-        from agent_utilities.base_utilities import retrieve_package_name
+    @staticmethod
+    def _resolve_base_otel_headers(endpoint: str) -> dict[str, str] | None:
+        """The base OTLP auth headers for ``endpoint``.
+
+        Extracted from :meth:`_setup_otel`. ``None`` means resolution failed
+        (already logged) -- the caller returns ``False``.
+        """
         from agent_utilities.observability.custom_observability import (
-            _MetadataOnlySpanExporter,
             _resolve_otel_headers,
-            _resolve_otel_transport,
             parse_otlp_headers,
         )
 
@@ -398,20 +470,31 @@ class TelemetryEngine:
                 public_key=None,
                 secret_key=None,
             )
-            headers = parse_otlp_headers(resolved_headers)
+            return parse_otlp_headers(resolved_headers)
         except Exception as exc:
             logger.warning(
                 "TelemetryEngine: OTLP authentication invalid; export disabled "
                 "(exception_type=%s)",
                 type(exc).__name__,
             )
-            return False
+            return None
+
+    @staticmethod
+    def _resolve_service_ref() -> str:
+        """The service reference stamped on every span/metric. Extracted from
+        :meth:`_setup_otel`."""
+        from agent_utilities.base_utilities import retrieve_package_name
+
         service_name = str(
             setting("OTEL_SERVICE_NAME", "")
             or retrieve_package_name()
             or "agent-utilities"
         )
-        service_ref = _telemetry_ref("service", service_name)
+        return _telemetry_ref("service", service_name)
+
+    @staticmethod
+    def _resolve_signal_endpoints(endpoint: str) -> tuple[str, str, str]:
+        """``(base, traces_endpoint, metrics_endpoint)``. Extracted from :meth:`_setup_otel`."""
         base = endpoint.rstrip("/")
         for signal_path in ("/v1/traces", "/v1/metrics"):
             if base.endswith(signal_path):
@@ -422,60 +505,115 @@ class TelemetryEngine:
         # Empty string means "no metrics-capable collector configured", not
         # "use the base collector"; the MeterProvider is skipped entirely below.
         metrics_endpoint = _resolve_metrics_endpoint()
+        return base, traces_endpoint, metrics_endpoint
 
-        # A signal-specific traces endpoint pointing somewhere OTHER than the
-        # base collector must not carry the base collector's credentials — that
-        # would hand (for example) Langfuse basic-auth to a trace store that
-        # never asked for it. Re-resolve auth against the actual trace
-        # destination; ``_resolve_otel_headers`` only auto-reuses Langfuse
-        # credentials for a same-origin endpoint, so a different host correctly
-        # gets none.
-        trace_headers = headers
-        if traces_endpoint != f"{base}/v1/traces":
-            try:
-                resolved_trace_headers, _ = _resolve_otel_headers(
-                    endpoint=traces_endpoint,
-                    headers=str(setting("OTEL_EXPORTER_OTLP_HEADERS", "") or "")
-                    or None,
-                    public_key=None,
-                    secret_key=None,
-                )
-                trace_headers = parse_otlp_headers(resolved_trace_headers)
-            except Exception as exc:
-                logger.warning(
-                    "TelemetryEngine: could not resolve auth for the "
-                    "trace-signal endpoint %s (exception_type=%s: %s); "
-                    "exporting spans without credentials.",
-                    traces_endpoint,
-                    type(exc).__name__,
-                    exc,
-                )
-                trace_headers = {}
+    @staticmethod
+    def _resolve_trace_headers(
+        base: str, traces_endpoint: str, headers: dict[str, str]
+    ) -> dict[str, str]:
+        """The trace-signal auth headers. Extracted from :meth:`_setup_otel`.
 
-        # Same non-reuse-across-origins rule as traces above, applied to an
-        # explicitly configured metrics endpoint (D-OG-3): a metrics collector
-        # named via OTEL_EXPORTER_OTLP_METRICS_ENDPOINT never inherits the base
-        # collector's credentials unless it resolves to the same origin.
-        metric_headers = headers
-        if metrics_endpoint and metrics_endpoint != f"{base}/v1/metrics":
-            try:
-                resolved_metric_headers, _ = _resolve_otel_headers(
-                    endpoint=metrics_endpoint,
-                    headers=str(setting("OTEL_EXPORTER_OTLP_HEADERS", "") or "")
-                    or None,
-                    public_key=None,
-                    secret_key=None,
-                )
-                metric_headers = parse_otlp_headers(resolved_metric_headers)
-            except Exception as exc:
-                logger.warning(
-                    "TelemetryEngine: could not resolve auth for the "
-                    "metrics-signal endpoint %s (%s); "
-                    "exporting metrics without credentials.",
-                    metrics_endpoint,
-                    exc,
-                )
-                metric_headers = {}
+        A signal-specific traces endpoint pointing somewhere OTHER than the
+        base collector must not carry the base collector's credentials — that
+        would hand (for example) Langfuse basic-auth to a trace store that
+        never asked for it. Re-resolve auth against the actual trace
+        destination; ``_resolve_otel_headers`` only auto-reuses Langfuse
+        credentials for a same-origin endpoint, so a different host correctly
+        gets none.
+        """
+        if traces_endpoint == f"{base}/v1/traces":
+            return headers
+        from agent_utilities.observability.custom_observability import (
+            _resolve_otel_headers,
+            parse_otlp_headers,
+        )
+
+        try:
+            resolved_trace_headers, _ = _resolve_otel_headers(
+                endpoint=traces_endpoint,
+                headers=str(setting("OTEL_EXPORTER_OTLP_HEADERS", "") or "") or None,
+                public_key=None,
+                secret_key=None,
+            )
+            return parse_otlp_headers(resolved_trace_headers)
+        except Exception as exc:
+            logger.warning(
+                "TelemetryEngine: could not resolve auth for the "
+                "trace-signal endpoint %s (exception_type=%s: %s); "
+                "exporting spans without credentials.",
+                traces_endpoint,
+                type(exc).__name__,
+                exc,
+            )
+            return {}
+
+    @staticmethod
+    def _resolve_metric_headers(
+        base: str, metrics_endpoint: str, headers: dict[str, str]
+    ) -> dict[str, str]:
+        """The metrics-signal auth headers. Extracted from :meth:`_setup_otel`.
+
+        Same non-reuse-across-origins rule as traces above, applied to an
+        explicitly configured metrics endpoint (D-OG-3): a metrics collector
+        named via OTEL_EXPORTER_OTLP_METRICS_ENDPOINT never inherits the base
+        collector's credentials unless it resolves to the same origin.
+        """
+        if not metrics_endpoint or metrics_endpoint == f"{base}/v1/metrics":
+            return headers
+        from agent_utilities.observability.custom_observability import (
+            _resolve_otel_headers,
+            parse_otlp_headers,
+        )
+
+        try:
+            resolved_metric_headers, _ = _resolve_otel_headers(
+                endpoint=metrics_endpoint,
+                headers=str(setting("OTEL_EXPORTER_OTLP_HEADERS", "") or "") or None,
+                public_key=None,
+                secret_key=None,
+            )
+            return parse_otlp_headers(resolved_metric_headers)
+        except Exception as exc:
+            logger.warning(
+                "TelemetryEngine: could not resolve auth for the "
+                "metrics-signal endpoint %s (%s); "
+                "exporting metrics without credentials.",
+                metrics_endpoint,
+                exc,
+            )
+            return {}
+
+    @staticmethod
+    def _build_providers(
+        endpoint: str,
+        *,
+        service_ref: str,
+        traces_endpoint: str,
+        trace_headers: dict[str, str],
+        metrics_endpoint: str,
+        metric_headers: dict[str, str],
+    ) -> tuple[Any, Any, Any] | None:
+        """Build the TracerProvider/MeterProvider/transport-security trio.
+
+        Extracted from :meth:`_setup_otel`. ``None`` means setup failed
+        (already logged) -- the caller returns ``False``.
+        """
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+            OTLPMetricExporter,
+        )
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter,
+        )
+        from opentelemetry.sdk.metrics import MeterProvider
+        from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+        from agent_utilities.observability.custom_observability import (
+            _MetadataOnlySpanExporter,
+            _resolve_otel_transport,
+        )
 
         trust = None
         try:
@@ -535,8 +673,16 @@ class TelemetryEngine:
                 "TelemetryEngine: OTel provider setup failed (exception_type=%s)",
                 type(exc).__name__,
             )
-            return False
+            return None
+        return tracer_provider, meter_provider, trust
 
+    def _apply_providers(
+        self, tracer_provider: Any, meter_provider: Any, trust: Any, service_ref: str
+    ) -> None:
+        """Bind the built providers onto ``self`` + create the metric counters.
+
+        Extracted from :meth:`_setup_otel`.
+        """
         self._tracer_provider = tracer_provider
         self._meter_provider = meter_provider
         self._otel_transport_security = trust
@@ -554,13 +700,21 @@ class TelemetryEngine:
                 description="Graph executions observed per TelemetryEngine.on_graph_end call.",
             )
 
-        # Register globally too (best-effort) so library instrumentation that
-        # reads the ambient global provider (e.g. auto-instrumented HTTP
-        # clients) picks this up — never load-bearing: this engine always
-        # uses its OWN local provider/tracer/meter references above, so a
-        # losing race against another global registrant (e.g. Logfire's own
-        # ``configure()``) never breaks this engine's own export.
+    @staticmethod
+    def _register_global_providers(tracer_provider: Any, meter_provider: Any) -> None:
+        """Best-effort GLOBAL OTel provider registration. Extracted from :meth:`_setup_otel`.
+
+        Never load-bearing: this engine always uses its OWN local
+        provider/tracer/meter references (see :meth:`_apply_providers`), so a
+        losing race against another global registrant (e.g. Logfire's own
+        ``configure()``) never breaks this engine's own export. Registered
+        globally too so library instrumentation that reads the ambient global
+        provider (e.g. auto-instrumented HTTP clients) picks this up.
+        """
         try:
+            from opentelemetry import metrics as otel_metrics
+            from opentelemetry import trace as otel_trace
+
             otel_trace.set_tracer_provider(tracer_provider)
             if meter_provider is not None:
                 otel_metrics.set_meter_provider(meter_provider)
@@ -570,12 +724,6 @@ class TelemetryEngine:
                 "(exception_type=%s)",
                 type(exc).__name__,
             )
-
-        self._otel_configured = True
-        logger.info(
-            "TelemetryEngine: real OTel pipeline configured (service=%s)", service_ref
-        )
-        return True
 
     def on_graph_start(
         self,
@@ -673,53 +821,77 @@ class TelemetryEngine:
         skips span stamping and still records the metric/tracker as before.
         """
         self._lazy_init()
-        span = self._active_spans.get(run_id)
-        if span is not None and usage:
-            try:
-                if model:
-                    span.set_attribute("gen_ai.request.model", model)
-                input_tokens = usage.get("prompt", 0)
-                if input_tokens:
-                    span.set_attribute("gen_ai.usage.input_tokens", int(input_tokens))
-                output_tokens = usage.get("response", 0)
-                if output_tokens:
-                    span.set_attribute("gen_ai.usage.output_tokens", int(output_tokens))
-            except Exception as exc:  # noqa: BLE001 — tracing must never break the caller
-                logger.debug(
-                    "TelemetryEngine: gen_ai span attribute set failed "
-                    "(exception_type=%s)",
-                    type(exc).__name__,
-                )
-        if self._token_tracker and usage:
-            try:
-                from .token_tracker import TokenUsageRecord
+        self._stamp_gen_ai_span(run_id, model, usage)
+        self._record_token_tracker_usage(run_id, model, usage)
+        self._record_token_counter_usage(run_id, model, usage)
 
-                record = TokenUsageRecord(
-                    session_id=_telemetry_ref("run", run_id),
-                    model_name=_telemetry_ref("model", model),
-                    prompt_tokens=usage.get("prompt", 0),
-                    response_tokens=usage.get("response", 0),
-                    thoughts_tokens=usage.get("thoughts", 0),
-                    tool_use_tokens=usage.get("tool_use", 0),
-                )
-                self._token_tracker.record(record)
-            except Exception as exc:  # noqa: BLE001 — cost/usage telemetry mirror; a failed record only degrades the token-usage dashboard for this one call, it does not affect the actual LLM call/response already completed above
-                logger.debug("Token recording failed: %s", exc)
-        if self._token_counter is not None and usage:
-            try:
-                attrs = {
-                    "run_ref": _telemetry_ref("run", run_id),
-                    "model_ref": _telemetry_ref("model", model),
-                }
-                for kind in ("prompt", "response", "thoughts", "tool_use"):
-                    count = usage.get(kind, 0)
-                    if count:
-                        self._token_counter.add(count, {**attrs, "kind": kind})
-            except Exception as exc:  # noqa: BLE001 — metric export must never break the caller
-                logger.debug(
-                    "TelemetryEngine: token metric recording failed (exception_type=%s)",
-                    type(exc).__name__,
-                )
+    def _stamp_gen_ai_span(
+        self, run_id: str, model: str, usage: dict[str, int] | None
+    ) -> None:
+        """Stamp gen_ai token/model attributes on the run's active span.
+
+        Extracted from :meth:`on_response`.
+        """
+        span = self._active_spans.get(run_id)
+        if span is None or not usage:
+            return
+        try:
+            if model:
+                span.set_attribute("gen_ai.request.model", model)
+            input_tokens = usage.get("prompt", 0)
+            if input_tokens:
+                span.set_attribute("gen_ai.usage.input_tokens", int(input_tokens))
+            output_tokens = usage.get("response", 0)
+            if output_tokens:
+                span.set_attribute("gen_ai.usage.output_tokens", int(output_tokens))
+        except Exception as exc:  # noqa: BLE001 — tracing must never break the caller
+            logger.debug(
+                "TelemetryEngine: gen_ai span attribute set failed (exception_type=%s)",
+                type(exc).__name__,
+            )
+
+    def _record_token_tracker_usage(
+        self, run_id: str, model: str, usage: dict[str, int] | None
+    ) -> None:
+        """Mirror this usage into the token tracker. Extracted from :meth:`on_response`."""
+        if not (self._token_tracker and usage):
+            return
+        try:
+            from .token_tracker import TokenUsageRecord
+
+            record = TokenUsageRecord(
+                session_id=_telemetry_ref("run", run_id),
+                model_name=_telemetry_ref("model", model),
+                prompt_tokens=usage.get("prompt", 0),
+                response_tokens=usage.get("response", 0),
+                thoughts_tokens=usage.get("thoughts", 0),
+                tool_use_tokens=usage.get("tool_use", 0),
+            )
+            self._token_tracker.record(record)
+        except Exception as exc:  # noqa: BLE001 — cost/usage telemetry mirror; a failed record only degrades the token-usage dashboard for this one call, it does not affect the actual LLM call/response already completed above
+            logger.debug("Token recording failed: %s", exc)
+
+    def _record_token_counter_usage(
+        self, run_id: str, model: str, usage: dict[str, int] | None
+    ) -> None:
+        """Mirror this usage into the ``token_counter`` metric. Extracted from
+        :meth:`on_response`."""
+        if not (self._token_counter is not None and usage):
+            return
+        try:
+            attrs = {
+                "run_ref": _telemetry_ref("run", run_id),
+                "model_ref": _telemetry_ref("model", model),
+            }
+            for kind in ("prompt", "response", "thoughts", "tool_use"):
+                count = usage.get(kind, 0)
+                if count:
+                    self._token_counter.add(count, {**attrs, "kind": kind})
+        except Exception as exc:  # noqa: BLE001 — metric export must never break the caller
+            logger.debug(
+                "TelemetryEngine: token metric recording failed (exception_type=%s)",
+                type(exc).__name__,
+            )
 
     def on_graph_end(
         self,
@@ -750,167 +922,203 @@ class TelemetryEngine:
         clean_metadata, _privacy = PersistencePrivacyGuard().sanitize(metadata)
         if not isinstance(clean_metadata, dict):
             clean_metadata = {}
-        if self._audit_logger:
-            self._audit_logger.log(
-                actor="system",
-                action="graph.end",
-                resource_type="graph",
-                resource_id=run_ref,
-                details={
-                    "status": status_label,
-                    "duration_ms": duration_ms,
-                    **clean_metadata,
-                },
-            )
-        if self._graph_run_counter is not None:
-            try:
-                self._graph_run_counter.add(1, {"status": status_label})
-            except Exception as exc:  # noqa: BLE001 — metric export must never break the caller
-                logger.debug(
-                    "TelemetryEngine: graph-run metric recording failed "
-                    "(exception_type=%s)",
-                    type(exc).__name__,
-                )
+        self._audit_graph_end(run_ref, status_label, duration_ms, clean_metadata)
+        self._record_graph_run_metric(status_label)
         span = self._active_spans.pop(run_id, None)
         attach_token = self._span_tokens.pop(run_id, None)
         attach_ctx = self._span_attach_context.pop(run_id, None)
-        if span is not None:
-            try:
-                span.set_attribute("status", status_label)
-                span.set_attribute("duration_ms", duration_ms)
-                if model:
-                    span.set_attribute("gen_ai.request.model", model)
-                if tool_call_count is not None:
-                    span.set_attribute(
-                        "gen_ai.response.tool_call_count", int(tool_call_count)
-                    )
-                if execution_mode:
-                    span.set_attribute("agent_utilities.execution.mode", execution_mode)
-                if graph_execution_evidence:
-                    from agent_utilities.models import GraphExecutionEvidence
-
-                    evidence = GraphExecutionEvidence.model_validate(
-                        graph_execution_evidence
-                    )
-                    if evidence.topology_digest:
-                        span.set_attribute(
-                            "agent_utilities.graph.topology_digest",
-                            evidence.topology_digest,
-                        )
-                    if evidence.version_digest:
-                        span.set_attribute(
-                            "agent_utilities.graph.version_digest",
-                            evidence.version_digest,
-                        )
-                    if evidence.runtime_version:
-                        span.set_attribute(
-                            "agent_utilities.graph.runtime_version",
-                            evidence.runtime_version,
-                        )
-                    if evidence.node_sequence:
-                        span.set_attribute(
-                            "agent_utilities.graph.node_sequence",
-                            tuple(evidence.node_sequence),
-                        )
-                    span.set_attribute(
-                        "agent_utilities.graph.transition_count",
-                        len(evidence.transitions),
-                    )
-                    if evidence.checkpoint_ids:
-                        span.set_attribute(
-                            "agent_utilities.graph.checkpoint_ids",
-                            tuple(evidence.checkpoint_ids),
-                        )
-                    span.set_attribute(
-                        "agent_utilities.graph.resume_supported",
-                        evidence.resume_supported,
-                    )
-                    for transition in evidence.transitions:
-                        span.add_event(
-                            "pydantic_graph.transition",
-                            attributes={
-                                "sequence": transition.sequence,
-                                "node_ids": tuple(
-                                    task.node_id for task in transition.scheduled_tasks
-                                ),
-                                "task_ids": tuple(
-                                    task.task_id for task in transition.scheduled_tasks
-                                ),
-                            },
-                        )
-                    for checkpoint_id in evidence.checkpoint_ids:
-                        span.add_event(
-                            "pydantic_graph.checkpoint",
-                            attributes={"checkpoint_id": checkpoint_id},
-                        )
-            except Exception as exc:  # noqa: BLE001 — tracing must never break the caller
-                logger.debug(
-                    "TelemetryEngine: span attribute set failed (exception_type=%s)",
-                    type(exc).__name__,
+        if span is None:
+            return
+        try:
+            span.set_attribute("status", status_label)
+            span.set_attribute("duration_ms", duration_ms)
+            if model:
+                span.set_attribute("gen_ai.request.model", model)
+            if tool_call_count is not None:
+                span.set_attribute(
+                    "gen_ai.response.tool_call_count", int(tool_call_count)
                 )
-        if span is not None:
-            try:
-                # D-CDX-21: opentelemetry.context.attach()/detach() must run
-                # in the SAME Context or detach() corrupts the ambient
-                # "current span" state for whatever runs next in that
-                # context, instead of restoring it — the "ServiceNow MCP
-                # teardown detaches...token in the wrong context" defect.
-                # OTel's own context.detach() already swallows the resulting
-                # ValueError internally (logger.exception), so nothing
-                # crashes; the damage — a corrupted span tree — is silent.
-                # Verify same-context BEFORE calling detach(); on a mismatch
-                # (this run's lifecycle crossed a task boundary between
-                # on_graph_start's attach and here — e.g. an MCP child
-                # call's own shielded task,
-                # mcp/child_resilience.py::_call_once), skip the detach
-                # entirely and just drop the ``Token`` — a bare Token has no
-                # finalizer/GC side effect (unlike the generator-based
-                # ``start_as_current_span`` context manager this replaced,
-                # whose eventual garbage-collection re-triggered the exact
-                # same cross-context detach at an unpredictable later point —
-                # reproduced while building this fix). ``span.end()`` always
-                # runs regardless, so the span itself still finalizes/
-                # exports correctly either way.
-                from opentelemetry import context as otel_context
+            if execution_mode:
+                span.set_attribute("agent_utilities.execution.mode", execution_mode)
+            if graph_execution_evidence:
+                self._stamp_graph_execution_evidence(span, graph_execution_evidence)
+        except Exception as exc:  # noqa: BLE001 — tracing must never break the caller
+            logger.debug(
+                "TelemetryEngine: span attribute set failed (exception_type=%s)",
+                type(exc).__name__,
+            )
+        try:
+            self._detach_graph_end_context(run_id, attach_token, attach_ctx)
+        finally:
+            self._close_graph_end_span(span)
 
-                if attach_token is not None:
-                    same_context = (
-                        attach_ctx is None or otel_context.get_current() is attach_ctx
-                    )
-                    if same_context:
-                        try:
-                            otel_context.detach(attach_token)
-                        except Exception as exc:  # noqa: BLE001 — the ambient-context restore is best-effort; the span itself still finalizes below regardless
-                            logger.debug(
-                                "TelemetryEngine: context detach failed for run "
-                                "%r (exception_type=%s)",
-                                run_id,
-                                type(exc).__name__,
-                            )
-                    else:
+    def _audit_graph_end(
+        self,
+        run_ref: str,
+        status_label: str,
+        duration_ms: float,
+        clean_metadata: dict[str, Any],
+    ) -> None:
+        """Write the ``graph.end`` audit-log entry. Extracted from :meth:`on_graph_end`."""
+        if not self._audit_logger:
+            return
+        self._audit_logger.log(
+            actor="system",
+            action="graph.end",
+            resource_type="graph",
+            resource_id=run_ref,
+            details={
+                "status": status_label,
+                "duration_ms": duration_ms,
+                **clean_metadata,
+            },
+        )
+
+    def _record_graph_run_metric(self, status_label: str) -> None:
+        """Increment the ``graph_run_counter`` metric. Extracted from :meth:`on_graph_end`."""
+        if self._graph_run_counter is None:
+            return
+        try:
+            self._graph_run_counter.add(1, {"status": status_label})
+        except Exception as exc:  # noqa: BLE001 — metric export must never break the caller
+            logger.debug(
+                "TelemetryEngine: graph-run metric recording failed "
+                "(exception_type=%s)",
+                type(exc).__name__,
+            )
+
+    @staticmethod
+    def _stamp_graph_execution_evidence(
+        span: Any, graph_execution_evidence: dict[str, Any]
+    ) -> None:
+        """Project validated graph-execution evidence onto ``span``.
+
+        Extracted from :meth:`on_graph_end`. Checkpoint identifiers remain
+        observational and explicitly carry ``resume_supported=false``.
+        """
+        from agent_utilities.models import GraphExecutionEvidence
+
+        evidence = GraphExecutionEvidence.model_validate(graph_execution_evidence)
+        if evidence.topology_digest:
+            span.set_attribute(
+                "agent_utilities.graph.topology_digest",
+                evidence.topology_digest,
+            )
+        if evidence.version_digest:
+            span.set_attribute(
+                "agent_utilities.graph.version_digest",
+                evidence.version_digest,
+            )
+        if evidence.runtime_version:
+            span.set_attribute(
+                "agent_utilities.graph.runtime_version",
+                evidence.runtime_version,
+            )
+        if evidence.node_sequence:
+            span.set_attribute(
+                "agent_utilities.graph.node_sequence",
+                tuple(evidence.node_sequence),
+            )
+        span.set_attribute(
+            "agent_utilities.graph.transition_count",
+            len(evidence.transitions),
+        )
+        if evidence.checkpoint_ids:
+            span.set_attribute(
+                "agent_utilities.graph.checkpoint_ids",
+                tuple(evidence.checkpoint_ids),
+            )
+        span.set_attribute(
+            "agent_utilities.graph.resume_supported",
+            evidence.resume_supported,
+        )
+        for transition in evidence.transitions:
+            span.add_event(
+                "pydantic_graph.transition",
+                attributes={
+                    "sequence": transition.sequence,
+                    "node_ids": tuple(
+                        task.node_id for task in transition.scheduled_tasks
+                    ),
+                    "task_ids": tuple(
+                        task.task_id for task in transition.scheduled_tasks
+                    ),
+                },
+            )
+        for checkpoint_id in evidence.checkpoint_ids:
+            span.add_event(
+                "pydantic_graph.checkpoint",
+                attributes={"checkpoint_id": checkpoint_id},
+            )
+
+    def _detach_graph_end_context(
+        self, run_id: str, attach_token: Any, attach_ctx: Any
+    ) -> None:
+        """The D-CDX-21 same-context detach guard. Extracted from :meth:`on_graph_end`.
+
+        ``opentelemetry.context.attach()``/``detach()`` must run in the SAME
+        Context or detach() corrupts the ambient "current span" state for
+        whatever runs next in that context, instead of restoring it — the
+        "ServiceNow MCP teardown detaches...token in the wrong context"
+        defect. OTel's own context.detach() already swallows the resulting
+        ValueError internally (logger.exception), so nothing crashes; the
+        damage — a corrupted span tree — is silent. Verify same-context
+        BEFORE calling detach(); on a mismatch (this run's lifecycle crossed
+        a task boundary between on_graph_start's attach and here — e.g. an
+        MCP child call's own shielded task,
+        mcp/child_resilience.py::_call_once), skip the detach entirely and
+        just drop the ``Token`` — a bare Token has no finalizer/GC side
+        effect (unlike the generator-based ``start_as_current_span`` context
+        manager this replaced, whose eventual garbage-collection
+        re-triggered the exact same cross-context detach at an unpredictable
+        later point — reproduced while building this fix). ``span.end()``
+        always runs regardless (see :meth:`_close_graph_end_span`), so the
+        span itself still finalizes/exports correctly either way.
+        """
+        try:
+            from opentelemetry import context as otel_context
+
+            if attach_token is not None:
+                same_context = (
+                    attach_ctx is None or otel_context.get_current() is attach_ctx
+                )
+                if same_context:
+                    try:
+                        otel_context.detach(attach_token)
+                    except Exception as exc:  # noqa: BLE001 — the ambient-context restore is best-effort; the span itself still finalizes below regardless
                         logger.debug(
-                            "TelemetryEngine: on_graph_end for run %r is running "
-                            "in a different OTel Context than on_graph_start "
-                            "attached (the run crossed a task/thread boundary) "
-                            "-- skipping the ambient-context detach instead of "
-                            "risking a cross-context Token.reset() (D-CDX-21).",
+                            "TelemetryEngine: context detach failed for run "
+                            "%r (exception_type=%s)",
                             run_id,
+                            type(exc).__name__,
                         )
-            except Exception as exc:  # noqa: BLE001 — tracing must never break the caller
-                logger.debug(
-                    "TelemetryEngine: context handling failed for run %r "
-                    "(exception_type=%s)",
-                    run_id,
-                    type(exc).__name__,
-                )
-            finally:
-                try:
-                    span.end()
-                except Exception as exc:  # noqa: BLE001 — tracing must never break the caller
+                else:
                     logger.debug(
-                        "TelemetryEngine: span close failed (exception_type=%s)",
-                        type(exc).__name__,
+                        "TelemetryEngine: on_graph_end for run %r is running "
+                        "in a different OTel Context than on_graph_start "
+                        "attached (the run crossed a task/thread boundary) "
+                        "-- skipping the ambient-context detach instead of "
+                        "risking a cross-context Token.reset() (D-CDX-21).",
+                        run_id,
                     )
+        except Exception as exc:  # noqa: BLE001 — tracing must never break the caller
+            logger.debug(
+                "TelemetryEngine: context handling failed for run %r "
+                "(exception_type=%s)",
+                run_id,
+                type(exc).__name__,
+            )
+
+    @staticmethod
+    def _close_graph_end_span(span: Any) -> None:
+        """Best-effort ``span.end()``. Extracted from :meth:`on_graph_end`."""
+        try:
+            span.end()
+        except Exception as exc:  # noqa: BLE001 — tracing must never break the caller
+            logger.debug(
+                "TelemetryEngine: span close failed (exception_type=%s)",
+                type(exc).__name__,
+            )
 
     def annotate_epistemic(
         self,
@@ -964,28 +1172,53 @@ class TelemetryEngine:
             span = otel_trace.get_current_span()
             if span is None or not span.is_recording():
                 return
-            if confidence is not None:
-                span.set_attribute("epistemic.confidence", float(confidence))
-            if status is not None:
-                span.set_attribute("epistemic.status", _epistemic_status_label(status))
-            if contradiction_count is not None:
-                span.set_attribute(
-                    "epistemic.contradiction_count", int(contradiction_count)
-                )
-            if policy_labels is not None:
-                span.set_attribute(
-                    "epistemic.policy_labels",
-                    [str(label) for label in policy_labels[:32]],
-                )
-            if source_count is not None:
-                span.set_attribute("gen_ai.response.source_count", int(source_count))
-            if model:
-                span.set_attribute("gen_ai.request.model", str(model))
+            self._set_epistemic_attributes(
+                span,
+                confidence=confidence,
+                status=status,
+                contradiction_count=contradiction_count,
+                policy_labels=policy_labels,
+                source_count=source_count,
+                model=model,
+            )
         except Exception as exc:  # noqa: BLE001 — tracing must never break a read
             logger.debug(
                 "TelemetryEngine: epistemic span annotation failed (exception_type=%s)",
                 type(exc).__name__,
             )
+
+    @staticmethod
+    def _set_epistemic_attributes(
+        span: Any,
+        *,
+        confidence: float | None,
+        status: str | None,
+        contradiction_count: int | None,
+        policy_labels: list[str] | tuple[str, ...] | None,
+        source_count: int | None,
+        model: str | None,
+    ) -> None:
+        """Set every provided ``epistemic.*``/``gen_ai.*`` attribute on ``span``.
+
+        Extracted from :meth:`annotate_epistemic`.
+        """
+        if confidence is not None:
+            span.set_attribute("epistemic.confidence", float(confidence))
+        if status is not None:
+            span.set_attribute("epistemic.status", _epistemic_status_label(status))
+        if contradiction_count is not None:
+            span.set_attribute(
+                "epistemic.contradiction_count", int(contradiction_count)
+            )
+        if policy_labels is not None:
+            span.set_attribute(
+                "epistemic.policy_labels",
+                [str(label) for label in policy_labels[:32]],
+            )
+        if source_count is not None:
+            span.set_attribute("gen_ai.response.source_count", int(source_count))
+        if model:
+            span.set_attribute("gen_ai.request.model", str(model))
 
     def annotate_context_compiler(
         self,
@@ -1028,35 +1261,59 @@ class TelemetryEngine:
             span = otel_trace.get_current_span()
             if span is None or not span.is_recording():
                 return
-            if items_selected is not None:
-                span.set_attribute(
-                    "context_compiler.items_selected", int(items_selected)
-                )
-            if tokens_in is not None:
-                span.set_attribute("context_compiler.tokens_in", int(tokens_in))
-            if tokens_selected is not None:
-                span.set_attribute(
-                    "context_compiler.tokens_selected", int(tokens_selected)
-                )
-            if token_budget is not None:
-                span.set_attribute("context_compiler.token_budget", int(token_budget))
-            if dropped_policy is not None:
-                span.set_attribute(
-                    "context_compiler.dropped_policy", int(dropped_policy)
-                )
-            if dropped_redundant is not None:
-                span.set_attribute(
-                    "context_compiler.dropped_redundant", int(dropped_redundant)
-                )
-            if dropped_budget is not None:
-                span.set_attribute(
-                    "context_compiler.dropped_budget", int(dropped_budget)
-                )
-            if kv_cache_hit is not None:
-                span.set_attribute("context_compiler.kv_cache_hit", bool(kv_cache_hit))
+            self._set_context_compiler_attributes(
+                span,
+                _ContextCompilerAttrs(
+                    items_selected=items_selected,
+                    tokens_in=tokens_in,
+                    tokens_selected=tokens_selected,
+                    token_budget=token_budget,
+                    dropped_policy=dropped_policy,
+                    dropped_redundant=dropped_redundant,
+                    dropped_budget=dropped_budget,
+                    kv_cache_hit=kv_cache_hit,
+                ),
+            )
         except Exception as e:  # noqa: BLE001 — tracing must never break a compile
             logger.debug(
                 "TelemetryEngine: context-compiler span annotation failed: %s", e
+            )
+
+    @staticmethod
+    def _set_context_compiler_attributes(
+        span: Any, attrs: _ContextCompilerAttrs
+    ) -> None:
+        """Set every provided ``context_compiler.*`` attribute on ``span``.
+
+        Extracted from :meth:`annotate_context_compiler`.
+        """
+        if attrs.items_selected is not None:
+            span.set_attribute(
+                "context_compiler.items_selected", int(attrs.items_selected)
+            )
+        if attrs.tokens_in is not None:
+            span.set_attribute("context_compiler.tokens_in", int(attrs.tokens_in))
+        if attrs.tokens_selected is not None:
+            span.set_attribute(
+                "context_compiler.tokens_selected", int(attrs.tokens_selected)
+            )
+        if attrs.token_budget is not None:
+            span.set_attribute("context_compiler.token_budget", int(attrs.token_budget))
+        if attrs.dropped_policy is not None:
+            span.set_attribute(
+                "context_compiler.dropped_policy", int(attrs.dropped_policy)
+            )
+        if attrs.dropped_redundant is not None:
+            span.set_attribute(
+                "context_compiler.dropped_redundant", int(attrs.dropped_redundant)
+            )
+        if attrs.dropped_budget is not None:
+            span.set_attribute(
+                "context_compiler.dropped_budget", int(attrs.dropped_budget)
+            )
+        if attrs.kv_cache_hit is not None:
+            span.set_attribute(
+                "context_compiler.kv_cache_hit", bool(attrs.kv_cache_hit)
             )
 
     def annotate_grounding(self, *, status: str, reason: str = "") -> None:

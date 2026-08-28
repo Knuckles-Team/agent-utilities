@@ -126,6 +126,48 @@ def add_frontmatter(
     return True
 
 
+def _split_frontmatter_block(text: str) -> tuple[str, str, int] | None:
+    """Split ``text`` into ``(block, body, lead)``, or ``None`` if unterminated.
+
+    Extracted from :func:`read_frontmatter`. ``lead`` is the count of leading
+    characters ``text.lstrip("\\n")`` stripped, needed to restore any leading
+    blank lines the caller had once the frontmatter block is removed.
+    """
+    stripped = text.lstrip("\n")
+    lead = len(text) - len(stripped)
+    rest = stripped[len(_FM_DELIM) :]
+    end = rest.find(f"\n{_FM_DELIM}")
+    if end == -1:
+        return None
+    block = rest[:end]
+    body = rest[end + 1 + len(_FM_DELIM) :]
+    if body.startswith("\n"):
+        body = body[1:]
+    return block, body, lead
+
+
+def _parse_frontmatter_value(raw: str) -> Any:
+    """Parse one frontmatter value: a ``[a, b]`` list, a quoted string, or plain text."""
+    val: Any = raw.strip()
+    if isinstance(val, str) and val.startswith("[") and val.endswith("]"):
+        inner = val[1:-1].strip()
+        return [p.strip().strip("'\"") for p in inner.split(",")] if inner else []
+    if isinstance(val, str) and len(val) >= 2 and val[0] == val[-1] == '"':
+        return val[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+    return val
+
+
+def _parse_frontmatter_block(block: str) -> dict[str, Any]:
+    """Parse a frontmatter block's ``key: value`` lines into a dict."""
+    fm: dict[str, Any] = {}
+    for line in block.splitlines():
+        if not line.strip() or ":" not in line:
+            continue
+        key, _, raw = line.partition(":")
+        fm[key.strip()] = _parse_frontmatter_value(raw)
+    return fm
+
+
 def read_frontmatter(source: str | Path) -> tuple[dict[str, Any], str]:
     """Permissive OKF frontmatter parser → ``(frontmatter_dict, body)``.
 
@@ -139,29 +181,11 @@ def read_frontmatter(source: str | Path) -> tuple[dict[str, Any], str]:
     text = source.read_text(encoding="utf-8") if isinstance(source, Path) else source
     if not _has_frontmatter(text):
         return {}, text
-    stripped = text.lstrip("\n")
-    lead = len(text) - len(stripped)
-    rest = stripped[len(_FM_DELIM) :]
-    end = rest.find(f"\n{_FM_DELIM}")
-    if end == -1:
+    split = _split_frontmatter_block(text)
+    if split is None:
         return {}, text  # unterminated block → treat as bodyless, tolerate
-    block = rest[:end]
-    body = rest[end + 1 + len(_FM_DELIM) :]
-    if body.startswith("\n"):
-        body = body[1:]
-    fm: dict[str, Any] = {}
-    for line in block.splitlines():
-        if not line.strip() or ":" not in line:
-            continue
-        key, _, raw = line.partition(":")
-        key = key.strip()
-        val: Any = raw.strip()
-        if isinstance(val, str) and val.startswith("[") and val.endswith("]"):
-            inner = val[1:-1].strip()
-            val = [p.strip().strip("'\"") for p in inner.split(",")] if inner else []
-        elif isinstance(val, str) and len(val) >= 2 and val[0] == val[-1] == '"':
-            val = val[1:-1].replace('\\"', '"').replace("\\\\", "\\")
-        fm[key] = val
+    block, body, lead = split
+    fm = _parse_frontmatter_block(block)
     return fm, (text[:lead] + body if lead else body)
 
 
@@ -198,6 +222,53 @@ def _safe_read(p: Path) -> str:
         return ""
 
 
+def _stamp_reference_frontmatter(
+    ref: Path,
+    *,
+    ftype: str,
+    timestamp: str,
+    resource: str | None,
+    concept_ids: dict[str, str],
+) -> int:
+    """Stamp frontmatter on every reference ``.md`` file; return the count stamped."""
+    stamped = 0
+    for md in ref.rglob("*.md"):
+        if md.name in {"index.md", "log.md"}:
+            continue
+        rel = md.relative_to(ref).as_posix()
+        if add_frontmatter(
+            md,
+            ftype=ftype,
+            timestamp=timestamp,
+            resource=resource,
+            concept_id=concept_ids.get(rel),
+        ):
+            stamped += 1
+    return stamped
+
+
+def _write_reference_dir_indexes(ref: Path) -> int:
+    """Write ``index.md`` for ``ref`` and every subdirectory; return the count written."""
+    indexed = 0
+    for d in [ref, *[p for p in ref.rglob("*") if p.is_dir()]]:
+        write_dir_index(d)
+        indexed += 1
+    return indexed
+
+
+def _ensure_log_md(skill_dir: Path, timestamp: str) -> None:
+    """Write the root OKF ``log.md`` (§7) if it does not already exist."""
+    log = skill_dir / "log.md"
+    if log.exists():
+        return
+    log.write_text(
+        f"# Update Log\n\n## {timestamp[:10] or 'build'}\n"
+        f"* **Build**: skill-graph generated (OKF-conformant). "
+        f"Machine provenance in `sources.json`.\n",
+        encoding="utf-8",
+    )
+
+
 def write_okf_conformance(
     skill_dir: Path,
     *,
@@ -216,30 +287,16 @@ def write_okf_conformance(
     stamped = indexed = 0
     concept_ids = concept_ids or {}
     if ref.is_dir():
-        for md in ref.rglob("*.md"):
-            if md.name in {"index.md", "log.md"}:
-                continue
-            rel = md.relative_to(ref).as_posix()
-            if add_frontmatter(
-                md,
-                ftype=ftype,
-                timestamp=timestamp,
-                resource=resource,
-                concept_id=concept_ids.get(rel),
-            ):
-                stamped += 1
-        for d in [ref, *[p for p in ref.rglob("*") if p.is_dir()]]:
-            write_dir_index(d)
-            indexed += 1
-    # root log.md (OKF §7) — the human twin of sources.json
-    log = skill_dir / "log.md"
-    if not log.exists():
-        log.write_text(
-            f"# Update Log\n\n## {timestamp[:10] or 'build'}\n"
-            f"* **Build**: skill-graph generated (OKF-conformant). "
-            f"Machine provenance in `sources.json`.\n",
-            encoding="utf-8",
+        stamped = _stamp_reference_frontmatter(
+            ref,
+            ftype=ftype,
+            timestamp=timestamp,
+            resource=resource,
+            concept_ids=concept_ids,
         )
+        indexed = _write_reference_dir_indexes(ref)
+    # root log.md (OKF §7) — the human twin of sources.json
+    _ensure_log_md(skill_dir, timestamp)
     return {"frontmatter_added": stamped, "index_md_written": indexed}
 
 
@@ -549,6 +606,25 @@ def _review_queue_path(queue_path: str | Path | None) -> Path:
     return base / "okf_type_review_queue.json"
 
 
+def _exact_domain_match(
+    pillar: str, key: str, domains: dict[str, Any]
+) -> tuple[str, str] | None:
+    for domain, signals in domains.items():
+        if key == domain or key in signals:
+            return (pillar, domain)
+    return None
+
+
+def _substring_domain_match(
+    pillar: str, key: str, domains: dict[str, Any]
+) -> tuple[str, str] | None:
+    # substring signal match (e.g. "reference guide" → research via "reference")
+    for domain, signals in domains.items():
+        if any(sig in key or key in sig for sig in [domain, *signals]):
+            return (pillar, domain)
+    return None
+
+
 def map_external_type(
     ext_type: str,
     *,
@@ -568,14 +644,9 @@ def map_external_type(
     if key in TYPE_DOMAIN_MAP:
         return TYPE_DOMAIN_MAP[key]
     domains = load_domain_vocab().get(pillar, {})
-    for domain, signals in domains.items():
-        if key == domain or key in signals:
-            return (pillar, domain)
-    # substring signal match (e.g. "reference guide" → research via "reference")
-    for domain, signals in domains.items():
-        if any(sig in key or key in sig for sig in [domain, *signals]):
-            return (pillar, domain)
-    return None
+    return _exact_domain_match(pillar, key, domains) or _substring_domain_match(
+        pillar, key, domains
+    )
 
 
 def resolve_type_domain(
@@ -597,6 +668,24 @@ def resolve_type_domain(
     return DEFAULT_TYPE_DOMAIN
 
 
+def _load_review_queue(path: Path) -> list[Any]:
+    try:
+        existing = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+    except (OSError, ValueError):
+        existing = []
+    return existing if isinstance(existing, list) else []
+
+
+def _update_existing_queue_row(existing: list[Any], key: str, provenance: str) -> bool:
+    """Update ``existing``'s row for ``key`` in place; ``True`` iff a row was found."""
+    for row in existing:
+        if isinstance(row, dict) and row.get("type") == key:
+            if provenance and provenance not in row.get("provenance", []):
+                row.setdefault("provenance", []).append(provenance)
+            return True
+    return False
+
+
 def queue_unmapped_type(
     ext_type: str,
     *,
@@ -605,19 +694,11 @@ def queue_unmapped_type(
 ) -> None:
     """Append an unmapped external ``type`` to the review queue (dedup by type)."""
     path = _review_queue_path(queue_path)
-    try:
-        existing = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
-    except (OSError, ValueError):
-        existing = []
-    if not isinstance(existing, list):
-        existing = []
+    existing = _load_review_queue(path)
     key = (ext_type or "").strip()
-    for row in existing:
-        if isinstance(row, dict) and row.get("type") == key:
-            if provenance and provenance not in row.get("provenance", []):
-                row.setdefault("provenance", []).append(provenance)
-            path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
-            return
+    if _update_existing_queue_row(existing, key, provenance):
+        path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
+        return
     existing.append({"type": key, "provenance": [provenance] if provenance else []})
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(existing, indent=2), encoding="utf-8")

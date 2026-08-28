@@ -147,13 +147,10 @@ class _Rule:
     lift: float
 
 
-def _association_rules(
-    transactions: list[list[str]],
-    min_support: float,
-    min_confidence: float,
-    cancel: threading.Event,
-) -> list[dict[str, Any]]:
-    """Exact vertical-set mining with the engine's stable rule semantics."""
+def _normalize_transactions(
+    transactions: list[list[str]], cancel: threading.Event
+) -> tuple[list[str], list[set[int]]]:
+    """Validate + intern each transaction's items; return ``(labels, normalized rows)``."""
     labels: list[str] = []
     indexes: dict[str, int] = {}
     normalized: list[set[int]] = []
@@ -168,8 +165,13 @@ def _association_rules(
                 labels.append(item)
             transaction.add(indexes[item])
         normalized.append(transaction)
-    count = len(normalized)
-    minimum_count = max(1, math.ceil(min_support * max(count, 1)))
+    return labels, normalized
+
+
+def _vertical_index(
+    labels: list[str], normalized: list[set[int]], minimum_count: int
+) -> dict[int, frozenset[int]]:
+    """Item -> the frozenset of transaction indexes containing it, filtered by support."""
     vertical: dict[int, frozenset[int]] = {}
     for item_index in range(len(labels)):
         tids = frozenset(
@@ -177,56 +179,122 @@ def _association_rules(
         )
         if len(tids) >= minimum_count:
             vertical[item_index] = tids
+    return vertical
 
-    itemsets: dict[tuple[int, ...], int] = {}
 
-    def extend(
-        prefix: tuple[int, ...], atoms: list[tuple[int, frozenset[int]]]
-    ) -> None:
-        for index, (item, tids) in enumerate(atoms):
-            _check_cancel(cancel)
-            candidate = (*prefix, item)
-            itemsets[candidate] = len(tids)
-            children: list[tuple[int, frozenset[int]]] = []
-            for next_item, next_tids in atoms[index + 1 :]:
-                intersection = tids & next_tids
-                if len(intersection) >= minimum_count:
-                    children.append((next_item, intersection))
-            if children:
-                extend(candidate, children)
+def _mine_itemsets(
+    prefix: tuple[int, ...],
+    atoms: list[tuple[int, frozenset[int]]],
+    *,
+    minimum_count: int,
+    cancel: threading.Event,
+    itemsets: dict[tuple[int, ...], int],
+) -> None:
+    """Depth-first vertical (Eclat-style) frequent-itemset extension; mutates ``itemsets``."""
+    for index, (item, tids) in enumerate(atoms):
+        _check_cancel(cancel)
+        candidate = (*prefix, item)
+        itemsets[candidate] = len(tids)
+        children: list[tuple[int, frozenset[int]]] = []
+        for next_item, next_tids in atoms[index + 1 :]:
+            intersection = tids & next_tids
+            if len(intersection) >= minimum_count:
+                children.append((next_item, intersection))
+        if children:
+            _mine_itemsets(
+                candidate,
+                children,
+                minimum_count=minimum_count,
+                cancel=cancel,
+                itemsets=itemsets,
+            )
 
-    extend((), sorted(vertical.items()))
+
+def _mask_split(
+    itemset: tuple[int, ...], mask: int
+) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """Split ``itemset`` into ``(antecedent, consequent)`` by ``mask``'s bits."""
+    antecedent = tuple(item for bit, item in enumerate(itemset) if mask & (1 << bit))
+    consequent = tuple(
+        item for bit, item in enumerate(itemset) if not mask & (1 << bit)
+    )
+    return antecedent, consequent
+
+
+def _rule_for_split(
+    itemset: tuple[int, ...],
+    mask: int,
+    itemsets: dict[tuple[int, ...], int],
+    *,
+    full_count: int,
+    min_confidence: float,
+    denominator: int,
+) -> _Rule | None:
+    """The rule for one antecedent/consequent split, or ``None`` if it doesn't qualify."""
+    antecedent, consequent = _mask_split(itemset, mask)
+    antecedent_count = itemsets.get(antecedent)
+    consequent_count = itemsets.get(consequent)
+    if antecedent_count is None or consequent_count is None:
+        return None
+    confidence = full_count / antecedent_count
+    if confidence + 1e-12 < min_confidence:
+        return None
+    consequent_support = consequent_count / denominator
+    return _Rule(
+        antecedent=antecedent,
+        consequent=consequent,
+        support=full_count / denominator,
+        confidence=confidence,
+        lift=confidence / consequent_support if consequent_support else 0.0,
+    )
+
+
+def _itemset_rules(
+    itemset: tuple[int, ...],
+    itemsets: dict[tuple[int, ...], int],
+    *,
+    min_confidence: float,
+    denominator: int,
+) -> list[_Rule]:
+    """Every valid antecedent/consequent split of one frequent itemset."""
+    full_count = itemsets[itemset]
     rules: list[_Rule] = []
+    for mask in range(1, (1 << len(itemset)) - 1):
+        rule = _rule_for_split(
+            itemset,
+            mask,
+            itemsets,
+            full_count=full_count,
+            min_confidence=min_confidence,
+            denominator=denominator,
+        )
+        if rule is not None:
+            rules.append(rule)
+    return rules
+
+
+def _rules_from_itemsets(
+    itemsets: dict[tuple[int, ...], int],
+    *,
+    count: int,
+    min_confidence: float,
+    cancel: threading.Event,
+) -> list[_Rule]:
+    """Every rule meeting ``min_confidence``, sorted by the engine's stable rule order."""
     denominator = max(count, 1)
+    rules: list[_Rule] = []
     for itemset in sorted(itemsets, key=lambda value: (len(value), value)):
         _check_cancel(cancel)
         if len(itemset) < 2:
             continue
-        full_count = itemsets[itemset]
-        for mask in range(1, (1 << len(itemset)) - 1):
-            antecedent = tuple(
-                item for bit, item in enumerate(itemset) if mask & (1 << bit)
+        rules.extend(
+            _itemset_rules(
+                itemset,
+                itemsets,
+                min_confidence=min_confidence,
+                denominator=denominator,
             )
-            consequent = tuple(
-                item for bit, item in enumerate(itemset) if not mask & (1 << bit)
-            )
-            antecedent_count = itemsets.get(antecedent)
-            consequent_count = itemsets.get(consequent)
-            if antecedent_count is None or consequent_count is None:
-                continue
-            confidence = full_count / antecedent_count
-            if confidence + 1e-12 < min_confidence:
-                continue
-            consequent_support = consequent_count / denominator
-            rules.append(
-                _Rule(
-                    antecedent=antecedent,
-                    consequent=consequent,
-                    support=full_count / denominator,
-                    confidence=confidence,
-                    lift=confidence / consequent_support if consequent_support else 0.0,
-                )
-            )
+        )
     rules.sort(
         key=lambda rule: (
             -rule.confidence,
@@ -236,6 +304,11 @@ def _association_rules(
             rule.consequent,
         )
     )
+    return rules
+
+
+def _rules_to_result(rules: list[_Rule], labels: list[str]) -> list[dict[str, Any]]:
+    """Render :class:`_Rule` objects to the governed association-rule row shape."""
     result: list[dict[str, Any]] = []
     for rule in rules:
         antecedent_labels = [labels[item] for item in rule.antecedent]
@@ -264,16 +337,44 @@ def _association_rules(
     return result
 
 
-def _decode_job(job: dict[str, Any]) -> tuple[list[list[str]], float, float, str]:
-    payload = job.get("input_payload")
+def _association_rules(
+    transactions: list[list[str]],
+    min_support: float,
+    min_confidence: float,
+    cancel: threading.Event,
+) -> list[dict[str, Any]]:
+    """Exact vertical-set mining with the engine's stable rule semantics."""
+    labels, normalized = _normalize_transactions(transactions, cancel)
+    count = len(normalized)
+    minimum_count = max(1, math.ceil(min_support * max(count, 1)))
+    vertical = _vertical_index(labels, normalized, minimum_count)
+    itemsets: dict[tuple[int, ...], int] = {}
+    _mine_itemsets(
+        (),
+        sorted(vertical.items()),
+        minimum_count=minimum_count,
+        cancel=cancel,
+        itemsets=itemsets,
+    )
+    rules = _rules_from_itemsets(
+        itemsets, count=count, min_confidence=min_confidence, cancel=cancel
+    )
+    return _rules_to_result(rules, labels)
+
+
+def _decode_payload_bytes(payload: Any) -> bytes:
+    """The claimed job's raw input payload, as bytes."""
     if isinstance(payload, list) and all(
         isinstance(value, int) and 0 <= value <= 255 for value in payload
     ):
-        encoded = bytes(payload)
-    elif isinstance(payload, bytes):
-        encoded = payload
-    else:
-        raise AnalyticsWorkerError("claimed job has no governed input payload")
+        return bytes(payload)
+    if isinstance(payload, bytes):
+        return payload
+    raise AnalyticsWorkerError("claimed job has no governed input payload")
+
+
+def _unpack_mine_associate(encoded: bytes) -> tuple[list[list[str]], float, float, str]:
+    """Unpack the msgpack ``MineAssociate`` envelope. Raises on any malformed shape."""
     try:
         value = msgpack.unpackb(encoded, raw=False, strict_map_key=True)
         parameters = value["MineAssociate"]
@@ -285,23 +386,58 @@ def _decode_job(job: dict[str, Any]) -> tuple[list[list[str]], float, float, str
         raise AnalyticsWorkerError(
             "claimed job payload is not MineAssociate v1"
         ) from exc
-    if (
-        not isinstance(transactions, list)
-        or any(
-            not isinstance(transaction, list)
-            or any(not isinstance(item, str) for item in transaction)
-            for transaction in transactions
-        )
-        or not math.isfinite(min_support)
+    return transactions, min_support, min_confidence, algorithm
+
+
+def _transactions_malformed(transactions: Any) -> bool:
+    """``True`` unless ``transactions`` is a list of lists of ``str``."""
+    return not isinstance(transactions, list) or any(
+        not isinstance(transaction, list)
+        or any(not isinstance(item, str) for item in transaction)
+        for transaction in transactions
+    )
+
+
+def _support_confidence_out_of_bounds(
+    min_support: float, min_confidence: float
+) -> bool:
+    """``True`` iff either bound is non-finite or outside ``[0.0, 1.0]``."""
+    return (
+        not math.isfinite(min_support)
         or not 0.0 <= min_support <= 1.0
         or not math.isfinite(min_confidence)
         or not 0.0 <= min_confidence <= 1.0
+    )
+
+
+def _validate_mine_associate(
+    transactions: Any, min_support: float, min_confidence: float, algorithm: str
+) -> None:
+    """Enforce the governed ``MineAssociate`` schema bounds. Raises if violated.
+
+    Short-circuits in the SAME order as the original inline chain: the item-count
+    check on the last line is only reachable once ``_transactions_malformed`` has
+    already proven ``transactions`` is a well-formed list of lists of ``str``, so
+    it is always safe to iterate.
+    """
+    if (
+        _transactions_malformed(transactions)
+        or _support_confidence_out_of_bounds(min_support, min_confidence)
         or algorithm not in _ALGORITHMS
         or len({item for transaction in transactions for item in transaction}) > 31
     ):
         raise AnalyticsWorkerError(
             "claimed association payload is outside its governed schema"
         )
+
+
+def _decode_job(job: dict[str, Any]) -> tuple[list[list[str]], float, float, str]:
+    payload = job.get("input_payload")
+    encoded = _decode_payload_bytes(payload)
+    transactions, min_support, min_confidence, algorithm = _unpack_mine_associate(
+        encoded
+    )
+    _validate_mine_associate(transactions, min_support, min_confidence, algorithm)
     return transactions, min_support, min_confidence, algorithm
 
 
@@ -356,6 +492,122 @@ def _is_publishing(job: dict[str, Any]) -> bool:
     return isinstance(state, dict) and "Publishing" in state
 
 
+@dataclass(slots=True, frozen=True)
+class _ClaimHandle:
+    """A claimed job's identity + lease, bundled for the helpers below."""
+
+    client: Any
+    job_id: str
+    worker_instance: str
+    epoch: int
+    lease_ms: int
+
+
+async def _short_circuit_claim(
+    client: Any, job: dict[str, Any], job_id: str, worker_instance: str, epoch: int
+) -> bool:
+    """Handle a claim that needs no mining (already cancelled/publishing).
+
+    ``True`` iff handled -- the caller must return without proceeding further.
+    """
+    if job.get("cancel_requested") is True:
+        await client.jobs.worker_cancel(job_id, worker_instance, epoch)
+        return True
+    if _is_publishing(job):
+        await client.jobs.worker_publish(job_id, worker_instance, epoch)
+        return True
+    return False
+
+
+async def _decode_claim_job(
+    client: Any, job: dict[str, Any], job_id: str, worker_instance: str, epoch: int
+) -> tuple[list[list[str]], float, float, str] | None:
+    """Decode the job payload; on failure, mark it failed and return ``None``."""
+    try:
+        return _decode_job(job)
+    except AnalyticsWorkerError:
+        await client.jobs.worker_fail(job_id, worker_instance, epoch, "invalid_payload")
+        return None
+
+
+def _watchdog_reason(
+    current: dict[str, Any], *, now_ms: int, began: float
+) -> str | None:
+    """Why the running kernel should be cancelled, or ``None`` if it should keep going."""
+    deadline = (current.get("policy") or {}).get("deadline_unix_ms")
+    budget = (current.get("policy") or {}).get("resources", {}).get("cpu_ms")
+    budget = budget or (current.get("policy") or {}).get("quota_cpu_ms")
+    if current.get("cancel_requested") is True:
+        return "kernel_cancelled"
+    if deadline is not None and now_ms >= int(deadline):
+        return "deadline_exceeded"
+    if budget is not None and (time.monotonic() - began) * 1000 >= int(budget):
+        return "cpu_budget_exceeded"
+    return None
+
+
+async def _watch_kernel(
+    handle: _ClaimHandle,
+    kernel: asyncio.Task[Any],
+    *,
+    began: float,
+    stop: asyncio.Event,
+    cancel: threading.Event,
+) -> str | None:
+    """Renew the lease / observe cancellation-deadline-budget until the kernel finishes.
+
+    Extracted from :func:`_execute_claim`. Returns the cancellation ``reason``, if
+    any -- ``None`` means the kernel finished on its own with nothing pending.
+    """
+    # Lease renewal can remain at one-third of the lease, but cancellation and
+    # deadline observation must not become a 20-100 second blind spot for long
+    # leases. Five seconds bounds control-plane responsiveness and RPC load.
+    interval = min(5.0, max(0.25, handle.lease_ms / 3000.0))
+    reason: str | None = None
+    try:
+        while not kernel.done():
+            if stop.is_set():
+                raise asyncio.CancelledError
+            try:
+                await asyncio.wait_for(asyncio.shield(kernel), timeout=interval)
+                break
+            except TimeoutError:
+                current = await handle.client.jobs.status(handle.job_id)
+                now_ms = int(time.time() * 1000)
+                reason = _watchdog_reason(current, now_ms=now_ms, began=began)
+                if reason is not None:
+                    cancel.set()
+                else:
+                    await handle.client.jobs.worker_renew(
+                        handle.job_id,
+                        handle.worker_instance,
+                        handle.epoch,
+                        lease_ms=handle.lease_ms,
+                    )
+    except BaseException:
+        # A lost coordinator connection or process cancellation must not leave a
+        # detached CPU-heavy thread running after its lease can no longer renew.
+        cancel.set()
+        try:
+            await asyncio.shield(kernel)
+        except BaseException:
+            pass
+        raise
+    return reason
+
+
+async def _finalize_reason(handle: _ClaimHandle, reason: str) -> None:
+    """Dispatch a claim's terminal non-success outcome: cancel, or fail with ``reason``."""
+    if reason == "kernel_cancelled":
+        await handle.client.jobs.worker_cancel(
+            handle.job_id, handle.worker_instance, handle.epoch
+        )
+    else:
+        await handle.client.jobs.worker_fail(
+            handle.job_id, handle.worker_instance, handle.epoch, reason
+        )
+
+
 async def _execute_claim(
     client: Any,
     claim: dict[str, Any],
@@ -367,19 +619,14 @@ async def _execute_claim(
     lease = claim["lease"]
     job_id = str(job["job_id"])
     epoch = int(lease["epoch"])
-    if job.get("cancel_requested") is True:
-        await client.jobs.worker_cancel(job_id, worker_instance, epoch)
-        return
-    if _is_publishing(job):
-        await client.jobs.worker_publish(job_id, worker_instance, epoch)
+    if await _short_circuit_claim(client, job, job_id, worker_instance, epoch):
         return
     cancel = threading.Event()
     began = time.monotonic()
-    try:
-        transactions, min_support, min_confidence, _algorithm = _decode_job(job)
-    except AnalyticsWorkerError:
-        await client.jobs.worker_fail(job_id, worker_instance, epoch, "invalid_payload")
+    decoded = await _decode_claim_job(client, job, job_id, worker_instance, epoch)
+    if decoded is None:
         return
+    transactions, min_support, min_confidence, _algorithm = decoded
     await client.jobs.worker_checkpoint(
         job_id,
         worker_instance,
@@ -396,69 +643,24 @@ async def _execute_claim(
             cancel,
         )
     )
-    reason: str | None = None
-    # Lease renewal can remain at one-third of the lease, but cancellation and
-    # deadline observation must not become a 20–100 second blind spot for long
-    # leases. Five seconds bounds control-plane responsiveness and RPC load.
-    interval = min(5.0, max(0.25, lease_ms / 3000.0))
-    try:
-        while not kernel.done():
-            if stop.is_set():
-                raise asyncio.CancelledError
-            try:
-                await asyncio.wait_for(asyncio.shield(kernel), timeout=interval)
-                break
-            except TimeoutError:
-                current = await client.jobs.status(job_id)
-                now_ms = int(time.time() * 1000)
-                deadline = (current.get("policy") or {}).get("deadline_unix_ms")
-                budget = (
-                    (current.get("policy") or {}).get("resources", {}).get("cpu_ms")
-                )
-                budget = budget or (current.get("policy") or {}).get("quota_cpu_ms")
-                if current.get("cancel_requested") is True:
-                    reason = "kernel_cancelled"
-                elif deadline is not None and now_ms >= int(deadline):
-                    reason = "deadline_exceeded"
-                elif budget is not None and (time.monotonic() - began) * 1000 >= int(
-                    budget
-                ):
-                    reason = "cpu_budget_exceeded"
-                if reason is not None:
-                    cancel.set()
-                else:
-                    await client.jobs.worker_renew(
-                        job_id,
-                        worker_instance,
-                        epoch,
-                        lease_ms=lease_ms,
-                    )
-    except BaseException:
-        # A lost coordinator connection or process cancellation must not leave a
-        # detached CPU-heavy thread running after its lease can no longer renew.
-        cancel.set()
-        try:
-            await asyncio.shield(kernel)
-        except BaseException:
-            pass
-        raise
+    handle = _ClaimHandle(
+        client=client,
+        job_id=job_id,
+        worker_instance=worker_instance,
+        epoch=epoch,
+        lease_ms=lease_ms,
+    )
+    reason = await _watch_kernel(handle, kernel, began=began, stop=stop, cancel=cancel)
     try:
         rows = await kernel
     except KernelCancelled:
-        reason = reason or "kernel_cancelled"
-        if reason == "kernel_cancelled":
-            await client.jobs.worker_cancel(job_id, worker_instance, epoch)
-        else:
-            await client.jobs.worker_fail(job_id, worker_instance, epoch, reason)
+        await _finalize_reason(handle, reason or "kernel_cancelled")
         return
     except Exception:  # noqa: BLE001 - bounded failure code; no payload logging
         await client.jobs.worker_fail(job_id, worker_instance, epoch, "kernel_failure")
         return
     if reason is not None:
-        if reason == "kernel_cancelled":
-            await client.jobs.worker_cancel(job_id, worker_instance, epoch)
-        else:
-            await client.jobs.worker_fail(job_id, worker_instance, epoch, reason)
+        await _finalize_reason(handle, reason)
         return
     await client.jobs.worker_checkpoint(
         job_id,
@@ -476,6 +678,49 @@ async def _execute_claim(
     await client.jobs.worker_publish(job_id, worker_instance, epoch)
 
 
+async def _connect_slot_client(endpoint: str, transport_config: Any) -> Any:
+    """Connect one slot's engine client. Extracted from :func:`_slot`."""
+    from epistemic_graph import EpistemicGraphClient
+
+    from agent_utilities.knowledge_graph.core.engine_transport import (
+        engine_client_transport_kwargs,
+        native_endpoint_address,
+    )
+
+    connect_kwargs = engine_client_transport_kwargs(endpoint, config=transport_config)
+    return await EpistemicGraphClient.connect(
+        tcp_addr=native_endpoint_address(endpoint)[0],
+        auth_secret=_required("GRAPH_SERVICE_AUTH_SECRET"),
+        verified_context=_verified_context(),
+        **connect_kwargs,
+    )
+
+
+async def _drain_claims(
+    client: Any,
+    *,
+    instance: str,
+    capabilities: list[str],
+    lease_ms: int,
+    poll_seconds: float,
+    stop: asyncio.Event,
+) -> None:
+    """Claim and execute jobs on ``client`` until ``stop`` fires. Extracted from :func:`_slot`."""
+    while not stop.is_set():
+        claim = await client.jobs.worker_claim(
+            instance,
+            capabilities,
+            lease_ms=lease_ms,
+        )
+        if claim is None:
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=poll_seconds)
+            except TimeoutError:
+                pass
+            continue
+        await _execute_claim(client, claim, instance, lease_ms, stop)
+
+
 async def _slot(
     slot: int,
     *,
@@ -483,13 +728,7 @@ async def _slot(
     poll_seconds: float,
     stop: asyncio.Event,
 ) -> None:
-    from epistemic_graph import EpistemicGraphClient
-
     from agent_utilities.core.config import AgentConfig
-    from agent_utilities.knowledge_graph.core.engine_transport import (
-        engine_client_transport_kwargs,
-        native_endpoint_address,
-    )
 
     instance = f"slot-{slot}-{secrets.token_hex(16)}"
     endpoints = _endpoints()
@@ -500,28 +739,15 @@ async def _slot(
         client = None
         try:
             endpoint = endpoints[cursor % len(endpoints)]
-            connect_kwargs = engine_client_transport_kwargs(
-                endpoint, config=transport_config
+            client = await _connect_slot_client(endpoint, transport_config)
+            await _drain_claims(
+                client,
+                instance=instance,
+                capabilities=capabilities,
+                lease_ms=lease_ms,
+                poll_seconds=poll_seconds,
+                stop=stop,
             )
-            client = await EpistemicGraphClient.connect(
-                tcp_addr=native_endpoint_address(endpoint)[0],
-                auth_secret=_required("GRAPH_SERVICE_AUTH_SECRET"),
-                verified_context=_verified_context(),
-                **connect_kwargs,
-            )
-            while not stop.is_set():
-                claim = await client.jobs.worker_claim(
-                    instance,
-                    capabilities,
-                    lease_ms=lease_ms,
-                )
-                if claim is None:
-                    try:
-                        await asyncio.wait_for(stop.wait(), timeout=poll_seconds)
-                    except TimeoutError:
-                        pass
-                    continue
-                await _execute_claim(client, claim, instance, lease_ms, stop)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 - reconnect without endpoint/payload logging
