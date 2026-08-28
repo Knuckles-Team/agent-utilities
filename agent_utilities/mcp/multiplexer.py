@@ -1967,6 +1967,26 @@ def _assert_task_mutation_fence(
         raise ToolError("Tasks mutation connection generation changed before send")
 
 
+def _task_route_retired(mux: MCPMultiplexer, route: _TaskRoute, runtime: Any) -> bool:
+    """True when the child pool this route was admitted against is gone.
+
+    ``live is None`` is checked explicitly rather than relying on the identity
+    test alone: if the child had been REMOVED, ``children.get`` returns None,
+    and a ``runtime`` that is also None would have compared equal and let a
+    retired route through. Checking the looked-up value rather than the
+    caller's reference is also what proves it non-None for the capability
+    check.
+    """
+    server_name = route["server"]
+    live = mux.children.get(server_name)
+    return (
+        mux._catalog_epoch != route["admission_epoch"]
+        or live is None
+        or live is not runtime
+        or not mux._tasks_runtime_capable(server_name, live)
+    )
+
+
 def _assert_task_route_current(
     mux: MCPMultiplexer,
     route: _TaskRoute,
@@ -1975,13 +1995,8 @@ def _assert_task_route_current(
     current_secret: str | None,
 ) -> None:
     """Revalidate one Tasks route immediately before its request is sent."""
-    server_name = route["server"]
     mutation = route["mutation"]
-    if (
-        mux._catalog_epoch != route["admission_epoch"]
-        or mux.children.get(server_name) is not runtime
-        or not mux._tasks_runtime_capable(server_name, runtime)
-    ):
+    if _task_route_retired(mux, route, runtime):
         raise ToolError(
             "Tasks mutation route was retired before the request was sent"
             if mutation
@@ -2600,8 +2615,16 @@ class MCPMultiplexer:
 
     def _resolve_transport_kind_for_child(
         self, server_name: str, cfg: dict
-    ) -> tuple[str | None, str, str, bool]:
-        command = cfg.get("command")
+    ) -> tuple[str, str, str, bool]:
+        """``(command, url, explicit_transport, is_remote)``.
+
+        ``command`` is ``""`` exactly when ``is_remote`` — the guard below
+        refuses a local child with no command, so a non-remote result always
+        carries a real one. Returning ``""`` rather than ``None`` for the
+        remote case states that in the type: the sole caller passes ``command``
+        only into the local branch.
+        """
+        command = self._child_command(cfg)
         url = _resolve_runtime_value(cfg.get("url", ""), sensitive=False)
         explicit_transport = str(cfg.get("transport", "")).lower()
         if (
@@ -2621,6 +2644,11 @@ class MCPMultiplexer:
 
             enforce_mcp_stdio_permitted(server_name=server_name)
         return command, url, explicit_transport, is_remote
+
+    @staticmethod
+    def _child_command(cfg: dict) -> str:
+        """The configured stdio command, or ``""`` for a URL-only child."""
+        return str(cfg.get("command") or "")
 
     @staticmethod
     def _resolve_child_initialization_timeout(cfg: dict) -> float:

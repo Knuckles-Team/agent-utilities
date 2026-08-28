@@ -976,7 +976,7 @@ def _check_signal(
 
 def _check_capacity_axes(
     contract: ScaleUnitContract,
-    cap_map: dict[str, CapacityObservation],
+    cap_map: dict[CapacityAxis, CapacityObservation],
     current: datetime,
     evidence: list[DecisionEvidence],
     reasons: list[DecisionReason],
@@ -1220,7 +1220,7 @@ def _check_safety(
 
 def _check_scale_up_feasibility(
     contract: ScaleUnitContract,
-    cap_map: dict[str, CapacityObservation],
+    cap_map: dict[CapacityAxis, CapacityObservation],
     quota_map: dict[str, QuotaObservation],
     *,
     desired: int,
@@ -1280,7 +1280,7 @@ def _compute_scale_decision(
     *,
     current_replicas: int,
     signal: SignalObservation | None,
-    cap_map: dict[str, CapacityObservation],
+    cap_map: dict[CapacityAxis, CapacityObservation],
     quota_map: dict[str, QuotaObservation],
     continuity: ContinuityObservation | None,
     last_action_at: datetime | None,

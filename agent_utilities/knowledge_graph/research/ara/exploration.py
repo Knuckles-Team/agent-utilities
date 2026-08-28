@@ -95,14 +95,14 @@ class ExplorationGraphBuilder:
         return traj
 
     def _add_plain(
-        self, traj: ResearchTrajectory, kind: str, texts: list[str] | None
+        self, traj: ResearchTrajectory, kind: ExplorationKind, texts: list[str] | None
     ) -> None:
         """Append one node per item, using the item as-is for text."""
         for text in texts or []:
             traj.add(self._nid(kind), kind, text)
 
     def _add_derived(
-        self, traj: ResearchTrajectory, kind: str, items: list[Any] | None
+        self, traj: ResearchTrajectory, kind: ExplorationKind, items: list[Any] | None
     ) -> None:
         """Append one node per item, deriving text via ``_text_of``."""
         for item in items or []:

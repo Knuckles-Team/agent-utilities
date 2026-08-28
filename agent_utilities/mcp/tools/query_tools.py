@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Sequence
 from typing import Any
 
 from pydantic import Field
@@ -2191,7 +2192,7 @@ def register_query_tools(mcp):
 
     def _graph_document_tree_spine_resolve(
         engine: Any, action: str, text: str, artifact_id: str, document_id: str
-    ) -> tuple[list[Any], str, str | None]:
+    ) -> tuple[Sequence[Any], str, str | None]:
         from agent_utilities.knowledge_graph.ingestion.evidence_spine import (
             artifact_id_for,
             fragment_markdown,
@@ -2224,7 +2225,7 @@ def register_query_tools(mcp):
         )
 
     def _graph_document_tree_spine_cite(
-        fragments: list[Any],
+        fragments: Sequence[Any],
         resolved_artifact: str,
         fragment_id: str,
         content_hash: str,
@@ -2249,7 +2250,7 @@ def register_query_tools(mcp):
         )
 
     def _graph_document_tree_spine_fragments(
-        fragments: list[Any], resolved_artifact: str, document_id: str, kinds: str
+        fragments: Sequence[Any], resolved_artifact: str, document_id: str, kinds: str
     ) -> str:
         wanted = {k.strip() for k in kinds.split(",") if k.strip()}
         selected = [f for f in fragments if not wanted or f.kind in wanted]

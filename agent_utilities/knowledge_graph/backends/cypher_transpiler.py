@@ -342,10 +342,13 @@ def _try_general_traversal(
     # labels present. Join the per-label node tables through ``kg_edges``.
     # (Case A below handles the "edge between two known ids" lookup.)
     # CONCEPT:AU-KG.query.vendor-agnostic-traversal — vendor-agnostic traversal on the durable store.
-    labels_ok = bool(s_label and t_label) and (
-        not known_tables or (s_label in known_tables and t_label in known_tables)
+    # The two label truthiness tests are INLINE in the `if`, not hoisted into a
+    # `labels_ok` bool: `_build_traversal` takes `str`, and hiding the test
+    # behind a bool loses the narrowing that proves neither label is None.
+    labels_known = not known_tables or (
+        s_label in known_tables and t_label in known_tables
     )
-    if sid is None and tid is None and labels_ok:
+    if sid is None and tid is None and s_label and t_label and labels_known:
         return _build_traversal(
             cypher_stripped,
             s_alias,

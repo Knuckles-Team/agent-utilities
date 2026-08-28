@@ -36,7 +36,10 @@ import logging
 import os
 import threading
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # `GraphBackend` is exported lazily via ``__getattr__``.
+    from .base import GraphBackend
 
 from agent_utilities.core.config import setting
 
@@ -668,7 +671,7 @@ def _create_jena_fuseki_backend(kwargs):
     return backend
 
 
-def _create_fanout_backend():
+def _create_fanout_backend() -> "GraphBackend":
     # Concurrent N-way projection (CONCEPT:AU-KG.backend.mirror-health-repair):
     # EpistemicGraphBackend is fixed as the read/write-ack authority. External
     # connections are write projections with durable replay and reconciliation.
@@ -688,7 +691,7 @@ def _create_fanout_backend():
     if not mirrors:
         from .epistemic_graph_backend import EpistemicGraphBackend
 
-        backend = EpistemicGraphBackend()
+        backend: GraphBackend = EpistemicGraphBackend()
     else:
         from agent_utilities.core.paths import kg_db_path
 

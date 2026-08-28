@@ -268,6 +268,24 @@ class BranchMergeStateLocker(OptimisticStateLocker):
                 return None, False
         return self._default_dict_merge(base_data, branch_data), True
 
+    def _merged_state_or_none(
+        self,
+        resolver: Any,
+        base_data: dict[str, Any],
+        branch_data: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """The merged state, or ``None`` when the merge did not produce one.
+
+        Collapses two failure modes the caller used to have to tell apart, and
+        one it did not handle at all: `_resolve_conflict_merge`'s ``ok`` is
+        False only for a resolver that RAISED, so a custom resolver that
+        RETURNS None reached `update_state(base_key, None, ...)` and wrote None
+        as the merged state. A merge that produced no state has not merged
+        anything, so both are one ``None`` here.
+        """
+        merged_data, ok = self._resolve_conflict_merge(resolver, base_data, branch_data)
+        return merged_data if ok else None
+
     def merge_state(
         self, base_key: str, branch_name: str, resolver: Any = None
     ) -> bool:
@@ -303,8 +321,8 @@ class BranchMergeStateLocker(OptimisticStateLocker):
         if not isinstance(branch_data, dict):
             branch_data = {}
 
-        merged_data, ok = self._resolve_conflict_merge(resolver, base_data, branch_data)
-        if not ok:
+        merged_data = self._merged_state_or_none(resolver, base_data, branch_data)
+        if merged_data is None:
             return False
 
         return self._finalize_merge(base_key, branch_name, merged_data, base_version)

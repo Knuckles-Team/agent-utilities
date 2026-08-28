@@ -4002,8 +4002,13 @@ class TaskManagerMixin(GraphEngineProtocol):
         gate. Idempotent (only ``embedding IS NULL`` rows). (CONCEPT:AU-KG.coordination.embedder-breaker)
         """
         target = self.backend
-        conn_factory = getattr(target, "_conn", None)
-        get_tables = getattr(target, "_get_embedding_tables", None)
+        # Explicitly `Any`: these are duck-typed backend attributes that only a
+        # pgvector backend defines, so mypy resolves the 3-arg `getattr` to its
+        # `None` default and then reads `get_tables()` as calling None. The
+        # `callable(...)` narrowing that used to make that obvious lives in
+        # `_pgvector_backfill_ready` since the extraction.
+        conn_factory: Any = getattr(target, "_conn", None)
+        get_tables: Any = getattr(target, "_get_embedding_tables", None)
         if not _pgvector_backfill_ready(target, conn_factory, get_tables):
             # D-EMB: not a pgvector backend — try the native-engine fallback
             # instead of unconditionally returning 0 (see

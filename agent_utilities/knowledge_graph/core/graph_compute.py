@@ -976,7 +976,7 @@ class _SessionRoutedAsyncClient:
                 "An explicit graph cannot retarget the verified GraphSession"
             )
 
-    async def _resolve_route(self, target: str | None, *, force_refresh: bool) -> Any:
+    async def _resolve_route(self, target: str, *, force_refresh: bool) -> Any:
         """Resolve ``target``'s placement through the authoritative catalog."""
         import asyncio
 
@@ -995,7 +995,7 @@ class _SessionRoutedAsyncClient:
         self,
         method: str,
         params: dict[str, Any] | None,
-        target: str | None,
+        target: str,
         idempotency_key: str | None,
         session: Any,
     ) -> Any:
@@ -1053,7 +1053,7 @@ class _SessionRoutedAsyncClient:
         self,
         method: str,
         params: dict[str, Any] | None,
-        target: str | None,
+        target: str,
         idempotency_key: str | None,
         session: Any,
     ) -> Any:
@@ -2841,7 +2841,7 @@ class GraphComputeEngine:
         logger.info(
             "epistemic-graph Tokio service not running. Auto-starting daemon (single-instance guard held)..."
         )
-        self._local_bootstrap_identity = None
+        self._local_bootstrap_identity: tuple[str, str, dict[str, Any]] | None = None
         server_path = _resolve_engine_server_path(sys, Path)
         cmd = _build_autostart_argv(
             server_path,

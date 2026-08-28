@@ -362,7 +362,7 @@ class PromotionGovernanceValidator:
 
     @staticmethod
     def _first_matching_forbid_rule(
-        rows: list[Any], text: str
+        rows: list[Any] | None, text: str
     ) -> GovernanceCheck | None:
         for row in rows or []:
             if not isinstance(row, dict):

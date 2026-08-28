@@ -1104,6 +1104,18 @@ def _execution_succeeded(result: Any) -> bool:
     return result is not None
 
 
+def _require_candidate(candidate: CapabilityCandidate | None) -> CapabilityCandidate:
+    """The resolved top candidate, refusing rather than returning ``None``.
+
+    Reaching here with ``None`` is a contract violation: the resolver returns
+    an outcome dict whenever it finds no candidate. Stating that as a raise
+    keeps the invariant in ONE place instead of eight attribute reads.
+    """
+    if candidate is None:
+        raise RuntimeError("intent routing resolved no capability candidate")
+    return candidate
+
+
 def _approval_satisfied_by_session_load(mcp: Any, chosen_tool: str) -> bool:
     """BUG-040: is THIS caller's session actually allowed to dispatch ``chosen_tool``?
 
@@ -1330,6 +1342,14 @@ async def dispatch_intent(
     if _candidates_outcome is not None:
         return _candidates_outcome
 
+    # `_resolve_candidates` returns an outcome dict whenever it finds no
+    # candidate, so `top` is bound past this point by contract. Binding a
+    # non-optional name for it says that once, HERE, instead of leaving every
+    # later `top.<attr>` to be read as a possible attribute-on-None — which is
+    # what the closures below made it, since a closure reads the DECLARED type
+    # of a free variable, not a narrowed one.
+    chosen_candidate = _require_candidate(top)
+
     chosen_action: str | None = None
     ranked_actions: list[tuple[str, float]] = []
 
@@ -1402,7 +1422,7 @@ async def dispatch_intent(
                 }
         chosen_action = (
             explicit_action
-            or top.action
+            or chosen_candidate.action
             or (ranked_actions[0][0] if ranked_actions else None)
         )
         return None
@@ -1489,14 +1509,14 @@ async def dispatch_intent(
             "intent_ref": intent_ref,
             "chosen_tool": chosen_tool,
             "action": chosen_action,
-            "score": round(top.score, 4),
-            "matched_terms": top.matched_terms,
+            "score": round(chosen_candidate.score, 4),
+            "matched_terms": chosen_candidate.matched_terms,
             "fell_back_to_nl_planner": fell_back,
             "why": (
-                f"'{top.tool}' best matched the {verb!r} intent on descriptor terms "
-                f"{top.matched_terms!r}"
-                if top.matched_terms
-                else f"'{top.tool}' is the highest-ranked capability for verb {verb!r}"
+                f"'{chosen_candidate.tool}' best matched the {verb!r} intent on descriptor terms "
+                f"{chosen_candidate.matched_terms!r}"
+                if chosen_candidate.matched_terms
+                else f"'{chosen_candidate.tool}' is the highest-ranked capability for verb {verb!r}"
             )
             + (
                 f"; routed through '{_ASK_FALLBACK_TOOL}' because the selected "
@@ -1517,7 +1537,7 @@ async def dispatch_intent(
             "plan": plan,
             "decision_trace": {
                 "evidence": {
-                    "matched_terms": top.matched_terms,
+                    "matched_terms": chosen_candidate.matched_terms,
                     "candidate_count": len(candidates),
                     "capability_source": "packaged_graphos_cpd",
                 },

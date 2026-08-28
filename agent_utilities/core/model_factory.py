@@ -918,7 +918,7 @@ def _build_huggingface_model(
 
 def _resolve_custom_proxy_target(
     base_url: str | None, api_key: str | None
-) -> tuple[str | None, str | None]:
+) -> tuple[str, str | None]:
     # Credentials resolve env > file > none; kept in its own helper so the
     # egress-validation and client-construction steps stay independently
     # readable (CONCEPT:AU-ORCH.adapter.byok-provider-proxy).

@@ -343,7 +343,7 @@ def _validate_placement_stores(
     raw_stores = raw_contract.get("stores")
     if not isinstance(raw_stores, list):
         errors.append("authority_placement.stores must be a list")
-        return
+        return False
     stores: dict[str, dict[str, Any]] = {}
     seen_store_classes: dict[str, str] = {}
     all_expected_classes = set().union(

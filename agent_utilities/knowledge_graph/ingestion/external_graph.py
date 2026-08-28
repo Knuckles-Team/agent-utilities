@@ -1313,22 +1313,28 @@ def _prepare_edge_row(
     edge_allowlist: tuple[str, ...],
     privacy: PersistencePrivacyGuard,
     privacy_counts: Counter[str],
-) -> tuple[str, str | None, dict[str, Any] | None, int]:
-    """Prepare one edge row; returns (state, source_key, edge_or_None, redactions).
+) -> tuple[str, tuple[str, dict[str, Any]] | None, int]:
+    """Prepare one edge row; returns (state, (source_key, edge) or None, redactions).
 
     ``state`` is one of ``"missing"`` (no mapped identity on either endpoint),
     ``"dropped"`` (an endpoint was quarantined/absent from ``internal_ids``), or
     ``"ok"``.
+
+    The source key and the edge travel together as ONE optional pair rather
+    than as two independently-optional values, because they are never
+    independently present: both exist exactly when ``state == "ok"``. Stating
+    that in the type is what lets the caller index ``outgoing[source_key]``
+    without a `type: ignore` on each of two separate error codes.
     """
 
     source_identity = _dig(row, source_path)
     target_identity = _dig(row, target_path)
     if source_identity in (None, "") or target_identity in (None, ""):
-        return "missing", None, None, 0
+        return "missing", None, 0
     source_key = str(source_identity)
     target_key = str(target_identity)
     if source_key not in internal_ids or target_key not in internal_ids:
-        return "dropped", None, None, 0
+        return "dropped", None, 0
     properties = _dig(row, edge_props_path, {})
     if not isinstance(properties, dict):
         properties = {}
@@ -1345,7 +1351,7 @@ def _prepare_edge_row(
         "type": edge_type,
         **clean_properties,
     }
-    return "ok", source_key, edge, redactions
+    return "ok", (source_key, edge), redactions
 
 
 def _edge_field_paths(
@@ -1383,7 +1389,7 @@ def _prepare_edges(
     )
 
     for row in edge_rows:
-        state, source_key, edge, redactions = _prepare_edge_row(
+        state, prepared, redactions = _prepare_edge_row(
             row,
             source_path=source_path,
             target_path=target_path,
@@ -1398,10 +1404,11 @@ def _prepare_edges(
         if state == "missing":
             identity_complete = False
             continue
-        if state == "dropped":
+        if prepared is None:  # "dropped" — an endpoint is not in internal_ids
             continue
+        source_key, edge = prepared
         privacy_redactions += redactions
-        outgoing[source_key].append(edge)  # type: ignore[arg-type]
+        outgoing[source_key].append(edge)
 
     return outgoing, privacy_counts, privacy_redactions, identity_complete
 

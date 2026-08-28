@@ -436,7 +436,11 @@ def _is_malformed_numeric_claim(value: Any) -> bool:
 
 
 def _exp_claim_invalid(claims: dict, now: float) -> bool:
-    exp = claims.get("exp")
+    # `Any`, not the inferred `Any | None`: `_is_malformed_numeric_claim`
+    # short-circuits every non-numeric value (None included) before the
+    # `float(...)`, but that narrowing lives in the callee, so the annotation
+    # has to say what a JWT claim actually is — untyped.
+    exp: Any = claims.get("exp")
     return _is_malformed_numeric_claim(exp) or float(exp) < now
 
 

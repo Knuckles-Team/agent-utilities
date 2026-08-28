@@ -58,7 +58,7 @@ import re
 import sys
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 # Direct script execution puts ``agent_utilities/mcp`` first on ``sys.path``.
 # Force this checkout's repository root ahead of any globally installed copy so
@@ -408,7 +408,10 @@ def _handle_call_node(node: ast.Call, env_name_arg: Any, found: set[str]) -> Non
         found.update(_field_alias_names(node))
 
 
-def _is_environ_subscript_read(node: ast.AST) -> bool:
+def _is_environ_subscript_read(node: ast.AST) -> TypeGuard[ast.Subscript]:
+    """``os.environ[...]`` read. A ``TypeGuard`` so the caller may reach
+    ``node.slice`` — a plain ``bool`` narrows nothing, which is what left the
+    caller reading ``.slice`` off a bare ``ast.AST``."""
     return (
         isinstance(node, ast.Subscript)
         and isinstance(node.ctx, ast.Load)

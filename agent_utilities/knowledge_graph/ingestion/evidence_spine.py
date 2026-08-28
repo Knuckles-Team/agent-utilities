@@ -685,7 +685,7 @@ def _media_type_for(payload_type: str) -> str:
 
 
 def resolve_fragment(
-    fragments: tuple[Fragment, ...] | list[Fragment],
+    fragments: Sequence[Fragment],
     *,
     fragment_id: str = "",
     content_hash: str = "",
@@ -1323,7 +1323,7 @@ def load_fragments(
 
 
 def citation_status(
-    fragments: tuple[Fragment, ...] | list[Fragment],
+    fragments: Sequence[Fragment],
     *,
     fragment_id: str = "",
     content_hash: str = "",

@@ -951,9 +951,15 @@ def _generated_operation_arguments(
 
 def _generated_operation_records_path(
     connection_fields: Mapping[str, Any], types: Mapping[str, Mapping[str, Any]]
-) -> tuple[str, str, dict[str, Any], int, str, str] | None:
+) -> tuple[str, str, list[str], int, str, str] | None:
     """The first usable ``nodes``/``items`` connection field, or None (the
-    caller keeps its own scalar-root defaults in that case)."""
+    caller keeps its own scalar-root defaults in that case).
+
+    The third slot is ``_leaf_fields(...)``, a LIST of field names — the
+    annotation said ``dict`` and never matched what the one return statement
+    builds or what the one caller assigns it to (``entity_fields``, also a
+    list from ``_leaf_fields``).
+    """
     for candidate in ("nodes", "items"):
         nested = connection_fields.get(candidate)
         if nested is None:
