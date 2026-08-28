@@ -137,21 +137,39 @@ def _blob(root: str, rev_path: str, suffix: str, tmp: str) -> str | None:
 
 
 def _walk(fn: dict, prefix: str, out: dict) -> None:
-    """Collect a function AND its nested children.
+    """Collect a function AND its nested children, keeping EVERY row.
 
-    cccc reports a nested function under its parent's `children`, not as a flat
-    entry. A flat read scores an enclosing `def` at cognitive 0 and misses the
-    nested body entirely -- the three worst Python functions in this workspace
-    are nested. Do not "simplify" this away.
+    Two traps live here, and both made a gate report clean over dirty code.
+
+    1. cccc reports a nested function under its parent's `children`, not as a
+       flat entry. A flat read scores an enclosing `def` at cognitive 0 and
+       misses the nested body entirely -- the three worst Python functions in
+       this workspace are nested.
+
+    2. ★ A qualified name is NOT unique, so the value is a LIST. This function
+       shipped as `out[name] = (cyc, cog)`, which keeps only whichever function
+       of that name cccc emitted LAST and discards the others. Two classes in one
+       module may each define `submit`; cccc reports both at the same level with
+       the same qualified name. Measured when this was found:
+       epistemic_graph/client.py collapsed 740 rows to 654 names, hiding 86 --
+       including a `submit` at cyclomatic 22 / cognitive 20 sitting behind a
+       clean one, over which the sibling gate reported "every function under both
+       caps". In au: core/config.py hides 10 rows, multiplexer.py 1,
+       source_sync.py 1.
+
+    Do not "simplify" either of these back.
     """
     name = f"{prefix}{fn['name']}"
-    out[name] = (fn["cyclomatic"], fn["cognitive"])
+    out.setdefault(name, []).append((fn["cyclomatic"], fn["cognitive"]))
     for kid in fn.get("children", ()):
         _walk(kid, f"{name}.", out)
 
 
-def measure(path: str) -> dict[str, tuple[int, int]]:
-    """{qualified_name: (cyclomatic, cognitive)} for one file, children included."""
+def measure(path: str) -> dict[str, list[tuple[int, int]]]:
+    """{qualified_name: [(cyclomatic, cognitive), ...]} for one file.
+
+    A list per name, not a pair -- names collide. See `_walk`.
+    """
     exe = _resolve_cccc()
     try:
         r = subprocess.run(
@@ -176,26 +194,58 @@ def measure(path: str) -> dict[str, tuple[int, int]]:
     return out
 
 
+def _new_findings(name: str, rows: list, max_cyc: int, max_cog: int) -> list:
+    """Rows for a name absent from HEAD: each is judged on the caps alone."""
+    return [
+        ("NEW", name, (0, 0), (cyc, cog))
+        for cyc, cog in rows
+        if cyc > max_cyc or cog > max_cog
+    ]
+
+
+def _flatten(measured: dict) -> list[tuple[int, int]]:
+    """Every (cyclomatic, cognitive) row across every name, duplicates included."""
+    return [row for rows in measured.values() for row in rows]
+
+
+def _worst(rows: list) -> tuple[int, int]:
+    """The worst cyclomatic and worst cognitive carried by one name."""
+    return max(c for c, _ in rows), max(g for _, g in rows)
+
+
+def _regression(name: str, prior: list, rows: list) -> list:
+    """A name present in HEAD whose worst value rose on either metric.
+
+    Compares WORST-per-name rather than pairing rows up: a name may map to
+    several functions and a rename or reorder shuffles them, so they cannot be
+    matched across the change. Conservative -- it cannot miss a regression.
+    """
+    before = _worst(prior)
+    after = _worst(rows)
+    if after[0] > before[0] or after[1] > before[1]:
+        return [("WORSE", name, before, after)]
+    return []
+
+
 def judge(
-    before: dict[str, tuple[int, int]],
-    after: dict[str, tuple[int, int]],
+    before: dict[str, list[tuple[int, int]]],
+    after: dict[str, list[tuple[int, int]]],
     max_cyc: int,
     max_cog: int,
 ) -> list[tuple[str, str, tuple[int, int], tuple[int, int]]]:
     """Findings as (kind, function, before, after). Empty means clean.
 
-    `kind` is NEW (absent from HEAD, over a cap) or WORSE (present in HEAD, up on
-    either metric). A pre-existing over-cap function left alone yields nothing --
-    see the module docstring for why that is scope, not a baseline.
+    NEW = absent from HEAD and over a cap. WORSE = present in HEAD and up on
+    either metric. A pre-existing over-cap function left alone yields nothing --
+    the module docstring explains why that is scope, not a baseline.
     """
-    findings = []
-    for name, (cyc, cog) in sorted(after.items()):
+    findings: list = []
+    for name, rows in sorted(after.items()):
         prior = before.get(name)
         if prior is None:
-            if cyc > max_cyc or cog > max_cog:
-                findings.append(("NEW", name, (0, 0), (cyc, cog)))
-        elif cyc > prior[0] or cog > prior[1]:
-            findings.append(("WORSE", name, prior, (cyc, cog)))
+            findings.extend(_new_findings(name, rows, max_cyc, max_cog))
+        else:
+            findings.extend(_regression(name, prior, rows))
     return findings
 
 
@@ -207,11 +257,11 @@ def _report_file(rel: str, after: dict[str, tuple[int, int]]) -> None:
     """
     if not after:
         return
-    worst_cyc = max(c for c, _ in after.values())
-    worst_cog = max(g for _, g in after.values())
-    over = sum(1 for c, g in after.values() if c > DEFAULT_MAX_CYCLOMATIC or g > DEFAULT_MAX_COGNITIVE)
+    flat = _flatten(after)
+    worst_cyc, worst_cog = _worst(flat)
+    over = sum(1 for c, g in flat if c > DEFAULT_MAX_CYCLOMATIC or g > DEFAULT_MAX_COGNITIVE)
     print(
-        f"  {rel}: {len(after)} fn, worst cyc {worst_cyc}, worst cog {worst_cog}, "
+        f"  {rel}: {len(flat)} fn, worst cyc {worst_cyc}, worst cog {worst_cog}, "
         f"{over} already over 10/15"
     )
 
