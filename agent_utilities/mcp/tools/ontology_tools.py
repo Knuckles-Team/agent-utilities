@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -1012,6 +1013,224 @@ def _graph_etl_run(args: _EtlRunArgs) -> str:
         ),
         default=str,
     )
+
+
+def _classification_claim_from_json(raw: str) -> Any:
+    from agent_utilities.knowledge_graph.ontology.classification_claims import (
+        ClassificationClaim,
+    )
+
+    data = dict(json.loads(raw))
+    data["evidence_refs"] = tuple(data.get("evidence_refs") or ())
+    return ClassificationClaim(**data)
+
+
+def _classification_claim_dict(claim: Any) -> dict[str, Any]:
+    import dataclasses
+
+    row = dataclasses.asdict(claim)
+    row["evidence_refs"] = list(row["evidence_refs"])
+    return row
+
+
+@dataclass
+class _ClassificationClaimsCtx:
+    """Bundled `ontology_classification_claims` parameters, passed as one
+    object to every action handler so each stays at a single parameter
+    regardless of how many of the tool's 17 fields it actually needs."""
+
+    engine: Any
+    subject_id: str
+    category: str
+    status: str
+    claim_json: str
+    new_claim_json: str
+    source_snapshot: str
+    policy_approved: bool
+    reviewer: str
+    reason: str
+    viewer_clearance: str
+    claim_id: str
+    artifact_a_id: str
+    artifact_b_id: str
+    evidence_refs_json: str
+    extractor_ref: str
+    confidence: float
+    tenant: str
+
+
+def _classification_claims_record(ctx: _ClassificationClaimsCtx) -> str:
+    from agent_utilities.knowledge_graph.ontology.classification_claims import (
+        claim_from_raw,
+        record_claim,
+    )
+
+    claim = claim_from_raw(
+        json.loads(ctx.claim_json) if ctx.claim_json else {},
+        source_snapshot=ctx.source_snapshot,
+        policy_approved=bool(ctx.policy_approved),
+    )
+    if claim is None:
+        return json.dumps(
+            {"status": "error", "error": "claim_json is malformed or rejected"}
+        )
+    record_claim(ctx.engine, claim)
+    return json.dumps({"status": "success", "claim": _classification_claim_dict(claim)})
+
+
+def _classification_claims_query(ctx: _ClassificationClaimsCtx) -> str:
+    from agent_utilities.knowledge_graph.ontology.classification_claims import (
+        query_claims,
+    )
+
+    claims = query_claims(
+        ctx.engine,
+        ctx.subject_id,
+        status=ctx.status or None,
+        category=ctx.category or None,
+    )
+    return json.dumps({"claims": [_classification_claim_dict(c) for c in claims]})
+
+
+def _classification_claims_categories(ctx: _ClassificationClaimsCtx) -> str:
+    from agent_utilities.knowledge_graph.ontology.classification_claims import (
+        query_categories,
+    )
+
+    return json.dumps(
+        {"categories": sorted(query_categories(ctx.engine, ctx.subject_id))}
+    )
+
+
+def _classification_claims_history(ctx: _ClassificationClaimsCtx) -> str:
+    from agent_utilities.knowledge_graph.ontology.classification_claims import (
+        query_claim_history,
+    )
+
+    claims = query_claim_history(ctx.engine, ctx.subject_id, ctx.category)
+    return json.dumps({"claims": [_classification_claim_dict(c) for c in claims]})
+
+
+def _classification_claims_resolve_evidence(ctx: _ClassificationClaimsCtx) -> str:
+    from agent_utilities.knowledge_graph.ontology.classification_claims import (
+        resolve_claim_evidence,
+    )
+
+    claim = _classification_claim_from_json(ctx.claim_json)
+    evidence = resolve_claim_evidence(
+        ctx.engine, claim, viewer_clearance=ctx.viewer_clearance or "internal"
+    )
+    return json.dumps({"evidence": evidence})
+
+
+def _classification_claims_review(ctx: _ClassificationClaimsCtx) -> str:
+    from agent_utilities.knowledge_graph.ontology.classification_claims import (
+        ClassificationPromotionLedger,
+    )
+
+    ledger = ClassificationPromotionLedger(ctx.engine)
+    updated = ledger.review(
+        _classification_claim_from_json(ctx.claim_json),
+        reason=ctx.reason or "under review",
+    )
+    return json.dumps(
+        {"status": "success", "claim": _classification_claim_dict(updated)}
+    )
+
+
+def _classification_claims_promote(ctx: _ClassificationClaimsCtx) -> str:
+    from agent_utilities.knowledge_graph.ontology.classification_claims import (
+        ClassificationPromotionLedger,
+    )
+
+    ledger = ClassificationPromotionLedger(ctx.engine)
+    updated = ledger.promote(
+        _classification_claim_from_json(ctx.claim_json),
+        reviewer=ctx.reviewer,
+        reason=ctx.reason or "promoted after review",
+    )
+    return json.dumps(
+        {"status": "success", "claim": _classification_claim_dict(updated)}
+    )
+
+
+def _classification_claims_reject(ctx: _ClassificationClaimsCtx) -> str:
+    from agent_utilities.knowledge_graph.ontology.classification_claims import (
+        ClassificationPromotionLedger,
+    )
+
+    ledger = ClassificationPromotionLedger(ctx.engine)
+    updated = ledger.reject(
+        _classification_claim_from_json(ctx.claim_json),
+        reviewer=ctx.reviewer,
+        reason=ctx.reason,
+    )
+    return json.dumps(
+        {"status": "success", "claim": _classification_claim_dict(updated)}
+    )
+
+
+def _classification_claims_supersede(ctx: _ClassificationClaimsCtx) -> str:
+    from agent_utilities.knowledge_graph.ontology.classification_claims import (
+        ClassificationPromotionLedger,
+    )
+
+    ledger = ClassificationPromotionLedger(ctx.engine)
+    old_updated, new_claim = ledger.supersede(
+        _classification_claim_from_json(ctx.claim_json),
+        _classification_claim_from_json(ctx.new_claim_json),
+        reason=ctx.reason or "superseded by a newer extraction",
+    )
+    return json.dumps(
+        {
+            "status": "success",
+            "old_claim": _classification_claim_dict(old_updated),
+            "new_claim": _classification_claim_dict(new_claim),
+        }
+    )
+
+
+def _classification_claims_lifecycle_history(ctx: _ClassificationClaimsCtx) -> str:
+    from agent_utilities.knowledge_graph.ontology.classification_claims import (
+        ClassificationPromotionLedger,
+    )
+
+    ledger = ClassificationPromotionLedger(ctx.engine)
+    return json.dumps({"events": ledger.history(ctx.claim_id)})
+
+
+def _classification_claims_propose_identity(ctx: _ClassificationClaimsCtx) -> str:
+    from agent_utilities.knowledge_graph.ontology.classification_claims import (
+        propose_cross_source_identity,
+        record_claim,
+    )
+
+    claim = propose_cross_source_identity(
+        artifact_a_id=ctx.artifact_a_id,
+        artifact_b_id=ctx.artifact_b_id,
+        evidence_refs=json.loads(ctx.evidence_refs_json or "[]"),
+        source_snapshot=ctx.source_snapshot,
+        extractor_ref=ctx.extractor_ref,
+        confidence=None if ctx.confidence < 0 else ctx.confidence,
+        tenant=ctx.tenant,
+    )
+    record_claim(ctx.engine, claim)
+    return json.dumps({"status": "success", "claim": _classification_claim_dict(claim)})
+
+
+_CLASSIFICATION_CLAIMS_ACTIONS: dict[str, Callable[[_ClassificationClaimsCtx], str]] = {
+    "record": _classification_claims_record,
+    "query": _classification_claims_query,
+    "categories": _classification_claims_categories,
+    "history": _classification_claims_history,
+    "resolve_evidence": _classification_claims_resolve_evidence,
+    "review": _classification_claims_review,
+    "promote": _classification_claims_promote,
+    "reject": _classification_claims_reject,
+    "supersede": _classification_claims_supersede,
+    "lifecycle_history": _classification_claims_lifecycle_history,
+    "propose_identity": _classification_claims_propose_identity,
+}
 
 
 def register_ontology_tools(mcp):
@@ -2064,30 +2283,6 @@ def register_ontology_tools(mcp):
         tenant: str = Field(default="", description="For record/propose_identity."),
     ) -> str:
         """Record / query / promote classification claims through the governed lifecycle."""
-        import dataclasses
-
-        from agent_utilities.knowledge_graph.ontology.classification_claims import (
-            ClassificationClaim,
-            ClassificationPromotionLedger,
-            claim_from_raw,
-            propose_cross_source_identity,
-            query_categories,
-            query_claim_history,
-            query_claims,
-            record_claim,
-            resolve_claim_evidence,
-        )
-
-        def _claim_from_json(raw: str) -> ClassificationClaim:
-            data = dict(json.loads(raw))
-            data["evidence_refs"] = tuple(data.get("evidence_refs") or ())
-            return ClassificationClaim(**data)
-
-        def _claim_dict(claim: ClassificationClaim) -> dict[str, Any]:
-            row = dataclasses.asdict(claim)
-            row["evidence_refs"] = list(row["evidence_refs"])
-            return row
-
         try:
             engine = kg_server._get_engine()
         except Exception:  # noqa: BLE001
@@ -2096,97 +2291,32 @@ def register_ontology_tools(mcp):
             return json.dumps({"status": "error", "error": "active engine required"})
 
         try:
-            if action == "record":
-                claim = claim_from_raw(
-                    json.loads(claim_json) if claim_json else {},
-                    source_snapshot=source_snapshot,
-                    policy_approved=bool(policy_approved),
-                )
-                if claim is None:
-                    return json.dumps(
-                        {
-                            "status": "error",
-                            "error": "claim_json is malformed or rejected",
-                        }
-                    )
-                record_claim(engine, claim)
-                return json.dumps({"status": "success", "claim": _claim_dict(claim)})
-
-            if action == "query":
-                claims = query_claims(
-                    engine,
-                    subject_id,
-                    status=status or None,
-                    category=category or None,
-                )
-                return json.dumps({"claims": [_claim_dict(c) for c in claims]})
-
-            if action == "categories":
+            handler = _CLASSIFICATION_CLAIMS_ACTIONS.get(action)
+            if handler is None:
                 return json.dumps(
-                    {"categories": sorted(query_categories(engine, subject_id))}
+                    {"status": "error", "error": f"unknown action {action!r}"}
                 )
-
-            if action == "history":
-                claims = query_claim_history(engine, subject_id, category)
-                return json.dumps({"claims": [_claim_dict(c) for c in claims]})
-
-            if action == "resolve_evidence":
-                claim = _claim_from_json(claim_json)
-                evidence = resolve_claim_evidence(
-                    engine, claim, viewer_clearance=viewer_clearance or "internal"
-                )
-                return json.dumps({"evidence": evidence})
-
-            ledger = ClassificationPromotionLedger(engine)
-            if action == "review":
-                updated = ledger.review(
-                    _claim_from_json(claim_json), reason=reason or "under review"
-                )
-                return json.dumps({"status": "success", "claim": _claim_dict(updated)})
-            if action == "promote":
-                updated = ledger.promote(
-                    _claim_from_json(claim_json),
-                    reviewer=reviewer,
-                    reason=reason or "promoted after review",
-                )
-                return json.dumps({"status": "success", "claim": _claim_dict(updated)})
-            if action == "reject":
-                updated = ledger.reject(
-                    _claim_from_json(claim_json), reviewer=reviewer, reason=reason
-                )
-                return json.dumps({"status": "success", "claim": _claim_dict(updated)})
-            if action == "supersede":
-                old_updated, new_claim = ledger.supersede(
-                    _claim_from_json(claim_json),
-                    _claim_from_json(new_claim_json),
-                    reason=reason or "superseded by a newer extraction",
-                )
-                return json.dumps(
-                    {
-                        "status": "success",
-                        "old_claim": _claim_dict(old_updated),
-                        "new_claim": _claim_dict(new_claim),
-                    }
-                )
-            if action == "lifecycle_history":
-                return json.dumps({"events": ledger.history(claim_id)})
-
-            if action == "propose_identity":
-                claim = propose_cross_source_identity(
-                    artifact_a_id=artifact_a_id,
-                    artifact_b_id=artifact_b_id,
-                    evidence_refs=json.loads(evidence_refs_json or "[]"),
-                    source_snapshot=source_snapshot,
-                    extractor_ref=extractor_ref,
-                    confidence=None if confidence < 0 else confidence,
-                    tenant=tenant,
-                )
-                record_claim(engine, claim)
-                return json.dumps({"status": "success", "claim": _claim_dict(claim)})
-
-            return json.dumps(
-                {"status": "error", "error": f"unknown action {action!r}"}
+            ctx = _ClassificationClaimsCtx(
+                engine=engine,
+                subject_id=subject_id,
+                category=category,
+                status=status,
+                claim_json=claim_json,
+                new_claim_json=new_claim_json,
+                source_snapshot=source_snapshot,
+                policy_approved=policy_approved,
+                reviewer=reviewer,
+                reason=reason,
+                viewer_clearance=viewer_clearance,
+                claim_id=claim_id,
+                artifact_a_id=artifact_a_id,
+                artifact_b_id=artifact_b_id,
+                evidence_refs_json=evidence_refs_json,
+                extractor_ref=extractor_ref,
+                confidence=confidence,
+                tenant=tenant,
             )
+            return handler(ctx)
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
 
