@@ -46,7 +46,7 @@ import re
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from importlib.resources import files
 from typing import Any
@@ -2201,112 +2201,199 @@ def _policy_cache_object_ids(client: Any, envelope: ChangeEnvelope) -> list[str]
     return sorted(governed)
 
 
-def _apply_native_change_envelope(
-    authority: _NativeAuthority, session: Any, envelope: ChangeEnvelope
-) -> dict[str, Any]:
-    from ..core.session import use_session
+#: Engine error markers meaning "this deployment cannot serve the native
+#: single-envelope change contract at all" — a capability gap, never a
+#: retryable conflict, so they fail closed instead of being retried.
+_NATIVE_UNAVAILABLE_MARKERS = (
+    "requires the authoritative redb backend",
+    "requires a configured persistence backend",
+    "Unknown method",
+    "unknown method",
+)
 
-    client = authority.compute.client
-    scope = (str(session.tenant), str(session.graph))
-    created_at_ms = _observed_at_ms(envelope.observed_time)
-    with use_session(session), _native_lock(scope):
-        supports = getattr(client, "supports", None)
-        if not callable(supports) or not bool(supports("ApplyChangeEnvelope")):
-            raise NativeChangeEnvelopeUnavailable(
-                "engine does not advertise ApplyChangeEnvelope"
+#: The same class of capability gap for the batch contract, plus the
+#: placement-scoped refusal that only the batch method can hit.
+_NATIVE_BATCH_UNAVAILABLE_MARKERS = (
+    *_NATIVE_UNAVAILABLE_MARKERS,
+    "CHANGE_BATCH_UNAVAILABLE_UNDER_PLACEMENT",
+)
+
+
+# NB: the two guards below deliberately spell their capability literally rather
+# than share one parameterised helper. ``scripts/check_native_change_envelope_
+# boundary.py`` greps this module for the exact ``supports("ApplyChangeEnvelope")``
+# source marker, so a parameterised guard would silently disarm that fail-closed
+# architectural gate while still behaving correctly at runtime.
+def _require_apply_change_envelope(client: Any) -> None:
+    """Fail closed unless the engine EXPLICITLY advertises ApplyChangeEnvelope.
+
+    A client with no ``supports`` method is treated as not advertising it — an
+    unknown engine is never assumed to be capable.
+    """
+    supports = getattr(client, "supports", None)
+    if not callable(supports) or not bool(supports("ApplyChangeEnvelope")):
+        raise NativeChangeEnvelopeUnavailable(
+            "engine does not advertise ApplyChangeEnvelope"
+        )
+
+
+def _require_apply_change_envelopes(client: Any) -> None:
+    """Fail closed unless the engine EXPLICITLY advertises ApplyChangeEnvelopes."""
+    supports = getattr(client, "supports", None)
+    if not callable(supports) or not bool(supports("ApplyChangeEnvelopes")):
+        raise NativeChangeEnvelopeUnavailable(
+            "engine does not advertise ApplyChangeEnvelopes"
+        )
+
+
+def _native_occ_next_expected(
+    exc: BaseException,
+    scope: tuple[str, str],
+    expected: int,
+    conflict_sequence: list[str],
+) -> int | None:
+    """Classify a failed apply as a GUARANTEED pre-commit conflict.
+
+    Returns the ``expected_graph_version`` a retry must use, or ``None`` when
+    the failure is not retryable and the caller must re-raise the original
+    exception. Raises :class:`NativeChangeEnvelopeUnavailable` for a capability
+    gap. Nothing else is retried: this is the authoritative commit path, so an
+    ambiguous failure must never be replayed into a duplicate write.
+    """
+    message = str(exc)
+    conflict = _NATIVE_OCC_CONFLICT_RE.search(message)
+    stale = _STALE_GRAPH_VERSION_RE.search(message)
+    if conflict is not None and stale is not None:
+        conflict_sequence.append(conflict.group(0).upper())
+        _NATIVE_GRAPH_VERSIONS[scope] = int(stale.group(1))
+        return int(stale.group(1))
+    if conflict is not None and conflict.group(0).upper() in {
+        "STALE_CONTENT_VERSION",
+        "STALE_CURSOR",
+    }:
+        conflict_sequence.append(conflict.group(0).upper())
+        # Both are guaranteed pre-commit; re-read authoritative
+        # material and let graph OCC fence the rebuilt request.
+        return expected
+    if any(marker in message for marker in _NATIVE_UNAVAILABLE_MARKERS):
+        raise NativeChangeEnvelopeUnavailable(
+            "engine lacks authoritative ChangeEnvelope persistence"
+        ) from exc
+    return None
+
+
+class _NativeOccAttempt:
+    """Bounded OCC state for ONE single-envelope native commit.
+
+    Owns the retry budget, the tracked ``expected_graph_version`` and the
+    material of whichever attempt the engine accepted. It deliberately performs
+    NO durable write itself: the caller issues the single authoritative
+    ``client.changes.apply(...)`` and hands the outcome back here, so the
+    durable write stays at the exact boundary the native ChangeEnvelope gate
+    (``scripts/check_native_change_envelope_boundary.py``) inspects.
+
+    Construct it inside the scope lock — it reads the shared tracked graph
+    version on construction.
+    """
+
+    def __init__(self, scope: tuple[str, str]) -> None:
+        self.scope = scope
+        self.expected = _NATIVE_GRAPH_VERSIONS.get(scope, 0)
+        self.attempt = -1
+        self.conflicts: list[str] = []
+        self.receipt: Any = None
+        self.native: dict[str, Any] | None = None
+        self.counts: dict[str, int] = {}
+        self.governed_ids: list[str] = []
+        self.cursor_advanced = False
+
+    def recovered(self, receipt: Any, governed_ids: list[str]) -> None:
+        """Adopt a receipt reconciled from an ambiguous earlier transport failure.
+
+        ``native`` stays ``None`` so the caller does NOT re-enqueue a mirror
+        replay for material the committing attempt already published.
+        """
+        self.receipt = receipt
+        self.governed_ids = governed_ids
+
+    def pending(self) -> bool:
+        """Is another apply attempt needed — and still within the retry budget?"""
+        if self.receipt is not None:
+            return False
+        self.attempt += 1
+        if self.attempt >= _NATIVE_OCC_MAX_ATTEMPTS:
+            raise _NativeOccRetryBudgetExhausted(self.conflicts)
+        return True
+
+    def render(
+        self,
+        authority: _NativeAuthority,
+        session: Any,
+        envelope: ChangeEnvelope,
+        created_at_ms: int,
+    ) -> dict[str, Any]:
+        """Re-read authoritative material against the currently-expected version."""
+        self.native, self.counts, self.governed_ids, self.cursor_advanced = (
+            _native_material(
+                authority,
+                session,
+                envelope,
+                expected_graph_version=self.expected,
+                created_at_ms=created_at_ms,
             )
-        expected = _NATIVE_GRAPH_VERSIONS.get(scope, 0)
-        counts: dict[str, int] = {}
-        governed_ids: list[str] = []
-        cursor_advanced = False
-        conflict_sequence: list[str] = []
-        native: dict[str, Any] | None = None
-        receipt: Any = _recover_native_receipt(client, envelope)
-        if receipt is not None:
-            governed_ids = _policy_cache_object_ids(client, envelope)
-        if receipt is None:
-            for attempt in range(_NATIVE_OCC_MAX_ATTEMPTS):
-                native, counts, governed_ids, cursor_advanced = _native_material(
-                    authority,
-                    session,
-                    envelope,
-                    expected_graph_version=expected,
-                    created_at_ms=created_at_ms,
-                )
-                try:
-                    receipt = client.changes.apply(native)
-                except Exception as exc:  # noqa: BLE001 - only explicit pre-commit retries
-                    recovered = _recover_native_receipt(client, envelope)
-                    if recovered is not None:
-                        receipt = recovered
-                        _NATIVE_GRAPH_VERSIONS[scope] = max(
-                            _NATIVE_GRAPH_VERSIONS.get(scope, 0), expected + 1
-                        )
-                        break
-                    message = str(exc)
-                    conflict = _NATIVE_OCC_CONFLICT_RE.search(message)
-                    stale = _STALE_GRAPH_VERSION_RE.search(message)
-                    if conflict is not None and stale is not None:
-                        conflict_sequence.append(conflict.group(0).upper())
-                        expected = int(stale.group(1))
-                        _NATIVE_GRAPH_VERSIONS[scope] = expected
-                        if attempt + 1 < _NATIVE_OCC_MAX_ATTEMPTS:
-                            _native_occ_backoff(attempt)
-                        continue
-                    if conflict is not None and conflict.group(0).upper() in {
-                        "STALE_CONTENT_VERSION",
-                        "STALE_CURSOR",
-                    }:
-                        conflict_sequence.append(conflict.group(0).upper())
-                        # Both are guaranteed pre-commit; re-read authoritative
-                        # material and let graph OCC fence the rebuilt request.
-                        if attempt + 1 < _NATIVE_OCC_MAX_ATTEMPTS:
-                            _native_occ_backoff(attempt)
-                        continue
-                    if any(
-                        marker in message
-                        for marker in (
-                            "requires the authoritative redb backend",
-                            "requires a configured persistence backend",
-                            "Unknown method",
-                            "unknown method",
-                        )
-                    ):
-                        raise NativeChangeEnvelopeUnavailable(
-                            "engine lacks authoritative ChangeEnvelope persistence"
-                        ) from exc
-                    raise
-                else:
-                    _NATIVE_GRAPH_VERSIONS[scope] = max(
-                        _NATIVE_GRAPH_VERSIONS.get(scope, 0), expected + 1
-                    )
-                    break
-            else:
-                raise _NativeOccRetryBudgetExhausted(conflict_sequence)
+        )
+        return self.native
 
+    def _advance_graph_version(self) -> None:
+        _NATIVE_GRAPH_VERSIONS[self.scope] = max(
+            _NATIVE_GRAPH_VERSIONS.get(self.scope, 0), self.expected + 1
+        )
+
+    def applied(self, receipt: Any) -> None:
+        """Record an accepted apply."""
+        self.receipt = receipt
+        self._advance_graph_version()
+
+    def failed(self, client: Any, envelope: ChangeEnvelope, exc: BaseException) -> None:
+        """Classify a failed apply; returns only when a retry may proceed.
+
+        An ambiguous transport failure is reconciled against the durable record
+        rather than replayed. Anything that is not a GUARANTEED pre-commit
+        conflict is re-raised: this is the authoritative commit path, so an
+        ambiguous failure must never be retried into a duplicate write.
+        """
+        recovered = _recover_native_receipt(client, envelope)
+        if recovered is not None:
+            self.receipt = recovered
+            self._advance_graph_version()
+            return
+        retry_expected = _native_occ_next_expected(
+            exc, self.scope, self.expected, self.conflicts
+        )
+        if retry_expected is None:
+            raise exc
+        self.expected = retry_expected
+        if self.attempt + 1 < _NATIVE_OCC_MAX_ATTEMPTS:
+            _native_occ_backoff(self.attempt)
+
+
+def _native_commit_result(
+    authority: _NativeAuthority, envelope: ChangeEnvelope, attempt: _NativeOccAttempt
+) -> dict[str, Any]:
+    """Mirror, refresh the policy cache, and shape the caller-facing result."""
+    receipt = attempt.receipt
     replayed = bool(receipt.get("replayed")) if isinstance(receipt, dict) else False
     # D-BFR-12: mirror the node/edge delta ONLY for a genuine first commit. A
     # recovered/idempotent replay means the mirror outbox already saw this
     # exact material on the attempt that actually committed it — re-enqueueing
     # here would be a no-op delta at best, a wasted duplicate outbox write at
     # worst (the "replay-skip" contract).
-    if native is not None and not replayed:
-        _replay_native_graph_mutation(authority, native)
+    if attempt.native is not None and not replayed:
+        _replay_native_graph_mutation(authority, attempt.native)
     # This is a read-policy cache refresh, never the durability authority.
     # Both first apply and idempotent replay project it; replay is the bounded
     # recovery path after process-local cache loss.
-    from ...protocols.source_connectors.permission_sync import sync_access
-
-    for object_id in governed_ids:
-        try:
-            sync_access(
-                object_id,
-                envelope.source_acl,
-                classification=envelope.classification,
-            )
-        except Exception:  # noqa: BLE001 - durable policy remains fail-closed
-            logger.warning("native policy cache refresh is pending")
-            break
+    _sync_policy_cache(attempt.governed_ids, envelope)
     return {
         "status": "skipped" if replayed else "success",
         "reason": (
@@ -2319,12 +2406,61 @@ def _apply_native_change_envelope(
         "operation": envelope.operation,
         "node_id": _resolve_identity(envelope)[0],
         "write_result": {
-            **counts,
+            **attempt.counts,
             "receipt": _filtered_receipt(receipt, envelope),
         },
-        "watermark_advanced": bool(cursor_advanced and not replayed),
+        "watermark_advanced": bool(attempt.cursor_advanced and not replayed),
         "checkpoint": envelope.checkpoint,
     }
+
+
+def _sync_policy_cache(governed_ids: list[str], envelope: ChangeEnvelope) -> None:
+    """Refresh the read-policy cache; NEVER the durability authority.
+
+    Durable policy stays fail-closed regardless, so the first failure logs once
+    and stops rather than raising back through the ingest caller.
+    """
+    from ...protocols.source_connectors.permission_sync import sync_access
+
+    for object_id in governed_ids:
+        try:
+            sync_access(
+                object_id,
+                envelope.source_acl,
+                classification=envelope.classification,
+            )
+        except Exception:  # noqa: BLE001 - durable policy remains fail-closed
+            logger.warning("native policy cache refresh is pending")
+            break
+
+
+def _apply_native_change_envelope(
+    authority: _NativeAuthority, session: Any, envelope: ChangeEnvelope
+) -> dict[str, Any]:
+    """Commit ONE envelope through the engine's native ``ApplyChangeEnvelope``.
+
+    The bounded OCC bookkeeping lives in :class:`_NativeOccAttempt`; the single
+    authoritative durable write stays here, so there is exactly one
+    ``changes.apply`` call on this path and no sequential Python fallback.
+    """
+    from ..core.session import use_session
+
+    client = authority.compute.client
+    scope = (str(session.tenant), str(session.graph))
+    created_at_ms = _observed_at_ms(envelope.observed_time)
+    with use_session(session), _native_lock(scope):
+        _require_apply_change_envelope(client)
+        attempt = _NativeOccAttempt(scope)
+        recovered = _recover_native_receipt(client, envelope)
+        if recovered is not None:
+            attempt.recovered(recovered, _policy_cache_object_ids(client, envelope))
+        while attempt.pending():
+            native = attempt.render(authority, session, envelope, created_at_ms)
+            try:
+                attempt.applied(client.changes.apply(native))
+            except Exception as exc:  # noqa: BLE001 - only explicit pre-commit retries
+                attempt.failed(client, envelope, exc)
+    return _native_commit_result(authority, envelope, attempt)
 
 
 def _batch_entry_result(
@@ -2376,6 +2512,192 @@ def _batch_entry_result(
     }
 
 
+@dataclass
+class _BatchMaterial:
+    """Per-envelope native DTOs and bookkeeping for one page, in input order."""
+
+    natives: list[dict[str, Any]] = field(default_factory=list)
+    counts: list[dict[str, int]] = field(default_factory=list)
+    node_ids: list[str | None] = field(default_factory=list)
+    cursor_advanced: list[bool] = field(default_factory=list)
+    governed: list[list[str]] = field(default_factory=list)
+
+
+def _page_cursor_position(client: Any, envelope: ChangeEnvelope) -> Any:
+    """Read the page's source cursor ONCE.
+
+    It is then chained client-side across the sequentially-applied envelopes:
+    a live per-record read would STALE the 2nd+ envelope inside the shared
+    transaction.
+    """
+    partition = _cursor_partition(envelope.source_instance)
+    page_cursor = client.changes.cursor(envelope.connector, partition)
+    return (
+        page_cursor.get("position")
+        if isinstance(page_cursor, dict)
+        and isinstance(page_cursor.get("position"), dict)
+        else None
+    )
+
+
+def _batch_native_material(
+    authority: _NativeAuthority,
+    session: Any,
+    envelopes: list[ChangeEnvelope],
+    expected: int,
+) -> _BatchMaterial:
+    """Render every envelope in the page, chaining the source cursor client-side."""
+    chained: Any = _page_cursor_position(authority.compute.client, envelopes[0])
+    material = _BatchMaterial()
+    for offset, envelope in enumerate(envelopes):
+        native, counts, governed_ids, cursor_advanced = _native_material(
+            authority,
+            session,
+            envelope,
+            expected_graph_version=expected + offset,
+            created_at_ms=_observed_at_ms(envelope.observed_time),
+            chained_cursor_position=chained,
+        )
+        material.natives.append(native)
+        material.counts.append(counts)
+        material.node_ids.append(_resolve_identity(envelope)[0])
+        material.cursor_advanced.append(cursor_advanced)
+        material.governed.append(governed_ids)
+        if cursor_advanced and envelope.checkpoint:
+            chained = _typed_position(envelope.checkpoint, content=False)
+    return material
+
+
+def _root_batch_conflict(engine_results: list[dict[str, Any]]) -> str | None:
+    """The ROOT failure (a non-aborted conflict), or ``None``.
+
+    Sibling entries carry the atomic-batch abort note; only the root error can
+    decide whether an OCC retry could make progress.
+    """
+    for result in engine_results:
+        if str(result.get("status")) == "conflict":
+            error = str(result.get("error") or "")
+            if not error.startswith("ABORTED_ATOMIC_GRAPH_BATCH"):
+                return error
+    return None
+
+
+def _retry_batch_conflict(
+    root_error: str,
+    scope: tuple[str, str],
+    conflict_sequence: list[str],
+    attempt: int,
+) -> bool:
+    """``True`` when an OCC retry may make progress on this whole-batch failure.
+
+    Raises when the retry budget is exhausted, or when the error means the
+    engine cannot serve the native batch contract at all. ``False`` means the
+    error is not an OCC conflict and the caller reports the engine's per-entry
+    results unchanged.
+    """
+    conflict = _NATIVE_OCC_CONFLICT_RE.search(root_error)
+    stale = _STALE_GRAPH_VERSION_RE.search(root_error)
+    if conflict is not None:
+        conflict_sequence.append(conflict.group(0).upper())
+        if stale is not None:
+            _NATIVE_GRAPH_VERSIONS[scope] = int(stale.group(1))
+        if attempt + 1 < _NATIVE_OCC_MAX_ATTEMPTS:
+            _native_occ_backoff(attempt)
+            return True
+        raise _NativeOccRetryBudgetExhausted(conflict_sequence)
+    if any(marker in root_error for marker in _NATIVE_BATCH_UNAVAILABLE_MARKERS):
+        raise NativeChangeEnvelopeUnavailable(
+            "engine lacks authoritative ApplyChangeEnvelopes"
+        )
+    return False
+
+
+def _advance_batch_graph_version(
+    scope: tuple[str, str], engine_results: list[dict[str, Any]], expected: int
+) -> None:
+    """Advance the tracked graph version by the number of applied (non-replay)
+    envelopes so a subsequent page fences correctly."""
+    applied = sum(
+        1 for result in engine_results if str(result.get("status")) == "applied"
+    )
+    if applied:
+        _NATIVE_GRAPH_VERSIONS[scope] = max(
+            _NATIVE_GRAPH_VERSIONS.get(scope, 0), expected + applied
+        )
+
+
+def _sync_batch_policy_cache(
+    envelopes: list[ChangeEnvelope],
+    engine_results: list[dict[str, Any]],
+    governed: list[list[str]],
+) -> None:
+    """Refresh the read-policy cache for governed objects that committed, each
+    under ITS OWN envelope's source ACL/classification (a page may mix them)."""
+    from ...protocols.source_connectors.permission_sync import sync_access
+
+    for offset, envelope in enumerate(envelopes):
+        if str(engine_results[offset].get("status")) != "applied":
+            continue
+        try:
+            for object_id in sorted(set(governed[offset])):
+                sync_access(
+                    object_id,
+                    envelope.source_acl,
+                    classification=envelope.classification,
+                )
+        except Exception:  # noqa: BLE001 - durable policy stays fail-closed
+            logger.warning("native policy cache refresh is pending")
+            break
+
+
+def _apply_native_batch_attempt(
+    authority: _NativeAuthority,
+    session: Any,
+    envelopes: list[ChangeEnvelope],
+    scope: tuple[str, str],
+    conflict_sequence: list[str],
+    attempt: int,
+) -> list[dict[str, Any]] | None:
+    """One OCC attempt at the page. ``None`` means "retry"; a list is final."""
+    expected = _NATIVE_GRAPH_VERSIONS.get(scope, 0)
+    material = _batch_native_material(authority, session, envelopes, expected)
+    engine_results = authority.compute.client.changes.apply_batch(material.natives)
+    if not isinstance(engine_results, list) or len(engine_results) != len(
+        material.natives
+    ):
+        raise RuntimeError("ApplyChangeEnvelopes returned a malformed result set")
+
+    root_error = _root_batch_conflict(engine_results)
+    if root_error is not None and _retry_batch_conflict(
+        root_error, scope, conflict_sequence, attempt
+    ):
+        return None
+
+    _advance_batch_graph_version(scope, engine_results, expected)
+
+    # D-BFR-12: mirror each genuinely-applied envelope's node/edge delta,
+    # in the SAME page order the authority just committed it, so the
+    # mirror outbox preserves batch ordering. A replayed/idempotent-skip
+    # or conflicted entry is never re-enqueued (the "replay-skip"
+    # contract — see the single-envelope path for why).
+    for offset, result in enumerate(engine_results):
+        if str(result.get("status")) == "applied":
+            _replay_native_graph_mutation(authority, material.natives[offset])
+
+    _sync_batch_policy_cache(envelopes, engine_results, material.governed)
+
+    return [
+        _batch_entry_result(
+            envelope,
+            engine_results[offset],
+            material.counts[offset],
+            material.node_ids[offset],
+            material.cursor_advanced[offset],
+        )
+        for offset, envelope in enumerate(envelopes)
+    ]
+
+
 def _apply_native_change_envelopes(
     authority: _NativeAuthority, session: Any, envelopes: list[ChangeEnvelope]
 ) -> list[dict[str, Any]]:
@@ -2393,137 +2715,14 @@ def _apply_native_change_envelopes(
     client = authority.compute.client
     scope = (str(session.tenant), str(session.graph))
     with use_session(session), _native_lock(scope):
-        supports = getattr(client, "supports", None)
-        if not callable(supports) or not bool(supports("ApplyChangeEnvelopes")):
-            raise NativeChangeEnvelopeUnavailable(
-                "engine does not advertise ApplyChangeEnvelopes"
-            )
+        _require_apply_change_envelopes(client)
         conflict_sequence: list[str] = []
         for attempt in range(_NATIVE_OCC_MAX_ATTEMPTS):
-            expected = _NATIVE_GRAPH_VERSIONS.get(scope, 0)
-            # Read the page's source cursor ONCE, then chain it client-side across the
-            # sequentially-applied envelopes (a live per-record read would STALE the
-            # 2nd+ envelope inside the shared transaction).
-            partition = _cursor_partition(envelopes[0].source_instance)
-            page_cursor = client.changes.cursor(envelopes[0].connector, partition)
-            chained: Any = (
-                page_cursor.get("position")
-                if isinstance(page_cursor, dict)
-                and isinstance(page_cursor.get("position"), dict)
-                else None
+            results = _apply_native_batch_attempt(
+                authority, session, envelopes, scope, conflict_sequence, attempt
             )
-            natives: list[dict[str, Any]] = []
-            per_counts: list[dict[str, int]] = []
-            per_node: list[str | None] = []
-            per_cursor_advanced: list[bool] = []
-            per_governed: list[list[str]] = []
-            for offset, envelope in enumerate(envelopes):
-                created_at_ms = _observed_at_ms(envelope.observed_time)
-                native, counts, governed_ids, cursor_advanced = _native_material(
-                    authority,
-                    session,
-                    envelope,
-                    expected_graph_version=expected + offset,
-                    created_at_ms=created_at_ms,
-                    chained_cursor_position=chained,
-                )
-                natives.append(native)
-                per_counts.append(counts)
-                per_node.append(_resolve_identity(envelope)[0])
-                per_cursor_advanced.append(cursor_advanced)
-                per_governed.append(governed_ids)
-                if cursor_advanced and envelope.checkpoint:
-                    chained = _typed_position(envelope.checkpoint, content=False)
-
-            engine_results = client.changes.apply_batch(natives)
-            if not isinstance(engine_results, list) or len(engine_results) != len(
-                natives
-            ):
-                raise RuntimeError(
-                    "ApplyChangeEnvelopes returned a malformed result set"
-                )
-
-            # Find the ROOT failure (a non-aborted conflict) to decide whether an OCC
-            # retry can make progress. Sibling entries carry the atomic-batch abort note.
-            root_error: str | None = None
-            for result in engine_results:
-                if str(result.get("status")) == "conflict":
-                    error = str(result.get("error") or "")
-                    if not error.startswith("ABORTED_ATOMIC_GRAPH_BATCH"):
-                        root_error = error
-                        break
-            if root_error is not None:
-                conflict = _NATIVE_OCC_CONFLICT_RE.search(root_error)
-                stale = _STALE_GRAPH_VERSION_RE.search(root_error)
-                if conflict is not None:
-                    conflict_sequence.append(conflict.group(0).upper())
-                    if stale is not None:
-                        _NATIVE_GRAPH_VERSIONS[scope] = int(stale.group(1))
-                    if attempt + 1 < _NATIVE_OCC_MAX_ATTEMPTS:
-                        _native_occ_backoff(attempt)
-                        continue
-                    raise _NativeOccRetryBudgetExhausted(conflict_sequence)
-                if any(
-                    marker in root_error
-                    for marker in (
-                        "requires the authoritative redb backend",
-                        "requires a configured persistence backend",
-                        "Unknown method",
-                        "unknown method",
-                        "CHANGE_BATCH_UNAVAILABLE_UNDER_PLACEMENT",
-                    )
-                ):
-                    raise NativeChangeEnvelopeUnavailable(
-                        "engine lacks authoritative ApplyChangeEnvelopes"
-                    )
-
-            # Advance the tracked graph version by the number of applied (non-replay)
-            # envelopes so a subsequent page fences correctly.
-            applied = sum(
-                1 for result in engine_results if str(result.get("status")) == "applied"
-            )
-            if applied:
-                _NATIVE_GRAPH_VERSIONS[scope] = max(
-                    _NATIVE_GRAPH_VERSIONS.get(scope, 0), expected + applied
-                )
-
-            # D-BFR-12: mirror each genuinely-applied envelope's node/edge delta,
-            # in the SAME page order the authority just committed it, so the
-            # mirror outbox preserves batch ordering. A replayed/idempotent-skip
-            # or conflicted entry is never re-enqueued (the "replay-skip"
-            # contract — see the single-envelope path for why).
-            for offset, result in enumerate(engine_results):
-                if str(result.get("status")) == "applied":
-                    _replay_native_graph_mutation(authority, natives[offset])
-
-            # Refresh the read-policy cache for governed objects that committed, each
-            # under ITS OWN envelope's source ACL/classification (a page may mix them).
-            from ...protocols.source_connectors.permission_sync import sync_access
-
-            for offset, envelope in enumerate(envelopes):
-                if str(engine_results[offset].get("status")) != "applied":
-                    continue
-                try:
-                    for object_id in sorted(set(per_governed[offset])):
-                        sync_access(
-                            object_id,
-                            envelope.source_acl,
-                            classification=envelope.classification,
-                        )
-                except Exception:  # noqa: BLE001 - durable policy stays fail-closed
-                    logger.warning("native policy cache refresh is pending")
-                    break
-
-            return [
-                _batch_entry_result(
-                    envelope,
-                    engine_results[offset],
-                    per_counts[offset],
-                    per_node[offset],
-                    per_cursor_advanced[offset],
-                )
-                for offset, envelope in enumerate(envelopes)
-            ]
+            if results is not None:
+                return results
         raise _NativeOccRetryBudgetExhausted(conflict_sequence)
 
 
@@ -2808,6 +3007,165 @@ def _commit_embedded_vectors(
         )
 
 
+def _gate_and_validate(
+    envelope: ChangeEnvelope,
+) -> tuple[dict[str, Any] | None, ChangeEnvelope | None]:
+    """``(rejection_result, gated_envelope)`` — exactly one is not ``None``."""
+    try:
+        gated = _privacy_gate(envelope)
+    except ValueError:
+        logger.warning("native ChangeEnvelope privacy gate rejected identity")
+        return {
+            "status": "rejected",
+            "reason": "persistence privacy gate rejected an unsafe identity",
+            "watermark_advanced": False,
+        }, None
+    violations = _validate_envelope(gated)
+    if violations:
+        return {
+            "status": "rejected",
+            "envelope_id": gated.envelope_id,
+            "idempotency_key": gated.idempotency_key,
+            "connector": gated.connector,
+            "operation": gated.operation,
+            "watermark_advanced": False,
+            "violations": violations,
+        }, None
+    return None, gated
+
+
+def _prepare_batch_envelopes(
+    envelopes: list[ChangeEnvelope], results: list[dict[str, Any]]
+) -> list[tuple[int, ChangeEnvelope]]:
+    """Privacy-gate + validate the page, writing rejections into ``results``.
+
+    Stops at the FIRST rejection and marks every LATER envelope
+    ``skipped_not_attempted``: envelopes after a rejection are not attempted,
+    which is what preserves the contiguous-prefix watermark contract — the
+    watermark can never jump past a record that was never committed.
+    """
+    prepared: list[tuple[int, ChangeEnvelope]] = []
+    stopped_at: int | None = None
+    for index, envelope in enumerate(envelopes):
+        rejection, gated = _gate_and_validate(envelope)
+        if rejection is not None or gated is None:
+            results[index] = rejection or {}
+            stopped_at = index
+            break
+        prepared.append((index, gated))
+
+    # Envelopes AFTER the first rejection are not attempted — the contiguous-prefix
+    # watermark contract stops there.
+    if stopped_at is not None:
+        for index in range(stopped_at + 1, len(envelopes)):
+            results[index] = {
+                "status": "skipped_not_attempted",
+                "reason": "batch stopped at an earlier envelope",
+                "watermark_advanced": False,
+            }
+    return prepared
+
+
+def _batch_failure_results(
+    prepared: list[tuple[int, ChangeEnvelope]],
+    results: list[dict[str, Any]],
+    status: str,
+    error: str,
+) -> list[dict[str, Any]]:
+    """Mark every prepared envelope with the same whole-batch failure.
+
+    ``watermark_advanced`` stays ``False`` on every entry: a failed page must
+    never move a source cursor.
+    """
+    for index, envelope in prepared:
+        results[index] = {
+            "status": status,
+            "error": error,
+            "envelope_id": envelope.envelope_id,
+            "watermark_advanced": False,
+        }
+    return results
+
+
+def _commit_native_batch(
+    engine: Any, prepared: list[tuple[int, ChangeEnvelope]]
+) -> tuple[Any, dict[int, tuple[list[float], str]], list[dict[str, Any]]]:
+    """Resolve the authority, stage embeddings, and commit the page natively."""
+    authority = _resolve_native_authority(engine)
+    authority, session = _native_session(authority, prepared[0][1])
+    _require_apply_change_envelopes(authority.compute.client)
+    # Mutate private payload copies so a capability fallback can safely
+    # re-enter the single-envelope path with the original DTOs.
+    prepared_envelopes = [
+        replace(
+            envelope,
+            typed_payload=(
+                dict(envelope.typed_payload)
+                if envelope.typed_payload is not None
+                else None
+            ),
+        )
+        for _, envelope in prepared
+    ]
+    embedded_by_position = _prepare_embedding_envelopes(
+        authority.compute.client, prepared_envelopes
+    )
+    batch_results = _apply_native_change_envelopes(
+        authority, session, prepared_envelopes
+    )
+    return authority, embedded_by_position, batch_results
+
+
+def _batch_commit_failure(
+    exc: BaseException,
+    prepared: list[tuple[int, ChangeEnvelope]],
+    results: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Log and shape a whole-batch commit failure.
+
+    There is deliberately NO fallback write path here: this is the
+    authoritative commit, so a genuine failure surfaces as a failed/rejected
+    status on every prepared envelope with ``watermark_advanced=False``, never
+    a retry through a second, weaker mechanism.
+    """
+    if isinstance(exc, PermissionError | ValueError):
+        # Log the real cause, not just the exception type: type(exc).__name__
+        # alone would be the exact swallowed-error antipattern
+        # scripts/check_swallowed_errors.py exists to catch. Pass exc itself
+        # (not a second, redundant type(exc).__name__ arg) -- core/log_privacy.py's
+        # _sanitize_value already renders a raw exception as "Type: message"
+        # while still redacting paths/etc.
+        logger.warning("native ChangeEnvelope batch rejected (%s)", exc)
+        return _batch_failure_results(prepared, results, "rejected", type(exc).__name__)
+    if isinstance(exc, _NativeOccRetryBudgetExhausted):
+        logger.warning(
+            "native ChangeEnvelope batch OCC retry budget exhausted (conflict_sequence=%s)",
+            ",".join(exc.conflicts),
+        )
+        return _batch_failure_results(
+            prepared, results, "failed", "NativeChangeEnvelopeConflictExhausted"
+        )
+    logger.warning("native ChangeEnvelope batch commit failed (%s)", type(exc).__name__)
+    return _batch_failure_results(prepared, results, "failed", type(exc).__name__)
+
+
+def _commit_batch_embeddings(
+    authority: Any,
+    prepared: list[tuple[int, ChangeEnvelope]],
+    results: list[dict[str, Any]],
+    embedded_by_position: dict[int, tuple[list[float], str]],
+) -> None:
+    """Publish the page's staged vectors for the entries that actually committed."""
+    if not embedded_by_position:
+        return
+    node_ids_by_position = {
+        position: results[index].get("node_id")
+        for position, (index, _envelope) in enumerate(prepared)
+        if results[index].get("status") in {"success", "skipped"}
+    }
+    _commit_embedded_vectors(authority, node_ids_by_position, embedded_by_position)
+
+
 def ingest_envelopes(
     engine: Any, envelopes: list[ChangeEnvelope]
 ) -> list[dict[str, Any]]:
@@ -2827,133 +3185,25 @@ def ingest_envelopes(
         return []
 
     results: list[dict[str, Any]] = [{} for _ in envelopes]
-    prepared: list[tuple[int, ChangeEnvelope]] = []
-    stopped_at: int | None = None
-    for index, envelope in enumerate(envelopes):
-        try:
-            gated = _privacy_gate(envelope)
-        except ValueError:
-            logger.warning("native ChangeEnvelope privacy gate rejected identity")
-            results[index] = {
-                "status": "rejected",
-                "reason": "persistence privacy gate rejected an unsafe identity",
-                "watermark_advanced": False,
-            }
-            stopped_at = index
-            break
-        violations = _validate_envelope(gated)
-        if violations:
-            results[index] = {
-                "status": "rejected",
-                "envelope_id": gated.envelope_id,
-                "idempotency_key": gated.idempotency_key,
-                "connector": gated.connector,
-                "operation": gated.operation,
-                "watermark_advanced": False,
-                "violations": violations,
-            }
-            stopped_at = index
-            break
-        prepared.append((index, gated))
-
-    # Envelopes AFTER the first rejection are not attempted — the contiguous-prefix
-    # watermark contract stops there.
-    if stopped_at is not None:
-        for index in range(stopped_at + 1, len(envelopes)):
-            results[index] = {
-                "status": "skipped_not_attempted",
-                "reason": "batch stopped at an earlier envelope",
-                "watermark_advanced": False,
-            }
-
+    prepared = _prepare_batch_envelopes(envelopes, results)
     if not prepared:
         return results
 
     try:
-        authority = _resolve_native_authority(engine)
-        authority, session = _native_session(authority, prepared[0][1])
-        supports = getattr(authority.compute.client, "supports", None)
-        if not callable(supports) or not bool(supports("ApplyChangeEnvelopes")):
-            raise NativeChangeEnvelopeUnavailable(
-                "engine does not advertise ApplyChangeEnvelopes"
-            )
-        # Mutate private payload copies so a capability fallback can safely
-        # re-enter the single-envelope path with the original DTOs.
-        prepared_envelopes = [
-            replace(
-                envelope,
-                typed_payload=(
-                    dict(envelope.typed_payload)
-                    if envelope.typed_payload is not None
-                    else None
-                ),
-            )
-            for _, envelope in prepared
-        ]
-        embedded_by_position = _prepare_embedding_envelopes(
-            authority.compute.client, prepared_envelopes
-        )
-        batch_results = _apply_native_change_envelopes(
-            authority, session, prepared_envelopes
+        authority, embedded_by_position, batch_results = _commit_native_batch(
+            engine, prepared
         )
     except NativeChangeEnvelopeUnavailable:
         logger.info(
             "native ApplyChangeEnvelopes unavailable; falling back to per-record ingestion"
         )
         return [ingest_envelope(engine, envelope) for envelope in envelopes]
-    except (PermissionError, ValueError) as exc:
-        # Log the real cause, not just the exception type: type(exc).__name__
-        # alone would be the exact swallowed-error antipattern
-        # scripts/check_swallowed_errors.py exists to catch. Pass exc itself
-        # (not a second, redundant type(exc).__name__ arg) -- core/log_privacy.py's
-        # _sanitize_value already renders a raw exception as "Type: message"
-        # while still redacting paths/etc.
-        logger.warning("native ChangeEnvelope batch rejected (%s)", exc)
-        for index, envelope in prepared:
-            results[index] = {
-                "status": "rejected",
-                "error": type(exc).__name__,
-                "envelope_id": envelope.envelope_id,
-                "watermark_advanced": False,
-            }
-        return results
-    except _NativeOccRetryBudgetExhausted as exc:
-        logger.warning(
-            "native ChangeEnvelope batch OCC retry budget exhausted (conflict_sequence=%s)",
-            ",".join(exc.conflicts),
-        )
-        for index, envelope in prepared:
-            results[index] = {
-                "status": "failed",
-                "error": "NativeChangeEnvelopeConflictExhausted",
-                "envelope_id": envelope.envelope_id,
-                "watermark_advanced": False,
-            }
-        return results
     except Exception as exc:  # noqa: BLE001 - never fall back after a native failure
-        logger.warning(
-            "native ChangeEnvelope batch commit failed (%s)", type(exc).__name__
-        )
-        for index, envelope in prepared:
-            results[index] = {
-                "status": "failed",
-                "error": type(exc).__name__,
-                "envelope_id": envelope.envelope_id,
-                "watermark_advanced": False,
-            }
-        return results
+        return _batch_commit_failure(exc, prepared, results)
 
     for (index, _envelope), result in zip(prepared, batch_results, strict=True):
         results[index] = result
-
-    if embedded_by_position:
-        node_ids_by_position = {
-            position: results[index].get("node_id")
-            for position, (index, _envelope) in enumerate(prepared)
-            if results[index].get("status") in {"success", "skipped"}
-        }
-        _commit_embedded_vectors(authority, node_ids_by_position, embedded_by_position)
-
+    _commit_batch_embeddings(authority, prepared, results, embedded_by_position)
     return results
 
 
@@ -2995,6 +3245,72 @@ def read_change_cursor(
     if not isinstance(cursor, dict):
         return None
     return _checkpoint_from_position(cursor.get("position"))
+
+
+def _validate_graph_slice(
+    entities: list[dict[str, Any]], relationships: list[dict[str, Any]]
+) -> None:
+    """Enforce the graph slice's canonical-key contract, fail closed on aliases."""
+    for entity in entities:
+        if "type" in entity or not str(entity.get("node_type") or "").strip():
+            raise ValueError(
+                "graph-slice nodes require canonical node_type and may not use type"
+            )
+    for relationship in relationships:
+        if (
+            any(
+                key in relationship
+                for key in ("type", "rel_type", "relationship_type", "relation")
+            )
+            or not str(relationship.get("relationship") or "").strip()
+        ):
+            raise ValueError(
+                "graph-slice edges require canonical relationship and no aliases"
+            )
+
+
+def _slice_digest(payload: dict[str, Any]) -> str:
+    """Deterministic sha256 over a canonical JSON rendering of ``payload``."""
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+
+
+def _edge_only_marker_entity(
+    connector: str, source_instance: str, relationships: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Governed primary object for an edge-only derived/extractor batch.
+
+    The deterministic marker owns delivery identity without inventing a source
+    cursor or leaking endpoint material into its id.
+    """
+    marker_digest = _slice_digest(
+        {
+            "connector": connector,
+            "source_instance": source_instance,
+            "relationships": relationships,
+        }
+    )
+    return {
+        "id": f"source-materialization:{marker_digest}",
+        "node_type": "SourceMaterialization",
+        "source_system": connector,
+        "relationship_count": len(relationships),
+    }
+
+
+def _graph_slice_primary(
+    entities: list[dict[str, Any]], relationships: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """The slice's primary row, carrying the rest as governed auxiliary material."""
+    primary = dict(entities[0])
+    if len(entities) > 1:
+        primary["_nodes"] = [dict(item) for item in entities[1:]]
+    if relationships:
+        primary["_links"] = [dict(item) for item in relationships]
+    return primary
 
 
 def ingest_graph_slice(
@@ -3045,63 +3361,17 @@ def ingest_graph_slice(
     relationships = relationships or []
     if not entities and not relationships:
         return {"status": "skipped", "reason": "empty graph slice"}
-    for entity in entities:
-        if "type" in entity or not str(entity.get("node_type") or "").strip():
-            raise ValueError(
-                "graph-slice nodes require canonical node_type and may not use type"
-            )
-    for relationship in relationships:
-        if (
-            any(
-                key in relationship
-                for key in ("type", "rel_type", "relationship_type", "relation")
-            )
-            or not str(relationship.get("relationship") or "").strip()
-        ):
-            raise ValueError(
-                "graph-slice edges require canonical relationship and no aliases"
-            )
+    _validate_graph_slice(entities, relationships)
     if isinstance(engine, NativeChangeEnvelopeEngineProxy):
         engine = engine.authority
 
     if not entities:
-        # Edge-only derived/extractor batches still need a governed primary
-        # object. The deterministic marker owns delivery identity without
-        # inventing a source cursor or leaking endpoint material into its id.
-        marker_digest = hashlib.sha256(
-            json.dumps(
-                {
-                    "connector": connector,
-                    "source_instance": source_instance,
-                    "relationships": relationships,
-                },
-                sort_keys=True,
-                separators=(",", ":"),
-                default=str,
-            ).encode("utf-8")
-        ).hexdigest()
-        entities = [
-            {
-                "id": f"source-materialization:{marker_digest}",
-                "node_type": "SourceMaterialization",
-                "source_system": connector,
-                "relationship_count": len(relationships),
-            }
-        ]
+        entities = [_edge_only_marker_entity(connector, source_instance, relationships)]
 
-    primary = dict(entities[0])
-    if len(entities) > 1:
-        primary["_nodes"] = [dict(item) for item in entities[1:]]
-    if relationships:
-        primary["_links"] = [dict(item) for item in relationships]
-    material_version = hashlib.sha256(
-        json.dumps(
-            {"entities": entities, "relationships": relationships},
-            sort_keys=True,
-            separators=(",", ":"),
-            default=str,
-        ).encode("utf-8")
-    ).hexdigest()
+    primary = _graph_slice_primary(entities, relationships)
+    material_version = _slice_digest(
+        {"entities": entities, "relationships": relationships}
+    )
     overrides: dict[str, Any] = {}
     if classification:
         from ...models.company_brain import DataClassification
@@ -3143,6 +3413,143 @@ def ingest_graph_slice(
     return result
 
 
+def _partial_materialization_outcome(
+    envelope: ChangeEnvelope,
+    exc: BaseException,
+    resume: dict[str, Any],
+    attempt: int,
+) -> BaseException | None:
+    """``None`` means "resumable partial materialization — retry".
+
+    Otherwise the exception the caller must report: the ORIGINAL one when this
+    was not a partial materialization at all, or the bounded give-up error.
+
+    Only the EXACT retryable wire payload (PARTIAL_MATERIALIZATION,
+    retryable=True) resumes; every other exception — malformed, stale, or
+    terminal — falls straight through to unchanged failure handling. This is
+    the SAME strictness ``_retryable_partial_materialization`` already
+    enforces; it is not re-implemented or broadened here.
+    """
+    from ..core.engine_tasks import _retryable_partial_materialization
+
+    materialization = _retryable_partial_materialization(exc)
+    if materialization is None:
+        return exc
+    return _materialization_resume_error(envelope, materialization, resume, attempt)
+
+
+def _native_result_base(envelope: ChangeEnvelope) -> dict[str, Any]:
+    """The fields every single-envelope result carries, watermark held back."""
+    return {
+        "envelope_id": envelope.envelope_id,
+        "idempotency_key": envelope.idempotency_key,
+        "connector": envelope.connector,
+        "operation": envelope.operation,
+        "watermark_advanced": False,
+        "native_atomic": True,
+    }
+
+
+def _gate_envelope_for_single_ingest(
+    envelope: ChangeEnvelope,
+) -> tuple[ChangeEnvelope, dict[str, Any] | None]:
+    """``(gated_envelope, rejection)``; ``rejection`` is ``None`` when it passed.
+
+    On a privacy-gate rejection the ORIGINAL envelope comes back untouched —
+    the caller returns the rejection and never writes it.
+    """
+    try:
+        gated = _privacy_gate(envelope)
+    except ValueError:
+        logger.warning("native ChangeEnvelope privacy gate rejected identity")
+        return envelope, {
+            "status": "rejected",
+            "reason": "persistence privacy gate rejected an unsafe identity",
+            "watermark_advanced": False,
+        }
+    violations = _validate_envelope(gated)
+    if violations:
+        return gated, {
+            **_native_result_base(gated),
+            "status": "rejected",
+            "violations": violations,
+        }
+    return gated, None
+
+
+def _publish_envelope_embedding(
+    authority: Any,
+    result: dict[str, Any],
+    embedded_by_position: dict[int, tuple[list[float], str]],
+) -> None:
+    """Publish a staged vector ONLY for a genuinely committed write.
+
+    A failed/rejected write must never leave a vector describing text that was
+    not durably stored.
+    """
+    if embedded_by_position and result.get("status") in {"success", "skipped"}:
+        _commit_embedded_vectors(
+            authority, {0: result.get("node_id")}, embedded_by_position
+        )
+
+
+def _materialization_resume_error(
+    envelope: ChangeEnvelope,
+    materialization: dict[str, Any],
+    resume: dict[str, Any],
+    attempt: int,
+) -> _PartialMaterializationRetriesExhausted | None:
+    """``None`` means "the resume is still valid, retry"; else the give-up error.
+
+    Three bounded give-up conditions, in the original order: the engine moved to
+    a different ``source_snapshot_version`` (a completeness cursor is only valid
+    against the snapshot it was issued for), the cursor stopped advancing, or
+    the attempt budget ran out. ``resume`` is mutated in place to carry the
+    first-seen snapshot version and the last-seen cursor across attempts.
+    """
+    cursor = materialization.get("completeness_cursor")
+    snapshot_version = materialization.get("source_snapshot_version")
+    if resume["snapshot_version"] is _MATERIALIZATION_UNSET:
+        resume["snapshot_version"] = snapshot_version
+    if snapshot_version != resume["snapshot_version"]:
+        # A completeness_cursor is only valid against the snapshot
+        # it was issued for; the engine moved to a different
+        # snapshot mid-resume, so the cursor no longer means what
+        # it did.
+        return _PartialMaterializationRetriesExhausted(
+            f"envelope {envelope.envelope_id} partial-materialization "
+            "resume aborted: source_snapshot_version changed from "
+            f"{resume['snapshot_version']!r} to {snapshot_version!r} "
+            f"while resuming from cursor={cursor!r}."
+        )
+    if resume["cursor"] is not _MATERIALIZATION_UNSET and cursor == resume["cursor"]:
+        return _PartialMaterializationRetriesExhausted(
+            f"envelope {envelope.envelope_id} partial-materialization "
+            f"cursor stopped advancing at {cursor!r} "
+            f"(snapshot={snapshot_version!r}) after {attempt} "
+            "attempt(s); giving up instead of retrying forever."
+        )
+    if attempt >= _MATERIALIZATION_MAX_ATTEMPTS:
+        return _PartialMaterializationRetriesExhausted(
+            f"envelope {envelope.envelope_id} did not finish "
+            f"materializing within {_MATERIALIZATION_MAX_ATTEMPTS} "
+            f"attempts (cursor={cursor!r}, "
+            f"snapshot={snapshot_version!r})."
+        )
+    resume["cursor"] = cursor
+    logger.info(
+        "native ChangeEnvelope commit for %s hit a retryable "
+        "partial materialization (cursor=%s snapshot=%s); "
+        "resuming (attempt %d/%d)",
+        envelope.envelope_id,
+        cursor,
+        snapshot_version,
+        attempt,
+        _MATERIALIZATION_MAX_ATTEMPTS,
+    )
+    return None
+
+
 def ingest_envelope(engine: Any, envelope: ChangeEnvelope) -> dict[str, Any]:
     """Commit one external change through native ``ApplyChangeEnvelope``.
 
@@ -3151,35 +3558,19 @@ def ingest_envelope(engine: Any, envelope: ChangeEnvelope) -> dict[str, Any]:
     """
     if isinstance(engine, NativeChangeEnvelopeEngineProxy):
         engine = engine.authority
-    try:
-        envelope = _privacy_gate(envelope)
-    except ValueError:
-        logger.warning("native ChangeEnvelope privacy gate rejected identity")
-        return {
-            "status": "rejected",
-            "reason": "persistence privacy gate rejected an unsafe identity",
-            "watermark_advanced": False,
-        }
-    base = {
-        "envelope_id": envelope.envelope_id,
-        "idempotency_key": envelope.idempotency_key,
-        "connector": envelope.connector,
-        "operation": envelope.operation,
-        "watermark_advanced": False,
-        "native_atomic": True,
-    }
-    violations = _validate_envelope(envelope)
-    if violations:
-        return {**base, "status": "rejected", "violations": violations}
-
-    from ..core.engine_tasks import _retryable_partial_materialization
+    envelope, rejection = _gate_envelope_for_single_ingest(envelope)
+    if rejection is not None:
+        return rejection
+    base = _native_result_base(envelope)
 
     # Bounded resume state for THIS envelope's own attempts — see the
     # _MATERIALIZATION_* constants above for the shared rationale/values with
     # ``pipeline/runner.py``'s identical resume loop.
     attempt = 0
-    resume_snapshot_version: Any = _MATERIALIZATION_UNSET
-    last_cursor: Any = _MATERIALIZATION_UNSET
+    resume: dict[str, Any] = {
+        "snapshot_version": _MATERIALIZATION_UNSET,
+        "cursor": _MATERIALIZATION_UNSET,
+    }
 
     while True:
         attempt += 1
@@ -3190,13 +3581,7 @@ def ingest_envelope(engine: Any, envelope: ChangeEnvelope) -> dict[str, Any]:
                 authority.compute.client, [envelope]
             )
             result = _apply_native_change_envelope(authority, session, envelope)
-            if embedded_by_position and result.get("status") in {
-                "success",
-                "skipped",
-            }:
-                _commit_embedded_vectors(
-                    authority, {0: result.get("node_id")}, embedded_by_position
-                )
+            _publish_envelope_embedding(authority, result, embedded_by_position)
             return result
         except NativeChangeEnvelopeUnavailable:
             logger.warning("native ChangeEnvelope capability is unavailable")
@@ -3240,60 +3625,12 @@ def ingest_envelope(engine: Any, envelope: ChangeEnvelope) -> dict[str, Any]:
                 "error": "NativeChangeEnvelopeConflictExhausted",
             }
         except Exception as exc:  # noqa: BLE001 — never fall back after native failure (this is the authoritative commit path, so a genuine failure must surface as failed status, not be retried on a different path); `error`/`reason` below now carry the real cause instead of only the exception class name
-            # Only the EXACT retryable wire payload
-            # (PARTIAL_MATERIALIZATION, retryable=True) resumes; every other
-            # exception — malformed, stale, or terminal — falls straight
-            # through to the unchanged failure handling below. This is the
-            # SAME strictness `_retryable_partial_materialization` already
-            # enforces; it is not re-implemented or broadened here.
-            materialization = _retryable_partial_materialization(exc)
-            effective_exc: BaseException = exc
-            if materialization is not None:
-                cursor = materialization.get("completeness_cursor")
-                snapshot_version = materialization.get("source_snapshot_version")
-                if resume_snapshot_version is _MATERIALIZATION_UNSET:
-                    resume_snapshot_version = snapshot_version
-                if snapshot_version != resume_snapshot_version:
-                    # A completeness_cursor is only valid against the snapshot
-                    # it was issued for; the engine moved to a different
-                    # snapshot mid-resume, so the cursor no longer means what
-                    # it did.
-                    effective_exc = _PartialMaterializationRetriesExhausted(
-                        f"envelope {envelope.envelope_id} partial-materialization "
-                        "resume aborted: source_snapshot_version changed from "
-                        f"{resume_snapshot_version!r} to {snapshot_version!r} "
-                        f"while resuming from cursor={cursor!r}."
-                    )
-                elif (
-                    last_cursor is not _MATERIALIZATION_UNSET and cursor == last_cursor
-                ):
-                    effective_exc = _PartialMaterializationRetriesExhausted(
-                        f"envelope {envelope.envelope_id} partial-materialization "
-                        f"cursor stopped advancing at {cursor!r} "
-                        f"(snapshot={snapshot_version!r}) after {attempt} "
-                        "attempt(s); giving up instead of retrying forever."
-                    )
-                elif attempt >= _MATERIALIZATION_MAX_ATTEMPTS:
-                    effective_exc = _PartialMaterializationRetriesExhausted(
-                        f"envelope {envelope.envelope_id} did not finish "
-                        f"materializing within {_MATERIALIZATION_MAX_ATTEMPTS} "
-                        f"attempts (cursor={cursor!r}, "
-                        f"snapshot={snapshot_version!r})."
-                    )
-                else:
-                    last_cursor = cursor
-                    logger.info(
-                        "native ChangeEnvelope commit for %s hit a retryable "
-                        "partial materialization (cursor=%s snapshot=%s); "
-                        "resuming (attempt %d/%d)",
-                        envelope.envelope_id,
-                        cursor,
-                        snapshot_version,
-                        attempt,
-                        _MATERIALIZATION_MAX_ATTEMPTS,
-                    )
-                    time.sleep(_MATERIALIZATION_RETRY_DELAY_S)
-                    continue
+            effective_exc = _partial_materialization_outcome(
+                envelope, exc, resume, attempt
+            )
+            if effective_exc is None:
+                time.sleep(_MATERIALIZATION_RETRY_DELAY_S)
+                continue
 
             # Same reasoning as the rejection path above: the class name alone
             # cannot tell an operator WHICH commit failed or why.
