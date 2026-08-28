@@ -868,7 +868,15 @@ def _resolve_ca_material(
     environ: Mapping[str, str],
     destination_root: Path | None,
 ) -> tuple[Path | None, bool, Path | None]:
-    """Resolve CA bundle/directory material. Returns ``(ca_path, ca_materialized, ca_directory)``."""
+    """Resolve CA bundle/directory material. Returns ``(ca_path, ca_materialized, ca_directory)``.
+
+    Does NOT check source ambiguity (ca_path AND ca_directory both set) —
+    the caller must do that itself, once these values are assigned in its
+    OWN scope, so a subsequent raise still lets its except-clause clean up
+    an already-materialized file. Raising it here instead would abort the
+    tuple-assignment in the caller, leaving the caller's own
+    ca_path/ca_materialized at their pre-call defaults and leaking the file.
+    """
     ca_profile = dict(resolved_profile)
     for alias, canonical in (
         ("ca_ref", "ca_bundle_ref"),
@@ -889,8 +897,6 @@ def _resolve_ca_material(
     )
     directory_value = _pick(resolved_profile, "ca_directory", "ca_dir")
     ca_directory = _path(directory_value, directory=True) if directory_value else None
-    if ca_path is not None and ca_directory is not None:
-        raise TransportSecurityError("tls_ca_source_ambiguous")
     return ca_path, ca_materialized, ca_directory
 
 
@@ -901,7 +907,12 @@ def _resolve_client_cert_material(
     environ: Mapping[str, str],
     destination_root: Path | None,
 ) -> tuple[Path | None, bool, Path | None, bool]:
-    """Returns ``(cert_path, cert_materialized, key_path, key_materialized)``."""
+    """Returns ``(cert_path, cert_materialized, key_path, key_materialized)``.
+
+    Does NOT check for a mismatched cert/key pair — same reason as
+    ``_resolve_ca_material``: the caller must check after these values land
+    in its own scope, or an already-materialized cert/key leaks on raise.
+    """
     cert_path, cert_materialized = _material(
         resolved_profile,
         kind="client_cert",
@@ -916,8 +927,6 @@ def _resolve_client_cert_material(
         environ=environ,
         destination_root=destination_root,
     )
-    if (cert_path is None) != (key_path is None):
-        raise TransportSecurityError("tls_client_certificate_incomplete")
     return cert_path, cert_materialized, key_path, key_materialized
 
 
@@ -952,6 +961,32 @@ def _resolve_proxy_settings(
     proxy_url = _proxy_url(str(proxy_value)) if proxy_value else None
     no_proxy = str(_pick(resolved_profile, "no_proxy") or "").strip() or None
     return proxy_url, no_proxy
+
+
+def _check_ca_source(
+    ca_path: Path | None, ca_directory: Path | None, system_trust: bool
+) -> None:
+    """Raise if the CA source is ambiguous, or missing when required.
+
+    Call only AFTER ``ca_path``/``ca_directory`` are already assigned in the
+    caller's own frame (post `_resolve_ca_material`): a raise here still lets
+    the caller's except-clause see and clean up an already-materialized file,
+    unlike raising inside the resolver itself (see its docstring).
+    """
+    if ca_path is not None and ca_directory is not None:
+        raise TransportSecurityError("tls_ca_source_ambiguous")
+    if not system_trust and ca_path is None and ca_directory is None:
+        raise TransportSecurityError("tls_trust_anchor_missing")
+
+
+def _check_client_cert_pair(cert_path: Path | None, key_path: Path | None) -> None:
+    """Raise if exactly one of cert/key is present.
+
+    Call only AFTER both are already assigned in the caller's own frame (post
+    `_resolve_client_cert_material`) — same reasoning as `_check_ca_source`.
+    """
+    if (cert_path is None) != (key_path is None):
+        raise TransportSecurityError("tls_client_certificate_incomplete")
 
 
 def _build_ssl_context(
@@ -1082,8 +1117,7 @@ def resolve_tls_profile(
             environ=target_env,
             destination_root=destination_root,
         )
-        if not system_trust and ca_path is None and ca_directory is None:
-            raise TransportSecurityError("tls_trust_anchor_missing")
+        _check_ca_source(ca_path, ca_directory, system_trust)
 
         cert_path, cert_materialized, key_path, key_materialized = (
             _resolve_client_cert_material(
@@ -1093,6 +1127,7 @@ def resolve_tls_profile(
                 destination_root=destination_root,
             )
         )
+        _check_client_cert_pair(cert_path, key_path)
 
         client_key_password = _resolve_client_key_password(
             resolved_profile, resolver=resolver, environ=target_env
