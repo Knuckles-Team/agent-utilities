@@ -12,6 +12,7 @@ import json
 import logging
 import math
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -167,6 +168,184 @@ def _parse_instant(value: Any) -> datetime | None:
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
     except (ValueError, TypeError):
         return None
+
+
+@dataclass
+class _RetrievalPassArgs:
+    """Shared per-query-list args for a ``retrieve_hybrid`` pass in ``plan_and_retrieve``."""
+
+    sub_window: int
+    corpus_id: str | None
+    hard_negatives: set[str] | None
+    active_task: str | None
+    session: Any | None
+
+
+def _trivial_query_result(
+    query: str, with_ledger: bool
+) -> dict[str, Any] | list[dict[str, Any]] | None:
+    """``None`` if not trivial; otherwise the short-circuit result.
+
+    Module-level (not a method): ``plan_and_retrieve`` is cherry-picked as an
+    unbound function by several tests' lightweight fake retrievers (e.g.
+    ``plan_and_retrieve = HybridRetriever.plan_and_retrieve`` on a plain class
+    that does not inherit ``HybridRetriever``), so any helper it calls via
+    ``self.<name>`` must actually exist on that fake. A bare module-level call
+    resolves through this module's globals instead, regardless of the
+    concrete type of ``self`` — the same reasoning as ``_bfs_next_frontier``.
+    """
+    from .hyde_planner import HydePlan, build_evidence_ledger, is_trivial_query
+
+    # CONCEPT:AU-KG.retrieval.triviality-gate — social-closer gate: trivial turns skip the planner + retrieval entirely.
+    if not is_trivial_query(query):
+        return None
+    empty: list[dict[str, Any]] = []
+    if with_ledger:
+        return {
+            "nodes": empty,
+            "ledger": build_evidence_ledger(query, empty),
+            "plan": HydePlan(vector_queries=[query]).model_dump(),
+            "trivial": True,
+        }
+    return empty
+
+
+def _resolve_hyde_plan(retriever: Any, query: str, mode: str) -> Any:
+    from .hyde_planner import HydePlan
+
+    if mode in ("standard", "deep"):
+        return HydePlan(vector_queries=[query], search_mode=mode)  # type: ignore[arg-type]
+    return retriever._generate_hyde_plan(query)
+
+
+def _run_retrieval_pass(
+    retriever: Any, queries: list[str], threshold: float, args: _RetrievalPassArgs
+) -> list[list[dict[str, Any]]]:
+    return [
+        retriever.retrieve_hybrid(
+            q,
+            context_window=args.sub_window,
+            corpus_id=args.corpus_id,
+            hard_negatives=args.hard_negatives,
+            relevance_threshold=threshold,
+            active_task=args.active_task,
+            session=args.session,  # GOC-83-W04: thread through, no-op when None
+        )
+        for q in queries
+    ]
+
+
+def _maybe_self_correct(
+    retriever: Any,
+    nodes: list[dict[str, Any]],
+    queries: list[str],
+    args: _RetrievalPassArgs,
+    context_window: int,
+    self_correct: bool,
+) -> list[dict[str, Any]]:
+    # Self-correcting second pass — fire only when the quality gate measured a failure.
+    from .hyde_planner import merge_retrievals, threshold_for_mode
+
+    report = retriever.last_quality_report
+    gate_failed = report is not None and not getattr(report, "gate_passed", True)
+    if not (self_correct and gate_failed):
+        return nodes
+    deep_threshold = threshold_for_mode("deep")
+    second_lists = _run_retrieval_pass(retriever, queries, deep_threshold, args)
+    return merge_retrievals([nodes, *second_lists], context_window)
+
+
+def _bfs_next_frontier(
+    frontier: set[str],
+    visited: set[str],
+    all_discovered: list[str],
+    expand_fn: Any,
+    neighbors_of_fn: Any,
+) -> set[str]:
+    # Resolve the WHOLE frontier's neighbourhoods in one overlapped wave, then
+    # filter — same id set as the per-node successors/predecessors pair, one
+    # wave of round-trips instead of 2x|frontier| serial ones.
+    expand_fn(sorted(frontier))
+    next_frontier: set[str] = set()
+    for nid in frontier:
+        for n in neighbors_of_fn(nid):
+            if n not in visited and n not in all_discovered:
+                next_frontier.add(n)
+    return next_frontier
+
+
+def _lexical_wrap(data: dict[str, Any], nid: Any) -> dict[str, Any]:
+    data = dict(data)
+    data["id"] = nid
+    data.setdefault("_score", 0.2)  # low confidence — it's a lexical fallback
+    data["_fallback"] = "lexical"
+    return data
+
+
+def _lexical_fallback_engine_discover(
+    retriever: Any, tokens: list[str], context_window: int
+) -> list[dict[str, Any]]:
+    """Tier 3 of ``_lexical_fallback``'s cascade.
+
+    Module-level (not a method) for the same reason as ``_trivial_query_result``:
+    ``_lexical_fallback`` is cherry-picked as an unbound function by lightweight
+    fake retrievers in tests, so a helper it calls via ``self.<name>`` must exist
+    on the fake; a bare module-level call resolves through this module's globals
+    instead, regardless of the concrete type of ``self``.
+
+    Engine-scalable keyword leg: `discover` ranks keyword overlap
+    (name/description/type) server-side in ONE round-trip, then hydrate the top-k
+    in ONE batch call. This replaces the O(N) `MATCH (n) WHERE ... CONTAINS ...
+    LIMIT k` scan below, which the engine does not filter server-side (it returns
+    arbitrary unfiltered nodes up to LIMIT — both slow and wrong on the engine).
+    """
+    graph = getattr(retriever.engine, "graph", None)
+    disc = getattr(graph, "discover", None)
+    if not callable(disc):
+        return []
+    try:
+        hits = disc(tokens, [], max(1, context_window)) or []
+        ids = [
+            str(h.get("id", "")) for h in hits if isinstance(h, dict) and h.get("id")
+        ]
+        if not ids:
+            return []
+        props = retriever._batch_node_properties(ids)
+        return [_lexical_wrap(props.get(nid) or {}, nid) for nid in ids]
+    except Exception as e:  # noqa: BLE001 — degrade to the backend scan
+        logger.debug("engine discover lexical fallback unavailable: %s", e)
+        return []
+
+
+def _lexical_fallback_backend_scan(
+    retriever: Any, tokens: list[str], context_window: int
+) -> list[dict[str, Any]]:
+    # Tier 4 — a backend that DOES evaluate the Cypher WHERE (pg-age/neo4j mirror).
+    backend = getattr(retriever.engine, "backend", None)
+    if backend is None:
+        return []
+    where = " OR ".join(
+        f"toLower(n.content) CONTAINS $t{i} OR toLower(n.name) CONTAINS $t{i}"
+        for i in range(len(tokens))
+    )
+    params = {f"t{i}": tok.lower() for i, tok in enumerate(tokens)}
+    try:
+        rows = backend.execute(
+            f"MATCH (n) WHERE {where} "
+            f"RETURN n.id as id, n as data LIMIT {max(1, context_window)}",
+            params,
+        )
+    except Exception as e:  # pragma: no cover - backend dialect variance  # noqa: BLE001 — returns [] (the documented empty-results case) on a backend dialect failure — the lexical fallback is itself already the last-resort path, so an empty list here degrades to 'no lexical matches', not a lost primary result
+        logger.debug("Lexical fallback query failed: %s", e)
+        return []
+    out = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        _d = row.get("data")
+        data = dict(_d) if isinstance(_d, dict) else {}
+        out.append(_lexical_wrap(data, row.get("id")))
+    return out
 
 
 class HybridRetriever:
@@ -325,20 +504,59 @@ class HybridRetriever:
         if not ids:
             return []
         props = self._batch_node_properties(ids)
-
-        results: list[dict[str, Any]] = []
         score_by_id = dict(ranked)
+
+        return self._engine_vector_search_results(
+            ids,
+            props,
+            score_by_id,
+            top_k,
+            corpus_doc_ids=corpus_doc_ids,
+            target_paths=target_paths,
+        )
+
+    def _engine_vector_search_one(
+        self,
+        nid: str,
+        props: dict[str, Any],
+        score_by_id: dict[str, float],
+        *,
+        corpus_doc_ids: set[str] | None,
+        target_paths: list[str] | None,
+    ) -> dict[str, Any] | None:
+        data = props.get(nid)
+        data = dict(data) if isinstance(data, dict) else {}
+        if corpus_doc_ids is not None and nid not in corpus_doc_ids:
+            return None
+        if target_paths:
+            path = str(data.get("target_path", ""))
+            if not path or not any(tp in path for tp in target_paths):
+                return None
+        data["id"] = nid
+        data["_score"] = score_by_id.get(nid, 0.0)
+        return data
+
+    def _engine_vector_search_results(
+        self,
+        ids: list[str],
+        props: dict[str, Any],
+        score_by_id: dict[str, float],
+        top_k: int,
+        *,
+        corpus_doc_ids: set[str] | None,
+        target_paths: list[str] | None,
+    ) -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
         for nid in ids:
-            data = props.get(nid)
-            data = dict(data) if isinstance(data, dict) else {}
-            if corpus_doc_ids is not None and nid not in corpus_doc_ids:
+            data = self._engine_vector_search_one(
+                nid,
+                props,
+                score_by_id,
+                corpus_doc_ids=corpus_doc_ids,
+                target_paths=target_paths,
+            )
+            if data is None:
                 continue
-            if target_paths:
-                path = str(data.get("target_path", ""))
-                if not path or not any(tp in path for tp in target_paths):
-                    continue
-            data["id"] = nid
-            data["_score"] = score_by_id.get(nid, 0.0)
             results.append(data)
             if len(results) >= top_k:
                 break
@@ -369,26 +587,39 @@ class HybridRetriever:
         """
         qvec = [float(x) for x in query_emb]
         if label:
-            try:
-                plan: list[dict[str, Any]] = [
-                    {"Scan": {"label": label}},
-                    {"Rank": {"query": qvec}},
-                    {"Limit": {"k": fetch_k}},
-                ]
-                rows = graph.query_unified(plan)
-                out = [
-                    (str(r["id"]), float(r.get("score") or 0.0))
-                    for r in (rows or [])
-                    if r.get("id") is not None
-                ]
-                if out:
-                    return out
-            except Exception as e:  # noqa: BLE001 — fall to the native ANN primitive
-                logger.debug(
-                    "unified Scan+Rank plan unavailable (engine without `query`?): "
-                    "%s — using native ANN",
-                    e,
-                )
+            unified = self._engine_rank_unified(graph, qvec, fetch_k, label)
+            if unified is not None:
+                return unified
+        return self._engine_rank_native_ann(graph, qvec, fetch_k)
+
+    def _engine_rank_unified(
+        self, graph: Any, qvec: list[float], fetch_k: int, label: str
+    ) -> list[tuple[str, float]] | None:
+        try:
+            plan: list[dict[str, Any]] = [
+                {"Scan": {"label": label}},
+                {"Rank": {"query": qvec}},
+                {"Limit": {"k": fetch_k}},
+            ]
+            rows = graph.query_unified(plan)
+            out = [
+                (str(r["id"]), float(r.get("score") or 0.0))
+                for r in (rows or [])
+                if r.get("id") is not None
+            ]
+            return out or None
+        except Exception as e:  # noqa: BLE001 — fall to the native ANN primitive
+            logger.debug(
+                "unified Scan+Rank plan unavailable (engine without `query`?): "
+                "%s — using native ANN",
+                e,
+            )
+            return None
+
+    @staticmethod
+    def _engine_rank_native_ann(
+        graph: Any, qvec: list[float], fetch_k: int
+    ) -> list[tuple[str, float]]:
         try:
             return [
                 (str(nid), float(score))
@@ -399,6 +630,41 @@ class HybridRetriever:
             logger.debug("engine semantic_search unavailable: %s", e)
             return []
 
+    def _batch_node_properties_via_true_batch(
+        self, graph: Any, ids: list[str]
+    ) -> dict[str, dict[str, Any]] | None:
+        client = getattr(graph, "_client", None)
+        nodes_ns = getattr(client, "nodes", None) if client is not None else None
+        batch = getattr(nodes_ns, "properties_batch", None)
+        if not callable(batch):
+            return None
+        try:
+            out: dict[str, dict[str, Any]] = {}
+            for nid, blob in (batch(ids) or {}).items():
+                if isinstance(blob, dict):
+                    out[str(nid)] = blob
+            return out
+        except Exception as e:  # noqa: BLE001 — degrade to per-id projection
+            logger.debug("properties_batch failed: %s", e)
+            return None
+
+    @staticmethod
+    def _batch_node_properties_per_id(
+        graph: Any, ids: list[str]
+    ) -> dict[str, dict[str, Any]]:
+        out: dict[str, dict[str, Any]] = {}
+        getter = getattr(graph, "_get_node_properties", None)
+        if not callable(getter):
+            return out
+        for nid in ids:
+            try:
+                p = getter(nid)
+                if isinstance(p, dict):
+                    out[nid] = p
+            except Exception:  # noqa: BLE001,S112
+                continue
+        return out
+
     def _batch_node_properties(self, ids: list[str]) -> dict[str, dict[str, Any]]:
         """Fetch properties for many node ids in ONE engine round-trip.
 
@@ -407,28 +673,24 @@ class HybridRetriever:
         N per-id round-trips.
         """
         graph = getattr(self.engine, "graph", None)
-        out: dict[str, dict[str, Any]] = {}
-        client = getattr(graph, "_client", None)
-        nodes_ns = getattr(client, "nodes", None) if client is not None else None
-        batch = getattr(nodes_ns, "properties_batch", None)
-        if callable(batch):
-            try:
-                for nid, blob in (batch(ids) or {}).items():
-                    if isinstance(blob, dict):
-                        out[str(nid)] = blob
-                return out
-            except Exception as e:  # noqa: BLE001 — degrade to per-id projection
-                logger.debug("properties_batch failed: %s", e)
-        getter = getattr(graph, "_get_node_properties", None)
-        if callable(getter):
-            for nid in ids:
-                try:
-                    p = getter(nid)
-                    if isinstance(p, dict):
-                        out[nid] = p
-                except Exception:  # noqa: BLE001,S112
-                    continue
-        return out
+        result = self._batch_node_properties_via_true_batch(graph, ids)
+        if result is not None:
+            return result
+        return self._batch_node_properties_per_id(graph, ids)
+
+    def _exists_batch_via_has_batch(
+        self, graph: Any, wanted: list[str]
+    ) -> dict[str, bool] | None:
+        batch = getattr(graph, "has_batch", None)
+        if not callable(batch):
+            return None
+        try:
+            return {str(k): bool(v) for k, v in (batch(wanted) or {}).items()}
+        except Exception as e:  # noqa: BLE001 — deliberate DEBUG: a CAPABILITY probe. Not every backend implements `has_batch`, so this degrades to the per-id `has_node` path below and still returns a correct (merely slower) answer — unlike the sibling `_neighbors_batch`, a failure here cannot corrupt the assembled subgraph, because existence is re-derived per id rather than defaulted. The cause is preserved (interpolated).
+            # Degrade to per-id existence rather than failing assembly; the
+            # cause is kept in the log, never discarded silently.
+            logger.debug("has_batch unavailable, falling back per-id: %s", e)
+            return None
 
     def _exists_batch(self, ids: list[str]) -> dict[str, bool]:
         """Existence for many node ids in ONE engine round-trip.
@@ -444,14 +706,9 @@ class HybridRetriever:
         wanted = [nid for nid in dict.fromkeys(ids) if nid]
         if not wanted or graph is None:
             return {}
-        batch = getattr(graph, "has_batch", None)
-        if callable(batch):
-            try:
-                return {str(k): bool(v) for k, v in (batch(wanted) or {}).items()}
-            except Exception as e:  # noqa: BLE001 — deliberate DEBUG: a CAPABILITY probe. Not every backend implements `has_batch`, so this degrades to the per-id `has_node` path below and still returns a correct (merely slower) answer — unlike the sibling `_neighbors_batch`, a failure here cannot corrupt the assembled subgraph, because existence is re-derived per id rather than defaulted. The cause is preserved (interpolated).
-                # Degrade to per-id existence rather than failing assembly; the
-                # cause is kept in the log, never discarded silently.
-                logger.debug("has_batch unavailable, falling back per-id: %s", e)
+        result = self._exists_batch_via_has_batch(graph, wanted)
+        if result is not None:
+            return result
         has_node = getattr(graph, "has_node", None)
         if not callable(has_node):
             return {}
@@ -501,42 +758,65 @@ class HybridRetriever:
         if not wanted or graph is None:
             return {}
 
-        if not self._neighbors_batch_unsupported:
-            client = getattr(graph, "_client", None)
-            nodes_ns = getattr(client, "nodes", None) if client is not None else None
-            true_batch = getattr(nodes_ns, "neighbors_batch", None)
-            if callable(true_batch):
-                try:
-                    result = true_batch(wanted)
-                except Exception as e:  # noqa: BLE001 — capability probe, degrade once (see docstring)
-                    self._neighbors_batch_unsupported = True
-                    logger.debug(
-                        "neighbors_batch RPC unavailable, falling back to "
-                        "per-node fetch for the rest of this retriever "
-                        "instance's lifetime: %s",
-                        e,
-                    )
-                else:
-                    return {
-                        str(nid): [str(n) for n in (neighbors or [])]
-                        for nid, neighbors in (result or {}).items()
-                    }
+        true_batch_result = self._neighbors_via_true_batch(graph, wanted)
+        if true_batch_result is not None:
+            return true_batch_result
 
+        fetch = self._resolve_neighbors_fetch_fn(graph)
+        if fetch is None:
+            return {}
+
+        return self._neighbors_parallel_fetch(fetch, wanted)
+
+    def _neighbors_via_true_batch(
+        self, graph: Any, wanted: list[str]
+    ) -> dict[str, list[str]] | None:
+        if self._neighbors_batch_unsupported:
+            return None
+        client = getattr(graph, "_client", None)
+        nodes_ns = getattr(client, "nodes", None) if client is not None else None
+        true_batch = getattr(nodes_ns, "neighbors_batch", None)
+        if not callable(true_batch):
+            return None
+        try:
+            result = true_batch(wanted)
+        except Exception as e:  # noqa: BLE001 — capability probe, degrade once (see docstring)
+            self._neighbors_batch_unsupported = True
+            logger.debug(
+                "neighbors_batch RPC unavailable, falling back to "
+                "per-node fetch for the rest of this retriever "
+                "instance's lifetime: %s",
+                e,
+            )
+            return None
+        return {
+            str(nid): [str(n) for n in (neighbors or [])]
+            for nid, neighbors in (result or {}).items()
+        }
+
+    @staticmethod
+    def _resolve_neighbors_fetch_fn(graph: Any) -> Callable[[str], list[str]] | None:
         unioned = getattr(graph, "get_neighbors", None)
         if callable(unioned):
-            fetch: Callable[[str], list[str]] = unioned
-        else:
-            # Facade without the unioned op: fall back to the directed pair so a
-            # graph double / older engine keeps the SAME id set, just at two
-            # round-trips per node instead of one.
-            succ = getattr(graph, "get_successors", None)
-            pred = getattr(graph, "get_predecessors", None)
-            if not callable(succ) or not callable(pred):
-                return {}
+            return unioned
 
-            def fetch(nid: str) -> list[str]:
-                return list(succ(nid) or []) + list(pred(nid) or [])
+        # Facade without the unioned op: fall back to the directed pair so a
+        # graph double / older engine keeps the SAME id set, just at two
+        # round-trips per node instead of one.
+        succ = getattr(graph, "get_successors", None)
+        pred = getattr(graph, "get_predecessors", None)
+        if not callable(succ) or not callable(pred):
+            return None
 
+        def fetch(nid: str) -> list[str]:
+            return list(succ(nid) or []) + list(pred(nid) or [])
+
+        return fetch
+
+    @staticmethod
+    def _neighbors_parallel_fetch(
+        fetch: Callable[[str], list[str]], wanted: list[str]
+    ) -> dict[str, list[str]]:
         if len(wanted) == 1:
             return {wanted[0]: [str(n) for n in (fetch(wanted[0]) or [])]}
 
@@ -613,12 +893,20 @@ class HybridRetriever:
         wanted = [nid for nid in dict.fromkeys(ids) if nid]
         if not wanted or not self.engine.backend or self._varlen_batch_unsupported:
             return {}
+        rows = self._run_varlen_neighbors_query(wanted, depth)
+        if rows is None:
+            return {}
+        return self._collect_varlen_rows(rows)
+
+    def _run_varlen_neighbors_query(
+        self, wanted: list[str], depth: int
+    ) -> list[Any] | None:
         query_str = (
             "UNWIND $ids AS base_id MATCH (n {id: base_id})-[*1.."
             f"{depth}]-(m) RETURN base_id, m"
         )
         try:
-            rows = self.engine.backend.execute(query_str, {"ids": wanted})
+            return self.engine.backend.execute(query_str, {"ids": wanted})
         except Exception as e:  # noqa: BLE001 — capability probe, degrades to the BFS fallback path
             self._varlen_batch_unsupported = True
             logger.debug(
@@ -628,7 +916,11 @@ class HybridRetriever:
                 type(e).__name__,
                 e,
             )
-            return {}
+            return None
+
+    def _collect_varlen_rows(
+        self, rows: list[Any] | None
+    ) -> dict[str, list[dict[str, Any]]]:
         out: dict[str, list[dict[str, Any]]] = {}
         for row in rows or []:
             if not isinstance(row, dict):
@@ -1088,6 +1380,23 @@ class HybridRetriever:
                 node["_source_trust_boost"] = sb
             node["_score"] *= rb * sb
 
+    def _apply_embedding_task_boost(
+        self,
+        scored_nodes: list[dict[str, Any]],
+        active_task: str,
+        active_task_emb: Any,
+    ) -> None:
+        for node in scored_nodes:
+            node_emb = node.get("embedding")
+            if not node_emb:
+                # Overlap-based attention boost fallback
+                self._apply_active_task_overlap_boost(node, active_task)
+                continue
+            task_sim = cosine_similarity(active_task_emb, node_emb)
+            if task_sim > 0.0:
+                node["_score"] *= 1.0 + 0.5 * task_sim
+                node["_active_task_boost"] = task_sim
+
     def _apply_active_task_boost(
         self,
         scored_nodes: list[dict[str, Any]],
@@ -1095,20 +1404,14 @@ class HybridRetriever:
         embed_breaker: Any,
     ) -> None:
         try:
-            if self.embed_model and not (
+            embed_available = self.embed_model and not (
                 embed_breaker is not None and embed_breaker.is_tripped()
-            ):
+            )
+            if embed_available:
                 active_task_emb = self.embed_model.get_text_embedding(active_task)
-                for node in scored_nodes:
-                    node_emb = node.get("embedding")
-                    if node_emb:
-                        task_sim = cosine_similarity(active_task_emb, node_emb)
-                        if task_sim > 0.0:
-                            node["_score"] *= 1.0 + 0.5 * task_sim
-                            node["_active_task_boost"] = task_sim
-                    else:
-                        # Overlap-based attention boost fallback
-                        self._apply_active_task_overlap_boost(node, active_task)
+                self._apply_embedding_task_boost(
+                    scored_nodes, active_task, active_task_emb
+                )
             else:
                 # Overlap-based attention boost fallback if no embed model
                 for node in scored_nodes:
@@ -1379,21 +1682,45 @@ class HybridRetriever:
         all_discovered = [node_id]
         frontier = {node_id}
         for _depth in range(multi_hop_depth):
-            next_frontier: set[str] = set()
-            # Resolve the WHOLE frontier's neighbourhoods in one
-            # overlapped wave, then filter — same id set as the
-            # per-node successors/predecessors pair, one wave of
-            # round-trips instead of 2x|frontier| serial ones.
-            expand_fn(sorted(frontier))
-            for nid in frontier:
-                for n in neighbors_of_fn(nid):
-                    if n not in visited and n not in all_discovered:
-                        next_frontier.add(n)
-            frontier = next_frontier
+            frontier = _bfs_next_frontier(
+                frontier, visited, all_discovered, expand_fn, neighbors_of_fn
+            )
             for f_node in sorted(frontier):
                 if f_node not in all_discovered:
                     all_discovered.append(f_node)
         return all_discovered
+
+    def _fetch_hydrated_properties(
+        self, hydrate_ids: set[str]
+    ) -> dict[str, dict[str, Any]]:
+        try:
+            return self._batch_node_properties(sorted(hydrate_ids))
+        except Exception as e:  # noqa: BLE001 — a hydration failure must never drop the already-discovered nodes, only their enrichment (mirrors the per-node fallback this replaces)
+            logger.debug(f"Batched hydration failed: {e}")
+            return {}
+
+    def _hydrate_one_discovered_node(
+        self,
+        nid: str,
+        node_id: str,
+        base_node: dict[str, Any],
+        hydrated_all: dict[str, dict[str, Any]],
+    ) -> dict[str, Any]:
+        if nid == node_id:
+            # Preserve the vector-scored base node — it carries
+            # _score, the active-task attention boost and its
+            # embedding. Enrich (don't overwrite) with any graph
+            # properties (e.g. type) it lacks rather than
+            # refetching a bare graph projection.
+            d = dict(base_node)
+            for k, v in hydrated_all.get(nid, {}).items():
+                d.setdefault(k, v)
+        else:
+            d = dict(hydrated_all.get(nid, {}))
+        d["id"] = nid
+        if self._boost_strategy == "context_only":
+            d["_context_boost"] = self._backlink_boost(nid)
+        return d
 
     def _hydrate_pending_nodes(
         self,
@@ -1402,30 +1729,16 @@ class HybridRetriever:
         base_nodes: list[dict[str, Any]],
         assembled_subgraph: list[dict[str, Any]],
     ) -> None:
-        try:
-            hydrated_all = self._batch_node_properties(sorted(hydrate_ids))
-        except Exception as e:  # noqa: BLE001 — a hydration failure must never drop the already-discovered nodes, only their enrichment (mirrors the per-node fallback this replaces)
-            logger.debug(f"Batched hydration failed: {e}")
-            hydrated_all = {}
+        hydrated_all = self._fetch_hydrated_properties(hydrate_ids)
         _node_by_id = {str(n.get("id")): n for n in base_nodes if isinstance(n, dict)}
         for node_id, all_discovered in pending_hydrate:
             base_node = _node_by_id.get(node_id) or {"id": node_id}
             for nid in all_discovered:
-                if nid == node_id:
-                    # Preserve the vector-scored base node — it carries
-                    # _score, the active-task attention boost and its
-                    # embedding. Enrich (don't overwrite) with any graph
-                    # properties (e.g. type) it lacks rather than
-                    # refetching a bare graph projection.
-                    d = dict(base_node)
-                    for k, v in hydrated_all.get(nid, {}).items():
-                        d.setdefault(k, v)
-                else:
-                    d = dict(hydrated_all.get(nid, {}))
-                d["id"] = nid
-                if self._boost_strategy == "context_only":
-                    d["_context_boost"] = self._backlink_boost(nid)
-                assembled_subgraph.append(d)
+                assembled_subgraph.append(
+                    self._hydrate_one_discovered_node(
+                        nid, node_id, base_node, hydrated_all
+                    )
+                )
 
     def _finalize_retrieval(
         self,
@@ -1541,27 +1854,36 @@ class HybridRetriever:
         nodes: list[dict[str, Any]] = []
         if self.engine.backend:
             for raw_label in labels:
-                try:
-                    label = validate_identifier(raw_label, kind="label")
-                    rows = (
-                        self.engine.backend.execute(
-                            f"MATCH (n:{label}) RETURN n.id as id, n as data "
-                            f"LIMIT {int(limit_per_label)}"
-                        )
-                        or []
-                    )
-                except Exception as e:  # noqa: BLE001 — one label's query inside direct_search's per-label loop; `continue`s to the next label so a single bad label doesn't stop the scan of the rest
-                    logger.debug("direct_search label %s failed: %s", raw_label, e)
-                    continue
-                for r in rows:
-                    if not isinstance(r, dict):
-                        continue
-                    _d = r.get("data")
-                    data = dict(_d) if isinstance(_d, dict) else {}
-                    data["id"] = r.get("id", data.get("id", ""))
-                    nodes.append(data)
+                nodes.extend(
+                    self._direct_search_label_nodes(raw_label, limit_per_label)
+                )
 
         return searcher_from_nodes(nodes).search(query, top_k=top_k)
+
+    def _direct_search_label_nodes(
+        self, raw_label: str, limit_per_label: int
+    ) -> list[dict[str, Any]]:
+        try:
+            label = validate_identifier(raw_label, kind="label")
+            rows = (
+                self.engine.backend.execute(
+                    f"MATCH (n:{label}) RETURN n.id as id, n as data "
+                    f"LIMIT {int(limit_per_label)}"
+                )
+                or []
+            )
+        except Exception as e:  # noqa: BLE001 — one label's query inside direct_search's per-label loop; `continue`s to the next label so a single bad label doesn't stop the scan of the rest
+            logger.debug("direct_search label %s failed: %s", raw_label, e)
+            return []
+        nodes: list[dict[str, Any]] = []
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            _d = r.get("data")
+            data = dict(_d) if isinstance(_d, dict) else {}
+            data["id"] = r.get("id", data.get("id", ""))
+            nodes.append(data)
+        return nodes
 
     def retrieve_hybrid_budgeted(
         self,
@@ -1830,66 +2152,33 @@ class HybridRetriever:
         when ``with_ledger`` is set. Keeps the 3-hop Wire-First ceiling (method, not a service).
         """
         from .hyde_planner import (
-            HydePlan,
             build_evidence_ledger,
-            is_trivial_query,
             merge_retrievals,
             threshold_for_mode,
         )
 
-        # CONCEPT:AU-KG.retrieval.triviality-gate — social-closer gate: trivial turns skip the planner + retrieval entirely.
-        if is_trivial_query(query):
-            empty: list[dict[str, Any]] = []
-            if with_ledger:
-                return {
-                    "nodes": empty,
-                    "ledger": build_evidence_ledger(query, empty),
-                    "plan": HydePlan(vector_queries=[query]).model_dump(),
-                    "trivial": True,
-                }
-            return empty
+        trivial = _trivial_query_result(query, with_ledger)
+        if trivial is not None:
+            return trivial
 
-        if mode in ("standard", "deep"):
-            plan = HydePlan(vector_queries=[query], search_mode=mode)  # type: ignore[arg-type]
-        else:
-            plan = self._generate_hyde_plan(query)
-
+        plan = _resolve_hyde_plan(self, query, mode)
         threshold = threshold_for_mode(plan.search_mode)
         queries = plan.effective_queries(query)
         sub_window = max(2, context_window)
+        args = _RetrievalPassArgs(
+            sub_window=sub_window,
+            corpus_id=corpus_id,
+            hard_negatives=hard_negatives,
+            active_task=active_task,
+            session=session,
+        )
 
-        first_lists = [
-            self.retrieve_hybrid(
-                q,
-                context_window=sub_window,
-                corpus_id=corpus_id,
-                hard_negatives=hard_negatives,
-                relevance_threshold=threshold,
-                active_task=active_task,
-                session=session,  # GOC-83-W04: thread through, no-op when None
-            )
-            for q in queries
-        ]
+        first_lists = _run_retrieval_pass(self, queries, threshold, args)
         nodes = merge_retrievals(first_lists, context_window)
 
-        # Self-correcting second pass — fire only when the quality gate measured a failure.
-        report = self.last_quality_report
-        gate_failed = report is not None and not getattr(report, "gate_passed", True)
-        if self_correct and gate_failed:
-            deep_threshold = threshold_for_mode("deep")
-            second_lists = [
-                self.retrieve_hybrid(
-                    q,
-                    context_window=sub_window,
-                    corpus_id=corpus_id,
-                    hard_negatives=hard_negatives,
-                    relevance_threshold=deep_threshold,
-                    active_task=active_task,
-                    session=session,  # GOC-83-W04: thread through, no-op when None
-                )
-                for q in queries
-            ]
-            nodes = merge_retrievals([nodes, *second_lists], context_window)
+        nodes = _maybe_self_correct(
+            self, nodes, queries, args, context_window, self_correct
+        )
 
         # CONCEPT:AU-KG.retrieval.triviality-gate — 4-level fallback cascade: hybrid (above) → dense-only is already
         # inside retrieve_hybrid → lexical keyword scan → backend scan. If the vector path yielded
@@ -1956,59 +2245,8 @@ class HybridRetriever:
         if not tokens:
             return []
 
-        def _wrap(data: dict[str, Any], nid: Any) -> dict[str, Any]:
-            data = dict(data)
-            data["id"] = nid
-            data.setdefault("_score", 0.2)  # low confidence — it's a lexical fallback
-            data["_fallback"] = "lexical"
-            return data
+        engine_hits = _lexical_fallback_engine_discover(self, tokens, context_window)
+        if engine_hits:
+            return engine_hits
 
-        # Tier 3 — engine-scalable keyword leg: `discover` ranks keyword overlap
-        # (name/description/type) server-side in ONE round-trip, then hydrate the top-k
-        # in ONE batch call. This replaces the O(N) `MATCH (n) WHERE ... CONTAINS ...
-        # LIMIT k` scan below, which the engine does not filter server-side (it returns
-        # arbitrary unfiltered nodes up to LIMIT — both slow and wrong on the engine).
-        graph = getattr(self.engine, "graph", None)
-        disc = getattr(graph, "discover", None)
-        if callable(disc):
-            try:
-                hits = disc(tokens, [], max(1, context_window)) or []
-                ids = [
-                    str(h.get("id", ""))
-                    for h in hits
-                    if isinstance(h, dict) and h.get("id")
-                ]
-                if ids:
-                    props = self._batch_node_properties(ids)
-                    out = [_wrap(props.get(nid) or {}, nid) for nid in ids]
-                    if out:
-                        return out
-            except Exception as e:  # noqa: BLE001 — degrade to the backend scan
-                logger.debug("engine discover lexical fallback unavailable: %s", e)
-
-        # Tier 4 — a backend that DOES evaluate the Cypher WHERE (pg-age/neo4j mirror).
-        backend = getattr(self.engine, "backend", None)
-        if backend is None:
-            return []
-        where = " OR ".join(
-            f"toLower(n.content) CONTAINS $t{i} OR toLower(n.name) CONTAINS $t{i}"
-            for i in range(len(tokens))
-        )
-        params = {f"t{i}": tok.lower() for i, tok in enumerate(tokens)}
-        try:
-            rows = backend.execute(
-                f"MATCH (n) WHERE {where} "
-                f"RETURN n.id as id, n as data LIMIT {max(1, context_window)}",
-                params,
-            )
-        except Exception as e:  # pragma: no cover - backend dialect variance  # noqa: BLE001 — returns [] (the documented empty-results case) on a backend dialect failure — the lexical fallback is itself already the last-resort path, so an empty list here degrades to 'no lexical matches', not a lost primary result
-            logger.debug("Lexical fallback query failed: %s", e)
-            return []
-        out = []
-        for row in rows or []:
-            if not isinstance(row, dict):
-                continue
-            _d = row.get("data")
-            data = dict(_d) if isinstance(_d, dict) else {}
-            out.append(_wrap(data, row.get("id")))
-        return out
+        return _lexical_fallback_backend_scan(self, tokens, context_window)

@@ -121,17 +121,32 @@ def _dig(value: Any, path: str, default: Any = None) -> Any:
     return current
 
 
-def _dig_many(value: Any, path: str) -> list[Any]:
-    """Resolve a dotted path while treating lists as bounded fan-out points."""
-    current = [value]
-    for part in (segment for segment in str(path or "").split(".") if segment):
-        resolved: list[Any] = []
-        for item in current:
-            values = item if isinstance(item, list) else [item]
-            for candidate in values:
-                if isinstance(candidate, Mapping) and part in candidate:
-                    resolved.append(candidate[part])
-        current = resolved
+def _is_invalid_next_cursor(next_cursor_text: str, seen_cursors: set[str]) -> bool:
+    return (
+        not next_cursor_text
+        or next_cursor_text != next_cursor_text.strip()
+        or len(next_cursor_text.encode("utf-8")) > 4_096
+        or any(
+            ord(character) < 32 or ord(character) == 127
+            for character in next_cursor_text
+        )
+        or next_cursor_text in seen_cursors
+    )
+
+
+def _dig_resolve_segment(current: list[Any], part: str) -> list[Any]:
+    """Resolve one dotted-path segment across all in-flight items."""
+    resolved: list[Any] = []
+    for item in current:
+        values = item if isinstance(item, list) else [item]
+        for candidate in values:
+            if isinstance(candidate, Mapping) and part in candidate:
+                resolved.append(candidate[part])
+    return resolved
+
+
+def _dig_flatten(current: list[Any]) -> list[Any]:
+    """Flatten one level of list nesting produced by fan-out resolution."""
     flattened: list[Any] = []
     for item in current:
         if isinstance(item, list):
@@ -139,6 +154,14 @@ def _dig_many(value: Any, path: str) -> list[Any]:
         else:
             flattened.append(item)
     return flattened
+
+
+def _dig_many(value: Any, path: str) -> list[Any]:
+    """Resolve a dotted path while treating lists as bounded fan-out points."""
+    current = [value]
+    for part in (segment for segment in str(path or "").split(".") if segment):
+        current = _dig_resolve_segment(current, part)
+    return _dig_flatten(current)
 
 
 def _digest(*parts: Any) -> str:
@@ -178,6 +201,43 @@ def _bounded_int(value: Any, *, default: int, minimum: int, maximum: int) -> int
     return max(minimum, min(parsed, maximum))
 
 
+def _cfg_int(config: Mapping[str, Any], key: str, default: int) -> int:
+    return int(config.get(key) or default)
+
+
+def _cfg_float(config: Mapping[str, Any], key: str, default: float) -> float:
+    return float(config.get(key) or default)
+
+
+def _parse_configured_tls_mapping(
+    configured: Mapping[str, Any],
+) -> tuple[str | None, str | None, Mapping[str, Any] | None]:
+    profile_name = (
+        str(configured.get("profile_name") or configured.get("profile") or "").strip()
+        or None
+    )
+    profile_ref = str(configured.get("profile_ref") or "").strip() or None
+    settings = configured.get("settings")
+    inline: Mapping[str, Any] | None = None
+    if isinstance(settings, Mapping):
+        inline = settings
+    elif not profile_name and not profile_ref:
+        inline = configured
+    return profile_name, profile_ref, inline
+
+
+def _parse_configured_tls(
+    configured: Any,
+) -> tuple[str | None, str | None, Mapping[str, Any] | None]:
+    if isinstance(configured, str):
+        return configured, None, None
+    if isinstance(configured, Mapping):
+        return _parse_configured_tls_mapping(configured)
+    if configured is not None:
+        raise GraphQLDocumentError("GraphQL transport security profile is invalid")
+    return None, None, None
+
+
 def _classification(value: Any) -> DataClassification:
     try:
         return DataClassification(str(value or DataClassification.INTERNAL.value))
@@ -185,6 +245,19 @@ def _classification(value: Any) -> DataClassification:
         raise GraphQLDocumentError(
             "GraphQL governance classification is invalid"
         ) from None
+
+
+def _validate_governance_classification(
+    classification: DataClassification, access: ExternalAccess
+) -> None:
+    if classification == DataClassification.PUBLIC and not access.is_public:
+        raise GraphQLDocumentError(
+            "GraphQL public classification requires public source access"
+        )
+    if classification != DataClassification.PUBLIC and access.is_public:
+        raise GraphQLDocumentError(
+            "GraphQL non-public classification cannot use public source access"
+        )
 
 
 def _policy_values(
@@ -232,39 +305,36 @@ def _error_signature(error: Any) -> tuple[str, str] | None:
     return code, path
 
 
+def _error_is_allowlisted(
+    error: Any, *, codes: tuple[str, ...], paths: tuple[str, ...]
+) -> bool:
+    signature = _error_signature(error)
+    if signature is None:
+        return False
+    code, path = signature
+    if code not in codes:
+        return False
+    return any(path == allowed or path.startswith(f"{allowed}.") for allowed in paths)
+
+
 def _errors_are_allowlisted(
     errors: Any, *, codes: tuple[str, ...], paths: tuple[str, ...]
 ) -> bool:
     if not isinstance(errors, list) or not errors or not codes or not paths:
         return False
-    for error in errors:
-        signature = _error_signature(error)
-        if signature is None:
-            return False
-        code, path = signature
-        if code not in codes:
-            return False
-        if not any(
-            path == allowed or path.startswith(f"{allowed}.") for allowed in paths
-        ):
-            return False
-    return True
+    return all(
+        _error_is_allowlisted(error, codes=codes, paths=paths) for error in errors
+    )
 
 
-def _validate_query_document(value: Any, *, allow_introspection: bool = False) -> str:
-    """Accept exactly one bounded query operation without echoing its text.
-
-    The AST is the authority.  Keyword regexes are not sufficient here: operation
-    names, comments, string literals, fragments, and multi-operation documents can
-    all make a lexical classifier disagree with what a GraphQL server executes.
-    """
-    query = str(value or "").strip()
+def _parse_bounded_query(query: str) -> Any:
+    """Enforce the size/emptiness bounds, then parse via the GraphQL AST."""
     if len(query.encode("utf-8")) > 200_000:
         raise GraphQLDocumentError("GraphQL query exceeds the configured bound")
     if not query:
         raise GraphQLDocumentError("GraphQL operation must be a read query")
     try:
-        document = parse(
+        return parse(
             query,
             no_location=True,
             max_tokens=_MAX_GRAPHQL_TOKENS,
@@ -275,6 +345,8 @@ def _validate_query_document(value: Any, *, allow_introspection: bool = False) -
             "GraphQL operation is not a valid document"
         ) from None
 
+
+def _ensure_single_read_query(document: Any) -> None:
     operations = [
         definition
         for definition in document.definitions
@@ -288,10 +360,17 @@ def _validate_query_document(value: Any, *, allow_introspection: bool = False) -
     ):
         raise GraphQLDocumentError("GraphQL operation contains unsupported definitions")
 
+
+def _document_selections(document: Any) -> list[SelectionNode]:
     selections: list[SelectionNode] = []
     for definition in document.definitions:
         if isinstance(definition, OperationDefinitionNode | FragmentDefinitionNode):
             selections.extend(definition.selection_set.selections)
+    return selections
+
+
+def _reject_introspection(document: Any, *, allow_introspection: bool) -> None:
+    selections = _document_selections(document)
     while selections:
         selection = selections.pop()
         if (
@@ -306,7 +385,40 @@ def _validate_query_document(value: Any, *, allow_introspection: bool = False) -
             selection_set = selection.selection_set
             if selection_set is not None:
                 selections.extend(selection_set.selections)
+
+
+def _validate_query_document(value: Any, *, allow_introspection: bool = False) -> str:
+    """Accept exactly one bounded query operation without echoing its text.
+
+    The AST is the authority.  Keyword regexes are not sufficient here: operation
+    names, comments, string literals, fragments, and multi-operation documents can
+    all make a lexical classifier disagree with what a GraphQL server executes.
+    """
+    query = str(value or "").strip()
+    document = _parse_bounded_query(query)
+    _ensure_single_read_query(document)
+    _reject_introspection(document, allow_introspection=allow_introspection)
     return query
+
+
+def _is_row_bound_argument(node: Node, variable: str) -> bool:
+    return (
+        isinstance(node, ArgumentNode)
+        and node.name.value in {"first", "limit"}
+        and isinstance(node.value, VariableNode)
+        and node.value.name.value == variable
+    )
+
+
+def _node_children(node: Node) -> list[Node]:
+    children: list[Node] = []
+    for key in node.keys:
+        child = getattr(node, key, None)
+        if isinstance(child, tuple):
+            children.extend(item for item in child if isinstance(item, Node))
+        elif isinstance(child, Node):
+            children.append(child)
+    return children
 
 
 def _query_binds_row_bound(query: str, variable: str) -> bool:
@@ -328,20 +440,54 @@ def _query_binds_row_bound(query: str, variable: str) -> bool:
     ]
     while stack:
         node = stack.pop()
-        if (
-            isinstance(node, ArgumentNode)
-            and node.name.value in {"first", "limit"}
-            and isinstance(node.value, VariableNode)
-            and node.value.name.value == variable
-        ):
+        if _is_row_bound_argument(node, variable):
             return True
-        for key in node.keys:
-            child = getattr(node, key, None)
-            if isinstance(child, tuple):
-                stack.extend(item for item in child if isinstance(item, Node))
-            elif isinstance(child, Node):
-                stack.append(child)
+        stack.extend(_node_children(node))
     return False
+
+
+def _collect_bounded_iterator_bytes(iterator: Any, limit: int) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    try:
+        for chunk in iterator():
+            if not isinstance(chunk, bytes):
+                raise TypeError("response chunk is not bytes")
+            total += len(chunk)
+            if total > limit:
+                raise GraphQLDocumentError(
+                    "GraphQL response exceeds the configured bound"
+                )
+            chunks.append(chunk)
+    except GraphQLDocumentError:
+        raise
+    except Exception:
+        raise GraphQLDocumentError("GraphQL transport byte stream is invalid") from None
+    return b"".join(chunks)
+
+
+def _response_raw_bytes(response: Any, limit: int) -> bytes:
+    content = getattr(response, "content", None)
+    if isinstance(content, bytes):
+        return content
+    if isinstance(content, bytearray):
+        return bytes(content)
+    iterator = getattr(response, "iter_bytes", None)
+    if not callable(iterator):
+        raise GraphQLDocumentError(
+            "GraphQL transport must expose a bounded byte response"
+        )
+    return _collect_bounded_iterator_bytes(iterator, limit)
+
+
+def _decode_bounded_json(raw: bytes) -> dict[str, Any]:
+    try:
+        payload = json.loads(raw, parse_constant=_reject_json_constant)
+    except (TypeError, ValueError, RecursionError, UnicodeDecodeError):
+        raise GraphQLDocumentError("GraphQL response is not valid JSON") from None
+    if not isinstance(payload, dict):
+        raise GraphQLDocumentError("GraphQL response is not an object")
+    return payload
 
 
 def _bounded_transport_payload(response: Any, limit: int) -> tuple[dict[str, Any], int]:
@@ -353,45 +499,10 @@ def _bounded_transport_payload(response: Any, limit: int) -> tuple[dict[str, Any
     configured response limit.
     """
 
-    raw: bytes
-    content = getattr(response, "content", None)
-    if isinstance(content, bytes):
-        raw = content
-    elif isinstance(content, bytearray):
-        raw = bytes(content)
-    else:
-        iterator = getattr(response, "iter_bytes", None)
-        if not callable(iterator):
-            raise GraphQLDocumentError(
-                "GraphQL transport must expose a bounded byte response"
-            )
-        chunks: list[bytes] = []
-        total = 0
-        try:
-            for chunk in iterator():
-                if not isinstance(chunk, bytes):
-                    raise TypeError("response chunk is not bytes")
-                total += len(chunk)
-                if total > limit:
-                    raise GraphQLDocumentError(
-                        "GraphQL response exceeds the configured bound"
-                    )
-                chunks.append(chunk)
-        except GraphQLDocumentError:
-            raise
-        except Exception:
-            raise GraphQLDocumentError(
-                "GraphQL transport byte stream is invalid"
-            ) from None
-        raw = b"".join(chunks)
+    raw = _response_raw_bytes(response, limit)
     if len(raw) > limit:
         raise GraphQLDocumentError("GraphQL response exceeds the configured bound")
-    try:
-        payload = json.loads(raw, parse_constant=_reject_json_constant)
-    except (TypeError, ValueError, RecursionError, UnicodeDecodeError):
-        raise GraphQLDocumentError("GraphQL response is not valid JSON") from None
-    if not isinstance(payload, dict):
-        raise GraphQLDocumentError("GraphQL response is not an object")
+    payload = _decode_bounded_json(raw)
     return payload, len(raw)
 
 
@@ -413,6 +524,99 @@ def _access_from_config(value: Any) -> ExternalAccess:
     if not access.is_public and not (access.group_ids or access.markings):
         return ExternalAccess.quarantined()
     return access
+
+
+@dataclass(frozen=True)
+class _GraphQLDocumentLimits:
+    """Bounded numeric limits parsed from ``configure(**config)``."""
+
+    max_documents: int
+    max_sections: int
+    max_content_chars: int
+    max_response_bytes: int
+    max_total_response_bytes: int
+    max_entities: int
+    max_pages: int
+    page_size: int
+    max_hierarchy_depth: int
+    max_fallbacks: int
+    timeout_seconds: float
+
+    @classmethod
+    def from_config(cls, config: Mapping[str, Any]) -> _GraphQLDocumentLimits:
+        return cls(
+            max_documents=_cfg_int(config, "max_documents", 100),
+            max_sections=_cfg_int(config, "max_sections", 500),
+            max_content_chars=_cfg_int(config, "max_content_chars", 2_000_000),
+            max_response_bytes=_cfg_int(config, "max_response_bytes", 10_000_000),
+            max_total_response_bytes=_cfg_int(
+                config, "max_total_response_bytes", 25_000_000
+            ),
+            max_entities=_cfg_int(config, "max_entities", 2_000),
+            max_pages=_cfg_int(config, "max_pages", 25),
+            page_size=_cfg_int(config, "page_size", 100),
+            max_hierarchy_depth=_cfg_int(config, "max_hierarchy_depth", 12),
+            max_fallbacks=_cfg_int(config, "max_fallbacks", 2),
+            timeout_seconds=_cfg_float(config, "timeout_seconds", 30.0),
+        )
+
+
+@dataclass
+class _HierarchyBatchSetup:
+    """Output of ``_hierarchy_batch_context`` -- one bundled param instead of 7."""
+
+    identity_key: str
+    governance: tuple[
+        ExternalAccess,
+        DataClassification,
+        str | None,
+        bool,
+        str,
+        str,
+        str,
+    ]
+    profile_digest: str
+    governance_digest: str
+    max_entities: int
+    max_documents: int
+    max_depth: int
+
+
+@dataclass
+class _HierarchyPrepContext:
+    """Per-``kind`` context shared while preparing hierarchy-batch entities."""
+
+    kind: str
+    mapping: dict[str, Any]
+    identity_key: str
+    profile_digest: str
+    governance_digest: str
+    governance: tuple[
+        ExternalAccess,
+        DataClassification,
+        str | None,
+        bool,
+        str,
+        str,
+        str,
+    ]
+
+
+@dataclass
+class _EnvelopeContext:
+    """Fields shared while turning prepared entities into ``ChangeEnvelope``s."""
+
+    identity_key: str
+    known_node_ids: set[str]
+    profile_digest: str
+    fetch_diagnostics: dict[str, int]
+    tenant: str
+    schema: str
+    mapping_version: str
+    access: ExternalAccess
+    classification: DataClassification
+    retention: str | None
+    legal_hold: bool
 
 
 @register_source("graphql_document")
@@ -445,25 +649,34 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
         variables = config.get("variables")
         profile_ref = str(config.get("profile_ref") or "")
         access = config.get("access")
-        max_documents = int(config.get("max_documents") or 100)
-        max_sections = int(config.get("max_sections") or 500)
-        max_content_chars = int(config.get("max_content_chars") or 2_000_000)
-        max_response_bytes = int(config.get("max_response_bytes") or 10_000_000)
-        max_total_response_bytes = int(
-            config.get("max_total_response_bytes") or 25_000_000
-        )
-        max_entities = int(config.get("max_entities") or 2_000)
-        max_pages = int(config.get("max_pages") or 25)
-        page_size = int(config.get("page_size") or 100)
-        max_hierarchy_depth = int(config.get("max_hierarchy_depth") or 12)
-        max_fallbacks = int(config.get("max_fallbacks") or 2)
-        timeout_seconds = float(config.get("timeout_seconds") or 30.0)
+        limits = _GraphQLDocumentLimits.from_config(config)
         dry_run = bool(config.get("dry_run", False))
         profile = config.get("profile")
         profile_resolver = config.get("profile_resolver")
         transport = config.get("transport")
         privacy_guard = config.get("privacy_guard")
 
+        self._configure_identity(
+            source_alias, operation, profile_ref, profile, transport
+        )
+        self._configure_variables_and_access(variables, access)
+        self._configure_limits(limits)
+        self._configure_runtime(
+            dry_run=dry_run,
+            profile=profile,
+            profile_resolver=profile_resolver,
+            transport=transport,
+            privacy_guard=privacy_guard,
+        )
+
+    def _configure_identity(
+        self,
+        source_alias: str,
+        operation: str,
+        profile_ref: str,
+        profile: Any,
+        transport: Any,
+    ) -> None:
         self.source_alias = _safe_alias(source_alias, label="source_alias")
         self.operation = str(operation or "").strip().lower()
         if not _OPERATION_RE.fullmatch(self.operation):
@@ -480,6 +693,8 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             raise ValueError(
                 "profile_ref must use a supported runtime secret-reference scheme"
             )
+
+    def _configure_variables_and_access(self, variables: Any, access: Any) -> None:
         self.variables = dict(variables or {})
         try:
             variables_size = len(
@@ -495,20 +710,32 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
         if variables_size > 1_000_000:
             raise ValueError("GraphQL variables exceed the configured bound")
         self.external_access = _access_from_config(access)
-        self.max_documents = max(1, min(int(max_documents), 10_000))
-        self.max_sections = max(1, min(int(max_sections), 10_000))
-        self.max_content_chars = max(1_024, min(int(max_content_chars), 20_000_000))
-        self.max_response_bytes = max(1_024, min(int(max_response_bytes), 50_000_000))
+
+    def _configure_limits(self, limits: _GraphQLDocumentLimits) -> None:
+        self.max_documents = max(1, min(limits.max_documents, 10_000))
+        self.max_sections = max(1, min(limits.max_sections, 10_000))
+        self.max_content_chars = max(1_024, min(limits.max_content_chars, 20_000_000))
+        self.max_response_bytes = max(1_024, min(limits.max_response_bytes, 50_000_000))
         self.max_total_response_bytes = max(
             self.max_response_bytes,
-            min(int(max_total_response_bytes), 100_000_000),
+            min(limits.max_total_response_bytes, 100_000_000),
         )
-        self.max_entities = max(1, min(int(max_entities), 10_000))
-        self.max_pages = max(1, min(int(max_pages), 100))
-        self.page_size = max(1, min(int(page_size), 1_000))
-        self.max_hierarchy_depth = max(1, min(int(max_hierarchy_depth), 32))
-        self.max_fallbacks = max(0, min(int(max_fallbacks), 3))
-        self.timeout_seconds = max(1.0, min(float(timeout_seconds), 120.0))
+        self.max_entities = max(1, min(limits.max_entities, 10_000))
+        self.max_pages = max(1, min(limits.max_pages, 100))
+        self.page_size = max(1, min(limits.page_size, 1_000))
+        self.max_hierarchy_depth = max(1, min(limits.max_hierarchy_depth, 32))
+        self.max_fallbacks = max(0, min(limits.max_fallbacks, 3))
+        self.timeout_seconds = max(1.0, min(limits.timeout_seconds, 120.0))
+
+    def _configure_runtime(
+        self,
+        *,
+        dry_run: bool,
+        profile: Any,
+        profile_resolver: Any,
+        transport: Any,
+        privacy_guard: Any,
+    ) -> None:
         self.dry_run = dry_run
         self._inline_profile = dict(profile) if isinstance(profile, dict) else None
         self._profile_resolver = profile_resolver
@@ -865,26 +1092,7 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
         )
 
         configured = profile.get("transport_security", profile.get("tls"))
-        profile_name: str | None = None
-        profile_ref: str | None = None
-        inline: Mapping[str, Any] | None = None
-        if isinstance(configured, str):
-            profile_name = configured
-        elif isinstance(configured, Mapping):
-            profile_name = (
-                str(
-                    configured.get("profile_name") or configured.get("profile") or ""
-                ).strip()
-                or None
-            )
-            profile_ref = str(configured.get("profile_ref") or "").strip() or None
-            settings = configured.get("settings")
-            if isinstance(settings, Mapping):
-                inline = settings
-            elif not profile_name and not profile_ref:
-                inline = configured
-        elif configured is not None:
-            raise GraphQLDocumentError("GraphQL transport security profile is invalid")
+        profile_name, profile_ref, inline = _parse_configured_tls(configured)
         profile_name = str(profile.get("tls_profile") or "").strip() or profile_name
         profile_ref = str(profile.get("tls_profile_ref") or "").strip() or profile_ref
         try:
@@ -922,22 +1130,21 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
         )
         return min(configured, profile_value)
 
+    def _resolve_governance_access(
+        self, value: dict[str, Any], profile: dict[str, Any]
+    ) -> ExternalAccess:
+        access = _access_from_config(value.get("access", profile.get("access")))
+        if value.get("access") is None and profile.get("access") is None:
+            return self.external_access
+        return access
+
     def _governance(
         self, profile: dict[str, Any]
     ) -> tuple[ExternalAccess, DataClassification, str | None, bool, str, str, str]:
         value = profile.get("governance") or {}
-        access = _access_from_config(value.get("access", profile.get("access")))
-        if value.get("access") is None and profile.get("access") is None:
-            access = self.external_access
+        access = self._resolve_governance_access(value, profile)
         classification = _classification(value.get("classification"))
-        if classification == DataClassification.PUBLIC and not access.is_public:
-            raise GraphQLDocumentError(
-                "GraphQL public classification requires public source access"
-            )
-        if classification != DataClassification.PUBLIC and access.is_public:
-            raise GraphQLDocumentError(
-                "GraphQL non-public classification cannot use public source access"
-            )
+        _validate_governance_classification(classification, access)
         retention = str(value.get("retention") or "").strip() or None
         legal_hold = value.get("legal_hold", False)
         tenant = str(value.get("tenant") or "").strip().lower()
@@ -1110,6 +1317,55 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             raise GraphQLDocumentError("GraphQL response has no data object")
         return data, response_size, fallback_count, partial_count
 
+    def _page_variables(
+        self,
+        pagination: Any,
+        read_bound: Any,
+        page_size: int,
+        cursor: str | None,
+    ) -> dict[str, Any]:
+        variables = dict(self.variables)
+        if isinstance(pagination, dict):
+            variables[str(pagination["page_size_variable"])] = page_size
+            variables[str(pagination["cursor_variable"])] = cursor
+        elif isinstance(read_bound, dict):
+            variables[str(read_bound["variable"])] = min(
+                page_size, int(read_bound["maximum"])
+            )
+        return variables
+
+    def _next_page_cursor(
+        self,
+        data: Any,
+        pagination: dict[str, Any],
+        seen_cursors: set[str],
+        page_index: int,
+        max_pages: int,
+    ) -> str | None:
+        has_more = _dig(data, str(pagination["has_more_path"]), False)
+        if not isinstance(has_more, bool):
+            raise GraphQLDocumentError(
+                "GraphQL pagination continuation flag is not boolean"
+            )
+        if not has_more:
+            return None
+        next_cursor = _dig(data, str(pagination["next_cursor_path"]))
+        if not isinstance(next_cursor, str):
+            raise GraphQLDocumentError(
+                "GraphQL pagination returned an invalid continuation"
+            )
+        next_cursor_text = next_cursor
+        if _is_invalid_next_cursor(next_cursor_text, seen_cursors):
+            raise GraphQLDocumentError(
+                "GraphQL pagination returned an invalid continuation"
+            )
+        if page_index + 1 >= max_pages:
+            raise GraphQLDocumentError(
+                "GraphQL pagination exceeds the configured page bound"
+            )
+        seen_cursors.add(next_cursor_text)
+        return next_cursor_text
+
     def _fetch_roots(
         self, profile: dict[str, Any], operation: dict[str, Any]
     ) -> tuple[list[Any], dict[str, int]]:
@@ -1137,14 +1393,7 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
         partial_errors = 0
 
         for page_index in range(max_pages):
-            variables = dict(self.variables)
-            if isinstance(pagination, dict):
-                variables[str(pagination["page_size_variable"])] = page_size
-                variables[str(pagination["cursor_variable"])] = cursor
-            elif isinstance(read_bound, dict):
-                variables[str(read_bound["variable"])] = min(
-                    page_size, int(read_bound["maximum"])
-                )
+            variables = self._page_variables(pagination, read_bound, page_size, cursor)
             data, response_size, page_fallbacks, page_partial = self._page_data(
                 profile=profile,
                 operation=operation,
@@ -1161,38 +1410,11 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
 
             if not isinstance(pagination, dict):
                 break
-            has_more = _dig(data, str(pagination["has_more_path"]), False)
-            if not isinstance(has_more, bool):
-                raise GraphQLDocumentError(
-                    "GraphQL pagination continuation flag is not boolean"
-                )
-            if not has_more:
+            cursor = self._next_page_cursor(
+                data, pagination, seen_cursors, page_index, max_pages
+            )
+            if cursor is None:
                 break
-            next_cursor = _dig(data, str(pagination["next_cursor_path"]))
-            if not isinstance(next_cursor, str):
-                raise GraphQLDocumentError(
-                    "GraphQL pagination returned an invalid continuation"
-                )
-            next_cursor_text = next_cursor
-            if (
-                not next_cursor_text
-                or next_cursor_text != next_cursor_text.strip()
-                or len(next_cursor_text.encode("utf-8")) > 4_096
-                or any(
-                    ord(character) < 32 or ord(character) == 127
-                    for character in next_cursor_text
-                )
-                or next_cursor_text in seen_cursors
-            ):
-                raise GraphQLDocumentError(
-                    "GraphQL pagination returned an invalid continuation"
-                )
-            if page_index + 1 >= max_pages:
-                raise GraphQLDocumentError(
-                    "GraphQL pagination exceeds the configured page bound"
-                )
-            seen_cursors.add(next_cursor_text)
-            cursor = next_cursor_text
 
         return roots, {
             "pages": len(roots),
@@ -1201,14 +1423,92 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             "partial_errors": partial_errors,
         }
 
-    def _render_document(
+    def _render_title(
+        self, record: dict[str, Any], operation: dict[str, Any], raw_id: Any
+    ) -> tuple[str, Any]:
+        raw_title = _dig(record, str(operation.get("title_path") or "title"), raw_id)
+        return self._privacy.sanitize_text(str(raw_title))
+
+    def _render_content_lines(
+        self, record: dict[str, Any], operation: dict[str, Any]
+    ) -> tuple[list[str], Any]:
+        content_path = str(operation.get("content_path") or "")
+        if not content_path:
+            return [], None
+        clean_content, content_report = self._privacy.sanitize_text(
+            str(_dig(record, content_path, "") or "")
+        )
+        lines: list[str] = []
+        if clean_content.strip():
+            lines = ["", clean_content.strip()]
+        return lines, content_report
+
+    def _render_frontmatter_lines(self, frontmatter: Any) -> tuple[list[str], Any]:
+        if frontmatter in (None, "", {}, []):
+            return [], None
+        clean_frontmatter, report = self._privacy.sanitize(frontmatter)
+        if isinstance(clean_frontmatter, str):
+            return ["", clean_frontmatter], report
+        return (
+            [
+                "",
+                json.dumps(
+                    clean_frontmatter,
+                    sort_keys=True,
+                    ensure_ascii=False,
+                    default=str,
+                ),
+            ],
+            report,
+        )
+
+    def _render_one_section(
         self,
-        record: dict[str, Any],
-        operation: dict[str, Any],
-        identity_key: str,
+        section: Any,
         *,
-        profile_digest: str = "",
-        entity_id: str | None = None,
+        title_field: str,
+        level_field: str,
+        content_field: str,
+    ) -> tuple[list[str] | None, Any]:
+        if not isinstance(section, dict):
+            return None, None
+        clean_section, report = self._privacy.sanitize(section)
+        if not isinstance(clean_section, dict):
+            return None, report
+        section_title = str(clean_section.get(title_field) or "Section")
+        try:
+            level = max(2, min(int(clean_section.get(level_field) or 2) + 1, 6))
+        except (TypeError, ValueError):
+            level = 2
+        content = str(clean_section.get(content_field) or "").strip()
+        lines = ["", f"{'#' * level} {section_title}"]
+        if content:
+            lines.extend(["", content])
+        return lines, report
+
+    def _render_sections(
+        self, sections: list[Any], operation: dict[str, Any]
+    ) -> tuple[list[str], list[Any]]:
+        title_field = str(operation.get("section_title_field") or "title")
+        level_field = str(operation.get("section_level_field") or "level")
+        content_field = str(operation.get("section_content_field") or "content")
+        lines: list[str] = []
+        reports: list[Any] = []
+        for section in sections[: self.max_sections]:
+            section_lines, report = self._render_one_section(
+                section,
+                title_field=title_field,
+                level_field=level_field,
+                content_field=content_field,
+            )
+            if report is not None:
+                reports.append(report)
+            if section_lines is not None:
+                lines.extend(section_lines)
+        return lines, reports
+
+    def _render_governance_fields(
+        self,
         governance: tuple[
             ExternalAccess,
             DataClassification,
@@ -1218,12 +1518,19 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             str,
             str,
         ]
-        | None = None,
-    ) -> SourceDocument | None:
+        | None,
+    ) -> tuple[ExternalAccess, DataClassification, str | None, bool]:
+        if governance is None:
+            return self.external_access, DataClassification.INTERNAL, None, False
+        return governance[0], governance[1], governance[2], governance[3]
+
+    def _render_body(
+        self, record: dict[str, Any], operation: dict[str, Any]
+    ) -> tuple[Any, str, str, list[Any]] | None:
+        """(raw_id, clean_title, text, reports), or None if there is no body."""
         raw_id = _dig(record, str(operation.get("id_path") or "id"))
         if raw_id in (None, ""):
             return None
-        raw_title = _dig(record, str(operation.get("title_path") or "title"), raw_id)
         frontmatter = _dig(
             record,
             str(operation.get("frontmatter_path") or "document.frontmatter"),
@@ -1237,58 +1544,40 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
         if not isinstance(sections, list):
             sections = []
 
-        clean_title, title_report = self._privacy.sanitize_text(str(raw_title))
+        clean_title, title_report = self._render_title(record, operation, raw_id)
         body: list[str] = [f"# {clean_title}"]
-        reports = [title_report]
-        content_path = str(operation.get("content_path") or "")
-        if content_path:
-            clean_content, content_report = self._privacy.sanitize_text(
-                str(_dig(record, content_path, "") or "")
-            )
-            reports.append(content_report)
-            if clean_content.strip():
-                body.extend(["", clean_content.strip()])
-        if frontmatter not in (None, "", {}, []):
-            clean_frontmatter, report = self._privacy.sanitize(frontmatter)
-            reports.append(report)
-            if isinstance(clean_frontmatter, str):
-                body.extend(["", clean_frontmatter])
-            else:
-                body.extend(
-                    [
-                        "",
-                        json.dumps(
-                            clean_frontmatter,
-                            sort_keys=True,
-                            ensure_ascii=False,
-                            default=str,
-                        ),
-                    ]
-                )
+        reports: list[Any] = [title_report]
 
-        title_field = str(operation.get("section_title_field") or "title")
-        level_field = str(operation.get("section_level_field") or "level")
-        content_field = str(operation.get("section_content_field") or "content")
-        for section in sections[: self.max_sections]:
-            if not isinstance(section, dict):
-                continue
-            clean_section, report = self._privacy.sanitize(section)
-            reports.append(report)
-            if not isinstance(clean_section, dict):
-                continue
-            section_title = str(clean_section.get(title_field) or "Section")
-            try:
-                level = max(2, min(int(clean_section.get(level_field) or 2) + 1, 6))
-            except (TypeError, ValueError):
-                level = 2
-            content = str(clean_section.get(content_field) or "").strip()
-            body.extend(["", f"{'#' * level} {section_title}"])
-            if content:
-                body.extend(["", content])
+        content_lines, content_report = self._render_content_lines(record, operation)
+        body.extend(content_lines)
+        if content_report is not None:
+            reports.append(content_report)
+
+        frontmatter_lines, frontmatter_report = self._render_frontmatter_lines(
+            frontmatter
+        )
+        body.extend(frontmatter_lines)
+        if frontmatter_report is not None:
+            reports.append(frontmatter_report)
+
+        section_lines, section_reports = self._render_sections(sections, operation)
+        body.extend(section_lines)
+        reports.extend(section_reports)
 
         text = "\n".join(body)[: self.max_content_chars].strip()
         if not text:
             return None
+        return raw_id, clean_title, text, reports
+
+    def _render_digests(
+        self,
+        record: dict[str, Any],
+        operation: dict[str, Any],
+        identity_key: str,
+        raw_id: Any,
+        text: str,
+        reports: list[Any],
+    ) -> tuple[str, str, str, list[str], int]:
         document_id = _private_digest(
             identity_key, self.source_alias, self.operation, "document", str(raw_id)
         )
@@ -1311,12 +1600,37 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             str(raw_id),
             clean_updated or content_digest,
         )
-        access = governance[0] if governance is not None else self.external_access
-        classification = (
-            governance[1] if governance is not None else DataClassification.INTERNAL
+        return document_id, content_digest, version_digest, detected, redactions
+
+    def _render_document(
+        self,
+        record: dict[str, Any],
+        operation: dict[str, Any],
+        identity_key: str,
+        *,
+        profile_digest: str = "",
+        entity_id: str | None = None,
+        governance: tuple[
+            ExternalAccess,
+            DataClassification,
+            str | None,
+            bool,
+            str,
+            str,
+            str,
+        ]
+        | None = None,
+    ) -> SourceDocument | None:
+        rendered = self._render_body(record, operation)
+        if rendered is None:
+            return None
+        raw_id, clean_title, text, reports = rendered
+        document_id, content_digest, version_digest, detected, redactions = (
+            self._render_digests(record, operation, identity_key, raw_id, text, reports)
         )
-        retention = governance[2] if governance is not None else None
-        legal_hold = governance[3] if governance is not None else False
+        access, classification, retention, legal_hold = self._render_governance_fields(
+            governance
+        )
         governed_entity_id = entity_id or (
             f"doc:graphql_document:{hashlib.sha256(document_id.encode('utf-8')).hexdigest()[:24]}"
         )
@@ -1357,6 +1671,73 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
                 return value
         return None
 
+    def _mapping_flat_records(
+        self,
+        seeds: list[Any],
+        mapping: dict[str, Any],
+        limit: int,
+    ) -> tuple[list[tuple[dict[str, Any], Any | None, int]], int]:
+        parent_path = str(mapping.get("parent_id_path") or "")
+        records: list[tuple[dict[str, Any], Any | None, int]] = []
+        truncated = 0
+        for seed in seeds:
+            if not isinstance(seed, dict):
+                continue
+            if len(records) >= limit:
+                truncated += 1
+                continue
+            parent = _dig(seed, parent_path) if parent_path else None
+            records.append((seed, parent, 0))
+        return records, truncated
+
+    def _hierarchy_step(
+        self,
+        record: dict[str, Any],
+        children_path: str,
+        id_path: str,
+        depth: int,
+        max_depth: int,
+    ) -> tuple[list[tuple[dict[str, Any], Any, int]], int]:
+        """Returns (pushable child stack entries, extra-truncated count)."""
+        children = [
+            child
+            for child in _dig_many(record, children_path)
+            if isinstance(child, dict)
+        ]
+        if not children:
+            return [], 0
+        if depth + 1 >= max_depth:
+            return [], len(children)
+        raw_id = _dig(record, id_path)
+        pushable = [(child, raw_id, depth + 1) for child in reversed(children)]
+        return pushable, 0
+
+    def _mapping_hierarchy_records(
+        self,
+        seeds: list[Any],
+        children_path: str,
+        id_path: str,
+        limit: int,
+        max_depth: int,
+    ) -> tuple[list[tuple[dict[str, Any], Any | None, int]], int]:
+        records: list[tuple[dict[str, Any], Any | None, int]] = []
+        truncated = 0
+        stack: list[tuple[dict[str, Any], Any | None, int]] = [
+            (seed, None, 0) for seed in reversed(seeds) if isinstance(seed, dict)
+        ]
+        while stack:
+            record, parent, depth = stack.pop()
+            if len(records) >= limit:
+                truncated += 1
+                continue
+            records.append((record, parent, depth))
+            pushable, extra_truncated = self._hierarchy_step(
+                record, children_path, id_path, depth, max_depth
+            )
+            stack.extend(pushable)
+            truncated += extra_truncated
+        return records, truncated
+
     def _mapping_records(
         self,
         roots: list[Any],
@@ -1374,39 +1755,17 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
 
         for root in roots:
             seeds = _dig_many(root, records_path)
+            remaining = limit - len(records)
             if kind != "hierarchy" or not children_path:
-                for seed in seeds:
-                    if not isinstance(seed, dict):
-                        continue
-                    if len(records) >= limit:
-                        truncated += 1
-                        continue
-                    parent_path = str(mapping.get("parent_id_path") or "")
-                    parent = _dig(seed, parent_path) if parent_path else None
-                    records.append((seed, parent, 0))
-                continue
-
-            stack: list[tuple[dict[str, Any], Any | None, int]] = [
-                (seed, None, 0) for seed in reversed(seeds) if isinstance(seed, dict)
-            ]
-            while stack:
-                record, parent, depth = stack.pop()
-                if len(records) >= limit:
-                    truncated += 1
-                    continue
-                records.append((record, parent, depth))
-                children = [
-                    child
-                    for child in _dig_many(record, children_path)
-                    if isinstance(child, dict)
-                ]
-                if not children:
-                    continue
-                if depth + 1 >= max_depth:
-                    truncated += len(children)
-                    continue
-                raw_id = _dig(record, id_path)
-                stack.extend((child, raw_id, depth + 1) for child in reversed(children))
+                new_records, new_truncated = self._mapping_flat_records(
+                    seeds, mapping, remaining
+                )
+            else:
+                new_records, new_truncated = self._mapping_hierarchy_records(
+                    seeds, children_path, id_path, remaining, max_depth
+                )
+            records.extend(new_records)
+            truncated += new_truncated
         return records, truncated
 
     def _entity_node_id(
@@ -1457,6 +1816,101 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
         _opaque, target = self._entity_node_id(identity_key, kind=kind, raw_id=raw_id)
         return target if target in known_ids else None
 
+    def _parent_link(
+        self,
+        identity_key: str,
+        *,
+        mapping: dict[str, Any],
+        record: dict[str, Any],
+        source: str,
+        parent_raw: Any,
+        known_ids: set[str],
+    ) -> dict[str, Any] | None:
+        parent_path = str(mapping.get("parent_id_path") or "")
+        if parent_raw in (None, "") and parent_path:
+            parent_raw = _dig(record, parent_path)
+        if parent_raw in (None, ""):
+            return None
+        parent_kind = str(mapping.get("parent_kind") or "hierarchy").lower()
+        if parent_kind not in _ENTITY_KINDS:
+            parent_kind = "hierarchy"
+        target = self._target_node_id(
+            identity_key, kind=parent_kind, raw_id=parent_raw, known_ids=known_ids
+        )
+        if not target:
+            return None
+        return {
+            "source": source,
+            "target": target,
+            "type": _safe_entity_type(
+                mapping.get("parent_relation"), fallback="PART_OF"
+            ),
+        }
+
+    def _application_link(
+        self,
+        identity_key: str,
+        *,
+        mapping: dict[str, Any],
+        record: dict[str, Any],
+        source: str,
+        known_ids: set[str],
+    ) -> dict[str, Any] | None:
+        application_path = str(mapping.get("application_id_path") or "")
+        if not application_path:
+            return None
+        target = self._target_node_id(
+            identity_key,
+            kind="application",
+            raw_id=_dig(record, application_path),
+            known_ids=known_ids,
+        )
+        if not target:
+            return None
+        return {
+            "source": source,
+            "target": target,
+            "type": _safe_entity_type(
+                mapping.get("application_relation"),
+                fallback="DESCRIBES_APPLICATION",
+            ),
+        }
+
+    def _dependency_link(
+        self,
+        identity_key: str,
+        *,
+        mapping: dict[str, Any],
+        record: dict[str, Any],
+        source: str,
+        known_ids: set[str],
+    ) -> dict[str, Any] | None:
+        source_path = str(mapping.get("source_id_path") or "")
+        target_path = str(mapping.get("target_id_path") or "")
+        dependency_source = self._target_node_id(
+            identity_key,
+            kind="application",
+            raw_id=_dig(record, source_path) if source_path else None,
+            known_ids=known_ids,
+        )
+        dependency_target = self._target_node_id(
+            identity_key,
+            kind="application",
+            raw_id=_dig(record, target_path) if target_path else None,
+            known_ids=known_ids,
+        )
+        if not (dependency_source and dependency_target):
+            return None
+        return {
+            "source": dependency_source,
+            "target": dependency_target,
+            "type": _safe_entity_type(
+                mapping.get("dependency_relation"),
+                fallback="DEPENDS_ON",
+            ),
+            "evidence": source,
+        }
+
     def _entity_links(
         self,
         *,
@@ -1470,78 +1924,37 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
         source = str(item["node_id"])
         links: list[dict[str, Any]] = []
 
-        parent_raw = item.get("parent_raw")
-        parent_path = str(mapping.get("parent_id_path") or "")
-        if parent_raw in (None, "") and parent_path:
-            parent_raw = _dig(record, parent_path)
-        if parent_raw not in (None, ""):
-            parent_kind = str(mapping.get("parent_kind") or "hierarchy").lower()
-            if parent_kind not in _ENTITY_KINDS:
-                parent_kind = "hierarchy"
-            target = self._target_node_id(
-                identity_key,
-                kind=parent_kind,
-                raw_id=parent_raw,
-                known_ids=known_ids,
-            )
-            if target:
-                links.append(
-                    {
-                        "source": source,
-                        "target": target,
-                        "type": _safe_entity_type(
-                            mapping.get("parent_relation"), fallback="PART_OF"
-                        ),
-                    }
-                )
+        parent_link = self._parent_link(
+            identity_key,
+            mapping=mapping,
+            record=record,
+            source=source,
+            parent_raw=item.get("parent_raw"),
+            known_ids=known_ids,
+        )
+        if parent_link is not None:
+            links.append(parent_link)
 
-        application_path = str(mapping.get("application_id_path") or "")
-        if application_path:
-            target = self._target_node_id(
-                identity_key,
-                kind="application",
-                raw_id=_dig(record, application_path),
-                known_ids=known_ids,
-            )
-            if target:
-                links.append(
-                    {
-                        "source": source,
-                        "target": target,
-                        "type": _safe_entity_type(
-                            mapping.get("application_relation"),
-                            fallback="DESCRIBES_APPLICATION",
-                        ),
-                    }
-                )
+        application_link = self._application_link(
+            identity_key,
+            mapping=mapping,
+            record=record,
+            source=source,
+            known_ids=known_ids,
+        )
+        if application_link is not None:
+            links.append(application_link)
 
         if kind == "dependency":
-            source_path = str(mapping.get("source_id_path") or "")
-            target_path = str(mapping.get("target_id_path") or "")
-            dependency_source = self._target_node_id(
+            dependency_link = self._dependency_link(
                 identity_key,
-                kind="application",
-                raw_id=_dig(record, source_path) if source_path else None,
+                mapping=mapping,
+                record=record,
+                source=source,
                 known_ids=known_ids,
             )
-            dependency_target = self._target_node_id(
-                identity_key,
-                kind="application",
-                raw_id=_dig(record, target_path) if target_path else None,
-                known_ids=known_ids,
-            )
-            if dependency_source and dependency_target:
-                links.append(
-                    {
-                        "source": dependency_source,
-                        "target": dependency_target,
-                        "type": _safe_entity_type(
-                            mapping.get("dependency_relation"),
-                            fallback="DEPENDS_ON",
-                        ),
-                        "evidence": source,
-                    }
-                )
+            if dependency_link is not None:
+                links.append(dependency_link)
         return links
 
     def _checkpoint_batch(
@@ -2067,15 +2480,9 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             allow_empty_snapshot=bool(operation.get("allow_empty_snapshot", False)),
         )
 
-    def _hierarchy_batch(
-        self,
-        *,
-        profile: dict[str, Any],
-        operation: dict[str, Any],
-        roots: list[Any],
-        fetch_diagnostics: dict[str, int],
-        checkpoint: ConnectorCheckpoint | None,
-    ) -> GraphQLHierarchyBatch:
+    def _hierarchy_batch_context(
+        self, profile: dict[str, Any], operation: dict[str, Any]
+    ) -> _HierarchyBatchSetup:
         identity_key = str(profile["identity_hmac_key"])
         governance = self._governance(profile)
         profile_digest = _digest(operation)
@@ -2105,6 +2512,101 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             minimum=1,
             maximum=32,
         )
+        return _HierarchyBatchSetup(
+            identity_key=identity_key,
+            governance=governance,
+            profile_digest=profile_digest,
+            governance_digest=governance_digest,
+            max_entities=max_entities,
+            max_documents=max_documents,
+            max_depth=max_depth,
+        )
+
+    def _prepare_one_entity(
+        self,
+        record: dict[str, Any],
+        parent_raw: Any,
+        depth: int,
+        ctx: _HierarchyPrepContext,
+        known_node_ids: set[str],
+    ) -> tuple[dict[str, Any] | None, int, int, set[str]]:
+        """Returns (prepared item or None, invalid-delta, redactions-delta, detected types)."""
+        kind = ctx.kind
+        mapping = ctx.mapping
+        identity_key = ctx.identity_key
+        raw_id = _dig(record, str(mapping.get("id_path") or "id"))
+        if raw_id in (None, ""):
+            return None, 1, 0, set()
+        opaque, node_id = self._entity_node_id(identity_key, kind=kind, raw_id=raw_id)
+        if node_id in known_node_ids:
+            return None, 0, 0, set()
+        properties, redactions, detected = self._selected_properties(record, mapping)
+        entity_type = _safe_entity_type(
+            mapping.get("entity_type"), fallback=_DEFAULT_ENTITY_TYPES[kind]
+        )
+        payload: dict[str, Any] = {
+            "id": node_id,
+            "type": entity_type,
+            "source_alias": self.source_alias,
+            "source_kind": "graphql",
+            "entity_kind": kind,
+            **properties,
+        }
+        document: SourceDocument | None = None
+        if kind == "document":
+            document = self._render_document(
+                record,
+                mapping,
+                identity_key,
+                profile_digest=ctx.profile_digest,
+                entity_id=node_id,
+                governance=ctx.governance,
+            )
+            if document is None:
+                return None, 1, redactions, set(detected)
+            payload.update(
+                {
+                    "title": document.title,
+                    "doc_type": document.doc_type,
+                    "content_digest": document.metadata["content_digest"],
+                    "embedding_handoff": True,
+                }
+            )
+        version_path = str(mapping.get("version_path") or "")
+        raw_version = _dig(record, version_path) if version_path else None
+        version = _private_digest(
+            identity_key,
+            self.source_alias,
+            self.operation,
+            kind,
+            str(raw_id),
+            str(raw_version or ""),
+            _digest(payload),
+            ctx.profile_digest,
+            ctx.governance_digest,
+        )
+        if document is not None:
+            document.updated_at = version
+        item = {
+            "kind": kind,
+            "raw_id": raw_id,
+            "opaque": opaque,
+            "node_id": node_id,
+            "version": version,
+            "record": record,
+            "mapping": mapping,
+            "parent_raw": parent_raw,
+            "depth": depth,
+            "payload": payload,
+            "document": document,
+        }
+        return item, 0, redactions, set(detected)
+
+    def _prepare_entities(
+        self, roots: list[Any], operation: dict[str, Any], setup: _HierarchyBatchSetup
+    ) -> tuple[list[dict[str, Any]], set[str], set[str], int, int, int]:
+        """Returns (prepared, known_node_ids, privacy_types, privacy_redactions,
+        truncated, invalid_records)."""
         prepared: list[dict[str, Any]] = []
         known_node_ids: set[str] = set()
         privacy_types: set[str] = set()
@@ -2116,9 +2618,9 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             mapping = self._mapping_for(operation, kind)
             if mapping is None:
                 continue
-            remaining = max(0, max_entities - len(prepared))
+            remaining = max(0, setup.max_entities - len(prepared))
             if kind == "document":
-                remaining = min(remaining, max_documents)
+                remaining = min(remaining, setup.max_documents)
             if remaining == 0:
                 truncated += 1
                 continue
@@ -2127,91 +2629,112 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
                 kind=kind,
                 mapping=mapping,
                 limit=remaining,
-                max_depth=max_depth,
+                max_depth=setup.max_depth,
             )
             truncated += mapping_truncated
+            ctx = _HierarchyPrepContext(
+                kind=kind,
+                mapping=mapping,
+                identity_key=setup.identity_key,
+                profile_digest=setup.profile_digest,
+                governance_digest=setup.governance_digest,
+                governance=setup.governance,
+            )
             for record, parent_raw, depth in records:
-                raw_id = _dig(record, str(mapping.get("id_path") or "id"))
-                if raw_id in (None, ""):
-                    invalid_records += 1
-                    continue
-                opaque, node_id = self._entity_node_id(
-                    identity_key, kind=kind, raw_id=raw_id
+                item, invalid_delta, redactions_delta, detected = (
+                    self._prepare_one_entity(
+                        record, parent_raw, depth, ctx, known_node_ids
+                    )
                 )
-                if node_id in known_node_ids:
-                    continue
-                properties, redactions, detected = self._selected_properties(
-                    record, mapping
-                )
-                privacy_redactions += redactions
+                invalid_records += invalid_delta
+                privacy_redactions += redactions_delta
                 privacy_types.update(detected)
-                entity_type = _safe_entity_type(
-                    mapping.get("entity_type"), fallback=_DEFAULT_ENTITY_TYPES[kind]
-                )
-                payload: dict[str, Any] = {
-                    "id": node_id,
-                    "type": entity_type,
-                    "source_alias": self.source_alias,
-                    "source_kind": "graphql",
-                    "entity_kind": kind,
-                    **properties,
-                }
-                document: SourceDocument | None = None
-                if kind == "document":
-                    document = self._render_document(
-                        record,
-                        mapping,
-                        identity_key,
-                        profile_digest=profile_digest,
-                        entity_id=node_id,
-                        governance=governance,
-                    )
-                    if document is None:
-                        invalid_records += 1
-                        continue
-                    payload.update(
-                        {
-                            "title": document.title,
-                            "doc_type": document.doc_type,
-                            "content_digest": document.metadata["content_digest"],
-                            "embedding_handoff": True,
-                        }
-                    )
-                version_path = str(mapping.get("version_path") or "")
-                raw_version = _dig(record, version_path) if version_path else None
-                version = _private_digest(
-                    identity_key,
-                    self.source_alias,
-                    self.operation,
-                    kind,
-                    str(raw_id),
-                    str(raw_version or ""),
-                    _digest(payload),
-                    profile_digest,
-                    governance_digest,
-                )
-                if document is not None:
-                    document.updated_at = version
-                known_node_ids.add(node_id)
-                prepared.append(
-                    {
-                        "kind": kind,
-                        "raw_id": raw_id,
-                        "opaque": opaque,
-                        "node_id": node_id,
-                        "version": version,
-                        "record": record,
-                        "mapping": mapping,
-                        "parent_raw": parent_raw,
-                        "depth": depth,
-                        "payload": payload,
-                        "document": document,
-                    }
-                )
+                if item is not None:
+                    known_node_ids.add(str(item["node_id"]))
+                    prepared.append(item)
 
-        documents: list[SourceDocument] = []
+        return (
+            prepared,
+            known_node_ids,
+            privacy_types,
+            privacy_redactions,
+            truncated,
+            invalid_records,
+        )
+
+    def _build_envelope(
+        self, item: dict[str, Any], ctx: _EnvelopeContext
+    ) -> tuple[ChangeEnvelope, SourceDocument | None]:
+        links = self._entity_links(
+            identity_key=ctx.identity_key, item=item, known_ids=ctx.known_node_ids
+        )
+        payload = dict(item["payload"])
+        if links:
+            payload["_links"] = links
+        node_id = str(item["node_id"])
+        version = str(item["version"])
+        document = item.get("document")
+        envelope = ChangeEnvelope(
+            connector="graphql_document",
+            tenant=ctx.tenant,
+            source_instance=self.source_alias,
+            source_object_id=node_id,
+            source_version=version,
+            schema_version=ctx.schema,
+            ontology_mapping_version=ctx.mapping_version,
+            typed_payload=payload,
+            source_acl=ctx.access,
+            classification=ctx.classification,
+            retention=ctx.retention,
+            legal_hold=ctx.legal_hold,
+            provenance={
+                "profile_digest": ctx.profile_digest,
+                "privacy_gate": True,
+                "identity_scheme": "hmac-sha256",
+                "pages": ctx.fetch_diagnostics.get("pages", 0),
+                "fallbacks": ctx.fetch_diagnostics.get("fallbacks", 0),
+                "partial_errors": ctx.fetch_diagnostics.get("partial_errors", 0),
+            },
+            checkpoint=version,
+        )
+        returned_document = document if isinstance(document, SourceDocument) else None
+        return envelope, returned_document
+
+    def _build_envelopes(
+        self, prepared: list[dict[str, Any]], ctx: _EnvelopeContext
+    ) -> tuple[list[ChangeEnvelope], list[SourceDocument], dict[str, str]]:
         envelopes: list[ChangeEnvelope] = []
+        documents: list[SourceDocument] = []
         versions: dict[str, str] = {}
+        for item in prepared:
+            envelope, document = self._build_envelope(item, ctx)
+            node_id = str(item["node_id"])
+            versions[node_id] = str(item["version"])
+            if document is not None:
+                documents.append(document)
+            envelopes.append(envelope)
+        return envelopes, documents, versions
+
+    def _hierarchy_batch(
+        self,
+        *,
+        profile: dict[str, Any],
+        operation: dict[str, Any],
+        roots: list[Any],
+        fetch_diagnostics: dict[str, int],
+        checkpoint: ConnectorCheckpoint | None,
+    ) -> GraphQLHierarchyBatch:
+        setup = self._hierarchy_batch_context(profile, operation)
+
+        (
+            prepared,
+            known_node_ids,
+            privacy_types,
+            privacy_redactions,
+            truncated,
+            invalid_records,
+        ) = self._prepare_entities(roots, operation, setup)
+
         (
             access,
             classification,
@@ -2220,51 +2743,28 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             tenant,
             schema,
             mapping_version,
-        ) = governance
-        for item in prepared:
-            links = self._entity_links(
-                identity_key=identity_key, item=item, known_ids=known_node_ids
-            )
-            payload = dict(item["payload"])
-            if links:
-                payload["_links"] = links
-            node_id = str(item["node_id"])
-            version = str(item["version"])
-            versions[node_id] = version
-            document = item.get("document")
-            if isinstance(document, SourceDocument):
-                documents.append(document)
-            envelopes.append(
-                ChangeEnvelope(
-                    connector="graphql_document",
-                    tenant=tenant,
-                    source_instance=self.source_alias,
-                    source_object_id=node_id,
-                    source_version=version,
-                    schema_version=schema,
-                    ontology_mapping_version=mapping_version,
-                    typed_payload=payload,
-                    source_acl=access,
-                    classification=classification,
-                    retention=retention,
-                    legal_hold=legal_hold,
-                    provenance={
-                        "profile_digest": profile_digest,
-                        "privacy_gate": True,
-                        "identity_scheme": "hmac-sha256",
-                        "pages": fetch_diagnostics.get("pages", 0),
-                        "fallbacks": fetch_diagnostics.get("fallbacks", 0),
-                        "partial_errors": fetch_diagnostics.get("partial_errors", 0),
-                    },
-                    checkpoint=version,
-                )
-            )
+        ) = setup.governance
+        envelope_ctx = _EnvelopeContext(
+            identity_key=setup.identity_key,
+            known_node_ids=known_node_ids,
+            profile_digest=setup.profile_digest,
+            fetch_diagnostics=fetch_diagnostics,
+            tenant=tenant,
+            schema=schema,
+            mapping_version=mapping_version,
+            access=access,
+            classification=classification,
+            retention=retention,
+            legal_hold=legal_hold,
+        )
+        envelopes, documents, versions = self._build_envelopes(prepared, envelope_ctx)
+
         return self._checkpoint_batch(
             documents=documents,
             envelopes=envelopes,
             versions=versions,
             checkpoint=checkpoint,
-            profile_digest=profile_digest,
+            profile_digest=setup.profile_digest,
             diagnostics={
                 **fetch_diagnostics,
                 "truncated": truncated,
@@ -2277,7 +2777,7 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
                     if any(item["kind"] == kind for item in prepared)
                 },
             },
-            governance=governance,
+            governance=setup.governance,
             snapshot_authoritative=bool(operation.get("snapshot_authoritative", False)),
             allow_empty_snapshot=bool(operation.get("allow_empty_snapshot", False)),
         )
