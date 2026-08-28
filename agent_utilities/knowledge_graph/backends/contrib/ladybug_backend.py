@@ -1068,6 +1068,12 @@ class LadybugBackend(GraphBackend):
         self._known_node_tables.add(label)
 
     def _create_rel_table_fallback(self, rel: str, src: str, dst: str) -> None:
+        # Re-validated here (not just trusted from the caller) so this
+        # interpolation site is safe by construction on its own, regardless
+        # of which call path reaches it.
+        rel = validate_identifier(rel, kind="relationship type")
+        src = validate_identifier(src, kind="label")
+        dst = validate_identifier(dst, kind="label")
         try:
             self.conn.execute(
                 f"CREATE REL TABLE IF NOT EXISTS {rel} "
@@ -1279,6 +1285,9 @@ class LadybugBackend(GraphBackend):
         return col_names
 
     def _create_node_table(self, node_name: str, col_names: dict[str, str]) -> None:
+        # Re-validated here so this interpolation site is safe by
+        # construction on its own, independent of the caller.
+        node_name = validate_identifier(node_name, kind="table")
         cols = ", ".join(f"`{name}` {dtype}" for name, dtype in col_names.items())
         stmt = f"CREATE NODE TABLE IF NOT EXISTS {node_name} ({cols});"
         try:
@@ -1295,6 +1304,9 @@ class LadybugBackend(GraphBackend):
         # PK and embedding can't be added post-hoc; skip them. Mirrors the rel
         # ``properties`` ALTER below so an existing DB gains new columns (e.g.
         # the KG-2.9g code-symbol columns) instead of erroring on projection.
+        # Re-validated here (not just trusted from the caller) so this
+        # interpolation site is safe by construction on its own.
+        node_name = validate_identifier(node_name, kind="table")
         for cname, ctype in col_names.items():
             if "PRIMARY KEY" in ctype.upper() or cname == "embedding":
                 continue
@@ -1337,6 +1349,16 @@ class LadybugBackend(GraphBackend):
     def _create_rel_table(
         self, rel_type: str, connections: list[tuple[str, str]]
     ) -> None:
+        # Re-validated here so this interpolation site is safe by
+        # construction on its own, independent of the caller.
+        rel_type = validate_identifier(rel_type, kind="relationship type")
+        connections = [
+            (
+                validate_identifier(frm, kind="label"),
+                validate_identifier(to, kind="label"),
+            )
+            for frm, to in connections
+        ]
         conns = ", ".join(f"FROM {frm} TO {to}" for frm, to in connections)
         stmt = (
             f"CREATE REL TABLE IF NOT EXISTS {rel_type} ({conns}, properties STRING);"

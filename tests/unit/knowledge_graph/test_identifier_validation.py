@@ -287,6 +287,126 @@ class TestLadybugAutoDdlGuards:
         backend.conn.execute.assert_not_called()
 
 
+class TestLadybugSchemaDdlHelpersValidateLocally:
+    """The schema-creation DDL helpers (``_create_rel_table_fallback``,
+    ``_create_node_table``, ``_migrate_node_table_columns``,
+    ``_create_rel_table``) each re-validate their label/table/rel-type
+    arguments at the point of interpolation, rather than only trusting an
+    already-validated value from their sole current caller — so each stays
+    safe by construction even if a future call site reaches them with an
+    unvalidated name."""
+
+    @pytest.fixture
+    def backend(self):
+        from agent_utilities.knowledge_graph.backends.contrib.ladybug_backend import (
+            LadybugBackend,
+        )
+
+        b = LadybugBackend.__new__(LadybugBackend)
+        b.conn = MagicMock()
+        return b
+
+    @pytest.mark.parametrize("bad", MALICIOUS_IDENTIFIERS)
+    def test_create_rel_table_fallback_rejects_malicious_rel(self, backend, bad):
+        if not bad:
+            pytest.skip("empty identifier is covered by the general gate tests")
+        with pytest.raises(InvalidIdentifierError):
+            backend._create_rel_table_fallback(bad, "Person", "Company")
+        backend.conn.execute.assert_not_called()
+
+    @pytest.mark.parametrize("bad", MALICIOUS_IDENTIFIERS)
+    def test_create_rel_table_fallback_rejects_malicious_src_or_dst(
+        self, backend, bad
+    ):
+        if not bad:
+            pytest.skip("empty identifier is covered by the general gate tests")
+        with pytest.raises(InvalidIdentifierError):
+            backend._create_rel_table_fallback("REL", bad, "Company")
+        backend.conn.execute.assert_not_called()
+
+    def test_create_rel_table_fallback_accepts_valid_names(self, backend):
+        backend._create_rel_table_fallback("REL", "Person", "Company")
+        assert backend.conn.execute.called
+        (sql,), _ = backend.conn.execute.call_args
+        assert "REL" in sql and "Person" in sql and "Company" in sql
+
+    @pytest.mark.parametrize("bad", MALICIOUS_IDENTIFIERS)
+    def test_create_node_table_rejects_malicious_node_name(self, backend, bad):
+        if not bad:
+            pytest.skip("empty identifier is covered by the general gate tests")
+        with pytest.raises(InvalidIdentifierError):
+            backend._create_node_table(bad, {"id": "STRING"})
+        backend.conn.execute.assert_not_called()
+
+    def test_create_node_table_accepts_a_valid_name(self, backend):
+        backend._create_node_table("Memory", {"id": "STRING"})
+        assert backend.conn.execute.called
+
+    @pytest.mark.parametrize("bad", MALICIOUS_IDENTIFIERS)
+    def test_migrate_node_table_columns_rejects_malicious_node_name(
+        self, backend, bad
+    ):
+        if not bad:
+            pytest.skip("empty identifier is covered by the general gate tests")
+        with pytest.raises(InvalidIdentifierError):
+            backend._migrate_node_table_columns(bad, {"id": "STRING"})
+        backend.conn.execute.assert_not_called()
+
+    def test_migrate_node_table_columns_accepts_a_valid_name(self, backend):
+        backend._migrate_node_table_columns("Memory", {"extra": "STRING"})
+        assert backend.conn.execute.called
+
+    @pytest.mark.parametrize("bad", MALICIOUS_IDENTIFIERS)
+    def test_create_rel_table_rejects_malicious_rel_type(self, backend, bad):
+        if not bad:
+            pytest.skip("empty identifier is covered by the general gate tests")
+        with pytest.raises(InvalidIdentifierError):
+            backend._create_rel_table(bad, [("Person", "Company")])
+        backend.conn.execute.assert_not_called()
+
+    @pytest.mark.parametrize("bad", MALICIOUS_IDENTIFIERS)
+    def test_create_rel_table_rejects_malicious_connection_labels(self, backend, bad):
+        if not bad:
+            pytest.skip("empty identifier is covered by the general gate tests")
+        with pytest.raises(InvalidIdentifierError):
+            backend._create_rel_table("REL", [(bad, "Company")])
+        backend.conn.execute.assert_not_called()
+
+    def test_create_rel_table_accepts_valid_names(self, backend):
+        backend._create_rel_table("REL", [("Person", "Company")])
+        assert backend.conn.execute.called
+
+
+class TestKgServerDisabledBatchEngineLookupValidatesLocally:
+    """``_disabled_batch_engine_lookup`` re-validates ``safe_label`` at the
+    interpolation site itself (not just trusting the ``safe_label`` name from
+    its sole caller, ``get_existing_disabled_batch``), and — matching this
+    helper's documented fail-closed contract for any query error — an
+    invalid label marks every id disabled rather than raising past it."""
+
+    def test_invalid_label_fails_closed_without_querying(self):
+        from agent_utilities.mcp.kg_server import _disabled_batch_engine_lookup
+
+        engine = MagicMock()
+        result: dict[str, bool] = {}
+        _disabled_batch_engine_lookup(
+            engine, 'Bad"; DROP TABLE kg_edges; --', ["x", "y"], result
+        )
+        engine.query_cypher.assert_not_called()
+        assert result == {"x": True, "y": True}
+
+    def test_valid_label_reaches_the_query(self):
+        from agent_utilities.mcp.kg_server import _disabled_batch_engine_lookup
+
+        engine = MagicMock()
+        engine.query_cypher.return_value = []
+        result: dict[str, bool] = {}
+        _disabled_batch_engine_lookup(engine, "NativeTool", ["x"], result)
+        engine.query_cypher.assert_called_once()
+        query = engine.query_cypher.call_args.args[0]
+        assert "MATCH (n:NativeTool)" in query
+
+
 class TestPostgresRlsStatementsRejectsMaliciousTable:
     """``rls_statements`` is a pure staticmethod (no I/O) — the most direct
     way to prove the DDL-building path itself rejects a bad identifier."""

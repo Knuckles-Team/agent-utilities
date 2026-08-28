@@ -480,6 +480,11 @@ def _disabled_batch_engine_lookup(
     every id passed in as disabled in ``result``.
     """
     try:
+        # Re-validated here (not just trusted via the ``safe_label`` name
+        # from the caller) so this interpolation site is safe by
+        # construction on its own — an invalid label falls through to the
+        # same fail-closed handling as any other lookup error below.
+        safe_label = validate_identifier(safe_label, kind="label")
         res = engine.query_cypher(
             f"MATCH (n:{safe_label}) WHERE n.id IN $node_ids "
             "RETURN n.id AS id, n.disabled AS disabled",
