@@ -333,71 +333,8 @@ class PreparedReceipt:
 
     @classmethod
     def decode(cls, value: str) -> PreparedReceipt:
-        if not isinstance(value, str) or not value.startswith("prep:v1:"):
-            raise DataPrepToolError("prepared receipt is malformed")
-        try:
-            encoded, token_encoded = value.removeprefix("prep:v1:").split(".", 1)
-            body = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
-            if len(body) > _MAX_PARAMS_BYTES:
-                raise DataPrepToolError("prepared receipt exceeds the bounded size")
-            if base64.urlsafe_b64encode(body).decode("ascii").rstrip("=") != encoded:
-                raise DataPrepToolError("prepared receipt encoding is non-canonical")
-            payload = json.loads(body)
-            token = base64.urlsafe_b64decode(
-                token_encoded + "=" * (-len(token_encoded) % 4)
-            ).decode("utf-8")
-            if (
-                base64.urlsafe_b64encode(token.encode("utf-8"))
-                .decode("ascii")
-                .rstrip("=")
-                != token_encoded
-            ):
-                raise DataPrepToolError("prepared receipt encoding is non-canonical")
-            from agent_utilities.security.run_token import validate_token
-
-            run_token = validate_token(
-                token,
-                endpoint=_RECEIPT_ENDPOINT,
-                operation="commit_prepared",
-            )
-        except Exception as exc:  # noqa: BLE001 - privacy-safe receipt boundary
-            if isinstance(exc, DataPrepToolError):
-                raise
-            raise DataPrepToolError("prepared receipt is malformed") from exc
-        if (
-            not isinstance(payload, dict)
-            or payload.get("receipt_version") != _RECEIPT_VERSION
-        ):
-            raise DataPrepToolError("prepared receipt version is unsupported")
-        payload = dict(payload)
-        payload.pop("receipt_version", None)
-        allowed = {
-            "tenant_id",
-            "artifact_ref",
-            "input_content_digest",
-            "input_schema_ref",
-            "input_schema_digest",
-            "input_shape_ref",
-            "input_shape_digest",
-            "plan_ref",
-            "plan_digest",
-            "model_ref",
-            "model_digest",
-            "output_content_digest",
-            "output_schema_ref",
-            "output_schema_digest",
-            "output_shape_ref",
-            "output_shape_digest",
-            "evidence_digest",
-            "policy_version",
-            "native_atomic",
-            "issued_at_ms",
-            "actor_id",
-            "endpoint",
-            "expires_at_ms",
-        }
-        if set(payload) != allowed:
-            raise DataPrepToolError("prepared receipt fields are invalid")
+        payload, run_token, token = _decode_receipt_envelope(value)
+        payload = _receipt_payload_fields(payload)
         try:
             receipt = cls(**payload)
         except (TypeError, ValueError) as exc:
@@ -410,29 +347,114 @@ class PreparedReceipt:
             or receipt.endpoint != _RECEIPT_ENDPOINT
         ):
             raise DataPrepToolError("prepared receipt authority is incomplete")
-        body_digest = _sha256_bytes(_canonical_json(receipt._body())).removeprefix(
-            "sha256:"
-        )
-        if run_token.run_id != body_digest:
-            raise DataPrepToolError("prepared receipt token binding is invalid")
-        if (
-            run_token.actor_id != receipt.actor_id
-            or run_token.tenant_id != receipt.tenant_id
-            or run_token.project != _RECEIPT_VERSION
-        ):
-            raise DataPrepToolError("prepared receipt identity binding is invalid")
-        if abs(int(run_token.expires_at * 1000) - receipt.expires_at_ms) > 1:
-            raise DataPrepToolError("prepared receipt expiry binding is invalid")
-        if (
-            receipt.expires_at_ms <= receipt.issued_at_ms
-            or receipt.expires_at_ms - receipt.issued_at_ms > _RECEIPT_TTL_MS
-        ):
-            raise DataPrepToolError("prepared receipt expiry is invalid")
-        if receipt.native_atomic is not True:
-            raise NativeCommitUnavailable(
-                "prepared receipt does not prove native atomic admission"
-            )
+        _verify_receipt_token_binding(receipt, run_token)
         return replace(receipt, token=token)
+
+
+def _decode_receipt_envelope(value: str) -> tuple[dict[str, Any], Any, str]:
+    """Decode+verify the encoded receipt body and its bound RunToken.
+
+    Returns the raw JSON payload dict (still carrying ``receipt_version``),
+    the validated ``RunToken``, and the raw token string.
+    """
+
+    if not isinstance(value, str) or not value.startswith("prep:v1:"):
+        raise DataPrepToolError("prepared receipt is malformed")
+    try:
+        encoded, token_encoded = value.removeprefix("prep:v1:").split(".", 1)
+        body = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+        if len(body) > _MAX_PARAMS_BYTES:
+            raise DataPrepToolError("prepared receipt exceeds the bounded size")
+        if base64.urlsafe_b64encode(body).decode("ascii").rstrip("=") != encoded:
+            raise DataPrepToolError("prepared receipt encoding is non-canonical")
+        payload = json.loads(body)
+        token = base64.urlsafe_b64decode(
+            token_encoded + "=" * (-len(token_encoded) % 4)
+        ).decode("utf-8")
+        if (
+            base64.urlsafe_b64encode(token.encode("utf-8")).decode("ascii").rstrip("=")
+            != token_encoded
+        ):
+            raise DataPrepToolError("prepared receipt encoding is non-canonical")
+        from agent_utilities.security.run_token import validate_token
+
+        run_token = validate_token(
+            token,
+            endpoint=_RECEIPT_ENDPOINT,
+            operation="commit_prepared",
+        )
+    except Exception as exc:  # noqa: BLE001 - privacy-safe receipt boundary
+        if isinstance(exc, DataPrepToolError):
+            raise
+        raise DataPrepToolError("prepared receipt is malformed") from exc
+    return payload, run_token, token
+
+
+def _receipt_payload_fields(payload: Any) -> dict[str, Any]:
+    """Validate the decoded body's version/shape; strip the version marker."""
+
+    if (
+        not isinstance(payload, dict)
+        or payload.get("receipt_version") != _RECEIPT_VERSION
+    ):
+        raise DataPrepToolError("prepared receipt version is unsupported")
+    payload = dict(payload)
+    payload.pop("receipt_version", None)
+    allowed = {
+        "tenant_id",
+        "artifact_ref",
+        "input_content_digest",
+        "input_schema_ref",
+        "input_schema_digest",
+        "input_shape_ref",
+        "input_shape_digest",
+        "plan_ref",
+        "plan_digest",
+        "model_ref",
+        "model_digest",
+        "output_content_digest",
+        "output_schema_ref",
+        "output_schema_digest",
+        "output_shape_ref",
+        "output_shape_digest",
+        "evidence_digest",
+        "policy_version",
+        "native_atomic",
+        "issued_at_ms",
+        "actor_id",
+        "endpoint",
+        "expires_at_ms",
+    }
+    if set(payload) != allowed:
+        raise DataPrepToolError("prepared receipt fields are invalid")
+    return payload
+
+
+def _verify_receipt_token_binding(receipt: PreparedReceipt, run_token: Any) -> None:
+    """Bind a decoded receipt to the RunToken that authenticated it."""
+
+    body_digest = _sha256_bytes(_canonical_json(receipt._body())).removeprefix(
+        "sha256:"
+    )
+    if run_token.run_id != body_digest:
+        raise DataPrepToolError("prepared receipt token binding is invalid")
+    if (
+        run_token.actor_id != receipt.actor_id
+        or run_token.tenant_id != receipt.tenant_id
+        or run_token.project != _RECEIPT_VERSION
+    ):
+        raise DataPrepToolError("prepared receipt identity binding is invalid")
+    if abs(int(run_token.expires_at * 1000) - receipt.expires_at_ms) > 1:
+        raise DataPrepToolError("prepared receipt expiry binding is invalid")
+    if (
+        receipt.expires_at_ms <= receipt.issued_at_ms
+        or receipt.expires_at_ms - receipt.issued_at_ms > _RECEIPT_TTL_MS
+    ):
+        raise DataPrepToolError("prepared receipt expiry is invalid")
+    if receipt.native_atomic is not True:
+        raise NativeCommitUnavailable(
+            "prepared receipt does not prove native atomic admission"
+        )
 
 
 @dataclass(frozen=True, slots=True)
