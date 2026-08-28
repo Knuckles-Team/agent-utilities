@@ -67,6 +67,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from agent_utilities.mcp.env_policy import is_agent_only
 from agent_utilities.mcp.readme_env_vars import INHERITED_ENV, parse_env_example
 
 # Env reads the code performs. ``setting(...)`` is the sanctioned accessor, but bare
@@ -1400,9 +1401,6 @@ def analyze(root: Path) -> dict:
     mcp_blocks = _mcp_config_env_blocks(root)
     compose = _compose_env_keys(root)
     declared_sources = _build_declared_sources(declared_env, mcp_blocks, compose, root)
-
-    # env_sources imports this module, so defer the import to call time (no import cycle).
-    from agent_utilities.mcp.env_sources import is_agent_only
 
     findings: list[dict] = []
     findings += _dead_findings(declared_sources, code_read)

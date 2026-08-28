@@ -11,36 +11,15 @@ and ``store``). Resolution uses the load-bearing ``normalize.resolve``.
 
 from __future__ import annotations
 
-from pydantic import BaseModel
-
 from .fallback import FALLBACK_VERSION, fallback_pricing
+
+# ``ModelPricing`` lives in the leaf module ``.model`` so ``fallback`` can build
+# rows without importing back into this module (BUG-CX-004 / WD10-B-004). It is
+# re-exported here because every existing caller imports it from ``.catalog``.
+from .model import ModelPricing
 from .normalize import resolve
 
-
-class ModelPricing(BaseModel):
-    """Per-model token pricing in USD per million tokens."""
-
-    model_pattern: str
-    input_per_mtok: float = 0.0
-    output_per_mtok: float = 0.0
-    cache_creation_per_mtok: float = 0.0
-    cache_read_per_mtok: float = 0.0
-
-    def cost_usd(
-        self,
-        input_tokens: int = 0,
-        output_tokens: int = 0,
-        cache_creation_tokens: int = 0,
-        cache_read_tokens: int = 0,
-    ) -> float:
-        """Compute cost from token counts using this model's per-Mtok rates."""
-        per = 1_000_000
-        return (
-            input_tokens / per * self.input_per_mtok
-            + output_tokens / per * self.output_per_mtok
-            + cache_creation_tokens / per * self.cache_creation_per_mtok
-            + cache_read_tokens / per * self.cache_read_per_mtok
-        )
+__all__ = ["ModelPricing", "PricingCatalog", "get_pricing_catalog"]
 
 
 class PricingCatalog:

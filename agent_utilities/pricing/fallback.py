@@ -9,10 +9,7 @@ change so the startup seeder re-upserts. Prices in USD per million tokens.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from .catalog import ModelPricing
+from .model import ModelPricing
 
 # Bump whenever the rates below change.
 FALLBACK_VERSION = "2026-06-10"
@@ -48,8 +45,6 @@ _FALLBACK: list[tuple[str, float, float, float, float]] = [
 
 def fallback_pricing() -> list[ModelPricing]:
     """Return the hardcoded offline pricing table."""
-    from .catalog import ModelPricing
-
     return [
         ModelPricing(
             model_pattern=pattern,

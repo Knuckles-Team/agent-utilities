@@ -17,7 +17,10 @@ Install commands default to ``uvx`` and versions are ``*`` (latest).
 
 import functools
 
-from .registry.package_adapter import ContainerConfig, SpecialistPackage
+# Imported from the leaf ``package_types`` rather than ``package_adapter``:
+# ``package_adapter`` imports THIS module back (to seed the registry), and going
+# through the leaf is what breaks that cycle (BUG-CX-004 / WD10-B-004).
+from .registry.package_types import ContainerConfig, SpecialistPackage
 
 
 def _kt_package(

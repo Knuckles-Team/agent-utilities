@@ -24,7 +24,6 @@ and :mod:`check_env_var_drift` (the guard).
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from agent_utilities.mcp.check_env_var_drift import (
@@ -35,34 +34,20 @@ from agent_utilities.mcp.check_env_var_drift import (
     _derive_toggle_vars,
     _scan_setting_calls,
 )
+from agent_utilities.mcp.env_policy import AGENT_ONLY, is_agent_only
 from agent_utilities.mcp.readme_env_vars import INHERITED_ENV, parse_env_example
 
-# Vars that belong to the ``[agent-runtime]`` environment, not the MCP server. They are legitimately
-# read by agent-utilities core (and so appear in ``FRAMEWORK_EXTRA``) and may sit in a
-# package's ``.env.example`` — but placing them in an *MCP-server* ``mcp_config.json``
-# ``env`` block or README MCP example is drift.
-AGENT_ONLY: frozenset[str] = frozenset(
-    {
-        "AGENT_DESCRIPTION",
-        "AGENT_SYSTEM_PROMPT",
-        "DEFAULT_AGENT_NAME",
-        "MCP_URL",
-        "PROVIDER",
-        "MODEL_ID",
-        "LLM_BASE_URL",
-        "LLM_API_KEY",
-        "ENABLE_WEB_UI",
-    }
-)
-# Companion tool-suite toggles (``SYSTEM_TOOLS_ENABLE``, ``BROWSER_TOOLS_ENABLE`` …) bundle
-# universal-skills suites into the *agent*; the suffix distinguishes them from framework
-# ``ENABLE_*`` prefixed vars (``ENABLE_OTEL``, ``ENABLE_WEB_UI``).
-_COMPANION_RE = re.compile(r"^[A-Z][A-Z0-9_]*_ENABLE$")
-
-
-def is_agent_only(var: str) -> bool:
-    """True if ``var`` belongs to the agent runtime, not the MCP server."""
-    return var in AGENT_ONLY or bool(_COMPANION_RE.match(var))
+# ``AGENT_ONLY``/``is_agent_only`` moved to the dependency-free leaf
+# ``agent_utilities.mcp.env_policy`` so ``check_env_var_drift`` can import the
+# predicate eagerly instead of deferring it to break the cycle this module
+# formed with it (BUG-CX-004 / WD10-B-004). Re-exported here: this module is
+# still the documented entry point for callers and tests.
+__all__ = [
+    "AGENT_ONLY",
+    "example_env_pairs",
+    "is_agent_only",
+    "package_env_vars",
+]
 
 
 def _is_infra(var: str) -> bool:

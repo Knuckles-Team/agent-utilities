@@ -82,12 +82,55 @@ concrete_types_per_file   = 999999 # OFF: default 1 = one class per file.
                                    # rewrite stacked on the CCN collapse.
                                    # Revisit only after the ladder completes.
 
-# ---- OFF because MEASUREMENT PROVES THEM UNREACHABLE HERE ---------------
-# These are not judgement calls. agent_utilities has an 815-MODULE IMPORT
-# CYCLE -- 48% of its 1,700 modules sit in one strongly-connected component.
-# A file-partitioned complexity lane structurally cannot fix that; it is an
-# architectural program of its own. Recorded as a CX finding, NOT hidden:
-# `kiss stats` prints these three every run.
-cycle_size                = 999999 # measured p90=815, max=815  (target 0)
-dependency_depth          = 999999 # measured p50=11,  max=16   (default 3)
-indirect_dependencies     = 999999 # measured p50=1132,max=1184 (default 10)
+# ---- OFF because ANOTHER GATE OWNS THEM, at an absolute ZERO -------------
+# (Rewritten 2026-08-28 by WD10-B-004, the dedicated BUG-CX-004 lane. These
+#  three used to read "OFF because MEASUREMENT PROVES THEM UNREACHABLE HERE",
+#  which was a parked finding with no owner. They now have one.)
+#
+# OWNER: scripts/check_import_cycles.py.  DEFINITION: strongly-connected
+# components of the EAGER (module-load-time) import graph.  THRESHOLD: an
+# ABSOLUTE ZERO, no baseline, no grandfathering.  STATUS: green -- "OK: 0
+# eager-import cycles among 1693 modules, 2871 eager top-level import edges".
+# Same shape as branches_per_function above (owned by check_complexity.py) and
+# orphan_module_enabled (owned by check_liveness.py): two gates, two
+# definitions, one word is a guaranteed disagreement, so exactly ONE tool owns
+# each metric.
+#
+# THE THREE ARE ONE FINDING, NOT THREE. Every module inside an N-module cycle
+# necessarily has >= N-1 indirect dependencies and a dependency depth at least
+# the cycle's radius. Nothing but breaking the cycle moves any of them.
+#
+# WHY kiss CANNOT BE THE OWNER: it builds its graph from import STATEMENTS, so
+# a function-local import (this codebase's own cycle-breaking idiom) and an
+# `if TYPE_CHECKING:` import (which never executes at all) both count as
+# dependencies. 2,405 of the 3,933 edges inside the giant SCC are
+# deferred-only and 93 more are TYPE_CHECKING-only -- 63.5% of the component is
+# the cure being scored as the disease. Measured on the graph that EXECUTES,
+# this repo is normal:
+#
+#     metric                  kiss (all imports)     eager graph    kiss default
+#     cycle_size              max 816                0              0
+#     indirect_dependencies   p50 1134 / max 1186    p50 2 / max 192   10
+#     dependency_depth        p50 11   / max 16      p50 1 / max 8      3
+#
+# WHY NOT A CALIBRATED NUMBER (e.g. `cycle_size = 816`): that would make the
+# gate pass today by construction and fail only on the 817th module. That is a
+# baseline -- precisely the "43 per-metric baselines wearing a different hat"
+# this file's header forbids, and precisely what plans/complex/ NO-RATCHETS
+# forbids. 999999 here is LOUDER than a baseline, not quieter: run_kiss.sh
+# prints `kiss stats` for disabled metrics on every invocation, and
+# check_import_cycles.py now prints the eager depth/indirect distribution on
+# every run too. A baselined 816 would print nothing.
+#
+# TO RE-EVALUATE: the map, the ranked cut plan, the feedback-arc-set cost of a
+# clean DAG (288 of 3,933 edges), and the reason "drive the number down" is an
+# actively harmful instruction on this metric are all in
+# plans/complex/designs/BUG-CX-004-import-cycle.md. Steps CX-004-N1..N5 there
+# are the burn-down. Re-open this block when N3 or N4 lands.
+cycle_size                = 999999 # kiss: max=816 (2026-08-28). EAGER: 0, gated
+                                   # at an absolute zero by
+                                   # scripts/check_import_cycles.py.
+dependency_depth          = 999999 # kiss: p50=11, max=16. EAGER: p50=1, max=8;
+                                   # printed every run by that same gate.
+indirect_dependencies     = 999999 # kiss: p50=1134, max=1186. EAGER: p50=2,
+                                   # max=192; printed every run by that gate.
