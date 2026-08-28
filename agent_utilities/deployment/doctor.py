@@ -2245,13 +2245,113 @@ def _check_outbound_auth() -> dict[str, Any]:
     )
 
 
+def _validate_skill_certification_regular_inputs(
+    path_values: tuple[Any, ...],
+) -> tuple[Any, bytes, bytes]:
+    """Read the four bounded certification inputs; raise if any is unusable.
+
+    Returns ``(configuration_path, configuration, profile)`` -- the reads for the
+    release specification and the promotion evidence are performed for their
+    validation side effect only.
+    """
+    from pathlib import Path
+
+    from agent_utilities.deployment.skill_validation_assets import _read_regular
+
+    if any(value is None for value in path_values):
+        raise RuntimeError("skill_certification_path_missing")
+    configuration_path = Path(str(path_values[0]))
+    configuration = _read_regular(
+        configuration_path,
+        limit=4 * 1024 * 1024,
+        code="runtime_configuration_invalid",
+    )
+    profile = _read_regular(
+        Path(str(path_values[1])),
+        limit=4 * 1024 * 1024,
+        code="runtime_profile_invalid",
+    )
+    _read_regular(
+        Path(str(path_values[2])),
+        limit=4 * 1024 * 1024,
+        code="release_specification_invalid",
+    )
+    _read_regular(
+        Path(str(path_values[3])),
+        limit=8 * 1024 * 1024,
+        code="promotion_evidence_invalid",
+    )
+    return configuration_path, configuration, profile
+
+
+def _validate_skill_certification_profile(
+    configuration_path: Any, configuration: bytes, profile: bytes
+) -> None:
+    """Bind the runtime profile to the *active* configuration; raise otherwise."""
+    from agent_utilities.core.paths import config_dir
+    from agent_utilities.deployment.skill_validation_assets import (
+        _configuration_proof,
+        _identity_authority_configuration,
+        _json_without_duplicates,
+        _validate_profile,
+    )
+
+    if not configuration_path.samefile(config_dir() / "config.json"):
+        raise RuntimeError("runtime_configuration_not_active")
+    proof = _configuration_proof(configuration)
+    identity_authority = _identity_authority_configuration(
+        _json_without_duplicates(configuration, code="runtime_configuration_invalid")
+    )
+    _validate_profile(
+        profile,
+        configuration_digest=("sha256:" + hashlib.sha256(configuration).hexdigest()),
+        model_registry_digest=str(proof["digest"]),
+        identity_authority=identity_authority,
+    )
+
+
+def _validate_skill_certification_commands(
+    cfg: Any, command_values: tuple[Any, ...]
+) -> None:
+    """The GraphOS endpoint must be the active one and the argv arrays sound."""
+    from pathlib import Path
+
+    from agent_utilities.skills.runtime_validation import (
+        _validate_external_command_argv,
+    )
+
+    if (
+        str(cfg.mcp_url or "").strip()
+        != str(cfg.skill_cert_graphos_endpoint or "").strip()
+    ):
+        raise RuntimeError("graph_os_endpoint_not_active")
+    graph_os = _validate_external_command_argv(command_values[0])
+    _validate_external_command_argv(command_values[1])
+    _validate_external_command_argv(command_values[2])
+    if Path(graph_os[0]).name != "graph-os":
+        raise RuntimeError("graph_os_executable_invalid")
+
+
+def _validate_skill_certification_material(
+    cfg: Any, path_values: tuple[Any, ...], command_values: tuple[Any, ...]
+) -> None:
+    """Raise unless every exact skill-certification input is present and bound.
+
+    The order matters and is the pre-split order: bounded regular reads first,
+    then the active-configuration/profile binding, then the command boundaries.
+    """
+    configuration_path, configuration, profile = (
+        _validate_skill_certification_regular_inputs(path_values)
+    )
+    _validate_skill_certification_profile(configuration_path, configuration, profile)
+    _validate_skill_certification_commands(cfg, command_values)
+
+
 def _check_skill_certification() -> dict[str, Any]:
     """Validate exact skill-certification inputs without exposing their values."""
 
     required_count = 8
     try:
-        from pathlib import Path
-
         from agent_utilities.core.config import AgentConfig
 
         cfg = AgentConfig()
@@ -2311,70 +2411,7 @@ def _check_skill_certification() -> dict[str, Any]:
         )
 
     try:
-        from agent_utilities.core.paths import config_dir
-        from agent_utilities.deployment.skill_validation_assets import (
-            _configuration_proof,
-            _identity_authority_configuration,
-            _json_without_duplicates,
-            _read_regular,
-            _validate_profile,
-        )
-        from agent_utilities.skills.runtime_validation import (
-            _validate_external_command_argv,
-        )
-
-        if any(value is None for value in path_values):
-            raise RuntimeError("skill_certification_path_missing")
-        configuration_path = Path(str(path_values[0]))
-        profile_path = Path(str(path_values[1]))
-        specification_path = Path(str(path_values[2]))
-        promotion_path = Path(str(path_values[3]))
-        configuration = _read_regular(
-            configuration_path,
-            limit=4 * 1024 * 1024,
-            code="runtime_configuration_invalid",
-        )
-        profile = _read_regular(
-            profile_path,
-            limit=4 * 1024 * 1024,
-            code="runtime_profile_invalid",
-        )
-        _read_regular(
-            specification_path,
-            limit=4 * 1024 * 1024,
-            code="release_specification_invalid",
-        )
-        _read_regular(
-            promotion_path,
-            limit=8 * 1024 * 1024,
-            code="promotion_evidence_invalid",
-        )
-        if not configuration_path.samefile(config_dir() / "config.json"):
-            raise RuntimeError("runtime_configuration_not_active")
-        proof = _configuration_proof(configuration)
-        identity_authority = _identity_authority_configuration(
-            _json_without_duplicates(
-                configuration, code="runtime_configuration_invalid"
-            )
-        )
-        _validate_profile(
-            profile,
-            configuration_digest=(
-                "sha256:" + hashlib.sha256(configuration).hexdigest()
-            ),
-            model_registry_digest=str(proof["digest"]),
-            identity_authority=identity_authority,
-        )
-        if (
-            str(cfg.mcp_url or "").strip()
-            != str(cfg.skill_cert_graphos_endpoint or "").strip()
-        ):
-            raise RuntimeError("graph_os_endpoint_not_active")
-        graph_os = _validate_external_command_argv(command_values[0])
-        _validate_external_command_argv(command_values[1])
-        _validate_external_command_argv(command_values[2])
-        if Path(graph_os[0]).name != "graph-os":
-            raise RuntimeError("graph_os_executable_invalid")
+        _validate_skill_certification_material(cfg, path_values, command_values)
     except Exception as exc:  # noqa: BLE001 - never report paths or values
         return _result(
             "skill_certification",
@@ -2640,13 +2677,29 @@ def _check_production_certification() -> dict[str, Any]:
     )
 
 
+def _graph_identity_readiness(token_ref: str, oauth2: Any) -> tuple[str, bool]:
+    """``(mode, ready)`` for the single configured graph process identity source.
+
+    Only the *reference* is resolved -- no token is minted and no resolved value
+    ever leaves this function.
+    """
+    from agent_utilities.security.cli_secrets import resolve_runtime_secret_reference
+
+    if token_ref:
+        return "token_ref", bool(resolve_runtime_secret_reference(token_ref))
+    assert oauth2 is not None
+    secret_ref = str(oauth2.get("client_secret") or "")
+    client_id = str(oauth2.get("client_id") or "")
+    ready = bool(resolve_runtime_secret_reference(secret_ref))
+    if client_id.startswith(("vault://", "env://", "secret://")):
+        ready = ready and bool(resolve_runtime_secret_reference(client_id))
+    return "oauth2_client_credentials", ready
+
+
 def _check_graph_identity() -> dict[str, Any]:
     """Validate graph process identity without minting or exposing a token."""
     try:
         from agent_utilities.core.config import AgentConfig
-        from agent_utilities.security.cli_secrets import (
-            resolve_runtime_secret_reference,
-        )
         from agent_utilities.security.request_identity import (
             local_process_authority_enabled,
         )
@@ -2676,17 +2729,7 @@ def _check_graph_identity() -> dict[str, Any]:
                 ),
                 data={"ready": False, "redacted": True},
             )
-        if token_ref:
-            ready = bool(resolve_runtime_secret_reference(token_ref))
-            mode = "token_ref"
-        else:
-            assert oauth2 is not None
-            secret_ref = str(oauth2.get("client_secret") or "")
-            client_id = str(oauth2.get("client_id") or "")
-            ready = bool(resolve_runtime_secret_reference(secret_ref))
-            if client_id.startswith(("vault://", "env://", "secret://")):
-                ready = ready and bool(resolve_runtime_secret_reference(client_id))
-            mode = "oauth2_client_credentials"
+        mode, ready = _graph_identity_readiness(token_ref, oauth2)
         if not ready:
             return _result(
                 "graph_identity",
@@ -2899,6 +2942,18 @@ def _check_openai_catalog(live: bool = False) -> dict[str, Any]:
             data=data,
         )
 
+    return _openai_catalog_live_result(openai_models, creds, data)
+
+
+def _openai_catalog_live_result(
+    openai_models: list[Any], creds: Any, data: dict[str, Any]
+) -> dict[str, Any]:
+    """Verify every configured OpenAI model id against the live catalogue.
+
+    ``data`` is mutated with the probe outcome so the returned result always
+    carries what was actually verified -- a probe that cannot complete raises
+    into the caller rather than reporting ok.
+    """
     from agent_utilities.core.openai_catalog import verify_openai_model
 
     async def _verify_all() -> list[Any]:
@@ -3177,13 +3232,72 @@ def _langfuse_rows(payload: Any) -> list[dict[str, Any]]:
     return [row for row in rows[:100] if isinstance(row, dict)]
 
 
+def _child_call_failed(result: Any) -> bool:
+    """A mounted-child tool result reporting an error, under either spelling."""
+    return bool(getattr(result, "isError", False)) or bool(
+        getattr(result, "is_error", False)
+    )
+
+
+def _langfuse_child_runtime(mux: Any) -> Any:
+    """The mounted langfuse child, or ``None`` unless exactly one tool matched."""
+    matches = [
+        prefixed
+        for prefixed, (server, original) in mux.tool_to_server.items()
+        if server == "langfuse-mcp" and original == "langfuse_observability"
+    ]
+    if len(matches) != 1:
+        return None
+    return mux.children.get("langfuse-mcp")
+
+
+async def _langfuse_posture_metadata_only(runtime: Any) -> bool:
+    """The mounted child must report the metadata-only, no-content posture."""
+    from agent_utilities.mcp.multiplexer import _child_result_payload
+
+    posture_result = await runtime.call_tool(
+        "langfuse_observability",
+        {"action": "runtime_posture"},
+    )
+    if _child_call_failed(posture_result):
+        return False
+    return _child_result_payload(posture_result) == {
+        "content_capture_enabled": False,
+        "metadata_only": True,
+    }
+
+
+async def _langfuse_trace_read_bounded(runtime: Any) -> bool:
+    """Execute the read through the mounted child itself.
+
+    Direct API reachability cannot prove that the child received the same host,
+    credential, and TLS contract. The response stays bounded and transient; no
+    returned row enters doctor output.
+    """
+    from agent_utilities.mcp.multiplexer import _child_result_payload
+
+    trace_result = await runtime.call_tool(
+        "langfuse_observability",
+        {
+            "action": "trace_list",
+            "page": 1,
+            "limit": 1,
+            "fields": "core",
+        },
+    )
+    if _child_call_failed(trace_result):
+        return False
+    trace_payload = _child_result_payload(trace_result)
+    rows = trace_payload.get("data") if isinstance(trace_payload, dict) else None
+    return isinstance(rows, list) and len(rows) <= 1
+
+
 def _probe_langfuse_mcp_visibility(cfg: Any) -> bool:
     """Prove the mounted child can execute the current privacy-safe contract."""
     from pathlib import Path
 
     from agent_utilities.mcp.multiplexer import (
         MCPMultiplexer,
-        _child_result_payload,
         attest_runtime_child_config,
     )
     from agent_utilities.observability.langfuse_trust import (
@@ -3204,52 +3318,12 @@ def _probe_langfuse_mcp_visibility(cfg: Any) -> bool:
         mux._catalog = {"langfuse-mcp": child}
         try:
             await mux.mount_child("langfuse-mcp")
-            matches = [
-                prefixed
-                for prefixed, (server, original) in mux.tool_to_server.items()
-                if server == "langfuse-mcp" and original == "langfuse_observability"
-            ]
-            runtime = mux.children.get("langfuse-mcp")
-            if len(matches) != 1 or runtime is None:
+            runtime = _langfuse_child_runtime(mux)
+            if runtime is None:
                 return False
-
-            posture_result = await runtime.call_tool(
-                "langfuse_observability",
-                {"action": "runtime_posture"},
-            )
-            if bool(getattr(posture_result, "isError", False)) or bool(
-                getattr(posture_result, "is_error", False)
-            ):
+            if not await _langfuse_posture_metadata_only(runtime):
                 return False
-            posture = _child_result_payload(posture_result)
-            if posture != {
-                "content_capture_enabled": False,
-                "metadata_only": True,
-            }:
-                return False
-
-            # Execute the read through the mounted child itself. Direct API
-            # reachability cannot prove that the child received the same host,
-            # credential, and TLS contract. Keep the response bounded and
-            # transient; no returned row enters doctor output.
-            trace_result = await runtime.call_tool(
-                "langfuse_observability",
-                {
-                    "action": "trace_list",
-                    "page": 1,
-                    "limit": 1,
-                    "fields": "core",
-                },
-            )
-            if bool(getattr(trace_result, "isError", False)) or bool(
-                getattr(trace_result, "is_error", False)
-            ):
-                return False
-            trace_payload = _child_result_payload(trace_result)
-            rows = (
-                trace_payload.get("data") if isinstance(trace_payload, dict) else None
-            )
-            return isinstance(rows, list) and len(rows) <= 1
+            return await _langfuse_trace_read_bounded(runtime)
         finally:
             await mux.aclose()
 
@@ -3845,6 +3919,63 @@ def _check_graph_connections(live: bool = False) -> dict[str, Any]:
     return _result("graph_connections", "ok", detail, data=data)
 
 
+def _ingestion_freshness(backend: Any) -> dict[str, str]:
+    """Last-delta freshness per repo, best-effort: an unavailable manifest is {}."""
+    freshness: dict[str, str] = {}
+    try:
+        from agent_utilities.knowledge_graph.ingestion.manifest import DeltaManifest
+
+        dm = DeltaManifest(backend=backend)
+        for cat in ("codebase", "codebase_file"):
+            freshness.update(dm.freshness("agent_graph", cat))
+    except Exception:  # noqa: BLE001 — freshness is best-effort
+        return {}
+    return freshness
+
+
+def _ingestion_coverage_result(rep: dict[str, Any]) -> dict[str, Any]:
+    """Turn one coverage assessment into the doctor verdict + aggregate data."""
+    missing_count = len(rep["missing"])
+    stale_count = len(rep["stale"])
+    error_count = len(rep["errors"])
+    data = {
+        "total": rep["total"],
+        "covered": rep["covered"],
+        "missing_count": missing_count,
+        "stale_count": stale_count,
+        "error_count": error_count,
+        "coverage_pct": rep["coverage_pct"],
+        "total_symbols": rep["total_symbols"],
+        "sla_days": rep["sla_days"],
+        "redacted": True,
+    }
+    detail = (
+        f"{rep['covered']}/{rep['total']} agent-packages repos ingested "
+        f"({rep['coverage_pct']}%), {rep['total_symbols']} symbols"
+    )
+    if missing_count:
+        detail += f", {missing_count} missing"
+    if stale_count:
+        detail += f", {stale_count} stale (>{rep['sla_days']}d)"
+    if error_count:
+        detail += f", {error_count} query error(s)"
+    if missing_count or stale_count or error_count:
+        # A repo-level query failure (D-28) is at least as actionable as a
+        # missing repo — never let it silently pass as "ok". It also already
+        # lowers coverage_pct (errored repos are excluded from "covered"),
+        # so no separate severity rule is needed here.
+        status = "fail" if rep["coverage_pct"] < 75 else "warn"
+        return _result(
+            "ingestion_coverage",
+            status,
+            detail,
+            remediation="`source_sync source=all mode=delta` to ingest or refresh configured repositories",
+            skill="graph-ingestion-and-integration",
+            data=data,
+        )
+    return _result("ingestion_coverage", "ok", detail, data=data)
+
+
 def _check_ingestion_coverage() -> dict[str, Any]:
     """Assert the agent-packages repos are ingested + fresh (CONCEPT:AU-OS.deployment.flagging-repos).
 
@@ -3885,56 +4016,10 @@ def _check_ingestion_coverage() -> dict[str, Any]:
             f"coverage probe unavailable ({type(exc).__name__})",
         )
 
-    freshness: dict[str, str] = {}
-    try:
-        from agent_utilities.knowledge_graph.ingestion.manifest import DeltaManifest
-
-        dm = DeltaManifest(backend=backend)
-        for cat in ("codebase", "codebase_file"):
-            freshness.update(dm.freshness("agent_graph", cat))
-    except Exception:  # noqa: BLE001 — freshness is best-effort
-        freshness = {}
-
-    rep = assess_coverage(repos, counts, freshness, errors=count_errors)
-    missing_count = len(rep["missing"])
-    stale_count = len(rep["stale"])
-    error_count = len(rep["errors"])
-    data = {
-        "total": rep["total"],
-        "covered": rep["covered"],
-        "missing_count": missing_count,
-        "stale_count": stale_count,
-        "error_count": error_count,
-        "coverage_pct": rep["coverage_pct"],
-        "total_symbols": rep["total_symbols"],
-        "sla_days": rep["sla_days"],
-        "redacted": True,
-    }
-    detail = (
-        f"{rep['covered']}/{rep['total']} agent-packages repos ingested "
-        f"({rep['coverage_pct']}%), {rep['total_symbols']} symbols"
+    freshness = _ingestion_freshness(backend)
+    return _ingestion_coverage_result(
+        assess_coverage(repos, counts, freshness, errors=count_errors)
     )
-    if missing_count:
-        detail += f", {missing_count} missing"
-    if stale_count:
-        detail += f", {stale_count} stale (>{rep['sla_days']}d)"
-    if error_count:
-        detail += f", {error_count} query error(s)"
-    if missing_count or stale_count or error_count:
-        # A repo-level query failure (D-28) is at least as actionable as a
-        # missing repo — never let it silently pass as "ok". It also already
-        # lowers coverage_pct (errored repos are excluded from "covered"),
-        # so no separate severity rule is needed here.
-        status = "fail" if rep["coverage_pct"] < 75 else "warn"
-        return _result(
-            "ingestion_coverage",
-            status,
-            detail,
-            remediation="`source_sync source=all mode=delta` to ingest or refresh configured repositories",
-            skill="graph-ingestion-and-integration",
-            data=data,
-        )
-    return _result("ingestion_coverage", "ok", detail, data=data)
 
 
 def _check_connector_coverage() -> dict[str, Any]:
@@ -4893,22 +4978,9 @@ def _check_seaweedfs_s3(live: bool = False) -> dict[str, Any]:
     )
 
 
-def _check_lakekeeper(live: bool = False) -> dict[str, Any]:
-    """Lakekeeper Iceberg REST catalog (``services/lakekeeper``)."""
-    try:
-        from agent_utilities.core.config import AgentConfig
-
-        cfg = AgentConfig()
-        uri = str(cfg.lakekeeper_catalog_uri or "").strip()
-        scope = str(cfg.lakekeeper_oauth2_scope or "").strip()
-    except Exception as exc:  # noqa: BLE001
-        return _result(
-            "lakekeeper",
-            "error",
-            f"lakekeeper config unavailable ({type(exc).__name__})",
-        )
-
-    prescription = _prescription(
+def _lakekeeper_prescription() -> dict[str, Any]:
+    """The machine-readable Lakekeeper remediation, including the known gotcha."""
+    return _prescription(
         manifest_path="services/lakekeeper/k8s/manifests.yaml",
         config_keys={
             "LAKEKEEPER_CATALOG_URI": "http://<catalog-host>:8181/catalog",
@@ -4929,6 +5001,39 @@ def _check_lakekeeper(live: bool = False) -> dict[str, Any]:
             "not horizontally scalable",
         },
     )
+
+
+def _lakekeeper_gotcha_findings(uri: str, scope: str) -> list[str]:
+    """Configuration mistakes that make the catalog unusable, in report order."""
+    findings = []
+    if not uri.rstrip("/").endswith("/catalog"):
+        findings.append(
+            "LAKEKEEPER_CATALOG_URI does not end in /catalog -- catalog calls will 404"
+        )
+    if scope and scope != "lakekeeper":
+        findings.append(
+            f"LAKEKEEPER_OAUTH2_SCOPE={scope!r} is not 'lakekeeper' -- OAuth2 token "
+            "exchange will 400 with invalid_scope"
+        )
+    return findings
+
+
+def _check_lakekeeper(live: bool = False) -> dict[str, Any]:
+    """Lakekeeper Iceberg REST catalog (``services/lakekeeper``)."""
+    try:
+        from agent_utilities.core.config import AgentConfig
+
+        cfg = AgentConfig()
+        uri = str(cfg.lakekeeper_catalog_uri or "").strip()
+        scope = str(cfg.lakekeeper_oauth2_scope or "").strip()
+    except Exception as exc:  # noqa: BLE001
+        return _result(
+            "lakekeeper",
+            "error",
+            f"lakekeeper config unavailable ({type(exc).__name__})",
+        )
+
+    prescription = _lakekeeper_prescription()
     if not uri:
         return _result(
             "lakekeeper",
@@ -4942,16 +5047,7 @@ def _check_lakekeeper(live: bool = False) -> dict[str, Any]:
             prescription=prescription,
             data={"configured": False, "live_probed": live},
         )
-    findings = []
-    if not uri.rstrip("/").endswith("/catalog"):
-        findings.append(
-            "LAKEKEEPER_CATALOG_URI does not end in /catalog -- catalog calls will 404"
-        )
-    if scope and scope != "lakekeeper":
-        findings.append(
-            f"LAKEKEEPER_OAUTH2_SCOPE={scope!r} is not 'lakekeeper' -- OAuth2 token "
-            "exchange will 400 with invalid_scope"
-        )
+    findings = _lakekeeper_gotcha_findings(uri, scope)
     data: dict[str, Any] = {
         "configured": True,
         "live_probed": live,
