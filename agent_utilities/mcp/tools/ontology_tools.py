@@ -510,6 +510,174 @@ def _graph_ontology_proposal(
     return _graph_ontology_rollback_proposal(engine, tenant, proposal_id=proposal_id)
 
 
+def _ontology_interface_list(reg: Any, registry: str) -> str:
+    return json.dumps(
+        {"registry": registry, "interfaces": [i.name for i in reg.list_interfaces()]}
+    )
+
+
+def _ontology_interface_implementers(reg: Any, name: str) -> str:
+    from agent_utilities.knowledge_graph.ontology.interfaces import (
+        DEFAULT_INTERFACE_REGISTRY,
+        target_object_types,
+    )
+
+    impls = (
+        reg.resolve_target(name)
+        if reg is not DEFAULT_INTERFACE_REGISTRY
+        else target_object_types(name)
+    )
+    return json.dumps({"target": name, "implementers": impls})
+
+
+def _ontology_interface_conforms(reg: Any, name: str, object_json: str) -> str:
+    obj = json.loads(object_json) if object_json else {}
+    return json.dumps({"interface": name, "conforms": reg.conforms(obj, name)})
+
+
+def _ontology_interface_owl(reg: Any) -> str:
+    return json.dumps({"owl": reg.to_owl()})
+
+
+def _ontology_interface_schema(reg: Any, registry: str, action: str) -> str:
+    from agent_utilities.knowledge_graph.ontology.links import DEFAULT_LINK_REGISTRY
+    from agent_utilities.knowledge_graph.ontology.schema_graph import (
+        build_schema_graph,
+        render_schema_markdown,
+    )
+
+    schema = build_schema_graph(reg, DEFAULT_LINK_REGISTRY)
+    if action == "graph":
+        return json.dumps({"registry": registry, **schema}, default=str)
+    title = f"{registry.title()} Ontology Schema"
+    return json.dumps(
+        {
+            "registry": registry,
+            "markdown": render_schema_markdown(schema, title=title),
+        }
+    )
+
+
+def _ontology_interface_lint(reg: Any, registry: str) -> str:
+    from agent_utilities.knowledge_graph.ontology.style_lint import lint_interfaces
+
+    issues = lint_interfaces(reg)
+    return json.dumps(
+        {
+            "registry": registry,
+            "issues": [i.as_dict() for i in issues],
+            "count": len(issues),
+        }
+    )
+
+
+def _ontology_interface_explain_routing(
+    entity_id: str, required_capability_type: str, tenant: str, policy_tags: str
+) -> str:
+    from agent_utilities.graph.routing.enrichers.capability_routing import (
+        explain_routing_eligibility,
+    )
+
+    if not entity_id or not required_capability_type:
+        return json.dumps(
+            {
+                "error": "explain_routing_eligibility requires entity_id and "
+                "required_capability_type"
+            }
+        )
+    engine = kg_server._get_engine()
+    tags = (
+        [t.strip() for t in policy_tags.split(",") if t.strip()]
+        if policy_tags
+        else None
+    )
+    report = explain_routing_eligibility(
+        engine,
+        entity_id,
+        required_capability_type=required_capability_type,
+        tenant=tenant or None,
+        policy_tags=tags,
+    )
+    return json.dumps(
+        {
+            "action": "explain_routing_eligibility",
+            "entity_id": entity_id,
+            "required_capability_type": required_capability_type,
+            **report,
+        },
+        default=str,
+    )
+
+
+def _ontology_sampling_profile_list(registry: Any) -> str:
+    from agent_utilities.models.model_registry import _DEFAULT_TASK_PROFILES
+
+    effective = {**_DEFAULT_TASK_PROFILES, **registry.task_class_profiles}
+    return json.dumps(
+        {"profiles": {k: v.model_dump() for k, v in effective.items()}}, default=str
+    )
+
+
+def _ontology_sampling_profile_describe(registry: Any, task_class: str) -> str:
+    return json.dumps(
+        registry.pick_profile_for_task(task_class).model_dump(), default=str
+    )
+
+
+def _ontology_sampling_profile_resolve(task_text: str, role: str) -> str:
+    from agent_utilities.agent.sampling_profile import resolve_sampling_profile
+
+    prof = resolve_sampling_profile(task_text or None, role=role or None)
+    return json.dumps(prof.model_dump(), default=str)
+
+
+def _ontology_sampling_profile_set(
+    registry: Any, profile_json: str, task_class: str
+) -> str:
+    from agent_utilities.agent.sampling_profile import SamplingProfile
+    from agent_utilities.knowledge_graph.ontology.value_types import (
+        sampling_profile_violations,
+    )
+
+    data = json.loads(profile_json) if profile_json else {}
+    if task_class:
+        data.setdefault("task_class", task_class)
+    profile = SamplingProfile.model_validate(data)
+    violations = sampling_profile_violations(profile.model_dump())
+    if violations:
+        return json.dumps({"error": "SHACL bound violation", "violations": violations})
+    registry.set_task_profile(profile)
+    return json.dumps({"set": profile.model_dump()}, default=str)
+
+
+def _ontology_sampling_profile_evolve(registry: Any, task_class: str) -> str:
+    from agent_utilities.agent.sampling_profile import SamplingProfile
+    from agent_utilities.harness.variant_pool import VariantPool
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+
+    engine = IntelligenceGraphEngine.get_active()
+    kg = getattr(engine, "kg", None) or getattr(engine, "_kg", None)
+    ci = kg.retrieval if kg is not None else None
+    if ci is None:
+        return json.dumps({"error": "no capability index available to score"})
+    vp = VariantPool.__new__(VariantPool)
+
+    # Live eval: reward = mean capability-index reward already recorded for
+    # this profile's prior outcomes; absent history, neutral 0.5 keeps the
+    # incumbent. The daemon/evolve loop feeds real outcomes over time.
+    def _evaluator(p: SamplingProfile) -> float:
+        return ci.reward_of(vp._profile_id(task_class, p))
+
+    promoted = vp.evolve_profile(registry, task_class, ci, _evaluator)
+    return json.dumps({"promoted": promoted.model_dump()}, default=str)
+
+
+def _ontology_sampling_profile_owl(registry: Any) -> str:
+    from agent_utilities.models.model_registry import inference_owl_ttl
+
+    return json.dumps({"owl": inference_owl_ttl(registry)})
+
+
 def register_ontology_tools(mcp):
     """Register the ontology_tools group on the given FastMCP server."""
 
@@ -674,7 +842,6 @@ def register_ontology_tools(mcp):
         WHY a candidate is routing-eligible (X-4)."""
         from agent_utilities.knowledge_graph.ontology.interfaces import (
             DEFAULT_INTERFACE_REGISTRY,
-            target_object_types,
         )
         from agent_utilities.knowledge_graph.standardization.standards import (
             ENTERPRISE_STANDARD_REGISTRY,
@@ -687,91 +854,20 @@ def register_ontology_tools(mcp):
         )
         try:
             if action == "list":
-                return json.dumps(
-                    {
-                        "registry": registry,
-                        "interfaces": [i.name for i in reg.list_interfaces()],
-                    }
-                )
+                return _ontology_interface_list(reg, registry)
             if action == "implementers":
-                impls = (
-                    reg.resolve_target(name)
-                    if reg is not DEFAULT_INTERFACE_REGISTRY
-                    else target_object_types(name)
-                )
-                return json.dumps({"target": name, "implementers": impls})
+                return _ontology_interface_implementers(reg, name)
             if action == "conforms":
-                obj = json.loads(object_json) if object_json else {}
-                return json.dumps(
-                    {"interface": name, "conforms": reg.conforms(obj, name)}
-                )
+                return _ontology_interface_conforms(reg, name, object_json)
             if action == "owl":
-                return json.dumps({"owl": reg.to_owl()})
+                return _ontology_interface_owl(reg)
             if action in ("graph", "summary"):
-                from agent_utilities.knowledge_graph.ontology.links import (
-                    DEFAULT_LINK_REGISTRY,
-                )
-                from agent_utilities.knowledge_graph.ontology.schema_graph import (
-                    build_schema_graph,
-                    render_schema_markdown,
-                )
-
-                schema = build_schema_graph(reg, DEFAULT_LINK_REGISTRY)
-                if action == "graph":
-                    return json.dumps({"registry": registry, **schema}, default=str)
-                title = f"{registry.title()} Ontology Schema"
-                return json.dumps(
-                    {
-                        "registry": registry,
-                        "markdown": render_schema_markdown(schema, title=title),
-                    }
-                )
+                return _ontology_interface_schema(reg, registry, action)
             if action == "lint":
-                from agent_utilities.knowledge_graph.ontology.style_lint import (
-                    lint_interfaces,
-                )
-
-                issues = lint_interfaces(reg)
-                return json.dumps(
-                    {
-                        "registry": registry,
-                        "issues": [i.as_dict() for i in issues],
-                        "count": len(issues),
-                    }
-                )
+                return _ontology_interface_lint(reg, registry)
             if action == "explain_routing_eligibility":
-                from agent_utilities.graph.routing.enrichers.capability_routing import (
-                    explain_routing_eligibility,
-                )
-
-                if not entity_id or not required_capability_type:
-                    return json.dumps(
-                        {
-                            "error": "explain_routing_eligibility requires entity_id and "
-                            "required_capability_type"
-                        }
-                    )
-                engine = kg_server._get_engine()
-                tags = (
-                    [t.strip() for t in policy_tags.split(",") if t.strip()]
-                    if policy_tags
-                    else None
-                )
-                report = explain_routing_eligibility(
-                    engine,
-                    entity_id,
-                    required_capability_type=required_capability_type,
-                    tenant=tenant or None,
-                    policy_tags=tags,
-                )
-                return json.dumps(
-                    {
-                        "action": "explain_routing_eligibility",
-                        "entity_id": entity_id,
-                        "required_capability_type": required_capability_type,
-                        **report,
-                    },
-                    default=str,
+                return _ontology_interface_explain_routing(
+                    entity_id, required_capability_type, tenant, policy_tags
                 )
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
@@ -807,71 +903,24 @@ def register_ontology_tools(mcp):
         ),
     ) -> str:
         """List/describe/resolve/set/evolve sampling profiles, or emit their OWL."""
-        from agent_utilities.agent.sampling_profile import (
-            SamplingProfile,
-            resolve_sampling_profile,
-        )
-        from agent_utilities.knowledge_graph.ontology.value_types import (
-            sampling_profile_violations,
-        )
-        from agent_utilities.models.model_registry import (
-            _DEFAULT_TASK_PROFILES,
-            inference_owl_ttl,
-            load_active_registry,
-        )
+        from agent_utilities.models.model_registry import load_active_registry
 
         try:
             registry = load_active_registry()
             if action == "list":
-                effective = {**_DEFAULT_TASK_PROFILES, **registry.task_class_profiles}
-                return json.dumps(
-                    {"profiles": {k: v.model_dump() for k, v in effective.items()}},
-                    default=str,
-                )
+                return _ontology_sampling_profile_list(registry)
             if action == "describe":
-                return json.dumps(
-                    registry.pick_profile_for_task(task_class).model_dump(), default=str
-                )
+                return _ontology_sampling_profile_describe(registry, task_class)
             if action == "resolve":
-                prof = resolve_sampling_profile(task_text or None, role=role or None)
-                return json.dumps(prof.model_dump(), default=str)
+                return _ontology_sampling_profile_resolve(task_text, role)
             if action == "set":
-                data = json.loads(profile_json) if profile_json else {}
-                if task_class:
-                    data.setdefault("task_class", task_class)
-                profile = SamplingProfile.model_validate(data)
-                violations = sampling_profile_violations(profile.model_dump())
-                if violations:
-                    return json.dumps(
-                        {"error": "SHACL bound violation", "violations": violations}
-                    )
-                registry.set_task_profile(profile)
-                return json.dumps({"set": profile.model_dump()}, default=str)
-            if action == "evolve":
-                from agent_utilities.harness.variant_pool import VariantPool
-                from agent_utilities.knowledge_graph.core.engine import (
-                    IntelligenceGraphEngine,
+                return _ontology_sampling_profile_set(
+                    registry, profile_json, task_class
                 )
-
-                engine = IntelligenceGraphEngine.get_active()
-                kg = getattr(engine, "kg", None) or getattr(engine, "_kg", None)
-                ci = kg.retrieval if kg is not None else None
-                if ci is None:
-                    return json.dumps(
-                        {"error": "no capability index available to score"}
-                    )
-                vp = VariantPool.__new__(VariantPool)
-
-                # Live eval: reward = mean capability-index reward already recorded for
-                # this profile's prior outcomes; absent history, neutral 0.5 keeps the
-                # incumbent. The daemon/evolve loop feeds real outcomes over time.
-                def _evaluator(p: SamplingProfile) -> float:
-                    return ci.reward_of(vp._profile_id(task_class, p))
-
-                promoted = vp.evolve_profile(registry, task_class, ci, _evaluator)
-                return json.dumps({"promoted": promoted.model_dump()}, default=str)
+            if action == "evolve":
+                return _ontology_sampling_profile_evolve(registry, task_class)
             if action == "owl":
-                return json.dumps({"owl": inference_owl_ttl(registry)})
+                return _ontology_sampling_profile_owl(registry)
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
