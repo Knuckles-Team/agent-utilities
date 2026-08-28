@@ -3252,45 +3252,65 @@ def get_connection_registry():
         registry = ConnectionRegistry()
         # Seed reference-only external sources first, then let an explicit
         # KG_CONNECTIONS declaration with the same alias take precedence.
-        try:
-            from agent_utilities.core.config import config as _cfg
-
-            for declared in _cfg.external_graph_connectors or []:
-                value = (
-                    declared.model_dump()
-                    if hasattr(declared, "model_dump")
-                    else dict(declared)
-                )
-                name = str(value.pop("name", "") or "")
-                if not name:
-                    continue
-                value["role"] = "read"
-                try:
-                    registry.register(name, value)
-                except Exception as exc:  # noqa: BLE001 — one bad declaration never blocks the rest
-                    logger.warning(
-                        "Skipping invalid external source declaration: %s",
-                        type(exc).__name__,
-                    )
-
-            for spec in _cfg.kg_connections or []:
-                spec = dict(spec)
-                name = spec.pop("name", "")
-                if name:
-                    try:
-                        registry.register(name, spec)
-                    except Exception as e:  # noqa: BLE001 — one bad declaration never blocks the rest
-                        logger.warning(
-                            "Skipping invalid graph connection declaration: %s",
-                            type(e).__name__,
-                        )
-        except Exception as exc:  # noqa: BLE001 — config-less environments
-            logger.debug(
-                "Graph connection declarations were not seeded (%s)",
-                type(exc).__name__,
-            )
+        _seed_connection_registry(registry)
         _CONNECTION_REGISTRY = registry
         return _CONNECTION_REGISTRY
+
+
+def _seed_external_graph_connectors(registry: Any) -> None:
+    """Register reference-only external sources from config, best-effort per item."""
+    from agent_utilities.core.config import config as _cfg
+
+    for declared in _cfg.external_graph_connectors or []:
+        value = (
+            declared.model_dump() if hasattr(declared, "model_dump") else dict(declared)
+        )
+        name = str(value.pop("name", "") or "")
+        if not name:
+            continue
+        value["role"] = "read"
+        try:
+            registry.register(name, value)
+        except Exception as exc:  # noqa: BLE001 — one bad declaration never blocks the rest
+            logger.warning(
+                "Skipping invalid external source declaration: %s",
+                type(exc).__name__,
+            )
+
+
+def _seed_kg_connections(registry: Any) -> None:
+    """Register explicit KG_CONNECTIONS declarations from config, best-effort per item."""
+    from agent_utilities.core.config import config as _cfg
+
+    for spec in _cfg.kg_connections or []:
+        spec = dict(spec)
+        name = spec.pop("name", "")
+        if name:
+            try:
+                registry.register(name, spec)
+            except Exception as e:  # noqa: BLE001 — one bad declaration never blocks the rest
+                logger.warning(
+                    "Skipping invalid graph connection declaration: %s",
+                    type(e).__name__,
+                )
+
+
+def _seed_connection_registry(registry: Any) -> None:
+    """Seed a fresh :class:`ConnectionRegistry` from config, best-effort.
+
+    An explicit ``KG_CONNECTIONS`` declaration takes precedence over a
+    reference-only external source registered under the same alias, since
+    external sources are seeded first. Config-less environments (the whole
+    seeding step raises) leave the registry with nothing seeded.
+    """
+    try:
+        _seed_external_graph_connectors(registry)
+        _seed_kg_connections(registry)
+    except Exception as exc:  # noqa: BLE001 — config-less environments
+        logger.debug(
+            "Graph connection declarations were not seeded (%s)",
+            type(exc).__name__,
+        )
 
 
 def _resolve_target_engines(
