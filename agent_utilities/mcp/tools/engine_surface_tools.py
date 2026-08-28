@@ -348,6 +348,60 @@ def _session_bound_tenant(declared: str) -> str:
     return verified
 
 
+def _declared_source_entries(sources_json: str) -> tuple[list[Any], list[str]]:
+    """Split an explicit ``sources_json`` list into (labelled objects, bare refs).
+
+    A bare ref string is left for the :class:`SourceLabelResolver`; a labelled
+    object is taken as given. Anything else is a caller error.
+    """
+    from agent_utilities.kvcache.eligibility import ContributingSource
+
+    labelled: list[Any] = []
+    refs: list[str] = []
+    raw = (sources_json or "").strip()
+    if not raw or raw in {"[]", "{}"}:
+        return labelled, refs
+    declared = json.loads(raw)
+    if not isinstance(declared, list):
+        raise ValueError("sources JSON must be a list")
+    for entry in declared:
+        if isinstance(entry, str):
+            refs.append(entry)
+        elif isinstance(entry, dict):
+            labelled.append(ContributingSource(**entry))
+        else:
+            raise ValueError(
+                "each source must be a ref string or a labelled source object"
+            )
+    return labelled, refs
+
+
+def _citation_refs(citation: Any) -> list[str]:
+    """One citation's ``source_refs``, as strings; ``[]`` for a non-object citation."""
+    if not isinstance(citation, dict):
+        return []
+    return [str(r) for r in (citation.get("source_refs") or [])]
+
+
+def _bundle_citation_refs(context_bundle_json: str) -> list[str]:
+    """Every citation's ``source_refs`` in a context bundle, in order.
+
+    The bundle's citations ARE the sources that actually contributed, so a
+    caller that hands over its context bundle automatically hands over its
+    provenance.
+    """
+    bundle_raw = (context_bundle_json or "").strip()
+    if not bundle_raw or bundle_raw in {"{}", "[]"}:
+        return []
+    bundle = json.loads(bundle_raw)
+    if not isinstance(bundle, dict):
+        return []
+    refs: list[str] = []
+    for citation in bundle.get("citations") or []:
+        refs.extend(_citation_refs(citation))
+    return refs
+
+
 def _contributing_sources(
     sources_json: str, context_bundle_json: str, *, tenant: str
 ) -> tuple[Any, ...]:
@@ -368,37 +422,10 @@ def _contributing_sources(
     (and therefore denies, naming itself). This function never returns fewer entries
     than it was given refs.
     """
-    from agent_utilities.kvcache.eligibility import (
-        ContributingSource,
-        get_source_label_resolver,
-    )
+    from agent_utilities.kvcache.eligibility import get_source_label_resolver
 
-    labelled: list[Any] = []
-    refs: list[str] = []
-
-    raw = (sources_json or "").strip()
-    if raw and raw not in {"[]", "{}"}:
-        declared = json.loads(raw)
-        if not isinstance(declared, list):
-            raise ValueError("sources JSON must be a list")
-        for entry in declared:
-            if isinstance(entry, str):
-                refs.append(entry)
-            elif isinstance(entry, dict):
-                labelled.append(ContributingSource(**entry))
-            else:
-                raise ValueError(
-                    "each source must be a ref string or a labelled source object"
-                )
-
-    bundle_raw = (context_bundle_json or "").strip()
-    if bundle_raw and bundle_raw not in {"{}", "[]"}:
-        bundle = json.loads(bundle_raw)
-        if isinstance(bundle, dict):
-            for citation in bundle.get("citations") or []:
-                if isinstance(citation, dict):
-                    refs.extend(str(r) for r in (citation.get("source_refs") or []))
-
+    labelled, refs = _declared_source_entries(sources_json)
+    refs = [*refs, *_bundle_citation_refs(context_bundle_json)]
     # De-duplicate refs while preserving order; a source contributing twice is still
     # one source, and duplicating it would only duplicate its labels.
     unique_refs = tuple(dict.fromkeys(r for r in refs if r.strip()))
@@ -408,6 +435,223 @@ def _contributing_sources(
         else ()
     )
     return tuple(labelled) + tuple(resolved)
+
+
+def _checkpoint_observation(bundles: dict[str, str]) -> Any:
+    """Build the observation from the explicit fields plus any bundles handed in.
+
+    An agent that has just run ``graph_ask`` / a context compile already holds the
+    exact shapes the grounding, contradiction and novelty scorers want, so it can
+    hand those straight over instead of transcribing four counts by hand. Explicit
+    ``observation_json`` fields always win over anything derived from a bundle —
+    the caller's direct measurement is more authoritative than an inference.
+    """
+    from agent_utilities.kvcache.worthiness import CheckpointObservation
+
+    observation_json = bundles["observation_json"]
+    payload = json.loads(observation_json) if observation_json else {}
+    if not isinstance(payload, dict):
+        raise ValueError("observation_json must be a JSON object")
+    derived: dict[str, Any] = {}
+    evidence_bundle_json = bundles["evidence_bundle_json"]
+    if evidence_bundle_json.strip() not in {"", "{}"}:
+        derived.update(
+            _measured_fields(
+                CheckpointObservation.from_evidence_bundle(
+                    _bundle_object(evidence_bundle_json)
+                )
+            )
+        )
+    context_bundle_json = bundles["context_bundle_json"]
+    if context_bundle_json.strip() not in {"", "{}"}:
+        derived.update(
+            _measured_fields(
+                CheckpointObservation.from_context_bundle(
+                    _bundle_object(context_bundle_json)
+                )
+            )
+        )
+    return CheckpointObservation(**{**derived, **payload})
+
+
+def _kv_ram_stats_response(action: str, manager: Any) -> str:
+    """``action='ram_stats'`` — the RAM tier's occupancy plus what shaped it."""
+    return json.dumps(
+        {
+            "surface": "kv_checkpoint",
+            "action": action,
+            "result": {
+                **manager.ram_store.stats().model_dump(mode="json"),
+                "eligibility_gate": manager.eligibility_gate.name,
+                # Which signals are active in THIS deployment. Without it a score
+                # is uninterpretable — an operator who removed a default scorer or
+                # added their own has no other way to see what produced the number.
+                "scorers": [
+                    {"name": s.name, "weight": s.weight}
+                    for s in manager.advisor.registry.scorers()
+                ],
+                "ram_threshold": manager.advisor.ram_threshold,
+            },
+        }
+    )
+
+
+def _kv_recommend_response(action: str, manager: Any, bundles: dict[str, str]) -> str:
+    """``action='recommend'`` — a scored, advisory-only worthiness verdict."""
+    try:
+        observation = _checkpoint_observation(bundles)
+    except Exception as exc:  # noqa: BLE001 — caller-supplied JSON/shape
+        return _surface_error(
+            exc, surface="kv_checkpoint", action=action, code="invalid_request"
+        )
+    recommendation = manager.recommend(observation)
+    return json.dumps(
+        {
+            "surface": "kv_checkpoint",
+            "action": action,
+            "result": {
+                **recommendation.model_dump(mode="json", exclude={"observation"}),
+                "advisory": recommendation.as_advisory(),
+            },
+        },
+        default=_json_default,
+    )
+
+
+def _kv_explain_response(
+    action: str, manager: Any, checkpoint_id: str, requesting_tenant: str
+) -> str:
+    """``action='explain'`` — why this checkpoint exists and why it is where it is."""
+    from agent_utilities.kvcache.checkpoint import KVCheckpointError
+
+    try:
+        return json.dumps(
+            {
+                "surface": "kv_checkpoint",
+                "action": action,
+                "result": manager.explain(
+                    checkpoint_id,
+                    requesting_tenant=_session_bound_tenant(requesting_tenant),
+                ).model_dump(mode="json"),
+            },
+            default=_json_default,
+        )
+    except ValueError as exc:
+        return _surface_error(
+            exc, surface="kv_checkpoint", action=action, code="invalid_request"
+        )
+    except KVCheckpointError as exc:
+        return _surface_error(
+            exc,
+            surface="kv_checkpoint",
+            action=action,
+            code=_checkpoint_error_code(exc),
+        )
+
+
+def _kv_promote_response(
+    action: str,
+    manager: Any,
+    checkpoint_id: str,
+    requesting_tenant: str,
+    trigger: str,
+) -> str:
+    """``action='promote'`` — the gated RAM→disk promotion."""
+    from agent_utilities.kvcache.checkpoint import KVCheckpointError
+
+    try:
+        outcome = manager.promote(
+            checkpoint_id,
+            requesting_tenant=_session_bound_tenant(requesting_tenant),
+            trigger=trigger,  # type: ignore[arg-type]
+        )
+    except ValueError as exc:
+        return _surface_error(
+            exc, surface="kv_checkpoint", action=action, code="invalid_request"
+        )
+    except KVCheckpointError as exc:
+        return _surface_error(
+            exc,
+            surface="kv_checkpoint",
+            action=action,
+            code=_checkpoint_error_code(exc),
+        )
+    return json.dumps(
+        {
+            "surface": "kv_checkpoint",
+            "action": action,
+            "result": outcome.model_dump(mode="json", exclude={"recommendation"}),
+        },
+        default=_json_default,
+    )
+
+
+def _kv_checkpoint_now(
+    action: str, manager: Any, bundles: dict[str, str], req: dict[str, Any]
+) -> str:
+    """``action='checkpoint_now'`` — store to the RAM tier, optionally persist.
+
+    Durable persistence always passes the authority-derived eligibility gate; the
+    tenant it is authorized under comes from the verified session, never the payload.
+    """
+    from agent_utilities.kvcache.checkpoint import KVCheckpointError, KVCheckpointKey
+
+    try:
+        data = base64.b64decode(req["data_b64"]) if req["data_b64"] else b""
+        bound_tenant = _session_bound_tenant(req["tenant"])
+        key = KVCheckpointKey(
+            model_identity=req["model_identity"],
+            quantization=req["quantization"],
+            serving_engine=req["serving_engine"],
+            engine_version=req["engine_version"],
+            prefix_digest=req["prefix_digest"],
+            tenant=bound_tenant,
+            policy_version=req["policy_version"],
+        )
+        sources = _contributing_sources(
+            req["sources_json"],
+            bundles["context_bundle_json"],
+            tenant=bound_tenant,
+        )
+        supplied = (
+            bundles["observation_json"].strip() not in {"", "{}"}
+            or bundles["evidence_bundle_json"].strip() not in {"", "{}"}
+            or bundles["context_bundle_json"].strip() not in {"", "{}"}
+        )
+        observation = _checkpoint_observation(bundles) if supplied else None
+    except Exception as exc:  # noqa: BLE001 — bad payload/key/observation
+        return _surface_error(
+            exc, surface="kv_checkpoint", action=action, code="invalid_request"
+        )
+    try:
+        outcome = manager.checkpoint_now(
+            data,
+            key=key,
+            run_id=req["run_id"],
+            point=req["point"],
+            trigger=req["trigger"],
+            persist=req["persist"],
+            observation=observation,
+            sources=sources,
+        )
+    except KVCheckpointError as exc:
+        return _surface_error(
+            exc,
+            surface="kv_checkpoint",
+            action=action,
+            code=_checkpoint_error_code(exc),
+        )
+    return json.dumps(
+        {
+            "surface": "kv_checkpoint",
+            "action": action,
+            "result": outcome.model_dump(mode="json", exclude={"recommendation"}),
+            "advisory": (
+                outcome.recommendation.as_advisory() if outcome.recommendation else ""
+            ),
+        },
+        default=_json_default,
+    )
 
 
 def _kv_checkpoint_intelligence(
@@ -447,9 +691,6 @@ def _kv_checkpoint_intelligence(
     authority comes from :func:`derive_caller_authority` over the ambient
     ``GraphSession``.
     """
-    from agent_utilities.kvcache.checkpoint import KVCheckpointError, KVCheckpointKey
-    from agent_utilities.kvcache.worthiness import CheckpointObservation
-
     # Validate the trigger AT THE BOUNDARY. It is a Literal on PersistenceRequest /
     # RAMCheckpointRecord, so an unrecognized value would surface deep inside as a raw
     # pydantic ValidationError that the KVCheckpointError handlers below never catch.
@@ -462,184 +703,41 @@ def _kv_checkpoint_intelligence(
         )
 
     manager = _checkpoint_manager(graph)
-
-    def _observation() -> Any:
-        """Build the observation from the explicit fields plus any bundles handed in.
-
-        An agent that has just run ``graph_ask`` / a context compile already holds the
-        exact shapes the grounding, contradiction and novelty scorers want, so it can
-        hand those straight over instead of transcribing four counts by hand. Explicit
-        ``observation_json`` fields always win over anything derived from a bundle —
-        the caller's direct measurement is more authoritative than an inference.
-        """
-        payload = json.loads(observation_json) if observation_json else {}
-        if not isinstance(payload, dict):
-            raise ValueError("observation_json must be a JSON object")
-        derived: dict[str, Any] = {}
-        if evidence_bundle_json.strip() not in {"", "{}"}:
-            derived.update(
-                _measured_fields(
-                    CheckpointObservation.from_evidence_bundle(
-                        _bundle_object(evidence_bundle_json)
-                    )
-                )
-            )
-        if context_bundle_json.strip() not in {"", "{}"}:
-            derived.update(
-                _measured_fields(
-                    CheckpointObservation.from_context_bundle(
-                        _bundle_object(context_bundle_json)
-                    )
-                )
-            )
-        return CheckpointObservation(**{**derived, **payload})
-
+    bundles = {
+        "observation_json": observation_json,
+        "evidence_bundle_json": evidence_bundle_json,
+        "context_bundle_json": context_bundle_json,
+    }
     if action == "ram_stats":
-        return json.dumps(
-            {
-                "surface": "kv_checkpoint",
-                "action": action,
-                "result": {
-                    **manager.ram_store.stats().model_dump(mode="json"),
-                    "eligibility_gate": manager.eligibility_gate.name,
-                    # Which signals are active in THIS deployment. Without it a score
-                    # is uninterpretable — an operator who removed a default scorer or
-                    # added their own has no other way to see what produced the number.
-                    "scorers": [
-                        {"name": s.name, "weight": s.weight}
-                        for s in manager.advisor.registry.scorers()
-                    ],
-                    "ram_threshold": manager.advisor.ram_threshold,
-                },
-            }
-        )
-
+        return _kv_ram_stats_response(action, manager)
     if action == "recommend":
-        try:
-            observation = _observation()
-        except Exception as exc:  # noqa: BLE001 — caller-supplied JSON/shape
-            return _surface_error(
-                exc, surface="kv_checkpoint", action=action, code="invalid_request"
-            )
-        recommendation = manager.recommend(observation)
-        return json.dumps(
-            {
-                "surface": "kv_checkpoint",
-                "action": action,
-                "result": {
-                    **recommendation.model_dump(mode="json", exclude={"observation"}),
-                    "advisory": recommendation.as_advisory(),
-                },
-            },
-            default=_json_default,
-        )
-
+        return _kv_recommend_response(action, manager, bundles)
     if action == "explain":
-        try:
-            return json.dumps(
-                {
-                    "surface": "kv_checkpoint",
-                    "action": action,
-                    "result": manager.explain(
-                        checkpoint_id,
-                        requesting_tenant=_session_bound_tenant(requesting_tenant),
-                    ).model_dump(mode="json"),
-                },
-                default=_json_default,
-            )
-        except ValueError as exc:
-            return _surface_error(
-                exc, surface="kv_checkpoint", action=action, code="invalid_request"
-            )
-        except KVCheckpointError as exc:
-            return _surface_error(
-                exc,
-                surface="kv_checkpoint",
-                action=action,
-                code=_checkpoint_error_code(exc),
-            )
-
+        return _kv_explain_response(action, manager, checkpoint_id, requesting_tenant)
     if action == "promote":
-        try:
-            outcome = manager.promote(
-                checkpoint_id,
-                requesting_tenant=_session_bound_tenant(requesting_tenant),
-                trigger=trigger,  # type: ignore[arg-type]
-            )
-        except ValueError as exc:
-            return _surface_error(
-                exc, surface="kv_checkpoint", action=action, code="invalid_request"
-            )
-        except KVCheckpointError as exc:
-            return _surface_error(
-                exc,
-                surface="kv_checkpoint",
-                action=action,
-                code=_checkpoint_error_code(exc),
-            )
-        return json.dumps(
-            {
-                "surface": "kv_checkpoint",
-                "action": action,
-                "result": outcome.model_dump(mode="json", exclude={"recommendation"}),
-            },
-            default=_json_default,
+        return _kv_promote_response(
+            action, manager, checkpoint_id, requesting_tenant, trigger
         )
-
     # action == "checkpoint_now"
-    try:
-        data = base64.b64decode(data_b64) if data_b64 else b""
-        bound_tenant = _session_bound_tenant(tenant)
-        key = KVCheckpointKey(
-            model_identity=model_identity,
-            quantization=quantization,
-            serving_engine=serving_engine,
-            engine_version=engine_version,
-            prefix_digest=prefix_digest,
-            tenant=bound_tenant,
-            policy_version=policy_version,
-        )
-        sources = _contributing_sources(
-            sources_json, context_bundle_json, tenant=bound_tenant
-        )
-        supplied = (
-            observation_json.strip() not in {"", "{}"}
-            or evidence_bundle_json.strip() not in {"", "{}"}
-            or context_bundle_json.strip() not in {"", "{}"}
-        )
-        observation = _observation() if supplied else None
-    except Exception as exc:  # noqa: BLE001 — bad payload/key/observation
-        return _surface_error(
-            exc, surface="kv_checkpoint", action=action, code="invalid_request"
-        )
-    try:
-        outcome = manager.checkpoint_now(
-            data,
-            key=key,
-            run_id=run_id,
-            point=point,
-            trigger=trigger,  # type: ignore[arg-type]
-            persist=persist,
-            observation=observation,
-            sources=sources,
-        )
-    except KVCheckpointError as exc:
-        return _surface_error(
-            exc,
-            surface="kv_checkpoint",
-            action=action,
-            code=_checkpoint_error_code(exc),
-        )
-    return json.dumps(
+    return _kv_checkpoint_now(
+        action,
+        manager,
+        bundles,
         {
-            "surface": "kv_checkpoint",
-            "action": action,
-            "result": outcome.model_dump(mode="json", exclude={"recommendation"}),
-            "advisory": (
-                outcome.recommendation.as_advisory() if outcome.recommendation else ""
-            ),
+            "data_b64": data_b64,
+            "model_identity": model_identity,
+            "quantization": quantization,
+            "serving_engine": serving_engine,
+            "engine_version": engine_version,
+            "prefix_digest": prefix_digest,
+            "tenant": tenant,
+            "policy_version": policy_version,
+            "run_id": run_id,
+            "point": point,
+            "trigger": trigger,
+            "persist": persist,
+            "sources_json": sources_json,
         },
-        default=_json_default,
     )
 
 
@@ -647,6 +745,61 @@ def _json_default(obj: Any) -> Any:
     if isinstance(obj, bytes | bytearray):
         return {"__bytes_b64__": base64.b64encode(bytes(obj)).decode("ascii")}
     return str(obj)
+
+
+def _waterfall_span_node(span: Any, trace: Any) -> dict[str, Any]:
+    """One SpanNode flattened into the waterfall's nested-duration node shape."""
+    return {
+        "id": span.id,
+        "parentId": span.parent_span_id or getattr(trace, "id", None),
+        "kind": span.span_kind,
+        "name": span.name,
+        "latencyMs": span.latency_ms or 0,
+        "error": span.error,
+    }
+
+
+def _waterfall_generation_node(gen: Any, trace: Any) -> dict[str, Any]:
+    """One GenerationNode flattened into the waterfall's node shape (+ token/cost)."""
+    return {
+        "id": gen.id,
+        "parentId": gen.parent_span_id or getattr(trace, "id", None),
+        "kind": "generation",
+        "name": gen.name,
+        "latencyMs": gen.latency_ms or 0,
+        "model": gen.model,
+        "costUsd": gen.total_cost_usd,
+        "inputTokens": gen.input_tokens,
+        "outputTokens": gen.output_tokens,
+        "error": gen.error,
+    }
+
+
+def _waterfall_trace_header(trace: Any, trace_id: str) -> dict[str, Any]:
+    """The trace-level roll-up the waterfall renders above its nodes."""
+    return {
+        "id": getattr(trace, "id", trace_id),
+        "name": getattr(trace, "name", ""),
+        "status": getattr(trace, "status", "ok"),
+        "latencyMs": getattr(trace, "latency_ms", None),
+        "costUsd": getattr(trace, "total_cost_usd", 0.0),
+        "inputTokens": getattr(trace, "input_tokens", 0),
+        "outputTokens": getattr(trace, "output_tokens", 0),
+        "toolCalls": getattr(trace, "tool_calls", 0),
+    }
+
+
+def _waterfall_result(entry: dict[str, Any], trace_id: str) -> dict[str, Any]:
+    """Flatten one sink trace entry into ``{"trace": ..., "nodes": [...]}``."""
+    trace = entry.get("trace")
+    nodes: list[dict[str, Any]] = [
+        _waterfall_span_node(span, trace) for span in entry.get("spans", []) or []
+    ]
+    nodes.extend(
+        _waterfall_generation_node(gen, trace)
+        for gen in entry.get("generations", []) or []
+    )
+    return {"trace": _waterfall_trace_header(trace, trace_id), "nodes": nodes}
 
 
 def _trace_waterfall(trace_id: str) -> str:
@@ -686,49 +839,12 @@ def _trace_waterfall(trace_id: str) -> str:
                 "trace_id": trace_id,
             }
         )
-    trace = entry.get("trace")
-    nodes: list[dict[str, Any]] = []
-    for span in entry.get("spans", []) or []:
-        nodes.append(
-            {
-                "id": span.id,
-                "parentId": span.parent_span_id or getattr(trace, "id", None),
-                "kind": span.span_kind,
-                "name": span.name,
-                "latencyMs": span.latency_ms or 0,
-                "error": span.error,
-            }
-        )
-    for gen in entry.get("generations", []) or []:
-        nodes.append(
-            {
-                "id": gen.id,
-                "parentId": gen.parent_span_id or getattr(trace, "id", None),
-                "kind": "generation",
-                "name": gen.name,
-                "latencyMs": gen.latency_ms or 0,
-                "model": gen.model,
-                "costUsd": gen.total_cost_usd,
-                "inputTokens": gen.input_tokens,
-                "outputTokens": gen.output_tokens,
-                "error": gen.error,
-            }
-        )
-    result = {
-        "trace": {
-            "id": getattr(trace, "id", trace_id),
-            "name": getattr(trace, "name", ""),
-            "status": getattr(trace, "status", "ok"),
-            "latencyMs": getattr(trace, "latency_ms", None),
-            "costUsd": getattr(trace, "total_cost_usd", 0.0),
-            "inputTokens": getattr(trace, "input_tokens", 0),
-            "outputTokens": getattr(trace, "output_tokens", 0),
-            "toolCalls": getattr(trace, "tool_calls", 0),
-        },
-        "nodes": nodes,
-    }
     return json.dumps(
-        {"surface": "traces", "action": "waterfall", "result": result},
+        {
+            "surface": "traces",
+            "action": "waterfall",
+            "result": _waterfall_result(entry, trace_id),
+        },
         default=_json_default,
     )
 
@@ -746,6 +862,35 @@ def _trace_row(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _trace_search_needle(service: str, operation: str, query: str) -> str:
+    """One case-folded filter string from the three client-side search filters."""
+    return " ".join(v for v in (service, operation, query) if v).strip().lower()
+
+
+def _trace_row_matches(row: dict[str, Any], needle: str) -> bool:
+    """Whether a normalized trace row contains the case-folded needle anywhere."""
+    return needle in " ".join(str(v) for v in row.values() if v).lower()
+
+
+def _trace_sink_rows() -> list[dict[str, Any]] | None:
+    """Every normalized row from the KG-native trace sink.
+
+    ``None`` when no sink is installed at all (the caller then falls back to the
+    external engine probe); an installed-but-failing sink yields ``[]``.
+    """
+    from agent_utilities.harness.tracing import get_kg_trace_sink
+
+    sink = get_kg_trace_sink()
+    if sink is None or not callable(getattr(sink, "get_traces", None)):
+        return None
+    try:
+        raw_rows = _run_coro(sink.get_traces(""))
+    except Exception as exc:  # noqa: BLE001 — surface as data, never raise
+        logger.debug("graph_traces: KG-native search failed: %s", type(exc).__name__)
+        return []
+    return [_trace_row(r) for r in raw_rows or []]
+
+
 def _trace_native_search(
     service: str, operation: str, query: str, limit: int
 ) -> list[dict[str, Any]] | None:
@@ -759,24 +904,12 @@ def _trace_native_search(
     takes no such filters; an installed-but-empty sink is a real (non-``None``)
     empty result, not a fall-through.
     """
-    from agent_utilities.harness.tracing import get_kg_trace_sink
-
-    sink = get_kg_trace_sink()
-    if sink is None or not callable(getattr(sink, "get_traces", None)):
+    rows = _trace_sink_rows()
+    if rows is None:
         return None
-    try:
-        raw_rows = _run_coro(sink.get_traces(""))
-    except Exception as exc:  # noqa: BLE001 — surface as data, never raise
-        logger.debug("graph_traces: KG-native search failed: %s", type(exc).__name__)
-        return []
-    rows = [_trace_row(r) for r in raw_rows or []]
-    needle = " ".join(v for v in (service, operation, query) if v).strip().lower()
+    needle = _trace_search_needle(service, operation, query)
     if needle:
-        rows = [
-            r
-            for r in rows
-            if needle in " ".join(str(v) for v in r.values() if v).lower()
-        ]
+        rows = [r for r in rows if _trace_row_matches(r, needle)]
     return rows[: max(int(limit), 0)]
 
 
@@ -1042,6 +1175,59 @@ def _plot_spec(
     return spec
 
 
+def _complete_row(row: Any, fields: list[str]) -> dict[str, Any] | None:
+    """The row's value for EVERY field, or ``None`` when any one is absent.
+
+    Never fabricates: a missing key or a SQL NULL disqualifies the whole row
+    rather than being backfilled with an invented ``0.0``/``""``.
+    """
+    if not isinstance(row, dict):
+        return None
+    values: dict[str, Any] = {}
+    for f in fields:
+        v = row.get(f)
+        if v is None:
+            return None
+        values[f] = v
+    return values
+
+
+def _keep_complete_rows(
+    rows: list[Any], fields: list[str], row_limit: int
+) -> list[dict[str, Any]]:
+    """The first ``row_limit`` rows carrying a value for every one of ``fields``."""
+    kept: list[dict[str, Any]] = []
+    for row in rows:
+        values = _complete_row(row, fields)
+        if values is None:
+            continue
+        kept.append(values)
+        if len(kept) >= row_limit:
+            break
+    return kept
+
+
+def _encode_columns(kept: list[dict[str, Any]], fields: list[str]) -> dict[str, Any]:
+    """Encode surviving rows as ``VizColumnValues`` columns.
+
+    A field is ``F64`` iff every surviving value in it is a real number
+    (excluding bool, which JSON/SQL both can return where a caller might expect
+    a numeric flag but this DTO has no bool column type); otherwise the whole
+    field is ``Utf8`` — matching ``eg_types::viz::VizColumnValues``'s only two
+    variants.
+    """
+    columns: dict[str, Any] = {}
+    for f in fields:
+        col_values = [row[f] for row in kept]
+        if all(
+            isinstance(v, int | float) and not isinstance(v, bool) for v in col_values
+        ):
+            columns[f] = {"F64": [float(v) for v in col_values]}
+        else:
+            columns[f] = {"Utf8": [str(v) for v in col_values]}
+    return columns
+
+
 def _rows_to_inline_columns(
     rows: list[Any], fields: list[str], row_limit: int
 ) -> tuple[dict[str, Any] | None, int, int]:
@@ -1057,44 +1243,15 @@ def _rows_to_inline_columns(
     ``(None, 0, rows_returned)`` when zero rows survive that filter (the
     caller turns this into an explicit ``unavailable`` response, never an
     empty-but-"successful" chart) — otherwise ``(columns, rows_used,
-    rows_returned)``. A field is encoded ``F64`` iff every surviving value in
-    it is a real number (excluding bool, which JSON/SQL both can return where
-    a caller might expect a numeric flag but this DTO has no bool column type);
-    otherwise the whole field is encoded ``Utf8`` (``str()`` of the value) —
-    matching ``eg_types::viz::VizColumnValues``'s only two variants.
+    rows_returned)``.
     """
     if not isinstance(rows, list):
         return None, 0, 0
     rows_returned = len(rows)
-    kept: list[dict[str, Any]] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        values = {}
-        ok = True
-        for f in fields:
-            v = row.get(f)
-            if v is None:
-                ok = False
-                break
-            values[f] = v
-        if ok:
-            kept.append(values)
-            if len(kept) >= row_limit:
-                break
-    rows_used = len(kept)
-    if rows_used == 0:
+    kept = _keep_complete_rows(rows, fields, row_limit)
+    if not kept:
         return None, 0, rows_returned
-    columns: dict[str, Any] = {}
-    for f in fields:
-        col_values = [row[f] for row in kept]
-        if all(
-            isinstance(v, int | float) and not isinstance(v, bool) for v in col_values
-        ):
-            columns[f] = {"F64": [float(v) for v in col_values]}
-        else:
-            columns[f] = {"Utf8": [str(v) for v in col_values]}
-    return columns, rows_used, rows_returned
+    return _encode_columns(kept, fields), len(kept), rows_returned
 
 
 def _render_chart(
@@ -1134,6 +1291,55 @@ def _render_chart(
     )
 
 
+def _spec_mark(spec_json: str) -> Any:
+    """The first mark's ``kind`` from a ViewSpec JSON string, or ``None``.
+
+    Never raises: an absent, unparseable or unexpectedly shaped spec simply
+    yields ``None`` (the summary then says "a chart" rather than naming a mark).
+    """
+    if not spec_json.strip():
+        return None
+    try:
+        spec = json.loads(spec_json)
+        marks = spec.get("marks") if isinstance(spec, dict) else None
+        if isinstance(marks, list) and marks and isinstance(marks[0], dict):
+            return marks[0].get("kind")
+    except (TypeError, ValueError):
+        return None
+    return None
+
+
+def _chart_summary_parts(vr: dict[str, Any], mark: Any) -> list[str]:
+    """The plain-language sentences describing what a ``ViewResult`` reports.
+
+    States only what the payload itself carries, and is explicit that a
+    non-exact render is an approximation the caller must not read as precise.
+    """
+    row_count = vr.get("row_count")
+    what = f"a {mark} chart" if mark else "a chart"
+    parts = [
+        f"Rendered {what} from {row_count if row_count is not None else 'an unknown number of'} row(s)."
+    ]
+    lod_tier = vr.get("lod_tier")
+    if lod_tier is not None:
+        parts.append(f"LOD tier: {lod_tier}.")
+    exact = vr.get("exact")
+    if exact is True:
+        parts.append(
+            "Exact — every row is individually represented; no reduction was applied."
+        )
+    elif exact is False:
+        reduction = vr.get("reduction")
+        parts.append(
+            f"Approximated (reduction: {reduction or 'unknown'}) — not every row is individually "
+            "represented; treat values read off this chart as visual trends, not precise per-row facts."
+        )
+    wall_time_ms = vr.get("wall_time_ms")
+    if wall_time_ms is not None:
+        parts.append(f"Rendered in {wall_time_ms} ms.")
+    return parts
+
+
 def _describe_chart(view_result_json: str, spec_json: str) -> str:
     """A pure, LLM-facing summary of a ``ViewResult`` already in hand — no
     engine call. States only what ``view_result`` itself reports (row count,
@@ -1162,52 +1368,192 @@ def _describe_chart(view_result_json: str, spec_json: str) -> str:
                 "error": "view_result_json must decode to an object",
             }
         )
-    mark = None
-    if spec_json.strip():
-        try:
-            spec = json.loads(spec_json)
-            marks = spec.get("marks") if isinstance(spec, dict) else None
-            if isinstance(marks, list) and marks and isinstance(marks[0], dict):
-                mark = marks[0].get("kind")
-        except (TypeError, ValueError):
-            mark = None
-    row_count = vr.get("row_count")
-    lod_tier = vr.get("lod_tier")
-    exact = vr.get("exact")
-    reduction = vr.get("reduction")
-    wall_time_ms = vr.get("wall_time_ms")
-    what = f"a {mark} chart" if mark else "a chart"
-    parts = [
-        f"Rendered {what} from {row_count if row_count is not None else 'an unknown number of'} row(s)."
-    ]
-    if lod_tier is not None:
-        parts.append(f"LOD tier: {lod_tier}.")
-    if exact is True:
-        parts.append(
-            "Exact — every row is individually represented; no reduction was applied."
-        )
-    elif exact is False:
-        parts.append(
-            f"Approximated (reduction: {reduction or 'unknown'}) — not every row is individually "
-            "represented; treat values read off this chart as visual trends, not precise per-row facts."
-        )
-    if wall_time_ms is not None:
-        parts.append(f"Rendered in {wall_time_ms} ms.")
-    summary = " ".join(parts)
+    mark = _spec_mark(spec_json)
     return json.dumps(
         {
             "surface": "viz",
             "action": "describe_chart",
             "result": {
-                "summary": summary,
+                "summary": " ".join(_chart_summary_parts(vr, mark)),
                 "mark": mark,
-                "row_count": row_count,
-                "lod_tier": lod_tier,
-                "exact": exact,
-                "reduction": reduction,
+                "row_count": vr.get("row_count"),
+                "lod_tier": vr.get("lod_tier"),
+                "exact": vr.get("exact"),
+                "reduction": vr.get("reduction"),
             },
         }
     )
+
+
+def _viz_capability_matrix(viz_client: Any, action: str) -> str:
+    """``action='capability_matrix'`` — which mark x surface pairs are real today."""
+    try:
+        result = viz_client.capability_matrix()
+    except Exception as exc:  # noqa: BLE001 — surface engine errors as data
+        return _surface_error(exc, surface="viz", action=action)
+    return json.dumps(
+        {"surface": "viz", "action": action, "result": result},
+        default=_json_default,
+    )
+
+
+def _viz_export_chart(
+    viz_client: Any,
+    action: str,
+    spec_json: str,
+    dataset_json: str,
+    render_opts: dict[str, Any],
+) -> str:
+    """``action='export_chart'`` — a thin already-built ViewSpec/dataset pass-through."""
+    try:
+        spec = json.loads(spec_json) if spec_json else {}
+        dataset = json.loads(dataset_json) if dataset_json else {}
+    except (TypeError, ValueError) as exc:
+        return _surface_error(exc, surface="viz", action=action, code="invalid_request")
+    if not spec or not dataset:
+        return json.dumps(
+            {
+                "surface": "viz",
+                "action": action,
+                "error": "spec_json and dataset_json are both required",
+            }
+        )
+    return _render_chart(
+        viz_client,
+        surface="viz",
+        action=action,
+        spec=spec,
+        dataset=dataset,
+        **render_opts,
+    )
+
+
+def _viz_plot_query_guard(action: str, plot: dict[str, Any]) -> str | None:
+    """Reject a ``plot_from_query`` request the flat-result path cannot serve.
+
+    Returns the ready-to-send rejection, or ``None`` when the request is
+    serviceable. The order of the two checks is load-bearing: a request that is
+    both incomplete AND asks for a non-flat mark still reports the missing
+    fields first, exactly as before.
+    """
+    if (
+        not plot["query"].strip()
+        or not plot["x_field"].strip()
+        or not plot["y_field"].strip()
+    ):
+        return json.dumps(
+            {
+                "surface": "viz",
+                "action": action,
+                "error": "query, x_field, and y_field are all required",
+            }
+        )
+    mark = plot["mark"]
+    if mark not in _VIZ_QUERY_MARKS:
+        return json.dumps(
+            {
+                "surface": "viz",
+                "action": action,
+                "error": f"mark {mark!r} is not usable from a flat query result; "
+                f"use one of {sorted(_VIZ_QUERY_MARKS)} or action='export_chart' "
+                "with an explicit graph/node-edge dataset",
+            }
+        )
+    return None
+
+
+def _viz_query_rows(client: Any, action: str, query: str) -> tuple[Any, str | None]:
+    """Run the read-only SQL behind ``plot_from_query``.
+
+    Returns ``(rows, None)``, or ``(None, error_json)`` when the query surface is
+    absent or the query itself failed.
+    """
+    query_client = getattr(client, "query", None)
+    if query_client is None or not hasattr(query_client, "sql"):
+        return None, _degraded("viz", action, ["client.query.sql"])
+    try:
+        return query_client.sql(query), None
+    except Exception as exc:  # noqa: BLE001 — surface engine errors as data
+        return None, _surface_error(
+            exc, surface="viz", action=action, code="query_failed"
+        )
+
+
+def _viz_with_row_counts(resp: str, rows_returned: int, rows_used: int) -> str:
+    """Fold ``plot_from_query``'s row accounting into a successful render envelope."""
+    try:
+        payload = json.loads(resp)
+    except (TypeError, ValueError):
+        return resp
+    if "result" in payload:
+        payload["rows_returned"] = rows_returned
+        payload["rows_rendered"] = rows_used
+    return json.dumps(payload, default=_json_default)
+
+
+def _viz_plot_from_query(
+    client: Any,
+    viz_client: Any,
+    action: str,
+    plot: dict[str, Any],
+    render_opts: dict[str, Any],
+) -> str:
+    """``action='plot_from_query'`` — run the SQL, shape it, render it.
+
+    Answers an explicit ``{'unavailable': true}`` rather than an empty chart
+    when no row carries every encoded field.
+    """
+    guard = _viz_plot_query_guard(action, plot)
+    if guard is not None:
+        return guard
+    rows, error = _viz_query_rows(client, action, plot["query"])
+    if error is not None:
+        return error
+    fields = [
+        f
+        for f in (
+            plot["x_field"],
+            plot["y_field"],
+            plot["color_field"],
+            plot["size_field"],
+        )
+        if f
+    ]
+    effective_row_limit = min(max(1, plot["row_limit"]), _VIZ_MAX_INLINE_ROWS)
+    columns, rows_used, rows_returned = _rows_to_inline_columns(
+        rows, fields, effective_row_limit
+    )
+    if columns is None:
+        return json.dumps(
+            {
+                "surface": "viz",
+                "action": action,
+                "unavailable": True,
+                "reason": (
+                    f"query returned {rows_returned} row(s); 0 had every one of "
+                    f"{fields} present, so there is nothing to render — this is "
+                    "reported as unavailable, not rendered as an empty chart"
+                ),
+            }
+        )
+    spec = _plot_spec(
+        plot["mark"],
+        render_opts["dataset_ref"],
+        plot["x_field"],
+        plot["y_field"],
+        plot["color_field"],
+        plot["size_field"],
+        plot["title"],
+    )
+    resp = _render_chart(
+        viz_client,
+        surface="viz",
+        action=action,
+        spec=spec,
+        dataset={"InlineColumns": {"columns": columns}},
+        **render_opts,
+    )
+    return _viz_with_row_counts(resp, rows_returned, rows_used)
 
 
 def _prometheus_base_url() -> str | None:
@@ -1321,17 +1667,17 @@ def _memory_crud(action: str, params: dict[str, Any]) -> str:
     )
 
 
-def _pick_warm_fork_sandbox(preferred: str = "") -> Any:
-    """Return the cheapest available warm-fork rung, or ``None`` (CONCEPT:AU-KG.coordination.warm-fork-fanout).
+def _warm_forkable_sandboxes(preferred: str) -> list[Any]:
+    """The registry's warm-fork-capable rungs, cheapest first.
 
-    Reuses the ORCH-1.86 sandbox registry (``default_sandboxes()``, cheapest-first)
-    and selects the first backend whose capabilities advertise ``warm_fork`` and
-    which is available on this host. ``preferred`` pins a rung by name when set.
+    Reuses the ORCH-1.86 sandbox registry (``default_sandboxes()``); ``preferred``
+    pins a rung by name when set (and is ignored when it matches nothing). An
+    unimportable subsystem degrades to an empty list.
     """
     try:
         from agent_utilities.rlm.sandboxes.registry import default_sandboxes
     except Exception:  # noqa: BLE001 — subsystem unimportable ⇒ degrade cleanly
-        return None
+        return []
 
     forkable = [
         sb
@@ -1340,12 +1686,27 @@ def _pick_warm_fork_sandbox(preferred: str = "") -> Any:
     ]
     if preferred:
         forkable = [sb for sb in forkable if sb.name == preferred] or forkable
-    for sb in forkable:
-        try:
-            if sb.is_available():
-                return sb
-        except Exception:  # noqa: BLE001 — an unprobeable rung is simply skipped
-            continue
+    return forkable
+
+
+def _sandbox_available(sb: Any) -> bool:
+    """Whether a rung probes as available; an unprobeable rung is simply skipped."""
+    try:
+        return bool(sb.is_available())
+    except Exception:  # noqa: BLE001 — an unprobeable rung is simply skipped
+        return False
+
+
+def _pick_warm_fork_sandbox(preferred: str = "") -> Any:
+    """Return the cheapest available warm-fork rung, or ``None`` (CONCEPT:AU-KG.coordination.warm-fork-fanout).
+
+    Reuses the ORCH-1.86 sandbox registry (``default_sandboxes()``, cheapest-first)
+    and selects the first backend whose capabilities advertise ``warm_fork`` and
+    which is available on this host. ``preferred`` pins a rung by name when set.
+    """
+    for sb in _warm_forkable_sandboxes(preferred):
+        if _sandbox_available(sb):
+            return sb
     return None
 
 
@@ -1517,21 +1878,18 @@ _DEEP_NODE_TYPE: dict[str, str] = {
 }
 
 
-def _gather_kg_feature_rows(
-    source: dict[str, Any], graph: str
-) -> tuple[list[str], list[list[float]]]:
-    """Gather a feature-row RowSet from the KG for a ``{node_label, fields, limit}`` source spec.
-
-    Runs one read-only Cypher projection through the existing ``graph_query`` tool
-    (compute-near-data — no bespoke second engine client) and returns
-    ``(node_ids, rows)`` so a caller can ship ``rows`` to data-science-mcp and fold
-    the result back onto the SAME ``node_ids`` (CONCEPT:AU-KG.mining.dsm-forecast-delegation).
-    """
+def _feature_node_label(source: dict[str, Any]) -> str:
+    """The validated Cypher-safe node label of a ``{node_label, fields, limit}`` spec."""
     node_label = source.get("node_label")
     if not isinstance(node_label, str) or not CYPHER_IDENTIFIER_RE.fullmatch(
         node_label
     ):
         raise ValueError("source.node_label is required")
+    return node_label
+
+
+def _feature_fields(source: dict[str, Any]) -> list[str]:
+    """The validated, Cypher-safe property names to project (1..64 of them)."""
     fields = source.get("fields") or []
     if (
         not isinstance(fields, list)
@@ -1543,6 +1901,11 @@ def _gather_kg_feature_rows(
         )
     ):
         raise ValueError("source.fields (a list of property names) is required")
+    return fields
+
+
+def _feature_limit(source: dict[str, Any]) -> int:
+    """The validated row cap (1..10000); ``bool`` is rejected, not silently 0/1."""
     raw_limit = source.get("limit", 200)
     if isinstance(raw_limit, bool):
         raise ValueError("source.limit must be between 1 and 10000")
@@ -1552,8 +1915,11 @@ def _gather_kg_feature_rows(
         raise ValueError("source.limit must be between 1 and 10000") from exc
     if not 1 <= limit <= 10_000:
         raise ValueError("source.limit must be between 1 and 10000")
-    projections = ", ".join(f"n.{f} AS f{i}" for i, f in enumerate(fields))
-    cypher = f"MATCH (n:{node_label}) RETURN n.id AS id, {projections} LIMIT {limit}"
+    return limit
+
+
+def _feature_query_rows(cypher: str, graph: str) -> list[Any]:
+    """Run one read-only projection through ``graph_query`` and validate its shape."""
     raw = _run_coro(
         kg_server._execute_tool(
             "graph_query", cypher=cypher, params="{}", scope="local", target=graph or ""
@@ -1566,6 +1932,28 @@ def _gather_kg_feature_rows(
         raise RuntimeError(
             f"unexpected graph_query result shape: {type(payload).__name__}"
         )
+    return payload
+
+
+def _gather_kg_feature_rows(
+    source: dict[str, Any], graph: str
+) -> tuple[list[str], list[list[float]]]:
+    """Gather a feature-row RowSet from the KG for a ``{node_label, fields, limit}`` source spec.
+
+    Runs one read-only Cypher projection through the existing ``graph_query`` tool
+    (compute-near-data — no bespoke second engine client) and returns
+    ``(node_ids, rows)`` so a caller can ship ``rows`` to data-science-mcp and fold
+    the result back onto the SAME ``node_ids`` (CONCEPT:AU-KG.mining.dsm-forecast-delegation).
+
+    The three validations run in their original order — label, then fields, then
+    limit — so a multiply-invalid spec still reports the same first offence.
+    """
+    node_label = _feature_node_label(source)
+    fields = _feature_fields(source)
+    limit = _feature_limit(source)
+    projections = ", ".join(f"n.{f} AS f{i}" for i, f in enumerate(fields))
+    cypher = f"MATCH (n:{node_label}) RETURN n.id AS id, {projections} LIMIT {limit}"
+    payload = _feature_query_rows(cypher, graph)
     node_ids = [str(row.get("id")) for row in payload]
     rows = [
         [float(row.get(f"f{i}") or 0.0) for i in range(len(fields))] for row in payload
@@ -1612,6 +2000,51 @@ def _deep_write_edge(source_id: str, target_id: str, rel_type: str, graph: str) 
         pass
 
 
+def _deep_series_params(
+    params: dict[str, Any], source: Any, graph: str
+) -> tuple[dict[str, Any], list[str]]:
+    """``deep_forecast`` — a 1-D series, gathered from the KG when not given directly."""
+    node_ids: list[str] = []
+    values = params.pop("values", None)
+    if values is None and source:
+        node_ids, rows = _gather_kg_feature_rows(source, graph)
+        values = [row[0] for row in rows]
+    if not values:
+        raise ValueError("provide 'values' (a 1-D series) or a 'source'")
+    return {"values_json": json.dumps(values)}, node_ids
+
+
+def _deep_supervised_params(
+    params: dict[str, Any], source: Any, graph: str
+) -> tuple[dict[str, Any], list[str]]:
+    """``deep_classify``/``xgboost`` — a labelled matrix (+ an optional predict set)."""
+    node_ids: list[str] = []
+    x = params.pop("x", None)
+    y = params.pop("y", None)
+    if x is None and source:
+        node_ids, x = _gather_kg_feature_rows(source, graph)
+    if x is None or y is None:
+        raise ValueError("provide 'x' + 'y', or a 'source' + 'y'")
+    tool_params = {"x_json": json.dumps(x), "y_json": json.dumps(y)}
+    x_predict = params.pop("x_predict", None)
+    if x_predict is not None:
+        tool_params["x_predict_json"] = json.dumps(x_predict)
+    return tool_params, node_ids
+
+
+def _deep_matrix_params(
+    params: dict[str, Any], source: Any, graph: str
+) -> tuple[dict[str, Any], list[str]]:
+    """``autoencoder_anomaly``/``embed`` — an unlabelled feature matrix."""
+    node_ids: list[str] = []
+    x = params.pop("x", None)
+    if x is None and source:
+        node_ids, x = _gather_kg_feature_rows(source, graph)
+    if x is None:
+        raise ValueError("provide 'x' or a 'source'")
+    return {"x_json": json.dumps(x)}, node_ids
+
+
 def _prepare_deep_delegation(
     action: str, params: dict[str, Any], graph: str
 ) -> tuple[dict[str, Any], list[str]]:
@@ -1621,50 +2054,315 @@ def _prepare_deep_delegation(
     directly. Returns ``(tool_params, node_ids)`` — ``node_ids`` is only populated
     when a ``source`` was used (so the caller can fold results back onto them).
     """
-    tool_params: dict[str, Any] = {"algo": _DEEP_ALGO_BY_ACTION[action]}
-    node_ids: list[str] = []
+    algo = _DEEP_ALGO_BY_ACTION[action]
     source = params.pop("source", None)
-
     if action == "deep_forecast":
-        values = params.pop("values", None)
-        if values is None and source:
-            node_ids, rows = _gather_kg_feature_rows(source, graph)
-            values = [row[0] for row in rows]
-        if not values:
-            raise ValueError("provide 'values' (a 1-D series) or a 'source'")
-        tool_params["values_json"] = json.dumps(values)
+        extra, node_ids = _deep_series_params(params, source, graph)
     elif action in ("deep_classify", "xgboost"):
-        x = params.pop("x", None)
-        y = params.pop("y", None)
-        if x is None and source:
-            node_ids, x = _gather_kg_feature_rows(source, graph)
-        if x is None or y is None:
-            raise ValueError("provide 'x' + 'y', or a 'source' + 'y'")
-        tool_params["x_json"] = json.dumps(x)
-        tool_params["y_json"] = json.dumps(y)
-        x_predict = params.pop("x_predict", None)
-        if x_predict is not None:
-            tool_params["x_predict_json"] = json.dumps(x_predict)
+        extra, node_ids = _deep_supervised_params(params, source, graph)
     else:  # autoencoder_anomaly, embed
-        x = params.pop("x", None)
-        if x is None and source:
-            node_ids, x = _gather_kg_feature_rows(source, graph)
-        if x is None:
-            raise ValueError("provide 'x' or a 'source'")
-        tool_params["x_json"] = json.dumps(x)
-
+        extra, node_ids = _deep_matrix_params(params, source, graph)
+    tool_params: dict[str, Any] = {"algo": algo, **extra}
     tool_params["params_json"] = json.dumps(params)
     return tool_params, node_ids
+
+
+def _ocel_evidence(tenant: str, slice_: Any, envelope: Any) -> dict[str, Any]:
+    """The tEKG evidence snapshot for one imported OCEL slice + its envelope."""
+    return {
+        "mode": "ocel_2.0",
+        "tenant": tenant,
+        "content_hash": slice_.canonical_digest(),
+        "idempotency_key": envelope.idempotency_key,
+        "mapping_version": slice_.mapping_version,
+        "node_count": len(envelope.typed_payload["entities"]),
+        "relationship_count": len(envelope.typed_payload["relationships"]),
+    }
+
+
+def _record_process_signal_evidence(
+    evidence: dict[str, Any], engine: Any = None
+) -> None:
+    """Best-effort Unified-Evidence ``process_signal`` write.
+
+    CONCEPT:AU-KG.evolution.unified-evidence-resource (D-71-1) — recorded at
+    the one place the import's real outcome is computed, never re-derived by a
+    second query. A pure observability side-channel: it must never gate the
+    import, so every failure is swallowed at DEBUG. ``engine`` is resolved
+    lazily *inside* the guard when the caller has none yet, so a failing
+    engine resolution degrades exactly like a failing record.
+    """
+    try:
+        from agent_utilities.knowledge_graph.research.evidence import (
+            from_process_signal,
+            record_evidence,
+        )
+
+        record_evidence(
+            engine if engine is not None else kg_server._get_engine(),
+            from_process_signal(evidence),
+        )
+    except Exception as exc:  # noqa: BLE001 — deliberate best-effort audit overlay: this Evidence write is a pure observability side-channel over an import whose authoritative outcome is already reported through the normal return path. Only the exception type is recorded, at DEBUG.
+        logger.debug(
+            "OCEL process_signal evidence record failed for %s: %s",
+            evidence.get("idempotency_key"),
+            type(exc).__name__,
+        )
+
+
+def _ocel_replay_deriver(slice_: Any) -> Any:
+    """Replay an imported OCEL slice through the incremental deriver.
+
+    CONCEPT:AU-KG.mining.incremental-object-centric-derivation — read-only by
+    construction; commits nothing.
+    """
+    from agent_utilities.knowledge_graph.ingestion.object_centric_derivation import (
+        IncrementalObjectCentricDeriver,
+    )
+
+    deriver = IncrementalObjectCentricDeriver()
+    for business_object in slice_.objects:
+        deriver.observe_object_attributes(
+            business_object.object_id, business_object.attributes
+        )
+    observed_at = datetime.now(UTC)
+    for event in sorted(
+        slice_.events,
+        key=lambda item: (
+            item.occurred_at,
+            item.sequence_tiebreaker,
+            item.event_id,
+        ),
+    ):
+        for participation in event.objects:
+            deriver.ingest_event(
+                event,
+                object_id=participation.object_id,
+                state_id=(
+                    f"{slice_.log_id}:{participation.object_id}:{event.event_id}"
+                ),
+                observed_at=observed_at,
+            )
+    return deriver
+
+
+def _ocel_derive_response(
+    action: str, slice_: Any, tenant: str, evidence: dict[str, Any]
+) -> str:
+    """``ocel_mode='derive'`` — the read-only incremental-derivation replay.
+
+    The ONE surface exposure of ``ingestion/object_centric_derivation.py``
+    (previously built-but-not-wired). Returns the derived aggregate
+    directly-follows graph, per-object timelines, and derivation generation.
+    It commits nothing — that stays exclusive to ``mine``.
+    """
+    deriver = _ocel_replay_deriver(slice_)
+    object_ids = sorted(
+        {
+            participation.object_id
+            for event in slice_.events
+            for participation in event.objects
+        }
+    )
+    return json.dumps(
+        {
+            "surface": "mining",
+            "action": action,
+            "ocel_mode": "derive",
+            "tenant": tenant,
+            "generation": deriver.generation,
+            "directly_follows": [
+                {"from": pair[0], "to": pair[1], "count": count}
+                for pair, count in sorted(deriver.dfg_snapshot().items())
+            ],
+            "timelines": {
+                object_id: [event.event_id for event in deriver.timeline(object_id)]
+                for object_id in object_ids
+            },
+            "tekg": evidence,
+        },
+        default=_json_default,
+    )
+
+
+def _ocel_mine(
+    action: str,
+    params: dict,
+    slice_: Any,
+    tenant: str,
+    provenance: Any,
+    exported: Any,
+) -> str | tuple[Any, dict[str, Any]]:
+    """``ocel_mode='mine'`` — commit source truth + the disclosed perspective.
+
+    Returns a ready-to-send JSON error string, or ``(projection, evidence)``
+    for the caller to fold into the trace-mining response.
+
+    ``mine`` mode always materializes source truth AND discloses any
+    case-notion flattening it derives from that same truth
+    (CONCEPT:AU-KG.mining.governed-perspective-flattening) — the perspective
+    used for the trace projection is folded into the SAME committed slice as a
+    real, versioned ``ProcessPerspective`` node, never a silent side channel.
+    """
+    from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
+        ingest_graph_slice,
+    )
+    from agent_utilities.knowledge_graph.ingestion.event_log_adapter import (
+        project_object_centric_slice,
+    )
+
+    perspective = _require_process_perspective(params)
+    projection = project_object_centric_slice(slice_, perspective=perspective)
+    committed_slice = slice_.model_copy(
+        update={"perspectives": (*slice_.perspectives, perspective)}
+    )
+    # ``to_change_envelope`` still stamps tenant_id/ocel_provenance onto every
+    # entity/link and computes the digest-derived idempotency key — reuse that
+    # rendering — but a multi-entity slice's ``{"entities": [...],
+    # "relationships": [...]}`` typed_payload is NOT the single-row (+ optional
+    # ``_nodes``/``_links`` auxiliary) shape ``ingest_envelope``'s
+    # ``to_entity_dict``/``_prepare_node_rows`` understand: handing that
+    # envelope to ``ingest_envelope`` directly silently collapses the whole
+    # slice onto ONE untyped node (verified against a real engine — the
+    # "success" status did not mean the ProcessEvent/BusinessObject/
+    # ProcessPerspective nodes were ever created). ``ingest_graph_slice`` is
+    # the existing writer built for exactly this multi-node shape (first entity
+    # primary, the rest as governed ``_nodes``/``_links`` auxiliaries) — the
+    # same one ``IngestionEngine`` already uses for its concepts/facts passes.
+    envelope = committed_slice.to_change_envelope(
+        tenant=tenant,
+        provenance=provenance,
+    )
+    # THE single commit of this slice. The degradation wrapper is wire-first's:
+    # a write-path outage surfaces as a structured error, never a crash.
+    try:
+        engine = kg_server._get_engine()
+        applied = ingest_graph_slice(
+            engine,
+            envelope.connector,
+            envelope.typed_payload["entities"],
+            envelope.typed_payload["relationships"],
+            source_instance=envelope.source_instance,
+            checkpoint=envelope.checkpoint,
+        )
+    except Exception as exc:  # noqa: BLE001 — a write-path outage degrades graph_mine, never crashes it
+        return _surface_error(
+            exc,
+            surface="mining",
+            action=action,
+            code="dependency_unavailable",
+        )
+    if applied.get("status") not in {"success", "skipped"}:
+        return json.dumps(
+            {
+                "surface": "mining",
+                "action": action,
+                "code": "write_failed",
+                "error": (
+                    "governed OCEL ChangeEnvelope commit failed: "
+                    f"{applied.get('error') or applied.get('status')}"
+                ),
+                "ocel": exported,
+                "tekg": {"idempotency_key": envelope.idempotency_key},
+            },
+            default=_json_default,
+        )
+    evidence = {
+        **_ocel_evidence(tenant, committed_slice, envelope),
+        "idempotency_key": applied.get("idempotency_key", envelope.idempotency_key),
+        "commit_status": applied.get("status"),
+        "write_status": applied.get("status"),
+    }
+    _record_process_signal_evidence(evidence, engine)
+    return projection, evidence
+
+
+def _ocel_import_slice(params: dict) -> tuple[str, Any, Any, str]:
+    """Pop + validate the governed OCEL import inputs, then import the slice.
+
+    Returns ``(tenant, slice_, provenance, ocel_mode)``. Raises ``ValueError``
+    for a missing tenant or an unknown ``ocel_mode`` — the caller maps those
+    onto an ``invalid_request`` surface error.
+    """
+    from agent_utilities.knowledge_graph.ingestion.ocel_adapter import (
+        import_ocel_json,
+    )
+    from agent_utilities.usage.authorization import resolve_usage_tenant
+
+    tenant = resolve_usage_tenant(str(params.pop("tenant", "") or "") or None)
+    if not tenant:
+        raise ValueError("tenant is required for governed OCEL import")
+    slice_, provenance = import_ocel_json(
+        params.pop("ocel_json"),
+        tenant=tenant,
+        source_ref=str(params.pop("source_ref", "") or ""),
+        mapping_version=str(params.pop("mapping_version", "") or ""),
+        provenance=params.pop("provenance", None),
+    )
+    ocel_mode = str(params.pop("ocel_mode", "mine") or "mine").strip()
+    if ocel_mode not in {"mine", "validate", "derive"}:
+        raise ValueError("ocel_mode must be 'mine', 'validate', or 'derive'")
+    return tenant, slice_, provenance, ocel_mode
+
+
+def _ocel_import_and_dispatch(
+    action: str, params: dict
+) -> str | tuple[Any, Any, dict[str, Any]]:
+    """Import the governed OCEL document and run the requested ``ocel_mode``.
+
+    Returns a ready-to-send JSON string for the terminal ``derive``/
+    ``validate``/error modes, or ``(projection, exported, evidence)`` when
+    ``mine`` committed and the caller must still project + mine traces.
+    """
+    from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (  # noqa: F401 — imported up-front so an unavailable write path fails here, exactly as it did before this function was extracted
+        ingest_graph_slice,
+    )
+    from agent_utilities.knowledge_graph.ingestion.event_log_adapter import (  # noqa: F401 — see above
+        project_object_centric_slice,
+    )
+    from agent_utilities.knowledge_graph.ingestion.ocel_adapter import (
+        export_ocel_json,
+    )
+
+    tenant, slice_, provenance, ocel_mode = _ocel_import_slice(params)
+    exported = export_ocel_json(slice_)
+    # Computed here from the bare (pre-perspective) ``slice_`` so this
+    # best-effort observability snapshot never blocks the import; each mode
+    # branch still computes its OWN envelope for the actual commit (the
+    # ``mine`` branch's includes the perspective).
+    envelope = slice_.to_change_envelope(tenant=tenant, provenance=provenance)
+    evidence = _ocel_evidence(tenant, slice_, envelope)
+    _record_process_signal_evidence(evidence)
+    if ocel_mode == "derive":
+        return _ocel_derive_response(action, slice_, tenant, evidence)
+    if ocel_mode == "validate":
+        envelope = slice_.to_change_envelope(
+            tenant=tenant,
+            provenance=provenance,
+        )
+        return json.dumps(
+            {
+                "surface": "mining",
+                "action": action,
+                "ocel": exported,
+                "tekg": _ocel_evidence(tenant, slice_, envelope),
+            },
+            default=_json_default,
+        )
+    mined = _ocel_mine(action, params, slice_, tenant, provenance, exported)
+    if isinstance(mined, str):
+        return mined
+    projection, evidence = mined
+    return projection, exported, evidence
 
 
 def _graph_mine_process_ocel_json(action: str, params: dict, graph: str) -> str | None:
     """graph_mine's 'process' action, OCEL JSON import path (mine/validate/derive).
 
-    Extracted verbatim from ``graph_mine`` (pure extract-method, no
-    behaviour change). Returns ``None`` when this branch's guard condition
-    does not match -- the caller must then try the next special case /
-    fall through to the generic ``_invoke`` dispatch, exactly like the
-    original's sequential ``if action == "process" and ...:`` chain.
+    Returns ``None`` when this branch's guard condition does not match -- the
+    caller must then try the next special case / fall through to the generic
+    ``_invoke`` dispatch, exactly like the original's sequential
+    ``if action == "process" and ...:`` chain.
     """
     if not (action == "process" and "ocel_json" in params):
         return None
@@ -1677,280 +2375,8 @@ def _graph_mine_process_ocel_json(action: str, params: dict, graph: str) -> str 
                 "error": "provide OCEL input instead of events or traces",
             }
         )
-    from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
-        ingest_graph_slice,
-    )
-    from agent_utilities.knowledge_graph.ingestion.event_log_adapter import (
-        project_object_centric_slice,
-    )
-    from agent_utilities.knowledge_graph.ingestion.ocel_adapter import (
-        export_ocel_json,
-        import_ocel_json,
-    )
-    from agent_utilities.usage.authorization import resolve_usage_tenant
-
     try:
-        tenant = resolve_usage_tenant(
-            str(params.pop("tenant", "") or "") or None
-        )
-        if not tenant:
-            raise ValueError("tenant is required for governed OCEL import")
-        slice_, provenance = import_ocel_json(
-            params.pop("ocel_json"),
-            tenant=tenant,
-            source_ref=str(params.pop("source_ref", "") or ""),
-            mapping_version=str(params.pop("mapping_version", "") or ""),
-            provenance=params.pop("provenance", None),
-        )
-        ocel_mode = str(params.pop("ocel_mode", "mine") or "mine").strip()
-        if ocel_mode not in {"mine", "validate", "derive"}:
-            raise ValueError(
-                "ocel_mode must be 'mine', 'validate', or 'derive'"
-            )
-        exported = export_ocel_json(slice_)
-        # Merge fix (feat/retrieval-eval-policy x fix/sweep-orch-skills):
-        # the process_signal evidence snapshot below reads `envelope`
-        # before either mode-branch computes its own further down —
-        # a pre-existing NameError on fix/sweep-orch-skills@504c903d,
-        # not something either lane's change caused directly. Computed
-        # here from the bare (pre-perspective) `slice_` so this
-        # best-effort observability snapshot never blocks the import;
-        # each mode branch still computes its OWN envelope for the
-        # actual commit (the `mine` branch's includes the perspective).
-        envelope = slice_.to_change_envelope(
-            tenant=tenant, provenance=provenance
-        )
-        evidence = {
-            "mode": "ocel_2.0",
-            "tenant": tenant,
-            "content_hash": slice_.canonical_digest(),
-            "idempotency_key": envelope.idempotency_key,
-            "mapping_version": slice_.mapping_version,
-            "node_count": len(envelope.typed_payload["entities"]),
-            "relationship_count": len(envelope.typed_payload["relationships"]),
-        }
-        # Unified Evidence resource (CONCEPT:AU-KG.evolution.unified-evidence-resource,
-        # D-71-1) — the process_signal channel: recorded HERE, at the one place
-        # this import's real outcome is computed, never re-derived by a second
-        # query. Best-effort audit overlay; never gates the import.
-        try:
-            from agent_utilities.knowledge_graph.research.evidence import (
-                from_process_signal,
-                record_evidence,
-            )
-
-            record_evidence(
-                kg_server._get_engine(), from_process_signal(evidence)
-            )
-        except Exception as exc:  # noqa: BLE001 — deliberate best-effort audit overlay: this Evidence write is a pure observability side-channel over an import that has ALREADY succeeded, and the comment above states it "never gates the import". Failing it must not fail the caller's OCEL import. Only the exception type is recorded, at DEBUG because the authoritative import outcome is already reported through the normal return path.
-            logger.debug(
-                "OCEL process_signal evidence record failed for %s: %s",
-                evidence.get("idempotency_key"),
-                type(exc).__name__,
-            )
-        if ocel_mode == "derive":
-            # CONCEPT:AU-KG.mining.incremental-object-centric-derivation —
-            # the ONE surface exposure of
-            # ``ingestion/object_centric_derivation.py``. That module was
-            # implemented and unit-tested but reachable from no gateway/MCP
-            # path at all (check_surface_parity's "unexposed capability"),
-            # i.e. built-but-not-wired. It is read-only by construction:
-            # ``derive`` replays the imported slice through the incremental
-            # deriver and returns the derived aggregate directly-follows
-            # graph, per-object timelines, and derivation generation. It
-            # commits nothing — that stays exclusive to ``mine``.
-            from agent_utilities.knowledge_graph.ingestion.object_centric_derivation import (
-                IncrementalObjectCentricDeriver,
-            )
-
-            deriver = IncrementalObjectCentricDeriver()
-            for business_object in slice_.objects:
-                deriver.observe_object_attributes(
-                    business_object.object_id, business_object.attributes
-                )
-            observed_at = datetime.now(UTC)
-            for event in sorted(
-                slice_.events,
-                key=lambda item: (
-                    item.occurred_at,
-                    item.sequence_tiebreaker,
-                    item.event_id,
-                ),
-            ):
-                for participation in event.objects:
-                    deriver.ingest_event(
-                        event,
-                        object_id=participation.object_id,
-                        state_id=(
-                            f"{slice_.log_id}:{participation.object_id}:"
-                            f"{event.event_id}"
-                        ),
-                        observed_at=observed_at,
-                    )
-            object_ids = sorted(
-                {
-                    participation.object_id
-                    for event in slice_.events
-                    for participation in event.objects
-                }
-            )
-            return json.dumps(
-                {
-                    "surface": "mining",
-                    "action": action,
-                    "ocel_mode": "derive",
-                    "tenant": tenant,
-                    "generation": deriver.generation,
-                    "directly_follows": [
-                        {"from": pair[0], "to": pair[1], "count": count}
-                        for pair, count in sorted(
-                            deriver.dfg_snapshot().items()
-                        )
-                    ],
-                    "timelines": {
-                        object_id: [
-                            event.event_id
-                            for event in deriver.timeline(object_id)
-                        ]
-                        for object_id in object_ids
-                    },
-                    "tekg": evidence,
-                },
-                default=_json_default,
-            )
-        if ocel_mode == "validate":
-            envelope = slice_.to_change_envelope(
-                tenant=tenant,
-                provenance=provenance,
-            )
-            evidence = {
-                "mode": "ocel_2.0",
-                "tenant": tenant,
-                "content_hash": slice_.canonical_digest(),
-                "idempotency_key": envelope.idempotency_key,
-                "mapping_version": slice_.mapping_version,
-                "node_count": len(envelope.typed_payload["entities"]),
-                "relationship_count": len(
-                    envelope.typed_payload["relationships"]
-                ),
-            }
-            return json.dumps(
-                {
-                    "surface": "mining",
-                    "action": action,
-                    "ocel": exported,
-                    "tekg": evidence,
-                },
-                default=_json_default,
-            )
-        # ``mine`` mode always materializes source truth AND discloses
-        # any case-notion flattening it derives from that same truth
-        # (CONCEPT:AU-KG.mining.governed-perspective-flattening) — the
-        # perspective used for the trace projection below is folded
-        # into the SAME committed slice as a real, versioned
-        # ``ProcessPerspective`` node, never a silent side channel.
-        perspective = _require_process_perspective(params)
-        projection = project_object_centric_slice(
-            slice_,
-            perspective=perspective,
-        )
-        committed_slice = slice_.model_copy(
-            update={"perspectives": (*slice_.perspectives, perspective)}
-        )
-        # ``to_change_envelope`` still stamps tenant_id/ocel_provenance
-        # onto every entity/link and computes the digest-derived
-        # idempotency key — reuse that rendering — but a
-        # multi-entity slice's ``{"entities": [...], "relationships":
-        # [...]}`` typed_payload is NOT the single-row (+ optional
-        # ``_nodes``/``_links`` auxiliary) shape ``ingest_envelope``'s
-        # ``to_entity_dict``/``_prepare_node_rows`` understand: handing
-        # that envelope to ``ingest_envelope`` directly silently
-        # collapses the whole slice onto ONE untyped node (verified
-        # against a real engine — the "success" status did not mean
-        # the ProcessEvent/BusinessObject/ProcessPerspective nodes
-        # were ever created). ``ingest_graph_slice`` is the existing
-        # writer built for exactly this multi-node shape (first
-        # entity primary, the rest as governed ``_nodes``/``_links``
-        # auxiliaries) — the same one ``IngestionEngine`` already uses
-        # for its concepts/facts passes.
-        envelope = committed_slice.to_change_envelope(
-            tenant=tenant,
-            provenance=provenance,
-        )
-        # THE single commit of this slice. Three lanes touched this one
-        # spot: feat/ocel-roundtrip-and-derivation and
-        # feat/wire-first-reachability-gate each independently fixed the
-        # discarded ChangeEnvelope (kept ONE commit, the ocel form, which
-        # also commits the disclosed ProcessPerspective), and
-        # feat/wave6-followups-ocel then fixed the commit ITSELF: routing
-        # a {entities, relationships} payload through ingest_envelope
-        # silently collapsed every entity onto ONE untyped node while
-        # still returning status="success" (D-61-4). ingest_graph_slice is
-        # the correct writer. The degradation wrapper is wire-first's: a
-        # write-path outage surfaces as a structured error, never a crash.
-        try:
-            engine = kg_server._get_engine()
-            applied = ingest_graph_slice(
-                engine,
-                envelope.connector,
-                envelope.typed_payload["entities"],
-                envelope.typed_payload["relationships"],
-                source_instance=envelope.source_instance,
-                checkpoint=envelope.checkpoint,
-            )
-        except Exception as exc:  # noqa: BLE001 — a write-path outage degrades graph_mine, never crashes it
-            return _surface_error(
-                exc,
-                surface="mining",
-                action=action,
-                code="dependency_unavailable",
-            )
-        if applied.get("status") not in {"success", "skipped"}:
-            return json.dumps(
-                {
-                    "surface": "mining",
-                    "action": action,
-                    "code": "write_failed",
-                    "error": (
-                        "governed OCEL ChangeEnvelope commit failed: "
-                        f"{applied.get('error') or applied.get('status')}"
-                    ),
-                    "ocel": exported,
-                    "tekg": {"idempotency_key": envelope.idempotency_key},
-                },
-                default=_json_default,
-            )
-        evidence = {
-            "mode": "ocel_2.0",
-            "tenant": tenant,
-            "content_hash": committed_slice.canonical_digest(),
-            "idempotency_key": applied.get(
-                "idempotency_key", envelope.idempotency_key
-            ),
-            "mapping_version": committed_slice.mapping_version,
-            "node_count": len(envelope.typed_payload["entities"]),
-            "relationship_count": len(envelope.typed_payload["relationships"]),
-            "commit_status": applied.get("status"),
-            "write_status": applied.get("status"),
-        }
-        # Unified Evidence resource (CONCEPT:AU-KG.evolution.unified-evidence-resource,
-        # D-71-1) — the process_signal channel, recorded HERE because this
-        # is the one place the import's REAL outcome is known (post-commit
-        # `applied` status and idempotency key), never re-derived by a
-        # second query. Best-effort audit overlay; never gates the import.
-        try:
-            from agent_utilities.knowledge_graph.research.evidence import (
-                from_process_signal,
-                record_evidence,
-            )
-
-            record_evidence(engine, from_process_signal(evidence))
-        except Exception as exc:  # noqa: BLE001 — deliberate best-effort audit overlay: a pure observability side-channel over an import that has ALREADY committed, so failing it must not fail the caller's OCEL import. Only the exception type is recorded, at DEBUG because the authoritative outcome is already reported through the normal return path.
-            logger.debug(
-                "OCEL process_signal evidence record failed for %s: %s",
-                evidence.get("idempotency_key"),
-                type(exc).__name__,
-            )
+        outcome = _ocel_import_and_dispatch(action, params)
     except (PermissionError, TypeError, ValueError) as exc:
         return _surface_error(
             exc,
@@ -1965,6 +2391,9 @@ def _graph_mine_process_ocel_json(action: str, params: dict, graph: str) -> str 
             action=action,
             code="commit_failed",
         )
+    if isinstance(outcome, str):
+        return outcome
+    projection, exported, evidence = outcome
     params["traces"] = projection.engine_traces()
     response = json.loads(
         _invoke(
@@ -1981,14 +2410,124 @@ def _graph_mine_process_ocel_json(action: str, params: dict, graph: str) -> str 
     return json.dumps(response, default=_json_default)
 
 
-def _graph_mine_process_conformance(action: str, params: dict, graph: str) -> str | None:
+def _popped_str(params: dict, key: str, *, strip: bool = True) -> str:
+    """``params.pop(key)`` coerced to a plain (optionally stripped) string.
+
+    The ``str(params.pop(k, "") or "")`` idiom repeated across the governed
+    mining entrypoints, in one place: a missing key, ``None``, ``0`` and ``""``
+    all collapse to the empty string.
+    """
+    value = str(params.pop(key, "") or "")
+    return value.strip() if strip else value
+
+
+def _conformance_inputs(params: dict) -> dict[str, Any]:
+    """Pop + validate every governed conformance-checking input, in order.
+
+    The validation ORDER here is load-bearing: a doubly-invalid request must
+    keep reporting the same first offence it always did.
+    """
+    from agent_utilities.usage.authorization import resolve_usage_tenant
+
+    tenant = resolve_usage_tenant(_popped_str(params, "tenant", strip=False) or None)
+    if not tenant:
+        raise ValueError("tenant is required for governed conformance checking")
+    perspective = _require_process_perspective(params)
+    traces = [tuple(trace) for trace in params.pop("traces")]
+    object_ids = list(params.pop("object_ids"))
+    allowed_edges = [
+        (str(pair[0]), str(pair[1])) for pair in params.pop("allowed_edges")
+    ]
+    model_ref = _popped_str(params, "model_ref")
+    graph_as_of_raw = _popped_str(params, "graph_as_of")
+    mapping_version = _popped_str(params, "mapping_version")
+    export_digest = _popped_str(params, "export_digest")
+    if not model_ref or not graph_as_of_raw or not mapping_version:
+        raise ValueError(
+            "conformance checking requires 'model_ref', 'graph_as_of', "
+            "and 'mapping_version'"
+        )
+    if not export_digest:
+        raise ValueError(
+            "conformance checking requires 'export_digest' — the export "
+            "digest of the source data this run executed over"
+        )
+    graph_as_of = datetime.fromisoformat(graph_as_of_raw.replace("Z", "+00:00"))
+    source_ref = _popped_str(params, "source_ref", strip=False)
+    run_id = (
+        _popped_str(params, "run_id", strip=False)
+        or hashlib.sha256(
+            "\x1f".join(
+                [
+                    source_ref,
+                    perspective.perspective_id,
+                    model_ref,
+                    export_digest,
+                    graph_as_of.isoformat(),
+                ]
+            ).encode("utf-8")
+        ).hexdigest()[:32]
+    )
+    return {
+        "tenant": tenant,
+        "perspective": perspective,
+        "traces": traces,
+        "object_ids": object_ids,
+        "allowed_edges": allowed_edges,
+        "model_ref": model_ref,
+        "graph_as_of": graph_as_of,
+        "mapping_version": mapping_version,
+        "export_digest": export_digest,
+        "source_ref": source_ref,
+        "run_id": run_id,
+        "start_activities": params.pop("start_activities", None),
+        "end_activities": params.pop("end_activities", None),
+    }
+
+
+def _conformance_commit(
+    inputs: dict[str, Any], run: Any, deviations: Any
+) -> dict[str, Any]:
+    """Commit one ``ConformanceRun`` (+ its Deviations) as a tenant-scoped slice."""
+    from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
+        ingest_graph_slice,
+    )
+    from agent_utilities.knowledge_graph.ingestion.process_conformance import (
+        conformance_run_graph_slice,
+    )
+
+    entities, links = conformance_run_graph_slice(
+        run, deviations, source_ref=inputs["source_ref"]
+    )
+    for entity in entities:
+        entity["tenant_id"] = inputs["tenant"]
+    for link in links:
+        link["tenant_id"] = inputs["tenant"]
+    engine = kg_server._get_engine()
+    applied = ingest_graph_slice(
+        engine,
+        "conformance",
+        entities,
+        links,
+        source_instance=inputs["run_id"],
+    )
+    if applied.get("status") not in {"success", "skipped"}:
+        raise RuntimeError(
+            "ConformanceRun ChangeEnvelope commit failed: "
+            f"{applied.get('error') or applied.get('status')}"
+        )
+    return {"applied": applied, "entities": entities, "links": links}
+
+
+def _graph_mine_process_conformance(
+    action: str, params: dict, graph: str
+) -> str | None:
     """graph_mine's 'process' action, conformance-checking path (allowed_edges given).
 
-    Extracted verbatim from ``graph_mine`` (pure extract-method, no
-    behaviour change). Returns ``None`` when this branch's guard condition
-    does not match -- the caller must then try the next special case /
-    fall through to the generic ``_invoke`` dispatch, exactly like the
-    original's sequential ``if action == "process" and ...:`` chain.
+    Returns ``None`` when this branch's guard condition does not match -- the
+    caller must then try the next special case / fall through to the generic
+    ``_invoke`` dispatch, exactly like the original's sequential
+    ``if action == "process" and ...:`` chain.
     """
     if not (action == "process" and "allowed_edges" in params):
         return None
@@ -2000,100 +2539,33 @@ def _graph_mine_process_conformance(action: str, params: dict, graph: str) -> st
     # here (there is no engine-side conformance primitive to dispatch
     # to — the whole point of the ``ConformanceWorker`` seam is that the
     # native/default worker needs none).
-    from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
+    from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (  # noqa: F401 — imported up-front so an unavailable write path fails here, exactly as it did before _conformance_commit was extracted
         ingest_graph_slice,
     )
     from agent_utilities.knowledge_graph.ingestion.process_conformance import (
         ConformanceRun,
-        conformance_run_graph_slice,
         run_conformance_check,
     )
-    from agent_utilities.usage.authorization import resolve_usage_tenant
 
     try:
-        tenant = resolve_usage_tenant(
-            str(params.pop("tenant", "") or "") or None
-        )
-        if not tenant:
-            raise ValueError(
-                "tenant is required for governed conformance checking"
-            )
-        perspective = _require_process_perspective(params)
-        traces = [tuple(trace) for trace in params.pop("traces")]
-        object_ids = list(params.pop("object_ids"))
-        allowed_edges = [
-            (str(pair[0]), str(pair[1])) for pair in params.pop("allowed_edges")
-        ]
-        model_ref = str(params.pop("model_ref", "") or "").strip()
-        graph_as_of_raw = str(params.pop("graph_as_of", "") or "").strip()
-        mapping_version = str(params.pop("mapping_version", "") or "").strip()
-        export_digest = str(params.pop("export_digest", "") or "").strip()
-        if not model_ref or not graph_as_of_raw or not mapping_version:
-            raise ValueError(
-                "conformance checking requires 'model_ref', 'graph_as_of', "
-                "and 'mapping_version'"
-            )
-        if not export_digest:
-            raise ValueError(
-                "conformance checking requires 'export_digest' — the export "
-                "digest of the source data this run executed over"
-            )
-        graph_as_of = datetime.fromisoformat(
-            graph_as_of_raw.replace("Z", "+00:00")
-        )
-        source_ref = str(params.pop("source_ref", "") or "")
-        run_id = (
-            str(params.pop("run_id", "") or "")
-            or hashlib.sha256(
-                "\x1f".join(
-                    [
-                        source_ref,
-                        perspective.perspective_id,
-                        model_ref,
-                        export_digest,
-                        graph_as_of.isoformat(),
-                    ]
-                ).encode("utf-8")
-            ).hexdigest()[:32]
-        )
-        start_activities = params.pop("start_activities", None)
-        end_activities = params.pop("end_activities", None)
+        inputs = _conformance_inputs(params)
         run = ConformanceRun(
-            run_id=run_id,
-            perspective=perspective,
-            graph_as_of=graph_as_of,
-            mapping_version=mapping_version,
-            model_ref=model_ref,
-            export_digest=export_digest,
+            run_id=inputs["run_id"],
+            perspective=inputs["perspective"],
+            graph_as_of=inputs["graph_as_of"],
+            mapping_version=inputs["mapping_version"],
+            model_ref=inputs["model_ref"],
+            export_digest=inputs["export_digest"],
         )
         run, deviations = run_conformance_check(
-            traces,
-            object_ids,
-            allowed_edges,
+            inputs["traces"],
+            inputs["object_ids"],
+            inputs["allowed_edges"],
             run=run,
-            start_activities=start_activities,
-            end_activities=end_activities,
+            start_activities=inputs["start_activities"],
+            end_activities=inputs["end_activities"],
         )
-        entities, links = conformance_run_graph_slice(
-            run, deviations, source_ref=source_ref
-        )
-        for entity in entities:
-            entity["tenant_id"] = tenant
-        for link in links:
-            link["tenant_id"] = tenant
-        engine = kg_server._get_engine()
-        applied = ingest_graph_slice(
-            engine,
-            "conformance",
-            entities,
-            links,
-            source_instance=run_id,
-        )
-        if applied.get("status") not in {"success", "skipped"}:
-            raise RuntimeError(
-                "ConformanceRun ChangeEnvelope commit failed: "
-                f"{applied.get('error') or applied.get('status')}"
-            )
+        committed = _conformance_commit(inputs, run, deviations)
     except (PermissionError, TypeError, ValueError) as exc:
         return _surface_error(
             exc,
@@ -2121,9 +2593,9 @@ def _graph_mine_process_conformance(action: str, params: dict, graph: str) -> st
                 deviation.model_dump(mode="json") for deviation in deviations
             ],
             "tekg": {
-                "commit_status": applied.get("status"),
-                "node_count": len(entities),
-                "relationship_count": len(links),
+                "commit_status": committed["applied"].get("status"),
+                "node_count": len(committed["entities"]),
+                "relationship_count": len(committed["links"]),
             },
         },
         default=_json_default,
@@ -2191,6 +2663,397 @@ def _graph_mine_process_events(action: str, params: dict, graph: str) -> str | N
     )
     response["projection"] = projection.public_metadata()
     return json.dumps(response, default=_json_default)
+
+
+def _kvcache_get(backend: Any, action: str, key: str) -> str:
+    """``graph_kvcache`` ``get`` — the block bytes, base64'd, or an explicit miss."""
+    blob = backend.get(key)
+    return json.dumps(
+        {
+            "surface": "kvcache",
+            "action": action,
+            "hit": blob is not None,
+            "value_b64": (
+                base64.b64encode(blob).decode("ascii") if blob is not None else None
+            ),
+        }
+    )
+
+
+def _kvcache_put(backend: Any, action: str, key: str, value_b64: str) -> str:
+    """``graph_kvcache`` ``put`` — store base64-decoded block bytes under ``key``."""
+    try:
+        raw = base64.b64decode(value_b64) if value_b64 else b""
+    except (ValueError, TypeError) as exc:
+        return _surface_error(exc, surface="kvcache", code="invalid_request")
+    return json.dumps(
+        {
+            "surface": "kvcache",
+            "action": action,
+            "stored": bool(backend.put(key, raw)),
+        }
+    )
+
+
+def _kvcache_probe(backend: Any, action: str, key: str) -> str:
+    """``graph_kvcache`` ``contains``/``exists`` — presence only, never the bytes."""
+    probe = backend.exists if action == "exists" else backend.contains
+    return json.dumps(
+        {"surface": "kvcache", "action": action, "present": bool(probe(key))}
+    )
+
+
+def _kvcache_stats(backend: Any, action: str) -> str:
+    """``graph_kvcache`` ``stats`` — occupancy + dedup counters."""
+    stats = backend.stats()
+    data = stats.model_dump() if hasattr(stats, "model_dump") else dict(stats)
+    return json.dumps(
+        {"surface": "kvcache", "action": action, "result": data},
+        default=_json_default,
+    )
+
+
+def _kvcache_dispatch(backend: Any, action: str, key: str, value_b64: str) -> str:
+    """Route one ``graph_kvcache`` action onto the KG-2.306 connector.
+
+    The key-required guard covers exactly the four key-addressed actions, so an
+    unknown action still reports itself as unknown rather than as a missing key.
+    """
+    if action == "stats":
+        return _kvcache_stats(backend, action)
+    if action not in {"get", "put", "contains", "exists"}:
+        return json.dumps({"surface": "kvcache", "error": f"unknown action {action!r}"})
+    if not key:
+        return json.dumps({"surface": "kvcache", "error": "key required"})
+    if action == "get":
+        return _kvcache_get(backend, action, key)
+    if action == "put":
+        return _kvcache_put(backend, action, key, value_b64)
+    return _kvcache_probe(backend, action, key)
+
+
+def _kvcache_close(backend: Any) -> None:
+    """Best-effort connector cleanup — never raises."""
+    close = getattr(backend, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:  # noqa: BLE001 — best-effort cleanup
+            pass
+
+
+def _kv_create_checkpoint(action: str, store: Any, req: dict[str, Any]) -> str:
+    """``graph_kv_checkpoint`` ``create`` — the full key plus the blob bytes."""
+    from agent_utilities.kvcache import KVCheckpointKey
+
+    try:
+        data = base64.b64decode(req["data_b64"]) if req["data_b64"] else b""
+        provenance = (
+            json.loads(req["provenance_json"]) if req["provenance_json"] else {}
+        )
+    except (ValueError, TypeError) as exc:
+        return _surface_error(
+            exc, surface="kv_checkpoint", action=action, code="invalid_request"
+        )
+    try:
+        key = KVCheckpointKey(
+            model_identity=req["model_identity"],
+            quantization=req["quantization"],
+            serving_engine=req["serving_engine"],
+            engine_version=req["engine_version"],
+            prefix_digest=req["prefix_digest"],
+            tenant=req["tenant"],
+            policy_version=req["policy_version"],
+        )
+    except Exception as exc:  # noqa: BLE001 — bad/missing key component
+        return _surface_error(
+            exc, surface="kv_checkpoint", action=action, code="invalid_request"
+        )
+    try:
+        record = store.create_checkpoint(
+            data,
+            key=key,
+            run_id=req["run_id"],
+            point=req["point"],
+            provenance=provenance if isinstance(provenance, dict) else {},
+        )
+    except Exception as exc:  # noqa: BLE001 — surface engine errors as data
+        return _surface_error(exc, surface="kv_checkpoint", action=action)
+    if record is None:
+        return json.dumps(
+            {
+                "surface": "kv_checkpoint",
+                "action": action,
+                "error": "checkpoint creation failed (empty payload or engine write failure)",
+            }
+        )
+    return json.dumps(
+        {"surface": "kv_checkpoint", "action": action, "result": record.model_dump()},
+        default=_json_default,
+    )
+
+
+def _kv_instantiate_agent(
+    action: str,
+    store: Any,
+    checkpoint_id: str,
+    requesting_tenant: str,
+    new_run_id: str,
+    current_policy_version: str,
+) -> str:
+    """``graph_kv_checkpoint`` ``instantiate_agent`` — fail-closed load + lineage."""
+    from agent_utilities.kvcache import KVCheckpointError
+
+    try:
+        record = store.instantiate_agent(
+            checkpoint_id,
+            requesting_tenant=requesting_tenant,
+            new_run_id=new_run_id,
+            current_policy_version=current_policy_version or None,
+        )
+    except KVCheckpointError as exc:
+        return _surface_error(
+            exc,
+            surface="kv_checkpoint",
+            action=action,
+            code=_checkpoint_error_code(exc),
+        )
+    return json.dumps(
+        {"surface": "kv_checkpoint", "action": action, "result": record.model_dump()},
+        default=_json_default,
+    )
+
+
+def _kv_restore_conversation(
+    action: str,
+    store: Any,
+    checkpoint_id: str,
+    conversation_id: str,
+    requesting_tenant: str,
+    current_policy_version: str,
+    allow_cold_start: bool,
+) -> str:
+    """``graph_kv_checkpoint`` ``restore_conversation`` — fail-closed load + lineage."""
+    from agent_utilities.kvcache import KVCheckpointError
+
+    try:
+        res = store.restore_conversation(
+            checkpoint_id,
+            conversation_id=conversation_id,
+            requesting_tenant=requesting_tenant,
+            current_policy_version=current_policy_version or None,
+            allow_cold_start=allow_cold_start,
+        )
+    except KVCheckpointError as exc:
+        return _surface_error(
+            exc,
+            surface="kv_checkpoint",
+            action=action,
+            code=_checkpoint_error_code(exc),
+        )
+    # Never inline the heavy blob bytes over the JSON tool surface — only
+    # provenance; a caller that needs the bytes fetches them directly from
+    # the engine's own blob store by digest (CONCEPT:AU-KG.memory.kv-checkpoint-resource).
+    payload = res.model_dump(exclude={"data"})
+    payload["size_bytes"] = len(res.data) if res.data is not None else 0
+    return json.dumps(
+        {"surface": "kv_checkpoint", "action": action, "result": payload},
+        default=_json_default,
+    )
+
+
+def _decode_json_object(
+    raw: str, surface: str, *, action: str = "", field: str = "params_json"
+) -> tuple[Any, str | None]:
+    """Decode a JSON-object tool argument, or return the rejection to send.
+
+    Returns ``(decoded, None)`` on success and ``(None, error_json)`` otherwise —
+    the same two rejections every action-routed tool in this module already
+    produced by hand: an ``invalid_request`` surface error for undecodable text,
+    and a plain ``{surface[, action], error}`` payload for a non-object.
+    """
+    try:
+        decoded = json.loads(raw) if raw else {}
+    except (TypeError, ValueError) as exc:
+        return None, _surface_error(
+            exc, surface=surface, action=action, code="invalid_request"
+        )
+    if isinstance(decoded, dict):
+        return decoded, None
+    rejection: dict[str, Any] = {"surface": surface}
+    if action:
+        rejection["action"] = action
+    rejection["error"] = f"{field} must decode to an object"
+    return None, json.dumps(rejection)
+
+
+def _traces_get_dispatch(trace_id: str) -> tuple[str | None, dict[str, Any], Any]:
+    """``graph_traces action='get'`` — the KG-native sink first, else the engine probe.
+
+    Returns ``(finished_response | None, params, candidates)``.
+    """
+    native = _trace_native_get(trace_id)
+    if native is not None:
+        return (
+            json.dumps(
+                {"surface": "traces", "action": "get", "result": native},
+                default=_json_default,
+            ),
+            {},
+            (),
+        )
+    return None, {"trace_id": trace_id}, _TRACES_GET_CANDIDATES
+
+
+def _traces_search_dispatch(
+    service: str, operation: str, query: str, limit: int
+) -> tuple[str | None, dict[str, Any], Any]:
+    """``graph_traces action='search'`` — the KG-native sink first, else the probe."""
+    native_rows = _trace_native_search(service, operation, query, limit)
+    if native_rows is not None:
+        return (
+            json.dumps(
+                {"surface": "traces", "action": "search", "result": native_rows},
+                default=_json_default,
+            ),
+            {},
+            (),
+        )
+    params = _drop_empty(service=service, operation=operation, query=query)
+    params["limit"] = int(limit)
+    return None, params, _TRACES_SEARCH_CANDIDATES
+
+
+def _deep_action_or_error(action: str) -> tuple[str, str | None]:
+    """Normalize a ``graph_mine_deep`` action and reject an unknown one by name."""
+    normalized = (action or "").strip().replace("-", "_") or "deep_forecast"
+    if normalized not in _DEEP_ALGO_BY_ACTION:
+        return normalized, json.dumps(
+            {
+                "surface": "mining_deep",
+                "action": normalized,
+                "error": f"unknown action {normalized!r}; choose one of "
+                f"{sorted(_DEEP_ALGO_BY_ACTION)}",
+            }
+        )
+    return normalized, None
+
+
+def _deep_unavailable(action: str, error: str) -> str:
+    """The structured 'delegated but unavailable' payload — never a crash."""
+    return json.dumps(
+        {
+            "surface": "mining_deep",
+            "action": action,
+            "provider": _DSM_SERVER_NAME,
+            "delegated": True,
+            "available": False,
+            "error": error,
+        }
+    )
+
+
+def _deep_call_delegate(
+    action: str, tool_params: dict[str, Any]
+) -> tuple[Any, str | None]:
+    """Call data-science-mcp once, synchronously, and normalize its response.
+
+    Returns ``(raw_dict, None)`` or ``(None, error_json)``.
+
+    BUG-7: ``call_tool_once``'s decoder prefers a FastMCP result's structured
+    ``.data`` verbatim (``mcp_package._decode``) — when the delegate's tool itself
+    returns an already-JSON-encoded string (this repo's own tool convention:
+    ``return json.dumps(...)``), ``.data`` IS that raw string, not the parsed
+    object, so ``raw`` arrives here as a ``str`` even though the delegate answered
+    normally. Align the parse here instead of failing on a shape mismatch that
+    isn't a real outage.
+    """
+    try:
+        raw = _run_async(
+            call_tool_once(
+                server=_DSM_SERVER_NAME,
+                tool=_DSM_TOOL_NAME,
+                params=tool_params,
+                params_style="args",
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 — the delegate being unreachable degrades cleanly
+        return None, _surface_error(
+            exc,
+            surface="mining_deep",
+            action=action,
+            code="dependency_unavailable",
+            context={"delegated": True, "available": False},
+        )
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (TypeError, ValueError):
+            pass  # genuinely not JSON — falls through to the shape error below
+    if not isinstance(raw, dict):
+        return None, _deep_unavailable(
+            action,
+            f"unexpected data-science-mcp response shape: {type(raw).__name__}",
+        )
+    if not raw.get("available", True):
+        return None, _deep_unavailable(
+            action,
+            raw.get("error", "data-science-mcp reported the algo unavailable"),
+        )
+    return raw, None
+
+
+def _deep_writeback(
+    action: str,
+    result: dict[str, Any],
+    node_ids: list[str],
+    series_id: str,
+    graph: str,
+) -> list[str]:
+    """Materialize a delegated result as typed KG nodes.
+
+    CONCEPT:AU-KG.mining.foldback-typed-nodes — each row-level node is linked
+    DEEP_RESULT_OF its source node when a ``source`` was used; a forecast is
+    linked FORECAST_OF its ``series_id`` node when one was given.
+    """
+    node_type = _DEEP_NODE_TYPE[action]
+    algo = _DEEP_ALGO_BY_ACTION[action]
+    if action == "deep_forecast":
+        props = {"provider": _DSM_SERVER_NAME, "algo": algo, **result}
+        node_id = _deep_write_node(node_type, props, graph)
+        if series_id:
+            _deep_write_edge(node_id, series_id, "FORECAST_OF", graph)
+        return [node_id]
+    written: list[str] = []
+    for i, row in enumerate(result.get("rows") or []):
+        props = {"provider": _DSM_SERVER_NAME, "algo": algo, **row}
+        node_id = _deep_write_node(node_type, props, graph)
+        if i < len(node_ids):
+            _deep_write_edge(node_id, node_ids[i], "DEEP_RESULT_OF", graph)
+        written.append(node_id)
+    return written
+
+
+def _fork_branches(branches_json: str, code: str, n: int) -> tuple[Any, str | None]:
+    """Resolve ``graph_fork``'s branch list from ``branches_json``, else ``code`` + ``n``."""
+    try:
+        branches = json.loads(branches_json) if branches_json else []
+    except (TypeError, ValueError) as exc:
+        return None, _surface_error(exc, surface="fork", code="invalid_request")
+    if not isinstance(branches, list):
+        return None, json.dumps(
+            {"surface": "fork", "error": "branches_json must decode to a list"}
+        )
+    if branches:
+        return branches, None
+    if code and int(n) > 0:
+        return [code] * int(n), None
+    return None, json.dumps(
+        {
+            "surface": "fork",
+            "error": "provide branches_json (list) or code + n (>0)",
+        }
+    )
 
 
 def register_engine_surface_tools(mcp) -> None:
@@ -2308,68 +3171,9 @@ def register_engine_surface_tools(mcp) -> None:
                 code="dependency_unavailable",
             )
         try:
-            if action == "get":
-                if not key:
-                    return json.dumps({"surface": "kvcache", "error": "key required"})
-                blob = backend.get(key)
-                return json.dumps(
-                    {
-                        "surface": "kvcache",
-                        "action": action,
-                        "hit": blob is not None,
-                        "value_b64": (
-                            base64.b64encode(blob).decode("ascii")
-                            if blob is not None
-                            else None
-                        ),
-                    }
-                )
-            if action == "put":
-                if not key:
-                    return json.dumps({"surface": "kvcache", "error": "key required"})
-                try:
-                    raw = base64.b64decode(value_b64) if value_b64 else b""
-                except (ValueError, TypeError) as exc:
-                    return _surface_error(
-                        exc, surface="kvcache", code="invalid_request"
-                    )
-                return json.dumps(
-                    {
-                        "surface": "kvcache",
-                        "action": action,
-                        "stored": bool(backend.put(key, raw)),
-                    }
-                )
-            if action in ("contains", "exists"):
-                if not key:
-                    return json.dumps({"surface": "kvcache", "error": "key required"})
-                probe = backend.exists if action == "exists" else backend.contains
-                return json.dumps(
-                    {
-                        "surface": "kvcache",
-                        "action": action,
-                        "present": bool(probe(key)),
-                    }
-                )
-            if action == "stats":
-                stats = backend.stats()
-                data = (
-                    stats.model_dump() if hasattr(stats, "model_dump") else dict(stats)
-                )
-                return json.dumps(
-                    {"surface": "kvcache", "action": action, "result": data},
-                    default=_json_default,
-                )
-            return json.dumps(
-                {"surface": "kvcache", "error": f"unknown action {action!r}"}
-            )
+            return _kvcache_dispatch(backend, action, key, value_b64)
         finally:
-            close = getattr(backend, "close", None)
-            if callable(close):
-                try:
-                    close()
-                except Exception:  # noqa: BLE001 — best-effort cleanup
-                    pass
+            _kvcache_close(backend)
 
     kg_server.REGISTERED_TOOLS["graph_kvcache"] = graph_kvcache
 
@@ -2521,8 +3325,6 @@ def register_engine_surface_tools(mcp) -> None:
         """Thin verb over :class:`~agent_utilities.kvcache.KVCheckpointStore` (CONCEPT:AU-KG.memory.kv-checkpoint-resource)
         and :class:`~agent_utilities.kvcache.TieredCheckpointManager`
         (CONCEPT:AU-KG.memory.checkpoint-worthiness-scoring)."""
-        from agent_utilities.kvcache import KVCheckpointError, KVCheckpointKey
-
         # ── the intelligence actions: worthiness, tiering, eligibility ──────
         # These route through TieredCheckpointManager (shared RAM tier) rather than
         # the durable store directly, because the RAM tier is the DEFAULT and disk is
@@ -2568,104 +3370,42 @@ def register_engine_surface_tools(mcp) -> None:
             )
 
         if action == "create":
-            try:
-                data = base64.b64decode(data_b64) if data_b64 else b""
-                provenance = json.loads(provenance_json) if provenance_json else {}
-            except (ValueError, TypeError) as exc:
-                return _surface_error(
-                    exc, surface="kv_checkpoint", action=action, code="invalid_request"
-                )
-            try:
-                key = KVCheckpointKey(
-                    model_identity=model_identity,
-                    quantization=quantization,
-                    serving_engine=serving_engine,
-                    engine_version=engine_version,
-                    prefix_digest=prefix_digest,
-                    tenant=tenant,
-                    policy_version=policy_version,
-                )
-            except Exception as exc:  # noqa: BLE001 — bad/missing key component
-                return _surface_error(
-                    exc, surface="kv_checkpoint", action=action, code="invalid_request"
-                )
-            try:
-                record = store.create_checkpoint(
-                    data,
-                    key=key,
-                    run_id=run_id,
-                    point=point,
-                    provenance=provenance if isinstance(provenance, dict) else {},
-                )
-            except Exception as exc:  # noqa: BLE001 — surface engine errors as data
-                return _surface_error(exc, surface="kv_checkpoint", action=action)
-            if record is None:
-                return json.dumps(
-                    {
-                        "surface": "kv_checkpoint",
-                        "action": action,
-                        "error": "checkpoint creation failed (empty payload or engine write failure)",
-                    }
-                )
-            return json.dumps(
+            return _kv_create_checkpoint(
+                action,
+                store,
                 {
-                    "surface": "kv_checkpoint",
-                    "action": action,
-                    "result": record.model_dump(),
+                    "data_b64": data_b64,
+                    "provenance_json": provenance_json,
+                    "model_identity": model_identity,
+                    "quantization": quantization,
+                    "serving_engine": serving_engine,
+                    "engine_version": engine_version,
+                    "prefix_digest": prefix_digest,
+                    "tenant": tenant,
+                    "policy_version": policy_version,
+                    "run_id": run_id,
+                    "point": point,
                 },
-                default=_json_default,
             )
-
         if action == "instantiate_agent":
-            try:
-                record = store.instantiate_agent(
-                    checkpoint_id,
-                    requesting_tenant=requesting_tenant,
-                    new_run_id=new_run_id,
-                    current_policy_version=current_policy_version or None,
-                )
-            except KVCheckpointError as exc:
-                return _surface_error(
-                    exc,
-                    surface="kv_checkpoint",
-                    action=action,
-                    code=_checkpoint_error_code(exc),
-                )
-            return json.dumps(
-                {
-                    "surface": "kv_checkpoint",
-                    "action": action,
-                    "result": record.model_dump(),
-                },
-                default=_json_default,
+            return _kv_instantiate_agent(
+                action,
+                store,
+                checkpoint_id,
+                requesting_tenant,
+                new_run_id,
+                current_policy_version,
             )
-
         if action == "restore_conversation":
-            try:
-                res = store.restore_conversation(
-                    checkpoint_id,
-                    conversation_id=conversation_id,
-                    requesting_tenant=requesting_tenant,
-                    current_policy_version=current_policy_version or None,
-                    allow_cold_start=allow_cold_start,
-                )
-            except KVCheckpointError as exc:
-                return _surface_error(
-                    exc,
-                    surface="kv_checkpoint",
-                    action=action,
-                    code=_checkpoint_error_code(exc),
-                )
-            # Never inline the heavy blob bytes over the JSON tool surface — only
-            # provenance; a caller that needs the bytes fetches them directly from
-            # the engine's own blob store by digest (CONCEPT:AU-KG.memory.kv-checkpoint-resource).
-            payload = res.model_dump(exclude={"data"})
-            payload["size_bytes"] = len(res.data) if res.data is not None else 0
-            return json.dumps(
-                {"surface": "kv_checkpoint", "action": action, "result": payload},
-                default=_json_default,
+            return _kv_restore_conversation(
+                action,
+                store,
+                checkpoint_id,
+                conversation_id,
+                requesting_tenant,
+                current_policy_version,
+                allow_cold_start,
             )
-
         return json.dumps(
             {"surface": "kv_checkpoint", "error": f"unknown action {action!r}"}
         )
@@ -2829,43 +3569,25 @@ def register_engine_surface_tools(mcp) -> None:
         ),
     ) -> str:
         """Thin wrapper over the engine trace surface (CONCEPT:AU-KG.coordination.engine-message-broker)."""
-        try:
-            extra = json.loads(params_json) if params_json else {}
-        except (TypeError, ValueError) as exc:
-            return _surface_error(exc, surface="traces", code="invalid_request")
-        if not isinstance(extra, dict):
-            return json.dumps(
-                {"surface": "traces", "error": "params_json must decode to an object"}
-            )
+        extra, rejection = _decode_json_object(params_json, "traces")
+        if rejection is not None:
+            return rejection
+        if action in {"waterfall", "get"} and not trace_id:
+            return json.dumps({"surface": "traces", "error": "trace_id required"})
         if action == "waterfall":
-            if not trace_id:
-                return json.dumps({"surface": "traces", "error": "trace_id required"})
             return _trace_waterfall(trace_id)
         if action == "get":
-            if not trace_id:
-                return json.dumps({"surface": "traces", "error": "trace_id required"})
-            native = _trace_native_get(trace_id)
-            if native is not None:
-                return json.dumps(
-                    {"surface": "traces", "action": "get", "result": native},
-                    default=_json_default,
-                )
-            params: dict[str, Any] = {"trace_id": trace_id}
-            candidates = _TRACES_GET_CANDIDATES
+            done, params, candidates = _traces_get_dispatch(trace_id)
         elif action == "search":
-            native_rows = _trace_native_search(service, operation, query, limit)
-            if native_rows is not None:
-                return json.dumps(
-                    {"surface": "traces", "action": "search", "result": native_rows},
-                    default=_json_default,
-                )
-            params = _drop_empty(service=service, operation=operation, query=query)
-            params["limit"] = int(limit)
-            candidates = _TRACES_SEARCH_CANDIDATES
+            done, params, candidates = _traces_search_dispatch(
+                service, operation, query, limit
+            )
         else:
             return json.dumps(
                 {"surface": "traces", "error": f"unknown action {action!r}"}
             )
+        if done is not None:
+            return done
         params.update(extra)
         return _invoke(
             surface="traces",
@@ -3297,14 +4019,9 @@ def register_engine_surface_tools(mcp) -> None:
         """Thin action-router over the engine mining surface (CONCEPT:EG-KG.mining.frequent-itemset-mining)."""
         action = (action or "").strip().replace("-", "_") or "associate"
         action = _MINING_ACTION_ALIASES.get(action, action)
-        try:
-            params = json.loads(params_json) if params_json else {}
-        except (TypeError, ValueError) as exc:
-            return _surface_error(exc, surface="mining", code="invalid_request")
-        if not isinstance(params, dict):
-            return json.dumps(
-                {"surface": "mining", "error": "params_json must decode to an object"}
-            )
+        params, rejection = _decode_json_object(params_json, "mining")
+        if rejection is not None:
+            return rejection
         # CONCEPT:AU-KG.compute.engine-surface-manifest — an action that isn't one of the
         # 18 real MiningClient methods is a NAME error (typo/guess), not "this engine
         # build lacks mining" — report it as such, with the introspected valid-action
@@ -3322,15 +4039,17 @@ def register_engine_surface_tools(mcp) -> None:
                     "actions": sorted(valid_actions),
                 }
             )
-        _process_result = _graph_mine_process_ocel_json(action, params, graph)
-        if _process_result is not None:
-            return _process_result
-        _process_result = _graph_mine_process_conformance(action, params, graph)
-        if _process_result is not None:
-            return _process_result
-        _process_result = _graph_mine_process_events(action, params, graph)
-        if _process_result is not None:
-            return _process_result
+        # The 'process' action's three governed special cases, in their original
+        # order: each returns None when its own guard does not match, falling
+        # through to the generic _invoke dispatch below.
+        for special_case in (
+            _graph_mine_process_ocel_json,
+            _graph_mine_process_conformance,
+            _graph_mine_process_events,
+        ):
+            special_result = special_case(action, params, graph)
+            if special_result is not None:
+                return special_result
         return _invoke(
             surface="mining",
             action=action,
@@ -3412,33 +4131,14 @@ def register_engine_surface_tools(mcp) -> None:
         ),
     ) -> str:
         """Thin delegation adapter: ship features to data-science-mcp, fold predictions back (CONCEPT:AU-KG.mining.dsm-forecast-delegation)."""
-        action = (action or "").strip().replace("-", "_") or "deep_forecast"
-        if action not in _DEEP_ALGO_BY_ACTION:
-            return json.dumps(
-                {
-                    "surface": "mining_deep",
-                    "action": action,
-                    "error": f"unknown action {action!r}; choose one of "
-                    f"{sorted(_DEEP_ALGO_BY_ACTION)}",
-                }
-            )
-        try:
-            params = json.loads(params_json) if params_json else {}
-        except (TypeError, ValueError) as exc:
-            return _surface_error(
-                exc,
-                surface="mining_deep",
-                action=action,
-                code="invalid_request",
-            )
-        if not isinstance(params, dict):
-            return json.dumps(
-                {
-                    "surface": "mining_deep",
-                    "action": action,
-                    "error": "params_json must decode to an object",
-                }
-            )
+        action, rejection = _deep_action_or_error(action)
+        if rejection is not None:
+            return rejection
+        params, rejection = _decode_json_object(
+            params_json, "mining_deep", action=action
+        )
+        if rejection is not None:
+            return rejection
 
         writeback = bool(params.pop("writeback", False))
         series_id = str(params.pop("series_id", "") or "")
@@ -3448,87 +4148,16 @@ def register_engine_surface_tools(mcp) -> None:
         except Exception as exc:  # noqa: BLE001 — bad input / feature-gathering failure is data
             return _surface_error(exc, surface="mining_deep", action=action)
 
-        try:
-            raw = _run_async(
-                call_tool_once(
-                    server=_DSM_SERVER_NAME,
-                    tool=_DSM_TOOL_NAME,
-                    params=tool_params,
-                    params_style="args",
-                )
-            )
-        except Exception as exc:  # noqa: BLE001 — the delegate being unreachable degrades cleanly
-            return _surface_error(
-                exc,
-                surface="mining_deep",
-                action=action,
-                code="dependency_unavailable",
-                context={"delegated": True, "available": False},
-            )
-
-        # BUG-7: ``call_tool_once``'s decoder prefers a FastMCP result's
-        # structured ``.data`` verbatim (``mcp_package._decode``) — when the
-        # delegate's tool itself returns an already-JSON-encoded string (this
-        # repo's own tool convention: ``return json.dumps(...)``), ``.data`` IS
-        # that raw string, not the parsed object, so ``raw`` arrives here as a
-        # ``str`` even though the delegate answered normally. Align the parse
-        # here instead of failing on a shape mismatch that isn't a real outage.
-        if isinstance(raw, str):
-            try:
-                raw = json.loads(raw)
-            except (TypeError, ValueError):
-                pass  # genuinely not JSON — falls through to the shape error below
-        if not isinstance(raw, dict):
-            return json.dumps(
-                {
-                    "surface": "mining_deep",
-                    "action": action,
-                    "provider": _DSM_SERVER_NAME,
-                    "delegated": True,
-                    "available": False,
-                    "error": f"unexpected data-science-mcp response shape: {type(raw).__name__}",
-                }
-            )
-        if not raw.get("available", True):
-            return json.dumps(
-                {
-                    "surface": "mining_deep",
-                    "action": action,
-                    "provider": _DSM_SERVER_NAME,
-                    "delegated": True,
-                    "available": False,
-                    "error": raw.get(
-                        "error", "data-science-mcp reported the algo unavailable"
-                    ),
-                }
-            )
+        raw, delegate_error = _deep_call_delegate(action, tool_params)
+        if delegate_error is not None:
+            return delegate_error
 
         result = raw.get("result") or {}
-        node_type = _DEEP_NODE_TYPE[action]
-        written: list[str] = []
-        if writeback:
-            if action == "deep_forecast":
-                props = {
-                    "provider": _DSM_SERVER_NAME,
-                    "algo": _DEEP_ALGO_BY_ACTION[action],
-                    **result,
-                }
-                node_id = _deep_write_node(node_type, props, graph)
-                if series_id:
-                    _deep_write_edge(node_id, series_id, "FORECAST_OF", graph)
-                written = [node_id]
-            else:
-                for i, row in enumerate(result.get("rows") or []):
-                    props = {
-                        "provider": _DSM_SERVER_NAME,
-                        "algo": _DEEP_ALGO_BY_ACTION[action],
-                        **row,
-                    }
-                    node_id = _deep_write_node(node_type, props, graph)
-                    if i < len(node_ids):
-                        _deep_write_edge(node_id, node_ids[i], "DEEP_RESULT_OF", graph)
-                    written.append(node_id)
-
+        written = (
+            _deep_writeback(action, result, node_ids, series_id, graph)
+            if writeback
+            else []
+        )
         return json.dumps(
             {
                 "surface": "mining_deep",
@@ -3789,32 +4418,12 @@ def register_engine_surface_tools(mcp) -> None:
         ),
     ) -> str:
         """Thin verb over the warm-fork primitive (CONCEPT:AU-KG.coordination.warm-fork-fanout)."""
-        try:
-            branches = json.loads(branches_json) if branches_json else []
-        except (TypeError, ValueError) as exc:
-            return _surface_error(exc, surface="fork", code="invalid_request")
-        if not isinstance(branches, list):
-            return json.dumps(
-                {"surface": "fork", "error": "branches_json must decode to a list"}
-            )
-        if not branches:
-            if code and int(n) > 0:
-                branches = [code] * int(n)
-            else:
-                return json.dumps(
-                    {
-                        "surface": "fork",
-                        "error": "provide branches_json (list) or code + n (>0)",
-                    }
-                )
-        try:
-            seed_vars = json.loads(vars_json) if vars_json else {}
-        except (TypeError, ValueError) as exc:
-            return _surface_error(exc, surface="fork", code="invalid_request")
-        if not isinstance(seed_vars, dict):
-            return json.dumps(
-                {"surface": "fork", "error": "vars_json must decode to an object"}
-            )
+        branches, rejection = _fork_branches(branches_json, code, n)
+        if rejection is not None:
+            return rejection
+        seed_vars, rejection = _decode_json_object(vars_json, "fork", field="vars_json")
+        if rejection is not None:
+            return rejection
         if context_query.strip():
             return _crossmodal_fork_fanout(
                 branches,
@@ -3958,115 +4567,37 @@ def register_engine_surface_tools(mcp) -> None:
         viz_client = getattr(client, "viz", None)
         if viz_client is None:
             return _degraded(surface, action, ["client.viz"])
+        render_opts: dict[str, Any] = {
+            "width_px": width_px,
+            "height_px": height_px,
+            "format": format,
+            "max_primitives": max_primitives,
+            "max_bytes": max_bytes,
+            "dataset_ref": dataset_ref,
+        }
         if action == "capability_matrix":
-            try:
-                result = viz_client.capability_matrix()
-            except Exception as exc:  # noqa: BLE001 — surface engine errors as data
-                return _surface_error(exc, surface=surface, action=action)
-            return json.dumps(
-                {"surface": surface, "action": action, "result": result},
-                default=_json_default,
-            )
+            return _viz_capability_matrix(viz_client, action)
         if action == "export_chart":
-            try:
-                spec = json.loads(spec_json) if spec_json else {}
-                dataset = json.loads(dataset_json) if dataset_json else {}
-            except (TypeError, ValueError) as exc:
-                return _surface_error(
-                    exc, surface=surface, action=action, code="invalid_request"
-                )
-            if not spec or not dataset:
-                return json.dumps(
-                    {
-                        "surface": surface,
-                        "action": action,
-                        "error": "spec_json and dataset_json are both required",
-                    }
-                )
-            return _render_chart(
-                viz_client,
-                surface=surface,
-                action=action,
-                spec=spec,
-                dataset=dataset,
-                width_px=width_px,
-                height_px=height_px,
-                format=format,
-                max_primitives=max_primitives,
-                max_bytes=max_bytes,
-                dataset_ref=dataset_ref,
+            return _viz_export_chart(
+                viz_client, action, spec_json, dataset_json, render_opts
             )
         if action == "plot_from_query":
-            if not query.strip() or not x_field.strip() or not y_field.strip():
-                return json.dumps(
-                    {
-                        "surface": surface,
-                        "action": action,
-                        "error": "query, x_field, and y_field are all required",
-                    }
-                )
-            if mark not in _VIZ_QUERY_MARKS:
-                return json.dumps(
-                    {
-                        "surface": surface,
-                        "action": action,
-                        "error": f"mark {mark!r} is not usable from a flat query result; "
-                        f"use one of {sorted(_VIZ_QUERY_MARKS)} or action='export_chart' "
-                        "with an explicit graph/node-edge dataset",
-                    }
-                )
-            query_client = getattr(client, "query", None)
-            if query_client is None or not hasattr(query_client, "sql"):
-                return _degraded(surface, action, ["client.query.sql"])
-            try:
-                rows = query_client.sql(query)
-            except Exception as exc:  # noqa: BLE001 — surface engine errors as data
-                return _surface_error(
-                    exc, surface=surface, action=action, code="query_failed"
-                )
-            fields = [f for f in (x_field, y_field, color_field, size_field) if f]
-            effective_row_limit = min(max(1, row_limit), _VIZ_MAX_INLINE_ROWS)
-            columns, rows_used, rows_returned = _rows_to_inline_columns(
-                rows, fields, effective_row_limit
-            )
-            if columns is None:
-                return json.dumps(
-                    {
-                        "surface": surface,
-                        "action": action,
-                        "unavailable": True,
-                        "reason": (
-                            f"query returned {rows_returned} row(s); 0 had every one of "
-                            f"{fields} present, so there is nothing to render — this is "
-                            "reported as unavailable, not rendered as an empty chart"
-                        ),
-                    }
-                )
-            spec = _plot_spec(
-                mark, dataset_ref, x_field, y_field, color_field, size_field, title
-            )
-            dataset = {"InlineColumns": {"columns": columns}}
-            resp = _render_chart(
+            return _viz_plot_from_query(
+                client,
                 viz_client,
-                surface=surface,
-                action=action,
-                spec=spec,
-                dataset=dataset,
-                width_px=width_px,
-                height_px=height_px,
-                format=format,
-                max_primitives=max_primitives,
-                max_bytes=max_bytes,
-                dataset_ref=dataset_ref,
+                action,
+                {
+                    "query": query,
+                    "mark": mark,
+                    "x_field": x_field,
+                    "y_field": y_field,
+                    "color_field": color_field,
+                    "size_field": size_field,
+                    "title": title,
+                    "row_limit": row_limit,
+                },
+                render_opts,
             )
-            try:
-                payload = json.loads(resp)
-            except (TypeError, ValueError):
-                return resp
-            if "result" in payload:
-                payload["rows_returned"] = rows_returned
-                payload["rows_rendered"] = rows_used
-            return json.dumps(payload, default=_json_default)
         return json.dumps(
             {
                 "surface": surface,
