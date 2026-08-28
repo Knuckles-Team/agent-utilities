@@ -13,7 +13,7 @@ automated fallback strategies for resilience in production workflows.
 import asyncio
 import logging
 import os
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 from pydantic_ai import DeferredToolRequests
 from pydantic_graph import End
@@ -136,95 +136,59 @@ def _default_tier_for(node_id: str) -> str:
     return _SPECIALIST_TIER_HINTS.get(node_id, "medium")
 
 
-def pick_specialist_model(
-    ctx_deps: Any, node_id: str, step_model_id: str | None = None
-) -> Any:
-    """Pick the model to use when spawning the specialist ``node_id``.
+def _resolve_explicit_model(
+    registry: Any, model_id: str, node_id: str, label: str
+) -> Any | None:
+    """CONCEPT:AU-ORCH.routing.conductor-per-step-model — resolve one explicit model_id override.
 
-    Resolution order:
-
-    1. If ``ctx_deps.requested_model_id`` is set AND the id resolves
-       inside ``ctx_deps.model_registry``, use that model verbatim — this
-       is the per-turn override sourced from the ``x-agent-model-id``
-       header and wins over tier-based routing.
-    2. If ``ctx_deps.model_registry`` is populated, consult the discovery
-       registry for a ``default_tier`` / ``required_tags`` hint on the
-       specialist; fall back to the heuristic ``_default_tier_for`` map.
-       Call :meth:`ModelRegistry.pick_for_task` and build a concrete
-       pydantic-ai model via :func:`create_model`.
-    3. Otherwise return ``ctx_deps.agent_model`` (the single graph-wide
-       default) so behaviour is unchanged when no registry is configured.
-
-    The function never raises on lookup problems: if anything goes wrong,
-    it logs a warning and returns the default ``agent_model``.
+    Shared by the Conductor-assigned ``step_model_id`` path and the per-turn
+    ``requested_model_id`` (``x-agent-model-id`` header) path in
+    :func:`pick_specialist_model`. Both look the id up in ``registry``, build
+    a concrete pydantic-ai model via :func:`create_model` on a hit, and log +
+    return ``None`` on any lookup/build failure so the caller falls through to
+    tier-based routing.
     """
-    registry = getattr(ctx_deps, "model_registry", None)
-    if registry is None or not getattr(registry, "models", None):
-        return ctx_deps.agent_model
+    chosen = registry.get_by_id(model_id)
+    if chosen is None:
+        logger.debug(
+            "%s model id '%s' not in registry; using override/tier routing",
+            label,
+            model_id,
+        )
+        return None
+    try:
+        from agent_utilities.core.model_factory import create_model
 
-    # CONCEPT:AU-ORCH.routing.conductor-per-step-model — a Conductor-assigned per-step model_id wins over both the
-    # per-turn header override and tier routing (the Conductor explicitly chose it).
-    if step_model_id:
-        chosen = registry.get_by_id(step_model_id)
-        if chosen is not None:
-            try:
-                from agent_utilities.core.model_factory import create_model
+        api_key = setting(chosen.api_key_env) if chosen.api_key_env else None
+        logger.info(
+            "Spawning specialist '%s' with %s model '%s'",
+            node_id,
+            label,
+            chosen.id,
+        )
+        return create_model(
+            provider=chosen.provider,
+            model_id=chosen.model_id,
+            base_url=chosen.base_url,
+            api_key=api_key,
+        )
+    except Exception as e:
+        logger.warning(
+            "%s model '%s' failed to build; falling back: %s",
+            label,
+            model_id,
+            e,
+        )
+        return None
 
-                api_key = setting(chosen.api_key_env) if chosen.api_key_env else None
-                logger.info(
-                    "Spawning specialist '%s' with Conductor-assigned model '%s'",
-                    node_id,
-                    chosen.id,
-                )
-                return create_model(
-                    provider=chosen.provider,
-                    model_id=chosen.model_id,
-                    base_url=chosen.base_url,
-                    api_key=api_key,
-                )
-            except Exception as e:
-                logger.warning(
-                    "Conductor model '%s' failed to build; falling back: %s",
-                    step_model_id,
-                    e,
-                )
-        else:
-            logger.debug(
-                "Conductor model id '%s' not in registry; using override/tier routing",
-                step_model_id,
-            )
 
-    requested_id = getattr(ctx_deps, "requested_model_id", None)
-    if requested_id:
-        chosen = registry.get_by_id(requested_id)
-        if chosen is not None:
-            try:
-                from agent_utilities.core.model_factory import create_model
+def _resolve_tier_and_tags(node_id: str) -> tuple[str, list[str]]:
+    """Resolve the heuristic tier + required_tags for ``node_id`` from the discovery registry.
 
-                api_key = setting(chosen.api_key_env) if chosen.api_key_env else None
-                logger.info(
-                    "Spawning specialist '%s' with user-requested model '%s'",
-                    node_id,
-                    chosen.id,
-                )
-                return create_model(
-                    provider=chosen.provider,
-                    model_id=chosen.model_id,
-                    base_url=chosen.base_url,
-                    api_key=api_key,
-                )
-            except Exception as e:
-                logger.warning(
-                    "Requested model '%s' failed to build; falling back: %s",
-                    requested_id,
-                    e,
-                )
-        else:
-            logger.debug(
-                "Requested model id '%s' not found in registry; using tier routing",
-                requested_id,
-            )
-
+    Falls back to :func:`_default_tier_for` and an empty tag list on any
+    registry-read failure — identical behaviour to a specialist with no
+    registry entry.
+    """
     tier = _default_tier_for(node_id)
     required_tags: list[str] = []
     try:
@@ -235,51 +199,60 @@ def pick_specialist_model(
             required_tags = list(getattr(agent_info, "required_tags", []) or [])
     except Exception as e:  # noqa: BLE001 — tier/required_tags already hold safe pre-lookup defaults; a registry read failure just leaves those defaults in place, identical to a specialist with no registry entry
         logger.debug(f"Registry tier lookup failed for '{node_id}': {e}")
+    return tier, required_tags
 
-    # CONCEPT:AU-OS.state.homeostatic-model-downgrade — Homeostatic Model Downgrade
-    # When the ResourceOptimizer detects budget pressure, autonomously
-    # downgrade the tier to reduce cost — the system's "blood pressure"
-    # regulation.  The optimizer's select_model_for_step() already knows
-    # how to map remaining_pct → effective_complexity; we just need to
-    # ask it and let it override our heuristic tier.
-    resource_optimizer = getattr(ctx_deps, "resource_optimizer", None)
-    if resource_optimizer is not None:
-        try:
-            optimized = resource_optimizer.select_model_for_step(
-                complexity=tier,
-                required_tags=required_tags or None,
-            )
-            if optimized is not None:
-                # The optimizer returned a model dict — it handled tier
-                # adjustment itself.  We log the homeostatic event.
-                effective_tier = optimized.get("tier", tier)
-                if effective_tier != tier:
-                    logger.info(
-                        "[CONCEPT:AU-OS.state.homeostatic-model-downgrade] Homeostatic downgrade: '%s' tier %s → %s "
-                        "(budget %.0f%% remaining)",
-                        node_id,
-                        tier,
-                        effective_tier,
-                        resource_optimizer.budget.cost_remaining
-                        / max(resource_optimizer.budget.total_cost_budget_usd, 0.01)
-                        * 100,
-                    )
-                    tier = effective_tier
-        except Exception as e:  # noqa: BLE001 — resource_optimizer.select_model_for_step() is an optional budget-pressure override; tier already holds the heuristic/registry value on entry, so a failure here just skips the optional downgrade
-            logger.debug(
-                f"CONCEPT:AU-OS.state.homeostatic-model-downgrade homeostatic check skipped: {e}"
-            )
 
-    # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Confidence-Gated Model Router
-    # Compute a confidence signal from upstream scoring to adaptively
-    # select cheaper or more expensive models.  Composes with CONCEPT:AU-OS.state.homeostatic-model-downgrade:
-    # budget pressure adjusts the tier first, then confidence further
-    # refines within the budget-allowed range.
-    confidence_signal: float | None = None
-    routing_percentile = getattr(ctx_deps, "routing_percentile", 50.0)
+def _apply_homeostatic_downgrade(
+    resource_optimizer: Any, tier: str, node_id: str, required_tags: list[str]
+) -> str:
+    """CONCEPT:AU-OS.state.homeostatic-model-downgrade — Homeostatic Model Downgrade.
+
+    When the ResourceOptimizer detects budget pressure, autonomously
+    downgrade the tier to reduce cost — the system's "blood pressure"
+    regulation.  The optimizer's select_model_for_step() already knows
+    how to map remaining_pct → effective_complexity; we just need to
+    ask it and let it override our heuristic tier. Any failure leaves
+    ``tier`` unchanged — this is an optional override, not a requirement.
+    """
+    try:
+        optimized = resource_optimizer.select_model_for_step(
+            complexity=tier,
+            required_tags=required_tags or None,
+        )
+        if optimized is not None:
+            # The optimizer returned a model dict — it handled tier
+            # adjustment itself.  We log the homeostatic event.
+            effective_tier = optimized.get("tier", tier)
+            if effective_tier != tier:
+                logger.info(
+                    "[CONCEPT:AU-OS.state.homeostatic-model-downgrade] Homeostatic downgrade: '%s' tier %s → %s "
+                    "(budget %.0f%% remaining)",
+                    node_id,
+                    tier,
+                    effective_tier,
+                    resource_optimizer.budget.cost_remaining
+                    / max(resource_optimizer.budget.total_cost_budget_usd, 0.01)
+                    * 100,
+                )
+                tier = effective_tier
+    except Exception as e:  # noqa: BLE001 — resource_optimizer.select_model_for_step() is an optional budget-pressure override; tier already holds the heuristic/registry value on entry, so a failure here just skips the optional downgrade
+        logger.debug(
+            f"CONCEPT:AU-OS.state.homeostatic-model-downgrade homeostatic check skipped: {e}"
+        )
+    return tier
+
+
+def _compute_confidence_signal(ctx_deps: Any, node_id: str) -> float:
+    """CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Confidence-Gated Model Router.
+
+    Blends a runtime WorkspaceAttention score (70%) with historical
+    MemoryRetriever tool proficiency (30%) into one confidence signal used
+    to adaptively select cheaper or more expensive models. Both sources
+    degrade gracefully to a neutral 0.5 when unavailable.
+    """
+    knowledge_engine = getattr(ctx_deps, "knowledge_engine", None)
 
     # Source 1: WorkspaceAttention attention score (runtime signal)
-    knowledge_engine = getattr(ctx_deps, "knowledge_engine", None)
     runtime_confidence = 0.5
     if knowledge_engine is not None:
         try:
@@ -307,8 +280,25 @@ def pick_specialist_model(
 
     # Blend: 70% runtime + 30% historical (degrades gracefully when
     # no MemoryRetriever is present — both default to 0.5 neutral)
-    confidence_signal = 0.7 * runtime_confidence + 0.3 * historical_confidence
+    return 0.7 * runtime_confidence + 0.3 * historical_confidence
 
+
+def _pick_adaptive_model(
+    registry: Any,
+    tier: str,
+    confidence_signal: float,
+    routing_percentile: float,
+    required_tags: list[str],
+    node_id: str,
+    ctx_deps: Any,
+) -> Any:
+    """Final confidence-gated adaptive pick + concrete model build.
+
+    Composes with :func:`_apply_homeostatic_downgrade`: budget pressure
+    adjusts the tier first, then confidence further refines within the
+    budget-allowed range. Falls back to ``ctx_deps.agent_model`` on any
+    failure — the function never raises.
+    """
     try:
         from agent_utilities.core.model_factory import create_model
 
@@ -352,6 +342,130 @@ def pick_specialist_model(
         return ctx_deps.agent_model
 
 
+def pick_specialist_model(
+    ctx_deps: Any, node_id: str, step_model_id: str | None = None
+) -> Any:
+    """Pick the model to use when spawning the specialist ``node_id``.
+
+    Resolution order:
+
+    1. If ``ctx_deps.requested_model_id`` is set AND the id resolves
+       inside ``ctx_deps.model_registry``, use that model verbatim — this
+       is the per-turn override sourced from the ``x-agent-model-id``
+       header and wins over tier-based routing.
+    2. If ``ctx_deps.model_registry`` is populated, consult the discovery
+       registry for a ``default_tier`` / ``required_tags`` hint on the
+       specialist; fall back to the heuristic ``_default_tier_for`` map.
+       Call :meth:`ModelRegistry.pick_for_task` and build a concrete
+       pydantic-ai model via :func:`create_model`.
+    3. Otherwise return ``ctx_deps.agent_model`` (the single graph-wide
+       default) so behaviour is unchanged when no registry is configured.
+
+    The function never raises on lookup problems: if anything goes wrong,
+    it logs a warning and returns the default ``agent_model``.
+    """
+    registry = getattr(ctx_deps, "model_registry", None)
+    if registry is None or not getattr(registry, "models", None):
+        return ctx_deps.agent_model
+
+    # CONCEPT:AU-ORCH.routing.conductor-per-step-model — a Conductor-assigned per-step model_id wins over both the
+    # per-turn header override and tier routing (the Conductor explicitly chose it).
+    if step_model_id:
+        chosen = _resolve_explicit_model(
+            registry, step_model_id, node_id, "Conductor-assigned"
+        )
+        if chosen is not None:
+            return chosen
+
+    requested_id = getattr(ctx_deps, "requested_model_id", None)
+    if requested_id:
+        chosen = _resolve_explicit_model(
+            registry, requested_id, node_id, "user-requested"
+        )
+        if chosen is not None:
+            return chosen
+
+    tier, required_tags = _resolve_tier_and_tags(node_id)
+
+    resource_optimizer = getattr(ctx_deps, "resource_optimizer", None)
+    if resource_optimizer is not None:
+        tier = _apply_homeostatic_downgrade(
+            resource_optimizer, tier, node_id, required_tags
+        )
+
+    confidence_signal = _compute_confidence_signal(ctx_deps, node_id)
+    routing_percentile = getattr(ctx_deps, "routing_percentile", 50.0)
+
+    return _pick_adaptive_model(
+        registry,
+        tier,
+        confidence_signal,
+        routing_percentile,
+        required_tags,
+        node_id,
+        ctx_deps,
+    )
+
+
+class _NormalizedAgentFields(NamedTuple):
+    """Normalized, lower-cased fields used by :func:`agent_matches_node_id`'s match strategies."""
+
+    name: str
+    mcp_tools: str
+    server: str
+    desc: str
+    capabilities: list[str]
+
+
+def _normalize_agent_fields(agent: MCPAgent) -> _NormalizedAgentFields:
+    name = agent.name.lower().replace("-", "_").replace(" ", "_")
+    mcp_tools = (agent.mcp_tools or "").lower().replace("-", "_").replace(" ", "_")
+    server = (agent.mcp_server or "").lower().replace("-", "_").replace(" ", "_")
+    desc = (agent.description or "").lower()
+    capabilities = [c.lower().replace("-", "_") for c in agent.capabilities]
+    # Also keep originals to be safe
+    capabilities.extend([c.lower() for c in agent.capabilities])
+    return _NormalizedAgentFields(name, mcp_tools, server, desc, capabilities)
+
+
+def _matches_exact(node_id_norm: str, f: _NormalizedAgentFields) -> bool:
+    return (
+        f.name == node_id_norm
+        or f.mcp_tools == node_id_norm
+        or f.server == node_id_norm
+        or node_id_norm in f.capabilities
+    )
+
+
+def _matches_substring(node_id_norm: str, f: _NormalizedAgentFields) -> bool:
+    return (bool(f.name) and f.name in node_id_norm) or (
+        bool(f.server) and f.server in node_id_norm
+    )
+
+
+def _matches_affix(node_id_norm: str, f: _NormalizedAgentFields) -> bool:
+    if f.name and (node_id_norm.startswith(f.name) or node_id_norm.endswith(f.name)):
+        return True
+    return bool(
+        f.server
+        and (node_id_norm.startswith(f.server) or node_id_norm.endswith(f.server))
+    )
+
+
+def _matches_keyword(
+    node_id_norm: str, f: _NormalizedAgentFields, agent_name: str
+) -> bool:
+    stop_words = {"researcher", "expert", "agent", "manager", "action"}
+    node_keywords = {
+        w for w in node_id_norm.split("_") if len(w) >= 3 and w not in stop_words
+    }
+    for kw in node_keywords:
+        if kw in f.name or kw in f.desc:
+            logger.debug(f"Keyword match: '{kw}' found in name/desc of '{agent_name}'")
+            return True
+    return False
+
+
 def agent_matches_node_id(agent: MCPAgent, node_id: str) -> bool:
     """Multi-strategy agent name matching for approximate node IDs from the router.
 
@@ -368,77 +482,29 @@ def agent_matches_node_id(agent: MCPAgent, node_id: str) -> bool:
 
     """
     node_id_norm = node_id.lower().replace("-", "_")
-    name = agent.name.lower().replace("-", "_").replace(" ", "_")
-    mcp_tools = (agent.mcp_tools or "").lower().replace("-", "_").replace(" ", "_")
-    server = (agent.mcp_server or "").lower().replace("-", "_").replace(" ", "_")
-    desc = (agent.description or "").lower()
-    capabilities = [c.lower().replace("-", "_") for c in agent.capabilities]
-    # Also keep originals to be safe
-    capabilities.extend([c.lower() for c in agent.capabilities])
+    fields = _normalize_agent_fields(agent)
 
-    if (
-        name == node_id_norm
-        or mcp_tools == node_id_norm
-        or server == node_id_norm
-        or node_id_norm in capabilities
-    ):
-        return True
-
-    if (name and name in node_id_norm) or (server and server in node_id_norm):
-        return True
-
-    if name and (node_id_norm.startswith(name) or node_id_norm.endswith(name)):
-        return True
-    if server and (node_id_norm.startswith(server) or node_id_norm.endswith(server)):
-        return True
-
-    stop_words = {"researcher", "expert", "agent", "manager", "action"}
-    node_keywords = {
-        w for w in node_id_norm.split("_") if len(w) >= 3 and w not in stop_words
-    }
-    if node_keywords:
-        for kw in node_keywords:
-            if kw in name or kw in desc:
-                logger.debug(
-                    f"Keyword match: '{kw}' found in name/desc of '{agent.name}'"
-                )
-                return True
-
-    return False
+    return (
+        _matches_exact(node_id_norm, fields)
+        or _matches_substring(node_id_norm, fields)
+        or _matches_affix(node_id_norm, fields)
+        or _matches_keyword(node_id_norm, fields, agent.name)
+    )
 
 
-async def _get_domain_tools(
-    node_id: str, deps: GraphDeps
-) -> tuple[list[Any], list[Any]]:
-    """Dynamically discover and load toolsets specialized for a domain expert.
+def _inject_generic_toolkits(node_id: str, skill_tags: list[str]) -> list[Any]:
+    """CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid (perf) — capability-gated generic-tool injection.
 
-    Starts with universal developer tools and augments them with domain-specific
-    These tools are resolved by matching the node identifier against the
-    Knowledge Graph specialist registry to discover assigned
-    capability tags and MCP server associations.
-
-    Returns:
-        A tuple containing (list of developer tools, list of specialized skill toolsets).
-
+    Previously the 13 developer_tools + 10 sdd_tools were dumped onto EVERY node
+    unconditionally. For an MCP-server node (e.g. "repository-manager-mcp") that drowns
+    the server's real tools in 23 irrelevant ones → wrong-tool selection (rg / SDD) and
+    ~3.5–9K wasted context tokens per call. Only inject the generic toolkits when the
+    node's name/capabilities indicate it does code/shell work (dev) or spec/planning (sdd).
     """
-    from agent_utilities.core.config import get_discovery_registry
-
     from ..tools.developer_tools import developer_tools
     from ..tools.sdd_tools import sdd_tools
 
-    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — registry hydration is a synchronous
-    # backend round-trip; keep it off the event loop.
-    registry = await asyncio.to_thread(get_discovery_registry)
-    agent = next((a for a in registry.agents if a.name == node_id), None)
-    skill_tags = agent.capabilities if agent else []
-
-    # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid (perf) — capability-gated generic-tool injection.
-    # Previously the 13 developer_tools + 10 sdd_tools were dumped onto EVERY node
-    # unconditionally. For an MCP-server node (e.g. "repository-manager-mcp") that drowns
-    # the server's real tools in 23 irrelevant ones → wrong-tool selection (rg / SDD) and
-    # ~3.5–9K wasted context tokens per call. Only inject the generic toolkits when the
-    # node's name/capabilities indicate it does code/shell work (dev) or spec/planning (sdd).
-    _DEV_TOOL_TAGS = {
+    _dev_tool_tags = {
         "code",
         "coding",
         "filesystem",
@@ -453,7 +519,7 @@ async def _get_domain_tools(
         "refactor",
         "debug",
     }
-    _SDD_TOOL_TAGS = {
+    _sdd_tool_tags = {
         "sdd",
         "spec",
         "plan",
@@ -464,19 +530,20 @@ async def _get_domain_tools(
     }
     _tag_blob = " ".join([node_id, *skill_tags]).lower()
     tools: list[Any] = []
-    if any(t in _tag_blob for t in _DEV_TOOL_TAGS):
+    if any(t in _tag_blob for t in _dev_tool_tags):
         tools += list(developer_tools)
-    if any(t in _tag_blob for t in _SDD_TOOL_TAGS):
+    if any(t in _tag_blob for t in _sdd_tool_tags):
         tools += list(sdd_tools)
+    return tools
 
+
+def _collect_skill_toolsets(node_id: str, skill_tags: list[str]) -> list[Any]:
+    """Build the specialized-skill toolset list for one specialist, given its capability tags.
+
+    Returns an empty list if ``pydantic-ai-skills`` is not installed, or if no
+    skill directory matches ``skill_tags``.
+    """
     toolsets: list[Any] = []
-    if not skill_tags:
-        return tools, toolsets
-
-    logger.debug(
-        f"Loading {len(skill_tags)} specialized skill tags for '{node_id}': {skill_tags}"
-    )
-
     try:
         from pydantic_ai_skills import SkillsToolset
 
@@ -515,6 +582,40 @@ async def _get_domain_tools(
     except ImportError:
         logger.debug("pydantic-ai-skills not installed; skipping skill injection")
 
+    return toolsets
+
+
+async def _get_domain_tools(
+    node_id: str, deps: GraphDeps
+) -> tuple[list[Any], list[Any]]:
+    """Dynamically discover and load toolsets specialized for a domain expert.
+
+    Starts with universal developer tools and augments them with domain-specific
+    These tools are resolved by matching the node identifier against the
+    Knowledge Graph specialist registry to discover assigned
+    capability tags and MCP server associations.
+
+    Returns:
+        A tuple containing (list of developer tools, list of specialized skill toolsets).
+
+    """
+    from agent_utilities.core.config import get_discovery_registry
+
+    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — registry hydration is a synchronous
+    # backend round-trip; keep it off the event loop.
+    registry = await asyncio.to_thread(get_discovery_registry)
+    agent = next((a for a in registry.agents if a.name == node_id), None)
+    skill_tags = agent.capabilities if agent else []
+
+    tools = _inject_generic_toolkits(node_id, skill_tags)
+
+    if not skill_tags:
+        return tools, []
+
+    logger.debug(
+        f"Loading {len(skill_tags)} specialized skill tags for '{node_id}': {skill_tags}"
+    )
+    toolsets = _collect_skill_toolsets(node_id, skill_tags)
     return tools, toolsets
 
 
@@ -931,52 +1032,74 @@ def _emit_specialist_startup_event(
     )
 
 
+async def _fetch_auto_activate_capability_rows(
+    ctx: StepContext, agent_name: str
+) -> list[Any]:
+    """Fetch AgentCapability rows registered with ``auto_activate = true`` for ``agent_name``."""
+    if not ctx.deps.knowledge_engine or not ctx.deps.knowledge_engine.backend:
+        return []
+    return await asyncio.to_thread(
+        ctx.deps.knowledge_engine.backend.execute,
+        "MATCH (a {name: $name})-[:has_capability]->(c:AgentCapability) "
+        "WHERE c.auto_activate = true RETURN c",
+        {"name": agent_name},
+    )
+
+
+def _capability_should_activate(ctx: StepContext, cap_data: dict[str, Any]) -> bool:
+    """Evaluate a capability's ``trigger_conditions`` against the current step."""
+    triggers = cap_data.get("trigger_conditions", {})
+    if "input_chars_gt" in triggers:
+        return len(ctx.state.query) > triggers["input_chars_gt"]
+    return True
+
+
+def _activate_one_capability(ctx: StepContext, agent_name: str, row: Any) -> str | None:
+    """Activate a single capability row if it has a handler and its triggers pass.
+
+    Returns the ``capability_type`` on activation, else ``None``.
+    """
+    cap_data = row.get("c", row)
+    cap_type = cap_data.get("capability_type", "unknown")
+    handler_module = cap_data.get("handler_module")
+    handler_fn = cap_data.get("handler_function")
+    if not (handler_module and handler_fn):
+        return None
+    if not _capability_should_activate(ctx, cap_data):
+        return None
+
+    logger.info(
+        f"[CONCEPT:AU-ORCH.adapter.hot-cache-invalidation] Auto-activated capability '{cap_type}' for specialist '{agent_name}' "
+        f"(handler={handler_module}.{handler_fn})"
+    )
+    emit_graph_event(
+        ctx.deps.event_queue,
+        "capability_activated",
+        specialist=agent_name,
+        capability=cap_type,
+    )
+    return cap_type
+
+
 async def _activate_specialist_capabilities(ctx: StepContext, agent_name: str) -> None:
     """Auto-activate any registered specialist capabilities (write-only
     telemetry -- see the noqa comment below; no downstream read in the
     caller either before or after this extraction)."""
-    activated_capabilities: list[str] = []
     # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Capability Auto-Activation
     # Check if this specialist has registered capabilities (e.g., RLM, critic)
     # and activate them before execution.
-    if ctx.deps.knowledge_engine:
-        try:
-            cap_rows = []
-            if ctx.deps.knowledge_engine.backend:
-                cap_rows = await asyncio.to_thread(
-                    ctx.deps.knowledge_engine.backend.execute,
-                    "MATCH (a {name: $name})-[:has_capability]->(c:AgentCapability) "
-                    "WHERE c.auto_activate = true RETURN c",
-                    {"name": agent_name},
-                )
-            for row in cap_rows:
-                cap_data = row.get("c", row)
-                cap_type = cap_data.get("capability_type", "unknown")
-                handler_module = cap_data.get("handler_module")
-                handler_fn = cap_data.get("handler_function")
-                if handler_module and handler_fn:
-                    # Check trigger conditions
-                    triggers = cap_data.get("trigger_conditions", {})
-                    should_activate = True
-                    if "input_chars_gt" in triggers:
-                        should_activate = (
-                            len(ctx.state.query) > triggers["input_chars_gt"]
-                        )
+    if not ctx.deps.knowledge_engine:
+        return
 
-                    if should_activate:
-                        activated_capabilities.append(cap_type)
-                        logger.info(
-                            f"[CONCEPT:AU-ORCH.adapter.hot-cache-invalidation] Auto-activated capability '{cap_type}' for specialist '{agent_name}' "
-                            f"(handler={handler_module}.{handler_fn})"
-                        )
-                        emit_graph_event(
-                            ctx.deps.event_queue,
-                            "capability_activated",
-                            specialist=agent_name,
-                            capability=cap_type,
-                        )
-        except Exception as e:  # noqa: BLE001 — activated_capabilities is write-only telemetry (no downstream read of the list in this function); a lookup failure means zero capabilities auto-activate/log for this step, degrading to pre-feature behavior
-            logger.debug(f"Capability auto-activation lookup failed: {e}")
+    activated_capabilities: list[str] = []
+    try:
+        cap_rows = await _fetch_auto_activate_capability_rows(ctx, agent_name)
+        for row in cap_rows:
+            cap_type = _activate_one_capability(ctx, agent_name, row)
+            if cap_type is not None:
+                activated_capabilities.append(cap_type)
+    except Exception as e:  # noqa: BLE001 — activated_capabilities is write-only telemetry (no downstream read of the list in this function); a lookup failure means zero capabilities auto-activate/log for this step, degrading to pre-feature behavior
+        logger.debug(f"Capability auto-activation lookup failed: {e}")
 
 
 async def _score_specialist_attention(ctx: StepContext, agent_name: str) -> None:
@@ -1519,6 +1642,38 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
         raise RuntimeError(ctx.state.error)
 
 
+async def _find_fallback_siblings(failed_agent: MCPAgent) -> list[MCPAgent]:
+    """Find candidate sibling specialists on the same MCP server as ``failed_agent``."""
+    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — registry hydration is a synchronous
+    # backend round-trip; keep it off the event loop.
+    registry = await asyncio.to_thread(get_discovery_registry)
+    return [
+        a
+        for a in registry.agents
+        if a.mcp_server == failed_agent.mcp_server
+        and a.name != failed_agent.name
+        and a.name != failed_agent.name
+    ]
+
+
+def _best_fallback_sibling(
+    siblings: list[MCPAgent], query: str
+) -> tuple[MCPAgent | None, int]:
+    """Score candidate siblings by keyword overlap with the query and return the best."""
+    query_words = set(query.lower().split())
+    best_sibling: MCPAgent | None = None
+    best_score = 0
+    for sibling in siblings:
+        tag_words = set(
+            sibling.name.lower().replace("-", " ").replace("_", " ").split()
+        )
+        score = len(query_words & tag_words)
+        if score > best_score:
+            best_score = score
+            best_sibling = sibling
+    return best_sibling, best_score
+
+
 async def _attempt_specialist_fallback(
     ctx: StepContext,
     failed_agent: MCPAgent,
@@ -1538,49 +1693,131 @@ async def _attempt_specialist_fallback(
         no suitable fallback could be identified or executed.
 
     """
-    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — registry hydration is a synchronous
-    # backend round-trip; keep it off the event loop.
-    registry = await asyncio.to_thread(get_discovery_registry)
-    siblings = [
-        a
-        for a in registry.agents
-        if a.mcp_server == failed_agent.mcp_server
-        and a.name != failed_agent.name
-        and a.name != failed_agent.name
-    ]
-
+    siblings = await _find_fallback_siblings(failed_agent)
     if not siblings:
         return None
 
-    # Score siblings by keyword overlap with the query
-    query_words = set(ctx.state.query.lower().split())
-    best_sibling = None
-    best_score = 0
+    best_sibling, best_score = _best_fallback_sibling(siblings, ctx.state.query)
+    if not (best_sibling and best_score > 0):
+        return None
 
-    for sibling in siblings:
-        tag_words = set(
-            sibling.name.lower().replace("-", " ").replace("_", " ").split()
-        )
-        score = len(query_words & tag_words)
-        if score > best_score:
-            best_score = score
-            best_sibling = sibling
+    logger.info(
+        f"Fallback: Trying sibling '{best_sibling.name}' fallback for '{failed_agent.name}'.\nScore: {best_score}"
+    )
+    emit_graph_event(
+        ctx.deps.event_queue,
+        event_type="specialist_fallback",
+        failed=failed_agent.name,
+        fallback=best_sibling.name,
+    )
+    try:
+        return await _execute_dynamic_mcp_agent(ctx, best_sibling)
+    except Exception as e:
+        logger.warning(f"Fallback '{best_sibling.name}' also failed: {e}")
 
-    if best_sibling and best_score > 0:
-        logger.info(
-            f"Fallback: Trying sibling '{best_sibling.name}' fallback for '{failed_agent.name}'.\nScore: {best_score}"
-        )
-        emit_graph_event(
-            ctx.deps.event_queue,
-            event_type="specialist_fallback",
-            failed=failed_agent.name,
-            fallback=best_sibling.name,
-        )
-        try:
-            return await _execute_dynamic_mcp_agent(ctx, best_sibling)
-        except Exception as e:
-            logger.warning(f"Fallback '{best_sibling.name}' also failed: {e}")
+    return None
 
+
+def _resolve_a2a_sub_query(ctx: StepContext) -> Any:
+    """Use the expert's specific question (from step_input.description) or the original query."""
+    sub_query = ctx.state.query
+    step_input = ctx.inputs
+    if isinstance(step_input, ExecutionStep) and step_input.description:
+        if isinstance(step_input.description, dict):
+            sub_query = step_input.description.get("question", sub_query)
+        elif isinstance(step_input.description, str):
+            sub_query = step_input.description
+    return sub_query
+
+
+async def _annotate_a2a_epistemic(envelope: dict[str, Any], node_id: str) -> None:
+    """Forward an A2A envelope's optional epistemic metadata to telemetry (best-effort)."""
+    epistemic = envelope.get("epistemic") or {}
+    if not epistemic:
+        return
+    try:
+        from agent_utilities.observability import get_telemetry_engine
+
+        get_telemetry_engine().annotate_epistemic(
+            confidence=epistemic.get("confidence"),
+            status=epistemic.get("status"),
+            contradiction_count=epistemic.get("contradiction_count"),
+            policy_labels=epistemic.get("policy_labels"),
+            model=node_id,
+        )
+    except (  # noqa: BLE001 — result_str is already computed and written to ctx.state.results_registry above before this block; the try only forwards optional epistemic metadata to telemetry (comment: "tracing must never break the graph")
+        Exception
+    ) as exc:  # pragma: no cover - tracing must never break the graph
+        logger.debug("A2A epistemic span annotation skipped for %s: %s", node_id, exc)
+
+
+async def _execute_remote_a2a_agent(ctx: StepContext, node_id: str, meta: dict) -> None:
+    """Handle the ``remote_a2a`` branch of :func:`_execute_agent_package_logic`.
+
+    Calls the peer over HTTP/SSE via :class:`A2AClient`, stores the
+    byte-identical result in ``ctx.state.results_registry``, and forwards any
+    epistemic metadata to telemetry (best-effort).
+    """
+    from agent_utilities.protocols.a2a import A2AClient
+
+    peer_url = meta["url"]
+    logger.info(f"Expert Execution: Calling remote A2A agent '{node_id}' at {peer_url}")
+    client = A2AClient(timeout=ctx.deps.approval_timeout or 300.0)
+
+    sub_query = _resolve_a2a_sub_query(ctx)
+
+    # CONCEPT:AU-KB-CURRENCY (A2A projection) — use the envelope variant
+    # so a peer's epistemic metadata (confidence/status/
+    # contradiction_count/policy_labels/source_refs, when it sends any)
+    # is visible, while `result_str` stays BYTE-IDENTICAL to what plain
+    # `execute_task` would have returned (content on success, the same
+    # "Error: ..."/"A2A Error: ..." string on failure) — no behavior
+    # change to the existing result-registry path.
+    envelope = await client.execute_task_with_epistemic(peer_url, sub_query)
+    result_str = envelope.get("content") or envelope.get("error") or ""
+    # Unified result storage
+    node_uid = f"{node_id}_{ctx.state.step_cursor}"
+    ctx.state.results_registry[node_uid] = result_str
+
+    await _annotate_a2a_epistemic(envelope, node_id)
+
+
+async def _execute_local_agent_package(
+    ctx: StepContext, node_id: str
+) -> str | End[Any] | None:
+    """Handle the local (non-A2A) branch of :func:`_execute_agent_package_logic`.
+
+    Returns an early result (``str``/``End``) when the prompt-based specialist
+    path short-circuits the graph, else ``None`` to signal the caller should
+    fall through to ``"execution_joiner"``.
+    """
+    # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation: Unified specialist execution
+    # Try specialized prompt-based execution first (loads persona, injects tools + skills)
+    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — registry hydration is a synchronous
+    # backend round-trip; keep it off the event loop.
+    registry = await asyncio.to_thread(get_discovery_registry)
+    mcp_agent = next(
+        (a for a in registry.agents if agent_matches_node_id(a, node_id)),
+        None,
+    )
+
+    if mcp_agent and mcp_agent.mcp_server:
+        # MCP-bound specialist — execute with bound tools
+        await _execute_dynamic_mcp_agent(ctx, mcp_agent)
+        return None
+    if mcp_agent and mcp_agent.json_blueprint:
+        # Prompt-based specialist — execute with persona + injected tools
+        return await _execute_specialized_step(ctx, node_id)
+
+    # Fallback: try specialized step (prompt lookup by name), then generic
+    try:
+        return await _execute_specialized_step(ctx, node_id)
+    except Exception:
+        logger.warning(
+            f"Expert Execution: Node '{node_id}' fallback. "
+            f"No specialist metadata found in the Knowledge Graph."
+        )
+        await _execute_domain_logic(ctx, node_id)
     return None
 
 
@@ -1605,85 +1842,12 @@ async def _execute_agent_package_logic(
         The identifier of the joiner node ('execution_joiner') after completion.
 
     """
-    deps = ctx.deps
-
     if meta.get("type") == "remote_a2a":
-        # Remote A2A Execution
-        from agent_utilities.protocols.a2a import A2AClient
-
-        peer_url = meta["url"]
-        logger.info(
-            f"Expert Execution: Calling remote A2A agent '{node_id}' at {peer_url}"
-        )
-        client = A2AClient(timeout=deps.approval_timeout or 300.0)
-
-        # Use the expert's specific question or the original query
-        sub_query = ctx.state.query
-        step_input = ctx.inputs
-        if isinstance(step_input, ExecutionStep) and step_input.description:
-            if isinstance(step_input.description, dict):
-                sub_query = step_input.description.get("question", sub_query)
-            elif isinstance(step_input.description, str):
-                sub_query = step_input.description
-
-        # CONCEPT:AU-KB-CURRENCY (A2A projection) — use the envelope variant
-        # so a peer's epistemic metadata (confidence/status/
-        # contradiction_count/policy_labels/source_refs, when it sends any)
-        # is visible, while `result_str` stays BYTE-IDENTICAL to what plain
-        # `execute_task` would have returned (content on success, the same
-        # "Error: ..."/"A2A Error: ..." string on failure) — no behavior
-        # change to the existing result-registry path.
-        envelope = await client.execute_task_with_epistemic(peer_url, sub_query)
-        result_str = envelope.get("content") or envelope.get("error") or ""
-        # Unified result storage
-        node_uid = f"{node_id}_{ctx.state.step_cursor}"
-        ctx.state.results_registry[node_uid] = result_str
-
-        epistemic = envelope.get("epistemic") or {}
-        if epistemic:
-            try:
-                from agent_utilities.observability import get_telemetry_engine
-
-                get_telemetry_engine().annotate_epistemic(
-                    confidence=epistemic.get("confidence"),
-                    status=epistemic.get("status"),
-                    contradiction_count=epistemic.get("contradiction_count"),
-                    policy_labels=epistemic.get("policy_labels"),
-                    model=node_id,
-                )
-            except (  # noqa: BLE001 — result_str is already computed and written to ctx.state.results_registry above before this block; the try only forwards optional epistemic metadata to telemetry (comment: "tracing must never break the graph")
-                Exception
-            ) as exc:  # pragma: no cover - tracing must never break the graph
-                logger.debug(
-                    "A2A epistemic span annotation skipped for %s: %s", node_id, exc
-                )
+        await _execute_remote_a2a_agent(ctx, node_id, meta)
     else:
-        # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation: Unified specialist execution
-        # Try specialized prompt-based execution first (loads persona, injects tools + skills)
-        # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — registry hydration is a synchronous
-        # backend round-trip; keep it off the event loop.
-        registry = await asyncio.to_thread(get_discovery_registry)
-        mcp_agent = next(
-            (a for a in registry.agents if agent_matches_node_id(a, node_id)),
-            None,
-        )
-
-        if mcp_agent and mcp_agent.mcp_server:
-            # MCP-bound specialist — execute with bound tools
-            await _execute_dynamic_mcp_agent(ctx, mcp_agent)
-        elif mcp_agent and mcp_agent.json_blueprint:
-            # Prompt-based specialist — execute with persona + injected tools
-            return await _execute_specialized_step(ctx, node_id)
-        else:
-            # Fallback: try specialized step (prompt lookup by name), then generic
-            try:
-                return await _execute_specialized_step(ctx, node_id)
-            except Exception:
-                logger.warning(
-                    f"Expert Execution: Node '{node_id}' fallback. "
-                    f"No specialist metadata found in the Knowledge Graph."
-                )
-                await _execute_domain_logic(ctx, node_id)
+        early = await _execute_local_agent_package(ctx, node_id)
+        if early is not None:
+            return early
 
     return "execution_joiner"
 
@@ -2214,6 +2378,31 @@ async def _execute_domain_logic(ctx: StepContext, domain: str):
 
 
 # implements core.execution.ExecutionEngine
+def _normalize_manifest(manifest: Any) -> tuple[str, str]:
+    """Normalize an ExecutionEngine ``manifest`` (a plain query string or a manifest object) to ``(query, manifest_id)``."""
+    if isinstance(manifest, str):
+        return manifest, ""
+    query = getattr(manifest, "query", "") or ""
+    manifest_id = getattr(manifest, "manifest_id", "") or ""
+    return query, manifest_id
+
+
+def _result_to_output(result: Any) -> tuple[str, bool]:
+    """Extract ``(synthesis_output, success)`` from an :func:`execute_graph` result."""
+    if not isinstance(result, dict):
+        return str(result), True
+
+    synthesis_output = str(
+        result.get("output") or result.get("response") or result.get("result") or ""
+    )
+    success = True
+    if "success" in result:
+        success = bool(result["success"])
+    elif "error" in result and result["error"]:
+        success = False
+    return synthesis_output, success
+
+
 class GraphExecutorEngine:
     """Additive engine wrapper conforming to the unified ExecutionEngine contract.
 
@@ -2239,30 +2428,9 @@ class GraphExecutorEngine:
         """
         from agent_utilities.core.execution.models import ExecutionResult
 
-        if isinstance(manifest, str):
-            query = manifest
-            manifest_id = ""
-        else:
-            query = getattr(manifest, "query", "") or ""
-            manifest_id = getattr(manifest, "manifest_id", "") or ""
-
+        query, manifest_id = _normalize_manifest(manifest)
         result = await execute_graph(self.graph, self.config, query)
-
-        synthesis_output = ""
-        success = True
-        if isinstance(result, dict):
-            synthesis_output = str(
-                result.get("output")
-                or result.get("response")
-                or result.get("result")
-                or ""
-            )
-            if "success" in result:
-                success = bool(result["success"])
-            elif "error" in result and result["error"]:
-                success = False
-        else:
-            synthesis_output = str(result)
+        synthesis_output, success = _result_to_output(result)
 
         return ExecutionResult(
             manifest_id=manifest_id,
