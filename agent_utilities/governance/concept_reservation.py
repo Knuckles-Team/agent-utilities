@@ -33,7 +33,7 @@ import inspect
 import json
 import re
 import threading
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -272,13 +272,21 @@ class ConceptNamespacePolicy:
         if not concept_id.startswith(self.namespace + "."):
             return False
         tail = concept_id[len(self.namespace) + 1 :]
-        if self.concept_prefixes and not any(
+        if not self._prefix_matches(tail):
+            return False
+        return self._range_matches(tail)
+
+    def _prefix_matches(self, tail: str) -> bool:
+        if not self.concept_prefixes:
+            return True
+        return any(
             tail == prefix
             or tail.startswith(prefix + ".")
             or tail.startswith(prefix + "-")
             for prefix in self.concept_prefixes
-        ):
-            return False
+        )
+
+    def _range_matches(self, tail: str) -> bool:
         if self.range_start is None and self.range_end is None:
             return True
         match = re.search(r"-(\d+)(?:\.|$)", tail)
@@ -384,29 +392,9 @@ class ConceptReservationRequest:
     provenance_refs: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        parsed = parse_okf_id(self.concept_id)
-        if not is_valid_domain(parsed.pillar, parsed.domain):
-            raise ConceptReservationError(
-                f"domain {parsed.domain!r} is not registered for pillar {parsed.pillar!r}"
-            )
-        _reference(self.tenant_ref, "tenant_ref")
-        _reference(self.repository_ref, "repository_ref")
-        _reference(self.lane_ref, "lane_ref")
-        _reference(self.owner_ref, "owner_ref")
-        _reference(self.request_key_ref, "request_key_ref")
-        if self.design_ref is not None:
-            _reference(self.design_ref, "design_ref")
-        if not _DIGEST_RE.fullmatch(self.purpose_digest):
-            raise ConceptReservationError("purpose_digest must be a SHA-256 digest")
-        if self.range_start is not None and self.range_start < 0:
-            raise ConceptReservationError("range_start must be non-negative")
-        if self.range_end is not None and (
-            self.range_end < 0
-            or (self.range_start is not None and self.range_end < self.range_start)
-        ):
-            raise ConceptReservationError("range_end is invalid")
-        if self.policy_version:
-            _nonblank(self.policy_version, "policy_version")
+        self._validate_domain()
+        self._validate_references()
+        self._validate_bounds()
         if self.expires_at <= self.created_at:
             raise ConceptReservationError("expires_at must be after created_at")
         namespace = _nonblank(self.namespace, "namespace")
@@ -418,6 +406,35 @@ class ConceptReservationRequest:
         object.__setattr__(
             self, "provenance_refs", _refs(self.provenance_refs, "provenance_refs")
         )
+
+    def _validate_domain(self) -> None:
+        parsed = parse_okf_id(self.concept_id)
+        if not is_valid_domain(parsed.pillar, parsed.domain):
+            raise ConceptReservationError(
+                f"domain {parsed.domain!r} is not registered for pillar {parsed.pillar!r}"
+            )
+
+    def _validate_references(self) -> None:
+        _reference(self.tenant_ref, "tenant_ref")
+        _reference(self.repository_ref, "repository_ref")
+        _reference(self.lane_ref, "lane_ref")
+        _reference(self.owner_ref, "owner_ref")
+        _reference(self.request_key_ref, "request_key_ref")
+        if self.design_ref is not None:
+            _reference(self.design_ref, "design_ref")
+
+    def _validate_bounds(self) -> None:
+        if not _DIGEST_RE.fullmatch(self.purpose_digest):
+            raise ConceptReservationError("purpose_digest must be a SHA-256 digest")
+        if self.range_start is not None and self.range_start < 0:
+            raise ConceptReservationError("range_start must be non-negative")
+        if self.range_end is not None and (
+            self.range_end < 0
+            or (self.range_start is not None and self.range_end < self.range_start)
+        ):
+            raise ConceptReservationError("range_end is invalid")
+        if self.policy_version:
+            _nonblank(self.policy_version, "policy_version")
 
     @property
     def immutable_fingerprint(self) -> str:
@@ -560,6 +577,12 @@ class ConceptReservationRecord:
     tombstoned_at: datetime | None = None
 
     def __post_init__(self) -> None:
+        self._validate_identity()
+        times = self._lifecycle_times()
+        self._validate_timestamps(times)
+        _RECORD_STATE_VALIDATORS[self.state](self, times)
+
+    def _validate_identity(self) -> None:
         _reference(self.reservation_id, "reservation_id")
         if not isinstance(self.state, ConceptReservationState):
             raise ConceptReservationError("record state is invalid")
@@ -571,13 +594,17 @@ class ConceptReservationRecord:
             raise ConceptReservationError("record expiry must follow creation")
         if self.transitioned_at < self.created_at:
             raise ConceptReservationError("transition timestamp precedes creation")
-        times = {
+
+    def _lifecycle_times(self) -> dict[str, datetime | None]:
+        return {
             "materialized_at": self.materialized_at,
             "landed_at": self.landed_at,
             "released_at": self.released_at,
             "expired_at": self.expired_at,
             "tombstoned_at": self.tombstoned_at,
         }
+
+    def _validate_timestamps(self, times: dict[str, datetime | None]) -> None:
         if any(
             value is not None and value < self.created_at for value in times.values()
         ):
@@ -589,60 +616,6 @@ class ConceptReservationRecord:
             if value > self.transitioned_at or value < previous_time:
                 raise ConceptReservationError("lifecycle timestamps are not monotonic")
             previous_time = value
-        state = self.state
-        if state is ConceptReservationState.RESERVED and (
-            self.visibility is not ConceptReservationVisibility.PRIVATE
-            or any(value is not None for value in times.values())
-        ):
-            raise ConceptReservationError(
-                "reserved record has advanced lifecycle fields"
-            )
-        if state is ConceptReservationState.MATERIALIZED and (
-            _VISIBILITY_RANK[self.visibility]
-            < _VISIBILITY_RANK[ConceptReservationVisibility.FRAGMENT]
-            or self.materialized_at is None
-            or any(
-                value is not None
-                for value in (
-                    self.landed_at,
-                    self.released_at,
-                    self.expired_at,
-                    self.tombstoned_at,
-                )
-            )
-        ):
-            raise ConceptReservationError("materialized record is inconsistent")
-        if state is ConceptReservationState.LANDED and (
-            _VISIBILITY_RANK[self.visibility]
-            < _VISIBILITY_RANK[ConceptReservationVisibility.REPOSITORY]
-            or self.materialized_at is None
-            or self.landed_at is None
-            or self.tombstoned_at is not None
-        ):
-            raise ConceptReservationError("landed record is inconsistent")
-        if state is ConceptReservationState.RELEASED and (
-            _VISIBILITY_RANK[self.visibility]
-            >= _VISIBILITY_RANK[ConceptReservationVisibility.REPOSITORY]
-            or self.released_at is None
-            or self.landed_at is not None
-            or self.tombstoned_at is not None
-        ):
-            raise ConceptReservationError("released record is externally visible")
-        if state is ConceptReservationState.EXPIRED and (
-            _VISIBILITY_RANK[self.visibility]
-            >= _VISIBILITY_RANK[ConceptReservationVisibility.REPOSITORY]
-            or self.expired_at is None
-            or self.landed_at is not None
-            or self.tombstoned_at is not None
-        ):
-            raise ConceptReservationError("expired record is externally visible")
-        if state is ConceptReservationState.TOMBSTONED and (
-            self.visibility is not ConceptReservationVisibility.EXTERNAL
-            or self.tombstoned_at is None
-        ):
-            raise ConceptReservationError(
-                "tombstoned record must be externally visible"
-            )
 
     @property
     def concept_id(self) -> str:
@@ -756,6 +729,96 @@ class ConceptReservationRecord:
                 else None
             ),
         )
+
+
+def _validate_reserved_record(
+    record: ConceptReservationRecord, times: dict[str, datetime | None]
+) -> None:
+    if record.visibility is not ConceptReservationVisibility.PRIVATE or any(
+        value is not None for value in times.values()
+    ):
+        raise ConceptReservationError("reserved record has advanced lifecycle fields")
+
+
+def _validate_materialized_record(
+    record: ConceptReservationRecord, times: dict[str, datetime | None]
+) -> None:
+    if (
+        _VISIBILITY_RANK[record.visibility]
+        < _VISIBILITY_RANK[ConceptReservationVisibility.FRAGMENT]
+        or record.materialized_at is None
+        or any(
+            times[key] is not None
+            for key in ("landed_at", "released_at", "expired_at", "tombstoned_at")
+        )
+    ):
+        raise ConceptReservationError("materialized record is inconsistent")
+
+
+def _validate_landed_record(
+    record: ConceptReservationRecord, times: dict[str, datetime | None]
+) -> None:
+    del times
+    if (
+        _VISIBILITY_RANK[record.visibility]
+        < _VISIBILITY_RANK[ConceptReservationVisibility.REPOSITORY]
+        or record.materialized_at is None
+        or record.landed_at is None
+        or record.tombstoned_at is not None
+    ):
+        raise ConceptReservationError("landed record is inconsistent")
+
+
+def _validate_released_record(
+    record: ConceptReservationRecord, times: dict[str, datetime | None]
+) -> None:
+    del times
+    if (
+        _VISIBILITY_RANK[record.visibility]
+        >= _VISIBILITY_RANK[ConceptReservationVisibility.REPOSITORY]
+        or record.released_at is None
+        or record.landed_at is not None
+        or record.tombstoned_at is not None
+    ):
+        raise ConceptReservationError("released record is externally visible")
+
+
+def _validate_expired_record(
+    record: ConceptReservationRecord, times: dict[str, datetime | None]
+) -> None:
+    del times
+    if (
+        _VISIBILITY_RANK[record.visibility]
+        >= _VISIBILITY_RANK[ConceptReservationVisibility.REPOSITORY]
+        or record.expired_at is None
+        or record.landed_at is not None
+        or record.tombstoned_at is not None
+    ):
+        raise ConceptReservationError("expired record is externally visible")
+
+
+def _validate_tombstoned_record(
+    record: ConceptReservationRecord, times: dict[str, datetime | None]
+) -> None:
+    del times
+    if (
+        record.visibility is not ConceptReservationVisibility.EXTERNAL
+        or record.tombstoned_at is None
+    ):
+        raise ConceptReservationError("tombstoned record must be externally visible")
+
+
+_RECORD_STATE_VALIDATORS: dict[
+    ConceptReservationState,
+    Callable[[ConceptReservationRecord, dict[str, datetime | None]], None],
+] = {
+    ConceptReservationState.RESERVED: _validate_reserved_record,
+    ConceptReservationState.MATERIALIZED: _validate_materialized_record,
+    ConceptReservationState.LANDED: _validate_landed_record,
+    ConceptReservationState.RELEASED: _validate_released_record,
+    ConceptReservationState.EXPIRED: _validate_expired_record,
+    ConceptReservationState.TOMBSTONED: _validate_tombstoned_record,
+}
 
 
 class ConceptReservationAuthority(Protocol):
