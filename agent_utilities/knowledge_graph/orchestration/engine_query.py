@@ -319,8 +319,17 @@ def _scope_row_cypher(
     # `scoped_query` unchanged and `visibility_pushed_down` False, and the
     # post-hoc `visible()`/`filter_rows()` pass (which never needed this
     # flag to run correctly — only to decide what to do with an
-    # UNCLASSIFIABLE row) stays exactly the pre-existing fail-closed
-    # behavior.
+    # UNCLASSIFIABLE row) stays fail-closed.
+    #
+    # That last clause describes THIS (`query_cypher`) path, whose post-hoc
+    # pass is `_governed_cypher_rows` — it re-raises as `PermissionError`
+    # and returns no rows. BUG-CX-103: it did NOT hold for the `sql()` /
+    # `sparql()` surfaces, which ran the same `visible(filter_rows(...))`
+    # inside a `try/except Exception` that logged and returned the
+    # PRE-FILTER rows. Both now go through
+    # `_governed_engine_surface_rows`, which denies on any failure, so the
+    # property this comment asserts is true everywhere it is claimed. Do
+    # not reintroduce a swallowing handler around either pass.
     scoped_query, vis_params, visibility_pushed_down = push_down_visibility(
         scoped_query, session.actor
     )
@@ -545,6 +554,79 @@ def _governed_cypher_rows(
     return rows
 
 
+def _governed_engine_surface_rows(
+    rows: list[dict[str, Any]],
+    *,
+    surface: str,
+    query: str,
+) -> list[dict[str, Any]]:
+    """Apply the row-level ACL + owner/scope visibility pass to a raw engine
+    result, FAIL-CLOSED (BUG-CX-103).
+
+    This is the row-level authorization point for the non-Cypher engine
+    surfaces (:meth:`QueryMixin.sql`, :meth:`QueryMixin.sparql`,
+    :meth:`QueryMixin.uql`). Unlike ``query_cypher``, those surfaces submit
+    the caller's query text verbatim to the engine: nothing pushes the
+    tenant scope or the KG-2.60 owner/scope predicate into the statement, so
+    ``filter_rows()``/``visible()`` here are ENFORCEMENT, not enrichment,
+    and the only enforcement this path has.
+
+    Every failure therefore denies the whole read:
+
+    * :class:`PermissionError` — the typed fail-closed decision
+      ``secured_reads`` raises on purpose (no verified actor, a row with no
+      governed node id, unavailable ACL hydration authority). Propagated
+      unchanged so the specific denial reaches the operator log and the
+      caller-facing ``permission_denied`` mapping.
+    * anything else — a defect inside the enforcement pipeline itself. It is
+      still a failure to authorize, so it is converted to a
+      :class:`PermissionError` rather than letting the PRE-FILTER rows
+      escape.
+
+    ``trust_pushdown`` is deliberately NOT offered: it means "the caller
+    already narrowed the query text for this read", which is false for every
+    caller of these surfaces.
+
+    History: this replaced a ``try/except Exception: logger.debug(...)``
+    that returned the unfiltered ``rows`` whenever the filter raised —
+    including for the ordinary, non-exceptional case of a projection with no
+    id column, and for the "no ambient verified actor at all" case. That was
+    a tenant/owner-scope isolation bypass on ordinary data. The surrounding
+    ``noqa`` rationale ("``rows`` is already the query result being returned
+    either way, filtered or not") was itself the error: ``filter_rows`` IS
+    the point at which the two are supposed to differ.
+    """
+    try:
+        from agent_utilities.knowledge_graph.core.secured_reads import (
+            filter_rows,
+            visible,
+        )
+
+        return visible(filter_rows(rows))
+    except PermissionError as exc:
+        _log_surface_row_policy_failure(surface, query, exc)
+        raise
+    except Exception as exc:
+        _log_surface_row_policy_failure(surface, query, exc)
+        raise PermissionError(
+            f"Graph {surface}() row-policy enforcement failed"
+        ) from exc
+
+
+def _log_surface_row_policy_failure(
+    surface: str, query: str, exc: BaseException
+) -> None:
+    """Log a denied engine-surface read with its real chained cause, sanitized."""
+    from agent_utilities.core.log_privacy import sanitize_log_text
+
+    logger.error(
+        "Graph %s() row-policy enforcement denied the read: %s | query=%s",
+        surface,
+        sanitize_log_text(_describe_secured_read_failure(exc)),
+        sanitize_log_text(str(query))[:240],
+    )
+
+
 class QueryMixin(_Base):
     """Query and search capabilities for the KG engine."""
 
@@ -657,8 +739,14 @@ class QueryMixin(_Base):
 
         Read-path-first: only ``SELECT``/``WITH``/``EXPLAIN`` statements are accepted;
         mutations must go through ``kg_write`` so they get the engine's governed write
-        path. RLS is enforced engine-side (the off-lock ``GraphView`` honours the
-        actor's row-level filter), exactly as the pg-wire surface does.
+        path. The engine-side off-lock ``GraphView`` applies its own row-level filter,
+        as the pg-wire surface does, but that is NOT relied on as the only control:
+        this method has no query-text pushdown of tenant scope or KG-2.60 owner/scope
+        visibility, so the AU-side ``filter_rows()``/``visible()`` pass in
+        :func:`_governed_engine_surface_rows` is enforcement and is fail-closed. A
+        result the pass cannot classify — a projection with no id column, or no
+        verified ambient actor — raises :class:`PermissionError`; it never returns
+        the unfiltered rows (BUG-CX-103).
 
         The underlying engine client is reached through the active backend's
         ``GraphComputeEngine`` (``backend.graph._client.query.sql``). A backend with no
@@ -688,16 +776,7 @@ class QueryMixin(_Base):
                 "'query' feature)."
             )
         rows = sql_fn(query)
-        try:
-            from agent_utilities.knowledge_graph.core.secured_reads import (
-                filter_rows,
-                visible,
-            )
-
-            rows = visible(filter_rows(rows))
-        except Exception as exc:  # pragma: no cover - never break a read  # noqa: BLE001 — row-visibility filtering is a defense-in-depth layer over `rows`, which is already the query result being returned either way (filtered or not) — 'never break a read' per the comment above
-            logger.debug("sql() row filtering skipped: %s", exc)
-        return rows
+        return _governed_engine_surface_rows(rows, surface="sql", query=query)
 
     def sparql(
         self,
@@ -719,6 +798,11 @@ class QueryMixin(_Base):
         A backend with no engine RDF surface (e.g. a server built without the
         ``sparql`` feature, or a pure-Postgres mirror) raises a clear error rather than
         silently returning nothing — symmetric with :meth:`sql`.
+
+        Rows are governed fail-closed by :func:`_governed_engine_surface_rows` before
+        they are returned, exactly as :meth:`sql` does and for the same reason: SPARQL
+        text is submitted verbatim, so nothing narrows it tenant-side and the AU
+        row-level pass is the enforcement point (BUG-CX-103).
         """
         graph = getattr(self.backend, "graph", None)
         sparql_fn = getattr(graph, "sparql", None)
@@ -729,16 +813,7 @@ class QueryMixin(_Base):
                 "'sparql' feature)."
             )
         rows = sparql_fn(query, base_iri, type_convention)
-        try:
-            from agent_utilities.knowledge_graph.core.secured_reads import (
-                filter_rows,
-                visible,
-            )
-
-            rows = visible(filter_rows(rows))
-        except Exception as exc:  # pragma: no cover - never break a read  # noqa: BLE001 — row-visibility filtering for sparql() — same 'never break a read' defense-in-depth layer as sql() above
-            logger.debug("sparql() row filtering skipped: %s", exc)
-        return rows
+        return _governed_engine_surface_rows(rows, surface="sparql", query=query)
 
     def uql(
         self, query: str, *, include_epistemic: bool = False
@@ -761,6 +836,11 @@ class QueryMixin(_Base):
         mirror) raises a clear error rather than silently returning nothing — symmetric
         with :meth:`sql` / :meth:`sparql`.
 
+        Rows are governed fail-closed by :func:`_governed_engine_surface_rows` before
+        any epistemic column is attached — same enforcement point, and for the same
+        reason, as :meth:`sql` / :meth:`sparql`. Prior to BUG-CX-103 this surface ran
+        NO row-level ACL or owner/scope pass at all.
+
         Args:
             include_epistemic: Opt-in (CONCEPT:AU-KB-CURRENCY, Seam 1 — the
                 ``KnowledgeBatch`` currency, extended to this cross-modal surface).
@@ -782,7 +862,9 @@ class QueryMixin(_Base):
                 "UQL-on-the-KG requires the engine backend (build with the "
                 "'query' feature)."
             )
-        rows = list(uql_fn(query) or [])
+        rows = _governed_engine_surface_rows(
+            list(uql_fn(query) or []), surface="uql", query=query
+        )
         fetch = getattr(graph, "explain_provenance_by_ids", None)
         if include_epistemic:
             from agent_utilities.knowledge_graph.core.epistemic_row import (
@@ -829,7 +911,27 @@ class QueryMixin(_Base):
         b = {**fact_b_props, "id": fact_b_id}
         winner, loser = resolve_precedence(a, b)
         supersede(winner, loser)
-        # Persist: SUPERSEDES edge + close the loser's validity interval.
+        self._persist_temporal_supersession(winner, loser)
+        return {
+            "winner": winner["id"],
+            "loser": loser["id"],
+            "valid_to": loser.get("valid_to"),
+        }
+
+    def _persist_temporal_supersession(
+        self, winner: dict[str, Any], loser: dict[str, Any]
+    ) -> None:
+        """Write the SUPERSEDES edge and close the loser's validity interval.
+
+        Best-effort for infrastructure failures (the in-memory precedence
+        result still stands and is returned), but NOT for an authorization
+        denial: swallowing a ``PermissionError`` would let
+        :meth:`resolve_temporal_contradiction` return its
+        ``{"winner", "loser", "valid_to"}`` summary as if both mutations had
+        landed when the governed write path refused them — a denied write
+        reported as a successful one. Same defect class as BUG-CX-103 (a
+        security outcome inside a broad ``except``), so it propagates.
+        """
         try:
             self.link_nodes(
                 winner["id"],
@@ -842,13 +944,10 @@ class QueryMixin(_Base):
                     "MATCH (n) WHERE n.id = $id SET n.valid_to = $vt",
                     {"id": loser["id"], "vt": loser.get("valid_to")},
                 )
+        except PermissionError:
+            raise
         except Exception as e:  # pragma: no cover - persistence is best-effort
             logger.warning("Temporal contradiction persistence failed: %s", e)
-        return {
-            "winner": winner["id"],
-            "loser": loser["id"],
-            "valid_to": loser.get("valid_to"),
-        }
 
     @staticmethod
     def _hydrated_keyword_hit(
