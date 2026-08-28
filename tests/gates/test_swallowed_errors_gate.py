@@ -198,10 +198,13 @@ def test_gate_ignores_typed_narrow_control_flow(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_gate_passes_on_the_repo_baseline() -> None:
-    """The gate's own baseline (frozen pre-existing debt) must stay green
-    against the real repo — this is the regression lock proving the ratchet
-    mechanics work end-to-end, not just on synthetic fixtures."""
+def test_gate_passes_on_the_real_repo() -> None:
+    """The gate must be green against the real repo with no change staged.
+
+    The regression lock proving the census + diff-scoped mechanics work
+    end-to-end, not just on synthetic fixtures. It is NOT a claim that the
+    repo has no swallowed errors — it has 584, and the gate prints all of
+    them every run. It is a claim that leaving them alone does not fail."""
     result = subprocess.run(
         [sys.executable, str(SCRIPT)],
         capture_output=True,
@@ -320,39 +323,19 @@ def _load_gate_module():
     return mod
 
 
-def test_baseline_key_survives_unrelated_line_shift(tmp_path, monkeypatch):
-    """D-SWG-1's core claim: an edit earlier in a baselined file that shifts
-    every line number below it must NOT manufacture a phantom "new" entry."""
+_ONE_SWALLOW = (
+    "def f():\n    try:\n        do_thing()\n    except Exception:\n        pass\n"
+)
+
+
+def test_content_key_survives_unrelated_line_shift(tmp_path):
+    """An edit above a handler that shifts every line below it must NOT
+    manufacture a phantom finding. (The original D-SWG-1 claim, now carried
+    by the content key rather than by a frozen baseline.)"""
     mod = _load_gate_module()
-    pkg = tmp_path / "pkg"
-    pkg.mkdir()
-    target = pkg / "mod.py"
-    source = (
-        "def f():\n    try:\n        do_thing()\n    except Exception:\n        pass\n"
-    )
-    target.write_text(source)
-
-    monkeypatch.setattr(mod, "ROOT", tmp_path)
-    monkeypatch.setattr(mod, "PKG", pkg)
-    monkeypatch.setattr(mod, "BASELINE", tmp_path / "baseline.txt")
-
-    current = mod.scan(pkg, display_root=tmp_path)
-    assert len(current) == 1
-    mod._write_baseline(current)
-
-    # Sanity: freshly frozen baseline is green.
-    baseline = mod._load_baseline()
-    assert set(current) == baseline
-
-    # Unrelated edit: prepend 8 blank lines, shifting the handler from line 4
-    # to line 12 with no change to the handler itself.
-    target.write_text("\n" * 8 + source)
-    shifted_current = mod.scan(pkg, display_root=tmp_path)
-    shifted_baseline = mod._load_baseline()
-    new_entries = set(shifted_current) - shifted_baseline
-    assert not new_entries, f"line motion falsely trips the gate: {new_entries}"
-    # And the key itself is byte-identical, not just "still not new".
-    assert set(shifted_current) == set(current)
+    before = mod._content_counts("mod.py", _ONE_SWALLOW)
+    after = mod._content_counts("mod.py", "\n" * 8 + _ONE_SWALLOW)
+    assert before == after, f"line motion changes the content key: {before} vs {after}"
 
 
 def test_baseline_key_disambiguates_two_identical_violations_in_one_symbol(
@@ -379,7 +362,6 @@ def test_baseline_key_disambiguates_two_identical_violations_in_one_symbol(
 
     monkeypatch.setattr(mod, "ROOT", tmp_path)
     monkeypatch.setattr(mod, "PKG", pkg)
-    monkeypatch.setattr(mod, "BASELINE", tmp_path / "baseline.txt")
 
     current = mod.scan(pkg, display_root=tmp_path)
     assert len(current) == 2, current
@@ -387,30 +369,55 @@ def test_baseline_key_disambiguates_two_identical_violations_in_one_symbol(
     assert ordinals == [0, 1]
 
 
-def test_baseline_key_changes_when_the_handler_actually_moves_symbol(
-    tmp_path, monkeypatch
-):
-    """Moving a violation into a DIFFERENT enclosing function (not just
-    shifting lines) is genuinely new information — the key must change."""
+def test_content_key_survives_extraction_into_a_new_function():
+    """The regression this gate was rebuilt for.
+
+    The retired baseline keyed on the ENCLOSING SYMBOL, so moving a handler
+    from ``create_agent`` into an extracted ``create_agent._setup(...)``
+    read as brand-new debt. 37 such phantom findings blocked every au commit
+    while the code had not changed. The content key must not move when the
+    handler does — only when the handler ITSELF changes.
+    """
     mod = _load_gate_module()
-    pkg = tmp_path / "pkg"
-    pkg.mkdir()
-    target = pkg / "mod.py"
-    target.write_text(
-        "def f():\n    try:\n        a()\n    except Exception:\n        pass\n"
+    inline = (
+        "def create_agent():\n"
+        "    try:\n        a()\n    except Exception:\n        pass\n"
     )
-
-    monkeypatch.setattr(mod, "ROOT", tmp_path)
-    monkeypatch.setattr(mod, "PKG", pkg)
-    monkeypatch.setattr(mod, "BASELINE", tmp_path / "baseline.txt")
-
-    current = mod.scan(pkg, display_root=tmp_path)
-    mod._write_baseline(current)
-    baseline_before = mod._load_baseline()
-
-    target.write_text(
-        "def g():\n    try:\n        a()\n    except Exception:\n        pass\n"
+    extracted = (
+        "def create_agent():\n"
+        "    def _setup():\n"
+        "        try:\n            a()\n        except Exception:\n            pass\n"
+        "    _setup()\n"
     )
-    moved_current = mod.scan(pkg, display_root=tmp_path)
-    new_entries = set(moved_current) - baseline_before
-    assert new_entries, "renaming the enclosing function should be a new entry"
+    assert mod._content_counts("mod.py", inline) == mod._content_counts(
+        "mod.py", extracted
+    ), "extraction must not manufacture a finding"
+
+
+def test_content_key_does_report_a_genuinely_added_swallow():
+    """...and the other half: a handler that is actually ADDED must show up.
+
+    Without this the test above would be satisfied by a key that never
+    changes at all — a gate that cannot fail is not a gate.
+    """
+    mod = _load_gate_module()
+    one = "def f():\n    try:\n        a()\n    except Exception:\n        pass\n"
+    two = one + "def g():\n    try:\n        b()\n    except Exception:\n        pass\n"
+    before = mod._content_counts("mod.py", one)
+    after = mod._content_counts("mod.py", two)
+    added = [k for k, n in after.items() if n > before[k]]
+    assert added, "adding a second identical swallow must be visible"
+
+
+def test_update_baseline_flag_is_retired(tmp_path):
+    """The retired flag must REFUSE, not silently do nothing — the same
+    convention the complexity and liveness gates adopted when their
+    baselines were removed."""
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--update-baseline"],
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+    )
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "RETIRED" in result.stderr

@@ -84,48 +84,58 @@ Because the codebase already carries a large number of un-annotated
 individually triaged (the DEBT-2 sweep fixed every genuinely high-value site
 it found — the public error-surface boundary, the MCP/graph-os boot chain,
 the multiplexer child-lifecycle log lines, engine mutation paths — see the
-sweep's final report for the full verdict table), this is a **ratchet**: the
-current set is frozen in ``scripts/swallowed_error_baseline.txt`` and the
-gate fails only on *newly introduced* cause-dropping handlers. Fixing a
-baselined site (adding a `# noqa: BLE001 — <reason>` or cause-preserving log,
-or re-raising) always shrinks the baseline on the next ``--update-baseline``.
+sweep's final report for the full verdict table), the gate cannot demand an
+absolute zero today. It is **not** a ratchet either. There is no baseline
+file, nothing is written to disk, and no count is frozen. Instead:
 
-NOTE on the baseline key (D-SWG-1, CONCEPT:AU-AHE.evaluation.
-swallow-baseline-stable-key): entries used to be keyed by (file, line
-number). With ~20 concurrent lanes editing these files, ANY unrelated edit
-earlier in a baselined file shifts every line below it and manufactures a
-phantom "new" entry — this happened repeatedly in practice (see git history:
-"re-key swallowed baseline for kg_server.py line shift", "...for
-loop_controller line shift") and eventually rotted the gate permanently red,
-which enforces nothing. The key is now (file, enclosing symbol, exception
-type text, violation shape, ordinal) — computed by walking the AST with an
-explicit scope stack (module/class/function qualname, e.g.
-``ClientFactory.create``), reading the caught exception type(s) via
-``ast.unparse``, and disambiguating multiple identical violations in the same
-symbol with a stable traversal-order ordinal. None of those components move
-when unrelated code shifts lines; they only change when the handler itself
-is edited (its exception type, its shape, or its enclosing function is
-renamed/moved) — genuinely new information, not noise. Reordering two
-identical violations within the same function can still swap their ordinals;
-that is accepted as out of scope (equivalent-shaped violations are
-interchangeable for ratchet purposes) rather than solved with something
-heavier (e.g. hashing handler body text, which would itself break on
-harmless reformatting).
+* an **unconditional census** prints the real totals — sites, per-shape
+  histogram, worst files — on EVERY run, pass or fail. Debt that is printed
+  is debt someone can burn down; debt frozen in a file is debt nobody sees.
+* enforcement is **diff-scoped**, recomputed live from the HEAD blob: a
+  cause-dropping handler this change ADDS fails the commit, one it leaves
+  alone does not.
+* one shape (``HARD_ZERO_SHAPES``) is enforced **absolutely**, repo-wide,
+  because the repo already sits at zero for it.
+
+NOTE on why the old baseline key had to go (D-SWG-1 superseded). The frozen
+key was ``(file, ENCLOSING SYMBOL, exception type text, shape, ordinal)``,
+chosen because a line-number key manufactured a phantom finding on every
+unrelated edit above a baselined handler. It fixed that and introduced a
+worse one: **an enclosing symbol is not invariant under function
+extraction.** When the complexity program split ~20 functions apart, every
+handler that moved from ``create_agent`` into
+``create_agent._setup_mcp_url_toolset`` re-keyed and read as brand-new debt.
+That was measured, not assumed: of the 37 findings blocking every au commit,
+**all 37** were re-keys — not one raised the count for its
+``(file, type, shape)`` above what the baseline already held. Meanwhile the
+real backlog had fallen 1,049 -> 584 and the gate's own output said only "no
+new swallowed-error sites". Gating on a number that does not mean what its
+name says gates the instrument, not the code.
+
+The comparison key is therefore now **content**: ``(exception type text,
+shape, the except line's own source text)``, compared per file against the
+same file at HEAD. It carries no symbol and no line number, so extraction,
+renaming, reordering and line motion are all invisible to it, and only a
+genuinely added swallow fails. Moving an existing swallow to a DIFFERENT file
+reads as added in the destination; that is deliberate — justify it with a
+``# noqa: BLE001 — <reason>`` like any other.
 
 Usage:
-  python3 scripts/check_swallowed_errors.py                  # check (exit 1 on new)
-  python3 scripts/check_swallowed_errors.py --update-baseline # freeze current set
-  python3 scripts/check_swallowed_errors.py ROOT              # scan ROOT, no baseline
-                                                               # (e.g. a test fixture dir)
+  python3 scripts/check_swallowed_errors.py       # census + diff-scoped check
+  python3 scripts/check_swallowed_errors.py ROOT  # scan ROOT, report EVERY
+                                                  # finding (test fixture dir)
 
-Exit 0 = no new cause-dropping handler, 1 = at least one found.
+Exit 0 = this change added no cause-dropping handler, 1 = it did (or a
+hard-zero shape exists), 2 = a retired flag was passed.
 """
 
 from __future__ import annotations
 
 import argparse
 import ast
+import collections
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -134,8 +144,12 @@ sys.path.insert(0, str(ROOT))
 from scripts._git_scan import tracked_or_walked  # noqa: E402
 
 PKG = ROOT / "agent_utilities"
-BASELINE = ROOT / "scripts" / "swallowed_error_baseline.txt"
 SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", "build", "dist"}
+
+# Shapes that must never exist at all, at any count. A bare ``except:`` also
+# catches ``SystemExit`` and ``KeyboardInterrupt``, so it can swallow a
+# shutdown signal; the repo is at zero and stays there.
+HARD_ZERO_SHAPES = frozenset({"bare_except"})
 
 
 def _tracked_or_walked_py_files(target: Path) -> list[Path]:
@@ -223,26 +237,95 @@ def _cause_preservation_level(
     explicitly justified via ``# noqa: BLE001 — <reason>``), or "none" (no
     cause-preserving log call at all — handled by ``_shape`` instead).
     """
-    saw_debug_only = False
-    for node in ast.walk(ast.Module(body=body, type_ignores=[])):
-        if not isinstance(node, ast.Call):
-            continue
-        is_log, method = _is_log_call(node)
-        if not is_log:
-            continue
-        if method == "exception":
-            # logger.exception(...) always attaches the current exception's
-            # traceback/message regardless of what args are passed, and is
-            # never a quiet level (it logs at ERROR).
-            return "loud"
-        if bound_name is None:
-            continue
-        if _call_preserves_cause(node, bound_name, source_lines):
-            if method == "debug":
-                saw_debug_only = True
-            else:
-                return "loud"
-    return "debug_only" if saw_debug_only else "none"
+    levels = [
+        _one_call_preservation(node, bound_name, source_lines)
+        for node in ast.walk(ast.Module(body=body, type_ignores=[]))
+        if isinstance(node, ast.Call)
+    ]
+    if "loud" in levels:
+        return "loud"
+    return "debug_only" if "debug_only" in levels else "none"
+
+
+def _one_call_preservation(
+    call: ast.Call, bound_name: str | None, source_lines: list[str]
+) -> str:
+    """``"loud"`` / ``"debug_only"`` / ``"none"`` for ONE call node."""
+    is_log, method = _is_log_call(call)
+    if not is_log:
+        return "none"
+    if method == "exception":
+        # logger.exception(...) always attaches the current exception's
+        # traceback/message regardless of what args are passed, and is never a
+        # quiet level (it logs at ERROR).
+        return "loud"
+    if bound_name is None or not _call_preserves_cause(call, bound_name, source_lines):
+        return "none"
+    return "debug_only" if method == "debug" else "loud"
+
+
+def _log_calls_in(body: list[ast.stmt]) -> list[ast.Call]:
+    """Every ``<logger>.<level>(...)`` call anywhere in a handler body."""
+    return [
+        node
+        for node in ast.walk(ast.Module(body=body, type_ignores=[]))
+        if isinstance(node, ast.Call) and _is_log_call(node)[0]
+    ]
+
+
+def _call_args_src(call: ast.Call, source_lines: list[str]) -> str:
+    """One string holding the source of every positional and keyword argument."""
+    args = [_expr_src(source_lines, a) for a in call.args]
+    kwargs = [_expr_src(source_lines, kw.value) for kw in call.keywords]
+    return " ".join(args + kwargs)
+
+
+def _drops_cause_to_type_name(
+    call: ast.Call, bound_name: str, source_lines: list[str]
+) -> bool:
+    """True when this log call reduces the exception to its CLASS NAME.
+
+    A call that logs the type name AND the exception itself is
+    cause-preserving -- ``"failed (%s: %s)", type(e).__name__, e`` carries the
+    real message. Only a call that names the class and nothing else drops the
+    cause, so the bare binding must be absent once the type-name expressions
+    themselves have been removed from the argument source.
+    """
+    type_name_expr = re.compile(
+        rf"type\(\s*{re.escape(bound_name)}\s*\)\.__name__|"
+        rf"{re.escape(bound_name)}\.__class__\.__name__"
+    )
+    joined = _call_args_src(call, source_lines)
+    if not type_name_expr.search(joined):
+        return False
+    bare_exc = re.compile(rf"(?<![\w.]){re.escape(bound_name)}(?![\w(])")
+    return not bare_exc.search(type_name_expr.sub("", joined))
+
+
+def _is_type_name_only_swallow(
+    body: list[ast.stmt], bound_name: str | None, source_lines: list[str]
+) -> bool:
+    """At least one log call exists and EVERY one of them drops the cause.
+
+    If even one log call carries the real cause the handler is not
+    cause-dropping, which is what this branch has always documented.
+    """
+    if not bound_name:
+        return False
+    log_calls = _log_calls_in(body)
+    if not log_calls:
+        return False
+    dropping = sum(
+        1 for call in log_calls if _drops_cause_to_type_name(call, bound_name, source_lines)
+    )
+    return dropping == len(log_calls)
+
+
+def _is_silent_return(body: list[ast.stmt]) -> bool:
+    """A lone bare ``return`` with no log call anywhere in the body."""
+    if not (len(body) == 1 and isinstance(body[0], ast.Return)):
+        return False
+    return body[0].value is None and not _log_calls_in(body)
 
 
 def _shape(
@@ -252,45 +335,11 @@ def _shape(
     if len(body) == 1 and isinstance(body[0], ast.Pass):
         return "pass"
     if len(body) == 1 and isinstance(body[0], ast.Return) and body[0].value is None:
-        has_log = any(
-            _is_log_call(n)[0]
-            for n in ast.walk(ast.Module(body=body, type_ignores=[]))
-            if isinstance(n, ast.Call)
-        )
-        return None if has_log else "return_none"
-    # log-type-name-only: at least one log call exists, all of them only
-    # reference type(bound_name).__name__ / bound_name.__class__.__name__.
-    log_calls = [
-        n
-        for n in ast.walk(ast.Module(body=body, type_ignores=[]))
-        if isinstance(n, ast.Call) and _is_log_call(n)[0]
-    ]
-    if log_calls and bound_name:
-        type_name_expr = re.compile(
-            rf"type\(\s*{re.escape(bound_name)}\s*\)\.__name__|"
-            rf"{re.escape(bound_name)}\.__class__\.__name__"
-        )
-        bare_exc = re.compile(rf"(?<![\w.]){re.escape(bound_name)}(?![\w(])")
-        type_only_calls = 0
-        for call in log_calls:
-            args_src = [_expr_src(source_lines, a) for a in call.args]
-            kw_src = [_expr_src(source_lines, kw.value) for kw in call.keywords]
-            joined = " ".join(args_src + kw_src)
-            if not type_name_expr.search(joined):
-                continue
-            # A call that logs the type name AND the exception itself is
-            # cause-preserving — "failed (%s: %s)", type(e).__name__, e carries
-            # the real message. Only a call that reduces the exception to its
-            # CLASS NAME drops the cause, so the bare binding must be absent
-            # once the type-name expressions themselves are removed.
-            if bare_exc.search(type_name_expr.sub("", joined)):
-                continue
-            type_only_calls += 1
-        # Matches this branch's documented intent ("all of them only reference
-        # type(bound_name).__name__"): if even one log call carries the real
-        # cause, the handler is not cause-dropping.
-        if type_only_calls and type_only_calls == len(log_calls):
-            return "log_type_name_only"
+        # A lone bare `return`. A `return <value>` is NOT short-circuited here
+        # -- it falls through to the type-name check below, exactly as before.
+        return "return_none" if _is_silent_return(body) else None
+    if _is_type_name_only_swallow(body, bound_name, source_lines):
+        return "log_type_name_only"
     return None
 
 
@@ -336,50 +385,43 @@ def _exception_type_text(handler: ast.ExceptHandler) -> str:
 # docstring's "NOTE on the baseline key" for the full rationale.
 HandlerKey = tuple[str, str, str, str, int]
 
-_KEY_SEP = "\t"
+def _handler_shape(
+    node: ast.ExceptHandler, except_line: str, lines: list[str]
+) -> str | None:
+    """The violation shape for one handler, or ``None`` if it is not one.
 
-
-def _key_to_str(key: HandlerKey) -> str:
-    rel, symbol, exc_types, shape, ordinal = key
-    return _KEY_SEP.join([rel, symbol, exc_types, shape, str(ordinal)])
-
-
-def _key_from_str(line: str) -> HandlerKey | None:
-    fields = line.split(_KEY_SEP)
-    if len(fields) < 5 or not fields[4].isdigit():
+    ``None`` covers all four not-a-violation cases: a justified
+    ``# noqa: BLE001 — <reason>``, a handler that re-raises, one that already
+    logs the real cause at a level someone watches, and one whose body is
+    none of the target shapes.
+    """
+    if _NOQA_BLE001_WITH_REASON_RE.search(except_line):
+        return None  # justified convention — already-fine
+    if node.type is None:
+        return "bare_except"
+    if _has_raise(node.body):
+        return None  # re-raises — not a swallow at all
+    level = _cause_preservation_level(node.body, node.name, lines)
+    if level == "loud":
         return None
-    rel, symbol, exc_types, shape = fields[0], fields[1], fields[2], fields[3]
-    return (rel, symbol, exc_types, shape, int(fields[4]))
+    if level == "debug_only":
+        return "debug_only_swallow"
+    return _shape(node.body, node.name, lines)
 
 
 def _find_violations(
     rel: str, source: str, tree: ast.Module
 ) -> list[tuple[HandlerKey, int, str, str]]:
-    """Returns (key, line, shape, except_line_text) for every
-    unbaselined-candidate site in this file."""
+    """Returns (key, line, shape, except_line_text) for every site in this file."""
     lines = source.splitlines()
     violations: list[tuple[HandlerKey, int, str, str]] = []
     ordinals: dict[tuple[str, str, str], int] = {}
     for node, symbol in _iter_except_handlers_with_scope(tree):
         except_line = lines[node.lineno - 1] if node.lineno - 1 < len(lines) else ""
-        if _NOQA_BLE001_WITH_REASON_RE.search(except_line):
-            continue  # justified convention — already-fine
-        exc_types = _exception_type_text(node)
-        shape: str | None
-        if node.type is None:
-            shape = "bare_except"
-        elif _has_raise(node.body):
-            continue  # re-raises — not a swallow at all
-        else:
-            level = _cause_preservation_level(node.body, node.name, lines)
-            if level == "loud":
-                continue
-            if level == "debug_only":
-                shape = "debug_only_swallow"
-            else:
-                shape = _shape(node.body, node.name, lines)
+        shape = _handler_shape(node, except_line, lines)
         if not shape:
             continue
+        exc_types = _exception_type_text(node)
         group = (symbol, exc_types, shape)
         ordinal = ordinals.get(group, 0)
         ordinals[group] = ordinal + 1
@@ -416,49 +458,201 @@ def scan(
     return found
 
 
-def _load_baseline() -> set[HandlerKey]:
-    if not BASELINE.exists():
-        return set()
-    out: set[HandlerKey] = set()
-    for line in BASELINE.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        key = _key_from_str(line)
-        if key is not None:
-            out.add(key)
-    return out
+# ── Diff-scoped enforcement (the ratchet's replacement) ───────────────────
+#
+# WHY THERE IS NO BASELINE HERE ANY MORE.
+#
+# This gate used to freeze its 1,049 findings into
+# ``scripts/swallowed_error_baseline.txt`` and fail only on a key absent from
+# that file. Two things were wrong with it, and the second one is what
+# actually broke:
+#
+# 1. A frozen count is a ratchet, which this project does not allow: debt is
+#    to be burned down deliberately and reported honestly, never made
+#    invisible. The baseline hid that the real backlog had already fallen
+#    from 1,049 to 584 -- 465 sites genuinely fixed, and the gate's own output
+#    said only "no new swallowed-error sites".
+#
+# 2. The key was ``(file, ENCLOSING SYMBOL, exception type, shape, ordinal)``,
+#    and an enclosing symbol is NOT invariant under function extraction. The
+#    complexity program split ~20 functions apart; every handler that moved
+#    from ``create_agent`` into ``create_agent._setup_mcp_url_toolset``
+#    re-keyed and read as brand-new dead-stop debt. 37 findings, every one a
+#    re-key -- measured: not one of them raised the count for its
+#    ``(file, type, shape)`` above what the baseline already held. So the gate
+#    was red on `main`, blocking every commit, over code that had not changed.
+#    Same failure as the liveness CAPS ratchet: gating on a number that does
+#    not mean what its name says gates the instrument, not the code.
+#
+# What replaces it:
+#
+#   * an UNCONDITIONAL CENSUS that prints the real totals every run and never
+#     fails -- nothing is written to disk, so no count can ever go stale;
+#   * DIFF-SCOPED enforcement recomputed live from the HEAD blob, keyed by
+#     CONTENT (exception type, shape, the ``except`` line's own text) rather
+#     than by enclosing symbol, so extraction, renaming and reordering are all
+#     invisible and only a genuinely added swallow fails;
+#   * one ABSOLUTE invariant, ``HARD_ZERO_SHAPES``, enforced repo-wide at
+#     zero because the repo is already at zero for it.
+#
+# The property granted is "the backlog cannot grow", and the real number is
+# printed on every single run so it cannot quietly stop shrinking either.
 
 
-def _write_baseline(entries: dict[HandlerKey, tuple[int, str, str]]) -> None:
-    def _sort_key(item: tuple[HandlerKey, tuple[int, str, str]]) -> tuple:
-        key, (lineno, _shape, _text) = item
-        rel, symbol, exc_types, shape, ordinal = key
-        return (rel, lineno, symbol, exc_types, shape, ordinal)
+def _git(*args: str, cwd: str | None = None) -> subprocess.CompletedProcess:
+    """Run git from the repo toplevel with repo-relative paths.
 
-    lines = []
-    for key, (lineno, shape, text) in sorted(entries.items(), key=_sort_key):
-        rel = key[0]
-        lines.append(f"{_key_to_str(key)}\t# {rel}:{lineno} {text}")
-    body = "\n".join(lines)
-    BASELINE.write_text(
-        "# Frozen baseline of cause-dropping exception handlers (ratchet — burn-down\n"
-        "# toward zero). Keyed by TAB-separated (file, enclosing symbol, exception\n"
-        "# type text, shape, ordinal) — stable under pure line motion; see D-SWG-1 /\n"
-        "# CONCEPT:AU-AHE.evaluation.swallow-baseline-stable-key in the script's module\n"
-        "# docstring. Everything after the 5 TAB-separated fields (a 6th tab then\n"
-        "# '# ...') is a\n"
-        "# human-readable comment (current file:line + source text) and is NOT parsed —\n"
-        "# it will drift as the codebase changes; that's expected and harmless.\n"
-        "# New entries fail scripts/check_swallowed_errors.py — either (a) add cause-\n"
-        "# preserving logging at a level someone actually watches (pass the exception\n"
-        "# itself, not type(exc).__name__, and not ONLY at logger.debug) while staying\n"
-        "# best-effort, (b) re-raise where swallowing hides a genuine failure, or\n"
-        "# (c) document a deliberate best-effort swallow with `# noqa: BLE001 — <reason>`.\n"
-        + body
-        + "\n",
-        encoding="utf-8",
+    git exports ``GIT_DIR``/``GIT_INDEX_FILE``/``GIT_WORK_TREE`` into every
+    hook subprocess. Inherited blindly they silently re-root path resolution,
+    which is how ~20 copied gate helpers once measured an empty universe and
+    reported a confident clean verdict. They are kept (the index being
+    committed IS the one to read) but every invocation runs from the resolved
+    toplevel -- never ``git -C <subdir>``.
+    """
+    return subprocess.run(
+        ["git", *args], cwd=cwd, capture_output=True, text=True, check=False
     )
+
+
+def _repo_root() -> str | None:
+    r = _git("rev-parse", "--show-toplevel")
+    out = r.stdout.strip()
+    return out if r.returncode == 0 and out else None
+
+
+def _changed_py_files(root: str) -> list[str]:
+    """Repo-relative ``agent_utilities/**.py`` paths differing from HEAD.
+
+    The union of the staged set and the working-tree set: during a commit
+    pre-commit has stashed unstaged edits so the two agree, and on a manual
+    ``--all-files`` run the working-tree set is the useful one.
+    """
+    paths: set[str] = set()
+    for args in (
+        ("diff", "--cached", "--name-only", "--diff-filter=ACMR", "HEAD"),
+        ("diff", "--name-only", "HEAD"),
+    ):
+        r = _git(*args, "--", "agent_utilities", cwd=root)
+        if r.returncode == 0:
+            paths.update(line for line in r.stdout.splitlines() if line.endswith(".py"))
+    return sorted(paths)
+
+
+def _content_counts(rel: str, source: str) -> collections.Counter:
+    """Findings in one file, counted by CONTENT rather than by location.
+
+    The key is ``(exception type text, shape, the except line's own text)``.
+    It deliberately carries neither the enclosing symbol nor the line number,
+    because neither survives an extract-method refactor -- which is exactly
+    what made the old baseline key produce 37 phantom findings.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return collections.Counter()
+    return collections.Counter(
+        (key[2], shape, text) for key, _line, shape, text in _find_violations(rel, source, tree)
+    )
+
+
+def _head_source(root: str, rel: str) -> str:
+    """``rel`` as of HEAD, or empty when the file is newly added."""
+    r = _git("show", f"HEAD:{rel}", cwd=root)
+    return r.stdout if r.returncode == 0 else ""
+
+
+def _added_findings(root: str, rel: str) -> list[tuple[str, str, str, int]]:
+    """(exc_types, shape, text, added_count) for content this change ADDS."""
+    before = _content_counts(rel, _head_source(root, rel))
+    after = _content_counts(rel, Path(root, rel).read_text(encoding="utf-8"))
+    return [
+        (exc_types, shape, text, count - before[(exc_types, shape, text)])
+        for (exc_types, shape, text), count in after.items()
+        if count > before[(exc_types, shape, text)]
+    ]
+
+
+def _print_census(current: dict[HandlerKey, tuple[int, str, str]]) -> None:
+    """Print the real numbers. Always. This never fails the run."""
+    shapes = collections.Counter(key[3] for key in current)
+    files = collections.Counter(key[0] for key in current)
+    print(f"swallowed-error census: {len(current)} site(s) in {len(files)} file(s)")
+    for shape, count in shapes.most_common():
+        print(f"  {count:5d}  {shape}")
+    for rel, count in files.most_common(5):
+        print(f"  top: {count:3d}  {rel}")
+
+
+def _report_added(added: list[tuple[str, str, str, str, int]]) -> int:
+    print("Cause-dropping exception handler(s) ADDED by this change:\n")
+    for rel, exc_types, shape, text, count in added:
+        suffix = f" (x{count})" if count > 1 else ""
+        print(f"  {rel}: [{shape}] except {exc_types}: {text}{suffix}")
+    print(
+        "\nEach must either (a) log the real cause at a level someone actually "
+        "watches — pass the exception itself, not type(exc).__name__, and not "
+        "ONLY at logger.debug (e.g. logger.warning('...: %s', exc)) — while "
+        "staying best-effort, (b) re-raise where swallowing hides a genuine "
+        "failure, or (c) document a deliberate best-effort swallow with "
+        "`# noqa: BLE001 — <reason>`. See AGENTS.md.\n"
+        "Findings are compared per FILE by content, so MOVING an existing "
+        "swallow between files reads as added in the destination; justify it "
+        "the same way."
+    )
+    return 1
+
+
+def _report_hard_zero(current: dict[HandlerKey, tuple[int, str, str]]) -> int:
+    """The one absolute invariant. The repo is at zero; keep it there."""
+    offenders = sorted(
+        (key[0], line, shape)
+        for key, (line, shape, _text) in current.items()
+        if shape in HARD_ZERO_SHAPES
+    )
+    if not offenders:
+        return 0
+    print(f"\n{len(offenders)} handler(s) of an absolutely-forbidden shape:\n")
+    for rel, line, shape in offenders:
+        print(f"  {rel}:{line} [{shape}]")
+    print(
+        "\nA bare `except:` also catches SystemExit and KeyboardInterrupt. "
+        "Name the exception type you actually mean to handle."
+    )
+    return 1
+
+
+def _scan_explicit_root(root_arg: str) -> int:
+    """Absolute mode: report EVERY finding under an arbitrary path.
+
+    Used by this gate's own tests to prove it trips on a known-bad fixture.
+    """
+    explicit_root = Path(root_arg)
+    current = scan(explicit_root, display_root=explicit_root)
+    if not current:
+        print(f"OK — no swallowed-error sites under {explicit_root}")
+        return 0
+    print("Cause-dropping exception handler(s) found:\n")
+    for key, (lineno, shape, text) in sorted(
+        current.items(), key=lambda kv: (kv[0][0], kv[1][0])
+    ):
+        print(f"  {key[0]}:{lineno} [{shape}] {text}")
+    return 1
+
+
+def _enforce_diff_scoped() -> int:
+    root = _repo_root()
+    if root is None:
+        print("  (not inside a work tree — diff-scoped enforcement skipped)")
+        return 0
+    added: list[tuple[str, str, str, str, int]] = []
+    for rel in _changed_py_files(root):
+        if not Path(root, rel).is_file():
+            continue
+        added.extend(
+            (rel, exc_types, shape, text, count)
+            for exc_types, shape, text, count in _added_findings(root, rel)
+        )
+    return _report_added(added) if added else 0
 
 
 def main() -> int:
@@ -467,56 +661,37 @@ def main() -> int:
         "root",
         nargs="?",
         help=(
-            "Scan this path instead of agent_utilities/, with NO baseline "
-            "comparison (every finding is reported) — for scanning an "
-            "arbitrary fixture/test directory, mirroring "
-            "check_identifier_interpolation.py's explicit-ROOT mode."
+            "Scan this path instead of agent_utilities/, reporting EVERY "
+            "finding with no diff scoping — for an arbitrary fixture/test "
+            "directory, mirroring check_identifier_interpolation.py."
         ),
     )
-    ap.add_argument("--update-baseline", action="store_true")
+    ap.add_argument(
+        "--update-baseline",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
     args = ap.parse_args()
 
+    if args.update_baseline:
+        print(
+            "--update-baseline is RETIRED. This gate has no baseline: it "
+            "prints the real census every run and enforces diff-scoped, so "
+            "there is nothing to freeze. See the module docstring.",
+            file=sys.stderr,
+        )
+        return 2
+
     if args.root:
-        explicit_root = Path(args.root)
-        current = scan(explicit_root, display_root=explicit_root)
-        if current:
-            print("Cause-dropping exception handler(s) found:\n")
-            for key, (lineno, shape, text) in sorted(
-                current.items(), key=lambda kv: (kv[0][0], kv[1][0])
-            ):
-                print(f"  {key[0]}:{lineno} [{shape}] {text}")
-            return 1
-        print(f"OK — no swallowed-error sites under {explicit_root}")
-        return 0
+        return _scan_explicit_root(args.root)
 
     current = scan()
-    if args.update_baseline:
-        _write_baseline(current)
-        print(f"Baseline updated: {len(current)} entries → {BASELINE.name}")
-        return 0
-
-    baseline = _load_baseline()
-    new = sorted(
-        (k for k in current if k not in baseline),
-        key=lambda k: (k[0], current[k][0]),
-    )
-    if new:
-        print("New cause-dropping exception handler(s) found:\n")
-        for key in new:
-            lineno, shape, text = current[key]
-            print(f"  {key[0]}:{lineno} [{shape}] {text}  (symbol={key[1]})")
-        print(
-            "\nEach must either (a) log the real cause at a level someone actually "
-            "watches — pass the exception itself, not type(exc).__name__, and not "
-            "ONLY at logger.debug (e.g. logger.warning('...: %s', exc)) — while "
-            "staying best-effort, (b) re-raise where swallowing hides a genuine "
-            "failure, or (c) document a deliberate best-effort swallow with "
-            "`# noqa: BLE001 — <reason>`. See AGENTS.md and this task's final report."
-        )
+    _print_census(current)
+    hard_zero = _report_hard_zero(current)
+    diff_scoped = _enforce_diff_scoped()
+    if hard_zero or diff_scoped:
         return 1
-    removed = len(baseline) - len(set(current) & baseline)
-    msg = f"OK — no new swallowed-error sites ({len(current)} baselined"
-    print(msg + (f", {removed} fixed since baseline)." if removed else ")."))
+    print("OK — no swallowed-error site added by this change.")
     return 0
 
 
