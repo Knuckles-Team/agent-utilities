@@ -1955,6 +1955,57 @@ DEFAULT_MCP_ALWAYS_LOAD_TOOLS: tuple[str, ...] = (
 )
 
 
+def _parse_mcp_fleet_secret_refs(value: str) -> Any:
+    """Decode the JSON string form of ``MCP_FLEET_SECRET_REFS``."""
+    import json as _json
+
+    def reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        parsed: dict[str, Any] = {}
+        for key, item in pairs:
+            if key in parsed:
+                raise ValueError("MCP_FLEET_SECRET_REFS contains duplicate aliases")
+            parsed[key] = item
+        return parsed
+
+    try:
+        return _json.loads(value, object_pairs_hook=reject_duplicates)
+    except (TypeError, ValueError):
+        raise ValueError(
+            "MCP_FLEET_SECRET_REFS must be a JSON object of runtime references"
+        ) from None
+
+
+def _assert_mcp_fleet_reference_target(reference: str) -> None:
+    """An ``env://`` target must be a plain alias; a path target may not traverse."""
+    scheme, _separator, target = reference.partition("://")
+    if (scheme == "env" and _MCP_FLEET_SECRET_ALIAS_RE.fullmatch(target) is None) or (
+        scheme in {"vault", "secret"} and ".." in target.split("/")
+    ):
+        raise ValueError("MCP_FLEET_SECRET_REFS contains an invalid runtime reference")
+
+
+def _validated_mcp_fleet_secret_entry(
+    raw_alias: Any, raw_reference: Any
+) -> tuple[str, str]:
+    """Validate one alias/reference pair, preserving the original check order."""
+    if not isinstance(raw_alias, str) or not isinstance(raw_reference, str):
+        raise ValueError("MCP_FLEET_SECRET_REFS aliases and references must be strings")
+    alias = raw_alias.strip()
+    reference = raw_reference.strip()
+    if (
+        alias != raw_alias
+        or reference != raw_reference
+        or _MCP_FLEET_SECRET_ALIAS_RE.fullmatch(alias) is None
+    ):
+        raise ValueError("MCP_FLEET_SECRET_REFS contains an invalid alias")
+    if _RUNTIME_SECRET_REF_RE.fullmatch(reference) is None:
+        raise ValueError(
+            "MCP_FLEET_SECRET_REFS values must be runtime secret references"
+        )
+    _assert_mcp_fleet_reference_target(reference)
+    return alias, reference
+
+
 def _assert_ascii_http_host(host: str) -> None:
     """An allow-list host must be ASCII, bounded, and free of URL punctuation."""
     try:
@@ -3017,53 +3068,14 @@ class AgentConfig(BaseSettings):
         if value in (None, ""):
             return {}
         if isinstance(value, str):
-            import json as _json
-
-            def reject_duplicates(
-                pairs: list[tuple[str, Any]],
-            ) -> dict[str, Any]:
-                parsed: dict[str, Any] = {}
-                for key, item in pairs:
-                    if key in parsed:
-                        raise ValueError(
-                            "MCP_FLEET_SECRET_REFS contains duplicate aliases"
-                        )
-                    parsed[key] = item
-                return parsed
-
-            try:
-                value = _json.loads(value, object_pairs_hook=reject_duplicates)
-            except (TypeError, ValueError):
-                raise ValueError(
-                    "MCP_FLEET_SECRET_REFS must be a JSON object of runtime references"
-                ) from None
+            value = _parse_mcp_fleet_secret_refs(value)
         if not isinstance(value, Mapping) or len(value) > 512:
             raise ValueError("MCP_FLEET_SECRET_REFS must be a bounded mapping")
         validated: dict[str, str] = {}
         for raw_alias, raw_reference in value.items():
-            if not isinstance(raw_alias, str) or not isinstance(raw_reference, str):
-                raise ValueError(
-                    "MCP_FLEET_SECRET_REFS aliases and references must be strings"
-                )
-            alias = raw_alias.strip()
-            reference = raw_reference.strip()
-            if (
-                alias != raw_alias
-                or reference != raw_reference
-                or _MCP_FLEET_SECRET_ALIAS_RE.fullmatch(alias) is None
-            ):
-                raise ValueError("MCP_FLEET_SECRET_REFS contains an invalid alias")
-            if _RUNTIME_SECRET_REF_RE.fullmatch(reference) is None:
-                raise ValueError(
-                    "MCP_FLEET_SECRET_REFS values must be runtime secret references"
-                )
-            scheme, _separator, target = reference.partition("://")
-            if (
-                scheme == "env" and _MCP_FLEET_SECRET_ALIAS_RE.fullmatch(target) is None
-            ) or (scheme in {"vault", "secret"} and ".." in target.split("/")):
-                raise ValueError(
-                    "MCP_FLEET_SECRET_REFS contains an invalid runtime reference"
-                )
+            alias, reference = _validated_mcp_fleet_secret_entry(
+                raw_alias, raw_reference
+            )
             validated[alias] = reference
         return validated
 
@@ -6750,6 +6762,57 @@ def _fetch_registry_from_kg() -> tuple[MCPAgentRegistryModel, bool]:
     return MCPAgentRegistryModel(agents=agents, tools=tuple(tools)), not errors
 
 
+def _parsed_prompt_blueprint(row: Any) -> tuple[bool, dict[str, Any] | None]:
+    """``(accepted, blueprint)`` for one Prompt row.
+
+    A row is rejected when its blueprint is unparseable, is not a JSON object, or
+    fails canonical-structure validation.
+    """
+    blueprint = row.get("json_blueprint")
+    if isinstance(blueprint, str):
+        try:
+            blueprint = json.loads(blueprint)
+        except (TypeError, json.JSONDecodeError):
+            logger.debug("Rejected non-JSON prompt blueprint")
+            return False, None
+
+    if blueprint and not isinstance(blueprint, dict):
+        logger.debug("Rejected non-object prompt blueprint")
+        return False, None
+
+    parsed_blueprint: dict[str, Any] | None = (
+        blueprint if isinstance(blueprint, dict) else None
+    )
+    if parsed_blueprint is not None:
+        from agent_utilities.prompting.structured import validate_canonical
+
+        if validate_canonical(parsed_blueprint):
+            logger.debug("Rejected non-canonical prompt blueprint")
+            return False, None
+    return True, parsed_blueprint
+
+
+def _collect_prompt_agents(engine: Any, agents: list[MCPAgent]) -> None:
+    """Append every accepted Prompt row to ``agents`` (partial on failure)."""
+    prompt_rows = engine.backend.execute(
+        "MATCH (p:Prompt) RETURN p.name AS name, p.description AS description, p.capabilities AS capabilities, p.system_prompt AS system_prompt, p.json_blueprint AS json_blueprint"
+    )
+    for row in prompt_rows:
+        accepted, parsed_blueprint = _parsed_prompt_blueprint(row)
+        if not accepted:
+            continue
+        agents.append(
+            MCPAgent(
+                name=row.get("name", ""),
+                description=row.get("description", ""),
+                agent_type="specialist",
+                capabilities=row.get("capabilities", []),
+                system_prompt=row.get("system_prompt", ""),
+                json_blueprint=parsed_blueprint,
+            )
+        )
+
+
 def _fetch_prompt_agents(
     engine: Any, errors: list[str] | None = None
 ) -> list[MCPAgent]:
@@ -6762,41 +6825,7 @@ def _fetch_prompt_agents(
     """
     agents: list[MCPAgent] = []
     try:
-        prompt_rows = engine.backend.execute(
-            "MATCH (p:Prompt) RETURN p.name AS name, p.description AS description, p.capabilities AS capabilities, p.system_prompt AS system_prompt, p.json_blueprint AS json_blueprint"
-        )
-        for row in prompt_rows:
-            blueprint = row.get("json_blueprint")
-            if isinstance(blueprint, str):
-                try:
-                    blueprint = json.loads(blueprint)
-                except (TypeError, json.JSONDecodeError):
-                    logger.debug("Rejected non-JSON prompt blueprint")
-                    continue
-
-            if blueprint and not isinstance(blueprint, dict):
-                logger.debug("Rejected non-object prompt blueprint")
-                continue
-
-            parsed_blueprint: dict[str, Any] | None = (
-                blueprint if isinstance(blueprint, dict) else None
-            )
-            if parsed_blueprint is not None:
-                from agent_utilities.prompting.structured import validate_canonical
-
-                if validate_canonical(parsed_blueprint):
-                    logger.debug("Rejected non-canonical prompt blueprint")
-                    continue
-            agents.append(
-                MCPAgent(
-                    name=row.get("name", ""),
-                    description=row.get("description", ""),
-                    agent_type="specialist",
-                    capabilities=row.get("capabilities", []),
-                    system_prompt=row.get("system_prompt", ""),
-                    json_blueprint=parsed_blueprint,
-                )
-            )
+        _collect_prompt_agents(engine, agents)
     except Exception as e:
         # D-DST-6 raised this to warning for visibility. D-DSTO-1 closes the
         # caching side: this failure is now reported to the caller via
@@ -6852,15 +6881,8 @@ def _fetch_specialist_agents(
     return agents
 
 
-def _fetch_tools(engine: Any, errors: list[str] | None = None) -> list[MCPToolInfo]:
-    """Fetch Tool nodes from the KG.
-
-    Args:
-        errors: when provided, a failure appends a short description here
-            (D-DSTO-1) so the caller can decide whether the assembled
-            registry is safe to cache.
-    """
-    tools: list[MCPToolInfo] = []
+def _tool_row_iterator(engine: Any, errors: list[str] | None) -> Any:
+    """The Tool row iterator, or ``None`` when the query or iteration failed."""
     try:
         tool_rows = engine.backend.execute(
             "MATCH (t:Tool) RETURN t.name, t.description, t.mcp_server, t.relevance_score, t.tags, t.requires_approval"
@@ -6877,10 +6899,10 @@ def _fetch_tools(engine: Any, errors: list[str] | None = None) -> list[MCPToolIn
         )
         if errors is not None:
             errors.append(f"tools: query failed ({type(exc).__name__})")
-        return tools
+        return None
 
     try:
-        row_iterator = iter(tool_rows)
+        return iter(tool_rows)
     except Exception as exc:  # noqa: BLE001 — backend iteration details may contain secrets; report only the exception class
         logger.warning(
             "Tool query returned a non-iterable result (%s); registry will retry",
@@ -6888,8 +6910,38 @@ def _fetch_tools(engine: Any, errors: list[str] | None = None) -> list[MCPToolIn
         )
         if errors is not None:
             errors.append(f"tools: result is not iterable ({type(exc).__name__})")
-        return tools
+        return None
 
+
+def _tool_info_from_row(row: Any) -> MCPToolInfo:
+    """Build one tool record from an untrusted backend row."""
+    return MCPToolInfo(
+        name=row.get("t.name", ""),
+        description=row.get("t.description", ""),
+        mcp_server=row.get("t.mcp_server", "unknown"),
+        relevance_score=row.get("t.relevance_score", 0),
+        all_tags=row.get("t.tags", []),
+        requires_approval=row.get("t.requires_approval", False),
+    )
+
+
+def _report_rejected_tool_rows(rejected_rows: int, errors: list[str] | None) -> None:
+    """Surface quarantined rows and keep the registry out of the process cache."""
+    if rejected_rows:
+        logger.warning(
+            "Rejected %d malformed Tool row(s); registry will retry",
+            rejected_rows,
+        )
+    if rejected_rows and errors is not None:
+        # Preserve valid tools for this request, but keep the assembled registry
+        # out of the process-lifetime cache until the bad graph rows are fixed.
+        errors.append(f"tools: rejected {rejected_rows} malformed row(s)")
+
+
+def _drain_tool_rows(
+    row_iterator: Any, tools: list[MCPToolInfo], errors: list[str] | None
+) -> None:
+    """Append every well-formed row; a mid-stream failure keeps what was read."""
     rejected_rows = 0
     row_index = 0
     while True:
@@ -6908,33 +6960,30 @@ def _fetch_tools(engine: Any, errors: list[str] | None = None) -> list[MCPToolIn
                     f"tools: row stream failed after {row_index} row(s) "
                     f"({type(exc).__name__})"
                 )
-            return tools
+            return
 
         try:
-            tools.append(
-                MCPToolInfo(
-                    name=row.get("t.name", ""),
-                    description=row.get("t.description", ""),
-                    mcp_server=row.get("t.mcp_server", "unknown"),
-                    relevance_score=row.get("t.relevance_score", 0),
-                    all_tags=row.get("t.tags", []),
-                    requires_approval=row.get("t.requires_approval", False),
-                )
-            )
+            tools.append(_tool_info_from_row(row))
         except Exception:  # noqa: BLE001 — quarantine untrusted row objects without evaluating or logging their contents
             rejected_rows += 1
         finally:
             row_index += 1
 
-    if rejected_rows:
-        logger.warning(
-            "Rejected %d malformed Tool row(s); registry will retry",
-            rejected_rows,
-        )
-    if rejected_rows and errors is not None:
-        # Preserve valid tools for this request, but keep the assembled registry
-        # out of the process-lifetime cache until the bad graph rows are fixed.
-        errors.append(f"tools: rejected {rejected_rows} malformed row(s)")
+    _report_rejected_tool_rows(rejected_rows, errors)
+
+
+def _fetch_tools(engine: Any, errors: list[str] | None = None) -> list[MCPToolInfo]:
+    """Fetch Tool nodes from the KG.
+
+    Args:
+        errors: when provided, a failure appends a short description here
+            (D-DSTO-1) so the caller can decide whether the assembled
+            registry is safe to cache.
+    """
+    tools: list[MCPToolInfo] = []
+    row_iterator = _tool_row_iterator(engine, errors)
+    if row_iterator is not None:
+        _drain_tool_rows(row_iterator, tools, errors)
     return tools
 
 
