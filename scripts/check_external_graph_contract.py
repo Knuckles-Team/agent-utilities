@@ -181,7 +181,14 @@ def violations() -> list[str]:
             "External graph CDC event cursor did not advance",
             'params.update({"offset": 0, "limit": max_records + 1})',
             "External graph stable snapshot token changed during paging",
-            "snapshot_identity_complete = False",
+            # Not the literal "snapshot_identity_complete = False": a CX
+            # extraction (commit 34c51c6fa) pulled per-row identity tracking
+            # into `_prepare_node_rows`/`_prepare_edges`, where the flag that
+            # feeds `snapshot_identity_complete` is now named plain
+            # `identity_complete` and set False there when a row's identity
+            # extraction is incomplete -- same invariant, moved one call-graph
+            # hop down. The gate must follow behaviour, not source layout.
+            "identity_complete = False",
             "exceeded the per-row byte bound",
             "exceeded the cumulative byte bound",
             "exceeded the nesting-depth bound",
