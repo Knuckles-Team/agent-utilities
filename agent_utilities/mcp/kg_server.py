@@ -625,6 +625,30 @@ def get_toggle_states_batch(
 
     pref_id_by_key = {key: f"preference:toggle:{key[0]}:{key[1]}" for key in seen}
     pref_ids = list(pref_id_by_key.values())
+    res = _toggle_batch_query(engine, pref_ids, seen)
+    if res is None:
+        return dict.fromkeys(seen, True)
+
+    value_by_pref_id: dict[str, Any] = {}
+    for row in res:
+        if isinstance(row, dict) and row.get("id"):
+            value_by_pref_id[str(row["id"])] = row.get("value")
+
+    result: dict[tuple[str, str], bool] = {}
+    for key in seen:
+        value = value_by_pref_id.get(pref_id_by_key[key])
+        result[key] = True if value is None else value == "enabled"
+    return result
+
+
+def _toggle_batch_query(
+    engine: Any, pref_ids: list[str], seen: list[tuple[str, str]]
+) -> list[Any] | None:
+    """Run the batched ``Preference`` lookup for :func:`get_toggle_states_batch`.
+
+    Fail-open: returns ``None`` on any query error, so the caller defaults
+    every requested item to ``enabled=True``.
+    """
     try:
         res = engine.query_cypher(
             "MATCH (p:Preference) WHERE p.id IN $pref_ids "
@@ -640,18 +664,33 @@ def get_toggle_states_batch(
             len(seen),
             exc,
         )
-        return dict.fromkeys(seen, True)
+        return None
+    return res
 
-    value_by_pref_id: dict[str, Any] = {}
-    for row in res:
-        if isinstance(row, dict) and row.get("id"):
-            value_by_pref_id[str(row["id"])] = row.get("value")
 
-    result: dict[tuple[str, str], bool] = {}
-    for key in seen:
-        value = value_by_pref_id.get(pref_id_by_key[key])
-        result[key] = True if value is None else value == "enabled"
-    return result
+_TOGGLE_NODE_ID_PREFIX: dict[str, str] = {
+    "mcp_server": "mcp_server_",
+    "builtin_tool": "native_tool_",
+    "skill": "skill_",
+    "skill_workflow": "skill_workflow_",
+    "skill_graph": "skill_graph_",
+}
+
+
+def _sync_toggle_node_state(engine, node_id: str, enabled: bool) -> None:
+    """Mirror a toggle's new state onto the node itself (engine + cache)."""
+    engine.query_cypher(
+        "MATCH (n) WHERE n.id = $node_id SET n.disabled = $disabled",
+        {"node_id": node_id, "disabled": not enabled},
+    )
+    # Also update in-memory graph cache if active
+    if (
+        hasattr(engine, "graph_compute")
+        and engine.graph_compute
+        and hasattr(engine.graph_compute, "graph")
+        and node_id in engine.graph_compute.graph.nodes
+    ):
+        engine.graph_compute.graph.nodes[node_id]["disabled"] = not enabled
 
 
 def set_toggle_state(engine, item_type: str, item_id: str, enabled: bool):
@@ -673,31 +712,10 @@ def set_toggle_state(engine, item_type: str, item_id: str, enabled: bool):
             },
         )
         # Also update the actual node in the graph for real-time sync
-        node_id = ""
-        if item_type == "mcp_server":
-            node_id = f"mcp_server_{item_id}"
-        elif item_type == "builtin_tool":
-            node_id = f"native_tool_{item_id}"
-        elif item_type == "skill":
-            node_id = f"skill_{item_id}"
-        elif item_type == "skill_workflow":
-            node_id = f"skill_workflow_{item_id}"
-        elif item_type == "skill_graph":
-            node_id = f"skill_graph_{item_id}"
-
+        prefix = _TOGGLE_NODE_ID_PREFIX.get(item_type, "")
+        node_id = f"{prefix}{item_id}" if prefix else ""
         if node_id:
-            engine.query_cypher(
-                "MATCH (n) WHERE n.id = $node_id SET n.disabled = $disabled",
-                {"node_id": node_id, "disabled": not enabled},
-            )
-            # Also update in-memory graph cache if active
-            if (
-                hasattr(engine, "graph_compute")
-                and engine.graph_compute
-                and hasattr(engine.graph_compute, "graph")
-            ):
-                if node_id in engine.graph_compute.graph.nodes:
-                    engine.graph_compute.graph.nodes[node_id]["disabled"] = not enabled
+            _sync_toggle_node_state(engine, node_id, enabled)
     except Exception as exc:
         logger.error("Failed to save toggle state: %s", exc)
 
