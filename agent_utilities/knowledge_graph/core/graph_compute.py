@@ -74,6 +74,19 @@ _MAX_LEDGER_ENTRY_BYTES = 8 * 1024 * 1024
 # correct universal value an operator would set differently per deployment.
 _MAX_ROUTE_RECONNECT_ATTEMPTS = 3
 _ROUTE_RECONNECT_BASE_DELAY_S = 0.2
+# Service-level operations are connection-scoped, not graph-routed.
+_UNROUTED_METHODS = frozenset(
+    {
+        "Ping",
+        "Health",
+        "PlacementRoute",
+        "ClusterMembers",
+        "Shutdown",
+        "Checkpoint",
+        "ResourceStats",
+        "CancelRequest",
+    }
+)
 _OPAQUE_PROGRAM_REF = re.compile(
     r"^eg:[a-z0-9_-]{1,32}(?::[a-z0-9_-]{1,32}){0,3}:[0-9a-f]{16,128}$"
 )
@@ -169,6 +182,15 @@ _PROGRAM_OPTIMIZER_EXECUTIONS = {
     "infer_rules": "model_transport_plan",
 }
 _PROGRAM_CANDIDATE_ROLES = frozenset({"proposal", "ensemble_member", "ensemble"})
+_PROGRAM_ROW_KINDS = frozenset({"program_candidate", "program_optimization_plan_step"})
+# Fields a plan-step row owns; a candidate row must carry none of them.
+_PROGRAM_PLAN_ONLY_FIELDS = (
+    "plan_step_kinds",
+    "plan_executors",
+    "plan_input_refs",
+    "plan_output_refs",
+    "plan_depends_on",
+)
 _PROGRAM_PLAN_STEP_KINDS = frozenset(
     {
         "query_similarity",
@@ -369,6 +391,25 @@ def _is_graph_already_exists_error(error: BaseException, graph_name: str) -> boo
     return f"Graph '{graph_name}' already exists" in str(error)
 
 
+def _render_engine_path_reference(rendered_reference: str) -> str:
+    """Render one runtime directory reference to text, by SCHEME.
+
+    ``env://VAR`` is answered from this process's settings and needs no engine;
+    only a store-backed scheme (``vault://`` / ``secret://``) falls through to
+    the engine-backed secrets client. Never logs the reference or the value.
+    """
+    scheme, separator, target = rendered_reference.partition("://")
+    if separator and scheme == "env":
+        value: Any = setting(target)
+    else:
+        from agent_utilities.security.secrets_client import create_secrets_client
+
+        value = create_secrets_client().resolve_ref(rendered_reference)
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return str(value or "")
+
+
 def _resolve_engine_path_ref(reference: str) -> str:
     """Resolve one runtime-only directory reference without logging its value.
 
@@ -391,18 +432,8 @@ def _resolve_engine_path_ref(reference: str) -> str:
     """
 
     rendered_reference = str(reference or "").strip()
-    scheme, separator, target = rendered_reference.partition("://")
     try:
-        if separator and scheme == "env":
-            value: Any = setting(target)
-        else:
-            from agent_utilities.security.secrets_client import create_secrets_client
-
-            value = create_secrets_client().resolve_ref(rendered_reference)
-        if isinstance(value, bytes):
-            rendered = value.decode("utf-8")
-        else:
-            rendered = str(value or "")
+        rendered = _render_engine_path_reference(rendered_reference)
     except Exception as exc:
         raise RuntimeError("engine runtime directory reference is unavailable") from exc
     if (
@@ -570,6 +601,180 @@ def _traced_rpc(func: Any) -> Any:
     return _send_traced
 
 
+def _program_job_succeeded(state: Any) -> bool:
+    """Whether a polled optimization job has succeeded.
+
+    Raises on a terminal-but-failed state and on any state outside the known
+    Submitted/Running/Publishing/Succeeded/Failed/Cancelled set, so an unknown
+    state can never be mistaken for "still working".
+    """
+    if not isinstance(state, Mapping):
+        if state != "Submitted":
+            raise RuntimeError("program optimization state is invalid")
+        return False
+    marker = set(state)
+    if marker == {"Succeeded"}:
+        return True
+    if marker in ({"Failed"}, {"Cancelled"}):
+        raise RuntimeError("program optimization job terminated")
+    if marker not in ({"Running"}, {"Publishing"}):
+        raise RuntimeError("program optimization state is invalid")
+    return False
+
+
+def _parse_semantic_hits(raw_hits: Any) -> list[tuple[str, float]]:
+    """Normalize the native ANN's ``(id, score)`` pairs, skipping malformed rows."""
+    hits: list[tuple[str, float]] = []
+    for item in raw_hits:
+        if not isinstance(item, list | tuple) or len(item) < 2:
+            continue
+        node_id = str(item[0])
+        if node_id:
+            hits.append((node_id, float(item[1])))
+    return hits
+
+
+def _embedding_candidate_is_current(node_properties: Mapping[str, Any]) -> bool:
+    """Whether a node's durable vector is still valid for an ANN candidate.
+
+    A node whose ``embedding`` property is present but falsy had it explicitly
+    cleared by a concurrent text update (see ``compare_and_set_node_embedding``)
+    — that ANN entry is stale until the vector is rebuilt/replaced. A node that
+    never mirrors its vector into a property at all (the simple
+    ``add_embedding`` path, which is intentionally distinct from the property
+    write — see its docstring) has no such key and is not stale by this signal;
+    it must not be penalized for a property it never had.
+    """
+    from ..enrichment.semantic import EMBEDDING_INDEX_READY_FIELD
+
+    if node_properties.get(EMBEDDING_INDEX_READY_FIELD) is False:
+        return False
+    return not ("embedding" in node_properties and not node_properties.get("embedding"))
+
+
+def _plan_ranks_rows(plan: list[dict[str, Any]]) -> bool:
+    """Whether a unified plan carries a ``Rank`` op (so rows need the fence)."""
+    return any(
+        isinstance(operation, dict) and "Rank" in operation for operation in plan
+    )
+
+
+def _ledger_backend_write(backend: Any, query: str, parameters: dict[str, Any]) -> None:
+    """Apply one ledger-replayed write, replacing raw driver detail on failure."""
+    try:
+        backend.execute_write(query, parameters=parameters)
+    except Exception as exc:
+        raise RuntimeError(
+            f"mutation ledger backend write failed ({type(exc).__name__})"
+        ) from exc
+
+
+def _ledger_payload(props_str: str, kind: str) -> dict[str, Any]:
+    """Decode and shape-check one ledger entry's JSON payload."""
+    try:
+        props = json.loads(props_str)
+    except Exception as exc:
+        raise ValueError(f"invalid {kind} payload in mutation ledger") from exc
+    if not isinstance(props, dict):
+        raise ValueError(f"{kind} payload in mutation ledger must be an object")
+    return props
+
+
+def _ledger_symbol_write(backend: Any, node_id: str, props: dict[str, Any]) -> None:
+    """Replay a SYMBOL node into the backend's typed ``:Symbol`` shape."""
+    query = (
+        "MERGE (n:Symbol {id: $id}) "
+        "SET n.node_type = 'SYMBOL', n.name = $name, "
+        "n.symbol_type = $sym_type, n.file_path = $fp, "
+        "n.ast_hash = $ast_hash, n.metadata = $meta"
+    )
+    _ledger_backend_write(
+        backend,
+        query,
+        {
+            "id": node_id,
+            "name": props.get("name", node_id),
+            "sym_type": props.get("symbol_type", "Unknown"),
+            "fp": props.get("file_path", ""),
+            "ast_hash": props.get("ast_hash", ""),
+            "meta": json.dumps(props),
+        },
+    )
+
+
+def _replay_ledger_node(backend: Any, args: list[str]) -> None:
+    """Replay one ``AddNode`` ledger entry, validating its Cypher identifiers."""
+    if len(args) < 2:
+        raise ValueError("incomplete node mutation in ledger")
+    node_id = args[0]
+    props_str = args[1]
+    props = _ledger_payload(props_str, "node")
+    node_type = props.get("node_type", "Entity")
+    if not isinstance(node_type, str) or not CYPHER_IDENTIFIER_RE.fullmatch(node_type):
+        raise ValueError("unsafe node type in mutation ledger")
+    if node_type == "SYMBOL":
+        _ledger_symbol_write(backend, node_id, props)
+        return
+    # Generic node fallback
+    _ledger_backend_write(
+        backend,
+        f"MERGE (n:{node_type} {{id: $id}}) SET n.metadata = $meta",
+        {"id": node_id, "meta": props_str},
+    )
+
+
+def _ledger_edge_type(props: dict[str, Any]) -> str:
+    """Validate and canonicalize a ledger edge's relationship identifier."""
+    edge_type = props.get("relationship") or "RELATED_TO"
+    if not isinstance(edge_type, str):
+        raise ValueError("edge type in mutation ledger must be a string")
+    edge_type = edge_type.replace(" ", "_").upper()
+    if not CYPHER_IDENTIFIER_RE.fullmatch(edge_type):
+        raise ValueError("unsafe edge type in mutation ledger")
+    return edge_type
+
+
+def _replay_ledger_edge(backend: Any, args: list[str]) -> None:
+    """Replay one ``AddEdge`` ledger entry, validating its Cypher identifiers."""
+    if len(args) < 3:
+        raise ValueError("incomplete edge mutation in ledger")
+    src = args[0]
+    tgt = args[1]
+    props_str = args[2]
+    props = _ledger_payload(props_str, "edge")
+    edge_type = _ledger_edge_type(props)
+    # cypher-write-subset-allow: flush_ledger_to_backend's sole caller
+    # (agent_utilities/workflows/epistemic_sync.py) always passes a
+    # LadybugBackend, which hands the query to Kuzu's full openCypher engine,
+    # not the native subset parser.
+    _ledger_backend_write(
+        backend,
+        f"MATCH (a {{id: $src}}), (b {{id: $tgt}}) "
+        f"MERGE (a)-[r:{edge_type}]->(b) "
+        "SET r.metadata = $meta",
+        {"src": src, "tgt": tgt, "meta": props_str},
+    )
+
+
+_LEDGER_REPLAY_OPS: dict[str, Any] = {
+    "AddNode": _replay_ledger_node,
+    "AddEdge": _replay_ledger_edge,
+}
+
+
+def _session_with_route(session: Any, route: Any) -> Any:
+    """Project one resolved placement route onto the verified session."""
+    return session.with_route(
+        endpoint=route.endpoint,
+        placement_group=(int(route.group) if int(route.group or 0) > 0 else None),
+        catalog_epoch=int(route.epoch),
+        topology_cluster_id=getattr(route, "cluster_id", None),
+        membership_epoch=getattr(route, "membership_epoch", None),
+        certificate_rotation_epoch=getattr(route, "certificate_rotation_epoch", None),
+        continuity_expires_at=getattr(route, "discovery_expires_at", None),
+    )
+
+
 class _SessionRoutedAsyncClient:
     """A zero-connection view over one async engine transport.
 
@@ -720,45 +925,13 @@ class _SessionRoutedAsyncClient:
         *,
         idempotency_key: str | None = None,
     ) -> Any:
-        from .session import SessionRequiredError, current_session, resolve_session
-
-        session = current_session()
-        # The socket was opened with a fixed, zero-authority transport context.
-        # It is never a request identity. Every operation must inherit the
-        # authentication boundary's task-local GraphSession and replace that
-        # context before the native client signs or writes a frame.
-        if session is None or not getattr(session.actor, "authenticated", False):
-            raise SessionRequiredError(
-                "A task-local verified GraphSession is required for every engine operation"
-            )
-        session = resolve_session(session)
-
-        target = graph or self._fixed_graph
-        if self._fixed_graph and session.graph != self._fixed_graph:
-            raise PermissionError(
-                "A graph-scoped view cannot retarget the verified GraphSession"
-            )
-        if graph and session.graph and graph != session.graph:
-            raise PermissionError(
-                "An explicit graph cannot retarget the verified GraphSession"
-            )
-        target = target or session.graph
-
-        target = target or self._graph_name
+        session = self._verified_request_session()
+        self._reject_graph_retarget(graph, session)
+        target = graph or self._fixed_graph or session.graph or self._graph_name
 
         # Service-level operations are connection-scoped, not graph-routed.
-        unrouted = {
-            "Ping",
-            "Health",
-            "PlacementRoute",
-            "ClusterMembers",
-            "Shutdown",
-            "Checkpoint",
-            "ResourceStats",
-            "CancelRequest",
-        }
         if (
-            method in unrouted
+            method in _UNROUTED_METHODS
             or self._route_config is None
             or not self._route_endpoints
         ):
@@ -770,43 +943,80 @@ class _SessionRoutedAsyncClient:
                 idempotency_key,
                 session,
             )
+        return await self._send_placement_routed(
+            method, params, target, idempotency_key, session
+        )
 
+    @staticmethod
+    def _verified_request_session() -> Any:
+        """Resolve the task-local verified GraphSession this operation runs under.
+
+        The socket was opened with a fixed, zero-authority transport context. It
+        is never a request identity. Every operation must inherit the
+        authentication boundary's task-local GraphSession and replace that
+        context before the native client signs or writes a frame.
+        """
+        from .session import SessionRequiredError, current_session, resolve_session
+
+        session = current_session()
+        if session is None or not getattr(session.actor, "authenticated", False):
+            raise SessionRequiredError(
+                "A task-local verified GraphSession is required for every engine operation"
+            )
+        return resolve_session(session)
+
+    def _reject_graph_retarget(self, graph: str | None, session: Any) -> None:
+        """Refuse any attempt to point this call at another graph than the session's."""
+        if self._fixed_graph and session.graph != self._fixed_graph:
+            raise PermissionError(
+                "A graph-scoped view cannot retarget the verified GraphSession"
+            )
+        if graph and session.graph and graph != session.graph:
+            raise PermissionError(
+                "An explicit graph cannot retarget the verified GraphSession"
+            )
+
+    async def _resolve_route(self, target: str | None, *, force_refresh: bool) -> Any:
+        """Resolve ``target``'s placement through the authoritative catalog."""
         import asyncio
-        import random
 
-        from epistemic_graph.client import StaleRouteError
+        from .placement_catalog import resolve_placement
 
-        from .placement_catalog import invalidate, resolve_placement
-
-        route = await asyncio.to_thread(
+        return await asyncio.to_thread(
             resolve_placement,
             target,
             self._route_endpoints,
             self._route_config,
+            force_refresh=force_refresh,
             client_factory=self._placement_client_factory,
         )
-        routed_session = session.with_route(
-            endpoint=route.endpoint,
-            placement_group=(int(route.group) if int(route.group or 0) > 0 else None),
-            catalog_epoch=int(route.epoch),
-            topology_cluster_id=getattr(route, "cluster_id", None),
-            membership_epoch=getattr(route, "membership_epoch", None),
-            certificate_rotation_epoch=getattr(
-                route, "certificate_rotation_epoch", None
-            ),
-            continuity_expires_at=getattr(route, "discovery_expires_at", None),
-        )
+
+    async def _send_placement_routed(
+        self,
+        method: str,
+        params: dict[str, Any] | None,
+        target: str | None,
+        idempotency_key: str | None,
+        session: Any,
+    ) -> Any:
+        """Invoke ``method`` at ``target``'s placed endpoint, healing stale routes.
+
+        ADR-1 / W1.1 bounded reconnect (`reports/wave1/ADR-scale-trio.md`
+        §ADR-1 decision 3): a cached/returned route can point at a node that just
+        died (the exact "kill the leader" failover case) -- a raw connect failure
+        to ``route.endpoint`` is NOT a ``StaleRouteError`` (the engine never got
+        to answer), so it needs its OWN retry leg: invalidate the stale cache
+        entry, re-resolve via ANY configured contact (``resolve_placement``'s
+        ``_query_catalog`` already tries every one in order, so a live coordinator
+        is found even when the ORIGINAL endpoint is the one that died), and retry
+        with jittered backoff, bounded so a genuinely dead cluster still surfaces
+        an error.
+        """
+        from epistemic_graph.client import StaleRouteError
+
+        route = await self._resolve_route(target, force_refresh=False)
+        routed_session = _session_with_route(session, route)
         routed_params = self._route_bound_params(method, params, route)
-        # ADR-1 / W1.1 bounded reconnect (`reports/wave1/ADR-scale-trio.md`
-        # §ADR-1 decision 3): a cached/returned route can point at a node that
-        # just died (the exact "kill the leader" failover case) -- a raw
-        # connect failure to `route.endpoint` is NOT a `StaleRouteError` (the
-        # engine never got to answer), so it needs its OWN retry leg:
-        # invalidate the stale cache entry, re-resolve via ANY configured
-        # contact (`resolve_placement`'s `_query_catalog` already tries every
-        # one in order, so a live coordinator is found even when the ORIGINAL
-        # endpoint is the one that died), and retry with jittered backoff,
-        # bounded so a genuinely dead cluster still surfaces an error.
         connect_attempt = 0
         while True:
             try:
@@ -820,38 +1030,8 @@ class _SessionRoutedAsyncClient:
                     force_new=bool(getattr(route, "reconnect_required", False)),
                 )
             except StaleRouteError:
-                # A stale response is guaranteed to be pre-commit. Refresh the
-                # authoritative catalog and retry exactly once with the same
-                # idempotency key and the new placement fence.
-                fresh = await asyncio.to_thread(
-                    resolve_placement,
-                    target,
-                    self._route_endpoints,
-                    self._route_config,
-                    force_refresh=True,
-                    client_factory=self._placement_client_factory,
-                )
-                fresh_session = session.with_route(
-                    endpoint=fresh.endpoint,
-                    placement_group=(
-                        int(fresh.group) if int(fresh.group or 0) > 0 else None
-                    ),
-                    catalog_epoch=int(fresh.epoch),
-                    topology_cluster_id=getattr(fresh, "cluster_id", None),
-                    membership_epoch=getattr(fresh, "membership_epoch", None),
-                    certificate_rotation_epoch=getattr(
-                        fresh, "certificate_rotation_epoch", None
-                    ),
-                    continuity_expires_at=getattr(fresh, "discovery_expires_at", None),
-                )
-                return await self._invoke_at(
-                    fresh.endpoint,
-                    method,
-                    self._route_bound_params(method, params, fresh),
-                    target,
-                    idempotency_key,
-                    fresh_session,
-                    force_new=bool(getattr(fresh, "reconnect_required", False)),
+                return await self._retry_after_stale_route(
+                    method, params, target, idempotency_key, session
                 )
             except (ConnectionError, OSError) as exc:
                 connect_attempt += 1
@@ -864,41 +1044,58 @@ class _SessionRoutedAsyncClient:
                         type(exc).__name__,
                     )
                     raise
-                logger.warning(
-                    "placement-routed endpoint %s unreachable (%s: %s); "
-                    "invalidating the cached route and re-resolving via any "
-                    "healthy seed (attempt %d/%d)",
-                    redact_for_log(route.endpoint),
-                    type(exc).__name__,
-                    exc,
-                    connect_attempt,
-                    _MAX_ROUTE_RECONNECT_ATTEMPTS,
-                )
-                invalidate(target)
-                backoff = _ROUTE_RECONNECT_BASE_DELAY_S * (2 ** (connect_attempt - 1))
-                await asyncio.sleep(backoff + random.uniform(0, backoff))  # nosec B311 - jitter, not crypto
-                route = await asyncio.to_thread(
-                    resolve_placement,
-                    target,
-                    self._route_endpoints,
-                    self._route_config,
-                    force_refresh=True,
-                    client_factory=self._placement_client_factory,
-                )
-                routed_session = session.with_route(
-                    endpoint=route.endpoint,
-                    placement_group=(
-                        int(route.group) if int(route.group or 0) > 0 else None
-                    ),
-                    catalog_epoch=int(route.epoch),
-                    topology_cluster_id=getattr(route, "cluster_id", None),
-                    membership_epoch=getattr(route, "membership_epoch", None),
-                    certificate_rotation_epoch=getattr(
-                        route, "certificate_rotation_epoch", None
-                    ),
-                    continuity_expires_at=getattr(route, "discovery_expires_at", None),
-                )
+                await self._invalidate_and_back_off(route, exc, target, connect_attempt)
+                route = await self._resolve_route(target, force_refresh=True)
+                routed_session = _session_with_route(session, route)
                 routed_params = self._route_bound_params(method, params, route)
+
+    async def _retry_after_stale_route(
+        self,
+        method: str,
+        params: dict[str, Any] | None,
+        target: str | None,
+        idempotency_key: str | None,
+        session: Any,
+    ) -> Any:
+        """Refresh the catalog and retry once with the new placement fence.
+
+        A stale response is guaranteed to be pre-commit, so the retry reuses the
+        same idempotency key.
+        """
+        fresh = await self._resolve_route(target, force_refresh=True)
+        return await self._invoke_at(
+            fresh.endpoint,
+            method,
+            self._route_bound_params(method, params, fresh),
+            target,
+            idempotency_key,
+            _session_with_route(session, fresh),
+            force_new=bool(getattr(fresh, "reconnect_required", False)),
+        )
+
+    @staticmethod
+    async def _invalidate_and_back_off(
+        route: Any, exc: BaseException, target: str | None, connect_attempt: int
+    ) -> None:
+        """Drop the dead cached route and sleep a jittered exponential backoff."""
+        import asyncio
+        import random
+
+        from .placement_catalog import invalidate
+
+        logger.warning(
+            "placement-routed endpoint %s unreachable (%s: %s); "
+            "invalidating the cached route and re-resolving via any "
+            "healthy seed (attempt %d/%d)",
+            redact_for_log(route.endpoint),
+            type(exc).__name__,
+            exc,
+            connect_attempt,
+            _MAX_ROUTE_RECONNECT_ATTEMPTS,
+        )
+        invalidate(target)
+        backoff = _ROUTE_RECONNECT_BASE_DELAY_S * (2 ** (connect_attempt - 1))
+        await asyncio.sleep(backoff + random.uniform(0, backoff))  # nosec B311 - jitter, not crypto
 
     def _verified_tenant(self) -> str:
         """Return the tenant from the current verified graph authority.
@@ -1220,21 +1417,43 @@ def _validate_engine_encryption_material(value: Any) -> str:
     return rendered
 
 
+def _assert_private_key_source(before_open: Any) -> None:
+    """Refuse a key source that is a symlink, not a regular file, or not private."""
+    import stat
+
+    if stat.S_ISLNK(before_open.st_mode) or not stat.S_ISREG(before_open.st_mode):
+        raise PermissionError("unsafe local key source")
+    if os.name != "posix":
+        return
+    if before_open.st_uid not in {0, os.geteuid()}:
+        raise PermissionError("untrusted local key owner")
+    if stat.S_IMODE(before_open.st_mode) != 0o600:
+        raise PermissionError("local key permissions are not private")
+
+
+def _assert_private_key_unchanged(opened: Any, after_read: Any, payload: bytes) -> None:
+    """Refuse a key file that was swapped or truncated between open and read."""
+    if (
+        opened.st_dev,
+        opened.st_ino,
+        opened.st_size,
+        opened.st_mtime_ns,
+    ) != (
+        after_read.st_dev,
+        after_read.st_ino,
+        after_read.st_size,
+        after_read.st_mtime_ns,
+    ) or len(payload) != opened.st_size:
+        raise PermissionError("local key source changed during read")
+
+
 def _read_private_engine_encryption_key(path: Any) -> str:
     """Read one stable local data key through a no-follow private descriptor."""
-
-    import stat
 
     descriptor = -1
     try:
         before_open = path.lstat()
-        if stat.S_ISLNK(before_open.st_mode) or not stat.S_ISREG(before_open.st_mode):
-            raise PermissionError("unsafe local key source")
-        if os.name == "posix":
-            if before_open.st_uid not in {0, os.geteuid()}:
-                raise PermissionError("untrusted local key owner")
-            if stat.S_IMODE(before_open.st_mode) != 0o600:
-                raise PermissionError("local key permissions are not private")
+        _assert_private_key_source(before_open)
         flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
         flags |= getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
         descriptor = os.open(str(path), flags)
@@ -1251,18 +1470,7 @@ def _read_private_engine_encryption_key(path: Any) -> str:
             descriptor = -1
             payload = handle.read(_ENGINE_ENCRYPTION_KEY_MAX_BYTES + 1)
             after_read = os.fstat(handle.fileno())
-        if (
-            opened.st_dev,
-            opened.st_ino,
-            opened.st_size,
-            opened.st_mtime_ns,
-        ) != (
-            after_read.st_dev,
-            after_read.st_ino,
-            after_read.st_size,
-            after_read.st_mtime_ns,
-        ) or len(payload) != opened.st_size:
-            raise PermissionError("local key source changed during read")
+        _assert_private_key_unchanged(opened, after_read, payload)
         return _validate_engine_encryption_material(payload)
     except FileNotFoundError:
         raise
@@ -1349,49 +1557,37 @@ def _warn_new_engine_encryption_key() -> None:
     )
 
 
-def _load_or_create_engine_encryption_key() -> str:
-    """Load or atomically create the stable private key for local tiny mode.
-
-    Unlike an authentication-only process-local fallback, encryption-at-rest
-    must remain decryptable after restart. Failure to persist or privately read
-    this key therefore fails closed.
-    """
-
-    import secrets as _secrets
+def _assert_private_key_directory(metadata: Any) -> None:
+    """Refuse a key directory that is a symlink, not a directory, or not private."""
     import stat
 
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+        raise PermissionError("unsafe local key directory")
+    if os.name != "posix":
+        return
+    if metadata.st_uid not in {0, os.geteuid()}:
+        raise PermissionError("untrusted local key directory owner")
+    if stat.S_IMODE(metadata.st_mode) != 0o700:
+        raise PermissionError("local key directory is not private")
+
+
+def _ensure_private_key_directory() -> Any:
+    """Create (0700) and validate the directory holding the local key."""
     from agent_utilities.core.paths import data_dir
 
     private_directory = data_dir() / "engine-private"
     try:
         private_directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        metadata = private_directory.lstat()
-        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
-            raise PermissionError("unsafe local key directory")
-        if os.name == "posix":
-            if metadata.st_uid not in {0, os.geteuid()}:
-                raise PermissionError("untrusted local key directory owner")
-            if stat.S_IMODE(metadata.st_mode) != 0o700:
-                raise PermissionError("local key directory is not private")
+        _assert_private_key_directory(private_directory.lstat())
     except Exception as exc:
         raise RuntimeError("local engine encryption key is unavailable") from exc
+    return private_directory
 
-    path = private_directory / "encryption_key"
-    try:
-        return _read_private_engine_encryption_key(path)
-    except FileNotFoundError:  # noqa: BLE001 — first run creates the key atomically
-        pass
 
-    material = _secrets.token_urlsafe(48)
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-    flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-    flags |= getattr(os, "O_BINARY", 0)
-    try:
-        descriptor = os.open(str(path), flags, 0o600)
-    except FileExistsError:
-        return _read_private_engine_encryption_key(path)
-    except OSError as exc:
-        raise RuntimeError("local engine encryption key is unavailable") from exc
+def _write_private_engine_encryption_key(
+    descriptor: int, path: Any, material: str
+) -> None:
+    """Persist the freshly minted key, unlinking a partial file on failure."""
     try:
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(material.encode("ascii"))
@@ -1403,8 +1599,45 @@ def _load_or_create_engine_encryption_key() -> str:
         with contextlib.suppress(OSError):
             path.unlink()
         raise RuntimeError("local engine encryption key is unavailable") from exc
+
+
+def _create_private_engine_encryption_key(path: Any) -> str:
+    """Atomically mint the private local key, then read it back through the guard.
+
+    A concurrent peer that won the O_EXCL race owns the authoritative key, so
+    that case reads rather than mints.
+    """
+    import secrets as _secrets
+
+    material = _secrets.token_urlsafe(48)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    flags |= getattr(os, "O_BINARY", 0)
+    try:
+        descriptor = os.open(str(path), flags, 0o600)
+    except FileExistsError:
+        return _read_private_engine_encryption_key(path)
+    except OSError as exc:
+        raise RuntimeError("local engine encryption key is unavailable") from exc
+    _write_private_engine_encryption_key(descriptor, path, material)
     _warn_new_engine_encryption_key()
     return _read_private_engine_encryption_key(path)
+
+
+def _load_or_create_engine_encryption_key() -> str:
+    """Load or atomically create the stable private key for local tiny mode.
+
+    Unlike an authentication-only process-local fallback, encryption-at-rest
+    must remain decryptable after restart. Failure to persist or privately read
+    this key therefore fails closed.
+    """
+
+    path = _ensure_private_key_directory() / "encryption_key"
+    try:
+        return _read_private_engine_encryption_key(path)
+    except FileNotFoundError:  # noqa: BLE001 — first run creates the key atomically
+        pass
+    return _create_private_engine_encryption_key(path)
 
 
 def _resolve_engine_encryption_key(config: Any) -> str:
@@ -1748,6 +1981,374 @@ def _resolve_engine_persist_dir() -> str | None:
     return persist_dir
 
 
+def _resolve_routed_graph_name(
+    graph_name: str | None, config: Any, *, sharded: bool
+) -> str:
+    """Select the tenant-scoped named graph this transport routes to.
+
+    Sharded: the graph submitted to the authenticated placement authority
+    (endpoint selection happens per request). Single endpoint: per-tenant
+    named-graph isolation must NOT require multiple shards
+    (CONCEPT:AU-KG.compute.data-is-private-its) — with enforcement on, route the
+    ambient tenant to its own named graph even on one endpoint; with enforcement
+    off this retains the configured default-graph behavior.
+    """
+    from .shard_topology import resolve_routing_graph
+
+    if sharded:
+        return resolve_routing_graph(graph_name, config)
+    if graph_name is not None:
+        return graph_name
+    from .company_brain_runtime import brain_enforcement_enabled
+
+    if brain_enforcement_enabled():
+        return resolve_routing_graph(None, config)
+    return config.kg_default_graph
+
+
+def _build_engine_connect_kwargs(
+    resolved: Any, graph_name: str | None, config: Any
+) -> dict[str, Any]:
+    """Build the native client's connect kwargs for the resolved endpoint."""
+    endpoint = resolved.endpoint
+    connect_kwargs: dict[str, Any] = {
+        "auth_secret": resolved.auth_secret,
+        "graph_name": graph_name,
+        "verified_context": _transport_only_verified_context(),
+    }
+    if endpoint.startswith(("tcp://", "tls://")):
+        from .engine_transport import (
+            engine_client_transport_kwargs,
+            native_endpoint_address,
+        )
+
+        connect_kwargs["tcp_addr"] = native_endpoint_address(endpoint)[0]
+        connect_kwargs.update(engine_client_transport_kwargs(endpoint, config=config))
+    elif endpoint.startswith("unix://"):
+        connect_kwargs["socket_path"] = endpoint[7:]
+    else:
+        connect_kwargs["socket_path"] = endpoint
+    return connect_kwargs
+
+
+def _engine_unreachable_error(
+    initial_e: BaseException,
+    endpoint: str,
+    graph_name: str | None,
+    *,
+    sharded: bool,
+) -> ConnectionError:
+    """The fail-loud error for an endpoint this process may not auto-start.
+
+    Multiple configured contacts are remote and never auto-started; placement
+    cannot be guessed when the authority is unreachable.
+    """
+    if sharded:
+        return ConnectionError(
+            f"Configured engine shard {endpoint!r} for graph {graph_name!r} "
+            f"is unreachable ({type(initial_e).__name__}): {initial_e}. "
+            "Repair the coordinator topology — start that shard's "
+            "epistemic-graph-server, or remove it from "
+            "GRAPH_SERVICE_ENDPOINTS (moving a graph between shards "
+            "requires a manual snapshot export/import). Autostart applies "
+            "only to the local unix:// endpoint; remote contacts/shards "
+            "are never auto-started."
+        )
+    return ConnectionError(
+        "Cannot connect to epistemic-graph service "
+        f"({type(initial_e).__name__}); ensure the engine daemon is "
+        "running or enable local autostart in AgentConfig."
+    )
+
+
+def _resolve_engine_server_path(sys_module: Any, path_cls: Any) -> str:
+    """Locate the packaged ``epistemic-graph-server`` binary.
+
+    The maturin wheel installs the binary next to the interpreter; on Windows it
+    carries a ``.exe`` suffix (``Scripts/epistemic-graph-server.exe``).
+    Interpreter adjacency alone is wrong outside a venv (BUG-PE-051): the
+    packaged image runs ``/usr/bin/python3`` while maturin installed the binary
+    on PATH at ``/usr/local/bin``, so the adjacent guess did not exist.
+    Adjacency still WINS when it resolves, because a build sitting in this
+    interpreter's own environment is the more specific match for the wheel
+    actually imported -- PATH may point at an unrelated system engine of a
+    different version. PATH is the fallback. ``shutil.which`` applies PATHEXT on
+    Windows, and the name already carries the ``.exe`` there, so both halves
+    keep the Windows contract.
+    """
+    server_exe = (
+        "epistemic-graph-server.exe" if os.name == "nt" else "epistemic-graph-server"
+    )
+    adjacent_server = path_cls(sys_module.executable).parent / server_exe
+    if adjacent_server.exists():
+        return str(adjacent_server)
+    return shutil.which(server_exe) or str(adjacent_server)
+
+
+def _build_autostart_argv(
+    server_path: str,
+    sock: str | None,
+    connect_kwargs: dict[str, Any],
+    *,
+    coupled: bool,
+    idle_shutdown_secs: int,
+) -> list[str]:
+    """Build the spawn argv: transport, durable persist dir, idle shutdown.
+
+    Reference-counted supervision (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision):
+    a DETACHED engine that outlives its spawner needs a self-shutdown so a
+    crashed/exited fleet of clients doesn't leave it running forever. ``>0`` →
+    arm idle shutdown; ``0`` → persistent (omit the flag, engine runs forever
+    like a service). A coupled engine is already lifetime-bound to its spawner,
+    so skip it.
+    """
+    cmd = _build_engine_transport_argv(server_path, sock, connect_kwargs)
+    persist_dir = _resolve_engine_persist_dir()
+    if persist_dir:
+        cmd += ["--persist-dir", persist_dir]
+    if not coupled and idle_shutdown_secs > 0:
+        cmd += ["--idle-shutdown-secs", str(idle_shutdown_secs)]
+    return cmd
+
+
+def _project_engine_authority(
+    child_env: dict[str, str], bootstrap_context: Mapping[str, Any]
+) -> None:
+    """Project the verified session's tenant/audience/policy into ``child_env``.
+
+    Fail closed when the ambient child environment already carries a CONFLICTING
+    authority value — a packaged-local engine is a private child of this
+    verified process and must not run under someone else's policy.
+    """
+    authority_projection = {
+        "EPISTEMIC_GRAPH_AUDIENCE": str(bootstrap_context["audience"]),
+        "EPISTEMIC_GRAPH_TENANT": str(bootstrap_context["tenant"]),
+        "EPISTEMIC_GRAPH_POLICY_VERSION": str(bootstrap_context["policy_version"]),
+    }
+    for environment_name, expected in authority_projection.items():
+        configured = str(child_env.get(environment_name, "") or "").strip()
+        if configured and configured != expected:
+            raise RuntimeError(
+                "local engine authority policy does not match the verified process"
+            )
+        child_env[environment_name] = expected
+
+
+def _signer_key_from_registry(raw_registry: str, actor_id: str) -> str:
+    """Read ``actor_id``'s key out of an explicit signer registry, fail-closed.
+
+    An explicit registry must already contain this subject; a short or missing
+    key is a refusal, never a silent self-issued key.
+    """
+    try:
+        registry = json.loads(raw_registry)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise RuntimeError("local engine signer registry is invalid") from exc
+    if not isinstance(registry, dict):
+        raise RuntimeError("local engine signer registry is invalid")
+    signer_key = str(registry.get(actor_id, "") or "")
+    if len(signer_key.encode("utf-8")) < 32:
+        raise RuntimeError(
+            "verified process identity is absent from the engine signer registry"
+        )
+    return signer_key
+
+
+def _resolve_engine_signer_key(child_env: dict[str, str], actor_id: str) -> str:
+    """Resolve the bootstrap signer key, minting a private one when unset.
+
+    A private signer exists only for the empty-store System identity bootstrap
+    of a packaged-local child.
+    """
+    raw_registry = str(
+        child_env.get("EPISTEMIC_GRAPH_SIGNER_KEYS_JSON", "") or ""
+    ).strip()
+    if raw_registry:
+        return _signer_key_from_registry(raw_registry, actor_id)
+    signer_key = _load_or_create_engine_bootstrap_signer_key()
+    child_env["EPISTEMIC_GRAPH_SIGNER_KEYS_JSON"] = json.dumps(
+        {actor_id: signer_key}, separators=(",", ":")
+    )
+    return signer_key
+
+
+def _engine_child_limits(config: Any) -> dict[str, str]:
+    """The resident-graph / request / AST / SQLite limits handed to the child."""
+    return {
+        "EPISTEMIC_GRAPH_LAZY_STARTUP": "1",
+        "EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS": str(
+            config.epistemic_graph_max_resident_graphs
+        ),
+        "EPISTEMIC_GRAPH_LAZY_OPEN_PAGE_SIZE": str(
+            config.epistemic_graph_lazy_open_page_size
+        ),
+        "EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH": str(
+            config.epistemic_graph_max_nodes_per_graph
+        ),
+        "EPISTEMIC_GRAPH_MAX_REQUEST_BYTES": str(
+            getattr(config, "epistemic_graph_max_request_bytes", 64 * 1024 * 1024)
+        ),
+        "EPISTEMIC_GRAPH_MAX_RESPONSE_BYTES": str(
+            getattr(config, "epistemic_graph_max_response_bytes", 64 * 1024 * 1024)
+        ),
+        "EPISTEMIC_GRAPH_MAX_MSGPACK_ITEMS": str(
+            getattr(config, "epistemic_graph_max_msgpack_items", 1_000_000)
+        ),
+        "EPISTEMIC_GRAPH_CONNECTION_IO_TIMEOUT_SECS": str(
+            getattr(config, "epistemic_graph_connection_io_timeout_secs", 120)
+        ),
+        "EPISTEMIC_GRAPH_TLS_HANDSHAKE_TIMEOUT_SECS": str(
+            getattr(config, "epistemic_graph_tls_handshake_timeout_secs", 10)
+        ),
+        "EPISTEMIC_GRAPH_AST_MAX_FILES": str(
+            getattr(config, "epistemic_graph_ast_max_files", 4_096)
+        ),
+        "EPISTEMIC_GRAPH_AST_MAX_SOURCE_BYTES": str(
+            getattr(config, "epistemic_graph_ast_max_source_bytes", 4 * 1024 * 1024)
+        ),
+        "EPISTEMIC_GRAPH_AST_MAX_TOTAL_BYTES": str(
+            getattr(config, "epistemic_graph_ast_max_total_bytes", 32 * 1024 * 1024)
+        ),
+        "EPISTEMIC_GRAPH_MODALITY_MAX_BUNDLE_BYTES": str(
+            getattr(
+                config,
+                "epistemic_graph_modality_max_bundle_bytes",
+                4 * 1024 * 1024,
+            )
+        ),
+        "EPISTEMIC_GRAPH_MODALITY_MAX_SOURCE_BYTES": str(
+            getattr(
+                config,
+                "epistemic_graph_modality_max_source_bytes",
+                16 * 1024 * 1024,
+            )
+        ),
+        "EPISTEMIC_GRAPH_SQLITE_MAX_BYTES": str(
+            getattr(config, "epistemic_graph_sqlite_max_bytes", 256 * 1024 * 1024)
+        ),
+        "EPISTEMIC_GRAPH_SQLITE_MAX_ROWS": str(
+            getattr(config, "epistemic_graph_sqlite_max_rows", 1_000_000)
+        ),
+    }
+
+
+def _apply_engine_runtime_roots(child_env: dict[str, str], config: Any) -> None:
+    """Resolve the configured transfer/backup root REFERENCES for the child."""
+    runtime_roots = (
+        (
+            "EPISTEMIC_GRAPH_SQLITE_TRANSFER_ROOT",
+            getattr(config, "epistemic_graph_sqlite_transfer_root_ref", None),
+        ),
+        (
+            "EPISTEMIC_GRAPH_BACKUP_ROOT",
+            getattr(config, "epistemic_graph_backup_root_ref", None),
+        ),
+    )
+    for environment_name, reference in runtime_roots:
+        if reference:
+            child_env[environment_name] = _resolve_engine_path_ref(str(reference))
+
+
+def _forget_coupled_child(child: Any, *, coupled: bool) -> None:
+    """Drop a dead coupled child from the atexit/SIGTERM teardown roster."""
+    if coupled:
+        with contextlib.suppress(ValueError):
+            _coupled_children.remove(child)
+
+
+def _terminate_engine_child(child: Any, *, coupled: bool) -> None:
+    """Tear down the child we just spawned so it cannot become an orphan.
+
+    An unreachable orphan would hold the persistence lock, so escalate
+    terminate → wait → kill before forgetting it.
+    """
+    with contextlib.suppress(Exception):
+        child.terminate()
+    with contextlib.suppress(Exception):
+        child.wait(timeout=3.0)
+    if child.poll() is None:
+        with contextlib.suppress(Exception):
+            child.kill()
+    _forget_coupled_child(child, coupled=coupled)
+
+
+def _spawn_engine_child(
+    cmd: list[str],
+    child_env: dict[str, str],
+    startup_capture: Any,
+    subprocess_module: Any,
+    *,
+    coupled: bool,
+) -> Any:
+    """Spawn the engine child under the requested lifecycle and return it.
+
+    ``coupled`` (embedded/tiny path): the engine's lifetime is tied to ours. Do
+    NOT start a new session (that would detach it); instead arm the parent-death
+    signal in the child and track it for atexit/SIGTERM teardown so the embedded
+    engine never outlives its spawner. ``preexec_fn`` is POSIX-only —
+    ``subprocess.Popen`` REFUSES it on Windows (ValueError). The parent-death
+    signal is Linux-only anyway, so on non-POSIX we pass no ``preexec_fn`` and
+    rely entirely on the atexit/SIGTERM/SIGINT teardown registered by
+    ``_install_coupled_handlers``.
+
+    Not coupled (explicit long-lived daemon — graph-os-host / enterprise shard):
+    detach so it survives this launcher. On POSIX that's a new session; on
+    Windows there is no setsid — ``DETACHED_PROCESS`` + a new process group
+    detaches the child from the launcher's console/job instead.
+
+    The encryption material is scrubbed from ``child_env`` the moment the spawn
+    resolves, so it exists only in the private child environment.
+    """
+    popen_kwargs: dict[str, Any] = {
+        "stdout": subprocess_module.DEVNULL,
+        "stderr": startup_capture,
+        "env": child_env,
+    }
+    if coupled:
+        if os.name == "posix":
+            popen_kwargs["start_new_session"] = False
+            popen_kwargs["preexec_fn"] = _set_pdeathsig
+    elif os.name == "posix":
+        popen_kwargs["start_new_session"] = True
+    else:  # Windows
+        popen_kwargs["creationflags"] = (
+            subprocess_module.DETACHED_PROCESS  # type: ignore[attr-defined]
+            | subprocess_module.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+        )
+    try:
+        child = subprocess_module.Popen(cmd, **popen_kwargs)  # nosec B603
+    finally:
+        child_env.pop("EPISTEMIC_GRAPH_ENCRYPTION_KEY", None)
+        popen_kwargs.pop("env", None)
+    if coupled:
+        _coupled_children.append(child)
+        _install_coupled_handlers()
+    return child
+
+
+def _rollback_embedding_transaction(txn: Any, txn_id: Any) -> None:
+    """Best-effort rollback that never masks the staging failure it unwinds."""
+    try:
+        txn.rollback(txn_id)
+    except Exception:  # noqa: BLE001 - preserve the staging failure
+        logger.debug("atomic embedding transaction rollback failed", exc_info=True)
+
+
+def _signal_event_bridge_loop(loop: Any, async_stop: Any) -> None:
+    """Queue the bridge's async stop signal on its own loop, if still open."""
+    if loop is None or async_stop is None or loop.is_closed():
+        return
+    try:
+        # Queue the signal even before ``run_until_complete`` begins; otherwise
+        # a close in that startup window can strand a worker.
+        loop.call_soon_threadsafe(async_stop.set)
+    except RuntimeError:
+        logger.debug(
+            "Event bridge loop closed before stop signal could be queued",
+            exc_info=True,
+        )
+
+
 class GraphComputeEngine:
     """Graph compute engine backed by the epistemic-graph Tokio service.
 
@@ -1901,69 +2502,32 @@ class GraphComputeEngine:
         return view
 
     def __init__(self, graph_name: str | None = None, **kwargs: Any) -> None:
-        from epistemic_graph.client import SyncEpistemicGraphClient
-
         from agent_utilities.core.config import AgentConfig
 
         from .engine_resolver import resolve_engine
         from .session import graph_session_required
-        from .shard_topology import (
-            record_shard_connect,
-            resolve_endpoints,
-            resolve_routing_graph,
-        )
+        from .shard_topology import resolve_endpoints
 
         if graph_session_required() and self._PROCESS_ENGINE is not None:
             raise RuntimeError(
                 "A process graph transport already exists; use "
                 "GraphComputeEngine.get_or_create()/for_graph()"
             )
-
-        self.graph: dict[str, Any] = {}
-        self._process_root = self
-        # SyncEpistemicGraphClient wrapped in a BreakerClientProxy
-        # — attribute-transparent; raw client at
-        # ``self._client.__wrapped__``. (CONCEPT:AU-OS.observability.no-op-without-metrics)
-        self._client: Any
-        self._transport_client = None
-        self._transport_closed = False
-        from .transport_lifecycle import TransportDrainGate
-
-        self._drain_gate = TransportDrainGate()
-        self._event_bridge_stop: threading.Event | None = None
-        self._event_bridge_thread: threading.Thread | None = None
-        self._event_bridge_loop: Any | None = None
-        self._event_bridge_async_stop: Any | None = None
-        self._mode: str = "service"
-
         if "endpoint" in kwargs:
             raise TypeError(
                 "per-instance engine endpoints are not supported; configure "
                 "GRAPH_SERVICE_ENDPOINTS"
             )
 
+        self._init_transport_state()
         config = AgentConfig()
         self._route_config = config
         endpoints = resolve_endpoints(config)
-        sharded = len(endpoints) > 1
-        if sharded:
-            # Select the tenant-scoped named graph submitted to the authenticated
-            # placement authority. Endpoint selection happens per request.
-            graph_name = resolve_routing_graph(graph_name, config)
-        elif graph_name is None:
-            # Per-tenant named-graph isolation must NOT require multiple shards
-            # (CONCEPT:AU-KG.compute.data-is-private-its): with enforcement on, route the ambient tenant to
-            # its own named graph even on a single endpoint. With enforcement off this retains the
-            # configured default-graph behavior.
-            from .company_brain_runtime import brain_enforcement_enabled
-
-            if brain_enforcement_enabled():
-                graph_name = resolve_routing_graph(None, config)
-            else:
-                graph_name = config.kg_default_graph
         # Retained so downstream consumers (e.g. the delta-ingestion manifest)
         # can key state by tenant graph. (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
-        self.graph_name = graph_name
+        self.graph_name = _resolve_routed_graph_name(
+            graph_name, config, sharded=len(endpoints) > 1
+        )
 
         # Since GraphComputeEngine is synchronous and often long-lived, its
         # process transport connects to one configured coordinator. Its one
@@ -1974,170 +2538,195 @@ class GraphComputeEngine:
         # the local-vs-remote classification, the share-probe, the auth secret,
         # and whether autostart is permitted — so this chokepoint carries no
         # inline autostart sequence or per-instance topology override.
-        resolved = resolve_engine(config, graph_name)
-        endpoint = resolved.endpoint
-        self.endpoint = endpoint
-        auth_secret = resolved.auth_secret
-        idle_shutdown_secs = resolved.idle_shutdown_secs
-        connect_kwargs: dict[str, Any] = {
-            "auth_secret": auth_secret,
-            "graph_name": graph_name,
-            "verified_context": _transport_only_verified_context(),
-        }
-        if endpoint.startswith(("tcp://", "tls://")):
-            from .engine_transport import (
-                engine_client_transport_kwargs,
-                native_endpoint_address,
-            )
-
-            connect_kwargs["tcp_addr"] = native_endpoint_address(endpoint)[0]
-            connect_kwargs.update(
-                engine_client_transport_kwargs(endpoint, config=config)
-            )
-        elif endpoint.startswith("unix://"):
-            connect_kwargs["socket_path"] = endpoint[7:]
-        else:
-            connect_kwargs["socket_path"] = endpoint
-
-        # Circuit breaker — ONE shared breaker per endpoint (CONCEPT:AU-OS.observability.no-op-without-metrics).
-        # When the engine is down, N consecutive connect/timeout failures open
-        # the circuit and every caller fails fast with the typed
-        # EngineCircuitOpenError (a ConnectionError) instead of hammering a
-        # dead socket; a half-open probe after the cooldown heals it.
-        from agent_utilities.knowledge_graph.core.engine_breaker import (
-            get_breaker,
-            wrap_client_with_breaker,
+        resolved = resolve_engine(config, self.graph_name)
+        self.endpoint = resolved.endpoint
+        connect_kwargs = _build_engine_connect_kwargs(resolved, self.graph_name, config)
+        breaker = self._connect_engine_transport(
+            connect_kwargs,
+            resolved,
+            config,
+            sharded=len(endpoints) > 1,
+            coupled=bool(kwargs.get("coupled", False)),
         )
+        self._finish_transport_setup(resolved, config, endpoints, breaker)
 
+    def _init_transport_state(self) -> None:
+        """Initialize the per-instance transport/event-bridge attributes."""
+        from .transport_lifecycle import TransportDrainGate
+
+        self.graph: dict[str, Any] = {}
+        self._process_root = self
+        # SyncEpistemicGraphClient wrapped in a BreakerClientProxy
+        # — attribute-transparent; raw client at
+        # ``self._client.__wrapped__``. (CONCEPT:AU-OS.observability.no-op-without-metrics)
+        self._client: Any
+        self._transport_client = None
+        self._transport_closed = False
+        self._drain_gate = TransportDrainGate()
+        self._event_bridge_stop: threading.Event | None = None
+        self._event_bridge_thread: threading.Thread | None = None
+        self._event_bridge_loop: Any | None = None
+        self._event_bridge_async_stop: Any | None = None
+        self._mode: str = "service"
+
+    def _connect_engine_transport(
+        self,
+        connect_kwargs: dict[str, Any],
+        resolved: Any,
+        config: Any,
+        *,
+        sharded: bool,
+        coupled: bool,
+    ) -> Any:
+        """Connect the process transport, auto-starting a local engine if allowed.
+
+        Returns the endpoint's shared circuit breaker — ONE per endpoint
+        (CONCEPT:AU-OS.observability.no-op-without-metrics). When the engine is
+        down, N consecutive connect/timeout failures open the circuit and every
+        caller fails fast with the typed ``EngineCircuitOpenError`` (a
+        ``ConnectionError``) instead of hammering a dead socket; a half-open probe
+        after the cooldown heals it.
+        """
+        from epistemic_graph.client import SyncEpistemicGraphClient
+
+        from agent_utilities.knowledge_graph.core.engine_breaker import get_breaker
+
+        from .shard_topology import record_shard_connect
+
+        endpoint = resolved.endpoint
         breaker = get_breaker(endpoint)
         breaker.before_call()  # fast-fail BEFORE attempting a connect when open
-
-        # The resolver already gated this to a LOCAL endpoint the process may
-        # spawn (never a remote/sharded shard — that stays fail-loud below).
-        autostart_allowed = resolved.autostart_allowed
-
         try:
             self._client = SyncEpistemicGraphClient.connect(**connect_kwargs)
         except Exception as initial_e:
             if isinstance(initial_e, OSError | EOFError):
                 breaker.record_failure()
-            if autostart_allowed:
-                import subprocess
-                import sys
-                import time
-                from pathlib import Path
+            # The resolver already gated autostart to a LOCAL endpoint the
+            # process may spawn (never a remote/sharded shard — that stays
+            # fail-loud here).
+            if not resolved.autostart_allowed:
+                record_shard_connect(endpoint, False)
+                raise _engine_unreachable_error(
+                    initial_e,
+                    endpoint,
+                    self.graph_name,
+                    sharded=sharded,
+                ) from initial_e
+            self._autostart_engine_transport(
+                connect_kwargs,
+                resolved,
+                config,
+                breaker,
+                initial_e,
+                coupled=coupled,
+            )
+        return breaker
 
-                from .engine_lock import engine_spawn_guard
+    def _autostart_engine_transport(
+        self,
+        connect_kwargs: dict[str, Any],
+        resolved: Any,
+        config: Any,
+        breaker: Any,
+        initial_e: BaseException,
+        *,
+        coupled: bool,
+    ) -> None:
+        """Spawn a local engine behind the single-instance guard and connect.
 
-                sock = connect_kwargs.get("socket_path")
-                # The single-instance guard is transport-keyed. Windows uses
-                # loopback TCP instead of AF_UNIX, so retain the endpoint as
-                # the guard key when there is no socket path.
-                spawn_key = sock or endpoint
+        Single-instance spawn (CONCEPT:EG-KG.storage.nonblocking-checkpoint /
+        OS-5.9): serialize all autostart spawners for this socket behind a flock
+        and double-check connectivity before spawning. Without this, two connects
+        racing — or a client spawning while a displaced engine still holds the
+        socket — produce a split-brain (two engines on one socket, clobbering the
+        same ``--persist-dir``). The guard is held across spawn+wait so a
+        concurrent spawner finds the engine already up on re-check instead of
+        spawning a second one.
+
+        Detached + supervised (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision):
+        the engine survives this spawner so OTHER entrypoints on the host share it
+        (NOT coupled=pdeathsig), and it self-terminates ``idle_shutdown_secs``
+        after its last client disconnects (0 = persistent, never auto-stop).
+        """
+        import subprocess
+        import sys
+        import time
+        from pathlib import Path
+
+        from epistemic_graph.client import SyncEpistemicGraphClient
+
+        from .engine_lock import engine_spawn_guard
+        from .shard_topology import record_shard_connect
+
+        endpoint = resolved.endpoint
+        sock = connect_kwargs.get("socket_path")
+        # The single-instance guard is transport-keyed. Windows uses loopback TCP
+        # instead of AF_UNIX, so retain the endpoint as the guard key when there
+        # is no socket path.
+        spawn_key = sock or endpoint
+        try:
+            with engine_spawn_guard(spawn_key) as owns_spawn_guard:
                 try:
-                    # Single-instance spawn (CONCEPT:EG-KG.storage.nonblocking-checkpoint / OS-5.9): serialize all
-                    # autostart spawners for this socket behind a flock and
-                    # double-check connectivity before spawning. Without this, two
-                    # connects racing — or a client spawning while a displaced engine
-                    # still holds the socket — produce a split-brain (two engines on
-                    # one socket, clobbering the same --persist-dir). The guard is
-                    # held across spawn+wait so a concurrent spawner finds the engine
-                    # already up on re-check instead of spawning a second one.
-                    with engine_spawn_guard(spawn_key) as owns_spawn_guard:
-                        try:
-                            # Double check: a peer may have brought it up while we
-                            # waited for the guard.
-                            self._client = SyncEpistemicGraphClient.connect(
-                                **connect_kwargs
-                            )
-                        except Exception:  # noqa: BLE001 - still down; we spawn
-                            if not owns_spawn_guard:
-                                # A peer still owns the spawn right. Never start a
-                                # competing writer after the bounded guard wait.
-                                raise ConnectionError(
-                                    "Timed out waiting for the local epistemic-graph "
-                                    "startup owner; no competing engine was spawned."
-                                ) from initial_e
-                            # Detached + supervised (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): the engine
-                            # survives this spawner so OTHER entrypoints on the
-                            # host share it (NOT coupled=pdeathsig), and it
-                            # self-terminates ``idle_shutdown_secs`` after its last
-                            # client disconnects (0 = persistent, never auto-stop).
-                            self._client = self._autostart_engine(
-                                connect_kwargs,
-                                sock,
-                                auth_secret,
-                                config,
-                                subprocess,
-                                sys,
-                                time,
-                                Path,
-                                coupled=bool(kwargs.get("coupled", False)),
-                                idle_shutdown_secs=idle_shutdown_secs,
-                            )
-                except ConnectionError:
-                    record_shard_connect(endpoint, False)
-                    raise
-                except Exception as retry_e:
-                    if isinstance(retry_e, OSError | EOFError):
-                        breaker.record_failure()
-                    record_shard_connect(endpoint, False)
-                    raise ConnectionError(
-                        "Cannot connect to epistemic-graph service after auto-start "
-                        f"({type(retry_e).__name__}); ensure the engine daemon is running."
-                    ) from retry_e
-            elif sharded:
-                # Multiple configured contacts are remote and never auto-started.
-                # Placement cannot be guessed when the authority is unreachable.
-                record_shard_connect(endpoint, False)
-                raise ConnectionError(
-                    f"Configured engine shard {endpoint!r} for graph {graph_name!r} "
-                    f"is unreachable ({type(initial_e).__name__}): {initial_e}. "
-                    "Repair the coordinator topology — start that shard's "
-                    "epistemic-graph-server, or remove it from "
-                    "GRAPH_SERVICE_ENDPOINTS (moving a graph between shards "
-                    "requires a manual snapshot export/import). Autostart applies "
-                    "only to the local unix:// endpoint; remote contacts/shards "
-                    "are never auto-started."
-                ) from initial_e
-            else:
-                record_shard_connect(endpoint, False)
-                raise ConnectionError(
-                    "Cannot connect to epistemic-graph service "
-                    f"({type(initial_e).__name__}); ensure the engine daemon is "
-                    "running or enable local autostart in AgentConfig."
-                ) from initial_e
+                    # Double check: a peer may have brought it up while we waited
+                    # for the guard.
+                    self._client = SyncEpistemicGraphClient.connect(**connect_kwargs)
+                except Exception:  # noqa: BLE001 - still down; we spawn
+                    if not owns_spawn_guard:
+                        # A peer still owns the spawn right. Never start a
+                        # competing writer after the bounded guard wait.
+                        raise ConnectionError(
+                            "Timed out waiting for the local epistemic-graph "
+                            "startup owner; no competing engine was spawned."
+                        ) from initial_e
+                    self._client = self._autostart_engine(
+                        connect_kwargs,
+                        sock,
+                        resolved.auth_secret,
+                        config,
+                        subprocess,
+                        sys,
+                        time,
+                        Path,
+                        coupled=coupled,
+                        idle_shutdown_secs=resolved.idle_shutdown_secs,
+                    )
+        except ConnectionError:
+            record_shard_connect(endpoint, False)
+            raise
+        except Exception as retry_e:
+            if isinstance(retry_e, OSError | EOFError):
+                breaker.record_failure()
+            record_shard_connect(endpoint, False)
+            raise ConnectionError(
+                "Cannot connect to epistemic-graph service after auto-start "
+                f"({type(retry_e).__name__}); ensure the engine daemon is running."
+            ) from retry_e
 
-        # From this point construction owns a real native transport.  Every
-        # later setup step (graph readiness, wrapper creation, event-bridge
-        # startup, and the final singleton race check) is transactional: a
-        # rejection must close the socket and its client-owned event loop before
-        # the exception escapes.  In particular, the final duplicate check used
-        # to raise after creating both resources, which made failed constructors
-        # invisible to test cleanup that records only successful instances.
+    def _finish_transport_setup(
+        self, resolved: Any, config: Any, endpoints: Any, breaker: Any
+    ) -> None:
+        """Complete construction once a real native transport is owned.
+
+        Every step here (graph readiness, wrapper creation, event-bridge startup,
+        and the final singleton race check) is transactional: a rejection must
+        close the socket and its client-owned event loop before the exception
+        escapes. In particular, the final duplicate check used to raise after
+        creating both resources, which made failed constructors invisible to test
+        cleanup that records only successful instances.
+        """
+        from agent_utilities.knowledge_graph.core.engine_breaker import (
+            wrap_client_with_breaker,
+        )
+
+        from .shard_topology import record_shard_connect
+
+        endpoint = resolved.endpoint
         transport_client = self._client
         self._transport_client = transport_client
         try:
-            # A packaged local engine can authoritatively route a tenant partition
-            # before that partition's graph has been materialized.  Establish the
-            # process session's one configured graph while the raw client is still
-            # available, regardless of whether this process connected to an already
-            # running local engine or started a fresh one.  Remote/sharded engines
-            # retain lifecycle authority and are never provisioned here.
-            local_graph_name = str(graph_name or "__commons__")
-            if autostart_allowed and local_graph_name != "__commons__":
-                from .session import current_session
-
-                session = current_session()
-                if session is None:
-                    raise RuntimeError(
-                        "local engine graph readiness requires verified process authority"
-                    )
-                self._ensure_local_session_graph(
-                    transport_client,
-                    local_graph_name,
-                    session,
-                )
+            self._ensure_local_graph_ready(
+                transport_client, autostart_allowed=resolved.autostart_allowed
+            )
 
             # Connected: close/reset the breaker and guard every subsequent call
             # with it. The proxy is attribute-transparent, and the raw client
@@ -2160,18 +2749,10 @@ class GraphComputeEngine:
             logger.info("Connected to configured epistemic-graph service")
 
             # Bridging local events to the rust service when kafka isn't running
-            if (
-                setting("KAFKA_BOOTSTRAP_SERVERS") is None
-                or setting("KAFKA_BOOTSTRAP_SERVERS") == ""
-            ):
+            if setting("KAFKA_BOOTSTRAP_SERVERS") in (None, ""):
                 self._start_event_bridge()
 
-            with self._PROCESS_ENGINE_LOCK:
-                active = self._PROCESS_ENGINE
-                if active is None:
-                    type(self)._PROCESS_ENGINE = self
-                elif active is not self and graph_session_required():
-                    raise RuntimeError("Concurrent duplicate graph transport rejected")
+            self._claim_process_engine()
         except BaseException:
             try:
                 self.close()
@@ -2180,6 +2761,41 @@ class GraphComputeEngine:
                 # singleton failure; cleanup is diagnostic only on this path.
                 logger.exception("Failed to roll back graph transport construction")
             raise
+
+    def _ensure_local_graph_ready(
+        self, transport_client: Any, *, autostart_allowed: bool
+    ) -> None:
+        """Materialize the process session's one configured local graph.
+
+        A packaged local engine can authoritatively route a tenant partition
+        before that partition's graph has been materialized. Establish the process
+        session's one configured graph while the raw client is still available,
+        regardless of whether this process connected to an already running local
+        engine or started a fresh one. Remote/sharded engines retain lifecycle
+        authority and are never provisioned here.
+        """
+        local_graph_name = str(self.graph_name or "__commons__")
+        if not autostart_allowed or local_graph_name == "__commons__":
+            return
+        from .session import current_session
+
+        session = current_session()
+        if session is None:
+            raise RuntimeError(
+                "local engine graph readiness requires verified process authority"
+            )
+        self._ensure_local_session_graph(transport_client, local_graph_name, session)
+
+    def _claim_process_engine(self) -> None:
+        """Register this instance as THE process transport, or reject a duplicate."""
+        from .session import graph_session_required
+
+        with self._PROCESS_ENGINE_LOCK:
+            active = self._PROCESS_ENGINE
+            if active is None:
+                type(self)._PROCESS_ENGINE = self
+            elif active is not self and graph_session_required():
+                raise RuntimeError("Concurrent duplicate graph transport rejected")
 
     def _autostart_engine(
         self,
@@ -2222,181 +2838,24 @@ class GraphComputeEngine:
         """
         if setting("KG_ENGINE_DETACHED", "") == "1":
             coupled = False
-        from epistemic_graph.client import SyncEpistemicGraphClient
-
         logger.info(
             "epistemic-graph Tokio service not running. Auto-starting daemon (single-instance guard held)..."
         )
         self._local_bootstrap_identity = None
-        # The maturin wheel installs the binary next to the interpreter; on Windows
-        # it carries a `.exe` suffix (Scripts/epistemic-graph-server.exe).
-        _server_exe = (
-            "epistemic-graph-server.exe"
-            if os.name == "nt"
-            else "epistemic-graph-server"
+        server_path = _resolve_engine_server_path(sys, Path)
+        cmd = _build_autostart_argv(
+            server_path,
+            sock,
+            connect_kwargs,
+            coupled=coupled,
+            idle_shutdown_secs=idle_shutdown_secs,
         )
-        # Interpreter adjacency alone is wrong outside a venv (BUG-PE-051): the
-        # packaged image runs `/usr/bin/python3` while maturin installed the
-        # binary on PATH at `/usr/local/bin`, so the adjacent guess did not
-        # exist.  Adjacency still WINS when it resolves, because a build sitting
-        # in this interpreter's own environment is the more specific match for
-        # the wheel actually imported -- PATH may point at an unrelated system
-        # engine of a different version.  PATH is the fallback.
-        # `shutil.which` applies PATHEXT on Windows, and `_server_exe` already
-        # carries the `.exe` there, so both halves keep the Windows contract.
-        adjacent_server = Path(sys.executable).parent / _server_exe
-        if adjacent_server.exists():
-            server_path = str(adjacent_server)
-        else:
-            server_path = shutil.which(_server_exe) or str(adjacent_server)
-        cmd = _build_engine_transport_argv(server_path, sock, connect_kwargs)
-        persist_dir = _resolve_engine_persist_dir()
-        if persist_dir:
-            cmd += ["--persist-dir", persist_dir]
-        # Reference-counted supervision (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): a DETACHED engine that
-        # outlives its spawner needs a self-shutdown so a crashed/exited fleet of
-        # clients doesn't leave it running forever. >0 → arm idle shutdown;
-        # 0 → persistent (omit the flag, engine runs forever like a service). A
-        # coupled engine is already lifetime-bound to its spawner, so skip it.
-        if not coupled and idle_shutdown_secs > 0:
-            cmd += ["--idle-shutdown-secs", str(idle_shutdown_secs)]
         # Engine auth (CONCEPT:AU-OS.identity.authenticated-identity-enforcement):
         # the spawned engine gets the SAME mandatory secret this client uses.
         child_env = _engine_child_environment()
-        # A packaged-local engine is a private child of this verified process.
-        # Project the externally verified session's tenant/audience/policy into
-        # the engine before it accepts a request, and provide a private signer
-        # only for the empty-store System identity bootstrap.  An explicit
-        # signer registry is fail-closed: it must already contain this subject.
-        from agent_utilities.knowledge_graph.core.session import current_session
-
-        bootstrap_session = current_session()
-        if bootstrap_session is not None:
-            bootstrap_context = bootstrap_session.engine_verified_context()
-            authority_projection = {
-                "EPISTEMIC_GRAPH_AUDIENCE": str(bootstrap_context["audience"]),
-                "EPISTEMIC_GRAPH_TENANT": str(bootstrap_context["tenant"]),
-                "EPISTEMIC_GRAPH_POLICY_VERSION": str(
-                    bootstrap_context["policy_version"]
-                ),
-            }
-            for environment_name, expected in authority_projection.items():
-                configured = str(child_env.get(environment_name, "") or "").strip()
-                if configured and configured != expected:
-                    raise RuntimeError(
-                        "local engine authority policy does not match the verified process"
-                    )
-                child_env[environment_name] = expected
-
-            actor_id = str(bootstrap_context["agent_id"])
-            raw_registry = str(
-                child_env.get("EPISTEMIC_GRAPH_SIGNER_KEYS_JSON", "") or ""
-            ).strip()
-            if raw_registry:
-                try:
-                    registry = json.loads(raw_registry)
-                except (TypeError, ValueError, json.JSONDecodeError) as exc:
-                    raise RuntimeError(
-                        "local engine signer registry is invalid"
-                    ) from exc
-                if not isinstance(registry, dict):
-                    raise RuntimeError("local engine signer registry is invalid")
-                signer_key = str(registry.get(actor_id, "") or "")
-                if len(signer_key.encode("utf-8")) < 32:
-                    raise RuntimeError(
-                        "verified process identity is absent from the engine signer registry"
-                    )
-            else:
-                signer_key = _load_or_create_engine_bootstrap_signer_key()
-                child_env["EPISTEMIC_GRAPH_SIGNER_KEYS_JSON"] = json.dumps(
-                    {actor_id: signer_key}, separators=(",", ":")
-                )
-            self._local_bootstrap_identity = (
-                actor_id,
-                signer_key,
-                bootstrap_context,
-            )
-        child_env.update(
-            {
-                "EPISTEMIC_GRAPH_LAZY_STARTUP": "1",
-                "EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS": str(
-                    config.epistemic_graph_max_resident_graphs
-                ),
-                "EPISTEMIC_GRAPH_LAZY_OPEN_PAGE_SIZE": str(
-                    config.epistemic_graph_lazy_open_page_size
-                ),
-                "EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH": str(
-                    config.epistemic_graph_max_nodes_per_graph
-                ),
-                "EPISTEMIC_GRAPH_MAX_REQUEST_BYTES": str(
-                    getattr(
-                        config, "epistemic_graph_max_request_bytes", 64 * 1024 * 1024
-                    )
-                ),
-                "EPISTEMIC_GRAPH_MAX_RESPONSE_BYTES": str(
-                    getattr(
-                        config, "epistemic_graph_max_response_bytes", 64 * 1024 * 1024
-                    )
-                ),
-                "EPISTEMIC_GRAPH_MAX_MSGPACK_ITEMS": str(
-                    getattr(config, "epistemic_graph_max_msgpack_items", 1_000_000)
-                ),
-                "EPISTEMIC_GRAPH_CONNECTION_IO_TIMEOUT_SECS": str(
-                    getattr(config, "epistemic_graph_connection_io_timeout_secs", 120)
-                ),
-                "EPISTEMIC_GRAPH_TLS_HANDSHAKE_TIMEOUT_SECS": str(
-                    getattr(config, "epistemic_graph_tls_handshake_timeout_secs", 10)
-                ),
-                "EPISTEMIC_GRAPH_AST_MAX_FILES": str(
-                    getattr(config, "epistemic_graph_ast_max_files", 4_096)
-                ),
-                "EPISTEMIC_GRAPH_AST_MAX_SOURCE_BYTES": str(
-                    getattr(
-                        config, "epistemic_graph_ast_max_source_bytes", 4 * 1024 * 1024
-                    )
-                ),
-                "EPISTEMIC_GRAPH_AST_MAX_TOTAL_BYTES": str(
-                    getattr(
-                        config, "epistemic_graph_ast_max_total_bytes", 32 * 1024 * 1024
-                    )
-                ),
-                "EPISTEMIC_GRAPH_MODALITY_MAX_BUNDLE_BYTES": str(
-                    getattr(
-                        config,
-                        "epistemic_graph_modality_max_bundle_bytes",
-                        4 * 1024 * 1024,
-                    )
-                ),
-                "EPISTEMIC_GRAPH_MODALITY_MAX_SOURCE_BYTES": str(
-                    getattr(
-                        config,
-                        "epistemic_graph_modality_max_source_bytes",
-                        16 * 1024 * 1024,
-                    )
-                ),
-                "EPISTEMIC_GRAPH_SQLITE_MAX_BYTES": str(
-                    getattr(
-                        config, "epistemic_graph_sqlite_max_bytes", 256 * 1024 * 1024
-                    )
-                ),
-                "EPISTEMIC_GRAPH_SQLITE_MAX_ROWS": str(
-                    getattr(config, "epistemic_graph_sqlite_max_rows", 1_000_000)
-                ),
-            }
-        )
-        runtime_roots = (
-            (
-                "EPISTEMIC_GRAPH_SQLITE_TRANSFER_ROOT",
-                getattr(config, "epistemic_graph_sqlite_transfer_root_ref", None),
-            ),
-            (
-                "EPISTEMIC_GRAPH_BACKUP_ROOT",
-                getattr(config, "epistemic_graph_backup_root_ref", None),
-            ),
-        )
-        for environment_name, reference in runtime_roots:
-            if reference:
-                child_env[environment_name] = _resolve_engine_path_ref(str(reference))
+        self._project_local_bootstrap_identity(child_env)
+        child_env.update(_engine_child_limits(config))
+        _apply_engine_runtime_roots(child_env, config)
         # Encryption-at-rest is OPT-IN, via EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF
         # alone; with no reference configured the variable is omitted from the
         # child environment entirely and the engine opens its store unencrypted,
@@ -2415,69 +2874,57 @@ class GraphComputeEngine:
         # why that cannot grow. This handle is closed as soon as readiness is
         # decided; the child keeps its own descriptor.
         startup_capture = tempfile.TemporaryFile()  # noqa: SIM115
-        if coupled:
-            # Embedded/tiny path: the engine's lifetime is tied to ours. Do NOT
-            # start a new session (that would detach it); instead arm the
-            # parent-death signal in the child and track it for atexit/SIGTERM
-            # teardown so the embedded engine never outlives its spawner.
-            #
-            # `preexec_fn` is POSIX-only — on Windows subprocess.Popen REFUSES it
-            # (ValueError). The parent-death signal is Linux-only anyway, so on
-            # non-POSIX we pass no preexec_fn and rely entirely on the
-            # atexit/SIGTERM/SIGINT teardown registered by _install_coupled_handlers
-            # (the documented cross-platform coupling mechanism).
-            coupled_kwargs: dict[str, Any] = {
-                "stdout": subprocess.DEVNULL,
-                "stderr": startup_capture,
-                "env": child_env,
-            }
-            if os.name == "posix":
-                coupled_kwargs["start_new_session"] = False
-                coupled_kwargs["preexec_fn"] = _set_pdeathsig
-            try:
-                child = subprocess.Popen(cmd, **coupled_kwargs)  # nosec B603
-            finally:
-                child_env.pop("EPISTEMIC_GRAPH_ENCRYPTION_KEY", None)
-                coupled_kwargs.pop("env", None)
-            _coupled_children.append(child)
-            _install_coupled_handlers()
-        else:
-            # Explicit long-lived daemon (graph-os-host / enterprise shard):
-            # detach so it survives this launcher. On POSIX that's a new session;
-            # on Windows there is no setsid — DETACHED_PROCESS + a new process group
-            # detaches the child from the launcher's console/job instead.
-            detach_kwargs: dict[str, Any] = {
-                "stdout": subprocess.DEVNULL,
-                "stderr": startup_capture,
-                "env": child_env,
-            }
-            if os.name == "posix":
-                detach_kwargs["start_new_session"] = True
-            else:  # Windows
-                detach_kwargs["creationflags"] = (
-                    subprocess.DETACHED_PROCESS  # type: ignore[attr-defined]
-                    | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
-                )
-            try:
-                child = subprocess.Popen(cmd, **detach_kwargs)  # nosec B603
-            finally:
-                child_env.pop("EPISTEMIC_GRAPH_ENCRYPTION_KEY", None)
-                detach_kwargs.pop("env", None)
+        child = _spawn_engine_child(
+            cmd, child_env, startup_capture, subprocess, coupled=coupled
+        )
+        return self._await_engine_ready(
+            child, startup_capture, connect_kwargs, time, coupled=coupled
+        )
 
-        # Cold startup is readiness-driven, not a fixed one-second guess. The
-        # full engine can legitimately spend several seconds opening a durable
-        # store on a resource-constrained host. Retain the child handle so an
-        # early exit is distinguishable from a listener that is merely not ready,
-        # and tear down only the child we just spawned on timeout so it cannot
-        # become an unreachable orphan holding the persistence lock.
+    def _project_local_bootstrap_identity(self, child_env: dict[str, str]) -> None:
+        """Project this verified session's authority + signer into ``child_env``.
+
+        A packaged-local engine is a private child of this verified process.
+        Project the externally verified session's tenant/audience/policy into the
+        engine before it accepts a request, and provide a private signer only for
+        the empty-store System identity bootstrap.
+        """
+        from agent_utilities.knowledge_graph.core.session import current_session
+
+        bootstrap_session = current_session()
+        if bootstrap_session is None:
+            return
+        bootstrap_context = bootstrap_session.engine_verified_context()
+        _project_engine_authority(child_env, bootstrap_context)
+        actor_id = str(bootstrap_context["agent_id"])
+        signer_key = _resolve_engine_signer_key(child_env, actor_id)
+        self._local_bootstrap_identity = (actor_id, signer_key, bootstrap_context)
+
+    def _await_engine_ready(
+        self,
+        child: Any,
+        startup_capture: Any,
+        connect_kwargs: dict[str, Any],
+        time: Any,
+        *,
+        coupled: bool,
+    ) -> Any:
+        """Poll the freshly spawned engine until it accepts a connection.
+
+        Cold startup is readiness-driven, not a fixed one-second guess. The full
+        engine can legitimately spend several seconds opening a durable store on
+        a resource-constrained host. The child handle distinguishes an early exit
+        from a listener that is merely not ready, and on timeout only the child
+        we just spawned is torn down.
+        """
+        from epistemic_graph.client import SyncEpistemicGraphClient
+
         deadline = time.monotonic() + _ENGINE_STARTUP_TIMEOUT_SECS
         last_error: Exception | None = None
         while True:
             status = child.poll()
             if status is not None:
-                if coupled:
-                    with contextlib.suppress(ValueError):
-                        _coupled_children.remove(child)
+                _forget_coupled_child(child, coupled=coupled)
                 _log_engine_startup_failure(startup_capture)
                 startup_capture.close()
                 raise ConnectionError(
@@ -2495,16 +2942,7 @@ class GraphComputeEngine:
             except Exception as exc:  # noqa: BLE001 - bounded readiness probe
                 last_error = exc
             if time.monotonic() >= deadline:
-                with contextlib.suppress(Exception):
-                    child.terminate()
-                with contextlib.suppress(Exception):
-                    child.wait(timeout=3.0)
-                if child.poll() is None:
-                    with contextlib.suppress(Exception):
-                        child.kill()
-                if coupled:
-                    with contextlib.suppress(ValueError):
-                        _coupled_children.remove(child)
+                _terminate_engine_child(child, coupled=coupled)
                 _log_engine_startup_failure(startup_capture)
                 startup_capture.close()
                 raise ConnectionError(
@@ -2725,16 +3163,7 @@ class GraphComputeEngine:
             async_stop = getattr(self, "_event_bridge_async_stop", None)
         if stop_event is not None:
             stop_event.set()
-        if loop is not None and async_stop is not None and not loop.is_closed():
-            try:
-                # Queue the signal even before ``run_until_complete`` begins;
-                # otherwise a close in that startup window can strand a worker.
-                loop.call_soon_threadsafe(async_stop.set)
-            except RuntimeError:
-                logger.debug(
-                    "Event bridge loop closed before stop signal could be queued",
-                    exc_info=True,
-                )
+        _signal_event_bridge_loop(loop, async_stop)
         if worker is not None and worker is not threading.current_thread():
             worker.join(timeout=2.0)
         with self._PROCESS_ENGINE_LOCK:
@@ -2994,22 +3423,9 @@ class GraphComputeEngine:
         txn_id = txn.begin()
         commit_started = False
         try:
-            if not txn.cas(txn_id, node_id, conditions, staged_updates):
-                txn.rollback(txn_id)
-                return False
-
-            # TxnCas captures its OCC fingerprint at stage time but deliberately
-            # does not evaluate conditions until commit. Read AFTER staging: if
-            # this snapshot mismatches, rollback before a vector is staged; if it
-            # changes later, commit's fingerprint validation rejects everything.
-            current = self._get_node_properties(node_id)
-            if any(
-                current.get(field) != expected for field, expected in conditions.items()
+            if not self._stage_embedding_transaction(
+                txn, txn_id, node_id, conditions, staged_updates, vector
             ):
-                txn.rollback(txn_id)
-                return False
-            if not txn.add_embedding(txn_id, node_id, vector):
-                txn.rollback(txn_id)
                 return False
 
             commit_started = True
@@ -3027,13 +3443,38 @@ class GraphComputeEngine:
             )
         except BaseException:
             if not commit_started:
-                try:
-                    txn.rollback(txn_id)
-                except Exception:  # noqa: BLE001 - preserve the staging failure
-                    logger.debug(
-                        "atomic embedding transaction rollback failed", exc_info=True
-                    )
+                _rollback_embedding_transaction(txn, txn_id)
             raise
+
+    def _stage_embedding_transaction(
+        self,
+        txn: Any,
+        txn_id: Any,
+        node_id: str,
+        conditions: dict[str, Any],
+        staged_updates: dict[str, Any],
+        vector: list[float],
+    ) -> bool:
+        """Stage the field CAS and the vector, rolling back on any mismatch.
+
+        TxnCas captures its OCC fingerprint at stage time but deliberately does
+        not evaluate conditions until commit. Read AFTER staging: if this
+        snapshot mismatches, rollback before a vector is staged; if it changes
+        later, commit's fingerprint validation rejects everything.
+        """
+        if not txn.cas(txn_id, node_id, conditions, staged_updates):
+            txn.rollback(txn_id)
+            return False
+        current = self._get_node_properties(node_id)
+        if any(
+            current.get(field) != expected for field, expected in conditions.items()
+        ):
+            txn.rollback(txn_id)
+            return False
+        if not txn.add_embedding(txn_id, node_id, vector):
+            txn.rollback(txn_id)
+            return False
+        return True
 
     def create_node_if_absent(
         self, node_id: str, properties: Any = None, **kwargs: Any
@@ -3246,31 +3687,12 @@ class GraphComputeEngine:
             )
             or []
         )
-        hits: list[tuple[str, float]] = []
-        for item in raw_hits:
-            if not isinstance(item, list | tuple) or len(item) < 2:
-                continue
-            node_id = str(item[0])
-            if node_id:
-                hits.append((node_id, float(item[1])))
-
-        from ..enrichment.semantic import EMBEDDING_INDEX_READY_FIELD
-
+        hits = _parse_semantic_hits(raw_hits)
+        # ONE batched property round-trip for the whole candidate set.
         properties = self._get_node_properties_batch([node_id for node_id, _ in hits])
         current: list[tuple[str, float]] = []
         for node_id, score in hits:
-            node_properties = properties.get(node_id, {})
-            if node_properties.get(EMBEDDING_INDEX_READY_FIELD) is False:
-                continue
-            # A node whose ``embedding`` property is present but falsy had it
-            # explicitly cleared by a concurrent text update (see
-            # ``compare_and_set_node_embedding``) — that ANN entry is stale
-            # until the vector is rebuilt/replaced. A node that never mirrors
-            # its vector into a property at all (the simple ``add_embedding``
-            # path, which is intentionally distinct from the property write —
-            # see its docstring) has no such key and is not stale by this
-            # signal; it must not be penalized for a property it never had.
-            if "embedding" in node_properties and not node_properties.get("embedding"):
+            if not _embedding_candidate_is_current(properties.get(node_id, {})):
                 continue
             current.append((node_id, score))
             if len(current) >= n_results:
@@ -3314,66 +3736,76 @@ class GraphComputeEngine:
                 policy labels — never fabricated, resolved server-side. See
                 ``docs/architecture/epistemic-columns-currency.md``.
         """
-        # D-W2X-4: the installed epistemic_graph client's query.unified() may
-        # predate reorder_filter_selectivity (a version skew under the
-        # au 2.0.0/eg 2.23.1 freeze) -- only pass it when the client's own
-        # signature accepts it, rather than assuming the newest wire contract.
+        rows = self._invoke_unified_plan(plan, reorder_filter_selectivity)
+        if rows and _plan_ranks_rows(plan):
+            rows = self._fence_ranked_rows(rows)
+        return self._attach_epistemic_currency(
+            rows, include_epistemic=include_epistemic
+        )
+
+    def _invoke_unified_plan(
+        self, plan: list[dict[str, Any]], reorder_filter_selectivity: float | None
+    ) -> list[dict[str, Any]]:
+        """Call ``query.unified`` with only the kwargs this client understands.
+
+        D-W2X-4: the installed epistemic_graph client's ``query.unified()`` may
+        predate ``reorder_filter_selectivity`` (a version skew under the
+        au 2.0.0/eg 2.23.1 freeze) -- only pass it when the client's own
+        signature accepts it, rather than assuming the newest wire contract.
+        """
         unified_fn = self._client.query.unified
         if _query_unified_accepts_reorder_kwarg(unified_fn):
-            rows = (
+            return (
                 unified_fn(plan, reorder_filter_selectivity=reorder_filter_selectivity)
                 or []
             )
-        else:
-            if reorder_filter_selectivity is not None:
-                logger.warning(
-                    "query_unified: installed epistemic_graph client's "
-                    "query.unified() does not accept reorder_filter_selectivity "
-                    "(version skew under the au/eg freeze) -- calling without it "
-                    "instead of raising; the caller's requested reordering hint "
-                    "is dropped, not silently honored."
-                )
-            rows = unified_fn(plan) or []
-        if rows and any(
-            isinstance(operation, dict) and "Rank" in operation for operation in plan
-        ):
-            # The engine currently publishes GraphCore fields before its
-            # SemanticStore projection inside a cross-modal transaction.  Rank
-            # rows therefore require the same bounded durable-property fence as
-            # semantic_search: a literal not-ready marker or missing vector
-            # cannot escape through the unified surface preferred by hybrid and
-            # capability retrieval.
-            from ..enrichment.semantic import EMBEDDING_INDEX_READY_FIELD
+        if reorder_filter_selectivity is not None:
+            logger.warning(
+                "query_unified: installed epistemic_graph client's "
+                "query.unified() does not accept reorder_filter_selectivity "
+                "(version skew under the au/eg freeze) -- calling without it "
+                "instead of raising; the caller's requested reordering hint "
+                "is dropped, not silently honored."
+            )
+        return unified_fn(plan) or []
 
-            ranked_ids = [
-                str(row["id"])
-                for row in rows
-                if isinstance(row, dict) and row.get("id") is not None
-            ]
-            properties = self._get_node_properties_batch(ranked_ids)
-            current_rows: list[dict[str, Any]] = []
-            for row in rows:
-                if not isinstance(row, dict) or row.get("id") is None:
-                    continue
-                node_properties = properties.get(str(row["id"]), {})
-                if node_properties.get(EMBEDDING_INDEX_READY_FIELD) is False:
-                    continue
-                # See the identical fence in semantic_search: only an
-                # explicitly-cleared ``embedding`` property signals staleness;
-                # a node that never mirrors its vector into a property (the
-                # simple add_embedding() path) has no such key and is current.
-                if "embedding" in node_properties and not node_properties.get(
-                    "embedding"
-                ):
-                    continue
-                current_rows.append(row)
-            rows = current_rows
+    def _fence_ranked_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Drop rows whose durable vector is not-ready or explicitly cleared.
+
+        The engine currently publishes GraphCore fields before its SemanticStore
+        projection inside a cross-modal transaction. Rank rows therefore require
+        the same bounded durable-property fence as ``semantic_search``: a literal
+        not-ready marker or missing vector cannot escape through the unified
+        surface preferred by hybrid and capability retrieval.
+        """
+        ranked_ids = [
+            str(row["id"])
+            for row in rows
+            if isinstance(row, dict) and row.get("id") is not None
+        ]
+        # ONE batched property round-trip for the whole ranked set.
+        properties = self._get_node_properties_batch(ranked_ids)
+        current_rows: list[dict[str, Any]] = []
+        for row in rows:
+            if not isinstance(row, dict) or row.get("id") is None:
+                continue
+            if not _embedding_candidate_is_current(properties.get(str(row["id"]), {})):
+                continue
+            current_rows.append(row)
+        return current_rows
+
+    def _attach_epistemic_currency(
+        self, rows: list[dict[str, Any]], *, include_epistemic: bool
+    ) -> list[dict[str, Any]]:
+        """Currency-upgrade ``rows`` server-side, opt-in or by light default.
+
+        The light epistemic layer (CONCEPT:AU-KB-CURRENCY, Native by default) —
+        see ``KnowledgeGraph.query``'s identical wiring for the full rationale.
+        """
         if include_epistemic:
             from .epistemic_row import attach_epistemic_rows
 
             return attach_epistemic_rows(rows, self.explain_provenance_by_ids)  # type: ignore[return-value]
-        # Light epistemic layer (CONCEPT:AU-KB-CURRENCY, Native by default) —
-        # see `KnowledgeGraph.query`'s identical wiring for the full rationale.
         from agent_utilities.core.config import config as _app_config
 
         from .epistemic_row import (
@@ -3384,7 +3816,7 @@ class GraphComputeEngine:
         if should_attach_epistemic_columns(
             rows, default=_app_config.epistemic_light_default
         ):
-            rows = attach_epistemic_columns(rows, self.explain_provenance_by_ids)
+            return attach_epistemic_columns(rows, self.explain_provenance_by_ids)
         return rows
 
     def query_cypher(self, query: str) -> list[dict[str, Any]]:
@@ -3485,6 +3917,25 @@ class GraphComputeEngine:
         return rows
 
     @staticmethod
+    def _candidate_tool_policy_binding_ok(
+        row: Mapping[str, Any], optimizer: str
+    ) -> bool:
+        """Whether the row's tool-policy reference matches its optimizer's contract.
+
+        ``avatar`` binds a tool policy that must also appear in ``artifact_refs``
+        and excludes an instruction reference; every other optimizer must carry
+        no tool policy at all.
+        """
+        tool_policy_ref = row.get("tool_policy_ref")
+        if optimizer == "avatar":
+            return (
+                tool_policy_ref is not None
+                and tool_policy_ref in row.get("artifact_refs", [])
+                and row.get("instruction_ref") is None
+            )
+        return tool_policy_ref is None
+
+    @staticmethod
     def _validate_program_candidate_row(
         row: Mapping[str, Any],
         *,
@@ -3492,33 +3943,40 @@ class GraphComputeEngine:
         candidate_role: str | None,
         max_operations: int | None,
     ) -> None:
-        tool_policy_ref = row.get("tool_policy_ref")
-        valid_tool_policy_binding = (
-            optimizer == "avatar"
-            and tool_policy_ref is not None
-            and tool_policy_ref in row.get("artifact_refs", [])
-            and row.get("instruction_ref") is None
-        ) or (optimizer != "avatar" and tool_policy_ref is None)
         if (
             candidate_role not in _PROGRAM_CANDIDATE_ROLES
-            or not valid_tool_policy_binding
+            or not GraphComputeEngine._candidate_tool_policy_binding_ok(row, optimizer)
             or row.get("plan_ref") is not None
             or not row.get("demonstration_refs")
-            or any(
-                row.get(field)
-                for field in (
-                    "plan_step_kinds",
-                    "plan_executors",
-                    "plan_input_refs",
-                    "plan_output_refs",
-                    "plan_depends_on",
-                )
-            )
+            or any(row.get(field) for field in _PROGRAM_PLAN_ONLY_FIELDS)
             or max_operations is not None
         ):
-            raise RuntimeError(
-                "program optimization candidate shape is invalid"
-            )
+            raise RuntimeError("program optimization candidate shape is invalid")
+
+    @staticmethod
+    def _plan_step_scalar_shape_ok(row: Mapping[str, Any]) -> bool:
+        """Whether the plan-step row carries plan fields and no candidate fields."""
+        return (
+            row.get("instruction_ref") is None
+            and row.get("tool_policy_ref") is None
+            and row.get("model_profile_ref") is None
+            and row.get("plan_ref") is not None
+            and row.get("selected") is False
+        )
+
+    @staticmethod
+    def _plan_step_lists_shape_ok(row: Mapping[str, Any]) -> bool:
+        """Whether the plan-step row's list fields are exactly one known value each."""
+        kinds = row.get("plan_step_kinds") or []
+        executors = row.get("plan_executors") or []
+        return (
+            len(kinds) == 1
+            and kinds[0] in _PROGRAM_PLAN_STEP_KINDS
+            and len(executors) == 1
+            and executors[0] in _PROGRAM_PLAN_EXECUTORS
+            and bool(row.get("plan_input_refs"))
+            and bool(row.get("plan_output_refs"))
+        )
 
     @staticmethod
     def _validate_program_plan_step_row(
@@ -3529,52 +3987,45 @@ class GraphComputeEngine:
     ) -> None:
         if (
             candidate_role is not None
-            or row.get("instruction_ref") is not None
-            or row.get("tool_policy_ref") is not None
-            or row.get("model_profile_ref") is not None
-            or row.get("plan_ref") is None
-            or row.get("selected") is not False
-            or len(row.get("plan_step_kinds") or []) != 1
-            or row["plan_step_kinds"][0] not in _PROGRAM_PLAN_STEP_KINDS
-            or len(row.get("plan_executors") or []) != 1
-            or row["plan_executors"][0] not in _PROGRAM_PLAN_EXECUTORS
-            or not row.get("plan_input_refs")
-            or not row.get("plan_output_refs")
             or max_operations is None
+            or not GraphComputeEngine._plan_step_scalar_shape_ok(row)
+            or not GraphComputeEngine._plan_step_lists_shape_ok(row)
         ):
             raise RuntimeError("program optimization plan shape is invalid")
+
     @staticmethod
-    def _validate_program_row_identity(row: Any) -> str:
-        if not isinstance(row, Mapping) or set(row) != _PROGRAM_RESULT_FIELDS:
-            raise RuntimeError("program optimization row schema is invalid")
-        kind = row.get("kind")
-        if kind not in {
-            "program_candidate",
-            "program_optimization_plan_step",
-        }:
-            raise RuntimeError("program optimization row kind is invalid")
-        confidence = row.get("confidence")
+    def _validate_program_confidence(confidence: Any) -> None:
+        """Reject a missing, non-numeric, boolean or out-of-range confidence."""
         if (
             not isinstance(confidence, int | float)
             or isinstance(confidence, bool)
             or not 0.0 <= float(confidence) <= 1.0
         ):
             raise RuntimeError("program optimization confidence is invalid")
+
+    @staticmethod
+    def _validate_program_row_refs(row: Mapping[str, Any]) -> None:
+        """Check the row's mandatory and optional opaque program references."""
         for field in ("id", "program_ref"):
             value = row.get(field)
-            if not isinstance(value, str) or not _OPAQUE_PROGRAM_REF.fullmatch(
-                value
-            ):
+            if not isinstance(value, str) or not _OPAQUE_PROGRAM_REF.fullmatch(value):
                 raise RuntimeError("program optimization reference is invalid")
         for field in _PROGRAM_RESULT_OPTIONAL_REFS:
             value = row.get(field)
             if value is not None and (
-                not isinstance(value, str)
-                or not _OPAQUE_PROGRAM_REF.fullmatch(value)
+                not isinstance(value, str) or not _OPAQUE_PROGRAM_REF.fullmatch(value)
             ):
-                raise RuntimeError(
-                    "program optimization optional reference is invalid"
-                )
+                raise RuntimeError("program optimization optional reference is invalid")
+
+    @staticmethod
+    def _validate_program_row_identity(row: Any) -> str:
+        if not isinstance(row, Mapping) or set(row) != _PROGRAM_RESULT_FIELDS:
+            raise RuntimeError("program optimization row schema is invalid")
+        kind = row.get("kind")
+        if kind not in _PROGRAM_ROW_KINDS:
+            raise RuntimeError("program optimization row kind is invalid")
+        GraphComputeEngine._validate_program_confidence(row.get("confidence"))
+        GraphComputeEngine._validate_program_row_refs(row)
         return kind
 
     @staticmethod
@@ -3590,16 +4041,11 @@ class GraphComputeEngine:
             ):
                 raise RuntimeError("program optimization reference list is invalid")
         if not row.get("evidence_refs") or not row.get("source_refs"):
-            raise RuntimeError(
-                "program optimization lineage references are missing"
-            )
+            raise RuntimeError("program optimization lineage references are missing")
 
     @staticmethod
-    def _validate_program_row_semantics(
-        row: Mapping[str, Any],
-    ) -> tuple[str, str | None, int | None]:
-        if not isinstance(row.get("selected"), bool):
-            raise RuntimeError("program optimization selection flag is invalid")
+    def _validate_program_row_lineage(row: Mapping[str, Any]) -> str:
+        """Check the optimizer/execution pair against the known lineage table."""
         optimizer = row.get("optimizer")
         execution = row.get("execution")
         if (
@@ -3608,12 +4054,11 @@ class GraphComputeEngine:
             or _PROGRAM_OPTIMIZER_EXECUTIONS.get(optimizer) != execution
         ):
             raise RuntimeError("program optimization lineage is invalid")
-        candidate_role = row.get("candidate_role")
-        if candidate_role is not None and not isinstance(candidate_role, str):
-            raise RuntimeError("program optimization candidate role is invalid")
-        modalities = row.get("modalities")
-        if not modalities or not set(modalities) <= _PROGRAM_MODALITIES:
-            raise RuntimeError("program optimization modalities are invalid")
+        return optimizer
+
+    @staticmethod
+    def _validated_program_operation_bound(row: Mapping[str, Any]) -> int | None:
+        """Check an optional operation bound is a positive, non-boolean int."""
         max_operations = row.get("max_operations")
         if max_operations is not None and (
             not isinstance(max_operations, int)
@@ -3621,6 +4066,22 @@ class GraphComputeEngine:
             or max_operations <= 0
         ):
             raise RuntimeError("program optimization operation bound is invalid")
+        return max_operations
+
+    @staticmethod
+    def _validate_program_row_semantics(
+        row: Mapping[str, Any],
+    ) -> tuple[str, str | None, int | None]:
+        if not isinstance(row.get("selected"), bool):
+            raise RuntimeError("program optimization selection flag is invalid")
+        optimizer = GraphComputeEngine._validate_program_row_lineage(row)
+        candidate_role = row.get("candidate_role")
+        if candidate_role is not None and not isinstance(candidate_role, str):
+            raise RuntimeError("program optimization candidate role is invalid")
+        modalities = row.get("modalities")
+        if not modalities or not set(modalities) <= _PROGRAM_MODALITIES:
+            raise RuntimeError("program optimization modalities are invalid")
+        max_operations = GraphComputeEngine._validated_program_operation_bound(row)
         return optimizer, candidate_role, max_operations
 
     @staticmethod
@@ -3673,20 +4134,12 @@ class GraphComputeEngine:
         deadline = time.monotonic() + timeout
         current = dict(submitted)
         while time.monotonic() < deadline:
-            state = current.get("state")
-            if isinstance(state, Mapping):
-                if set(state) == {"Succeeded"}:
-                    result = self.program_optimization_result(current)
-                    return {
-                        "status": "proposed",
-                        "result": {"job_id": job_id, **result},
-                    }
-                if set(state) in ({"Failed"}, {"Cancelled"}):
-                    raise RuntimeError("program optimization job terminated")
-                if set(state) not in ({"Running"}, {"Publishing"}):
-                    raise RuntimeError("program optimization state is invalid")
-            elif state != "Submitted":
-                raise RuntimeError("program optimization state is invalid")
+            if _program_job_succeeded(current.get("state")):
+                result = self.program_optimization_result(current)
+                return {
+                    "status": "proposed",
+                    "result": {"job_id": job_id, **result},
+                }
             time.sleep(interval)
             current = self.program_optimization_status(job_id)
         raise TimeoutError("program optimization job timed out")
@@ -4043,118 +4496,11 @@ class GraphComputeEngine:
         count = 0
         for tx in txs:
             op, args = self._parse_ledger_entry(tx)
-            if op == "AddNode":
-                if len(args) < 2:
-                    raise ValueError("incomplete node mutation in ledger")
-                node_id = args[0]
-                props_str = args[1]
-                try:
-                    props = json.loads(props_str)
-                except Exception as exc:
-                    raise ValueError("invalid node payload in mutation ledger") from exc
-                if not isinstance(props, dict):
-                    raise ValueError(
-                        "node payload in mutation ledger must be an object"
-                    )
-
-                node_type = props.get("node_type", "Entity")
-                if not isinstance(node_type, str) or not CYPHER_IDENTIFIER_RE.fullmatch(
-                    node_type
-                ):
-                    raise ValueError("unsafe node type in mutation ledger")
-                if node_type == "SYMBOL":
-                    symbol_type = props.get("symbol_type", "Unknown")
-                    file_path = props.get("file_path", "")
-                    ast_hash = props.get("ast_hash", "")
-                    name = props.get("name", node_id)
-                    metadata_str = json.dumps(props)
-
-                    query = (
-                        "MERGE (n:Symbol {id: $id}) "
-                        "SET n.node_type = 'SYMBOL', n.name = $name, "
-                        "n.symbol_type = $sym_type, n.file_path = $fp, "
-                        "n.ast_hash = $ast_hash, n.metadata = $meta"
-                    )
-                    try:
-                        backend.execute_write(
-                            query,
-                            parameters={
-                                "id": node_id,
-                                "name": name,
-                                "sym_type": symbol_type,
-                                "fp": file_path,
-                                "ast_hash": ast_hash,
-                                "meta": metadata_str,
-                            },
-                        )
-                    except Exception as exc:
-                        raise RuntimeError(
-                            "mutation ledger backend write failed "
-                            f"({type(exc).__name__})"
-                        ) from exc
-                else:
-                    # Generic node fallback
-                    query = f"MERGE (n:{node_type} {{id: $id}}) SET n.metadata = $meta"
-                    try:
-                        backend.execute_write(
-                            query,
-                            parameters={
-                                "id": node_id,
-                                "meta": props_str,
-                            },
-                        )
-                    except Exception as exc:
-                        raise RuntimeError(
-                            "mutation ledger backend write failed "
-                            f"({type(exc).__name__})"
-                        ) from exc
-                count += 1
-            elif op == "AddEdge":
-                if len(args) < 3:
-                    raise ValueError("incomplete edge mutation in ledger")
-                src = args[0]
-                tgt = args[1]
-                props_str = args[2]
-                try:
-                    props = json.loads(props_str)
-                except Exception as exc:
-                    raise ValueError("invalid edge payload in mutation ledger") from exc
-                if not isinstance(props, dict):
-                    raise ValueError(
-                        "edge payload in mutation ledger must be an object"
-                    )
-
-                edge_type = props.get("relationship") or "RELATED_TO"
-                if not isinstance(edge_type, str):
-                    raise ValueError("edge type in mutation ledger must be a string")
-                edge_type = edge_type.replace(" ", "_").upper()
-                if not CYPHER_IDENTIFIER_RE.fullmatch(edge_type):
-                    raise ValueError("unsafe edge type in mutation ledger")
-                query = (
-                    f"MATCH (a {{id: $src}}), (b {{id: $tgt}}) "
-                    f"MERGE (a)-[r:{edge_type}]->(b) "
-                    "SET r.metadata = $meta"
-                )
-                try:
-                    # cypher-write-subset-allow: flush_ledger_to_backend's sole
-                    # caller (agent_utilities/workflows/epistemic_sync.py) always
-                    # passes a LadybugBackend, which hands the query to Kuzu's
-                    # full openCypher engine, not the native subset parser.
-                    backend.execute_write(
-                        query,
-                        parameters={
-                            "src": src,
-                            "tgt": tgt,
-                            "meta": props_str,
-                        },
-                    )
-                except Exception as exc:
-                    raise RuntimeError(
-                        f"mutation ledger backend write failed ({type(exc).__name__})"
-                    ) from exc
-                count += 1
-            else:
+            replay = _LEDGER_REPLAY_OPS.get(op)
+            if replay is None:
                 raise ValueError("unsupported mutation operation in ledger")
+            replay(backend, args)
+            count += 1
 
         self.clear_ledger()
         return count
