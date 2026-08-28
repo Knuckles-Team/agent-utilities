@@ -62,6 +62,8 @@ _SAFE_ERROR = re.compile(r"^[a-z][a-z0-9_]{0,95}$")
 _MAX_TOOL_PAYLOAD = 64 * 1024
 _MAX_TOOL_ITEMS = 4_096
 _MAX_TOOL_DEPTH = 24
+# Sentinel for "this decoder produced no value", distinct from any JSON value.
+_UNDECODED = object()
 _TRACE_PAGE_LIMIT = 20
 _TRACE_MAX_PAGES = 10
 _TRACE_TOOL_ERROR_RETRIES = 2
@@ -191,6 +193,18 @@ class CaseResult:
 
     @property
     def passed(self) -> bool:
+        return bool(
+            self._required_checks_passed()
+            and not self.error_codes
+            and self._trace_evidence_exact()
+            and self.selected_routes
+            and all(_SAFE_ROUTE.fullmatch(route) for route in self.selected_routes)
+            and self._references_valid()
+        )
+
+    def _required_checks_passed(self) -> bool:
+        """Require every mandatory per-mode check to have recorded a pass."""
+
         required = [
             self.structural,
             self.semantic,
@@ -201,7 +215,22 @@ class CaseResult:
         ]
         if self.mode == "delegated":
             required.append(self.delegation)
-        references_valid = all(
+        return all(value == _PASS for value in required)
+
+    def _trace_evidence_exact(self) -> bool:
+        """Require exactly one run-linked trace and one parent-ingested node."""
+
+        return (
+            self.trace_linkage == "run-evidence"
+            and self.trace_name == f"graph_run:{self.run_ref}"
+            and self.langfuse_match_count == 1
+            and self.parent_kg_readback_count == 1
+        )
+
+    def _references_valid(self) -> bool:
+        """Require every retained opaque reference to match its exact pattern."""
+
+        return all(
             pattern.fullmatch(value) is not None
             for pattern, value in (
                 (_CASE_REFERENCE_PATTERNS["run"], self.run_ref),
@@ -210,17 +239,6 @@ class CaseResult:
                 (_CASE_REFERENCE_PATTERNS["skill"], self.skill_ref),
                 (_CASE_REFERENCE_PATTERNS["skill_body"], self.skill_body_ref),
             )
-        )
-        return bool(
-            all(value == _PASS for value in required)
-            and not self.error_codes
-            and self.trace_linkage == "run-evidence"
-            and self.trace_name == f"graph_run:{self.run_ref}"
-            and self.langfuse_match_count == 1
-            and self.parent_kg_readback_count == 1
-            and self.selected_routes
-            and all(_SAFE_ROUTE.fullmatch(route) for route in self.selected_routes)
-            and references_valid
         )
 
     def add_error(self, code: str) -> None:
@@ -523,7 +541,17 @@ def validate_semantic_output(case: ValidationCase, output: SemanticOutput) -> li
         errors.append("semantic_not_read_only")
     if not output.privacy_safe:
         errors.append("semantic_privacy_not_acknowledged")
-    routes = output.selected_routes
+    errors.extend(_semantic_route_errors(case, output.selected_routes))
+    _clean, privacy = PersistencePrivacyGuard().sanitize(output.model_dump())
+    if privacy.changed:
+        errors.append("semantic_output_privacy_violation")
+    return errors
+
+
+def _semantic_route_errors(case: ValidationCase, routes: list[str]) -> list[str]:
+    """Return the route-contract error codes in their declared report order."""
+
+    errors: list[str] = []
     if len(routes) != len(set(routes)) or any(
         not _SAFE_ROUTE.fullmatch(route) for route in routes
     ):
@@ -534,9 +562,6 @@ def validate_semantic_output(case: ValidationCase, output: SemanticOutput) -> li
         errors.append("semantic_routes_incomplete")
     if selected_routes - expected_routes:
         errors.append("semantic_routes_unexpected")
-    _clean, privacy = PersistencePrivacyGuard().sanitize(output.model_dump())
-    if privacy.changed:
-        errors.append("semantic_output_privacy_violation")
     return errors
 
 
@@ -551,63 +576,102 @@ def _parse_json_text(value: str) -> Any:
     return parsed
 
 
+class _PayloadScan:
+    """One bounded, cycle-safe traversal budget for an MCP payload tree.
+
+    The check order per node is load-bearing and matches the original inline
+    traversal exactly: depth, then item count, then the per-type charge (which
+    for a container is cycle, then width, then expansion), then the remaining
+    byte budget.
+    """
+
+    __slots__ = ("items", "remaining", "seen")
+
+    def __init__(self) -> None:
+        self.remaining = _MAX_TOOL_PAYLOAD
+        self.items = 0
+        self.seen: set[int] = set()
+
+    def visit(self, current: Any, depth: int, stack: list[tuple[Any, int]]) -> None:
+        """Charge one popped node against the budget and queue its children."""
+
+        if depth > _MAX_TOOL_DEPTH:
+            raise ValueError("payload_too_deep")
+        self.items += 1
+        if self.items > _MAX_TOOL_ITEMS:
+            raise ValueError("payload_too_many_items")
+        self._charge(current, depth, stack)
+        if self.remaining < 0:
+            raise ValueError("payload_too_large")
+
+    def _charge(self, current: Any, depth: int, stack: list[tuple[Any, int]]) -> None:
+        if current is None or isinstance(current, bool | int | float):
+            self.remaining -= 16
+        elif isinstance(current, str):
+            self._charge_text(current)
+        elif isinstance(current, bytes):
+            self.remaining -= len(current)
+        elif isinstance(current, dict):
+            self._expand_mapping(current, depth, stack)
+        elif isinstance(current, list | tuple):
+            self._expand_sequence(current, depth, stack)
+        elif _is_fastmcp_structured_dataclass(current):
+            self._expand_structured(current, depth, stack)
+        else:
+            raise TypeError("payload_type_invalid")
+
+    def _charge_text(self, current: str) -> None:
+        if len(current) > self.remaining:
+            raise ValueError("payload_too_large")
+        self.remaining -= len(current.encode("utf-8"))
+
+    def _enter_container(self, current: Any, width: int) -> None:
+        """Reject a cycle, then an over-wide container, before expanding it."""
+
+        identity = id(current)
+        if identity in self.seen:
+            raise ValueError("payload_cycle")
+        self.seen.add(identity)
+        if width > _MAX_TOOL_ITEMS - self.items:
+            raise ValueError("payload_too_many_items")
+
+    def _expand_mapping(
+        self, current: dict[Any, Any], depth: int, stack: list[tuple[Any, int]]
+    ) -> None:
+        self._enter_container(current, len(current))
+        for key, item in current.items():
+            if not isinstance(key, str):
+                raise TypeError("payload_key_invalid")
+            stack.append((item, depth + 1))
+            stack.append((key, depth + 1))
+
+    def _expand_sequence(
+        self,
+        current: list[Any] | tuple[Any, ...],
+        depth: int,
+        stack: list[tuple[Any, int]],
+    ) -> None:
+        self._enter_container(current, len(current))
+        stack.extend((item, depth + 1) for item in current)
+
+    def _expand_structured(
+        self, current: Any, depth: int, stack: list[tuple[Any, int]]
+    ) -> None:
+        members = dataclass_fields(current)
+        self._enter_container(current, len(members))
+        for member in members:
+            stack.append((getattr(current, member.name), depth + 1))
+            stack.append((member.name, depth + 1))
+
+
 def _validate_tool_payload_bounds(value: Any) -> None:
     """Reject oversized, cyclic, deep, or non-data MCP payloads before use."""
 
-    remaining = _MAX_TOOL_PAYLOAD
-    items = 0
-    seen: set[int] = set()
+    scan = _PayloadScan()
     stack: list[tuple[Any, int]] = [(value, 0)]
     while stack:
         current, depth = stack.pop()
-        if depth > _MAX_TOOL_DEPTH:
-            raise ValueError("payload_too_deep")
-        items += 1
-        if items > _MAX_TOOL_ITEMS:
-            raise ValueError("payload_too_many_items")
-        if current is None or isinstance(current, bool | int | float):
-            remaining -= 16
-        elif isinstance(current, str):
-            if len(current) > remaining:
-                raise ValueError("payload_too_large")
-            remaining -= len(current.encode("utf-8"))
-        elif isinstance(current, bytes):
-            remaining -= len(current)
-        elif isinstance(current, dict):
-            identity = id(current)
-            if identity in seen:
-                raise ValueError("payload_cycle")
-            seen.add(identity)
-            if len(current) > _MAX_TOOL_ITEMS - items:
-                raise ValueError("payload_too_many_items")
-            for key, item in current.items():
-                if not isinstance(key, str):
-                    raise TypeError("payload_key_invalid")
-                stack.append((item, depth + 1))
-                stack.append((key, depth + 1))
-        elif isinstance(current, list | tuple):
-            identity = id(current)
-            if identity in seen:
-                raise ValueError("payload_cycle")
-            seen.add(identity)
-            if len(current) > _MAX_TOOL_ITEMS - items:
-                raise ValueError("payload_too_many_items")
-            stack.extend((item, depth + 1) for item in current)
-        elif _is_fastmcp_structured_dataclass(current):
-            identity = id(current)
-            if identity in seen:
-                raise ValueError("payload_cycle")
-            seen.add(identity)
-            members = dataclass_fields(current)
-            if len(members) > _MAX_TOOL_ITEMS - items:
-                raise ValueError("payload_too_many_items")
-            for member in members:
-                stack.append((getattr(current, member.name), depth + 1))
-                stack.append((member.name, depth + 1))
-        else:
-            raise TypeError("payload_type_invalid")
-        if remaining < 0:
-            raise ValueError("payload_too_large")
+        scan.visit(current, depth, stack)
 
 
 def _is_fastmcp_structured_dataclass(value: Any) -> bool:
@@ -637,45 +701,81 @@ def _normalize_fastmcp_structured_data(value: Any) -> Any:
     return value
 
 
-def _decode_tool_result(result: Any) -> Any:
+def _decode_structured_value(value: Any) -> Any:
+    """Decode one non-empty ``data``/``structured_content`` attribute."""
+
+    if isinstance(value, str):
+        try:
+            return _parse_json_text(value)
+        except json.JSONDecodeError:
+            return value
+    if isinstance(value, BaseModel):
+        value = value.model_dump(mode="json")
+    _validate_tool_payload_bounds(value)
+    return _normalize_fastmcp_structured_data(value)
+
+
+def _decode_structured_attributes(result: Any) -> Any:
+    """Decode the first populated structured attribute, or ``_UNDECODED``."""
+
     for attr in ("data", "structured_content"):
         value = getattr(result, attr, None)
         if value not in (None, {}):
-            if isinstance(value, str):
-                try:
-                    return _parse_json_text(value)
-                except json.JSONDecodeError:
-                    return value
-            if isinstance(value, BaseModel):
-                value = value.model_dump(mode="json")
-            _validate_tool_payload_bounds(value)
-            return _normalize_fastmcp_structured_data(value)
+            return _decode_structured_value(value)
+    return _UNDECODED
+
+
+def _bounded_content_texts(content: list[Any]) -> list[str]:
+    """Collect the bounded text blocks of an MCP content list."""
+
+    texts: list[str] = []
+    characters = 0
+    for item in content:
+        text = str(getattr(item, "text", ""))
+        characters += len(text) + (1 if text and texts else 0)
+        if characters > _MAX_TOOL_PAYLOAD:
+            raise ValueError("payload_too_large")
+        if text:
+            texts.append(text)
+    return texts
+
+
+def _decode_content_list(content: list[Any]) -> Any:
+    """Decode an MCP content list, or ``_UNDECODED`` when it carries no text."""
+
+    if len(content) > _MAX_TOOL_ITEMS:
+        raise ValueError("payload_too_many_items")
+    joined = "\n".join(_bounded_content_texts(content))
+    if not joined:
+        return _UNDECODED
+    try:
+        return _parse_json_text(joined)
+    except json.JSONDecodeError:
+        return joined
+
+
+def _decode_text_result(result: str) -> Any:
+    """Decode a bare string result as JSON, or as bounded text."""
+
+    try:
+        return _parse_json_text(result)
+    except json.JSONDecodeError:
+        if len(result) > _MAX_TOOL_PAYLOAD:
+            raise ValueError("payload_too_large") from None
+        return result
+
+
+def _decode_tool_result(result: Any) -> Any:
+    decoded = _decode_structured_attributes(result)
+    if decoded is not _UNDECODED:
+        return decoded
     content = getattr(result, "content", None)
     if isinstance(content, list):
-        if len(content) > _MAX_TOOL_ITEMS:
-            raise ValueError("payload_too_many_items")
-        texts: list[str] = []
-        characters = 0
-        for item in content:
-            text = str(getattr(item, "text", ""))
-            characters += len(text) + (1 if text and texts else 0)
-            if characters > _MAX_TOOL_PAYLOAD:
-                raise ValueError("payload_too_large")
-            if text:
-                texts.append(text)
-        joined = "\n".join(texts)
-        if joined:
-            try:
-                return _parse_json_text(joined)
-            except json.JSONDecodeError:
-                return joined
+        decoded = _decode_content_list(content)
+        if decoded is not _UNDECODED:
+            return decoded
     if isinstance(result, str):
-        try:
-            return _parse_json_text(result)
-        except json.JSONDecodeError:
-            if len(result) > _MAX_TOOL_PAYLOAD:
-                raise ValueError("payload_too_large") from None
-            return result
+        return _decode_text_result(result)
     _validate_tool_payload_bounds(result)
     return result
 
