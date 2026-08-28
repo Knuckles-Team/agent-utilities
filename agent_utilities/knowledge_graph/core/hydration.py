@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+from abc import ABC, abstractmethod
 from typing import Any
 
 from agent_utilities.core.config import resolve_langfuse_host, setting
@@ -101,6 +102,16 @@ CAPABILITY_REGISTRY: dict[str, dict[str, str]] = {
 }
 
 
+def _any_setting(*keys: str) -> bool:
+    """True when at least one of ``keys`` resolves to a truthy setting."""
+    return any(setting(key) for key in keys)
+
+
+def _all_settings(*keys: str) -> bool:
+    """True when every one of ``keys`` resolves to a truthy setting."""
+    return all(setting(key) for key in keys)
+
+
 class HydrationManager:
     """Orchestrates dynamic client loading and batch OWL-native graph hydration.
 
@@ -119,9 +130,7 @@ class HydrationManager:
         """Check environment variables to see which sources are configured."""
         status = {
             "gitlab": {
-                "configured": bool(
-                    setting("GITLAB_TOKEN") or setting("GITLAB_API_TOKEN")
-                ),
+                "configured": _any_setting("GITLAB_TOKEN", "GITLAB_API_TOKEN"),
                 "url": setting("GITLAB_URL", "https://gitlab.com"),
             },
             "leanix": {
@@ -137,14 +146,12 @@ class HydrationManager:
                 "url": setting("BPM_URL", ""),
             },
             "twenty": {
-                "configured": bool(
-                    setting("TWENTY_TOKEN") or setting("TWENTY_API_TOKEN")
-                ),
+                "configured": _any_setting("TWENTY_TOKEN", "TWENTY_API_TOKEN"),
                 "url": setting("TWENTY_URL", ""),
             },
             "servicenow": {
-                "configured": bool(
-                    setting("SERVICENOW_USERNAME") and setting("SERVICENOW_PASSWORD")
+                "configured": _all_settings(
+                    "SERVICENOW_USERNAME", "SERVICENOW_PASSWORD"
                 ),
                 "url": setting("SERVICENOW_URL") or setting("SERVICENOW_INSTANCE", ""),
             },
@@ -161,19 +168,15 @@ class HydrationManager:
                 "url": setting("OPENMAINT_URL", ""),
             },
             "jira": {
-                "configured": bool(setting("JIRA_TOKEN") or setting("JIRA_API_TOKEN")),
+                "configured": _any_setting("JIRA_TOKEN", "JIRA_API_TOKEN"),
                 "url": setting("JIRA_URL", ""),
             },
             "plane": {
-                "configured": bool(
-                    setting("PLANE_TOKEN") or setting("PLANE_API_TOKEN")
-                ),
+                "configured": _any_setting("PLANE_TOKEN", "PLANE_API_TOKEN"),
                 "url": setting("PLANE_URL", ""),
             },
             "portainer": {
-                "configured": bool(
-                    setting("PORTAINER_TOKEN") or setting("PORTAINER_PASSWORD")
-                ),
+                "configured": _any_setting("PORTAINER_TOKEN", "PORTAINER_PASSWORD"),
                 "url": setting("PORTAINER_URL", ""),
             },
             "uptime_kuma": {
@@ -181,7 +184,7 @@ class HydrationManager:
                 "url": setting("UPTIME_KUMA_URL", ""),
             },
             "lgtm": {
-                "configured": bool(setting("LGTM_URL") or setting("GRAFANA_URL")),
+                "configured": _any_setting("LGTM_URL", "GRAFANA_URL"),
                 "url": setting("LGTM_URL", ""),
             },
             "langfuse": {
@@ -189,63 +192,47 @@ class HydrationManager:
                 "url": resolve_langfuse_host(),
             },
             "keycloak": {
-                "configured": bool(
-                    setting("KEYCLOAK_URL") and setting("KEYCLOAK_ADMIN_PASSWORD")
-                ),
+                "configured": _all_settings("KEYCLOAK_URL", "KEYCLOAK_ADMIN_PASSWORD"),
                 "url": setting("KEYCLOAK_URL", ""),
             },
             "openbao": {
-                "configured": bool(setting("BAO_URL") or setting("VAULT_URL")),
+                "configured": _any_setting("BAO_URL", "VAULT_URL"),
                 "url": setting("BAO_URL", ""),
             },
             "nextcloud": {
-                "configured": bool(
-                    setting("NEXTCLOUD_URL") and setting("NEXTCLOUD_PASSWORD")
-                ),
+                "configured": _all_settings("NEXTCLOUD_URL", "NEXTCLOUD_PASSWORD"),
                 "url": setting("NEXTCLOUD_URL", ""),
             },
             "listmonk": {
-                "configured": bool(
-                    setting("LISTMONK_URL") and setting("LISTMONK_TOKEN")
-                ),
+                "configured": _all_settings("LISTMONK_URL", "LISTMONK_TOKEN"),
                 "url": setting("LISTMONK_URL", ""),
             },
             "mattermost": {
-                "configured": bool(
-                    setting("MATTERMOST_URL") and setting("MATTERMOST_TOKEN")
-                ),
+                "configured": _all_settings("MATTERMOST_URL", "MATTERMOST_TOKEN"),
                 "url": setting("MATTERMOST_URL", ""),
             },
             "technitium_dns": {
-                "configured": bool(
-                    setting("TECHNITIUM_URL") and setting("TECHNITIUM_TOKEN")
-                ),
+                "configured": _all_settings("TECHNITIUM_URL", "TECHNITIUM_TOKEN"),
                 "url": setting("TECHNITIUM_URL", ""),
             },
             "caddy": {
-                "configured": bool(setting("CADDY_URL") or setting("CADDY_API_URL")),
+                "configured": _any_setting("CADDY_URL", "CADDY_API_URL"),
                 "url": setting("CADDY_URL", ""),
             },
             "tunnel_manager": {
-                "configured": bool(
-                    setting("TUNNEL_MANAGER_URL") or setting("TUNNEL_URL")
-                ),
+                "configured": _any_setting("TUNNEL_MANAGER_URL", "TUNNEL_URL"),
                 "url": setting("TUNNEL_MANAGER_URL", ""),
             },
             "scholarx": {
-                "configured": bool(
-                    setting("SCHOLARX_URL") or setting("SCHOLARX_API_KEY")
-                ),
+                "configured": _any_setting("SCHOLARX_URL", "SCHOLARX_API_KEY"),
                 "url": setting("SCHOLARX_URL", ""),
             },
             "emerald_exchange": {
-                "configured": bool(
-                    setting("EMERALD_URL") or setting("EMERALD_API_KEY")
-                ),
+                "configured": _any_setting("EMERALD_URL", "EMERALD_API_KEY"),
                 "url": setting("EMERALD_URL", ""),
             },
             "postiz": {
-                "configured": bool(setting("POSTIZ_URL") and setting("POSTIZ_TOKEN")),
+                "configured": _all_settings("POSTIZ_URL", "POSTIZ_TOKEN"),
                 "url": setting("POSTIZ_URL", ""),
             },
         }
@@ -523,98 +510,9 @@ class HydrationManager:
 
         return sync_source(engine, "leanix", mode="delta")
 
-    def _hydrate_process_modeling(self, engine: Any) -> dict[str, Any]:
-        """Hydrate business processes. Supports BPMN 2.0 XML, ArchiMate XML, and BPM tools (e.g., Archi)."""
-        entities: list[dict[str, Any]] = []
-        relationships: list[dict[str, Any]] = []
-
-        bpm_url = setting("BPM_URL")
-        bpm_token = setting("BPM_TOKEN")
-        bpm_provider = setting("BPM_PROVIDER", "opensource")
-
-        if bpm_url and bpm_token:
-            from abc import ABC, abstractmethod
-
-            class BaseBPMHydrator(ABC):
-                def __init__(self, url: str, token: str):
-                    self.url = url.rstrip("/")
-                    self.token = token
-
-                @abstractmethod
-                def fetch_processes(self) -> list[dict[str, Any]]:
-                    """Fetch and format process entities from the BPM provider."""
-                    raise NotImplementedError
-
-            class OpenSourceBPMHydrator(BaseBPMHydrator):
-                def fetch_processes(self) -> list[dict[str, Any]]:
-                    from agent_utilities.core.http_client import create_http_client
-                    from agent_utilities.core.transport_security import (
-                        resolve_configured_tls_profile,
-                    )
-
-                    result = []
-                    headers = {
-                        "Authorization": f"Bearer {self.token}",
-                        "Accept": "application/json",
-                    }
-                    trust = resolve_configured_tls_profile("bpm")
-                    try:
-                        with create_http_client(
-                            timeout=5.0,
-                            headers=headers,
-                            **trust.httpx_kwargs(),
-                        ) as client:
-                            resp = client.get(
-                                f"{self.url}/repository/process-definitions"
-                            )
-                    finally:
-                        trust.cleanup()
-                    if resp.status_code == 200:
-                        for proc in resp.json():
-                            proc_id = str(proc.get("id", ""))
-                            if proc_id:
-                                result.append(
-                                    {
-                                        "id": f"process:bpm:{proc_id}",
-                                        "type": "process_model",
-                                        "name": str(
-                                            proc.get("name") or proc.get("key", "")
-                                        ),
-                                        "domain": "bpm",
-                                    }
-                                )
-                    else:
-                        logger.warning(
-                            "BPM hydration API returned a non-success status"
-                        )
-                    return result
-
-            class ArisBPMHydrator(BaseBPMHydrator):
-                def fetch_processes(self) -> list[dict[str, Any]]:
-                    raise RuntimeError(
-                        "ARIS BPM integration requires enterprise API credentials and specific endpoints."
-                    )
-
-            def get_bpm_hydrator(
-                provider: str, url: str, token: str
-            ) -> BaseBPMHydrator:
-                if provider.lower() == "aris":
-                    return ArisBPMHydrator(url, token)
-                return OpenSourceBPMHydrator(url, token)
-
-            try:
-                hydrator = get_bpm_hydrator(bpm_provider, bpm_url, bpm_token)
-                bpm_entities = hydrator.fetch_processes()
-                entities.extend(bpm_entities)
-            except Exception as e:
-                logger.error(f"Failed to execute BPM hydration for {bpm_provider}: {e}")
-
-            return {
-                "status": "ok",
-                "nodes_hydrated": len(entities),
-                "relations_hydrated": len(relationships),
-            }
-
+    def _load_bpmn_xml(self) -> str:
+        """Read the configured BPMN file, falling back to a small built-in
+        sample process when unavailable/unreadable/empty."""
         bpmn_path = setting("BPMN_FILE", "process.bpmn")
         xml_content = None
         if os.path.exists(bpmn_path):
@@ -638,39 +536,64 @@ class HydrationManager:
               </bpmn:process>
             </bpmn:definitions>
             """
+        return xml_content
 
+    def _classify_bpmn_element(
+        self, elem: Any
+    ) -> tuple[str | None, dict[str, Any] | None, tuple[str, str] | None]:
+        """Classify one BPMN XML element. Returns ``(step_id, step, flow)``:
+        a step-like element yields ``(step_id, step, None)``, a
+        ``sequenceFlow`` yields ``(None, None, (src, tgt))``, anything else
+        (or an under-specified element) yields ``(None, None, None)``."""
+        tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+        if tag in [
+            "task",
+            "userTask",
+            "serviceTask",
+            "scriptTask",
+            "startEvent",
+            "endEvent",
+        ]:
+            step_id = elem.attrib.get("id")
+            if not step_id:
+                return None, None, None
+            name = elem.attrib.get("name") or step_id
+            return (
+                step_id,
+                {
+                    "id": f"bpmn:step:{step_id}",
+                    "type": "process_step",
+                    "name": name,
+                    "step_type": tag,
+                    "domain": "bpmn",
+                },
+                None,
+            )
+        if tag in ["sequenceFlow"]:
+            src = elem.attrib.get("sourceRef")
+            tgt = elem.attrib.get("targetRef")
+            if src and tgt:
+                return None, None, (src, tgt)
+        return None, None, None
+
+    def _parse_bpmn_entities(
+        self, xml_content: str
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        entities: list[dict[str, Any]] = []
+        relationships: list[dict[str, Any]] = []
         import defusedxml.ElementTree as ET
 
         try:
             root = ET.fromstring(xml_content)
-            steps_map = {}
-            flows = []
+            steps_map: dict[str, dict[str, Any]] = {}
+            flows: list[tuple[str, str]] = []
 
             for elem in root.iter():
-                tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
-                if tag in [
-                    "task",
-                    "userTask",
-                    "serviceTask",
-                    "scriptTask",
-                    "startEvent",
-                    "endEvent",
-                ]:
-                    step_id = elem.attrib.get("id")
-                    name = elem.attrib.get("name") or step_id
-                    if step_id:
-                        steps_map[step_id] = {
-                            "id": f"bpmn:step:{step_id}",
-                            "type": "process_step",
-                            "name": name,
-                            "step_type": tag,
-                            "domain": "bpmn",
-                        }
-                elif tag in ["sequenceFlow"]:
-                    src = elem.attrib.get("sourceRef")
-                    tgt = elem.attrib.get("targetRef")
-                    if src and tgt:
-                        flows.append((src, tgt))
+                step_id, step, flow = self._classify_bpmn_element(elem)
+                if step_id and step:
+                    steps_map[step_id] = step
+                elif flow:
+                    flows.append(flow)
 
             model_id = "bpmn:model:Process_1"
             entities.append(
@@ -705,6 +628,100 @@ class HydrationManager:
                     )
         except Exception as e:
             logger.error(f"Error parsing BPMN XML: {e}")
+        return entities, relationships
+
+    def _hydrate_process_modeling_via_bpm_api(
+        self, bpm_provider: str, bpm_url: str, bpm_token: str
+    ) -> dict[str, Any]:
+        class BaseBPMHydrator(ABC):
+            def __init__(self, url: str, token: str):
+                self.url = url.rstrip("/")
+                self.token = token
+
+            @abstractmethod
+            def fetch_processes(self) -> list[dict[str, Any]]:
+                """Fetch and format process entities from the BPM provider."""
+                raise NotImplementedError
+
+        class OpenSourceBPMHydrator(BaseBPMHydrator):
+            def fetch_processes(self) -> list[dict[str, Any]]:
+                from agent_utilities.core.http_client import create_http_client
+                from agent_utilities.core.transport_security import (
+                    resolve_configured_tls_profile,
+                )
+
+                result = []
+                headers = {
+                    "Authorization": f"Bearer {self.token}",
+                    "Accept": "application/json",
+                }
+                trust = resolve_configured_tls_profile("bpm")
+                try:
+                    with create_http_client(
+                        timeout=5.0,
+                        headers=headers,
+                        **trust.httpx_kwargs(),
+                    ) as client:
+                        resp = client.get(f"{self.url}/repository/process-definitions")
+                finally:
+                    trust.cleanup()
+                if resp.status_code == 200:
+                    for proc in resp.json():
+                        proc_id = str(proc.get("id", ""))
+                        if proc_id:
+                            result.append(
+                                {
+                                    "id": f"process:bpm:{proc_id}",
+                                    "type": "process_model",
+                                    "name": str(
+                                        proc.get("name") or proc.get("key", "")
+                                    ),
+                                    "domain": "bpm",
+                                }
+                            )
+                else:
+                    logger.warning("BPM hydration API returned a non-success status")
+                return result
+
+        class ArisBPMHydrator(BaseBPMHydrator):
+            def fetch_processes(self) -> list[dict[str, Any]]:
+                raise RuntimeError(
+                    "ARIS BPM integration requires enterprise API credentials and specific endpoints."
+                )
+
+        def get_bpm_hydrator(provider: str, url: str, token: str) -> BaseBPMHydrator:
+            if provider.lower() == "aris":
+                return ArisBPMHydrator(url, token)
+            return OpenSourceBPMHydrator(url, token)
+
+        entities: list[dict[str, Any]] = []
+        relationships: list[dict[str, Any]] = []
+        try:
+            hydrator = get_bpm_hydrator(bpm_provider, bpm_url, bpm_token)
+            bpm_entities = hydrator.fetch_processes()
+            entities.extend(bpm_entities)
+        except Exception as e:
+            logger.error(f"Failed to execute BPM hydration for {bpm_provider}: {e}")
+
+        return {
+            "status": "ok",
+            "nodes_hydrated": len(entities),
+            "relations_hydrated": len(relationships),
+        }
+
+    def _hydrate_process_modeling(self, engine: Any) -> dict[str, Any]:
+        """Hydrate business processes. Supports BPMN 2.0 XML, ArchiMate XML, and BPM tools (e.g., Archi)."""
+        bpm_url = setting("BPM_URL")
+        bpm_token = setting("BPM_TOKEN")
+        bpm_provider = setting("BPM_PROVIDER", "opensource")
+
+        if bpm_url and bpm_token:
+            return self._hydrate_process_modeling_via_bpm_api(
+                bpm_provider, bpm_url, bpm_token
+            )
+
+        xml_content = self._load_bpmn_xml()
+        entities, relationships = self._parse_bpmn_entities(xml_content)
 
         if entities:
             engine.ingest_external_batch("process_modeling", entities, relationships)
@@ -786,6 +803,114 @@ class HydrationManager:
             "relations_hydrated": len(relationships),
         }
 
+    def _hydrate_relational_table_columns(
+        self,
+        cursor: Any,
+        table_name: str,
+        table_id: str,
+        entities: list[dict[str, Any]],
+        relationships: list[dict[str, Any]],
+    ) -> None:
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        cols = cursor.fetchall()
+        for col in cols:
+            col_name = col[1]
+            col_type = col[2]
+            is_nullable = not col[3]
+            is_pk = bool(col[5])
+
+            col_id = f"db:column:{table_name}:{col_name}"
+            entities.append(
+                {
+                    "id": col_id,
+                    "type": "db_column",
+                    "name": col_name,
+                    "dataType": col_type,
+                    "isNullable": "true" if is_nullable else "false",
+                    "isPrimaryKey": "true" if is_pk else "false",
+                    "isForeignKey": "false",
+                    "domain": "relational_database",
+                }
+            )
+            relationships.append(
+                {
+                    "source": table_id,
+                    "target": col_id,
+                    "type": "has_column",
+                    "domain": "relational_database",
+                }
+            )
+
+    def _hydrate_relational_table_foreign_keys(
+        self,
+        cursor: Any,
+        table_name: str,
+        table_id: str,
+        entities: list[dict[str, Any]],
+        relationships: list[dict[str, Any]],
+    ) -> None:
+        cursor.execute(f"PRAGMA foreign_key_list({table_name})")
+        fkeys = cursor.fetchall()
+        for fk in fkeys:
+            from_col = fk[3]
+            to_table = fk[2]
+            to_col = fk[4]
+
+            col_id = f"db:column:{table_name}:{from_col}"
+            for ent in entities:
+                if ent.get("id") == col_id:
+                    ent["isForeignKey"] = "true"
+                    break
+
+            relationships.append(
+                {
+                    "source": table_id,
+                    "target": f"db:table:{to_table}",
+                    "type": "references_table",
+                    "domain": "relational_database",
+                }
+            )
+            relationships.append(
+                {
+                    "source": col_id,
+                    "target": f"db:column:{to_table}:{to_col}",
+                    "type": "references_column",
+                    "domain": "relational_database",
+                }
+            )
+
+    def _hydrate_relational_table(
+        self,
+        cursor: Any,
+        table_name: str,
+        schema_id: str,
+        entities: list[dict[str, Any]],
+        relationships: list[dict[str, Any]],
+    ) -> None:
+        table_id = f"db:table:{table_name}"
+        entities.append(
+            {
+                "id": table_id,
+                "type": "db_table",
+                "name": table_name,
+                "domain": "relational_database",
+            }
+        )
+        relationships.append(
+            {
+                "source": schema_id,
+                "target": table_id,
+                "type": "has_table",
+                "domain": "relational_database",
+            }
+        )
+        self._hydrate_relational_table_columns(
+            cursor, table_name, table_id, entities, relationships
+        )
+        self._hydrate_relational_table_foreign_keys(
+            cursor, table_name, table_id, entities, relationships
+        )
+
     def _hydrate_relational_database(self, engine: Any) -> dict[str, Any]:
         """Hydrate a bounded synthetic relational schema using an in-memory catalog.
 
@@ -795,8 +920,8 @@ class HydrationManager:
         """
         import sqlite3
 
-        entities = []
-        relationships = []
+        entities: list[dict[str, Any]] = []
+        relationships: list[dict[str, Any]] = []
 
         try:
             conn = sqlite3.connect(":memory:")
@@ -825,83 +950,9 @@ class HydrationManager:
             )
 
             for table_name in tables:
-                table_id = f"db:table:{table_name}"
-                entities.append(
-                    {
-                        "id": table_id,
-                        "type": "db_table",
-                        "name": table_name,
-                        "domain": "relational_database",
-                    }
+                self._hydrate_relational_table(
+                    cursor, table_name, schema_id, entities, relationships
                 )
-                relationships.append(
-                    {
-                        "source": schema_id,
-                        "target": table_id,
-                        "type": "has_table",
-                        "domain": "relational_database",
-                    }
-                )
-
-                cursor.execute(f"PRAGMA table_info({table_name})")
-                cols = cursor.fetchall()
-                for col in cols:
-                    col_name = col[1]
-                    col_type = col[2]
-                    is_nullable = not col[3]
-                    is_pk = bool(col[5])
-
-                    col_id = f"db:column:{table_name}:{col_name}"
-                    entities.append(
-                        {
-                            "id": col_id,
-                            "type": "db_column",
-                            "name": col_name,
-                            "dataType": col_type,
-                            "isNullable": "true" if is_nullable else "false",
-                            "isPrimaryKey": "true" if is_pk else "false",
-                            "isForeignKey": "false",
-                            "domain": "relational_database",
-                        }
-                    )
-                    relationships.append(
-                        {
-                            "source": table_id,
-                            "target": col_id,
-                            "type": "has_column",
-                            "domain": "relational_database",
-                        }
-                    )
-
-                cursor.execute(f"PRAGMA foreign_key_list({table_name})")
-                fkeys = cursor.fetchall()
-                for fk in fkeys:
-                    from_col = fk[3]
-                    to_table = fk[2]
-                    to_col = fk[4]
-
-                    col_id = f"db:column:{table_name}:{from_col}"
-                    for ent in entities:
-                        if ent.get("id") == col_id:
-                            ent["isForeignKey"] = "true"
-                            break
-
-                    relationships.append(
-                        {
-                            "source": table_id,
-                            "target": f"db:table:{to_table}",
-                            "type": "references_table",
-                            "domain": "relational_database",
-                        }
-                    )
-                    relationships.append(
-                        {
-                            "source": col_id,
-                            "target": f"db:column:{to_table}:{to_col}",
-                            "type": "references_column",
-                            "domain": "relational_database",
-                        }
-                    )
             conn.close()
         except Exception as e:
             logger.error(f"Failed to dynamically extract database schema: {e}")
@@ -961,6 +1012,83 @@ class HydrationManager:
     # Tier 1 - GitLab, Jira, Plane (Projects & Workflow Tracking)
     # ══════════════════════════════════════════════════════════════════
 
+    def _hydrate_gitlab_project_pipelines(
+        self, client: Any, proj_id: str, node_id: str
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Fetch and map one project's recent pipelines. Best-effort: a
+        failure here just means this project's pipeline slice is empty --
+        entities/relationships collected from other projects are unaffected
+        and still ingested via ``ingest_external_batch`` below."""
+        entities: list[dict[str, Any]] = []
+        relationships: list[dict[str, Any]] = []
+        try:
+            pipes = client.get_pipelines(proj_id, per_page=5)
+            if isinstance(pipes, list):
+                for pipe in pipes:
+                    if not isinstance(pipe, dict):
+                        continue
+                    pipe_id = str(pipe.get("id", ""))
+                    if not pipe_id:
+                        continue
+
+                    pipe_node_id = f"gitlab:pipeline:{pipe_id}"
+                    # OWL Mapping: GitLabPipeline -> pipeline
+                    entities.append(
+                        {
+                            "id": pipe_node_id,
+                            "type": "pipeline",
+                            "name": f"Pipeline #{pipe_id}",
+                            "status": pipe.get("status", ""),
+                            "ref": pipe.get("ref", ""),
+                            "sha": pipe.get("sha", ""),
+                            "web_url": pipe.get("web_url", ""),
+                            "domain": "gitlab",
+                        }
+                    )
+
+                    relationships.append(
+                        {
+                            "source": pipe_node_id,
+                            "target": node_id,
+                            "type": "depends_on",
+                            "domain": "gitlab",
+                        }
+                    )
+        except Exception as pe:  # noqa: BLE001 — one project's pipeline fetch inside the GitLab hydration loop; entities/relationships collected from other projects are unaffected and still ingested via ingest_external_batch below
+            logger.debug(
+                f"Failed to fetch pipelines for GitLab project {proj_id}: {pe}"
+            )
+        return entities, relationships
+
+    def _hydrate_gitlab_project(
+        self, client: Any, p: Any
+    ) -> tuple[dict[str, Any] | None, list[dict[str, Any]], list[dict[str, Any]]]:
+        """Map one GitLab project entry plus its recent pipelines. Returns
+        ``(project_entity, pipeline_entities, pipeline_relationships)``;
+        ``project_entity`` is ``None`` when ``p`` isn't a usable project
+        record."""
+        if not isinstance(p, dict):
+            return None, [], []
+        proj_id = str(p.get("id", ""))
+        if not proj_id:
+            return None, [], []
+
+        node_id = f"gitlab:proj:{proj_id}"
+        # OWL Mapping: GitLabProject -> repository
+        project_entity = {
+            "id": node_id,
+            "type": "repository",
+            "name": p.get("name", f"Repo {proj_id}"),
+            "full_path": p.get("path_with_namespace", ""),
+            "description": p.get("description", ""),
+            "web_url": p.get("web_url", ""),
+            "domain": "gitlab",
+        }
+        pipeline_entities, pipeline_relationships = (
+            self._hydrate_gitlab_project_pipelines(client, proj_id, node_id)
+        )
+        return project_entity, pipeline_entities, pipeline_relationships
+
     def _hydrate_gitlab(self, engine: Any) -> dict[str, Any]:
         """Hydrate from GitLab (OWL Native)."""
         try:
@@ -1000,63 +1128,14 @@ class HydrationManager:
         relationships: list[dict[str, Any]] = []
 
         for p in projects:
-            if not isinstance(p, dict):
-                continue
-            proj_id = str(p.get("id", ""))
-            if not proj_id:
-                continue
-
-            node_id = f"gitlab:proj:{proj_id}"
-            # OWL Mapping: GitLabProject -> repository
-            entities.append(
-                {
-                    "id": node_id,
-                    "type": "repository",
-                    "name": p.get("name", f"Repo {proj_id}"),
-                    "full_path": p.get("path_with_namespace", ""),
-                    "description": p.get("description", ""),
-                    "web_url": p.get("web_url", ""),
-                    "domain": "gitlab",
-                }
+            project_entity, pipeline_entities, pipeline_relationships = (
+                self._hydrate_gitlab_project(client, p)
             )
-
-            try:
-                pipes = client.get_pipelines(proj_id, per_page=5)
-                if isinstance(pipes, list):
-                    for pipe in pipes:
-                        if not isinstance(pipe, dict):
-                            continue
-                        pipe_id = str(pipe.get("id", ""))
-                        if not pipe_id:
-                            continue
-
-                        pipe_node_id = f"gitlab:pipeline:{pipe_id}"
-                        # OWL Mapping: GitLabPipeline -> pipeline
-                        entities.append(
-                            {
-                                "id": pipe_node_id,
-                                "type": "pipeline",
-                                "name": f"Pipeline #{pipe_id}",
-                                "status": pipe.get("status", ""),
-                                "ref": pipe.get("ref", ""),
-                                "sha": pipe.get("sha", ""),
-                                "web_url": pipe.get("web_url", ""),
-                                "domain": "gitlab",
-                            }
-                        )
-
-                        relationships.append(
-                            {
-                                "source": pipe_node_id,
-                                "target": node_id,
-                                "type": "depends_on",
-                                "domain": "gitlab",
-                            }
-                        )
-            except Exception as pe:  # noqa: BLE001 — one project's pipeline fetch inside the GitLab hydration loop; entities/relationships collected from other projects are unaffected and still ingested via ingest_external_batch below
-                logger.debug(
-                    f"Failed to fetch pipelines for GitLab project {proj_id}: {pe}"
-                )
+            if project_entity is None:
+                continue
+            entities.append(project_entity)
+            entities.extend(pipeline_entities)
+            relationships.extend(pipeline_relationships)
 
         if entities:
             engine.ingest_external_batch("gitlab", entities, relationships)
@@ -1070,6 +1149,90 @@ class HydrationManager:
     # ══════════════════════════════════════════════════════════════════
     # Tier 2 & 3 - Portainer, Uptime Kuma, technitium-dns, caddy (Topology)
     # ══════════════════════════════════════════════════════════════════
+
+    def _fetch_portainer_stacks(self, client: Any) -> list[dict[str, Any]]:
+        stacks = client.get_stacks()
+        if not isinstance(stacks, list):
+            stacks = []
+        entities: list[dict[str, Any]] = []
+        for s in stacks:
+            s_id = str(s.get("Id"))
+            node_id = f"portainer:stack:{s_id}"
+            # OWL Mapping: PortainerStack -> container_stack
+            entities.append(
+                {
+                    "id": node_id,
+                    "type": "container_stack",
+                    "name": s.get("Name", f"Stack {s_id}"),
+                    "domain": "portainer",
+                }
+            )
+        return entities
+
+    def _fetch_portainer_endpoint_containers(
+        self, client: Any, ep_id: str, host_node_id: str
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        entities: list[dict[str, Any]] = []
+        relationships: list[dict[str, Any]] = []
+        containers = client.get_endpoint_containers(ep_id)
+        if isinstance(containers, list):
+            for c in containers:
+                c_id = str(c.get("Id", ""))[:12]
+                if not c_id:
+                    continue
+
+                container_node_id = f"docker:container:{c_id}"
+                # OWL Mapping: DockerContainer -> container
+                entities.append(
+                    {
+                        "id": container_node_id,
+                        "type": "container",
+                        "name": c.get("Names", [f"Container {c_id}"])[0].lstrip("/"),
+                        "status": c.get("Status", ""),
+                        "state": c.get("State", ""),
+                        "domain": "portainer",
+                    }
+                )
+
+                relationships.append(
+                    {
+                        "source": container_node_id,
+                        "target": host_node_id,
+                        "type": "runs_on",
+                        "domain": "portainer",
+                    }
+                )
+        return entities, relationships
+
+    def _fetch_portainer_endpoints(
+        self, client: Any
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        endpoints = client.get_endpoints()
+        if not isinstance(endpoints, list):
+            endpoints = []
+
+        entities: list[dict[str, Any]] = []
+        relationships: list[dict[str, Any]] = []
+        for ep in endpoints:
+            ep_id = str(ep.get("Id"))
+            host_node_id = f"portainer:host:{ep_id}"
+            # OWL Mapping: Host -> host
+            entities.append(
+                {
+                    "id": host_node_id,
+                    "type": "host",
+                    "name": ep.get("Name", f"Docker Host {ep_id}"),
+                    "url": ep.get("URL", ""),
+                    "domain": "portainer",
+                }
+            )
+
+            container_entities, container_relationships = (
+                self._fetch_portainer_endpoint_containers(client, ep_id, host_node_id)
+            )
+            entities.extend(container_entities)
+            relationships.extend(container_relationships)
+        return entities, relationships
 
     def _hydrate_portainer(self, engine: Any) -> dict[str, Any]:
         """Hydrate full Portainer stack, containers, hosts, and images (Tier 2)."""
@@ -1095,72 +1258,14 @@ class HydrationManager:
 
         try:
             # Fetch stacks
-            stacks = client.get_stacks()
-            if not isinstance(stacks, list):
-                stacks = []
-
-            for s in stacks:
-                s_id = str(s.get("Id"))
-                node_id = f"portainer:stack:{s_id}"
-                # OWL Mapping: PortainerStack -> container_stack
-                entities.append(
-                    {
-                        "id": node_id,
-                        "type": "container_stack",
-                        "name": s.get("Name", f"Stack {s_id}"),
-                        "domain": "portainer",
-                    }
-                )
+            entities.extend(self._fetch_portainer_stacks(client))
 
             # Fetch endpoints/environments and their containers
-            endpoints = client.get_endpoints()
-            if not isinstance(endpoints, list):
-                endpoints = []
-
-            for ep in endpoints:
-                ep_id = str(ep.get("Id"))
-                host_node_id = f"portainer:host:{ep_id}"
-                # OWL Mapping: Host -> host
-                entities.append(
-                    {
-                        "id": host_node_id,
-                        "type": "host",
-                        "name": ep.get("Name", f"Docker Host {ep_id}"),
-                        "url": ep.get("URL", ""),
-                        "domain": "portainer",
-                    }
-                )
-
-                containers = client.get_endpoint_containers(ep_id)
-                if isinstance(containers, list):
-                    for c in containers:
-                        c_id = str(c.get("Id", ""))[:12]
-                        if not c_id:
-                            continue
-
-                        container_node_id = f"docker:container:{c_id}"
-                        # OWL Mapping: DockerContainer -> container
-                        entities.append(
-                            {
-                                "id": container_node_id,
-                                "type": "container",
-                                "name": c.get("Names", [f"Container {c_id}"])[0].lstrip(
-                                    "/"
-                                ),
-                                "status": c.get("Status", ""),
-                                "state": c.get("State", ""),
-                                "domain": "portainer",
-                            }
-                        )
-
-                        relationships.append(
-                            {
-                                "source": container_node_id,
-                                "target": host_node_id,
-                                "type": "runs_on",
-                                "domain": "portainer",
-                            }
-                        )
+            endpoint_entities, endpoint_relationships = self._fetch_portainer_endpoints(
+                client
+            )
+            entities.extend(endpoint_entities)
+            relationships.extend(endpoint_relationships)
 
         except Exception as e:
             return {
@@ -1225,6 +1330,44 @@ class HydrationManager:
             "relations_hydrated": len(relationships),
         }
 
+    def _query_ear_graphql(
+        self, client: Any, query: str
+    ) -> tuple[Any, dict[str, Any] | None]:
+        """Execute the EAR GraphQL query, falling back to ``client.query()``
+        on failure. Returns ``(result, error)``; exactly one is falsy."""
+        try:
+            res = client.execute_gql(query)
+        except Exception as e:
+            try:
+                res = client.query(query)
+            except Exception as query_err:
+                return None, {
+                    "status": "error",
+                    "error": f"GraphQL queries failed: {e} / {query_err}",
+                }
+        return res, None
+
+    def _ear_factsheet_entities(self, edges: list[Any]) -> list[dict[str, Any]]:
+        entities: list[dict[str, Any]] = []
+        for edge in edges:
+            node = edge.get("node", {})
+            fs_id = node.get("id")
+            if not fs_id:
+                continue
+
+            # OWL Mapping: EAFactSheet -> platform_service
+            entities.append(
+                {
+                    "id": f"ear:fs:{fs_id}",
+                    "type": "platform_service",
+                    "name": node.get("name", ""),
+                    "factsheet_type": node.get("type", ""),
+                    "description": node.get("description", ""),
+                    "domain": "leanix",
+                }
+            )
+        return entities
+
     def _hydrate_ear(self, engine: Any) -> dict[str, Any]:
         """Hydrate from an Enterprise Architecture Repository (e.g., Essential Project)."""
         try:
@@ -1255,16 +1398,9 @@ class HydrationManager:
           }
         }
         """
-        try:
-            res = client.execute_gql(query)
-        except Exception as e:
-            try:
-                res = client.query(query)
-            except Exception as query_err:
-                return {
-                    "status": "error",
-                    "error": f"GraphQL queries failed: {e} / {query_err}",
-                }
+        res, error = self._query_ear_graphql(client, query)
+        if error is not None:
+            return error
 
         if not isinstance(res, dict):
             return {
@@ -1276,26 +1412,8 @@ class HydrationManager:
         all_fs = data.get("allFactSheets", {})
         edges = all_fs.get("edges", [])
 
-        entities: list[dict[str, Any]] = []
+        entities = self._ear_factsheet_entities(edges)
         relationships: list[dict[str, Any]] = []
-
-        for edge in edges:
-            node = edge.get("node", {})
-            fs_id = node.get("id")
-            if not fs_id:
-                continue
-
-            # OWL Mapping: EAFactSheet -> platform_service
-            entities.append(
-                {
-                    "id": f"ear:fs:{fs_id}",
-                    "type": "platform_service",
-                    "name": node.get("name", ""),
-                    "factsheet_type": node.get("type", ""),
-                    "description": node.get("description", ""),
-                    "domain": "leanix",
-                }
-            )
 
         if entities:
             engine.ingest_external_batch("leanix", entities, relationships)
@@ -1306,26 +1424,11 @@ class HydrationManager:
             "relations_hydrated": len(relationships),
         }
 
-    def _hydrate_twenty(self, engine: Any) -> dict[str, Any]:
-        """Hydrate from Twenty CRM (Tier 3)."""
-        try:
-            from twenty_mcp.api_client import Api as TwentyApi
-        except ImportError:
-            return {"status": "skipped", "reason": "twenty-mcp package not installed"}
-
-        url = setting("TWENTY_URL")
-        token = setting("TWENTY_TOKEN") or setting("TWENTY_API_TOKEN")
-        if not url or not token:
-            return {
-                "status": "skipped",
-                "reason": "Missing TWENTY_URL and/or TWENTY_TOKEN",
-            }
-
-        client = TwentyApi(base_url=url, token=token)
+    def _fetch_twenty_companies(self, client: Any) -> list[dict[str, Any]]:
+        """Step 1 of Twenty CRM hydration: companies. A fetch failure here
+        just means an empty companies slice -- independent of the people/
+        opportunities steps below, which run regardless."""
         entities: list[dict[str, Any]] = []
-        relationships: list[dict[str, Any]] = []
-
-        # 1. Companies
         try:
             companies_resp = client.get_companies()
             companies = (
@@ -1352,10 +1455,17 @@ class HydrationManager:
                         "domain_tag": "twenty",
                     }
                 )
-        except Exception as e:  # noqa: BLE001 — one CRM entity-class fetch (companies) inside a 3-step hydration (companies/people/opportunities); a failure here just means an empty companies slice, the other two steps run independently below
+        except Exception as e:  # noqa: BLE001 — one CRM entity-class fetch (companies) inside a 3-step hydration (companies/people/opportunities); a failure here just means an empty companies slice, the other two steps run independently
             logger.debug(f"Failed to fetch CRM companies: {e}")
+        return entities
 
-        # 2. People (Contacts)
+    def _fetch_twenty_people(
+        self, client: Any
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Step 2 of Twenty CRM hydration: people (contacts). Independent of
+        the companies/opportunities steps -- see :meth:`_fetch_twenty_companies`."""
+        entities: list[dict[str, Any]] = []
+        relationships: list[dict[str, Any]] = []
         try:
             people_resp = client.get_people()
             people = (
@@ -1398,8 +1508,15 @@ class HydrationManager:
                     )
         except Exception as e:  # noqa: BLE001 — the people fetch of the same 3-step Twenty CRM hydration — same independence from the companies/opportunities steps
             logger.debug(f"Failed to fetch CRM people: {e}")
+        return entities, relationships
 
-        # 3. Opportunities
+    def _fetch_twenty_opportunities(
+        self, client: Any
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Step 3 of Twenty CRM hydration: opportunities. Independent of the
+        companies/people steps -- see :meth:`_fetch_twenty_companies`."""
+        entities: list[dict[str, Any]] = []
+        relationships: list[dict[str, Any]] = []
         try:
             opportunities_resp = client.get_opportunities()
             opportunities = (
@@ -1442,6 +1559,39 @@ class HydrationManager:
                     )
         except Exception as e:  # noqa: BLE001 — the opportunities fetch of the same 3-step Twenty CRM hydration, immediately before entities/relationships are batched into ingest_external_batch below
             logger.debug(f"Failed to fetch CRM opportunities: {e}")
+        return entities, relationships
+
+    def _hydrate_twenty(self, engine: Any) -> dict[str, Any]:
+        """Hydrate from Twenty CRM (Tier 3)."""
+        try:
+            from twenty_mcp.api_client import Api as TwentyApi
+        except ImportError:
+            return {"status": "skipped", "reason": "twenty-mcp package not installed"}
+
+        url = setting("TWENTY_URL")
+        token = setting("TWENTY_TOKEN") or setting("TWENTY_API_TOKEN")
+        if not url or not token:
+            return {
+                "status": "skipped",
+                "reason": "Missing TWENTY_URL and/or TWENTY_TOKEN",
+            }
+
+        client = TwentyApi(base_url=url, token=token)
+        entities: list[dict[str, Any]] = []
+        relationships: list[dict[str, Any]] = []
+
+        # 1. Companies
+        entities.extend(self._fetch_twenty_companies(client))
+
+        # 2. People (Contacts)
+        people_entities, people_relationships = self._fetch_twenty_people(client)
+        entities.extend(people_entities)
+        relationships.extend(people_relationships)
+
+        # 3. Opportunities
+        opp_entities, opp_relationships = self._fetch_twenty_opportunities(client)
+        entities.extend(opp_entities)
+        relationships.extend(opp_relationships)
 
         if entities:
             engine.ingest_external_batch("twenty", entities, relationships)
