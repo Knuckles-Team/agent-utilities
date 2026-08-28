@@ -31,6 +31,7 @@ else:
 
 import logging
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from ...models.knowledge_graph import RegistryNodeType
@@ -49,6 +50,19 @@ _CONTROL_PLANE_LABELS = frozenset({"workitem", "schedule", "profilespan"})
 # Node-pattern label extractor: matches the label after a ':' inside a
 # ``(var:Label`` / ``(:Label`` pattern (Cypher node patterns only).
 _NODE_LABEL_RE = re.compile(r"\(\s*\w*\s*:\s*([A-Za-z_][A-Za-z0-9_]*)")
+
+# discover_all_capabilities: node types/resource_types that carry a callable
+# capability (AgentOS category-collapse pattern).
+_CAPABILITY_TYPES = frozenset(
+    {
+        "callable_resource",
+        "tool",
+        "skill",
+        "agent",
+        "tool_metadata",
+        "spawned_agent",
+    }
+)
 
 
 def _is_control_plane_query(query: str) -> bool:
@@ -131,8 +145,389 @@ def _describe_secured_read_failure(exc: BaseException) -> str:
     return " <- caused by ".join(parts)
 
 
+def _extracted_backend_node(row: Any) -> dict[str, Any] | None:
+    """Unwrap a raw backend result row to its node dict, or ``None``."""
+    if not isinstance(row, dict):
+        return None
+    # Handle both the Cypher `RETURN n` wrapping ({"n": {...}}) and flat-dict
+    # backends (e.g. EpistemicGraphBackend).
+    node = row.get("n", row)
+    if not isinstance(node, dict) or not node:
+        return None
+    return node
+
+
+def _keyword_matches_node(node: dict[str, Any], keywords: list[str]) -> bool:
+    """Client-side keyword re-check for backends that don't evaluate WHERE."""
+    name = str(node.get("name", "")).lower()
+    desc = str(node.get("description", "")).lower()
+    nid = str(node.get("id", "")).lower()
+    return any(k in nid or k in name or k in desc for k in keywords)
+
+
+def _passes_rbac_and_soft_delete(node: dict[str, Any], clearance_level: int) -> bool:
+    """RBAC classification + ARCHIVED soft-delete gate, backend-agnostic."""
+    if str(node.get("status", "")).upper() == "ARCHIVED":
+        return False
+    req_class = node.get("requiresClassification", 0)
+    return not (isinstance(req_class, int) and req_class > clearance_level)
+
+
+@dataclass
+class _HybridSearchRequest:
+    """Bundles ``search_hybrid``'s per-call options so the retrieval-mode
+    dispatch helper stays within the <=7 parameter cap."""
+
+    query: str
+    top_k: int
+    skip_quality_gate: bool
+    relevance_threshold: float | None
+    target_paths: list[str] | None
+    mode: str
+    self_correct: bool
+    corpus_id: str | None
+    as_of: str | None
+    session: GraphSession | None
+
+
 class QueryMixin(_Base):
     """Query and search capabilities for the KG engine."""
+
+    def _scope_aggregate_cypher(
+        self,
+        scoped_query: str,
+        query: str,
+        session: GraphSession,
+        params: dict[str, Any],
+    ) -> str:
+        """Push tenant + owner/scope + commons-catalog restrictions INTO an
+        aggregate query's text.
+
+        CONCEPT:AU-KG.compute.data-is-private-its — an aggregate has no row to
+        post-filter by owner/scope, so that boundary is pushed into the query
+        text instead: the aggregate is computed only over rows the actor's
+        owner/scope would have kept anyway. This is a no-op (returns the query
+        unchanged) for a privileged actor, exactly mirroring
+        `secured_reads.visible`'s own privileged bypass.
+
+        D-SH-4 (reports/deferred/lane-skill-harvest.md): `apply_visibility`
+        defaults to writing its predicate against a hardcoded `n` variable.
+        Detect THIS query's own primary bound variable (the same detector
+        `scope()`/`scope_cypher_query` now uses) and pass it explicitly — a
+        query aliased as e.g. `MATCH (w:WorkItem) RETURN count(w) AS c`
+        otherwise gets a visibility predicate referencing a variable that
+        doesn't exist, which Cypher treats as never matching (a silent
+        zero-row/zero-count aggregate instead of the real answer). A fully
+        anonymous first pattern has no variable to scope by; skip the
+        injection rather than reference a fabricated name (mirrors
+        `scope_cypher_query`'s own fail-open-to-unscoped decision for the same
+        case).
+        """
+        from agent_utilities.knowledge_graph.core.cypher_scope_vars import (
+            primary_bound_variable,
+        )
+        from agent_utilities.knowledge_graph.core.tenant_sharing import (
+            apply_commons_catalog_restriction,
+            apply_visibility,
+        )
+
+        agg_var = primary_bound_variable(query)
+        if agg_var is None:
+            return scoped_query
+        # D-W2T-2: same (query, extra_params) contract as scope() above — the
+        # visibility owner id is a bound `$_visibility_owner_id` parameter now.
+        scoped_query, vis_params = apply_visibility(
+            scoped_query, session.actor, var=agg_var
+        )
+        params.update(vis_params)
+
+        # GOC-61 phase 1 (2026-08-09 owner ruling, read/write split): the
+        # commons catalog READ restriction, injected the same way and for the
+        # same reason — this is the ONLY place the restriction can reach an
+        # aggregate projection (count(n), etc.), since it has no per-row
+        # properties for filter_commons_catalog to post-filter. A no-op unless
+        # this engine is bound to the commons graph and the actor is
+        # unprivileged (see apply_commons_catalog_restriction's own
+        # docstring).
+        graph_name = getattr(getattr(self, "graph_compute", None), "graph_name", None)
+        scoped_query, catalog_params = apply_commons_catalog_restriction(
+            scoped_query, session.actor, graph_name, var=agg_var
+        )
+        params.update(catalog_params)
+        return scoped_query
+
+    def _scope_row_cypher(
+        self,
+        scoped_query: str,
+        session: GraphSession,
+        params: dict[str, Any],
+    ) -> tuple[str, bool, bool]:
+        """Best-effort commons-catalog + owner/scope visibility pushdown for a
+        non-aggregate (row-returning) query.
+
+        BUG-PE-040: the identical defect `read_union` was fixed for
+        (`tenant_sharing.read_union` / BUG-PE-039, commit 7b8075b8d) exists at
+        THIS chokepoint too. The non-aggregate row-read path (`filter_commons_
+        catalog`) fails CLOSED by design — a row with no `node_type` is
+        dropped — but a *projecting* query (`RETURN t.id AS id`) returns rows
+        with no `node_type` column even for a catalog-shareable node, so every
+        commons row was silently dropped. Push the restriction into the query
+        text instead, so a projecting query is narrowed at the source rather
+        than relying on row-shape the executor may not preserve.
+
+        Best-effort and MUST NOT fail open: any failure here (e.g. no bound
+        node variable to scope by) just leaves `scoped_query` unchanged and
+        `commons_pushed_down`/`visibility_pushed_down` False — the row-level
+        classifier stays fail-closed, exactly the pre-existing behaviour.
+        Idempotent (a WHERE predicate ANDed twice is harmless), so this stacks
+        harmlessly with any pushdown a caller already applied upstream.
+
+        Returns ``(scoped_query, commons_pushed_down, visibility_pushed_down)``.
+        """
+        from agent_utilities.knowledge_graph.core.tenant_sharing import (
+            apply_commons_catalog_restriction,
+            push_down_visibility,
+        )
+
+        commons_pushed_down = False
+        graph_name = getattr(getattr(self, "graph_compute", None), "graph_name", None)
+        try:
+            candidate_query, catalog_params = apply_commons_catalog_restriction(
+                scoped_query, session.actor, graph_name
+            )
+        except Exception as exc:  # noqa: BLE001 — pushdown is best-effort; the row-level fallback is the safety net and must never fail open
+            logger.debug(
+                "query_cypher: commons catalog pushdown unavailable: %s", exc
+            )
+        else:
+            if candidate_query != scoped_query:
+                scoped_query = candidate_query
+                params.update(catalog_params)
+                commons_pushed_down = True
+
+        # fix/empty-projection: owner/scope visibility pushdown for the
+        # non-aggregate path — best-effort, same shape as the commons-catalog
+        # pushdown just above (and the aggregate branch's mandatory
+        # equivalent). MUST NOT fail open: any failure (no derivable bound
+        # variable, `UnscopableQueryError`, or any other error) leaves
+        # `scoped_query` unchanged and `visibility_pushed_down` False, and the
+        # post-hoc `visible()`/`filter_rows()` pass (which never needed this
+        # flag to run correctly — only to decide what to do with an
+        # UNCLASSIFIABLE row) stays exactly the pre-existing fail-closed
+        # behavior.
+        scoped_query, vis_params, visibility_pushed_down = push_down_visibility(
+            scoped_query, session.actor
+        )
+        params.update(vis_params)
+        return scoped_query, commons_pushed_down, visibility_pushed_down
+
+    def _scoped_cypher_query(
+        self,
+        query: str,
+        params: dict[str, Any],
+        session: GraphSession,
+        aggregate_query: bool,
+    ) -> tuple[str, bool, bool]:
+        """Tenant-scope + owner/scope-restrict ``query`` at the MCP/orchestration
+        read chokepoint (CONCEPT:AU-KG.query.skip-assimilated-papers + KG-2.60).
+        Mandatory — this isolates ``graph_query`` on a shared backend graph
+        (the named-graph physical partition only applies in sharded/direct-
+        engine paths).
+
+        Returns ``(scoped_query, commons_pushed_down, visibility_pushed_down)``.
+        """
+        commons_pushed_down = False
+        visibility_pushed_down = False
+        try:
+            from agent_utilities.knowledge_graph.core.secured_reads import scope
+
+            # D-W2T-2: `scope()` now returns (query, extra_params) — the tenant
+            # id is injected as a bound `$_tenant_scope_id` parameter, not a
+            # string-literal splice. Merge it into this call's own params dict
+            # (same convention as the `_clearance_level` system param above).
+            scoped_query, tenant_params = scope(query, session.actor)
+            params.update(tenant_params)
+            if aggregate_query:
+                scoped_query = self._scope_aggregate_cypher(
+                    scoped_query, query, session, params
+                )
+            else:
+                scoped_query, commons_pushed_down, visibility_pushed_down = (
+                    self._scope_row_cypher(scoped_query, session, params)
+                )
+        except PermissionError as exc:
+            # A genuine, already-typed fail-closed scoping/authorization
+            # decision reached here — e.g. `cypher_scoping.UnscopableQueryError`
+            # (the query binds no node variable a tenant/visibility predicate
+            # can be written against) or `secured_reads.scope()`'s own
+            # verified-actor/infrastructure denial. Propagate the SAME
+            # exception: its specific type and message are the only thing
+            # that lets an operator tell "this query's shape can't be safely
+            # scoped" apart from "this actor lacks permission" apart from any
+            # other denial. Re-wrapping it into one generic "Graph query
+            # scoping failed" — the bug this replaces — made a pure
+            # query-shape problem (``MATCH ()-[r]->() RETURN count(r)``, which
+            # binds no node variable at all) indistinguishable from an actual
+            # authorization denial.
+            from agent_utilities.core.log_privacy import sanitize_log_text
+
+            logger.error(
+                "Graph query scoping denied: %s | query=%s",
+                sanitize_log_text(_describe_secured_read_failure(exc)),
+                sanitize_log_text(str(query))[:240],
+            )
+            raise
+        except Exception as exc:
+            # NOT an authorization decision: an `AttributeError`/`TypeError`/
+            # etc. raised INSIDE the scoping pipeline itself (e.g. a
+            # caller-supplied actor object missing an expected method) is a
+            # CODE DEFECT, not a permission denial. Failing closed is still
+            # correct here — `scoped_query`/`params` are never used past this
+            # point on this path, so a defect here can never fall through to
+            # executing an unscoped read — but labeling it `PermissionError`
+            # actively misdirects debugging toward the authorization layer.
+            # Reproduced: an actor object missing `ensure_credential_current`
+            # alone raised the exact same "Graph query scoping failed" a real
+            # denial would.
+            from agent_utilities.core.log_privacy import sanitize_log_text
+            from agent_utilities.knowledge_graph.core.cypher_scoping import (
+                QueryScopingError,
+            )
+
+            logger.error(
+                "Graph query scoping raised a non-authorization failure "
+                "before a scope could be established (code defect, not a "
+                "permission denial): %s | query=%s",
+                sanitize_log_text(_describe_secured_read_failure(exc)),
+                sanitize_log_text(str(query))[:240],
+            )
+            raise QueryScopingError(
+                "Graph query scoping failed due to an internal defect, not "
+                "an authorization denial"
+            ) from exc
+        return scoped_query, commons_pushed_down, visibility_pushed_down
+
+    def _read_backend_for(self, scoped_query: str) -> Any:
+        """Select control vs. content read backend for ``scoped_query``.
+
+        CONCEPT:AU-KG.backend.schedule-on-control-graph — control/content read
+        isolation. A query containing only current control-plane labels must
+        use the configured control authority. Missing control authority is a
+        hard configuration error: reading the content graph would return a
+        misleading empty result and silently split operational truth.
+        """
+        if _is_control_plane_query(scoped_query):
+            read_backend = getattr(self, "control_backend", None)
+            if read_backend is None:
+                raise RuntimeError(
+                    "Control-plane query requires the configured WorkItem authority"
+                )
+            return read_backend
+        return self.backend
+
+    def _governed_cypher_rows(
+        self,
+        rows: list[dict[str, Any]],
+        session: GraphSession,
+        query: str,
+        *,
+        aggregate_query: bool,
+        visibility_pushed_down: bool,
+        commons_pushed_down: bool,
+    ) -> list[dict[str, Any]]:
+        """Apply row-level ACL/visibility/commons-catalog filtering + audit."""
+        try:
+            from agent_utilities.knowledge_graph.core.secured_reads import (
+                audit_read,
+                filter_rows,
+                row_node_ids,
+                visible,
+            )
+
+            if aggregate_query:
+                # No per-row node id exists to ACL-check or audit by id (the rows
+                # ARE the aggregate result, e.g. a single {"c": 142} row) — the
+                # owner/scope boundary already ran query-side above, and the
+                # fine-grained per-node classification ACL (KG-2.46) has no row to
+                # apply to. This is a scoped, deliberate trade-off (aggregate reads
+                # are governed by tenant + owner/scope, not per-node classification
+                # ACL), not a silent bypass of tenant/owner-scope isolation. The
+                # read is still audited, with an empty node-id list (nothing
+                # governable to name).
+                audit_read([], summary="native-cypher-read (aggregate)", actor=session.actor)
+                return rows
+
+            # fix/empty-projection: `trust_pushdown=visibility_pushed_down` —
+            # set above only when `push_down_visibility` demonstrably narrowed
+            # `scoped_query` for this call (or the actor is privileged) — lets
+            # a row with NO governed id at all (e.g. a plain `RETURN n.name AS
+            # name` projection, which carries no `id` column full stop)
+            # survive here instead of raising for the WHOLE read, exactly
+            # mirroring `filter_commons_catalog`'s own `trust_pushdown` escape
+            # just below. A row that DOES carry a governed id is still
+            # classified against the fine-grained ACL exactly as before,
+            # regardless of this flag.
+            rows = visible(
+                filter_rows(rows, session.actor, trust_pushdown=visibility_pushed_down),
+                session.actor,
+            )
+
+            # GOC-61 phase 1 (2026-08-09 owner ruling, read/write split): the
+            # commons catalog READ restriction, Python-side. Runs AFTER
+            # visible()/filter_rows() (owner/scope) — this is an ADDITIONAL
+            # restriction, not a replacement: owner/scope already hides
+            # another tenant's OWNED-private rows; this closes the remaining
+            # gap for UNOWNED/commons-scoped operational rows (WorkItem,
+            # RuntimeSignal, Concept, ...) that owner/scope alone treats as
+            # visible to everyone. A no-op unless this engine is bound to the
+            # commons graph and the actor is unprivileged.
+            #
+            # BUG-PE-040: `trust_pushdown=commons_pushed_down` — set above
+            # only when `apply_commons_catalog_restriction` demonstrably
+            # narrowed `scoped_query` for this call — lets an otherwise-
+            # unclassifiable projected row (no `node_type` column) survive
+            # here instead of being fail-closed dropped, exactly mirroring
+            # `read_union`'s row-level fallback (BUG-PE-039). A row that DOES
+            # carry a classifiable `node_type` is judged exactly as before
+            # regardless of this flag.
+            from agent_utilities.knowledge_graph.core.tenant_sharing import (
+                filter_commons_catalog,
+            )
+
+            graph_name = getattr(getattr(self, "graph_compute", None), "graph_name", None)
+            rows = filter_commons_catalog(
+                rows, session.actor, graph_name, trust_pushdown=commons_pushed_down
+            )
+
+            # The engine also emits its protocol audit. This service-level
+            # record proves the guarded GraphSession/query boundary ran
+            # without persisting raw query text or parameters.
+            audit_read(
+                row_node_ids(rows, trust_pushdown=visibility_pushed_down),
+                summary="native-cypher-read",
+                actor=session.actor,
+            )
+        except Exception as exc:
+            # Surface the TRUE failing step server-side before collapsing it to
+            # the generic caller-facing message — this exact boundary was a
+            # documented repeat instance of the swallowed-cause anti-pattern (a
+            # bare ``raise PermissionError(...) from exc`` with nothing logged
+            # first). The public PermissionError message is unchanged; only the
+            # log gains detail, and it is still sanitized (endpoints/paths/
+            # emails redacted) before it reaches any handler. Include the
+            # (sanitized, truncated) QUERY too: the failing site is otherwise
+            # unidentifiable from the log alone.
+            from agent_utilities.core.log_privacy import sanitize_log_text
+
+            logger.error(
+                "Graph row-policy or audit enforcement failed: %s | query=%s",
+                sanitize_log_text(_describe_secured_read_failure(exc)),
+                sanitize_log_text(str(query))[:240],
+            )
+            raise PermissionError(
+                "Graph row-policy or audit enforcement failed"
+            ) from exc
+        return rows
 
     def query_cypher(
         self,
@@ -196,330 +591,24 @@ class QueryMixin(_Base):
         # up front, from the CALLER'S query text (aggregate-ness is a property of
         # what was asked, unaffected by scope/visibility injection below).
         aggregate_query = is_aggregation_cypher(query)
-        # BUG-PE-040: set when the commons-catalog restriction below
-        # demonstrably narrowed the query text for THIS call (non-aggregate
-        # path only) — mirrors `read_union`'s `pushed_down` flag
-        # (`tenant_sharing.read_union`, BUG-PE-039) and is threaded through
-        # to `filter_commons_catalog(..., trust_pushdown=...)` below.
-        commons_pushed_down = False
-        # fix/empty-projection: set when owner/scope visibility was
-        # demonstrably pushed into the query text for THIS call (non
-        # -aggregate path only — the aggregate branch above already pushes
-        # it unconditionally). Threaded through to `filter_rows(...,
-        # trust_pushdown=...)` / `permissioning.enforce(..., trust_pushdown
-        # =...)` below so a row with no governed id (e.g. a plain
-        # `RETURN n.name AS name` projection, which never carries an `id`
-        # column) is trusted rather than rejecting the WHOLE read — the root
-        # cause of `MATCH (n:Skill) RETURN n.name AS name` answering `[]` on
-        # a graph that demonstrably has matching rows.
-        visibility_pushed_down = False
 
-        # Tenant scoping + owner/scope visibility on the MCP/orchestration read
-        # chokepoint (CONCEPT:AU-KG.query.skip-assimilated-papers + KG-2.60). Mandatory
-        # This isolates ``graph_query`` on a shared backend graph (the named-graph
-        # physical partition only applies in sharded/direct-engine paths).
-        try:
-            from agent_utilities.knowledge_graph.core.secured_reads import scope
+        scoped_query, commons_pushed_down, visibility_pushed_down = (
+            self._scoped_cypher_query(query, params, session, aggregate_query)
+        )
 
-            # D-W2T-2: `scope()` now returns (query, extra_params) — the tenant
-            # id is injected as a bound `$_tenant_scope_id` parameter, not a
-            # string-literal splice. Merge it into this call's own params dict
-            # (same convention as the `_clearance_level` system param above).
-            scoped_query, tenant_params = scope(query, session.actor)
-            params.update(tenant_params)
-            if aggregate_query:
-                # CONCEPT:AU-KG.compute.data-is-private-its — an aggregate has no row
-                # to post-filter by owner/scope (below), so that boundary is pushed
-                # INTO the query text instead: the aggregate is computed only over
-                # rows the actor's owner/scope would have kept anyway. This is a
-                # no-op (returns the query unchanged) for a privileged actor, exactly
-                # mirroring `secured_reads.visible`'s own privileged bypass.
-                #
-                # D-SH-4 (reports/deferred/lane-skill-harvest.md): `apply_visibility`
-                # defaults to writing its predicate against a hardcoded `n` variable.
-                # Detect THIS query's own primary bound variable (the same detector
-                # `scope()`/`scope_cypher_query` now uses) and pass it explicitly —
-                # a query aliased as e.g. `MATCH (w:WorkItem) RETURN count(w) AS c`
-                # otherwise gets a visibility predicate referencing a variable that
-                # doesn't exist, which Cypher treats as never matching (a silent
-                # zero-row/zero-count aggregate instead of the real answer). A fully
-                # anonymous first pattern has no variable to scope by; skip the
-                # injection rather than reference a fabricated name (mirrors
-                # `scope_cypher_query`'s own fail-open-to-unscoped decision for the
-                # same case).
-                from agent_utilities.knowledge_graph.core.cypher_scope_vars import (
-                    primary_bound_variable,
-                )
-                from agent_utilities.knowledge_graph.core.tenant_sharing import (
-                    apply_visibility,
-                )
-
-                agg_var = primary_bound_variable(query)
-                if agg_var is not None:
-                    # D-W2T-2: same (query, extra_params) contract as scope()
-                    # above — the visibility owner id is a bound
-                    # `$_visibility_owner_id` parameter now.
-                    scoped_query, vis_params = apply_visibility(
-                        scoped_query, session.actor, var=agg_var
-                    )
-                    params.update(vis_params)
-
-                    # GOC-61 phase 1 (2026-08-09 owner ruling, read/write
-                    # split): the commons catalog READ restriction, injected
-                    # the same way and for the same reason — this is the
-                    # ONLY place the restriction can reach an aggregate
-                    # projection (count(n), etc.), since it has no per-row
-                    # properties for filter_commons_catalog to post-filter.
-                    # A no-op unless this engine is bound to the commons
-                    # graph and the actor is unprivileged (see
-                    # apply_commons_catalog_restriction's own docstring).
-                    from agent_utilities.knowledge_graph.core.tenant_sharing import (
-                        apply_commons_catalog_restriction,
-                    )
-
-                    graph_name = getattr(
-                        getattr(self, "graph_compute", None), "graph_name", None
-                    )
-                    scoped_query, catalog_params = apply_commons_catalog_restriction(
-                        scoped_query, session.actor, graph_name, var=agg_var
-                    )
-                    params.update(catalog_params)
-            else:
-                # BUG-PE-040: the identical defect `read_union` was fixed for
-                # (`tenant_sharing.read_union` / BUG-PE-039, commit
-                # 7b8075b8d) exists at THIS chokepoint too. The non-aggregate
-                # row-read path below (`filter_commons_catalog`) fails CLOSED
-                # by design — a row with no `node_type` is dropped — but a
-                # *projecting* query (`RETURN t.id AS id`) returns rows with
-                # no `node_type` column even for a catalog-shareable node, so
-                # every commons row was silently dropped. Push the
-                # restriction into the query text instead, so a projecting
-                # query is narrowed at the source rather than relying on
-                # row-shape the executor may not preserve.
-                #
-                # Best-effort and MUST NOT fail open: any failure here (e.g.
-                # no bound node variable to scope by) just leaves
-                # `scoped_query` unchanged and `commons_pushed_down` False —
-                # the row-level classifier below stays fail-closed, exactly
-                # the pre-existing behaviour. Idempotent (a WHERE predicate
-                # ANDed twice is harmless), so this stacks harmlessly with
-                # any pushdown a caller already applied upstream (e.g.
-                # agent-webui's `_graph_union_executor`).
-                from agent_utilities.knowledge_graph.core.tenant_sharing import (
-                    apply_commons_catalog_restriction,
-                )
-
-                graph_name = getattr(
-                    getattr(self, "graph_compute", None), "graph_name", None
-                )
-                try:
-                    candidate_query, catalog_params = apply_commons_catalog_restriction(
-                        scoped_query, session.actor, graph_name
-                    )
-                except Exception as exc:  # noqa: BLE001 — pushdown is best-effort; the row-level fallback below is the safety net and must never fail open
-                    logger.debug(
-                        "query_cypher: commons catalog pushdown unavailable: %s",
-                        exc,
-                    )
-                else:
-                    if candidate_query != scoped_query:
-                        scoped_query = candidate_query
-                        params.update(catalog_params)
-                        commons_pushed_down = True
-
-                # fix/empty-projection: owner/scope visibility pushdown for
-                # the non-aggregate path — best-effort, same shape as the
-                # commons-catalog pushdown just above (and the aggregate
-                # branch's mandatory equivalent). MUST NOT fail open: any
-                # failure (no derivable bound variable, `UnscopableQueryError`,
-                # or any other error) leaves `scoped_query` unchanged and
-                # `visibility_pushed_down` False, and the post-hoc
-                # `visible()`/`filter_rows()` pass below (which never needed
-                # this flag to run correctly — only to decide what to do
-                # with an UNCLASSIFIABLE row) stays exactly the pre-existing
-                # fail-closed behavior.
-                from agent_utilities.knowledge_graph.core.tenant_sharing import (
-                    push_down_visibility,
-                )
-
-                scoped_query, vis_params, visibility_pushed_down = push_down_visibility(
-                    scoped_query, session.actor
-                )
-                params.update(vis_params)
-        except PermissionError as exc:
-            # A genuine, already-typed fail-closed scoping/authorization
-            # decision reached here — e.g. `cypher_scoping.UnscopableQueryError`
-            # (the query binds no node variable a tenant/visibility predicate
-            # can be written against) or `secured_reads.scope()`'s own
-            # verified-actor/infrastructure denial. Propagate the SAME
-            # exception: its specific type and message are the only thing
-            # that lets an operator tell "this query's shape can't be safely
-            # scoped" apart from "this actor lacks permission" apart from any
-            # other denial. Re-wrapping it into one generic "Graph query
-            # scoping failed" — the bug this replaces — made a pure
-            # query-shape problem (``MATCH ()-[r]->() RETURN count(r)``, which
-            # binds no node variable at all) indistinguishable from an actual
-            # authorization denial.
-            from agent_utilities.core.log_privacy import sanitize_log_text
-
-            logger.error(
-                "Graph query scoping denied: %s | query=%s",
-                sanitize_log_text(_describe_secured_read_failure(exc)),
-                sanitize_log_text(str(query))[:240],
-            )
-            raise
-        except Exception as exc:
-            # NOT an authorization decision: an `AttributeError`/`TypeError`/
-            # etc. raised INSIDE the scoping pipeline itself (e.g. a
-            # caller-supplied actor object missing an expected method) is a
-            # CODE DEFECT, not a permission denial. Failing closed is still
-            # correct here — `scoped_query`/`params` are never used past this
-            # point on this path, so a defect here can never fall through to
-            # executing an unscoped read — but labeling it `PermissionError`
-            # actively misdirects debugging toward the authorization layer.
-            # Reproduced: an actor object missing `ensure_credential_current`
-            # alone raised the exact same "Graph query scoping failed" a real
-            # denial would.
-            from agent_utilities.core.log_privacy import sanitize_log_text
-            from agent_utilities.knowledge_graph.core.cypher_scoping import (
-                QueryScopingError,
-            )
-
-            logger.error(
-                "Graph query scoping raised a non-authorization failure "
-                "before a scope could be established (code defect, not a "
-                "permission denial): %s | query=%s",
-                sanitize_log_text(_describe_secured_read_failure(exc)),
-                sanitize_log_text(str(query))[:240],
-            )
-            raise QueryScopingError(
-                "Graph query scoping failed due to an internal defect, not "
-                "an authorization denial"
-            ) from exc
-
-        # CONCEPT:AU-KG.backend.schedule-on-control-graph — control/content read
-        # isolation. A query containing only current control-plane labels must
-        # use the configured control authority. Missing control authority is a
-        # hard configuration error: reading the content graph would return a
-        # misleading empty result and silently split operational truth.
-        is_control_query = _is_control_plane_query(scoped_query)
-        if is_control_query:
-            read_backend = getattr(self, "control_backend", None)
-            if read_backend is None:
-                raise RuntimeError(
-                    "Control-plane query requires the configured WorkItem authority"
-                )
-        else:
-            read_backend = self.backend
-
+        read_backend = self._read_backend_for(scoped_query)
         if not read_backend:
             raise RuntimeError("The authoritative graph read service is unavailable")
         rows = read_backend.execute_read(scoped_query, params)
 
-        try:
-            from agent_utilities.knowledge_graph.core.secured_reads import (
-                audit_read,
-                filter_rows,
-                row_node_ids,
-                visible,
-            )
-
-            if aggregate_query:
-                # No per-row node id exists to ACL-check or audit by id (the rows
-                # ARE the aggregate result, e.g. a single {"c": 142} row) — the
-                # owner/scope boundary already ran query-side above, and the
-                # fine-grained per-node classification ACL (KG-2.46) has no row to
-                # apply to. This is a scoped, deliberate trade-off (aggregate reads
-                # are governed by tenant + owner/scope, not per-node classification
-                # ACL — consistent with this query shape already being denied a
-                # cross-graph fan-out elsewhere, CONCEPT:AU-KG.query.query-aggregation),
-                # not a silent bypass of tenant/owner-scope isolation. The read is
-                # still audited, with an empty node-id list (nothing governable to
-                # name).
-                audit_read(
-                    [],
-                    summary="native-cypher-read (aggregate)",
-                    actor=session.actor,
-                )
-            else:
-                # fix/empty-projection: `trust_pushdown=visibility_pushed_down`
-                # — set above only when `push_down_visibility` demonstrably
-                # narrowed `scoped_query` for this call (or the actor is
-                # privileged) — lets a row with NO governed id at all (e.g. a
-                # plain `RETURN n.name AS name` projection, which carries no
-                # `id` column full stop) survive here instead of raising for
-                # the WHOLE read, exactly mirroring `filter_commons_catalog`'s
-                # own `trust_pushdown` escape just below. A row that DOES
-                # carry a governed id is still classified against the
-                # fine-grained ACL exactly as before, regardless of this flag.
-                rows = visible(
-                    filter_rows(
-                        rows, session.actor, trust_pushdown=visibility_pushed_down
-                    ),
-                    session.actor,
-                )
-
-                # GOC-61 phase 1 (2026-08-09 owner ruling, read/write split):
-                # the commons catalog READ restriction, Python-side. Runs
-                # AFTER visible()/filter_rows() (owner/scope) — this is an
-                # ADDITIONAL restriction, not a replacement: owner/scope
-                # already hides another tenant's OWNED-private rows; this
-                # closes the remaining gap for UNOWNED/commons-scoped
-                # operational rows (WorkItem, RuntimeSignal, Concept, ...)
-                # that owner/scope alone treats as visible to everyone. A
-                # no-op unless this engine is bound to the commons graph and
-                # the actor is unprivileged.
-                #
-                # BUG-PE-040: `trust_pushdown=commons_pushed_down` — set
-                # above only when `apply_commons_catalog_restriction`
-                # demonstrably narrowed `scoped_query` for this call — lets
-                # an otherwise-unclassifiable projected row (no `node_type`
-                # column) survive here instead of being fail-closed dropped,
-                # exactly mirroring `read_union`'s row-level fallback
-                # (`tenant_sharing.filter_commons_catalog`, BUG-PE-039). A
-                # row that DOES carry a classifiable `node_type` is judged
-                # exactly as before regardless of this flag.
-                from agent_utilities.knowledge_graph.core.tenant_sharing import (
-                    filter_commons_catalog,
-                )
-
-                graph_name = getattr(
-                    getattr(self, "graph_compute", None), "graph_name", None
-                )
-                rows = filter_commons_catalog(
-                    rows, session.actor, graph_name, trust_pushdown=commons_pushed_down
-                )
-
-                # The engine also emits its protocol audit. This service-level
-                # record proves the guarded GraphSession/query boundary ran without
-                # persisting raw query text or parameters.
-                audit_read(
-                    row_node_ids(rows, trust_pushdown=visibility_pushed_down),
-                    summary="native-cypher-read",
-                    actor=session.actor,
-                )
-        except Exception as exc:
-            # Surface the TRUE failing step server-side before collapsing it to the
-            # generic caller-facing message — this exact boundary was a documented
-            # repeat instance of the swallowed-cause anti-pattern (a bare
-            # ``raise PermissionError(...) from exc`` with nothing logged first).
-            # The public PermissionError message is unchanged; only the log gains
-            # detail, and it is still sanitized (endpoints/paths/emails redacted)
-            # before it reaches any handler.
-            from agent_utilities.core.log_privacy import sanitize_log_text
-
-            # Include the (sanitized, truncated) QUERY too: the failing site is
-            # otherwise unidentifiable from the log alone — a bare "row without a
-            # governed node id" forced a full call-graph trace to find which
-            # caller's RETURN dropped the id. The query text names it immediately.
-            logger.error(
-                "Graph row-policy or audit enforcement failed: %s | query=%s",
-                sanitize_log_text(_describe_secured_read_failure(exc)),
-                sanitize_log_text(str(query))[:240],
-            )
-            raise PermissionError(
-                "Graph row-policy or audit enforcement failed"
-            ) from exc
+        rows = self._governed_cypher_rows(
+            rows,
+            session,
+            query,
+            aggregate_query=aggregate_query,
+            visibility_pushed_down=visibility_pushed_down,
+            commons_pushed_down=commons_pushed_down,
+        )
 
         if as_of:
             from agent_utilities.knowledge_graph.core.bitemporal import filter_as_of
@@ -741,193 +830,204 @@ class QueryMixin(_Base):
             "valid_to": loser.get("valid_to"),
         }
 
+    @staticmethod
+    def _hydrated_keyword_hit(
+        item: dict[str, Any],
+        hydrated: dict[str, Any],
+        clearance_level: int,
+    ) -> dict[str, Any] | None:
+        """Hydrate + RBAC/soft-delete-filter one engine ``discover`` hit."""
+        node_id = str(item["id"])
+        data = hydrated.get(node_id) or dict(item)
+        data["id"] = node_id
+        # ``discover`` server-side ranks each hit under "score"; hydration
+        # replaces ``data`` with the raw node-property dict, which drops it.
+        # Carry it forward as "_score" (the convention every other retrieval
+        # arm in ``HybridRetriever.retrieve_hybrid`` uses) so a caller that
+        # runs quality-gated retrieval over this keyword-only path (no
+        # embedder configured/reachable) doesn't read every hit as an
+        # un-scored 0.0 and always fail LOW_RELEVANCE_TOPK.
+        if "_score" not in data and "score" in item:
+            data["_score"] = item["score"]
+            # D-GS27-6/D-EMB-6: this is the engine-native `discover`
+            # keyword-overlap score, NOT a cosine similarity. Tagged so
+            # RetrievalQualityGate grades it against its own
+            # separately-calibrated _keyword_discover_threshold instead of
+            # the vector-calibrated default.
+            data.setdefault("_fallback", "keyword_discover")
+        req_class = data.get("requiresClassification", 0)
+        if isinstance(req_class, int) and req_class > clearance_level:
+            return None
+        if str(data.get("status", "")).upper() == "ARCHIVED":
+            return None
+        return data
+
+    def _search_keyword_engine_leg(
+        self, keywords: list[str], top_k: int, clearance_level: int
+    ) -> list[dict[str, Any]]:
+        """Engine-scalable keyword leg.
+
+        The engine's `discover` ranks keyword overlap (name/description/type)
+        server-side in ONE round-trip and returns the top-k, instead of the O(N)
+        full-node scan the `MATCH (n) WHERE … CONTAINS` path degrades to on the
+        engine (which does not evaluate the WHERE server-side and returns every
+        node). Per the dependency edict, keyword/vector ranking belongs on the
+        engine, never an O(N) Python loop. Hydrate the hits for RBAC +
+        soft-delete enforcement (discover returns only
+        id/name/description/type/score) in ONE round-trip — a per-hit read here
+        was O(N) serialized point-reads that dominated retrieval latency under
+        engine contention.
+        """
+        results: list[dict[str, Any]] = []
+        disc = getattr(self.graph, "discover", None)
+        if not callable(disc):
+            return results
+        try:
+            hits = [
+                item
+                for item in (disc(keywords, [], max(top_k * 4, top_k)) or [])
+                if isinstance(item, dict) and str(item.get("id", ""))
+            ]
+            hydrated = self.graph._get_node_properties_batch(
+                [str(item["id"]) for item in hits]
+            )
+            for item in hits:
+                data = self._hydrated_keyword_hit(item, hydrated, clearance_level)
+                if data is not None:
+                    results.append(data)
+        except Exception as e:  # noqa: BLE001 — one candidate source (engine-native discover) inside a multi-source keyword search; results simply doesn't get this source's contribution, and the function already falls through to the backend/GCE-scan fallbacks below
+            logger.debug(f"engine discover keyword search unavailable: {e}")
+        return results
+
+    @staticmethod
+    def _matched_backend_row(
+        row: Any, keywords: list[str], clearance_level: int
+    ) -> dict[str, Any] | None:
+        """Extract + keyword/RBAC/soft-delete-filter one backend result row."""
+        node = _extracted_backend_node(row)
+        if node is None:
+            return None
+        if not _keyword_matches_node(node, keywords):
+            return None
+        if not _passes_rbac_and_soft_delete(node, clearance_level):
+            return None
+        return node
+
+    def _search_keyword_backend_leg(
+        self, keywords: list[str], clearance_level: int
+    ) -> list[dict[str, Any]]:
+        """Fallback leg: a backend that evaluates a Cypher WHERE server-side
+        (pg-age / neo4j mirror). Only runs when the engine discover leg found
+        nothing.
+        """
+        results: list[dict[str, Any]] = []
+        if not self.backend:
+            return results
+        q = []
+        params = {}
+        for i, k in enumerate(keywords):
+            q.append(
+                f"(toLower(n.name) CONTAINS $k{i} OR toLower(n.description) CONTAINS $k{i} OR toLower(n.id) CONTAINS $k{i})"
+            )
+            params[f"k{i}"] = k
+        where_clause = " OR ".join(q)
+        if not where_clause:
+            return results
+        query_str = f"MATCH (n) WHERE ({where_clause}) AND coalesce(n.status, '') <> 'ARCHIVED' RETURN n"
+        try:
+            res = self.backend.execute(query_str, params)
+            for row in res:
+                node = self._matched_backend_row(row, keywords, clearance_level)
+                if node is not None:
+                    results.append(node)
+        except Exception as e:  # noqa: BLE001 — one candidate source (Cypher-evaluating backend) inside the same multi-source search; the function already falls through to the last-resort GCE scan below when results is still empty
+            logger.debug(f"Backend keyword search failed: {e}")
+        return results
+
+    def _search_keyword_gce_scan(
+        self, keywords: list[str], clearance_level: int
+    ) -> list[dict[str, Any]]:
+        """Last-resort O(N) GCE scan for name/ID matches — only when neither
+        the engine discover nor a Cypher-evaluating backend returned anything.
+        Every node's type must be inspected to match, so this can't skip
+        hydration — batch-hydrate the WHOLE id list in ONE round-trip
+        (CONCEPT:AU-KG.retrieval.batch-hydrate) rather than one
+        `_get_node_properties` point-read per node scanned.
+        """
+        results: list[dict[str, Any]] = []
+        all_node_ids = self.graph.node_ids()
+        hydrated_all = self.graph._get_node_properties_batch(all_node_ids)
+        for node_id in all_node_ids:
+            data = hydrated_all.get(str(node_id), {})
+            # RBAC Enforcement Fallback
+            req_class = data.get("requiresClassification", 0)
+            if isinstance(req_class, int) and req_class > clearance_level:
+                continue
+            # Soft-delete enforcement
+            if str(data.get("status", "")).upper() == "ARCHIVED":
+                continue
+            name = str(data.get("name", "")).lower()
+            desc = str(data.get("description", "")).lower()
+            nid = str(node_id).lower()
+            # Match if any keyword is in name, desc, or ID
+            if any(k in nid or k in name or k in desc for k in keywords):
+                result = dict(data)
+                result["id"] = node_id
+                results.append(result)
+        return results
+
+    @staticmethod
+    def _keyword_relevance(
+        item: dict[str, Any], keywords: list[str], query_lower: str
+    ) -> tuple[bool, bool, int, int]:
+        # Rank by graded relevance, not a coarse boolean. A bare "any keyword
+        # in name" predicate cannot distinguish "Agent A" from "Agent B" (both
+        # contain "agent"). Rank by: (1) whole-query substring match in name,
+        # then in id; (2) count of distinct keywords matched in name; then in
+        # id/description — so the closest-matching node wins deterministically.
+        name = str(item.get("name", "")).lower()
+        desc = str(item.get("description", "")).lower()
+        nid = str(item.get("id", "")).lower()
+        name_kw = sum(1 for k in keywords if k in name)
+        id_desc_kw = sum(1 for k in keywords if k in nid or k in desc)
+        return (
+            query_lower in name,
+            query_lower in nid,
+            name_kw,
+            id_desc_kw,
+        )
+
     def _search_keyword(
         self, query: str, top_k: int = 10, clearance_level: int = 999
     ) -> list[dict[str, Any]]:
         """Perform a multi-faceted search across code, agents, and memory using keywords."""
-        results = []
         query_lower = query.lower()
-
-        # Prepare keywords
         keywords = [k.strip() for k in query_lower.split() if len(k.strip()) > 1]
         if not keywords:
             keywords = [query_lower]
 
-        # 1. Engine-scalable keyword leg.
-        # The engine's `discover` ranks keyword overlap (name/description/type)
-        # server-side in ONE round-trip and returns the top-k, instead of the O(N)
-        # full-node scan the `MATCH (n) WHERE … CONTAINS` path below degrades to on the
-        # engine (which does not evaluate the WHERE server-side and returns every node).
-        # Per the dependency edict, keyword/vector ranking belongs on the engine, never
-        # an O(N) Python loop. Hydrate the hits for RBAC + soft-delete enforcement
-        # (discover returns only id/name/description/type/score) in ONE round-trip —
-        # a per-hit read here was O(N) serialized point-reads that dominated retrieval
-        # latency under engine contention (blew the delegation's time budget).
-        disc = getattr(self.graph, "discover", None)
-        if callable(disc):
-            try:
-                hits = [
-                    item
-                    for item in (disc(keywords, [], max(top_k * 4, top_k)) or [])
-                    if isinstance(item, dict) and str(item.get("id", ""))
-                ]
-                hydrated = self.graph._get_node_properties_batch(
-                    [str(item["id"]) for item in hits]
-                )
-                for item in hits:
-                    node_id = str(item["id"])
-                    data = hydrated.get(node_id) or dict(item)
-                    data["id"] = node_id
-                    # ``discover`` server-side ranks each hit under "score";
-                    # hydration replaces ``data`` with the raw node-property
-                    # dict, which drops it. Carry it forward as "_score" (the
-                    # convention every other retrieval arm in
-                    # ``HybridRetriever.retrieve_hybrid`` uses) so a caller that
-                    # runs quality-gated retrieval over this keyword-only path
-                    # (no embedder configured/reachable) doesn't read every hit
-                    # as an un-scored 0.0 and always fail LOW_RELEVANCE_TOPK.
-                    if "_score" not in data and "score" in item:
-                        data["_score"] = item["score"]
-                        # D-GS27-6/D-EMB-6: this is the engine-native `discover`
-                        # keyword-overlap score, NOT a cosine similarity — the
-                        # same category error _lexical_fallback's flat 0.2
-                        # sentinel had. Tagged so RetrievalQualityGate grades it
-                        # against its own separately-calibrated
-                        # _keyword_discover_threshold (retrieval_quality.py's
-                        # _result_threshold) instead of the vector-calibrated
-                        # default, which previously always failed it (e.g.
-                        # composite=0.02) regardless of actual keyword relevance.
-                        data.setdefault("_fallback", "keyword_discover")
-                    req_class = data.get("requiresClassification", 0)
-                    if isinstance(req_class, int) and req_class > clearance_level:
-                        continue
-                    if str(data.get("status", "")).upper() == "ARCHIVED":
-                        continue
-                    results.append(data)
-            except Exception as e:  # noqa: BLE001 — one candidate source (engine-native discover) inside a multi-source keyword search; results simply doesn't get this source's contribution, and the function already falls through to the backend/GCE-scan fallbacks below
-                logger.debug(f"engine discover keyword search unavailable: {e}")
-
-        # 2. Fallback — a backend that DOES evaluate a Cypher WHERE server-side
-        # (pg-age / neo4j mirror). Only when the engine discover path found nothing.
-        if not results and self.backend:
-            # Simple keyword search across all nodes in backend
-            q = []
-            params = {}
-            for i, k in enumerate(keywords):
-                q.append(
-                    f"(toLower(n.name) CONTAINS $k{i} OR toLower(n.description) CONTAINS $k{i} OR toLower(n.id) CONTAINS $k{i})"
-                )
-                params[f"k{i}"] = k
-
-            where_clause = " OR ".join(q)
-            if where_clause:
-                query_str = f"MATCH (n) WHERE ({where_clause}) AND coalesce(n.status, '') <> 'ARCHIVED' RETURN n"
-                try:
-                    res = self.backend.execute(query_str, params)
-                    for row in res:
-                        if not isinstance(row, dict):
-                            continue
-                        # Handle both the Cypher `RETURN n` wrapping ({"n": {...}})
-                        # and flat-dict backends (e.g. EpistemicGraphBackend).
-                        node = row.get("n", row)
-                        if not isinstance(node, dict) or not node:
-                            continue
-                        # Filter client-side: some backends (in-memory
-                        # EpistemicGraph) do not evaluate the WHERE clause and
-                        # return every node, so re-apply the keyword match here.
-                        name = str(node.get("name", "")).lower()
-                        desc = str(node.get("description", "")).lower()
-                        nid = str(node.get("id", "")).lower()
-                        if not any(
-                            k in nid or k in name or k in desc for k in keywords
-                        ):
-                            continue
-                        # Soft-delete enforcement (backend-agnostic): in-memory /
-                        # service backends may not evaluate the WHERE clause, so
-                        # re-apply the ARCHIVED exclusion here too (matches the
-                        # GCE fallback path and the Cypher intent).
-                        if str(node.get("status", "")).upper() == "ARCHIVED":
-                            continue
-                        req_class = node.get("requiresClassification", 0)
-                        if isinstance(req_class, int) and req_class > clearance_level:
-                            continue
-                        results.append(node)
-                except Exception as e:  # noqa: BLE001 — one candidate source (Cypher-evaluating backend) inside the same multi-source search; the function already falls through to the last-resort GCE scan below when results is still empty
-                    logger.debug(f"Backend keyword search failed: {e}")
-
-        # 3. Last-resort O(N) GCE scan for name/ID matches — only when neither the
-        # engine discover nor a Cypher-evaluating backend returned anything. Every
-        # node's type must be inspected to match, so this can't skip hydration —
-        # batch-hydrate the WHOLE id list in ONE round-trip (CONCEPT:AU-KG.retrieval.batch-hydrate)
-        # rather than one `_get_node_properties` point-read per node scanned.
+        results = self._search_keyword_engine_leg(keywords, top_k, clearance_level)
         if not results:
-            all_node_ids = self.graph.node_ids()
-            hydrated_all = self.graph._get_node_properties_batch(all_node_ids)
-            for node_id in all_node_ids:
-                data = hydrated_all.get(str(node_id), {})
-                # RBAC Enforcement Fallback
-                req_class = data.get("requiresClassification", 0)
-                if isinstance(req_class, int) and req_class > clearance_level:
-                    continue
-
-                # Soft-delete enforcement
-                if str(data.get("status", "")).upper() == "ARCHIVED":
-                    continue
-
-                name = str(data.get("name", "")).lower()
-                desc = str(data.get("description", "")).lower()
-                nid = str(node_id).lower()
-
-                # Match if any keyword is in name, desc, or ID
-                if any(k in nid or k in name or k in desc for k in keywords):
-                    result = dict(data)
-                    result["id"] = node_id
-                    results.append(result)
+            results = self._search_keyword_backend_leg(keywords, clearance_level)
+        if not results:
+            results = self._search_keyword_gce_scan(keywords, clearance_level)
 
         logger.debug(f"Search hybrid for '{query}' found {len(results)} nodes.")
 
         # D-ORC-8/Exit-C: every result this method returns is keyword-only —
-        # the engine-native ``discover`` leg above passes an EMPTY
-        # ``query_embedding`` (never blends a semantic signal), and the
-        # backend/GCE legs below are pure ``CONTAINS``/substring scans. The
-        # discover leg's carried-forward "_score" is
-        # ``matched_keywords / total_query_keywords`` (a raw overlap
-        # FRACTION diluted by every non-matching function word in the
-        # query — see epistemic-graph's ``keyword_overlap``), not a cosine
-        # similarity; it was never calibrated against — and routinely sits
-        # well below — ``RetrievalQualityGate``'s vector-tuned 0.6 default
-        # threshold, so callers that quality-gate this method's output
-        # (``HybridRetriever.retrieve_hybrid``'s "no semantic matches ->
-        # keyword" arm, hit on every query once the graph's embedding
-        # coverage is sparse) always failed LOW_RELEVANCE_TOPK regardless of
-        # real relevance — the identical defect class already fixed for
-        # ``HybridRetriever._lexical_fallback``'s flat 0.2 sentinel. Tag
-        # every result the same way so the gate grades it against the lower,
-        # keyword-appropriate ``_lexical_threshold`` instead.
+        # the engine-native ``discover`` leg passes an EMPTY ``query_embedding``
+        # (never blends a semantic signal), and the backend/GCE legs are pure
+        # ``CONTAINS``/substring scans. Tag every result so a quality gate
+        # grades it against the lower, keyword-appropriate threshold instead
+        # of the vector-tuned default (the same defect class already fixed for
+        # ``HybridRetriever._lexical_fallback``'s flat 0.2 sentinel).
         for _r in results:
             _r.setdefault("_fallback", "lexical")
 
-        # Sort by graded relevance, not a coarse boolean. A bare "any keyword in
-        # name" predicate cannot distinguish "Agent A" from "Agent B" (both
-        # contain "agent"), so the result order would fall back to the backend's
-        # arbitrary iteration order. Rank by: (1) whole-query substring match in
-        # name, then in id; (2) count of distinct keywords matched in name; then
-        # in id/description — so the closest-matching node wins deterministically.
-        def _relevance(x: dict[str, Any]) -> tuple:
-            name = str(x.get("name", "")).lower()
-            desc = str(x.get("description", "")).lower()
-            nid = str(x.get("id", "")).lower()
-            name_kw = sum(1 for k in keywords if k in name)
-            id_desc_kw = sum(1 for k in keywords if k in nid or k in desc)
-            return (
-                query_lower in name,
-                query_lower in nid,
-                name_kw,
-                id_desc_kw,
-            )
-
-        results.sort(key=_relevance, reverse=True)
-
+        results.sort(
+            key=lambda item: self._keyword_relevance(item, keywords, query_lower),
+            reverse=True,
+        )
         return results[:top_k]
 
     def search_hybrid(
@@ -969,56 +1069,20 @@ class QueryMixin(_Base):
         supplied — an infrastructure failure raises ``PermissionError`` rather
         than falling back to unfiltered results.
         """
-        # Lazy-ensure the retriever (CONCEPT:AU-KG.retrieval.memory-first-retrieval): the background-task host and
-        # some engine-construction paths can reach search before ``__init__`` wired
-        # ``hybrid_retriever``, which made deep_analysis / discover_innovations
-        # AttributeError. Build it on first use so the path is always live.
-        if getattr(self, "hybrid_retriever", None) is None:
-            from ..retrieval.hybrid_retriever import HybridRetriever
-
-            # ``self`` is the QueryMixin composed into the live IntelligenceGraphEngine
-            # at runtime; mypy sees only the mixin type.
-            self.hybrid_retriever = HybridRetriever(
-                self,  # type: ignore[arg-type]
-                schema_pack=getattr(self, "active_schema_pack", None),
-            )
-        results: list[dict[str, Any]]
-        if mode in ("hyde", "deep") or self_correct:
-            planned = self.hybrid_retriever.plan_and_retrieve(
-                query,
-                context_window=top_k * 2,
-                mode=mode if mode in ("hyde", "standard", "deep") else "hyde",
-                self_correct=self_correct,
-                corpus_id=corpus_id,
-                # GOC-83-W04: thread through so each sub-query's own
-                # retrieve_hybrid ACL-filters its raw pool before internal
-                # trim, same as the non-hyde/deep branch below. No-op when
-                # `session` is None.
-                session=session,
-            )
-            # ``plan_and_retrieve`` may return either the node list or a wrapper
-            # dict ({results|nodes: [...]}); normalize to the node list.
-            if isinstance(planned, list):
-                results = planned
-            else:
-                results = planned.get("results") or planned.get("nodes") or []
-        else:
-            results = self.hybrid_retriever.retrieve_hybrid(
-                query,
-                context_window=top_k * 2,
-                skip_quality_gate=skip_quality_gate,
-                relevance_threshold=relevance_threshold,
-                target_paths=target_paths,
-                corpus_id=corpus_id,
-                as_of=as_of,
-                # GOC-83-W04: thread the session down so `retrieve_hybrid`
-                # ACL-filters its OWN raw candidate pools before its internal
-                # sort/rerank/trim — closing the crowd-out channel that lives
-                # inside the retriever, not just at this method's own return
-                # (see `retrieve_hybrid`'s `session` docstring). No-op when
-                # `session` is None, matching every other caller exactly.
-                session=session,
-            )
+        self._ensure_hybrid_retriever()
+        request = _HybridSearchRequest(
+            query=query,
+            top_k=top_k,
+            skip_quality_gate=skip_quality_gate,
+            relevance_threshold=relevance_threshold,
+            target_paths=target_paths,
+            mode=mode,
+            self_correct=self_correct,
+            corpus_id=corpus_id,
+            as_of=as_of,
+            session=session,
+        )
+        results = self._raw_hybrid_results(request)
         # U-107/U-132 (CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval): ACL/owner/
         # scope enforcement runs on the RAW candidate set, before archive trimming,
         # the score gate, or any other ranking/fusion step. A denied high-score
@@ -1056,6 +1120,68 @@ class QueryMixin(_Base):
             if isinstance(r, dict) and r.get("score") is None and "_score" in r:
                 r["score"] = r["_score"]
         return results
+
+    def _ensure_hybrid_retriever(self) -> None:
+        # Lazy-ensure the retriever (CONCEPT:AU-KG.retrieval.memory-first-retrieval): the background-task host and
+        # some engine-construction paths can reach search before ``__init__`` wired
+        # ``hybrid_retriever``, which made deep_analysis / discover_innovations
+        # AttributeError. Build it on first use so the path is always live.
+        if getattr(self, "hybrid_retriever", None) is not None:
+            return
+        from ..retrieval.hybrid_retriever import HybridRetriever
+
+        # ``self`` is the QueryMixin composed into the live IntelligenceGraphEngine
+        # at runtime; mypy sees only the mixin type.
+        self.hybrid_retriever = HybridRetriever(
+            self,  # type: ignore[arg-type]
+            schema_pack=getattr(self, "active_schema_pack", None),
+        )
+
+    @staticmethod
+    def _normalized_planned_results(planned: Any) -> list[dict[str, Any]]:
+        # ``plan_and_retrieve`` may return either the node list or a wrapper
+        # dict ({results|nodes: [...]}); normalize to the node list.
+        if isinstance(planned, list):
+            return planned
+        return planned.get("results") or planned.get("nodes") or []
+
+    def _raw_hybrid_results(
+        self, request: _HybridSearchRequest
+    ) -> list[dict[str, Any]]:
+        if request.mode in ("hyde", "deep") or request.self_correct:
+            planned = self.hybrid_retriever.plan_and_retrieve(
+                request.query,
+                context_window=request.top_k * 2,
+                mode=(
+                    request.mode
+                    if request.mode in ("hyde", "standard", "deep")
+                    else "hyde"
+                ),
+                self_correct=request.self_correct,
+                corpus_id=request.corpus_id,
+                # GOC-83-W04: thread through so each sub-query's own
+                # retrieve_hybrid ACL-filters its raw pool before internal
+                # trim, same as the non-hyde/deep branch below. No-op when
+                # `session` is None.
+                session=request.session,
+            )
+            return self._normalized_planned_results(planned)
+        return self.hybrid_retriever.retrieve_hybrid(
+            request.query,
+            context_window=request.top_k * 2,
+            skip_quality_gate=request.skip_quality_gate,
+            relevance_threshold=request.relevance_threshold,
+            target_paths=request.target_paths,
+            corpus_id=request.corpus_id,
+            as_of=request.as_of,
+            # GOC-83-W04: thread the session down so `retrieve_hybrid`
+            # ACL-filters its OWN raw candidate pools before its internal
+            # sort/rerank/trim — closing the crowd-out channel that lives
+            # inside the retriever, not just at this method's own return
+            # (see `retrieve_hybrid`'s `session` docstring). No-op when
+            # `session` is None, matching every other caller exactly.
+            session=request.session,
+        )
 
     def _enforce_acl_on_results(
         self,
@@ -1176,6 +1302,29 @@ class QueryMixin(_Base):
                     self._node_event_epoch(r), now_epoch=now
                 )
 
+    @staticmethod
+    def _collect_embeddings(results: list[dict[str, Any]]) -> list[Any]:
+        embeddings: list[Any] = []
+        for r in results:
+            inner = r.get("node", r) if isinstance(r, dict) else {}
+            emb = (inner or {}).get("embedding") if isinstance(inner, dict) else None
+            if emb:
+                embeddings.append(emb)
+        return embeddings
+
+    def _annotate_temporal_sid(
+        self,
+        result: dict[str, Any],
+        encoder: TemporalSemanticIdEncoder,
+        now: float,
+    ) -> None:
+        inner = result.get("node", result)
+        emb = (inner or {}).get("embedding") if isinstance(inner, dict) else None
+        event = self._node_event_epoch(result)
+        result["_time_bucket"] = encoder.time_bucket(event, now_epoch=now)
+        if emb and encoder.is_fitted:
+            result["_temporal_sid"] = list(encoder.encode(emb, event, now_epoch=now))
+
     def temporal_semantic_ids(
         self, query: str, top_k: int = 10
     ) -> list[dict[str, Any]]:
@@ -1188,25 +1337,14 @@ class QueryMixin(_Base):
         import time as _time
 
         results = self.search_hybrid(query, top_k=top_k) or []
-        embeddings: list[Any] = []
-        for r in results:
-            inner = r.get("node", r) if isinstance(r, dict) else {}
-            emb = (inner or {}).get("embedding") if isinstance(inner, dict) else None
-            if emb:
-                embeddings.append(emb)
         encoder = TemporalSemanticIdEncoder()
+        embeddings = self._collect_embeddings(results)
         if embeddings:
             encoder.fit(embeddings)
         now = _time.time()
         for r in results:
-            if not isinstance(r, dict):
-                continue
-            inner = r.get("node", r)
-            emb = (inner or {}).get("embedding") if isinstance(inner, dict) else None
-            event = self._node_event_epoch(r)
-            r["_time_bucket"] = encoder.time_bucket(event, now_epoch=now)
-            if emb and encoder.is_fitted:
-                r["_temporal_sid"] = list(encoder.encode(emb, event, now_epoch=now))
+            if isinstance(r, dict):
+                self._annotate_temporal_sid(r, encoder, now)
         return results
 
     # ------------------------------------------------------------------
@@ -1341,19 +1479,9 @@ class QueryMixin(_Base):
         if not seeds:
             return []
 
-        # Track all discovered nodes to avoid duplicates
-        seen: set[str] = set()
-        results: list[dict[str, Any]] = []
-
-        # Add seeds as hop-0 results
-        for seed in seeds:
-            sid = str(seed.get("id", ""))
-            if not sid or sid in seen:
-                continue
-            seen.add(sid)
-            seed["hop_depth"] = 0
-            seed["evidence_path"] = [(sid, "seed")]
-            results.append(seed)
+        # Track all discovered nodes to avoid duplicates; add seeds as hop-0
+        # results.
+        results, seen = self._seed_dci_results(seeds)
 
         # Graph traversal — expand outward from seeds.
         frontier = [
@@ -1363,68 +1491,18 @@ class QueryMixin(_Base):
         ]
 
         for hop in range(1, max_hops + 1):
-            next_frontier: list[tuple[str, list]] = []
-
-            # Collect this hop's neighbor expansion in ONE pass (preserving the
-            # existing `seen`-dedup order across every frontier node), THEN
-            # hydrate every discovered neighbor in a SINGLE batched engine
-            # round-trip (CONCEPT:AU-KG.retrieval.batch-hydrate) rather than one
-            # `_get_node_properties` point-read per neighbor — the old per-neighbor
-            # call serialized O(N) engine reads per hop and dominated this
-            # multi-hop retrieval leg's latency under engine contention.
-            pending: list[tuple[str, list]] = []
-            for node_id, path in frontier:
-                if not self.graph.has_node(node_id):
-                    continue
-
-                # Expand neighbors (both directions)
-                neighbors = list(self.graph.get_successors(node_id)) + list(
-                    self.graph.get_predecessors(node_id)
-                )
-
-                for neighbor_id in neighbors:
-                    if neighbor_id in seen:
-                        continue
-                    seen.add(neighbor_id)
-                    pending.append((neighbor_id, path))
-
-            hydrated = self.graph._get_node_properties_batch(
-                [neighbor_id for neighbor_id, _path in pending]
+            hop_nodes = self._expand_dci_hop(
+                frontier,
+                seen,
+                hop,
+                evidence_chain=evidence_chain,
+                resolved_session=resolved_session,
             )
-            hop_nodes: list[dict[str, Any]] = []
-            for neighbor_id, path in pending:
-                # Get node data
-                node_data = dict(hydrated.get(neighbor_id, {}))
-                node_data["id"] = neighbor_id
-                node_data["hop_depth"] = hop
-
-                if evidence_chain:
-                    node_data["evidence_path"] = path + [(neighbor_id, "RELATED")]
-
-                # Score decay: further hops get lower scores
-                base_score = float(node_data.get("importance_score", 0.5))
-                node_data["_score"] = round(base_score * (0.8**hop), 4)
-
-                hop_nodes.append(node_data)
-
-            # ACL/owner/scope-filter THIS hop's newly-discovered neighbors
-            # before they can enter ``results`` (top_k slots) or seed the
-            # NEXT hop's frontier — a denied node must not consume a result
-            # slot, and its neighbors must never be reachable through it (the
-            # evidence-chain leak this closes). Same boundary
-            # ``search_hybrid`` applies to its own candidate pool; raises
-            # ``PermissionError`` on an enforcement infrastructure failure
-            # rather than falling back to the unfiltered ``hop_nodes``.
-            hop_nodes = self._enforce_acl_on_results(
-                hop_nodes, session=resolved_session, summary="dci-traversal"
-            )
-
-            for node_data in hop_nodes:
-                neighbor_id = str(node_data.get("id", ""))
-                results.append(node_data)
-                next_frontier.append((neighbor_id, node_data.get("evidence_path", [])))
-
-            frontier = next_frontier
+            results.extend(hop_nodes)
+            frontier = [
+                (str(node_data.get("id", "")), node_data.get("evidence_path", []))
+                for node_data in hop_nodes
+            ]
             if not frontier:
                 break
 
@@ -1432,6 +1510,99 @@ class QueryMixin(_Base):
         results.sort(key=lambda x: (-x.get("_score", 0), x.get("hop_depth", 99)))
 
         return results[:top_k]
+
+    @staticmethod
+    def _seed_dci_results(
+        seeds: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], set[str]]:
+        """Add DCI seeds as hop-0 results; returns ``(results, seen ids)``."""
+        seen: set[str] = set()
+        results: list[dict[str, Any]] = []
+        for seed in seeds:
+            sid = str(seed.get("id", ""))
+            if not sid or sid in seen:
+                continue
+            seen.add(sid)
+            seed["hop_depth"] = 0
+            seed["evidence_path"] = [(sid, "seed")]
+            results.append(seed)
+        return results, seen
+
+    def _collect_hop_pending(
+        self, frontier: list[tuple[str, list]], seen: set[str]
+    ) -> list[tuple[str, list]]:
+        """Collect one hop's newly-discovered neighbor (id, path) pairs,
+        deduped against ``seen`` (mutated in place), in ONE pass across the
+        frontier — preserving the existing dedup order across every frontier
+        node.
+        """
+        pending: list[tuple[str, list]] = []
+        for node_id, path in frontier:
+            if not self.graph.has_node(node_id):
+                continue
+            # Expand neighbors (both directions)
+            neighbors = list(self.graph.get_successors(node_id)) + list(
+                self.graph.get_predecessors(node_id)
+            )
+            for neighbor_id in neighbors:
+                if neighbor_id in seen:
+                    continue
+                seen.add(neighbor_id)
+                pending.append((neighbor_id, path))
+        return pending
+
+    def _hydrated_hop_nodes(
+        self, pending: list[tuple[str, list]], hop: int, evidence_chain: bool
+    ) -> list[dict[str, Any]]:
+        """Batch-hydrate one hop's pending neighbors into scored node dicts,
+        in a SINGLE batched engine round-trip
+        (CONCEPT:AU-KG.retrieval.batch-hydrate) rather than one
+        ``_get_node_properties`` point-read per neighbor — the old
+        per-neighbor call serialized O(N) engine reads per hop and dominated
+        this multi-hop retrieval leg's latency under engine contention.
+        """
+        hydrated = self.graph._get_node_properties_batch(
+            [neighbor_id for neighbor_id, _path in pending]
+        )
+        hop_nodes: list[dict[str, Any]] = []
+        for neighbor_id, path in pending:
+            node_data = dict(hydrated.get(neighbor_id, {}))
+            node_data["id"] = neighbor_id
+            node_data["hop_depth"] = hop
+            if evidence_chain:
+                node_data["evidence_path"] = path + [(neighbor_id, "RELATED")]
+            # Score decay: further hops get lower scores
+            base_score = float(node_data.get("importance_score", 0.5))
+            node_data["_score"] = round(base_score * (0.8**hop), 4)
+            hop_nodes.append(node_data)
+        return hop_nodes
+
+    def _expand_dci_hop(
+        self,
+        frontier: list[tuple[str, list]],
+        seen: set[str],
+        hop: int,
+        *,
+        evidence_chain: bool,
+        resolved_session: GraphSession,
+    ) -> list[dict[str, Any]]:
+        """One DCI traversal hop: collect + hydrate + ACL-filter newly-
+        discovered neighbors.
+
+        ACL/owner/scope-filter THIS hop's newly-discovered neighbors before
+        they can enter ``results`` (top_k slots) or seed the NEXT hop's
+        frontier — a denied node must not consume a result slot, and its
+        neighbors must never be reachable through it (the evidence-chain leak
+        this closes). Same boundary ``search_hybrid`` applies to its own
+        candidate pool; raises ``PermissionError`` on an enforcement
+        infrastructure failure rather than falling back to the unfiltered
+        ``hop_nodes``.
+        """
+        pending = self._collect_hop_pending(frontier, seen)
+        hop_nodes = self._hydrated_hop_nodes(pending, hop, evidence_chain)
+        return self._enforce_acl_on_results(
+            hop_nodes, session=resolved_session, summary="dci-traversal"
+        )
 
     def search_memories(
         self, query: str, top_k: int = 5, skip_quality_gate: bool = False
@@ -1523,6 +1694,66 @@ class QueryMixin(_Base):
         """Run standard inference rules over the graph to derive new facts."""
         return self.inference_engine.run_inference()
 
+    # Resource types that constitute "callable" capabilities.
+    _CALLABLE_RESOURCE_TYPES = frozenset(
+        {
+            "callable_resource",
+            "tool",
+            "skill",
+            "agent",
+            "mcp_tool",
+            "a2a_agent",
+            "internal_skill",
+            "agent_skill",
+        }
+    )
+
+    @classmethod
+    def _is_callable_candidate(cls, c: dict[str, Any]) -> bool:
+        c_type = str(c.get("type", "")).lower()
+        c_resource_type = str(c.get("resource_type", "")).lower()
+        return (
+            c_type in cls._CALLABLE_RESOURCE_TYPES
+            or c_resource_type in cls._CALLABLE_RESOURCE_TYPES
+        )
+
+    @staticmethod
+    def _parsed_capabilities(caps_raw: Any) -> Any:
+        # Robust parsing for list or string representation.
+        if not isinstance(caps_raw, str):
+            return caps_raw
+        import ast
+
+        try:
+            return ast.literal_eval(caps_raw)
+        except Exception:
+            return [caps_raw]
+
+    def _resource_capabilities(self, c: dict[str, Any]) -> Any | None:
+        """Fetch one candidate's linked ``HAS_METADATA.capabilities``, or
+        ``None`` if it has no such metadata."""
+        res = self.query_cypher(
+            "MATCH (r {id: $id})-[:HAS_METADATA]->(m) RETURN m.capabilities as caps",
+            {"id": c["id"]},
+        )
+        if not res or not res[0].get("caps"):
+            return None
+        return self._parsed_capabilities(res[0]["caps"])
+
+    def _matches_required_caps(
+        self, c: dict[str, Any], required_caps: list[str]
+    ) -> bool:
+        if not (self.backend and required_caps):
+            return True
+        caps = self._resource_capabilities(c)
+        if caps is None:
+            # Fallback if no metadata. NOTE: unreachable in practice —
+            # `required_caps` is guaranteed truthy here by the guard above,
+            # so this always evaluates False. Reported, not fixed (a
+            # behavior change, not a refactor) — see CX-WD5-AU-13 report.
+            return not required_caps
+        return all(cap in caps for cap in required_caps)
+
     def find_relevant_callable_resources(
         self, task_description: str, required_caps: list[str] | None = None
     ) -> list[dict[str, Any]]:
@@ -1534,57 +1765,14 @@ class QueryMixin(_Base):
         """
         if required_caps is None:
             required_caps = []
-        # Hybrid search: semantic similarity + capability filtering
-        # Search across all node types, not just callable_resource
+        # Hybrid search: semantic similarity + capability filtering.
+        # Search across all node types, not just callable_resource.
         candidates = self.search_hybrid(task_description, top_k=30)
         filtered = []
-
-        # Resource types that constitute "callable" capabilities
-        _callable_types = {
-            "callable_resource",
-            "tool",
-            "skill",
-            "agent",
-            "mcp_tool",
-            "a2a_agent",
-            "internal_skill",
-            "agent_skill",
-        }
-
         for c in candidates:
-            c_type = str(c.get("type", "")).lower()
-            c_resource_type = str(c.get("resource_type", "")).lower()
-
-            # Match callable resources AND their component types
-            if c_type not in _callable_types and c_resource_type not in _callable_types:
+            if not self._is_callable_candidate(c):
                 continue
-
-            # Check caps in linked metadata if backend available
-            if self.backend and required_caps:
-                res = self.query_cypher(
-                    "MATCH (r {id: $id})-[:HAS_METADATA]->(m) RETURN m.capabilities as caps",
-                    {"id": c["id"]},
-                )
-                if res and res[0].get("caps"):
-                    caps_raw = res[0]["caps"]
-                    # Robust parsing for list or string representation
-                    if isinstance(caps_raw, str):
-                        import ast
-
-                        try:
-                            caps = ast.literal_eval(caps_raw)
-                        except Exception:
-                            caps = [caps_raw]
-                    else:
-                        caps = caps_raw
-
-                    if all(cap in caps for cap in required_caps):
-                        filtered.append(c)
-                else:
-                    # Fallback if no metadata
-                    if not required_caps:
-                        filtered.append(c)
-            else:
+            if self._matches_required_caps(c, required_caps):
                 filtered.append(c)
         return filtered
 
@@ -1628,59 +1816,59 @@ class QueryMixin(_Base):
             ]
 
         for r in results:
-            rid = r.get("id", "")
-            if rid in seen_ids:
+            if not self._is_capability_result(r, seen_ids, resource_types):
                 continue
-
-            if str(r.get("status", "")).upper() == "ARCHIVED":
-                continue
-
-            r_type = str(r.get("type", "")).lower()
-            r_resource = str(r.get("resource_type", "")).lower()
-
-            # Filter to capability-bearing node types
-            _cap_types = {
-                "callable_resource",
-                "tool",
-                "skill",
-                "agent",
-                "tool_metadata",
-                "spawned_agent",
-            }
-            if r_type not in _cap_types and r_resource not in _cap_types:
-                continue
-
-            # Apply resource_type filter
-            if resource_types:
-                if r_resource not in [rt.lower() for rt in resource_types]:
-                    continue
-
-            seen_ids.add(rid)
-
-            # Build unified fn namespace (AgentOS pattern)
-            namespace = r_resource or r_type
-            action = r.get("name", rid).replace(" ", "_").lower()
-            fn_namespace = f"fn {namespace}::{action}"
-
-            capabilities.append(
-                {
-                    "id": rid,
-                    "fn_namespace": fn_namespace,
-                    "name": r.get("name", rid),
-                    "description": r.get("description", ""),
-                    "resource_type": r_resource or r_type,
-                    "input_schema": r.get("input_schema", {}),
-                    "output_schema": r.get("output_schema", {}),
-                    "trigger_bindings": r.get("trigger_bindings", []),
-                    "endpoint": r.get("endpoint"),
-                    "_score": r.get("_score", 0.0),
-                }
-            )
-
+            seen_ids.add(r.get("id", ""))
+            capabilities.append(self._capability_entry(r))
             if len(capabilities) >= top_k:
                 break
 
         return capabilities
+
+    @staticmethod
+    def _is_capability_result(
+        r: dict[str, Any],
+        seen_ids: set[str],
+        resource_types: list[str] | None,
+    ) -> bool:
+        """Filter one ``discover_all_capabilities`` candidate: not seen, not
+        archived, a capability-bearing node type, matching ``resource_types``
+        when given.
+        """
+        rid = r.get("id", "")
+        if rid in seen_ids:
+            return False
+        if str(r.get("status", "")).upper() == "ARCHIVED":
+            return False
+        r_type = str(r.get("type", "")).lower()
+        r_resource = str(r.get("resource_type", "")).lower()
+        if r_type not in _CAPABILITY_TYPES and r_resource not in _CAPABILITY_TYPES:
+            return False
+        if resource_types and r_resource not in [rt.lower() for rt in resource_types]:
+            return False
+        return True
+
+    @staticmethod
+    def _capability_entry(r: dict[str, Any]) -> dict[str, Any]:
+        """Build one unified fn-namespace capability entry (AgentOS pattern)."""
+        rid = r.get("id", "")
+        r_type = str(r.get("type", "")).lower()
+        r_resource = str(r.get("resource_type", "")).lower()
+        namespace = r_resource or r_type
+        action = r.get("name", rid).replace(" ", "_").lower()
+        fn_namespace = f"fn {namespace}::{action}"
+        return {
+            "id": rid,
+            "fn_namespace": fn_namespace,
+            "name": r.get("name", rid),
+            "description": r.get("description", ""),
+            "resource_type": r_resource or r_type,
+            "input_schema": r.get("input_schema", {}),
+            "output_schema": r.get("output_schema", {}),
+            "trigger_bindings": r.get("trigger_bindings", []),
+            "endpoint": r.get("endpoint"),
+            "_score": r.get("_score", 0.0),
+        }
 
     def list_callable_resources(self) -> list[dict[str, Any]]:
         """List all callable resources (MCP tools, A2A agents, skills)."""
