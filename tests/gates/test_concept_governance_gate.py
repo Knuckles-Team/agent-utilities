@@ -28,8 +28,6 @@ from scripts.check_concept_governance import (  # noqa: E402
     all_registered_concepts,
     audit_merged,
     has_design_doc,
-    read_baseline,
-    write_baseline,
 )
 
 
@@ -78,7 +76,7 @@ def test_all_registered_concepts_skips_vcs_and_cache_dirs(tmp_path):
     assert all_registered_concepts(tmp_path) == ["AU-KG.demo.real"]
 
 
-def test_audit_merged_sees_debt_the_diff_based_gate_cannot(tmp_path):
+def test_audit_merged_sees_debt_regardless_of_merge_status(tmp_path):
     """The core regression this whole lane exists to fix.
 
     Simulate the exact D-RG2-2/D-RG2-3 scenario: a concept with no design doc
@@ -86,13 +84,19 @@ def test_audit_merged_sees_debt_the_diff_based_gate_cannot(tmp_path):
     the tree). The old diff-based ``new_concepts(base)`` path has nothing to
     compare against once it's merged and would silently report "no new
     concepts". ``--audit-merged`` has no such blind spot: it scans the live
-    tree directly, so it fails on the undocumented, unbaselined concept
-    regardless of merge history.
+    tree directly, so the undocumented, merged concept is visible in its
+    output regardless of merge history.
+
+    D-WD5-RAT-03 note (inverted from the pre-retirement version of this
+    test): this concept being undocumented no longer makes the GATE ITSELF
+    fail (see the module docstring, "Merged-but-undocumented mode" — the
+    backlog is now an unconditional census, not a ratchet). What must be
+    proven instead is that the debt is genuinely SEEN — reported by name in
+    the output — which is the entire property this mode exists to provide.
     """
     scan_root = tmp_path / "repo"
     design_dir = tmp_path / "design"
     design_dir.mkdir()
-    baseline = tmp_path / "baseline.txt"
 
     _write_markers(
         scan_root,
@@ -103,130 +107,68 @@ def test_audit_merged_sees_debt_the_diff_based_gate_cannot(tmp_path):
         "CONCEPT:" + "AU-KG.demo.already-documented", encoding="utf-8"
     )
 
-    # No baseline yet -> the undocumented, merged concept is visible and fails.
-    rc = audit_merged(
-        update=False,
-        scan_root=scan_root,
-        design_dir=design_dir,
-        baseline_path=baseline,
-    )
-    assert rc == 1
+    rc = audit_merged(scan_root=scan_root, design_dir=design_dir)
+    assert rc == 0, "undocumented backlog alone must not fail the gate"
 
 
-def test_audit_merged_does_not_relitigate_baselined_debt(tmp_path):
-    """A baselined (already-known/accepted) gap does not fail the gate — only
-    NEW gaps do. This is what makes the ratchet adoptable without instantly
-    redlining every pre-existing undocumented concept in the repo."""
-    scan_root = tmp_path / "repo"
-    design_dir = tmp_path / "design"
-    design_dir.mkdir()
-    baseline = tmp_path / "baseline.txt"
-
-    _write_markers(
-        scan_root, path="agent_utilities/x.py", ids=["AU-KG.demo.known-debt"]
-    )
-    write_baseline({"AU-KG.demo.known-debt"}, baseline)
-
-    rc = audit_merged(
-        update=False,
-        scan_root=scan_root,
-        design_dir=design_dir,
-        baseline_path=baseline,
-    )
-    assert rc == 0
-
-
-def test_audit_merged_distinguishes_retired_from_resolved_baseline_entries(
+def test_audit_merged_reports_every_undocumented_concept_unconditionally(
     tmp_path, capsys
 ):
-    """A baselined id that was RETIRED (marker deleted entirely) must be
-    reported only as stale/no-longer-exists, never ALSO as "now documented" —
-    those are different, mutually exclusive outcomes. Regression: `resolved`
-    was computed as `baseline - undocumented`, which a retired id also
-    satisfies (it's vacuously "not undocumented" because it doesn't exist),
-    so a removed marker double-reported under both sections."""
+    """Census, not ratchet: EVERY undocumented concept is printed by name on
+    every run, whether it is old debt or landed in this exact tree state —
+    there is no baseline to hide behind and no distinction in the output
+    between "old" and "new" gaps. This is what makes the backlog impossible
+    to silently freeze again."""
     scan_root = tmp_path / "repo"
     design_dir = tmp_path / "design"
     design_dir.mkdir()
-    baseline = tmp_path / "baseline.txt"
-
-    # Baseline remembers two ids; only "still-here" is still a live marker —
-    # "retired" has been removed from the tree entirely (no file references it).
-    write_baseline({"AU-KG.demo.still-here", "AU-KG.demo.retired"}, baseline)
-    _write_markers(
-        scan_root, path="agent_utilities/x.py", ids=["AU-KG.demo.still-here"]
-    )
-    (design_dir / "feature.md").write_text(
-        "CONCEPT:" + "AU-KG.demo.still-here", encoding="utf-8"
-    )
-
-    rc = audit_merged(
-        update=False, scan_root=scan_root, design_dir=design_dir, baseline_path=baseline
-    )
-    assert rc == 0
-    out = capsys.readouterr().out
-    assert "AU-KG.demo.still-here" in out  # resolved: still exists, now documented
-    assert (
-        "AU-KG.demo.retired" not in out.split("no longer exist")[0]
-    )  # never "resolved"
-    assert "AU-KG.demo.retired" in out  # reported once, under stale only
-
-
-def test_audit_merged_still_fails_on_a_NEW_gap_alongside_baselined_debt(tmp_path):
-    """The precise regression-recurrence case: one concept is already-accepted
-    debt (baselined), a SECOND concept lands merged with no doc. The second one
-    must fail even though the first is silently tolerated -- proving the
-    ratchet can never be satisfied by baselining a violation away instead of
-    fixing/retiring it, and that new debt cannot hide behind old debt."""
-    scan_root = tmp_path / "repo"
-    design_dir = tmp_path / "design"
-    design_dir.mkdir()
-    baseline = tmp_path / "baseline.txt"
 
     _write_markers(
         scan_root,
         path="agent_utilities/x.py",
         ids=["AU-KG.demo.known-debt", "AU-KG.demo.newly-merged-gap"],
     )
-    write_baseline({"AU-KG.demo.known-debt"}, baseline)
+
+    rc = audit_merged(scan_root=scan_root, design_dir=design_dir)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "AU-KG.demo.known-debt" in out
+    assert "AU-KG.demo.newly-merged-gap" in out
+    assert "2 without a design doc" in out
+
+
+def test_audit_merged_still_fails_on_a_broken_parent_link(tmp_path):
+    """The one thing an undocumented-debt census must NOT excuse: a parent
+    link pointing at nothing. This was already an unconditional failure
+    before the baseline was retired and must stay one — it is a false claim
+    of coverage, never ordinary backlog."""
+    scan_root = tmp_path / "repo"
+    design_dir = tmp_path / "design"
+    design_dir.mkdir()
+    lineage_path = tmp_path / "lineage.yaml"
+    lineage_path.write_text(
+        "parents:\n"
+        "  AU-KG.demo.a-marker:\n"
+        "    parent: AU-KG.demo.ghost-parent\n"
+        "    rationale: " + _GOOD_RATIONALE + "\n"
+        "retired: {}\n",
+        encoding="utf-8",
+    )
+    _write_markers(scan_root, path="agent_utilities/x.py", ids=["AU-KG.demo.a-marker"])
 
     rc = audit_merged(
-        update=False,
-        scan_root=scan_root,
-        design_dir=design_dir,
-        baseline_path=baseline,
+        scan_root=scan_root, design_dir=design_dir, lineage_path=str(lineage_path)
     )
     assert rc == 1
 
 
-def test_update_baseline_freezes_the_current_undocumented_set(tmp_path):
-    scan_root = tmp_path / "repo"
-    design_dir = tmp_path / "design"
-    design_dir.mkdir()
-    baseline = tmp_path / "baseline.txt"
-    _write_markers(
-        scan_root, path="agent_utilities/x.py", ids=["AU-KG.demo.a", "AU-KG.demo.b"]
-    )
-
-    rc = audit_merged(
-        update=True, scan_root=scan_root, design_dir=design_dir, baseline_path=baseline
-    )
-    assert rc == 0
-    assert read_baseline(baseline) == {"AU-KG.demo.a", "AU-KG.demo.b"}
-
-    # A subsequent plain run is now green against that frozen baseline.
-    rc = audit_merged(
-        update=False, scan_root=scan_root, design_dir=design_dir, baseline_path=baseline
-    )
-    assert rc == 0
-
-
 def test_cli_audit_merged_flag_is_wired():
     """Wiring proof: the CLI flag actually reaches the base-less code path,
-    not just the importable function. Runs against the REAL repo tree/
-    baseline here (no override flags on the CLI), so we only assert it
-    executed the audit-merged code path (distinct banner text), not a
-    specific pass/fail outcome."""
+    not just the importable function. Runs against the REAL repo tree here
+    (no override flags on the CLI), so we only assert it executed the
+    audit-merged code path (distinct banner text), not a specific pass/fail
+    outcome — the real repo currently carries real undocumented debt, which
+    must be visible, not fatal."""
     result = subprocess.run(
         [sys.executable, str(SCRIPT), "--audit-merged"],
         cwd=ROOT,
@@ -236,15 +178,20 @@ def test_cli_audit_merged_flag_is_wired():
     assert "Merged-concept audit:" in result.stdout, result.stdout
 
 
-def test_update_baseline_without_audit_merged_is_rejected():
-    result = subprocess.run(
-        [sys.executable, str(SCRIPT), "--update-baseline"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 2
-    assert "only applies with --audit-merged" in result.stderr
+def test_update_baseline_flag_is_retired(tmp_path):
+    """The retired flag must REFUSE, not silently do nothing or write a file
+    — the same convention every other de-ratcheted gate in this program
+    adopted (see check_swallowed_errors.py, check_surface_parity.py)."""
+    for extra_args in ([], ["--audit-merged"]):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), "--update-baseline", *extra_args],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 2, result.stdout + result.stderr
+        assert "RETIRED" in result.stderr
+    assert not (ROOT / "scripts" / "concept_design_doc_baseline.txt").exists()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -412,12 +359,14 @@ def test_reintroducing_a_retired_id_is_detected():
     assert reintroduced_retirements(frozenset({"AU-KG.demo.other"}), lineage) == []
 
 
-def test_audit_merged_counts_a_parent_linked_concept_as_documented(tmp_path):
-    """End-to-end through the gate itself, not just the resolver: a marker with
-    no doc of its own and no baseline entry FAILS, and passes once — and only
-    once — a parent link to a documented decision is declared."""
+def test_audit_merged_counts_a_parent_linked_concept_as_documented(tmp_path, capsys):
+    """End-to-end through the gate itself, not just the resolver: without a
+    parent link the marker shows up in the undocumented census; once — and
+    only once — a parent link to a documented decision is declared, it drops
+    out of that census. D-WD5-RAT-03: neither case fails the GATE any more
+    (undocumented backlog is informational, see the module docstring), so the
+    proof is in the reported census content, not the exit code."""
     scan_root = tmp_path / "repo"
-    baseline = tmp_path / "baseline.txt"
     design_dir = _design(tmp_path, decision=["AU-KG.demo.the-decision"])
     _write_markers(
         scan_root,
@@ -440,26 +389,17 @@ def test_audit_merged_counts_a_parent_linked_concept_as_documented(tmp_path):
         encoding="utf-8",
     )
 
-    assert (
-        audit_merged(
-            update=False,
-            scan_root=scan_root,
-            design_dir=design_dir,
-            baseline_path=baseline,
-            lineage_path=str(empty),
-        )
-        == 1
+    rc = audit_merged(
+        scan_root=scan_root, design_dir=design_dir, lineage_path=str(empty)
     )
-    assert (
-        audit_merged(
-            update=False,
-            scan_root=scan_root,
-            design_dir=design_dir,
-            baseline_path=baseline,
-            lineage_path=str(linked),
-        )
-        == 0
+    assert rc == 0
+    assert "AU-KG.demo.a-marker" in capsys.readouterr().out
+
+    rc = audit_merged(
+        scan_root=scan_root, design_dir=design_dir, lineage_path=str(linked)
     )
+    assert rc == 0
+    assert "AU-KG.demo.a-marker" not in capsys.readouterr().out
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -575,7 +515,6 @@ def test_audit_merged_fails_when_a_renamed_old_id_has_a_live_marker_again(tmp_pa
     scan_root = tmp_path / "repo"
     design_dir = tmp_path / "design"
     design_dir.mkdir()
-    baseline = tmp_path / "baseline.txt"
     lineage_path = tmp_path / "lineage.yaml"
     lineage_path.write_text(
         "parents: {}\nretired: {}\n"
@@ -589,10 +528,6 @@ def test_audit_merged_fails_when_a_renamed_old_id_has_a_live_marker_again(tmp_pa
     _write_markers(scan_root, path="agent_utilities/x.py", ids=["AU-KG.demo.old-name"])
 
     rc = audit_merged(
-        update=False,
-        scan_root=scan_root,
-        design_dir=design_dir,
-        baseline_path=baseline,
-        lineage_path=str(lineage_path),
+        scan_root=scan_root, design_dir=design_dir, lineage_path=str(lineage_path)
     )
     assert rc == 1
