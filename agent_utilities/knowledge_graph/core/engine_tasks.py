@@ -1043,6 +1043,266 @@ def _task_worker_handle_error(
     time.sleep(5)
 
 
+def _existing_ingest_job(work_index: dict[str, Any], durable_target: str) -> str | None:
+    """The payload ref of a live (non-terminal) ingest job already on ``durable_target``.
+
+    ``None`` means "nothing to dedupe against"; an empty string is a real answer (a
+    live item whose ``payload_ref`` is unset) and is returned as-is, exactly as the
+    inline dedupe scan did.
+    """
+    from agent_utilities.orchestration import work_item as _wi
+
+    for item in work_index.values():
+        meta = item.get("metadata") or {}
+        if meta and meta.get("target") == durable_target:
+            if item.get("status") not in _wi.TERMINAL_WORK_ITEM_STATUSES:
+                return str(item.get("payload_ref") or "")
+    return None
+
+
+def _task_metadata_base(
+    durable_target: str,
+    task_type: str,
+    max_attempts: int,
+    extra_meta: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """The immutable execution definition stamped onto a submitted WorkItem."""
+    task_data: dict[str, Any] = {
+        "target": durable_target,
+        "type": task_type,
+        "submitted_at": datetime.now(UTC).isoformat(),
+        "attempts": 0,
+        "max_attempts": int(max_attempts),
+    }
+    if extra_meta:
+        task_data.update(extra_meta)
+        only_files = task_data.get("only_files")
+        if isinstance(only_files, list):
+            task_data["only_files"] = [
+                _portable_task_target(str(path)) for path in only_files
+            ]
+    return task_data
+
+
+def _stamp_task_scheduling(
+    task_data: dict[str, Any],
+    graph: str,
+    depends_on: list[str] | None,
+    scheduled_for: float | None,
+    provenance: dict,
+    now: float,
+) -> None:
+    """Stamp the scheduling/routing keys onto a task's metadata, in order.
+
+    U-06: the explicit ``graph`` kwarg is the caller-validated selector (already
+    checked against the engine's own catalog by ``resolve_explicit_graph`` at the
+    MCP/REST boundary) — it always wins over any same-named key an ``extra_meta``
+    caller might have set, and is stamped AFTER that merge (see
+    :func:`_task_metadata_base`) so it can never be spoofed via ``extra_meta``.
+    """
+    explicit_graph = str(graph or "").strip()
+    if explicit_graph:
+        task_data["graph"] = explicit_graph
+    if depends_on:
+        task_data["depends_on"] = list(depends_on)
+    if scheduled_for and float(scheduled_for) > now:
+        task_data["eta_unix"] = float(scheduled_for)
+    if provenance:
+        task_data["provenance"] = dict(provenance)
+
+
+def _submitting_tenant() -> str:
+    """The submitting session's tenant, or ``""`` outside a session."""
+    try:
+        from agent_utilities.knowledge_graph.core.session import current_session
+
+        active_session = current_session()
+        return active_session.tenant if active_session is not None else ""
+    except Exception:  # pragma: no cover - local bootstrap
+        return ""
+
+
+def _notify_kafka_submission(
+    host: Any, job_id: str, task_type: str, durable_target: str, tenant: str
+) -> None:
+    """Publish the Kafka notification for a submitted task, when Kafka-backed.
+
+    Kafka remains a notification transport only. Its consumers must win the same
+    native WorkItem claim before executing; non-Kafka workers discover ready
+    WorkItems directly and need no second queue record.
+    """
+    if getattr(host, "_task_queue_backend_name", "sqlite") != "kafka":
+        return
+    from agent_utilities.security.persistence_privacy import persistence_reference
+
+    _submit_kafka_notification(
+        host._submission_queue,
+        task_type,
+        {
+            "job_id": job_id,
+            "partition_ref": persistence_reference(
+                "ingest_partition", durable_target, namespace=tenant
+            ),
+        },
+    )
+
+
+def _drop_task_vector_indices(host: Any, task_type: str) -> None:
+    """Pre-ingestion: drop ONLY the HNSW indexes for tables this task writes to.
+
+    (Kuzu can't SET on indexed columns.) Unaffected indexes stay active.
+    """
+    _TASK_TABLE_MAP = {
+        "codebase": ["Code"],
+        "document": ["Article"],
+        "conversation": ["Message"],
+    }
+    affected_tables = _TASK_TABLE_MAP.get(task_type, [])
+    if not affected_tables or not host.backend:
+        return
+    if not hasattr(host.backend, "drop_vector_indices"):
+        return
+    if not hasattr(host, "_dropped_tables"):
+        host._dropped_tables = set()
+    new_tables = [t for t in affected_tables if t not in host._dropped_tables]
+    if not new_tables:
+        return
+    try:
+        host.backend.drop_vector_indices(tables=new_tables)
+        # D-DST-3 (CONCEPT:AU-AHE.evaluation.debug-swallow-justification): only
+        # mark these tables dropped AFTER drop_vector_indices actually succeeds.
+        # Marking them first (the prior order) meant a failed drop was never
+        # retried on the next submit_task call for this task_type — the write-
+        # then-mark-seen shape this triage was scoped to find — while the still-
+        # indexed columns kept failing the ingestion SET the comment above warns
+        # about ("Kuzu can't SET on indexed columns").
+        host._dropped_tables.update(new_tables)
+    except Exception as e:  # noqa: BLE001 — the drop stays un-marked on failure (see above), so the next task submission for this task_type retries it instead of permanently believing the indexes are gone
+        logger.debug(f"Pre-ingestion index drop skipped: {e}")
+
+
+def _lane_work_counts(
+    work_index: dict[str, Any],
+) -> tuple[dict[tuple[str, str], int], dict[str, int]]:
+    """``({(lane, state): n}, {task_type: pending_n})`` over the WorkItem index."""
+    counts: dict[tuple[str, str], int] = {}
+    type_pending: dict[str, int] = {}
+    for item in work_index.values():
+        state = _task_status_from_work_item(item)
+        lane = str(item.get("resource_class") or "")
+        counts[(lane, state)] = counts.get((lane, state), 0) + 1
+        if state == "pending":
+            kind = str(item.get("fairness_group") or "")
+            type_pending[kind] = type_pending.get(kind, 0) + 1
+    return counts, type_pending
+
+
+def _lane_residual(
+    counts: dict[tuple[str, str], int], rows: dict[str, Any], status: str
+) -> int:
+    """How much of ``status`` the named lanes do NOT account for (the ``lane_less`` bucket)."""
+    total = sum(v for (_lane, st), v in counts.items() if st == status)
+    return max(0, total - sum(r[status] for r in rows.values() if status in r))
+
+
+def _lane_congestion_rows(
+    counts: dict[tuple[str, str], int], live_running: dict[str, int]
+) -> dict[str, Any]:
+    """Per-lane ``{pending, running, live_running, model_role}`` + the ``lane_less`` bucket."""
+    from agent_utilities.knowledge_graph.core.task_lanes import (
+        LANE_NAMES,
+        lane_model_role,
+    )
+
+    out: dict[str, Any] = {}
+    for lane in LANE_NAMES:
+        out[lane] = {
+            "pending": counts.get((lane, "pending"), 0),
+            "running": counts.get((lane, "running"), 0),
+            "live_running": int(live_running.get(lane, 0)),
+            "model_role": lane_model_role(lane),
+        }
+    out["lane_less"] = {
+        "pending": _lane_residual(counts, out, "pending"),
+        "running": _lane_residual(counts, out, "running"),
+        "model_role": None,
+    }
+    return out
+
+
+def _model_concurrency_snapshot() -> dict[str, Any]:
+    """KG-2.145: the adaptive LLM/embedding concurrency targets, so over/under-
+    utilisation of the vLLM serving tier is visible in the same snapshot as lane
+    congestion. Throttled internally; best-effort."""
+    try:
+        from agent_utilities.core.model_capacity_autoscale import get_utilization
+
+        return {
+            role: get_utilization(role) for role in ("embedding", "lite", "default")
+        }
+    except Exception:  # noqa: BLE001 — observability is best-effort, never fatal
+        return {}
+
+
+def _scheduler_snapshot(reg: Any, cfg: Any) -> dict[str, Any]:
+    """ORCH-1.81: surface the scheduler's pool/reservation picture for ops."""
+    return {
+        "worker_count": getattr(cfg, "worker_count", None),
+        "reserved": getattr(cfg, "reserved", None),
+        "per_lane_min": getattr(cfg, "per_lane_min", None),
+        "codebase_cap": getattr(cfg, "codebase_cap", None),
+        "busy_workers": reg.busy_count() if reg is not None else 0,
+        "free_workers": (
+            reg.free_count(getattr(cfg, "worker_count", 0))
+            if reg is not None and cfg is not None
+            else None
+        ),
+        "running_by_type": reg.running_by_type() if reg is not None else {},
+    }
+
+
+def _apply_content_url_pool_override(
+    pool_out: dict[str, Any], type_pending: dict[str, int]
+) -> None:
+    """content_url rides the ingestion lane but is budgeted as acquisition; move its
+    pending count to the acquisition rollup for an accurate view."""
+    from agent_utilities.knowledge_graph.core.task_lanes import pool_for_task_type
+
+    cu_pending = type_pending.get("content_url", 0)
+    cu_pool = pool_for_task_type("content_url")
+    if cu_pool not in pool_out or cu_pool == "memory_gen":
+        return
+    pool_out[cu_pool]["pending"] += cu_pending
+    if "memory_gen" in pool_out:
+        pool_out["memory_gen"]["pending"] = max(
+            0, pool_out["memory_gen"]["pending"] - cu_pending
+        )
+
+
+def _pool_snapshot(
+    rows: dict[str, Any], type_pending: dict[str, int], reg: Any, cfg: Any
+) -> dict[str, Any]:
+    """CONCEPT:AU-ORCH.dispatch.two-pool — per-pool congestion + budget, so an
+    operator can see whether memory-gen is at its cap (back-pressured on the write
+    lock) while acquisition still has headroom. Pending is summed over each pool's
+    lanes (+ the content_url override); running is the live registry's per-pool view.
+    """
+    from agent_utilities.knowledge_graph.core.task_lanes import POOLS
+
+    live_by_pool = reg.running_by_pool() if reg is not None else {}
+    pool_out: dict[str, Any] = {}
+    for pool, lanes in POOLS.items():
+        pool_out[pool] = {
+            "pending": sum(rows.get(ln, {}).get("pending", 0) for ln in lanes),
+            "live_running": int(live_by_pool.get(pool, 0)),
+        }
+    _apply_content_url_pool_override(pool_out, type_pending)
+    if cfg is not None:
+        pool_out["acquisition_floor"] = getattr(cfg, "acquisition_floor", None)
+        pool_out["memory_gen_cap"] = getattr(cfg, "memory_gen_cap", None)
+    return pool_out
+
+
 class SQLiteTaskQueue(QueueBackend):
     """Thread-safe, persistent SQLite-backed queue for tasks to prevent memory loss on restarts."""
 
@@ -3987,16 +4247,15 @@ class TaskManagerMixin(GraphEngineProtocol):
         into the async execution otherwise. Empty (default) preserves the
         unchanged behavior: content lands on the worker's own ambient graph.
         """
+        from agent_utilities.knowledge_graph.core.task_lanes import lane_for_task_type
         from agent_utilities.orchestration import work_item as _wi
 
         durable_target = _portable_task_target(target_path)
         # WorkItem owns both the immutable execution definition and lifecycle.
         if not skip_dedupe:
-            for item in self._ingest_work_item_index().values():
-                meta = item.get("metadata") or {}
-                if meta and meta.get("target") == durable_target:
-                    if item.get("status") not in _wi.TERMINAL_WORK_ITEM_STATUSES:
-                        return str(item.get("payload_ref") or "")
+            live = _existing_ingest_job(self._ingest_work_item_index(), durable_target)
+            if live is not None:
+                return live
 
         if not job_id:
             job_id = f"job-{uuid.uuid4().hex}"
@@ -4004,58 +4263,20 @@ class TaskManagerMixin(GraphEngineProtocol):
         if not task_type:
             task_type = "codebase" if is_codebase else "document"
 
-        now = time.time()
-        task_data: dict[str, Any] = {
-            "target": durable_target,
-            "type": task_type,
-            "submitted_at": datetime.now(UTC).isoformat(),
-            "attempts": 0,
-            "max_attempts": int(max_attempts),
-        }
-        if extra_meta:
-            task_data.update(extra_meta)
-            only_files = task_data.get("only_files")
-            if isinstance(only_files, list):
-                task_data["only_files"] = [
-                    _portable_task_target(str(path)) for path in only_files
-                ]
+        task_data = _task_metadata_base(
+            durable_target, task_type, max_attempts, extra_meta
+        )
+        _stamp_task_scheduling(
+            task_data, graph, depends_on, scheduled_for, provenance, time.time()
+        )
 
-        # U-06: the explicit `graph` kwarg is the caller-validated selector
-        # (already checked against the engine's own catalog by
-        # `resolve_explicit_graph` at the MCP/REST boundary) — it always wins
-        # over any same-named key an `extra_meta` caller might have set, and
-        # is stamped AFTER the merge above so it can never be spoofed via
-        # `extra_meta`.
-        explicit_graph = str(graph or "").strip()
-        if explicit_graph:
-            task_data["graph"] = explicit_graph
-
-        prio_bucket = _coerce_prio_bucket(priority)
-        if depends_on:
-            task_data["depends_on"] = list(depends_on)
-        if scheduled_for and float(scheduled_for) > now:
-            task_data["eta_unix"] = float(scheduled_for)
-
-        from agent_utilities.knowledge_graph.core.task_lanes import lane_for_task_type
-
-        lane = lane_for_task_type(task_type)
-        if provenance:
-            task_data["provenance"] = dict(provenance)
-
-        try:
-            from agent_utilities.knowledge_graph.core.session import current_session
-
-            active_session = current_session()
-            tenant = active_session.tenant if active_session is not None else ""
-        except Exception:  # pragma: no cover - local bootstrap
-            tenant = ""
-        work_item_id = _wi.ingest_task_work_item_id(job_id)
-        task_data["work_item_id"] = work_item_id
+        tenant = _submitting_tenant()
+        task_data["work_item_id"] = _wi.ingest_task_work_item_id(job_id)
         _wi.ensure_ingest_task_work_item(
             self._work_item_engine,
             job_id,
-            prio_bucket=prio_bucket,
-            resource_class=lane or "default",
+            prio_bucket=_coerce_prio_bucket(priority),
+            resource_class=lane_for_task_type(task_type) or "default",
             fairness_group=task_type,
             tenant=tenant,
             depends_on=depends_on or (),
@@ -4063,54 +4284,8 @@ class TaskManagerMixin(GraphEngineProtocol):
             max_attempts=max_attempts,
             metadata=task_data,
         )
-        # Kafka remains a notification transport only. Its consumers must win
-        # the same native WorkItem claim before executing; non-Kafka workers
-        # discover ready WorkItems directly and need no second queue record.
-        if getattr(self, "_task_queue_backend_name", "sqlite") == "kafka":
-            from agent_utilities.security.persistence_privacy import (
-                persistence_reference,
-            )
-
-            _submit_kafka_notification(
-                self._submission_queue,
-                task_type,
-                {
-                    "job_id": job_id,
-                    "partition_ref": persistence_reference(
-                        "ingest_partition", durable_target, namespace=tenant
-                    ),
-                },
-            )
-
-        # Pre-ingestion: drop ONLY the HNSW indexes for tables this task writes to.
-        # (Kuzu can't SET on indexed columns.) Unaffected indexes stay active.
-        _TASK_TABLE_MAP = {
-            "codebase": ["Code"],
-            "document": ["Article"],
-            "conversation": ["Message"],
-        }
-        affected_tables = _TASK_TABLE_MAP.get(task_type, [])
-        if (
-            affected_tables
-            and self.backend
-            and hasattr(self.backend, "drop_vector_indices")
-        ):
-            if not hasattr(self, "_dropped_tables"):
-                self._dropped_tables: set[str] = set()
-            new_tables = [t for t in affected_tables if t not in self._dropped_tables]
-            if new_tables:
-                try:
-                    self.backend.drop_vector_indices(tables=new_tables)
-                    # D-DST-3 (CONCEPT:AU-AHE.evaluation.debug-swallow-justification): only
-                    # mark these tables dropped AFTER drop_vector_indices actually succeeds.
-                    # Marking them first (the prior order) meant a failed drop was never
-                    # retried on the next submit_task call for this task_type — the write-
-                    # then-mark-seen shape this triage was scoped to find — while the still-
-                    # indexed columns kept failing the ingestion SET the comment above warns
-                    # about ("Kuzu can't SET on indexed columns").
-                    self._dropped_tables.update(new_tables)
-                except Exception as e:  # noqa: BLE001 — the drop stays un-marked on failure (see above), so the next task submission for this task_type retries it instead of permanently believing the indexes are gone
-                    logger.debug(f"Pre-ingestion index drop skipped: {e}")
+        _notify_kafka_submission(self, job_id, task_type, durable_target, tenant)
+        _drop_task_vector_indices(self, task_type)
 
         # Lazily start workers if they aren't already running
         self.start_task_workers()
@@ -4451,119 +4626,21 @@ class TaskManagerMixin(GraphEngineProtocol):
         that was missing when codebase ingestion silently sat at 75-pending/0-running. Returns
         ``{lane: {pending, running, model_role}}`` + a ``lane_less`` bucket for un-stamped tasks.
         """
-        from agent_utilities.knowledge_graph.core.task_lanes import (
-            LANE_NAMES,
-            lane_model_role,
-        )
-
-        work = self._ingest_work_item_index()
-        counts: dict[tuple[str, str], int] = {}
-        type_pending: dict[str, int] = {}
-        for item in work.values():
-            state = _task_status_from_work_item(item)
-            lane = str(item.get("resource_class") or "")
-            counts[(lane, state)] = counts.get((lane, state), 0) + 1
-            if state == "pending":
-                kind = str(item.get("fairness_group") or "")
-                type_pending[kind] = type_pending.get(kind, 0) + 1
+        counts, type_pending = _lane_work_counts(self._ingest_work_item_index())
 
         # ORCH-1.81: overlay the LIVE in-process worker registry so the snapshot
         # also shows how many workers each lane is *actually occupying right now*
         # (the queue's ``running`` status is set on claim; ``live_running`` is the
         # admission registry's view, which also drives the reservation/cap math).
         reg = getattr(self, "_worker_reg", None)
-        live_running = reg.running_by_lane() if reg is not None else {}
-
-        out: dict[str, Any] = {}
-        for lane in LANE_NAMES:
-            p = counts.get((lane, "pending"), 0)
-            r = counts.get((lane, "running"), 0)
-            out[lane] = {
-                "pending": p,
-                "running": r,
-                "live_running": int(live_running.get(lane, 0)),
-                "model_role": lane_model_role(lane),
-            }
-        total_pending = sum(
-            v for (lane, status), v in counts.items() if status == "pending"
-        )
-        total_running = sum(
-            v for (lane, status), v in counts.items() if status == "running"
-        )
-        out["lane_less"] = {
-            "pending": max(
-                0,
-                total_pending
-                - sum(v["pending"] for v in out.values() if "pending" in v),
-            ),
-            "running": max(
-                0,
-                total_running
-                - sum(v["running"] for v in out.values() if "running" in v),
-            ),
-            "model_role": None,
-        }
-        # KG-2.145: surface the adaptive LLM/embedding concurrency targets next to
-        # lane congestion, so over/under-utilisation of the vLLM serving tier is
-        # visible in the same snapshot. Throttled internally; best-effort.
-        try:
-            from agent_utilities.core.model_capacity_autoscale import get_utilization
-
-            out["model_concurrency"] = {
-                role: get_utilization(role) for role in ("embedding", "lite", "default")
-            }
-        except Exception:  # noqa: BLE001 — observability is best-effort, never fatal
-            out["model_concurrency"] = {}
-
-        # ORCH-1.81: surface the scheduler's pool/reservation picture for ops.
         cfg = getattr(self, "_sched_config", None)
-        out["scheduler"] = {
-            "worker_count": getattr(cfg, "worker_count", None),
-            "reserved": getattr(cfg, "reserved", None),
-            "per_lane_min": getattr(cfg, "per_lane_min", None),
-            "codebase_cap": getattr(cfg, "codebase_cap", None),
-            "busy_workers": reg.busy_count() if reg is not None else 0,
-            "free_workers": (
-                reg.free_count(getattr(cfg, "worker_count", 0))
-                if reg is not None and cfg is not None
-                else None
-            ),
-            "running_by_type": reg.running_by_type() if reg is not None else {},
-        }
 
-        # CONCEPT:AU-ORCH.dispatch.two-pool — per-pool congestion + budget, so an
-        # operator can see whether memory-gen is at its cap (back-pressured on the
-        # write lock) while acquisition still has headroom. Pending is summed over
-        # each pool's lanes (+ the content_url override); running is the live
-        # registry's per-pool view.
-        from agent_utilities.knowledge_graph.core.task_lanes import (
-            POOLS,
-            pool_for_task_type,
+        out = _lane_congestion_rows(
+            counts, reg.running_by_lane() if reg is not None else {}
         )
-
-        live_by_pool = reg.running_by_pool() if reg is not None else {}
-        pool_out: dict[str, Any] = {}
-        for pool, lanes in POOLS.items():
-            pending = sum(out.get(ln, {}).get("pending", 0) for ln in lanes)
-            # content_url rides the ingestion lane but is budgeted as acquisition;
-            # move its pending count to the acquisition rollup for an accurate view.
-            pool_out[pool] = {
-                "pending": pending,
-                "live_running": int(live_by_pool.get(pool, 0)),
-            }
-        # Reflect the per-type pool override in the pending rollup (content_url).
-        cu_pending = type_pending.get("content_url", 0)
-        cu_pool = pool_for_task_type("content_url")
-        if cu_pool in pool_out and cu_pool != "memory_gen":
-            pool_out[cu_pool]["pending"] += cu_pending
-            if "memory_gen" in pool_out:
-                pool_out["memory_gen"]["pending"] = max(
-                    0, pool_out["memory_gen"]["pending"] - cu_pending
-                )
-        if cfg is not None:
-            pool_out["acquisition_floor"] = getattr(cfg, "acquisition_floor", None)
-            pool_out["memory_gen_cap"] = getattr(cfg, "memory_gen_cap", None)
-        out["pools"] = pool_out
+        out["model_concurrency"] = _model_concurrency_snapshot()
+        out["scheduler"] = _scheduler_snapshot(reg, cfg)
+        out["pools"] = _pool_snapshot(out, type_pending, reg, cfg)
         return out
 
     # -- Reserved-worker fair scheduler (CONCEPT:AU-ORCH.dispatch.worker-scheduling) ------------------
