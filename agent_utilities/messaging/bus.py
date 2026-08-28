@@ -48,6 +48,7 @@ import json
 import logging
 import time
 import uuid
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from agent_utilities.messaging.bus_privacy import (
@@ -80,6 +81,22 @@ _SUB_PREFIX = "bussub:"
 # A registered agent is "online" if it heartbeat within this many seconds; the roster
 # computes presence lazily from ``last_seen`` so no reaper process is needed for liveness.
 DEFAULT_STALE_AFTER_S = 90.0
+
+
+@dataclass(frozen=True)
+class _FederatedSendContext:
+    """Fields common to both ``AgentBus`` federated-delivery branches.
+
+    Bundled to stay under the 7-parameter cap — see ``AgentBus._deliver_federated_topic``
+    / ``AgentBus._deliver_federated_direct``.
+    """
+
+    group: str
+    sender: str
+    payload: str
+    meta_json: str
+    tenant: str
+    now: float
 
 
 class AgentBus:
@@ -1178,14 +1195,9 @@ class AgentBus:
         self,
         backend: Any,
         wire_message: dict[str, Any],
+        ctx: _FederatedSendContext,
         *,
-        group: str,
-        sender: str,
         topic: str,
-        payload: str,
-        meta_json: str,
-        tenant: str,
-        now: float,
     ) -> list[str]:
         """Federated topic delivery: one durable outbox commit + one log publish."""
         from agent_utilities.messaging.bus_inbox import (
@@ -1194,21 +1206,21 @@ class AgentBus:
         )
 
         commit_message_outbox(
-            self._resolve_engine(), wire_message, tenant=tenant, now=now
+            self._resolve_engine(), wire_message, tenant=ctx.tenant, now=ctx.now
         )
         if not backend.publish_topic(
-            tenant=tenant,
-            group=group,
-            sender=sender,
+            tenant=ctx.tenant,
+            group=ctx.group,
+            sender=ctx.sender,
             topic=topic,
-            payload=payload,
-            meta_json=meta_json,
-            created=now,
+            payload=ctx.payload,
+            meta_json=ctx.meta_json,
+            created=ctx.now,
         ):
             return []
-        delivered = [agent for agent in self._subscribers(topic) if agent != sender]
+        delivered = [agent for agent in self._subscribers(topic) if agent != ctx.sender]
         mark_message_outbox_published(
-            self._resolve_engine(), wire_message, tenant=tenant
+            self._resolve_engine(), wire_message, tenant=ctx.tenant
         )
         return delivered
 
@@ -1217,13 +1229,7 @@ class AgentBus:
         backend: Any,
         wire_message: dict[str, Any],
         recipients: list[str],
-        *,
-        group: str,
-        sender: str,
-        payload: str,
-        meta_json: str,
-        tenant: str,
-        now: float,
+        ctx: _FederatedSendContext,
     ) -> list[str]:
         """Federated direct delivery: one durable outbox commit + one log publish per recipient."""
         from agent_utilities.messaging.bus_inbox import (
@@ -1237,20 +1243,23 @@ class AgentBus:
                 continue
             recipient_message = {**wire_message, "recipient": recipient}
             commit_message_outbox(
-                self._resolve_engine(), recipient_message, tenant=tenant, now=now
+                self._resolve_engine(),
+                recipient_message,
+                tenant=ctx.tenant,
+                now=ctx.now,
             )
             if backend.publish_direct(
-                tenant=tenant,
-                group=group,
-                sender=sender,
+                tenant=ctx.tenant,
+                group=ctx.group,
+                sender=ctx.sender,
                 to=recipient,
-                payload=payload,
-                meta_json=meta_json,
-                created=now,
+                payload=ctx.payload,
+                meta_json=ctx.meta_json,
+                created=ctx.now,
             ):
                 delivered.append(recipient)
                 mark_message_outbox_published(
-                    self._resolve_engine(), recipient_message, tenant=tenant
+                    self._resolve_engine(), recipient_message, tenant=ctx.tenant
                 )
         return delivered
 
@@ -1289,6 +1298,14 @@ class AgentBus:
             "meta": meta_json,
             "created": now,
         }
+        ctx = _FederatedSendContext(
+            group=group,
+            sender=sender,
+            payload=payload,
+            meta_json=meta_json,
+            tenant=tenant,
+            now=now,
+        )
 
         backend = self._log_backend()
         if backend is None:
@@ -1298,27 +1315,9 @@ class AgentBus:
             return []
         if topic:
             return self._deliver_federated_topic(
-                backend,
-                wire_message,
-                group=group,
-                sender=sender,
-                topic=topic,
-                payload=payload,
-                meta_json=meta_json,
-                tenant=tenant,
-                now=now,
+                backend, wire_message, ctx, topic=topic
             )
-        return self._deliver_federated_direct(
-            backend,
-            wire_message,
-            recipients,
-            group=group,
-            sender=sender,
-            payload=payload,
-            meta_json=meta_json,
-            tenant=tenant,
-            now=now,
-        )
+        return self._deliver_federated_direct(backend, wire_message, recipients, ctx)
 
     # ── Dispatch: message → fleet work (CONCEPT:AU-ORCH.routing.resolve-body-single-canonical) ───────────
     def dispatch(

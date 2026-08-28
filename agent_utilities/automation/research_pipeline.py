@@ -541,49 +541,70 @@ def _pseudonymize_authors(authors: list[str]) -> tuple[list[str], list[str]]:
     return author_refs, author_terms
 
 
-def _build_article_and_source_entities(
-    *,
-    article_id: str,
-    source_id: str,
-    safe_title: str,
-    safe_abstract: str,
-    source_url: str,
-    tier: str,
-    importance: float,
-    source_importance: float,
-    domains: list[str] | None,
-    relevance_score: float,
-    author_refs: list[str],
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Build the ``ArticleNode`` + ``SourceNode`` entity payloads for one paper."""
-    from ..models.knowledge_graph import ArticleNode, SourceNode
+@dataclass(frozen=True)
+class _PaperEntityInputs:
+    """Bundled inputs for building one paper's Article/Source graph entities.
+
+    Bundled (rather than 11 loose parameters) to stay under the 7-parameter cap.
+    """
+
+    article_id: str
+    source_id: str
+    safe_title: str
+    safe_abstract: str
+    source_url: str
+    tier: str
+    importance: float
+    source_importance: float
+    domains: list[str] | None
+    relevance_score: float
+    author_refs: list[str]
+
+
+def _build_article_entity(inputs: _PaperEntityInputs) -> dict[str, Any]:
+    """Build the ``ArticleNode`` entity payload for one paper."""
+    from ..models.knowledge_graph import ArticleNode
 
     article = ArticleNode(
-        id=article_id,
-        name=safe_title,
-        description=safe_abstract[:500],
-        summary=safe_abstract[:500],
-        content=safe_abstract,
-        importance_score=importance,
-        tags=domains or [],
+        id=inputs.article_id,
+        name=inputs.safe_title,
+        description=inputs.safe_abstract[:500],
+        summary=inputs.safe_abstract[:500],
+        content=inputs.safe_abstract,
+        importance_score=inputs.importance,
+        tags=inputs.domains or [],
         metadata={
-            "ingestion_tier": tier,
-            "relevance_score": float(relevance_score),
+            "ingestion_tier": inputs.tier,
+            "relevance_score": float(inputs.relevance_score),
         },
     ).model_dump(mode="json")
+    article["node_type"] = article.pop("type")
+    return article
+
+
+def _build_source_entity(inputs: _PaperEntityInputs) -> dict[str, Any]:
+    """Build the ``SourceNode`` entity payload for one paper."""
+    from ..models.knowledge_graph import SourceNode
+
     source = SourceNode(
-        id=source_id,
-        source_id=source_id,
-        name=f"Source: {safe_title[:60]}",
-        url=source_url,
-        description=f"Research paper source ({tier}): {safe_title}",
-        authors=author_refs,
-        importance_score=source_importance,
-        metadata={"author_count": len(author_refs)},
+        id=inputs.source_id,
+        source_id=inputs.source_id,
+        name=f"Source: {inputs.safe_title[:60]}",
+        url=inputs.source_url,
+        description=f"Research paper source ({inputs.tier}): {inputs.safe_title}",
+        authors=inputs.author_refs,
+        importance_score=inputs.source_importance,
+        metadata={"author_count": len(inputs.author_refs)},
     ).model_dump(mode="json")
-    for entity in (article, source):
-        entity["node_type"] = entity.pop("type")
-    return article, source
+    source["node_type"] = source.pop("type")
+    return source
+
+
+def _build_article_and_source_entities(
+    inputs: _PaperEntityInputs,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Build the ``ArticleNode`` + ``SourceNode`` entity payloads for one paper."""
+    return _build_article_entity(inputs), _build_source_entity(inputs)
 
 
 def _build_author_person_entities(
@@ -651,17 +672,19 @@ def _commit_research_paper_slice(
     safe_abstract, _ = privacy.sanitize_text(abstract)
 
     article, source = _build_article_and_source_entities(
-        article_id=article_id,
-        source_id=source_id,
-        safe_title=safe_title,
-        safe_abstract=safe_abstract,
-        source_url=source_url,
-        tier=tier,
-        importance=importance,
-        source_importance=source_importance,
-        domains=domains,
-        relevance_score=relevance_score,
-        author_refs=author_refs,
+        _PaperEntityInputs(
+            article_id=article_id,
+            source_id=source_id,
+            safe_title=safe_title,
+            safe_abstract=safe_abstract,
+            source_url=source_url,
+            tier=tier,
+            importance=importance,
+            source_importance=source_importance,
+            domains=domains,
+            relevance_score=relevance_score,
+            author_refs=author_refs,
+        )
     )
     entities = [article, source]
     relationships: list[dict[str, Any]] = [
@@ -690,6 +713,23 @@ def _commit_research_paper_slice(
             f"{applied.get('error') or applied.get('status')}"
         )
     return article_id
+
+
+@dataclass(frozen=True)
+class _PaperDocumentInputs:
+    """Bundled inputs for the post-commit PDF Document/Chunk projection.
+
+    Bundled (rather than 8 loose parameters) to stay under the 7-parameter cap.
+    """
+
+    paper_id: str
+    title: str
+    pdf_path: str
+    extracted_text: str | None
+    authors: list[str]
+    article_id: str
+    relevance_score: float
+    domains: list[str] | None
 
 
 def _persist_paper_document(
@@ -881,18 +921,7 @@ class ResearchPipelineRunner:
             logger.warning(f"cohort PDF text extraction failed for {paper_id}: {e}")
         return title, abstract, extracted_text
 
-    def _persist_paper_document_safe(
-        self,
-        *,
-        paper_id: str,
-        title: str,
-        pdf_path: str,
-        extracted_text: str | None,
-        authors: list[str],
-        article_id: str,
-        relevance_score: float,
-        domains: list[str] | None,
-    ) -> None:
+    def _persist_paper_document_safe(self, inputs: _PaperDocumentInputs) -> None:
         """PDF Document/Chunk projection, best-effort.
 
         A projection failure cannot turn a committed paper into an uncommitted one.
@@ -900,17 +929,19 @@ class ResearchPipelineRunner:
         try:
             _persist_paper_document(
                 self.engine,
-                paper_id=paper_id,
-                title=title,
-                pdf_path=pdf_path,
-                extracted_text=extracted_text,
-                authors=authors,
-                article_id=article_id,
-                relevance_score=relevance_score,
-                domains=domains,
+                paper_id=inputs.paper_id,
+                title=inputs.title,
+                pdf_path=inputs.pdf_path,
+                extracted_text=inputs.extracted_text,
+                authors=inputs.authors,
+                article_id=inputs.article_id,
+                relevance_score=inputs.relevance_score,
+                domains=inputs.domains,
             )
         except Exception as e:  # noqa: BLE001 — post-commit projection
-            logger.warning("native document projection failed for %s: %s", paper_id, e)
+            logger.warning(
+                "native document projection failed for %s: %s", inputs.paper_id, e
+            )
 
     async def ingest_paper_full(
         self,
@@ -972,14 +1003,16 @@ class ResearchPipelineRunner:
         # legacy KB/ScholarX bridge.
         if pdf_path and Path(pdf_path).is_file():
             self._persist_paper_document_safe(
-                paper_id=paper_id,
-                title=title,
-                pdf_path=pdf_path,
-                extracted_text=extracted_text,
-                authors=authors,
-                article_id=article_id,
-                relevance_score=relevance_score,
-                domains=domains,
+                _PaperDocumentInputs(
+                    paper_id=paper_id,
+                    title=title,
+                    pdf_path=pdf_path,
+                    extracted_text=extracted_text,
+                    authors=authors,
+                    article_id=article_id,
+                    relevance_score=relevance_score,
+                    domains=domains,
+                )
             )
 
         logger.info(
