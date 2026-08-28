@@ -220,6 +220,76 @@ def _current_graph_fields(
     return {f: node[f] for f in fields if f in node}
 
 
+def _preflight_declared_fields(record: dict[str, Any], policy_spec: Any) -> list[str]:
+    """The record fields the connector's ``ConflictPolicySpec`` explicitly declares.
+
+    An undeclared field is never compared against the graph, which is why every
+    handler is a no-op through the preflight today.
+    """
+    return [f for f in record if f != "id" and policy_spec.declares(f)]
+
+
+def _preflight_record_conflict(
+    record: dict[str, Any],
+    current: dict[str, Any],
+    declared_fields: list[str],
+    policy_spec: Any,
+    ctx: SimpleNamespace,
+) -> Any | None:
+    """The first :class:`SyncConflict` among a record's declared fields, if any.
+
+    Per-record scope, not per-field partial commit: the first conflicting field
+    blocks the WHOLE envelope (never a silent partial overwrite; "Prohibited
+    fallback" invariant). ``ctx`` carries ``connector``/``node_id``/
+    ``source_instance`` for the resolver's provenance.
+    """
+    from ..ontology.sync_conflict import SyncConflict, resolve_field_conflict
+
+    for field in declared_fields:
+        if field not in current:
+            continue  # no prior graph value -- nothing to conflict with
+        graph_value = current[field]
+        source_value = record.get(field)
+        if graph_value == source_value:
+            continue  # agreement -- not a conflict
+        resolved = resolve_field_conflict(
+            policy_spec.policy_for(field),
+            source_value,
+            graph_value,
+            connector=ctx.connector,
+            node_id=ctx.node_id,
+            field_name=field,
+            source_instance=ctx.source_instance,
+        )
+        if isinstance(resolved, SyncConflict):
+            return resolved
+    return None
+
+
+def _preflight_block(
+    index: int,
+    env: Any,
+    conflict: Any,
+    connector: str,
+    node_id: str,
+    backfeed_spec: Any,
+) -> dict[str, Any]:
+    """The ``blocked`` entry for one envelope a declared-field conflict stopped."""
+    from ..ontology.sync_conflict import evaluate_backfeed_preflight
+
+    outcome = evaluate_backfeed_preflight(
+        connector=connector,
+        node_id=node_id,
+        conflict=conflict,
+        backfeed=backfeed_spec,
+    )
+    return {
+        "index": index,
+        "envelope": env,
+        "conflict_or_rejection": outcome if outcome is not None else conflict,
+    }
+
+
 def _apply_with_preflight(
     engine: Any,
     connector: str,
@@ -261,11 +331,6 @@ def _apply_with_preflight(
     with no ``id``/no declared fields present skips the read entirely
     (:func:`_current_graph_fields` short-circuits on an empty field list).
     """
-    from ..ontology.sync_conflict import (
-        evaluate_backfeed_preflight,
-        resolve_field_conflict,
-    )
-
     manifest = manifest if manifest is not None else _load_connector_manifest(connector)
     policy_spec = _manifest_conflict_policy(manifest)
     backfeed_spec = _manifest_backfeed(manifest)
@@ -275,49 +340,28 @@ def _apply_with_preflight(
     for index, env in enumerate(batch):
         record = env.to_entity_dict() if hasattr(env, "to_entity_dict") else {}
         node_id = str(record.get("id") or getattr(env, "source_object_id", "") or "")
-        declared_fields = [f for f in record if f != "id" and policy_spec.declares(f)]
+        declared_fields = _preflight_declared_fields(record, policy_spec)
         current = (
             _current_graph_fields(engine, node_id, declared_fields) if node_id else {}
         )
-        record_conflict = None
-        for f in declared_fields:
-            if f not in current:
-                continue  # no prior graph value -- nothing to conflict with
-            graph_value = current[f]
-            source_value = record.get(f)
-            if graph_value == source_value:
-                continue  # agreement -- not a conflict
-            resolved = resolve_field_conflict(
-                policy_spec.policy_for(f),
-                source_value,
-                graph_value,
+        record_conflict = _preflight_record_conflict(
+            record,
+            current,
+            declared_fields,
+            policy_spec,
+            SimpleNamespace(
                 connector=connector,
                 node_id=node_id,
-                field_name=f,
                 source_instance=source_instance,
-            )
-            from ..ontology.sync_conflict import SyncConflict
-
-            if isinstance(resolved, SyncConflict):
-                record_conflict = resolved
-                break  # never partially apply -- first conflicting field blocks the record
+            ),
+        )
         if record_conflict is None:
             allowed.append(env)
             continue
-        outcome = evaluate_backfeed_preflight(
-            connector=connector,
-            node_id=node_id,
-            conflict=record_conflict,
-            backfeed=backfeed_spec,
-        )
         blocked.append(
-            {
-                "index": index,
-                "envelope": env,
-                "conflict_or_rejection": outcome
-                if outcome is not None
-                else record_conflict,
-            }
+            _preflight_block(
+                index, env, record_conflict, connector, node_id, backfeed_spec
+            )
         )
     return allowed, blocked
 
@@ -546,6 +590,35 @@ def _capability_product(server_name: str) -> str:
 _FLEET_DISABLED_LOOKUP_LABELS: tuple[str, ...] = ("MCPServer", "Tool", "Skill")
 
 
+def _disabled_from_cache(engine: Any, node_id: str) -> bool | None:
+    """The in-memory graph's ``disabled`` flag, or ``None`` when it has no such node."""
+    gc = getattr(engine, "graph_compute", None)
+    graph = getattr(gc, "graph", None)
+    if graph is not None and node_id in graph:
+        return bool(graph.nodes[node_id].get("disabled", False))
+    return None
+
+
+def _disabled_from_query(engine: Any, node_id: str, label: str | None) -> bool | None:
+    """The ``disabled`` flag from a Cypher lookup, or ``None`` when nothing matched.
+
+    ``label=None`` is the unlabeled correctness fallback for an id outside the
+    verified fleet label set.
+    """
+    if label is None:
+        query = "MATCH (n) WHERE n.id = $id RETURN n.id AS id, n.disabled AS disabled"
+    else:
+        safe_label = validate_identifier(label, kind="label")
+        query = (
+            f"MATCH (n:{safe_label}) WHERE n.id = $id "
+            "RETURN n.id AS id, n.disabled AS disabled"
+        )
+    rows = engine.query_cypher(query, {"id": node_id})
+    if rows and isinstance(rows, list) and len(rows) > 0:
+        return bool(rows[0].get("disabled", False))
+    return None
+
+
 def _existing_disabled(engine: Any, node_id: str) -> bool:
     """Best-effort read of a node's ``disabled`` flag so a re-sync preserves an
     operator's manual disable (mirrors ``kg_server.get_existing_disabled`` without
@@ -563,28 +636,19 @@ def _existing_disabled(engine: Any, node_id: str) -> bool:
     that is not a failure.
     """
     try:
-        gc = getattr(engine, "graph_compute", None)
-        graph = getattr(gc, "graph", None)
-        if graph is not None and node_id in graph:
-            return bool(graph.nodes[node_id].get("disabled", False))
+        cached = _disabled_from_cache(engine, node_id)
+        if cached is not None:
+            return cached
         for candidate_label in _FLEET_DISABLED_LOOKUP_LABELS:
-            safe_label = validate_identifier(candidate_label, kind="label")
-            rows = engine.query_cypher(
-                f"MATCH (n:{safe_label}) WHERE n.id = $id "
-                "RETURN n.id AS id, n.disabled AS disabled",
-                {"id": node_id},
-            )
-            if rows and isinstance(rows, list) and len(rows) > 0:
-                return bool(rows[0].get("disabled", False))
+            labelled = _disabled_from_query(engine, node_id, candidate_label)
+            if labelled is not None:
+                return labelled
         # Correctness fallback for a node outside the verified fleet label
         # set above — the original (unoptimized) cost, only paid for ids
         # this loop doesn't already know the label of.
-        rows = engine.query_cypher(
-            "MATCH (n) WHERE n.id = $id RETURN n.id AS id, n.disabled AS disabled",
-            {"id": node_id},
-        )
-        if rows and isinstance(rows, list) and len(rows) > 0:
-            return bool(rows[0].get("disabled", False))
+        unlabelled = _disabled_from_query(engine, node_id, None)
+        if unlabelled is not None:
+            return unlabelled
     except Exception as exc:  # noqa: BLE001 — surfaced as a fail-closed True below
         logger.error(
             "_existing_disabled(%s) lookup failed — failing closed "
@@ -609,6 +673,22 @@ def _derive_tool_mode(input_schema: dict | None) -> str:
     if isinstance(props, dict) and "action" in props and "params_json" in props:
         return "condensed"
     return "verbose"
+
+
+def _entity_rows(
+    records: list[Any], build: Callable[[Any], Any]
+) -> list[dict[str, Any]]:
+    """Every record ``build`` could turn into an entity (unidentifiable → dropped).
+
+    The shared record→entity fan-out for the connector handlers: each source owns
+    its own per-record builder, and this owns the "drop what has no identity" rule.
+    """
+    rows: list[dict[str, Any]] = []
+    for record in records:
+        entity = build(record)
+        if entity is not None:
+            rows.append(entity)
+    return rows
 
 
 def _privacy_safe(text: str) -> str:
@@ -711,6 +791,183 @@ def _write_fleet_relational(
         return {"status": "error", "reason": str(exc)}
 
 
+def _fleet_tool_entity(
+    engine: Any,
+    entry: Any,
+    server_name: str,
+    product: str,
+    synonyms: list[str],
+) -> dict[str, Any] | None:
+    """One probed tool as a ``Tool`` capability node, or ``None`` when unnamed."""
+    if not isinstance(entry, dict):
+        return None
+    tool_name = entry.get("name")
+    if not tool_name:
+        return None
+    tool_node_id = f"tool_{server_name}_{tool_name}"
+    return {
+        "id": tool_node_id,
+        "type": "Tool",
+        "name": tool_name,
+        "description": _privacy_safe(entry.get("description", "")),
+        "mcp_server": server_name,
+        "tags": [product] if product else [],
+        # ``ToolShape`` (governance.shapes.ttl) requires minCount 1
+        # ``capabilityCategory``, and it was never written — so the
+        # SHACL gate rejected the WHOLE fleet slice, silently: the
+        # rejection surfaced only as the class name "ValueError".
+        # The category is the de-suffixed product this server
+        # provides (``servicenow-mcp`` → ``servicenow``), falling
+        # back to the server name so it is never empty.
+        "capabilityCategory": product or server_name,
+        "relevance_score": 50,
+        "requires_approval": False,
+        "synonyms": synonyms,
+        "kind": "mcp_tool",
+        "tool_mode": _derive_tool_mode(entry.get("inputSchema")),
+        "disabled": _existing_disabled(engine, tool_node_id),
+    }
+
+
+def _fleet_skill_entity(
+    engine: Any,
+    entry: Any,
+    server_name: str,
+    product: str,
+    synonyms: list[str],
+) -> dict[str, Any] | None:
+    """One probed Skills-over-MCP resource as a ``Skill`` node, or ``None``."""
+    from ..ingestion.skill_workflow_ingest import skill_reference
+
+    if not isinstance(entry, dict):
+        return None
+    skill_name = entry.get("name")
+    if not skill_name:
+        return None
+    skill_node_id = f"skill_{server_name}_{skill_name}"
+    skill_props: dict[str, Any] = {
+        "id": skill_node_id,
+        "type": "Skill",
+        "name": skill_name,
+        "description": _privacy_safe(entry.get("description", "")),
+        "mcp_server": server_name,
+        "tags": [product] if product else [],
+        "relevance_score": 0.5,
+        "requires_approval": False,
+        "synonyms": synonyms,
+        "kind": "mcp_skill",
+        "disabled": _existing_disabled(engine, skill_node_id),
+        # CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — WHY this
+        # fleet skill is (or is not) runnable, recorded on the node
+        # so the execution path can name the unmet precondition
+        # instead of failing with a generic "not found or runnable".
+        "runnable_blocked_by": _privacy_safe(entry.get("harvest_error", "")),
+    }
+    # ``skill://<name>`` collides with the persistence-privacy policy's
+    # posix-path heuristics whenever a skill name starts with a
+    # filesystem-root token (``opt``ions-…, ``workspace``-manager,
+    # ``tmp``…, ``var``…). The native ApplyChangeEnvelope commit REJECTS
+    # such text, and a rejection fails the WHOLE slice — so six oddly
+    # named skills silently cost every tool and skill from every
+    # reachable server. Writing a redacted ref instead would be worse:
+    # it is no longer a ``skill://`` reference at all, which is the
+    # contract every ranking consumer checks. So the ref is omitted and
+    # the reason logged; the skill's canonical runnable identity comes
+    # from the promotion path, which does not use this envelope.
+    source_ref = skill_reference(skill_name)
+    if _privacy_safe(source_ref) == source_ref:
+        skill_props["source_ref"] = source_ref
+    else:
+        logger.warning(
+            "Fleet skill %s omits its source_ref: %r trips the "
+            "persistence privacy policy's local-path heuristic",
+            skill_name,
+            source_ref,
+        )
+    return skill_props
+
+
+def _fleet_server_slice(
+    engine: Any, server_name: str, info: dict[str, Any]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The ``MCPServer`` node plus every ``Tool``/``Skill`` node one server serves."""
+    tools = info.get("tools") or []
+    skills = info.get("skills") or []
+    if not tools and not skills:
+        return [], []
+
+    synonyms = derive_capability_synonyms(server_name)
+    product = _capability_product(server_name)
+    server_node_id = f"mcp_server_{server_name}"
+    entities: list[dict[str, Any]] = [
+        {
+            "id": server_node_id,
+            "type": "MCPServer",
+            "name": server_name,
+            "synonyms": synonyms,
+            "disabled": _existing_disabled(engine, server_node_id),
+        }
+    ]
+    relationships: list[dict[str, Any]] = []
+
+    for entry in tools:
+        entity = _fleet_tool_entity(engine, entry, server_name, product, synonyms)
+        if entity is None:
+            continue
+        entities.append(entity)
+        relationships.append(
+            {"source": server_node_id, "target": entity["id"], "type": "SERVES"}
+        )
+
+    for entry in skills:
+        entity = _fleet_skill_entity(engine, entry, server_name, product, synonyms)
+        if entity is None:
+            continue
+        entities.append(entity)
+        relationships.append(
+            {"source": server_node_id, "target": entity["id"], "type": "SERVES"}
+        )
+
+    return entities, relationships
+
+
+def _fleet_catalog_slice(
+    engine: Any, catalog: dict[str, dict] | None
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, str]]:
+    """Project a probed catalog into ``(entities, relationships, unreachable)``.
+
+    A server that reported an ``error`` is recorded as unreachable and contributes
+    no nodes; coverage is "the currently registered + reachable fleet".
+    """
+    entities: list[dict[str, Any]] = []
+    relationships: list[dict[str, Any]] = []
+    unreachable: dict[str, str] = {}
+
+    for server_name, info in (catalog or {}).items():
+        if not isinstance(info, dict):
+            continue
+        err = info.get("error")
+        if err:
+            unreachable[server_name] = str(err)
+            continue
+        server_entities, server_relationships = _fleet_server_slice(
+            engine, server_name, info
+        )
+        entities.extend(server_entities)
+        relationships.extend(server_relationships)
+
+    return entities, relationships, unreachable
+
+
+def _fleet_type_counts(entities: list[dict[str, Any]]) -> dict[str, int]:
+    """How many ``MCPServer``/``Tool``/``Skill`` nodes the slice carries."""
+    counts = {"MCPServer": 0, "Tool": 0, "Skill": 0}
+    for item in entities:
+        if item["type"] in counts:
+            counts[item["type"]] += 1
+    return counts
+
+
 def _write_fleet_nodes(
     engine: Any,
     catalog: dict[str, dict],
@@ -741,8 +998,6 @@ def _write_fleet_nodes(
     tools/skills on re-sync. Factored out of :func:`_sync_fleet` so it is
     testable without spawning any servers.
     """
-    from ..ingestion.skill_workflow_ingest import skill_reference
-
     # Relational write FIRST (see CONCEPT:AU-KG.ingest.fleet-catalog-relational-tables
     # docstring on :func:`_write_fleet_relational`) — cheap, synchronous, and
     # independent of the KG write below succeeding, failing, or being rejected
@@ -754,120 +1009,7 @@ def _write_fleet_nodes(
         discovery_bindings=discovery_bindings,
     )
 
-    entities: list[dict[str, Any]] = []
-    relationships: list[dict[str, Any]] = []
-    unreachable: dict[str, str] = {}
-
-    for server_name, info in (catalog or {}).items():
-        if not isinstance(info, dict):
-            continue
-        err = info.get("error")
-        if err:
-            unreachable[server_name] = str(err)
-            continue
-        tools = info.get("tools") or []
-        skills = info.get("skills") or []
-        if not tools and not skills:
-            continue
-
-        synonyms = derive_capability_synonyms(server_name)
-        product = _capability_product(server_name)
-        server_node_id = f"mcp_server_{server_name}"
-        entities.append(
-            {
-                "id": server_node_id,
-                "type": "MCPServer",
-                "name": server_name,
-                "synonyms": synonyms,
-                "disabled": _existing_disabled(engine, server_node_id),
-            }
-        )
-
-        for entry in tools:
-            if not isinstance(entry, dict):
-                continue
-            tool_name = entry.get("name")
-            if not tool_name:
-                continue
-            tool_node_id = f"tool_{server_name}_{tool_name}"
-            entities.append(
-                {
-                    "id": tool_node_id,
-                    "type": "Tool",
-                    "name": tool_name,
-                    "description": _privacy_safe(entry.get("description", "")),
-                    "mcp_server": server_name,
-                    "tags": [product] if product else [],
-                    # ``ToolShape`` (governance.shapes.ttl) requires minCount 1
-                    # ``capabilityCategory``, and it was never written — so the
-                    # SHACL gate rejected the WHOLE fleet slice, silently: the
-                    # rejection surfaced only as the class name "ValueError".
-                    # The category is the de-suffixed product this server
-                    # provides (``servicenow-mcp`` → ``servicenow``), falling
-                    # back to the server name so it is never empty.
-                    "capabilityCategory": product or server_name,
-                    "relevance_score": 50,
-                    "requires_approval": False,
-                    "synonyms": synonyms,
-                    "kind": "mcp_tool",
-                    "tool_mode": _derive_tool_mode(entry.get("inputSchema")),
-                    "disabled": _existing_disabled(engine, tool_node_id),
-                }
-            )
-            relationships.append(
-                {"source": server_node_id, "target": tool_node_id, "type": "SERVES"}
-            )
-
-        for entry in skills:
-            if not isinstance(entry, dict):
-                continue
-            skill_name = entry.get("name")
-            if not skill_name:
-                continue
-            skill_node_id = f"skill_{server_name}_{skill_name}"
-            skill_props: dict[str, Any] = {
-                "id": skill_node_id,
-                "type": "Skill",
-                "name": skill_name,
-                "description": _privacy_safe(entry.get("description", "")),
-                "mcp_server": server_name,
-                "tags": [product] if product else [],
-                "relevance_score": 0.5,
-                "requires_approval": False,
-                "synonyms": synonyms,
-                "kind": "mcp_skill",
-                "disabled": _existing_disabled(engine, skill_node_id),
-                # CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — WHY this
-                # fleet skill is (or is not) runnable, recorded on the node
-                # so the execution path can name the unmet precondition
-                # instead of failing with a generic "not found or runnable".
-                "runnable_blocked_by": _privacy_safe(entry.get("harvest_error", "")),
-            }
-            # ``skill://<name>`` collides with the persistence-privacy policy's
-            # posix-path heuristics whenever a skill name starts with a
-            # filesystem-root token (``opt``ions-…, ``workspace``-manager,
-            # ``tmp``…, ``var``…). The native ApplyChangeEnvelope commit REJECTS
-            # such text, and a rejection fails the WHOLE slice — so six oddly
-            # named skills silently cost every tool and skill from every
-            # reachable server. Writing a redacted ref instead would be worse:
-            # it is no longer a ``skill://`` reference at all, which is the
-            # contract every ranking consumer checks. So the ref is omitted and
-            # the reason logged; the skill's canonical runnable identity comes
-            # from the promotion path, which does not use this envelope.
-            source_ref = skill_reference(skill_name)
-            if _privacy_safe(source_ref) == source_ref:
-                skill_props["source_ref"] = source_ref
-            else:
-                logger.warning(
-                    "Fleet skill %s omits its source_ref: %r trips the "
-                    "persistence privacy policy's local-path heuristic",
-                    skill_name,
-                    source_ref,
-                )
-            entities.append(skill_props)
-            relationships.append(
-                {"source": server_node_id, "target": skill_node_id, "type": "SERVES"}
-            )
+    entities, relationships, unreachable = _fleet_catalog_slice(engine, catalog)
 
     # CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — promotion runs BEFORE the
     # catalog slice write, and deliberately so. The catalog write is ONE native
@@ -893,6 +1035,7 @@ def _write_fleet_nodes(
             engine, entities, relationships
         )
 
+    written = _fleet_type_counts(entities)
     return {
         # Genuinely rejected — the engine judged the row's content unacceptable
         # (privacy policy, validation); cached so future syncs skip re-deriving it.
@@ -903,9 +1046,9 @@ def _write_fleet_nodes(
         # omission, never cached, distinct from a genuine rejection above.
         "catalog_rows_materialization_pending": len(materialization_pending),
         "catalog_materialization_pending_ids": materialization_pending,
-        "servers_written": sum(1 for item in entities if item["type"] == "MCPServer"),
-        "tools_written": sum(1 for item in entities if item["type"] == "Tool"),
-        "skills_written": sum(1 for item in entities if item["type"] == "Skill"),
+        "servers_written": written["MCPServer"],
+        "tools_written": written["Tool"],
+        "skills_written": written["Skill"],
         "unreachable": unreachable,
         "relational": relational,
         **harvest,
@@ -1124,17 +1267,12 @@ def _promote_fleet_prompts(engine: Any, catalog: dict[str, dict]) -> dict[str, A
     }
 
 
-def _resolve_fleet_config():
-    """Resolve the fleet ``mcp_config.json`` — the one the multiplexer serves.
+def _fleet_config_candidates() -> list[Any]:
+    """The ``mcp_config.json`` candidates, in connector-convention order.
 
-    Returns the first candidate that actually parses to ≥1 ``mcpServers`` entry,
-    so an empty/placeholder file (e.g. a 0-byte ``~/.gemini/antigravity/
-    mcp_config.json``) is skipped rather than silently yielding a 0-server probe.
-    Order follows the connector convention (``MCP_CONFIG`` →
-    ``WORKSPACE_PATH/mcp_config.json``) before the multiplexer's own default
-    search, so it stays deployment-agnostic (genesis sets the env).
+    ``MCP_CONFIG`` → ``WORKSPACE_PATH/mcp_config.json`` → the multiplexer's own
+    default search, so resolution stays deployment-agnostic (genesis sets the env).
     """
-    import json
     from pathlib import Path
 
     from ...core.config import setting
@@ -1154,16 +1292,64 @@ def _resolve_fleet_config():
             candidates.append(rp)
     except Exception:  # noqa: BLE001 — multiplexer default search is a fallback
         pass
+    return candidates
 
-    for path in candidates:
-        try:
-            if path.exists() and path.stat().st_size > 0:
-                data = json.loads(path.read_text(encoding="utf-8"))
-                if data.get("mcpServers"):
-                    return path
-        except Exception:  # noqa: BLE001 — skip unreadable/invalid candidates
-            continue
+
+def _fleet_config_has_servers(path: Any) -> bool:
+    """Whether a candidate file actually parses to ≥1 ``mcpServers`` entry.
+
+    An empty/placeholder file (e.g. a 0-byte ``~/.gemini/antigravity/
+    mcp_config.json``) is skipped rather than silently yielding a 0-server probe.
+    """
+    import json as _json
+
+    try:
+        if path.exists() and path.stat().st_size > 0:
+            data = _json.loads(path.read_text(encoding="utf-8"))
+            return bool(data.get("mcpServers"))
+    except Exception:  # noqa: BLE001 — skip unreadable/invalid candidates
+        return False
+    return False
+
+
+def _resolve_fleet_config():
+    """Resolve the fleet ``mcp_config.json`` — the one the multiplexer serves.
+
+    Returns the first candidate that actually parses to ≥1 ``mcpServers`` entry,
+    so an empty/placeholder file (e.g. a 0-byte ``~/.gemini/antigravity/
+    mcp_config.json``) is skipped rather than silently yielding a 0-server probe.
+    Order follows the connector convention (``MCP_CONFIG`` →
+    ``WORKSPACE_PATH/mcp_config.json``) before the multiplexer's own default
+    search, so it stays deployment-agnostic (genesis sets the env).
+    """
+    for path in _fleet_config_candidates():
+        if _fleet_config_has_servers(path):
+            return path
     return None
+
+
+def _declared_fleet_services() -> list[dict[str, Any]] | None:
+    """The declared fleet universe from ``deploy/mcp-fleet.registry.yml``.
+
+    ``None`` when the registry is absent or unparsable — this reconcile is purely
+    informational and a broken/missing file must never block a sync.
+    """
+    try:
+        import yaml
+
+        from ...orchestration.fleet_reconciler import resolve_registry_path
+
+        path = resolve_registry_path()
+        if path is None:
+            return None
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        return [
+            s
+            for s in (data.get("services") or [])
+            if isinstance(s, dict) and s.get("name")
+        ]
+    except Exception:  # noqa: BLE001 — registry reconcile is informational only
+        return None
 
 
 def _reconcile_declared_fleet(catalog: dict[str, dict] | None) -> dict[str, Any] | None:
@@ -1181,21 +1367,8 @@ def _reconcile_declared_fleet(catalog: dict[str, dict] | None) -> dict[str, Any]
     which nodes get written, and returns ``None`` (added onto nothing) when the
     registry is absent or unparsable so a broken/missing file never blocks a sync.
     """
-    try:
-        import yaml
-
-        from ...orchestration.fleet_reconciler import resolve_registry_path
-
-        path = resolve_registry_path()
-        if path is None:
-            return None
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        services = [
-            s
-            for s in (data.get("services") or [])
-            if isinstance(s, dict) and s.get("name")
-        ]
-    except Exception:  # noqa: BLE001 — registry reconcile is informational only
+    services = _declared_fleet_services()
+    if services is None:
         return None
 
     probed = set(catalog or {})
@@ -1209,6 +1382,87 @@ def _reconcile_declared_fleet(catalog: dict[str, dict] | None) -> dict[str, Any]
         "declared_total": len(services),
         "declared_uncovered": uncovered,
     }
+
+
+def _fleet_probe_budget() -> float:
+    """The cooperative probe budget, sized from the tightest lane's soft timeout."""
+    from .task_lanes import lane_soft_timeout
+
+    return max(10.0, lane_soft_timeout("connectors") * _FLEET_PROBE_BUDGET_FRACTION)
+
+
+def _fleet_mux_metadata(mux: Any, catalog: dict[str, Any] | None) -> tuple[Any, Any]:
+    """Best-effort ``(transport configs, discovery bindings)`` for a probed fleet."""
+    try:
+        # Best-effort transport/url metadata for the relational ``mcp_servers``
+        # rows (see ``fleet_catalog_tables.write_fleet_catalog``); never fatal to
+        # the sync if the config can't be re-read.
+        configs = mux.load_catalog()
+    except Exception:  # noqa: BLE001 — server-row transport/url is best-effort
+        configs = None
+
+    try:
+        # Broker authority is process-owned multiplexer state, never a field in
+        # the caller-visible catalog.  The identity-bound lookup also rejects
+        # copied/spoofed catalog dictionaries.  Minting a tenant-local binding
+        # reads the ambient session, which the probe may have outlived -- see
+        # :func:`_fresh_write_authority`.
+        with _fresh_write_authority():
+            mux._bind_local_discovery_bindings(catalog or {})
+            discovery_bindings = mux._take_discovery_bindings(catalog or {})
+    except Exception:  # noqa: BLE001 - private binding metadata is optional
+        discovery_bindings = None
+    return configs, discovery_bindings
+
+
+def _probe_fleet_catalog() -> SimpleNamespace:
+    """Build the multiplexer from ``mcp_config.json`` and probe the served catalog.
+
+    Returns ``SimpleNamespace(skip, catalog, configs, discovery_bindings)`` — a
+    non-``None`` ``skip`` is a ready-made handler result (the multiplexer is
+    optional at import, and a probe failure is never fatal to the caller).
+    """
+    try:
+        from ...mcp.multiplexer import MCPMultiplexer
+        from ...protocols.source_connectors.connectors.mcp_package import _run_async
+    except Exception as exc:  # noqa: BLE001 — multiplexer optional at import
+        return SimpleNamespace(
+            skip={
+                "status": "skipped",
+                "source": "fleet",
+                "reason": f"multiplexer unavailable: {exc}",
+            }
+        )
+
+    config_path = _resolve_fleet_config()
+    if config_path is None:
+        return SimpleNamespace(
+            skip={
+                "status": "skipped",
+                "source": "fleet",
+                "reason": "no mcp_config.json with servers found",
+            }
+        )
+
+    probe_budget = _fleet_probe_budget()
+    try:
+        mux = MCPMultiplexer(config_path)
+        catalog = _run_async(
+            mux.probe_catalog(budget=probe_budget),
+            timeout=probe_budget + _FLEET_PROBE_GRACE_SEC,
+        )
+    except Exception as exc:  # noqa: BLE001 — probe is best-effort
+        return SimpleNamespace(
+            skip={"status": "error", "source": "fleet", "reason": str(exc)}
+        )
+
+    configs, discovery_bindings = _fleet_mux_metadata(mux, catalog)
+    return SimpleNamespace(
+        skip=None,
+        catalog=catalog,
+        configs=configs,
+        discovery_bindings=discovery_bindings,
+    )
 
 
 def _sync_fleet(
@@ -1232,66 +1486,23 @@ def _sync_fleet(
     # per-record until a manifest declares conflict_policy for "fleet".
     _apply_with_preflight(engine, "fleet", [])
 
-    catalog = client if isinstance(client, dict) else None
-    configs: dict[str, dict] | None = None
-    discovery_bindings: dict[str, Any] | None = None
-    if catalog is None:
-        try:
-            from ...mcp.multiplexer import MCPMultiplexer
-            from ...protocols.source_connectors.connectors.mcp_package import _run_async
-        except Exception as exc:  # noqa: BLE001 — multiplexer optional at import
-            return {
-                "status": "skipped",
-                "source": "fleet",
-                "reason": f"multiplexer unavailable: {exc}",
-            }
-
-        config_path = _resolve_fleet_config()
-        if config_path is None:
-            return {
-                "status": "skipped",
-                "source": "fleet",
-                "reason": "no mcp_config.json with servers found",
-            }
-        from .task_lanes import lane_soft_timeout
-
-        probe_budget = max(
-            10.0, lane_soft_timeout("connectors") * _FLEET_PROBE_BUDGET_FRACTION
+    probe = (
+        SimpleNamespace(
+            skip=None, catalog=client, configs=None, discovery_bindings=None
         )
-        try:
-            mux = MCPMultiplexer(config_path)
-            catalog = _run_async(
-                mux.probe_catalog(budget=probe_budget),
-                timeout=probe_budget + _FLEET_PROBE_GRACE_SEC,
-            )
-        except Exception as exc:  # noqa: BLE001 — probe is best-effort
-            return {"status": "error", "source": "fleet", "reason": str(exc)}
-        try:
-            # Best-effort transport/url metadata for the relational
-            # ``mcp_servers`` rows (see ``fleet_catalog_tables.write_fleet_catalog``);
-            # never fatal to the sync if the config can't be re-read.
-            configs = mux.load_catalog()
-        except Exception:  # noqa: BLE001 — server-row transport/url is best-effort
-            configs = None
-
-        try:
-            # Broker authority is process-owned multiplexer state, never a
-            # field in the caller-visible catalog.  The identity-bound lookup
-            # also rejects copied/spoofed catalog dictionaries.  Minting a
-            # tenant-local binding reads the ambient session, which the probe
-            # above may have outlived -- see :func:`_fresh_write_authority`.
-            with _fresh_write_authority():
-                mux._bind_local_discovery_bindings(catalog or {})
-                discovery_bindings = mux._take_discovery_bindings(catalog or {})
-        except Exception:  # noqa: BLE001 - private binding metadata is optional
-            discovery_bindings = None
+        if isinstance(client, dict)
+        else _probe_fleet_catalog()
+    )
+    if probe.skip is not None:
+        return probe.skip
+    catalog = probe.catalog
 
     with _fresh_write_authority():
         counts = _write_fleet_nodes(
             engine,
             catalog,
-            configs=configs,
-            discovery_bindings=discovery_bindings,
+            configs=probe.configs,
+            discovery_bindings=probe.discovery_bindings,
         )
     return {
         "status": "ok",
@@ -1305,6 +1516,144 @@ def _sync_fleet(
 
 
 # ── LeanIX delta handler (the first delta-capable source) ────────────────────
+
+
+def _leanix_reconcile(engine: Any, client: Any) -> dict[str, Any]:
+    """Reconcile the KG's LeanIX slice against the live fact-sheet id set.
+
+    CONCEPT:AU-P0-4: track whether the live-id fetch actually succeeded — an
+    exception here must NOT be silently indistinguishable from a legitimate
+    authoritatively-empty snapshot (both used to collapse to ``live = set()``,
+    and an empty set used to always tombstone).
+    """
+    live: set[str] = set()
+    fetch_ok = False
+    getter = getattr(client, "fact_sheet_ids", None)
+    if callable(getter):
+        try:
+            live = getter() or set()
+            fetch_ok = True
+        except Exception:  # noqa: BLE001
+            live = set()
+            fetch_ok = False
+    return _reconcile(engine, "leanix", live, fetch_ok=fetch_ok)
+
+
+def _leanix_batch_rows(
+    batch: Any,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The extractor batch as checkpoint-ordered entity rows plus edge rows."""
+    entities = [{"id": n.id, "type": n.type, **n.props} for n in batch.nodes]
+    relationships = [
+        {"source": e.source, "target": e.target, "type": e.rel_type, **e.props}
+        for e in batch.edges
+    ]
+    ordered = sorted(
+        entities, key=lambda item: _checkpoint_order(item.get("updatedAt"))
+    )
+    return ordered, relationships
+
+
+def _leanix_apply_entities(
+    engine: Any, records: list[dict[str, Any]], since: str | None
+) -> SimpleNamespace:
+    """Apply each fact-sheet envelope in order, stopping at the first failure.
+
+    Returns ``SimpleNamespace(applied, failed, watermark)``.
+    """
+    from ..ingestion.change_envelope import ChangeEnvelope
+    from ..ingestion.envelope_ingest import ingest_envelope
+
+    state = SimpleNamespace(applied=0, failed=0, watermark=since)
+    for record in records:
+        env: ChangeEnvelope | None = ChangeEnvelope.from_connector_record(
+            record,
+            connector="leanix",
+            id_field="id",
+            version_field="updatedAt",
+            checkpoint=record.get("updatedAt"),
+        )
+        env, blocked = _apply_with_preflight_one(engine, "leanix", env)
+        if env is None:
+            state.failed += 1
+            logger.warning("leanix envelope blocked by backfeed preflight: %s", blocked)
+            break
+        result = ingest_envelope(engine, env)
+        if result.get("status") not in {"success", "skipped"}:
+            state.failed += 1
+            logger.warning(
+                "leanix envelope %s failed: %s",
+                env.idempotency_key,
+                result.get("error"),
+            )
+            # A later record may carry a newer cursor. Stop here so a retry can
+            # still observe this failed record instead of skipping past it.
+            break
+        state.applied += 1
+        checkpoint = record.get("updatedAt")
+        if checkpoint:
+            state.watermark = str(checkpoint)
+    return state
+
+
+def _leanix_relation_record(
+    relationships: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """The deterministic relation-projection record for one delta's edges."""
+    canonical_relationships = sorted(
+        relationships,
+        key=lambda item: json.dumps(
+            item, sort_keys=True, separators=(",", ":"), default=str
+        ),
+    )
+    relation_version = hashlib.sha256(
+        json.dumps(
+            canonical_relationships,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()
+    return {
+        "id": make_source_id("leanix", "relationship-projection"),
+        "type": "SourceRelationshipProjection",
+        "updatedAt": relation_version,
+        "relationship_count": len(canonical_relationships),
+        "_links": canonical_relationships,
+    }
+
+
+def _leanix_apply_relations(
+    engine: Any, relationships: list[dict[str, Any]], watermark: str | None
+) -> tuple[int, int]:
+    """Apply the relation projection, as ``(relations_hydrated, failures)``."""
+    from ..ingestion.change_envelope import ChangeEnvelope
+    from ..ingestion.envelope_ingest import ingest_envelope
+
+    relation_record = _leanix_relation_record(relationships)
+    relation_env: ChangeEnvelope | None = ChangeEnvelope.from_connector_record(
+        relation_record,
+        connector="leanix",
+        id_field="id",
+        version_field="updatedAt",
+        checkpoint=watermark,
+    )
+    relation_env, blocked = _apply_with_preflight_one(engine, "leanix", relation_env)
+    if relation_env is None:
+        logger.warning(
+            "leanix relation envelope blocked by backfeed preflight: %s",
+            blocked,
+        )
+        return 0, 1
+    relation_result = ingest_envelope(engine, relation_env)
+    if relation_result.get("status") not in {"success", "skipped"}:
+        logger.warning(
+            "leanix relation envelope %s failed: %s",
+            relation_env.idempotency_key,
+            relation_result.get("error"),
+        )
+        return 0, 1
+    return int(relation_record["relationship_count"]), 0
 
 
 def _sync_leanix(
@@ -1330,125 +1679,27 @@ def _sync_leanix(
         return {"status": "skipped", "reason": "no LeanIX client configured"}
 
     if mode == "reconcile":
-        live: set[str] = set()
-        # CONCEPT:AU-P0-4: track whether the live-id fetch actually succeeded —
-        # an exception here must NOT be silently indistinguishable from a
-        # legitimate authoritatively-empty snapshot (both used to collapse to
-        # ``live = set()``, and an empty set used to always tombstone).
-        fetch_ok = False
-        getter = getattr(client, "fact_sheet_ids", None)
-        if callable(getter):
-            try:
-                live = getter() or set()
-                fetch_ok = True
-            except Exception:  # noqa: BLE001
-                live = set()
-                fetch_ok = False
-        return _reconcile(engine, "leanix", live, fetch_ok=fetch_ok)
+        return _leanix_reconcile(engine, client)
 
     since = None if mode == "full" else _read_envelope_watermark(engine, "leanix")
 
     from ..enrichment.extractors.leanix import extract as leanix_extract
-    from ..ingestion.change_envelope import ChangeEnvelope
-    from ..ingestion.envelope_ingest import ingest_envelope
 
     batch = leanix_extract(SimpleNamespace(client=client, since=since, ids=ids))
-    entities = [{"id": n.id, "type": n.type, **n.props} for n in batch.nodes]
-    relationships = [
-        {"source": e.source, "target": e.target, "type": e.rel_type, **e.props}
-        for e in batch.edges
-    ]
+    ordered_entities, relationships = _leanix_batch_rows(batch)
 
-    ordered_entities = sorted(
-        entities, key=lambda item: _checkpoint_order(item.get("updatedAt"))
-    )
-    failed = 0
-    applied_entities = 0
-    new_watermark = since
-    for record in ordered_entities:
-        env: ChangeEnvelope | None = ChangeEnvelope.from_connector_record(
-            record,
-            connector="leanix",
-            id_field="id",
-            version_field="updatedAt",
-            checkpoint=record.get("updatedAt"),
-        )
-        env, _blocked = _apply_with_preflight_one(engine, "leanix", env)
-        if env is None:
-            failed += 1
-            logger.warning(
-                "leanix envelope blocked by backfeed preflight: %s", _blocked
-            )
-            break
-        result = ingest_envelope(engine, env)
-        if result.get("status") not in {"success", "skipped"}:
-            failed += 1
-            logger.warning(
-                "leanix envelope %s failed: %s",
-                env.idempotency_key,
-                result.get("error"),
-            )
-            # A later record may carry a newer cursor. Stop here so a retry can
-            # still observe this failed record instead of skipping past it.
-            break
-        applied_entities += 1
-        checkpoint = record.get("updatedAt")
-        if checkpoint:
-            new_watermark = str(checkpoint)
+    applied = _leanix_apply_entities(engine, ordered_entities, since)
+    failed = applied.failed
     relations_hydrated = 0
     if relationships and not failed:
         # A relation can connect nodes from different delta pages. Applying the
         # projection only after object envelopes preserves that shape without
         # choosing an arbitrary object as the relation owner. Sorting makes an
         # upstream ordering-only change idempotent.
-        canonical_relationships = sorted(
-            relationships,
-            key=lambda item: json.dumps(
-                item, sort_keys=True, separators=(",", ":"), default=str
-            ),
+        relations_hydrated, relation_failures = _leanix_apply_relations(
+            engine, relationships, applied.watermark
         )
-        relation_version = hashlib.sha256(
-            json.dumps(
-                canonical_relationships,
-                sort_keys=True,
-                separators=(",", ":"),
-                default=str,
-            ).encode("utf-8")
-        ).hexdigest()
-        relation_record = {
-            "id": make_source_id("leanix", "relationship-projection"),
-            "type": "SourceRelationshipProjection",
-            "updatedAt": relation_version,
-            "relationship_count": len(canonical_relationships),
-            "_links": canonical_relationships,
-        }
-        relation_env: ChangeEnvelope | None = ChangeEnvelope.from_connector_record(
-            relation_record,
-            connector="leanix",
-            id_field="id",
-            version_field="updatedAt",
-            checkpoint=new_watermark,
-        )
-        relation_env, _rel_blocked = _apply_with_preflight_one(
-            engine, "leanix", relation_env
-        )
-        if relation_env is None:
-            failed += 1
-            logger.warning(
-                "leanix relation envelope blocked by backfeed preflight: %s",
-                _rel_blocked,
-            )
-        else:
-            relation_result = ingest_envelope(engine, relation_env)
-            if relation_result.get("status") not in {"success", "skipped"}:
-                failed += 1
-                logger.warning(
-                    "leanix relation envelope %s failed: %s",
-                    relation_env.idempotency_key,
-                    relation_result.get("error"),
-                )
-            else:
-                relations_hydrated = len(canonical_relationships)
+        failed += relation_failures
 
     # This is only a reported summary; the native cursor is committed inside
     # each successful ChangeEnvelope transaction.
@@ -1458,12 +1709,99 @@ def _sync_leanix(
         "source": "leanix",
         "mode": mode,
         "delta_capable": True,
-        "nodes_hydrated": applied_entities,
+        "nodes_hydrated": applied.applied,
         "relations_hydrated": relations_hydrated,
         "failed": failed,
         "since": since,
-        "watermark": new_watermark or since,
+        "watermark": applied.watermark or since,
     }
+
+
+def _archivebox_params(since: str | None, ids: list[str] | None) -> dict[str, Any]:
+    """The ``archivebox`` preset params — delta watermark and/or explicit ids."""
+    params: dict[str, Any] = {}
+    if since:
+        params["created_at__gte"] = since
+    if ids:
+        params["id"] = ",".join(ids)
+    return params
+
+
+def _archivebox_docs(since: str | None, ids: list[str] | None) -> list[Any]:
+    """Enumerate ArchiveBox snapshots through the ``archivebox`` mcp_tool preset."""
+    from ...protocols.source_connectors.registry import build_connector
+
+    config: dict[str, Any] = {"preset": "archivebox"}
+    params = _archivebox_params(since, ids)
+    if params:
+        config["params"] = params
+    conn = build_connector("mcp_tool", config)
+    if hasattr(conn, "poll_all"):
+        return list(conn.poll_all())  # type: ignore[attr-defined]
+    return list(conn.load())  # type: ignore[attr-defined]
+
+
+def _archivebox_page_text(doc: Any, url: str) -> tuple[Any, str]:
+    """The resolved page and its body text, falling back to the connector's own."""
+    from ..ingestion.web_fetch import resolve_web_fetch
+
+    page = resolve_web_fetch(url)
+    text = page.markdown if page is not None else (getattr(doc, "text", "") or "")
+    return page, text
+
+
+def _archivebox_ingest_page(processor: Any, doc: Any) -> bool:
+    """Ingest one archived URL through the unified DOCUMENT path.
+
+    The body is retrieved robustly via ``web_fetch.resolve_web_fetch``
+    (ArchiveBox-preferred when configured); ``False`` means nothing was ingested.
+    """
+    url = str((getattr(doc, "metadata", None) or {}).get("url") or "")
+    if not url.startswith(("http://", "https://")):
+        return False
+    page, text = _archivebox_page_text(doc, url)
+    if not text.strip():
+        return False
+    stable = hashlib.sha256(
+        str(getattr(doc, "id", "") or url).encode("utf-8")
+    ).hexdigest()[:32]
+    processor.process(
+        text,
+        document_id=f"archivebox:{stable}",
+        title=getattr(doc, "title", "") or url,
+        doc_type="archived_web_page",
+        source=url,
+        metadata={
+            "source_system": "archivebox",
+            "fetch_backend": page.backend if page is not None else "connector",
+            "updated_at": getattr(doc, "updated_at", None),
+        },
+        external_access=getattr(doc, "external_access", None),
+        connector="archivebox",
+        checkpoint=getattr(doc, "updated_at", None),
+    )
+    return True
+
+
+def _archivebox_checkpoint(engine: Any, docs: list[Any], since: str | None) -> Any:
+    """Commit a review checkpoint when this drain saw newer snapshots."""
+    seen = [d.updated_at for d in docs if d.updated_at]
+    new_watermark = max(seen) if seen else None
+    if new_watermark and (since is None or str(new_watermark) > str(since)):
+        _ingest_graph_slice_via_envelope(
+            engine,
+            "archivebox",
+            [
+                {
+                    "id": "archivebox:review-checkpoint",
+                    "type": "SourceReviewCheckpoint",
+                    "updatedAt": new_watermark,
+                    "items_seen": len(docs),
+                }
+            ],
+            checkpoint=new_watermark,
+        )
+    return new_watermark
 
 
 def _sync_archivebox(
@@ -1494,66 +1832,12 @@ def _sync_archivebox(
 
     since = None if mode == "full" else _read_envelope_watermark(engine, "archivebox")
 
-    from ...protocols.source_connectors.registry import build_connector
-    from ..ingestion.web_fetch import resolve_web_fetch
-
-    params: dict[str, Any] = {}
-    if since:
-        params["created_at__gte"] = since
-    if ids:
-        params["id"] = ",".join(ids)
-    config: dict[str, Any] = {"preset": "archivebox"}
-    if params:
-        config["params"] = params
-    conn = build_connector("mcp_tool", config)
-    docs = list(conn.poll_all()) if hasattr(conn, "poll_all") else list(conn.load())  # type: ignore[attr-defined]
-
-    ingested = 0
+    docs = _archivebox_docs(since, ids)
     processor = _confluence_processor(engine)
-    for doc in _ordered_documents(docs):
-        url = str((getattr(doc, "metadata", None) or {}).get("url") or "")
-        if not url.startswith(("http://", "https://")):
-            continue
-        page = resolve_web_fetch(url)
-        text = page.markdown if page is not None else (getattr(doc, "text", "") or "")
-        if not text.strip():
-            continue
-        stable = hashlib.sha256(
-            str(getattr(doc, "id", "") or url).encode("utf-8")
-        ).hexdigest()[:32]
-        processor.process(
-            text,
-            document_id=f"archivebox:{stable}",
-            title=getattr(doc, "title", "") or url,
-            doc_type="archived_web_page",
-            source=url,
-            metadata={
-                "source_system": "archivebox",
-                "fetch_backend": page.backend if page is not None else "connector",
-                "updated_at": getattr(doc, "updated_at", None),
-            },
-            external_access=getattr(doc, "external_access", None),
-            connector="archivebox",
-            checkpoint=getattr(doc, "updated_at", None),
-        )
-        ingested += 1
-
-    seen = [d.updated_at for d in docs if d.updated_at]
-    new_watermark = max(seen) if seen else None
-    if new_watermark and (since is None or str(new_watermark) > str(since)):
-        _ingest_graph_slice_via_envelope(
-            engine,
-            "archivebox",
-            [
-                {
-                    "id": "archivebox:review-checkpoint",
-                    "type": "SourceReviewCheckpoint",
-                    "updatedAt": new_watermark,
-                    "items_seen": len(docs),
-                }
-            ],
-            checkpoint=new_watermark,
-        )
+    ingested = sum(
+        1 for doc in _ordered_documents(docs) if _archivebox_ingest_page(processor, doc)
+    )
+    new_watermark = _archivebox_checkpoint(engine, docs, since)
 
     return {
         "status": "ok",
@@ -1575,6 +1859,104 @@ def _sync_archivebox(
 _FLEET_DEDICATED_PACKAGES: frozenset[str] = frozenset(
     {"gitlab-api", "atlassian-agent", "plane-agent", "scholarx"}
 )
+
+
+_FLEET_CONNECTOR_UNCONFIGURED = (
+    "not configured",
+    "no client",
+    "missing",
+    "credential",
+)
+
+
+def _fleet_connector_ingest(
+    state: SimpleNamespace, package: str, docs: list[Any], doc_type: str
+) -> int:
+    """Ingest one package's drained documents through the unified DOCUMENT path."""
+    ingested = 0
+    for doc in docs:
+        text = getattr(doc, "text", "") or ""
+        if not text.strip():
+            continue
+        _lazy_document_processor(state).process(
+            text,
+            document_id=f"fleet:{package}:{getattr(doc, 'id', '')}",
+            title=getattr(doc, "title", "") or str(getattr(doc, "id", "")),
+            doc_type=doc_type,
+            source=getattr(doc, "source_uri", "") or "",
+            metadata={
+                "source_system": make_source_id("fleet", package),
+                "package": package,
+                "updated_at": getattr(doc, "updated_at", None),
+            },
+            external_access=getattr(doc, "external_access", None),
+            connector="fleet_connectors",
+            source_instance=package,
+            checkpoint=getattr(doc, "updated_at", None),
+        )
+        ingested += 1
+    return ingested
+
+
+def _fleet_connector_checkpoint(
+    engine: Any, package: str, docs: list[Any], since: str | None
+) -> str | None:
+    """Commit a ``SourceReviewCheckpoint`` when this drain saw newer records."""
+    watermark = _max_updated(docs)
+    if watermark and (since is None or str(watermark) > str(since)):
+        _ingest_graph_slice_via_envelope(
+            engine,
+            "fleet_connectors",
+            [
+                {
+                    "id": f"fleet:{package}:review-checkpoint",
+                    "type": "SourceReviewCheckpoint",
+                    "updatedAt": watermark,
+                    "items_seen": len(docs),
+                }
+            ],
+            source_instance=package,
+            checkpoint=watermark,
+        )
+    return watermark
+
+
+def _fleet_connector_sync(
+    state: SimpleNamespace, package: str, preset: dict[str, Any], mode: str
+) -> dict[str, Any]:
+    """Drain + ingest one ``agents/*`` package, returning its ``synced`` summary."""
+    from ...protocols.source_connectors.registry import build_connector
+
+    since = (
+        None
+        if mode == "full"
+        else _read_envelope_watermark(
+            state.engine,
+            "fleet_connectors",
+            source_instance=package,
+        )
+    )
+    conn = build_connector("mcp", {"package": package})
+    docs = _ordered_documents(_drain_incremental(conn, since))
+    ingested = _fleet_connector_ingest(
+        state, package, docs, str(preset.get("doc_type") or "document")
+    )
+    return {
+        "records_seen": len(docs),
+        "documents_ingested": ingested,
+        "watermark": _fleet_connector_checkpoint(state.engine, package, docs, since),
+    }
+
+
+def _classify_fleet_connector_exception(
+    package: str, exc: Exception
+) -> tuple[str, str]:
+    """Bucket one package's failure — an unconfigured upstream is a skip."""
+    msg = str(exc)
+    if any(token in msg.lower() for token in _FLEET_CONNECTOR_UNCONFIGURED):
+        return "skipped", f"unconfigured: {msg[:120]}"
+    logger.warning("fleet_connectors: %s failed: %s", package, exc)
+    return "errors", msg[:200]
 
 
 def _sync_fleet_connectors(
@@ -1612,14 +1994,10 @@ def _sync_fleet_connectors(
         PACKAGE_PRESETS,
         get_preset,
     )
-    from ...protocols.source_connectors.registry import build_connector
 
     servers = _load_mcp_config() or {}
-
-    synced: dict[str, Any] = {}
-    skipped: dict[str, str] = {}
-    errors: dict[str, str] = {}
-    proc: Any = None
+    state = SimpleNamespace(engine=engine, proc=None)
+    buckets: dict[str, dict[str, Any]] = {"synced": {}, "skipped": {}, "errors": {}}
 
     for package in sorted(PACKAGE_PRESETS):
         # Skip packages already covered by a DEDICATED delta handler — otherwise
@@ -1628,96 +2006,34 @@ def _sync_fleet_connectors(
         # content-hash delta can't dedup → duplicate Document/Chunk nodes every run
         # (CONCEPT:AU-KG.compute.gitlab-api-gitlab-atlassian). The dedicated handler owns these upstreams.
         if package in _FLEET_DEDICATED_PACKAGES:
-            skipped[package] = "covered by a dedicated delta handler"
+            buckets["skipped"][package] = "covered by a dedicated delta handler"
             continue
         preset = get_preset(package)
         server = str(preset.get("server") or f"{package}-mcp")
         # Configured = the package's MCP server is registered with the multiplexer.
         if server not in servers and package not in servers:
-            skipped[package] = f"{server} not in mcp_config"
+            buckets["skipped"][package] = f"{server} not in mcp_config"
             continue
-        since = (
-            None
-            if mode == "full"
-            else _read_envelope_watermark(
-                engine,
-                "fleet_connectors",
-                source_instance=package,
-            )
-        )
         try:
-            conn = build_connector("mcp", {"package": package})
-            docs = _ordered_documents(_drain_incremental(conn, since))
-            doc_type = str(preset.get("doc_type") or "document")
-            ingested = 0
-            for doc in docs:
-                text = getattr(doc, "text", "") or ""
-                if not text.strip():
-                    continue
-                if proc is None:
-                    proc = _confluence_processor(engine)
-                doc_id = f"fleet:{package}:{getattr(doc, 'id', '')}"
-                proc.process(
-                    text,
-                    document_id=doc_id,
-                    title=getattr(doc, "title", "") or str(getattr(doc, "id", "")),
-                    doc_type=doc_type,
-                    source=getattr(doc, "source_uri", "") or "",
-                    metadata={
-                        "source_system": make_source_id("fleet", package),
-                        "package": package,
-                        "updated_at": getattr(doc, "updated_at", None),
-                    },
-                    external_access=getattr(doc, "external_access", None),
-                    connector="fleet_connectors",
-                    source_instance=package,
-                    checkpoint=getattr(doc, "updated_at", None),
-                )
-                ingested += 1
-            watermark = _max_updated(docs)
-            if watermark and (since is None or str(watermark) > str(since)):
-                _ingest_graph_slice_via_envelope(
-                    engine,
-                    "fleet_connectors",
-                    [
-                        {
-                            "id": f"fleet:{package}:review-checkpoint",
-                            "type": "SourceReviewCheckpoint",
-                            "updatedAt": watermark,
-                            "items_seen": len(docs),
-                        }
-                    ],
-                    source_instance=package,
-                    checkpoint=watermark,
-                )
-            synced[package] = {
-                "records_seen": len(docs),
-                "documents_ingested": ingested,
-                "watermark": watermark,
-            }
+            buckets["synced"][package] = _fleet_connector_sync(
+                state, package, preset, mode
+            )
         except Exception as exc:  # noqa: BLE001 — isolate one bad package
-            msg = str(exc)
-            if any(
-                t in msg.lower()
-                for t in ("not configured", "no client", "missing", "credential")
-            ):
-                skipped[package] = f"unconfigured: {msg[:120]}"
-            else:
-                errors[package] = msg[:200]
-                logger.warning("fleet_connectors: %s failed: %s", package, exc)
+            bucket, value = _classify_fleet_connector_exception(package, exc)
+            buckets[bucket][package] = value
 
     return {
-        "status": "partial" if errors else "ok",
+        "status": "partial" if buckets["errors"] else "ok",
         "source": "fleet_connectors",
         "mode": mode,
         "delta_capable": True,
-        "synced": synced,
-        "skipped": skipped,
-        "errors": errors,
+        "synced": buckets["synced"],
+        "skipped": buckets["skipped"],
+        "errors": buckets["errors"],
         "counts": {
-            "synced": len(synced),
-            "skipped": len(skipped),
-            "errors": len(errors),
+            "synced": len(buckets["synced"]),
+            "skipped": len(buckets["skipped"]),
+            "errors": len(buckets["errors"]),
         },
     }
 
@@ -1753,28 +2069,39 @@ _OPS_PRIVATE_METADATA_KEYS = frozenset(
 )
 
 
-def _safe_ops_value(value: Any) -> Any:
-    """Remove private fields and sanitize an ops record before persistence."""
-    filtered: Any
+def _is_filesystem_path(value: str) -> bool:
+    """Whether a string looks like a local filesystem path or ``file://`` URL."""
+    return (
+        os.path.isabs(value)
+        or value.startswith("file://")
+        or (len(value) > 2 and value[1] == ":" and value[2] in "\\/")
+    )
+
+
+def _filter_ops_value(value: Any) -> Any:
+    """Drop private keys and replace path-shaped strings.
+
+    Recurses through :func:`_safe_ops_value` so every nested level is filtered
+    AND sanitized, exactly as the original single recursive function did.
+    """
     if isinstance(value, dict):
-        filtered = {
+        return {
             key: _safe_ops_value(item)
             for key, item in value.items()
             if str(key).lower() not in _OPS_PRIVATE_METADATA_KEYS
         }
-    elif isinstance(value, list):
-        filtered = [_safe_ops_value(item) for item in value]
-    elif isinstance(value, str) and (
-        os.path.isabs(value)
-        or value.startswith("file://")
-        or (len(value) > 2 and value[1] == ":" and value[2] in "\\/")
-    ):
-        filtered = "configured-resource"
-    else:
-        filtered = value
+    if isinstance(value, list):
+        return [_safe_ops_value(item) for item in value]
+    if isinstance(value, str) and _is_filesystem_path(value):
+        return "configured-resource"
+    return value
+
+
+def _safe_ops_value(value: Any) -> Any:
+    """Remove private fields and sanitize an ops record before persistence."""
     from ...security.persistence_privacy import sanitize_for_persistence
 
-    clean, _ = sanitize_for_persistence(filtered)
+    clean, _ = sanitize_for_persistence(_filter_ops_value(value))
     return clean
 
 
@@ -1843,6 +2170,88 @@ def _ops_connector_config(package: str) -> tuple[dict[str, Any], Any]:
     }, sync
 
 
+def _ops_drain(conn_config: dict[str, Any], mode: str, since: str | None) -> list[Any]:
+    """Drain one ops connector's signed listing tool (full snapshot on reconcile)."""
+    from ...protocols.source_connectors.registry import build_connector
+
+    conn = build_connector("mcp_tool", conn_config)
+    if mode == "reconcile":
+        return list(conn.load())  # type: ignore[attr-defined]
+    return _ordered_documents(_drain_incremental(conn, since))
+
+
+def _ops_live_ids(docs: list[Any], package: str) -> set[str]:
+    """The privacy-safe live id set a reconcile pass compares the KG against."""
+    raw_live = {str(getattr(d, "id", "")) for d in docs if getattr(d, "id", None)}
+    return {_safe_ops_id(value, source=package) for value in raw_live}
+
+
+def _ops_record(doc: Any, package: str, sync: Any) -> dict[str, Any]:
+    """One drained ops document as a privacy-safe, id-stamped connector record."""
+    raw = _record_of(doc)
+    record: dict[str, Any] = (
+        _safe_ops_value(dict(raw))
+        if isinstance(raw, dict)
+        else {
+            "id": getattr(doc, "id", ""),
+            "name": getattr(doc, "title", ""),
+            "text": getattr(doc, "text", ""),
+        }
+    )
+    safe_id = _safe_ops_id(getattr(doc, "id", ""), source=package)
+    record["id"] = safe_id
+    if sync.id_field and "." not in sync.id_field:
+        record[sync.id_field] = safe_id
+    record.setdefault("name", _safe_ops_value(getattr(doc, "title", "")))
+    record.setdefault("text", _safe_ops_value(getattr(doc, "text", "")))
+    return record
+
+
+def _ops_apply_envelopes(
+    engine: Any, docs: list[Any], package: str, sync: Any, since: str | None
+) -> SimpleNamespace:
+    """Ingest each ops record, stopping at the first failure.
+
+    Returns ``SimpleNamespace(processed, failed, watermark)``.
+    """
+    from ..ingestion.change_envelope import ChangeEnvelope
+    from ..ingestion.envelope_ingest import ingest_envelope
+
+    state = SimpleNamespace(processed=0, failed=0, watermark=since)
+    for doc in docs:
+        updated_at = getattr(doc, "updated_at", None)
+        env: ChangeEnvelope | None = ChangeEnvelope.from_connector_record(
+            _ops_record(doc, package, sync),
+            connector=package,
+            id_field="id",
+            version_field=sync.updated_field or "id",
+            checkpoint=updated_at,
+            source_acl=getattr(doc, "external_access", None),
+        )
+        env, blocked = _apply_with_preflight_one(engine, package, env)
+        if env is None:
+            state.failed += 1
+            logger.warning(
+                "%s envelope blocked by backfeed preflight: %s", package, blocked
+            )
+            break
+        result = ingest_envelope(engine, env)
+        if result.get("status") not in {"success", "skipped"}:
+            state.failed += 1
+            logger.warning(
+                "%s envelope %s failed closed",
+                package,
+                env.idempotency_key,
+            )
+            break
+        state.processed += 1
+        if updated_at and (
+            state.watermark is None or str(updated_at) > str(state.watermark)
+        ):
+            state.watermark = updated_at
+    return state
+
+
 def _sync_ops_mcp_connector(
     engine: Any,
     *,
@@ -1873,14 +2282,8 @@ def _sync_ops_mcp_connector(
     if client is not None:
         conn_config["client"] = client
 
-    from ...protocols.source_connectors.registry import build_connector
-
     try:
-        conn = build_connector("mcp_tool", conn_config)
-        if mode == "reconcile":
-            docs = list(conn.load())  # type: ignore[attr-defined]
-        else:
-            docs = _ordered_documents(_drain_incremental(conn, since))
+        docs = _ops_drain(conn_config, mode, since)
     except Exception as exc:  # noqa: BLE001 - mandatory execution is fail-closed
         return {
             "status": "error",
@@ -1889,72 +2292,20 @@ def _sync_ops_mcp_connector(
         }
 
     if mode == "reconcile":
-        raw_live = {str(getattr(d, "id", "")) for d in docs if getattr(d, "id", None)}
-        live = {_safe_ops_id(value, source=package) for value in raw_live}
+        live = _ops_live_ids(docs, package)
         return _reconcile(engine, package, live) | {"source": package}
 
-    from ..ingestion.change_envelope import ChangeEnvelope
-    from ..ingestion.envelope_ingest import ingest_envelope
-
-    processed = 0
-    failed = 0
-    watermark = since
-    for doc in docs:
-        raw = _record_of(doc)
-        record: dict[str, Any] = (
-            _safe_ops_value(dict(raw))
-            if isinstance(raw, dict)
-            else {
-                "id": getattr(doc, "id", ""),
-                "name": getattr(doc, "title", ""),
-                "text": getattr(doc, "text", ""),
-            }
-        )
-        safe_id = _safe_ops_id(getattr(doc, "id", ""), source=package)
-        record["id"] = safe_id
-        if sync.id_field and "." not in sync.id_field:
-            record[sync.id_field] = safe_id
-        record.setdefault("name", _safe_ops_value(getattr(doc, "title", "")))
-        record.setdefault("text", _safe_ops_value(getattr(doc, "text", "")))
-        updated_at = getattr(doc, "updated_at", None)
-        env: ChangeEnvelope | None = ChangeEnvelope.from_connector_record(
-            record,
-            connector=package,
-            id_field="id",
-            version_field=sync.updated_field or "id",
-            checkpoint=updated_at,
-            source_acl=getattr(doc, "external_access", None),
-        )
-        env, _blocked = _apply_with_preflight_one(engine, package, env)
-        if env is None:
-            failed += 1
-            logger.warning(
-                "%s envelope blocked by backfeed preflight: %s", package, _blocked
-            )
-            break
-        result = ingest_envelope(engine, env)
-        if result.get("status") not in {"success", "skipped"}:
-            failed += 1
-            logger.warning(
-                "%s envelope %s failed closed",
-                package,
-                env.idempotency_key,
-            )
-            break
-        processed += 1
-        if updated_at and (watermark is None or str(updated_at) > str(watermark)):
-            watermark = updated_at
-
+    state = _ops_apply_envelopes(engine, docs, package, sync, since)
     return {
-        "status": "partial" if failed else "ok",
+        "status": "partial" if state.failed else "ok",
         "source": package,
         "mode": mode,
         "delta_capable": bool(sync.updated_field),
         "records_seen": len(docs),
-        "ingested": processed,
-        "failed": failed,
+        "ingested": state.processed,
+        "failed": state.failed,
         "since": since,
-        "watermark": watermark,
+        "watermark": state.watermark,
     }
 
 
@@ -2020,6 +2371,82 @@ def _as_epoch(value: Any) -> int | None:
         return None
 
 
+def _freshrss_configured() -> bool:
+    """FreshRSS is configured when ``FRESHRSS_URL`` is set OR ``freshrss-mcp`` is.
+
+    The connector reaches FreshRSS through that server (which holds the GReader
+    credentials), so graph-os itself needs no direct FreshRSS env.
+    """
+    from ...core.config import setting
+
+    if (setting("FRESHRSS_URL", default="") or "").strip():
+        return True
+    try:
+        from ...protocols.source_connectors.connectors.mcp_tool import (
+            _load_mcp_config,
+        )
+
+        servers = _load_mcp_config() or {}
+        return "freshrss-mcp" in servers or "freshrss" in servers
+    except Exception:  # noqa: BLE001 — best-effort discovery
+        return False
+
+
+def _freshrss_docs(since: str | None) -> list[Any]:
+    """Drain the ``freshrss`` mcp_tool preset over the Google-Reader API.
+
+    Bound each run (the */20min sweep drains incrementally) so a cold first run —
+    thousands of backlog articles before any watermark — can't run unbounded. Each
+    cursor batch is ~100 items; default 3 pages ≈ 300 items/run. Override with
+    ``FRESHRSS_MAX_BATCHES``.
+    """
+    from ...core.config import setting
+    from ...protocols.source_connectors.registry import build_connector
+
+    params: dict[str, Any] = {}
+    if since and (since_epoch := _as_epoch(since)) is not None:
+        params["newer_than"] = since_epoch  # GReader ``ot`` — unix seconds
+    config: dict[str, Any] = {"preset": "freshrss"}
+    if params:
+        config["params"] = params
+    conn = build_connector("mcp_tool", config)
+    try:
+        max_batches = int(setting("FRESHRSS_MAX_BATCHES", default="3") or 3)
+    except (TypeError, ValueError):
+        max_batches = 3
+    if hasattr(conn, "poll_all"):
+        return list(conn.poll_all(max_batches=max_batches))  # type: ignore[attr-defined]
+    return list(conn.load())  # type: ignore[attr-defined]
+
+
+def _freshrss_checkpoint(
+    engine: Any, docs: list[Any], since: str | None, failed: int
+) -> str | None:
+    """Commit the FreshRSS review checkpoint (a unix-seconds GReader watermark)."""
+    seen = [e for d in docs if (e := _as_epoch(d.updated_at)) is not None]
+    new_watermark = str(max(seen)) if seen else None
+    since_epoch = _as_epoch(since) if since else None
+    if (
+        not failed
+        and new_watermark
+        and (since_epoch is None or int(new_watermark) > since_epoch)
+    ):
+        _ingest_graph_slice_via_envelope(
+            engine,
+            "freshrss",
+            [
+                {
+                    "id": "freshrss:review-checkpoint",
+                    "type": "SourceReviewCheckpoint",
+                    "updatedAt": new_watermark,
+                    "items_seen": len(docs),
+                }
+            ],
+            checkpoint=new_watermark,
+        )
+    return new_watermark
+
+
 def _sync_freshrss(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
@@ -2044,27 +2471,12 @@ def _sync_freshrss(
 
     from ...core.config import setting
 
-    # Configured if FRESHRSS_URL is set OR the freshrss-mcp server is registered in
-    # mcp_config — the connector reaches FreshRSS through that server (which holds the
-    # GReader credentials), so graph-os itself needs no direct FreshRSS env.
-    configured = bool((setting("FRESHRSS_URL", default="") or "").strip())
-    if not configured:
-        try:
-            from ...protocols.source_connectors.connectors.mcp_tool import (
-                _load_mcp_config,
-            )
-
-            servers = _load_mcp_config() or {}
-            configured = "freshrss-mcp" in servers or "freshrss" in servers
-        except Exception:  # noqa: BLE001 — best-effort discovery
-            configured = False
-    if not configured:
+    if not _freshrss_configured():
         return {
             "status": "skipped",
             "reason": "FreshRSS not configured (set FRESHRSS_URL or add the "
             "freshrss-mcp server to mcp_config)",
         }
-
     # Registry material is part of this external source's durable projection.
     # A native commit failure is not a reason to continue and advance its cursor.
     from ...automation.feed_sources import upsert_feed_source
@@ -2080,30 +2492,12 @@ def _sync_freshrss(
 
     since = None if mode == "full" else _read_envelope_watermark(engine, "freshrss")
 
-    from ...automation.worldmodel_pipeline import WorldModelPipelineRunner
-    from ...protocols.source_connectors.registry import build_connector
+    docs = _freshrss_docs(since)
 
-    params: dict[str, Any] = {}
-    if since and (since_epoch := _as_epoch(since)) is not None:
-        params["newer_than"] = since_epoch  # GReader ``ot`` — unix seconds
-    config: dict[str, Any] = {"preset": "freshrss"}
-    if params:
-        config["params"] = params
-    conn = build_connector("mcp_tool", config)
-    # Bound each run (the */20min sweep drains incrementally) so a cold first run —
-    # thousands of backlog articles before any watermark — can't run unbounded. Each
-    # cursor batch is ~100 items; default 3 pages ≈ 300 items/run. Override with
-    # FRESHRSS_MAX_BATCHES.
-    try:
-        max_batches = int(setting("FRESHRSS_MAX_BATCHES", default="3") or 3)
-    except (TypeError, ValueError):
-        max_batches = 3
-    if hasattr(conn, "poll_all"):
-        docs = list(conn.poll_all(max_batches=max_batches))  # type: ignore[attr-defined]
-    else:
-        docs = list(conn.load())  # type: ignore[attr-defined]
-
-    from ...automation.worldmodel_pipeline import WorldModelConfig
+    from ...automation.worldmodel_pipeline import (
+        WorldModelConfig,
+        WorldModelPipelineRunner,
+    )
     from ...base_utilities import to_boolean
 
     wm_config = WorldModelConfig(
@@ -2113,27 +2507,7 @@ def _sync_freshrss(
         engine=engine, config=wm_config, connector="freshrss"
     ).run_gated_ingest(docs)
 
-    seen = [e for d in docs if (e := _as_epoch(d.updated_at)) is not None]
-    new_watermark = str(max(seen)) if seen else None
-    since_epoch = _as_epoch(since) if since else None
-    if (
-        not report.failed
-        and new_watermark
-        and (since_epoch is None or int(new_watermark) > since_epoch)
-    ):
-        _ingest_graph_slice_via_envelope(
-            engine,
-            "freshrss",
-            [
-                {
-                    "id": "freshrss:review-checkpoint",
-                    "type": "SourceReviewCheckpoint",
-                    "updatedAt": new_watermark,
-                    "items_seen": len(docs),
-                }
-            ],
-            checkpoint=new_watermark,
-        )
+    new_watermark = _freshrss_checkpoint(engine, docs, since, report.failed)
 
     return {
         "status": "partial" if report.failed else "ok",
@@ -2150,6 +2524,82 @@ def _sync_freshrss(
         "since": since,
         "watermark": new_watermark or since,
     }
+
+
+def _feed_checkpoint(
+    engine: Any, source: str, docs: list[Any], since: str | None, failed: int
+) -> Any:
+    """Commit a feed connector's review checkpoint when this run saw newer items.
+
+    Shared by the ``rss``/``arxiv``/``freshrss`` world-model feed handlers. A run
+    with any failure never advances the watermark.
+    """
+    iso_dates = [d.updated_at for d in docs if getattr(d, "updated_at", None)]
+    new_watermark = max(iso_dates) if iso_dates else None
+    if not failed and new_watermark and (since is None or new_watermark > since):
+        _ingest_graph_slice_via_envelope(
+            engine,
+            source,
+            [
+                {
+                    "id": f"{source}:review-checkpoint",
+                    "type": "SourceReviewCheckpoint",
+                    "updatedAt": new_watermark,
+                    "items_seen": len(docs),
+                }
+            ],
+            checkpoint=new_watermark,
+        )
+    return new_watermark
+
+
+def _rss_native_urls(engine: Any) -> list[str]:
+    """Native feed URLs: the ``KG_RSS_FEEDS`` seed UNION the ``:FeedSource`` registry.
+
+    So ``graph_feeds add`` → the next sweep ingests it.
+    """
+    from ...automation.feed_sources import list_feed_sources
+    from ...core.config import config as _cfg
+
+    seed = (getattr(_cfg, "kg_rss_feeds", "") or "").split(",")
+    native_url_set = {u.strip() for u in seed if u.strip()}
+    for node in list_feed_sources(engine):
+        if (
+            node.get("source_system") == "rss"
+            and node.get("enabled", True)
+            and node.get("feed_url")
+        ):
+            native_url_set.add(str(node["feed_url"]))
+    return sorted(native_url_set)
+
+
+def _scholarx_available() -> bool:
+    """ScholarX is reachable via the local package OR the fleet ``scholarx-mcp``.
+
+    Per CONCEPT:AU-KG.ingest.research-connector-presets either is sufficient to
+    enable the research feed (``scholarx_feed_documents`` itself prefers the
+    package and falls back to MCP).
+    """
+    from ...automation.feed_sources import _scholarx_mcp_configured
+
+    try:
+        import scholarx  # noqa: F401
+
+        return True
+    except Exception:  # noqa: BLE001
+        return _scholarx_mcp_configured()
+
+
+def _rss_native_docs(native_urls: list[str], since: str | None) -> list[Any]:
+    """Drain the native feed URLs through the zero-infra ``rss`` connector."""
+    from ...protocols.source_connectors.base import ConnectorCheckpoint
+    from ...protocols.source_connectors.registry import build_connector
+
+    conn = build_connector("rss", {"feed_urls": native_urls})
+    cp = ConnectorCheckpoint(watermark=since) if since else None
+    if hasattr(conn, "poll_all"):
+        return list(conn.poll_all(cp))  # type: ignore[attr-defined]
+    return list(conn.load())  # type: ignore[attr-defined]
 
 
 def _sync_rss(
@@ -2171,40 +2621,14 @@ def _sync_rss(
     # preflight chokepoint; batch=[] checks nothing per-record until a manifest
     # declares conflict_policy for "rss".
     _apply_with_preflight(engine, "rss", [])
-
     from ...automation.feed_sources import (
-        _scholarx_mcp_configured,
-        list_feed_sources,
         register_feed_nodes,
         scholarx_feed_documents,
     )
     from ...automation.worldmodel_pipeline import WorldModelPipelineRunner
-    from ...core.config import config as _cfg
-    from ...protocols.source_connectors.base import ConnectorCheckpoint
-    from ...protocols.source_connectors.registry import build_connector
 
-    # Native feed URLs = the comma-separated config seed UNION the runtime-added
-    # :FeedSource registry (so graph_feeds add → next sweep ingests it).
-    seed = (getattr(_cfg, "kg_rss_feeds", "") or "").split(",")
-    native_url_set = {u.strip() for u in seed if u.strip()}
-    for node in list_feed_sources(engine):
-        if (
-            node.get("source_system") == "rss"
-            and node.get("enabled", True)
-            and node.get("feed_url")
-        ):
-            native_url_set.add(str(node["feed_url"]))
-    native_urls = sorted(native_url_set)
-    # ScholarX is reachable either via the local package (its own arXiv parser) or,
-    # per CONCEPT:AU-KG.ingest.research-connector-presets, via the fleet's scholarx-mcp server — either
-    # is sufficient to enable the research feed (``scholarx_feed_documents`` itself
-    # prefers the package and falls back to MCP).
-    try:
-        import scholarx  # noqa: F401
-
-        scholarx_ok = True
-    except Exception:  # noqa: BLE001
-        scholarx_ok = _scholarx_mcp_configured()
+    native_urls = _rss_native_urls(engine)
+    scholarx_ok = _scholarx_available()
     if not native_urls and not scholarx_ok:
         return {
             "status": "skipped",
@@ -2223,12 +2647,7 @@ def _sync_rss(
 
     docs: list[Any] = []
     if native_urls:
-        conn = build_connector("rss", {"feed_urls": native_urls})
-        cp = ConnectorCheckpoint(watermark=since) if since else None
-        if hasattr(conn, "poll_all"):
-            docs.extend(list(conn.poll_all(cp)))  # type: ignore[attr-defined]
-        else:
-            docs.extend(list(conn.load()))  # type: ignore[attr-defined]
+        docs.extend(_rss_native_docs(native_urls, since))
     if scholarx_ok:
         docs.extend(scholarx_feed_documents())
 
@@ -2236,22 +2655,7 @@ def _sync_rss(
         docs
     )
 
-    iso_dates = [d.updated_at for d in docs if getattr(d, "updated_at", None)]
-    new_watermark = max(iso_dates) if iso_dates else None
-    if not report.failed and new_watermark and (since is None or new_watermark > since):
-        _ingest_graph_slice_via_envelope(
-            engine,
-            "rss",
-            [
-                {
-                    "id": "rss:review-checkpoint",
-                    "type": "SourceReviewCheckpoint",
-                    "updatedAt": new_watermark,
-                    "items_seen": len(docs),
-                }
-            ],
-            checkpoint=new_watermark,
-        )
+    new_watermark = _feed_checkpoint(engine, "rss", docs, since, report.failed)
 
     return {
         "status": "partial" if report.failed else "ok",
@@ -2268,6 +2672,40 @@ def _sync_rss(
         "since": since,
         "watermark": new_watermark or since,
     }
+
+
+def _arxiv_categories() -> list[str]:
+    """The opt-in ``KG_ARXIV_CATEGORIES`` listing scope.
+
+    An unscoped arXiv query is not a valid listing (``ArxivConnector`` raises
+    without categories), so an empty result means "skip", never "firehose".
+    """
+    from ...core.config import config as _cfg
+
+    return [
+        c.strip()
+        for c in (getattr(_cfg, "kg_arxiv_categories", "") or "").split(",")
+        if c.strip()
+    ]
+
+
+def _arxiv_docs(categories: list[str], since: str | None) -> list[Any]:
+    """Drain the native ``arxiv`` connector for the configured categories."""
+    from ...core.config import config as _cfg
+    from ...protocols.source_connectors.base import ConnectorCheckpoint
+    from ...protocols.source_connectors.registry import build_connector
+
+    try:
+        max_results = int(getattr(_cfg, "kg_arxiv_max_results", 50) or 50)
+    except (TypeError, ValueError):
+        max_results = 50
+    conn = build_connector(
+        "arxiv", {"categories": categories, "max_results": max_results}
+    )
+    cp = ConnectorCheckpoint(watermark=since) if since else None
+    if hasattr(conn, "poll_all"):
+        return list(conn.poll_all(cp))  # type: ignore[attr-defined]
+    return list(conn.load())  # type: ignore[attr-defined]
 
 
 def _sync_arxiv(
@@ -2295,15 +2733,8 @@ def _sync_arxiv(
 
     from ...automation.feed_sources import upsert_feed_source
     from ...automation.worldmodel_pipeline import WorldModelPipelineRunner
-    from ...core.config import config as _cfg
-    from ...protocols.source_connectors.base import ConnectorCheckpoint
-    from ...protocols.source_connectors.registry import build_connector
 
-    categories = [
-        c.strip()
-        for c in (getattr(_cfg, "kg_arxiv_categories", "") or "").split(",")
-        if c.strip()
-    ]
+    categories = _arxiv_categories()
     if not categories:
         return {
             "status": "skipped",
@@ -2321,36 +2752,13 @@ def _sync_arxiv(
         )
 
     since = None if mode == "full" else _read_envelope_watermark(engine, "arxiv")
-    try:
-        max_results = int(getattr(_cfg, "kg_arxiv_max_results", 50) or 50)
-    except (TypeError, ValueError):
-        max_results = 50
-    conn = build_connector(
-        "arxiv", {"categories": categories, "max_results": max_results}
-    )
-    cp = ConnectorCheckpoint(watermark=since) if since else None
-    docs = list(conn.poll_all(cp)) if hasattr(conn, "poll_all") else list(conn.load())  # type: ignore[attr-defined]
+    docs = _arxiv_docs(categories, since)
 
     report = WorldModelPipelineRunner(
         engine=engine, connector="arxiv"
     ).run_gated_ingest(docs)
 
-    iso_dates = [d.updated_at for d in docs if getattr(d, "updated_at", None)]
-    new_watermark = max(iso_dates) if iso_dates else None
-    if not report.failed and new_watermark and (since is None or new_watermark > since):
-        _ingest_graph_slice_via_envelope(
-            engine,
-            "arxiv",
-            [
-                {
-                    "id": "arxiv:review-checkpoint",
-                    "type": "SourceReviewCheckpoint",
-                    "updatedAt": new_watermark,
-                    "items_seen": len(docs),
-                }
-            ],
-            checkpoint=new_watermark,
-        )
+    new_watermark = _feed_checkpoint(engine, "arxiv", docs, since, report.failed)
 
     return {
         "status": "partial" if report.failed else "ok",
@@ -2368,6 +2776,83 @@ def _sync_arxiv(
         "since": since,
         "watermark": new_watermark or since,
     }
+
+
+def _gitlab_repository_checkpoint(entities: list[dict[str, Any]]) -> str | None:
+    """The ``updatedAt`` of the Repository row in one indexed project slice."""
+    return next(
+        (
+            str(item.get("updatedAt"))
+            for item in entities
+            if item.get("type") == "Repository" and item.get("updatedAt")
+        ),
+        None,
+    )
+
+
+def _gitlab_totals(results: list[dict[str, Any]]) -> dict[str, int]:
+    """Index totals across every GitLab instance summary."""
+    return {
+        "failed": sum(len(r.get("errors") or []) for r in results),
+        "projects_indexed": sum(r["projects_indexed"] for r in results),
+        "symbols": sum(r["symbols"] for r in results),
+        "calls_resolved": sum(r["calls_resolved"] for r in results),
+    }
+
+
+def _gitlab_instance_summary(
+    engine: Any,
+    inst: Any,
+    client: Any,
+    mode: str,
+    project_ids: set[str] | None,
+    index_fn: Callable[..., Any],
+) -> dict[str, Any]:
+    """Index one configured GitLab instance and return its summary row."""
+    from .gitlab_indexer import GitLabRestSource, GitLabSource, index_instance
+
+    name = inst.name if inst is not None else "gitlab"
+    since = (
+        None
+        if mode == "full"
+        else _read_envelope_watermark(
+            engine,
+            "gitlab",
+            source_instance=name,
+        )
+    )
+    # `inst is None` only occurs on the injected-client override path (in
+    # :func:`_sync_gitlab`), so a real instance always pairs with the REST source.
+    if client is not None:
+        source: GitLabSource = client
+    else:
+        assert inst is not None
+        source = GitLabRestSource(inst)
+
+    def _commit_project_slice(
+        _domain: str,
+        entities: list[dict[str, Any]],
+        relationships: list[dict[str, Any]],
+        instance_name: str = name,
+    ) -> dict[str, Any]:
+        return _ingest_graph_slice_via_envelope(
+            engine,
+            "gitlab",
+            entities,
+            relationships,
+            source_instance=instance_name,
+            checkpoint=_gitlab_repository_checkpoint(entities),
+        )
+
+    summary = index_instance(
+        instance=name,
+        source=source,
+        index_fn=index_fn,
+        ingest=_commit_project_slice,
+        project_ids=project_ids,
+        since=since,
+    )
+    return summary.as_dict()
 
 
 def _sync_gitlab(
@@ -2389,12 +2874,7 @@ def _sync_gitlab(
     # nothing per-record until a manifest declares conflict_policy for "gitlab".
     _apply_with_preflight(engine, "gitlab", [])
 
-    from .gitlab_indexer import (
-        GitLabRestSource,
-        GitLabSource,
-        index_instance,
-        instances_from_config,
-    )
+    from .gitlab_indexer import instances_from_config
 
     graph_compute = getattr(engine, "graph_compute", None)
     if graph_compute is None or not callable(
@@ -2410,70 +2890,24 @@ def _sync_gitlab(
 
     project_ids = {str(i) for i in ids} if ids else None
 
-    results: list[dict[str, Any]] = []
-    for inst in instances:
-        name = inst.name if inst is not None else "gitlab"
-        since = (
-            None
-            if mode == "full"
-            else _read_envelope_watermark(
-                engine,
-                "gitlab",
-                source_instance=name,
-            )
+    results: list[dict[str, Any]] = [
+        _gitlab_instance_summary(
+            engine, inst, client, mode, project_ids, graph_compute.index_repository
         )
-        # `inst is None` only occurs on the injected-client override path (above),
-        # so a real instance always pairs with the REST source.
-        if client is not None:
-            source: GitLabSource = client
-        else:
-            assert inst is not None
-            source = GitLabRestSource(inst)
+        for inst in instances
+    ]
 
-        def _commit_project_slice(
-            _domain: str,
-            entities: list[dict[str, Any]],
-            relationships: list[dict[str, Any]],
-            instance_name: str = name,
-        ) -> dict[str, Any]:
-            checkpoint = next(
-                (
-                    str(item.get("updatedAt"))
-                    for item in entities
-                    if item.get("type") == "Repository" and item.get("updatedAt")
-                ),
-                None,
-            )
-            return _ingest_graph_slice_via_envelope(
-                engine,
-                "gitlab",
-                entities,
-                relationships,
-                source_instance=instance_name,
-                checkpoint=checkpoint,
-            )
-
-        summary = index_instance(
-            instance=name,
-            source=source,
-            index_fn=graph_compute.index_repository,
-            ingest=_commit_project_slice,
-            project_ids=project_ids,
-            since=since,
-        )
-        results.append(summary.as_dict())
-
-    failures = sum(len(r.get("errors") or []) for r in results)
+    totals = _gitlab_totals(results)
     return {
-        "status": "partial" if failures else "ok",
+        "status": "partial" if totals["failed"] else "ok",
         "source": "gitlab",
         "mode": mode,
         "delta_capable": True,
         "instances": results,
-        "projects_indexed": sum(r["projects_indexed"] for r in results),
-        "symbols": sum(r["symbols"] for r in results),
-        "calls_resolved": sum(r["calls_resolved"] for r in results),
-        "failed": failures,
+        "projects_indexed": totals["projects_indexed"],
+        "symbols": totals["symbols"],
+        "calls_resolved": totals["calls_resolved"],
+        "failed": totals["failed"],
     }
 
 
@@ -2599,18 +3033,31 @@ def _jira_jql_date(value: Any) -> str | None:
     )
 
 
-def _jira_jql(inst: dict[str, Any], since: str | None, ids: list[str] | None) -> str:
+def _jira_scope_clauses(inst: dict[str, Any], ids: list[str] | None) -> list[str]:
+    """The JQL clauses one instance's project scope and id narrowing imply."""
     clauses: list[str] = []
     keys = [str(k) for k in (inst.get("project_keys") or []) if k]
     if keys:
         clauses.append(f"project in ({','.join(keys)})")
     if ids:
         clauses.append(f"key in ({','.join(str(i) for i in ids)})")
+    return clauses
+
+
+def _jira_jql_clauses(
+    inst: dict[str, Any], since: str | None, ids: list[str] | None
+) -> list[str]:
+    """The JQL clauses one instance's scope, id narrowing, and delta imply."""
+    clauses = _jira_scope_clauses(inst, ids)
     if since and (d := _jira_jql_date(since)):
         clauses.append(f'updated >= "{d}"')
     if extra := str(inst.get("jql") or "").strip():
         clauses.append(f"({extra})")
-    where = " AND ".join(clauses)
+    return clauses
+
+
+def _jira_jql(inst: dict[str, Any], since: str | None, ids: list[str] | None) -> str:
+    where = " AND ".join(_jira_jql_clauses(inst, since, ids))
     return (
         f"{where} ORDER BY updated DESC"
         if where
@@ -2618,6 +3065,100 @@ def _jira_jql(inst: dict[str, Any], since: str | None, ids: list[str] | None) ->
         # (400); a wide created-bound keeps "all issues" valid (CONCEPT:AU-KG.compute.jira-first-class-delta).
         else 'created >= "1970-01-01" ORDER BY updated DESC'
     )
+
+
+def _jira_assignee_rows(
+    fields: dict[str, Any], instance: str, node_id: str, src: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The issue's assignee as a :Person plus the issue's ``has_role`` edge."""
+    assignee = fields.get("assignee")
+    if not isinstance(assignee, dict):
+        return [], []
+    uid = assignee.get("accountId") or assignee.get("name")
+    if not uid:
+        return [], []
+    user_node = f"jira:{instance}:user:{uid}"
+    return (
+        [
+            {
+                "id": user_node,
+                "type": "person",
+                "name": assignee.get("displayName") or f"User {uid}",
+                "domain": "jira",
+                "source_system": src,
+            }
+        ],
+        [
+            {
+                "source": node_id,
+                "target": user_node,
+                "type": "has_role",
+                "domain": "jira",
+            }
+        ],
+    )
+
+
+def _jira_epic_rows(
+    fields: dict[str, Any], instance: str, node_id: str, src: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The issue's epic as a :Goal plus the issue's ``part_of`` edge."""
+    parent = fields.get("parent")
+    epic = (
+        parent.get("key")
+        if isinstance(parent, dict)
+        else fields.get("customfield_10014")
+    )
+    if not epic:
+        return [], []
+    epic_node = f"jira:{instance}:epic:{epic}"
+    return (
+        [
+            {
+                "id": epic_node,
+                "type": "goal",
+                "name": f"Epic {epic}",
+                "domain": "jira",
+                "source_system": src,
+            }
+        ],
+        [
+            {
+                "source": node_id,
+                "target": epic_node,
+                "type": "part_of",
+                "domain": "jira",
+            }
+        ],
+    )
+
+
+def _jira_issue_rows(doc: Any, instance: str, src: str) -> list[dict[str, Any]]:
+    """One Jira record as its person/epic nodes plus its own :Issue node."""
+    key = getattr(doc, "id", None)
+    if not key:
+        return []
+    fields = _record_of(doc).get("fields") or {}
+    node_id = f"jira:{instance}:issue:{key}"
+    user_entities, user_links = _jira_assignee_rows(fields, instance, node_id, src)
+    epic_entities, epic_links = _jira_epic_rows(fields, instance, node_id, src)
+    return [
+        *user_entities,
+        *epic_entities,
+        {
+            "id": node_id,
+            "type": "issue",
+            "name": fields.get("summary") or f"Issue {key}",
+            "status": (fields.get("status") or {}).get("name", ""),
+            "priority": (fields.get("priority") or {}).get("name", ""),
+            "issueKey": str(key),
+            "domain": "jira",
+            "source_system": src,
+            "externalToolId": str(key),
+            "updatedAt": fields.get("updated"),
+            "_links": [*user_links, *epic_links],
+        },
+    ]
 
 
 def _jira_entities(docs: list[Any], instance: str) -> list[dict[str, Any]]:
@@ -2630,77 +3171,10 @@ def _jira_entities(docs: list[Any], instance: str) -> list[dict[str, Any]]:
     fetched separately) and carried on the ISSUE's own ``_links`` — the issue is also
     the only one of the three entity types with a real per-record ``updatedAt``.
     """
-    entities: list[dict[str, Any]] = []
     src = f"jira:{instance}"
+    entities: list[dict[str, Any]] = []
     for doc in docs:
-        key = getattr(doc, "id", None)
-        if not key:
-            continue
-        fields = _record_of(doc).get("fields") or {}
-        node_id = f"jira:{instance}:issue:{key}"
-        issue_links: list[dict[str, Any]] = []
-        assignee = fields.get("assignee")
-        if isinstance(assignee, dict):
-            uid = assignee.get("accountId") or assignee.get("name")
-            if uid:
-                user_node = f"jira:{instance}:user:{uid}"
-                entities.append(
-                    {
-                        "id": user_node,
-                        "type": "person",
-                        "name": assignee.get("displayName") or f"User {uid}",
-                        "domain": "jira",
-                        "source_system": src,
-                    }
-                )
-                issue_links.append(
-                    {
-                        "source": node_id,
-                        "target": user_node,
-                        "type": "has_role",
-                        "domain": "jira",
-                    }
-                )
-        parent = fields.get("parent")
-        epic = (
-            parent.get("key")
-            if isinstance(parent, dict)
-            else fields.get("customfield_10014")
-        )
-        if epic:
-            epic_node = f"jira:{instance}:epic:{epic}"
-            entities.append(
-                {
-                    "id": epic_node,
-                    "type": "goal",
-                    "name": f"Epic {epic}",
-                    "domain": "jira",
-                    "source_system": src,
-                }
-            )
-            issue_links.append(
-                {
-                    "source": node_id,
-                    "target": epic_node,
-                    "type": "part_of",
-                    "domain": "jira",
-                }
-            )
-        entities.append(
-            {
-                "id": node_id,
-                "type": "issue",
-                "name": fields.get("summary") or f"Issue {key}",
-                "status": (fields.get("status") or {}).get("name", ""),
-                "priority": (fields.get("priority") or {}).get("name", ""),
-                "issueKey": str(key),
-                "domain": "jira",
-                "source_system": src,
-                "externalToolId": str(key),
-                "updatedAt": fields.get("updated"),
-                "_links": issue_links,
-            }
-        )
+        entities.extend(_jira_issue_rows(doc, instance, src))
     return entities
 
 
@@ -2831,6 +3305,68 @@ def _plane_entities(
     return entities
 
 
+def _plane_project_slice(
+    engine: Any, name: str, server: str, pid: str, mode: str, ids: list[str] | None
+) -> tuple[int, int, int]:
+    """Drain + ingest one Plane project, as ``(issues_written, failed, records_seen)``.
+
+    ``source_instance=<instance>:<project_id>`` so the per-envelope watermark key
+    (``plane:<instance>:<project_id>``) matches this handler's own key format.
+    """
+    source_instance = f"{name}:{pid}"
+    since = (
+        None
+        if mode == "full"
+        else _read_envelope_watermark(
+            engine,
+            "plane",
+            source_instance=source_instance,
+        )
+    )
+    params: dict[str, Any] = {"project_id": pid}
+    if ids:
+        params["filters"] = {"id": ids}
+    conn = _build_preset_conn("plane", server, params)
+    docs = _drain_incremental(conn, since)
+    entities = _plane_entities(docs, name, pid)
+    _ok, failed = _ingest_entities_via_envelope(
+        engine,
+        "plane",
+        entities,
+        source_instance=source_instance,
+    )
+    issues = sum(1 for e in entities if e["type"] == "issue")
+    return issues, failed, len(docs)
+
+
+def _plane_instance_result(
+    engine: Any, inst: dict[str, Any], mode: str, ids: list[str] | None
+) -> tuple[dict[str, Any], int, int]:
+    """One Plane instance's configured projects, as ``(result row, written, failed)``."""
+    name = str(inst.get("name") or "plane")
+    server = str(inst.get("server") or "plane-mcp")
+    projects = [str(p) for p in (inst.get("projects") or []) if p]
+    if not projects:
+        return (
+            {
+                "instance": name,
+                "status": "skipped",
+                "reason": "no projects configured",
+            },
+            0,
+            0,
+        )
+    inst_ok = inst_failed = inst_issues = 0
+    for pid in projects:
+        issues, failed, seen = _plane_project_slice(
+            engine, name, server, pid, mode, ids
+        )
+        inst_ok += issues
+        inst_failed += failed
+        inst_issues += seen
+    return {"instance": name, "issues": inst_issues}, inst_ok, inst_failed
+
+
 def _sync_plane(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
@@ -2857,48 +3393,10 @@ def _sync_plane(
     results: list[dict[str, Any]] = []
     total_e = total_failed = 0
     for inst in instances:
-        name = str(inst.get("name") or "plane")
-        server = str(inst.get("server") or "plane-mcp")
-        projects = [str(p) for p in (inst.get("projects") or []) if p]
-        if not projects:
-            results.append(
-                {
-                    "instance": name,
-                    "status": "skipped",
-                    "reason": "no projects configured",
-                }
-            )
-            continue
-        inst_ok = inst_failed = inst_issues = 0
-        for pid in projects:
-            source_instance = f"{name}:{pid}"
-            since = (
-                None
-                if mode == "full"
-                else _read_envelope_watermark(
-                    engine,
-                    "plane",
-                    source_instance=source_instance,
-                )
-            )
-            params: dict[str, Any] = {"project_id": pid}
-            if ids:
-                params["filters"] = {"id": ids}
-            conn = _build_preset_conn("plane", server, params)
-            docs = _drain_incremental(conn, since)
-            entities = _plane_entities(docs, name, pid)
-            ok, failed = _ingest_entities_via_envelope(
-                engine,
-                "plane",
-                entities,
-                source_instance=source_instance,
-            )
-            inst_ok += sum(1 for e in entities if e["type"] == "issue")
-            inst_failed += failed
-            inst_issues += len(docs)
-        total_e += inst_ok
-        total_failed += inst_failed
-        results.append({"instance": name, "issues": inst_issues})
+        row, written, failed = _plane_instance_result(engine, inst, mode, ids)
+        results.append(row)
+        total_e += written
+        total_failed += failed
     return {
         "status": "ok",
         "source": "plane",
@@ -2919,6 +3417,123 @@ def _confluence_processor(engine: Any) -> Any:
         chunking=ChunkingConfig(),
         contextual=True,
     )
+
+
+def _lazy_document_processor(state: SimpleNamespace) -> Any:
+    """The lazily-built ``DocumentProcessor``, created on the first real page."""
+    if state.proc is None:
+        state.proc = _confluence_processor(state.engine)
+    return state.proc
+
+
+def _confluence_page_params(space: str | None, ids: list[str] | None) -> dict[str, Any]:
+    """The ``confluence`` preset params for one space (``ids`` narrows to pages)."""
+    params: dict[str, Any] = {}
+    if space:
+        params["space_id"] = [space]
+    if ids:
+        params["id_"] = ids
+    return params
+
+
+def _confluence_ingest_page(
+    proc: Any, doc: Any, inst_name: str, source_instance: str
+) -> bool:
+    """Ingest one Confluence page; ``False`` when that one page failed."""
+    rec = _record_of(doc)
+    try:
+        proc.process(
+            getattr(doc, "text", "") or "",
+            document_id=f"confluence:{inst_name}:{getattr(doc, 'id', '')}",
+            title=getattr(doc, "title", "") or str(getattr(doc, "id", "")),
+            doc_type="wiki",
+            source=getattr(doc, "source_uri", ""),
+            metadata={
+                "source_system": make_source_id("confluence", inst_name),
+                "space_id": rec.get("spaceId"),
+                "version": (rec.get("version") or {}).get("number"),
+                "confluence_page_id": str(getattr(doc, "id", "")),
+                "updated_at": getattr(doc, "updated_at", None),
+            },
+            external_access=getattr(doc, "external_access", None),
+            connector="confluence",
+            source_instance=source_instance,
+            checkpoint=getattr(doc, "updated_at", None),
+        )
+        return True
+    except Exception as exc:  # noqa: BLE001 — one bad page must not abort
+        logger.warning(
+            "[KG-2.123] confluence page ingest failed for %s: %s",
+            getattr(doc, "id", "?"),
+            exc,
+        )
+        return False
+
+
+def _confluence_space_pages(
+    state: SimpleNamespace,
+    inst_name: str,
+    server: str,
+    space: str | None,
+    mode: str,
+    ids: list[str] | None,
+) -> tuple[int, bool]:
+    """Drain + ingest one space, as ``(pages_ingested, partition_failed)``.
+
+    The first failed page aborts this partition so the watermark is never advanced
+    past a page that did not land.
+    """
+    source_instance = f"{inst_name}:{space or 'all'}"
+    since = (
+        None
+        if mode == "full"
+        else _read_envelope_watermark(
+            state.engine,
+            "confluence",
+            source_instance=source_instance,
+        )
+    )
+    conn = _build_preset_conn("confluence", server, _confluence_page_params(space, ids))
+    docs = _ordered_documents(_drain_incremental(conn, since))
+    pages = 0
+    for doc in docs:
+        if not _confluence_ingest_page(
+            _lazy_document_processor(state), doc, inst_name, source_instance
+        ):
+            state.failed += 1
+            return pages, True
+        pages += 1
+    return pages, False
+
+
+def _confluence_spaces(inst: dict[str, Any]) -> list[str | None]:
+    """The configured space ids for one instance, or ``[None]`` for site-wide."""
+    return [str(s) for s in (inst.get("spaces") or []) if s] or [None]
+
+
+def _confluence_instance_pages(
+    state: SimpleNamespace, inst: dict[str, Any], mode: str, ids: list[str] | None
+) -> dict[str, Any]:
+    """Every configured space of one Confluence instance, as a result row."""
+    name = str(inst.get("name") or "confluence")
+    server = str(inst.get("server") or "atlassian-mcp")
+    spaces = _confluence_spaces(inst)
+    pages = 0
+    instance_failed = False
+    for space in spaces:
+        space_pages, partition_failed = _confluence_space_pages(
+            state, name, server, space, mode, ids
+        )
+        pages += space_pages
+        if partition_failed:
+            instance_failed = True
+            break
+    state.total += pages
+    return {
+        "instance": name,
+        "pages": pages,
+        "status": "partial" if instance_failed else "ok",
+    }
 
 
 def _sync_confluence(
@@ -2955,90 +3570,16 @@ def _sync_confluence(
         scope_key="spaces",
         scope_setting="CONFLUENCE_SPACE_IDS",
     )
-    proc: Any = None
-    results: list[dict[str, Any]] = []
-    total = 0
-    total_failed = 0
-    for inst in instances:
-        name = str(inst.get("name") or "confluence")
-        server = str(inst.get("server") or "atlassian-mcp")
-        spaces: list[str | None] = [
-            str(s) for s in (inst.get("spaces") or []) if s
-        ] or [None]
-        pages = 0
-        instance_failed = False
-        for space in spaces:
-            source_instance = f"{name}:{space or 'all'}"
-            since = (
-                None
-                if mode == "full"
-                else _read_envelope_watermark(
-                    engine,
-                    "confluence",
-                    source_instance=source_instance,
-                )
-            )
-            params: dict[str, Any] = {}
-            if space:
-                params["space_id"] = [space]
-            if ids:
-                params["id_"] = ids
-            conn = _build_preset_conn("confluence", server, params)
-            docs = _ordered_documents(_drain_incremental(conn, since))
-            if docs and proc is None:
-                proc = _confluence_processor(engine)
-            partition_failed = False
-            for doc in docs:
-                doc_id = f"confluence:{name}:{getattr(doc, 'id', '')}"
-                rec = _record_of(doc)
-                try:
-                    proc.process(
-                        getattr(doc, "text", "") or "",
-                        document_id=doc_id,
-                        title=getattr(doc, "title", "") or str(getattr(doc, "id", "")),
-                        doc_type="wiki",
-                        source=getattr(doc, "source_uri", ""),
-                        metadata={
-                            "source_system": make_source_id("confluence", name),
-                            "space_id": rec.get("spaceId"),
-                            "version": (rec.get("version") or {}).get("number"),
-                            "confluence_page_id": str(getattr(doc, "id", "")),
-                            "updated_at": getattr(doc, "updated_at", None),
-                        },
-                        external_access=getattr(doc, "external_access", None),
-                        connector="confluence",
-                        source_instance=source_instance,
-                        checkpoint=getattr(doc, "updated_at", None),
-                    )
-                    pages += 1
-                except Exception as exc:  # noqa: BLE001 — one bad page must not abort
-                    logger.warning(
-                        "[KG-2.123] confluence page ingest failed for %s: %s",
-                        getattr(doc, "id", "?"),
-                        exc,
-                    )
-                    partition_failed = True
-                    instance_failed = True
-                    total_failed += 1
-                    break
-            if partition_failed:
-                break
-        total += pages
-        results.append(
-            {
-                "instance": name,
-                "pages": pages,
-                "status": "partial" if instance_failed else "ok",
-            }
-        )
+    state = SimpleNamespace(engine=engine, proc=None, total=0, failed=0)
+    results = [_confluence_instance_pages(state, inst, mode, ids) for inst in instances]
     return {
-        "status": "partial" if total_failed else "ok",
+        "status": "partial" if state.failed else "ok",
         "source": "confluence",
         "mode": mode,
         "delta_capable": True,
         "instances": results,
-        "pages_ingested": total,
-        "failed": total_failed,
+        "pages_ingested": state.total,
+        "failed": state.failed,
     }
 
 
@@ -3108,6 +3649,130 @@ def _drain_preset(
     return list(conn.load())  # type: ignore[attr-defined]
 
 
+def _envelope_batch(
+    entities: list[dict[str, Any]],
+    connector: str,
+    source_instance: str,
+    version_field: str,
+    activity_id: str | None,
+) -> list[Any]:
+    """The checkpoint-ordered ``ChangeEnvelope`` page for one connector call.
+
+    When ambient provenance is active, every entity's own ``_links`` gains a
+    ``derived_from`` edge to this run's Activity, committed atomically with that
+    entity's own envelope (no extra engine round-trip).
+    """
+    from ..ingestion.change_envelope import ChangeEnvelope
+
+    batch: list[ChangeEnvelope] = []
+    for record in sorted(
+        entities, key=lambda item: _checkpoint_order(item.get(version_field))
+    ):
+        if activity_id:
+            record = {
+                **record,
+                "_links": [
+                    *(record.get("_links") or []),
+                    {"target": activity_id, "type": "derived_from"},
+                ],
+            }
+        batch.append(
+            ChangeEnvelope.from_connector_record(
+                record,
+                connector=connector,
+                source_instance=source_instance,
+                id_field="id",
+                version_field=version_field,
+                checkpoint=record.get(version_field),
+            )
+        )
+    return batch
+
+
+def _truncate_at_preflight_block(
+    engine: Any, connector: str, batch: list[Any], source_instance: str
+) -> tuple[list[Any], int]:
+    """Cut the page to the CONTIGUOUS prefix before the first blocked envelope.
+
+    CA-22/P11 preflight chokepoint: a preflight block must stop the watermark
+    advance exactly like a backend rejection does (a later envelope's newer
+    checkpoint must never be committed past an unapplied earlier one). Blocked
+    envelopes — and everything after them this pass — are retried on the next sync
+    run, same as any other break-on-first-failure outcome. Returns
+    ``(truncated batch, blocked count)``.
+    """
+    _, blocked = _apply_with_preflight(
+        engine, connector, batch, source_instance=source_instance
+    )
+    if not blocked:
+        return batch, 0
+    first_blocked_idx = min(entry["index"] for entry in blocked)
+    for entry in blocked:
+        logger.warning(
+            "%s envelope %s blocked by backfeed preflight: %s",
+            connector,
+            getattr(entry["envelope"], "idempotency_key", "?"),
+            entry["conflict_or_rejection"],
+        )
+    return batch[:first_blocked_idx], len(blocked)
+
+
+def _commit_envelope_batch(
+    engine: Any, connector: str, batch: list[Any]
+) -> tuple[int, int]:
+    """Commit the page, counting only the last CONTIGUOUS run of successes.
+
+    A later envelope can carry a newer cursor, so a gap must never be crossed.
+    Returns ``(succeeded, failed)``.
+    """
+    from ..ingestion.envelope_ingest import ingest_envelopes
+
+    ok = 0
+    for env, result in zip(batch, ingest_envelopes(engine, batch), strict=True):
+        if result.get("status") not in {"success", "skipped"}:
+            logger.warning(
+                "%s envelope %s failed: %s",
+                connector,
+                env.idempotency_key,
+                result.get("error"),
+            )
+            return ok, 1
+        ok += 1
+    return ok, 0
+
+
+def _close_ambient_provenance(
+    engine: Any,
+    connector: str,
+    source_instance: str,
+    activity_id: str,
+    ok: int,
+    failed: int,
+) -> None:
+    """Finalize this run's PROV-O Activity and persist its ONE summary ``:Claim``."""
+    from ..etl.lineage import (
+        record_connector_sync_activity,
+        record_connector_sync_claim,
+    )
+
+    record_connector_sync_activity(
+        engine,
+        connector=connector,
+        source_instance=source_instance,
+        status="ok" if not failed else "partial",
+        record_count=ok,
+        failed_count=failed,
+        activity_id=activity_id,
+    )
+    record_connector_sync_claim(
+        engine,
+        connector=connector,
+        source_instance=source_instance,
+        record_count=ok,
+        activity_id=activity_id,
+    )
+
+
 def _ingest_entities_via_envelope(
     engine: Any,
     connector: str,
@@ -3153,8 +3818,7 @@ def _ingest_entities_via_envelope(
     failure (or ambient epistemics disabled) never affects the entities
     themselves or this function's return value.
     """
-    from ..ingestion.change_envelope import ChangeEnvelope
-    from ..ingestion.envelope_ingest import _ambient_epistemic_enabled, ingest_envelopes
+    from ..ingestion.envelope_ingest import _ambient_epistemic_enabled
 
     activity_id: str | None = None
     if entities and _ambient_epistemic_enabled(connector):
@@ -3167,91 +3831,99 @@ def _ingest_entities_via_envelope(
             status="running",
         )
 
-    ok = failed = 0
-    ordered_entities = sorted(
-        entities, key=lambda item: _checkpoint_order(item.get(version_field))
+    batch = _envelope_batch(
+        entities, connector, source_instance, version_field, activity_id
     )
-    # Build the whole checkpoint-ordered page, then commit it in ONE batched engine
-    # round-trip. A page for one connector targets one graph, so the whole page is one
-    # atomic graph-batch (CONCEPT:AU-KG.ingest.envelope-atomic-transaction).
-    batch: list[ChangeEnvelope] = []
-    for record in ordered_entities:
-        if activity_id:
-            links = [
-                *(record.get("_links") or []),
-                {"target": activity_id, "type": "derived_from"},
-            ]
-            record = {**record, "_links": links}
-        batch.append(
-            ChangeEnvelope.from_connector_record(
-                record,
-                connector=connector,
-                source_instance=source_instance,
-                id_field="id",
-                version_field=version_field,
-                checkpoint=record.get(version_field),
-            )
-        )
-    # CA-22/P11 preflight chokepoint: classify every envelope, then truncate to the
-    # CONTIGUOUS prefix before the first blocked one — a preflight block must stop
-    # the watermark advance exactly like a backend rejection does below (a later
-    # envelope's newer checkpoint must never be committed past an unapplied earlier
-    # one). Blocked envelopes (and everything after, this pass) are retried on the
-    # next sync run, same as any other break-on-first-failure outcome here.
-    _, _preflight_blocked = _apply_with_preflight(
-        engine, connector, batch, source_instance=source_instance
+    batch, failed = _truncate_at_preflight_block(
+        engine, connector, batch, source_instance
     )
-    if _preflight_blocked:
-        _first_blocked_idx = min(_entry["index"] for _entry in _preflight_blocked)
-        batch = batch[:_first_blocked_idx]
-        for _entry in _preflight_blocked:
-            failed += 1
-            logger.warning(
-                "%s envelope %s blocked by backfeed preflight: %s",
-                connector,
-                getattr(_entry["envelope"], "idempotency_key", "?"),
-                _entry["conflict_or_rejection"],
-            )
-
-    # Walk the per-envelope results in checkpoint order and advance the watermark ONLY
-    # through the last CONTIGUOUS success — identical guarantee to the prior per-record
-    # break-on-first-failure loop (a later envelope can carry a newer cursor, so a gap
-    # must never be crossed). Same status vocabulary as the single path.
-    for env, result in zip(batch, ingest_envelopes(engine, batch), strict=True):
-        if result.get("status") not in {"success", "skipped"}:
-            failed += 1
-            logger.warning(
-                "%s envelope %s failed: %s",
-                connector,
-                env.idempotency_key,
-                result.get("error"),
-            )
-            break
-        ok += 1
+    ok, commit_failed = _commit_envelope_batch(engine, connector, batch)
+    failed += commit_failed
 
     if activity_id:
-        from ..etl.lineage import (
-            record_connector_sync_activity,
-            record_connector_sync_claim,
-        )
-
-        record_connector_sync_activity(
-            engine,
-            connector=connector,
-            source_instance=source_instance,
-            status="ok" if not failed else "partial",
-            record_count=ok,
-            failed_count=failed,
-            activity_id=activity_id,
-        )
-        record_connector_sync_claim(
-            engine,
-            connector=connector,
-            source_instance=source_instance,
-            record_count=ok,
-            activity_id=activity_id,
+        _close_ambient_provenance(
+            engine, connector, source_instance, activity_id, ok, failed
         )
     return ok, failed
+
+
+def _dockerhub_namespaces(ids: list[str] | None) -> list[str]:
+    """The configured namespaces: ``DOCKERHUB_NAMESPACES`` CSV, else ``ids``."""
+    from ...core.config import setting
+
+    return [
+        n.strip()
+        for n in (
+            setting("DOCKERHUB_NAMESPACES", default="")
+            or setting("DOCKERHUB_NAMESPACE", default="")
+        ).split(",")
+        if n.strip()
+    ] or [str(i) for i in (ids or [])]
+
+
+def _dockerhub_image_entity(doc: Any, ns: str, repo_node: str) -> dict[str, Any] | None:
+    """One DockerHub repo record as a :ContainerImage the namespace ``contains``."""
+    from ..etl.transforms import coalesce
+
+    rec = _record_of(doc)
+    name = coalesce(rec, "name") or getattr(doc, "id", None)
+    if not name:
+        return None
+    img_id = f"dockerhub:{ns}/{name}"
+    return {
+        "id": img_id,
+        "type": "container_image",
+        "name": f"{ns}/{name}",
+        "description": rec.get("description") or "",
+        "pull_count": rec.get("pull_count"),
+        "star_count": rec.get("star_count"),
+        "is_private": rec.get("is_private"),
+        "domain": "dockerhub",
+        "source_system": make_source_id("dockerhub", ns),
+        "externalToolId": f"{ns}/{name}",
+        "updatedAt": rec.get("last_updated"),
+        "_links": [
+            {
+                "source": repo_node,
+                "target": img_id,
+                "type": "contains",
+                "domain": "dockerhub",
+            }
+        ],
+    }
+
+
+def _dockerhub_namespace_slice(
+    engine: Any, ns: str, mode: str
+) -> tuple[int, int, str | None]:
+    """Drain + ingest one namespace, as ``(images_seen, failed, since)``."""
+    from ..etl.transforms import stable_id
+
+    since = (
+        None
+        if mode == "full"
+        else _read_envelope_watermark(
+            engine,
+            "dockerhub",
+            source_instance=ns,
+        )
+    )
+    docs = _drain_preset("dockerhub-repos", params={"namespace": ns})
+    repo_node = stable_id(ns, prefix="dockerhub")
+    entities: list[dict[str, Any]] = [
+        {
+            "id": repo_node,
+            "type": "repository",
+            "name": ns,
+            "domain": "dockerhub",
+            "source_system": make_source_id("dockerhub", ns),
+        },
+        *_entity_rows(docs, lambda doc: _dockerhub_image_entity(doc, ns, repo_node)),
+    ]
+    _ok, failed = _ingest_entities_via_envelope(
+        engine, "dockerhub", entities, source_instance=ns
+    )
+    return len(docs), failed, since
 
 
 def _sync_dockerhub(
@@ -3282,17 +3954,8 @@ def _sync_dockerhub(
     """
     if not _server_configured(("dockerhub-mcp", "dockerhub-api")):
         return {"status": "skipped", "reason": "dockerhub-mcp not in mcp_config"}
-    from ...core.config import setting
-    from ..etl.transforms import coalesce, stable_id
 
-    namespaces = [
-        n.strip()
-        for n in (
-            setting("DOCKERHUB_NAMESPACES", default="")
-            or setting("DOCKERHUB_NAMESPACE", default="")
-        ).split(",")
-        if n.strip()
-    ] or [str(i) for i in (ids or [])]
+    namespaces = _dockerhub_namespaces(ids)
     if not namespaces:
         return {"status": "skipped", "reason": "no DockerHub namespace configured"}
 
@@ -3300,65 +3963,14 @@ def _sync_dockerhub(
     total_failed = 0
     results: list[dict[str, Any]] = []
     for ns in namespaces:
-        since = (
-            None
-            if mode == "full"
-            else _read_envelope_watermark(
-                engine,
-                "dockerhub",
-                source_instance=ns,
-            )
-        )
-        docs = _drain_preset("dockerhub-repos", params={"namespace": ns})
-        repo_node = stable_id(ns, prefix="dockerhub")
-        entities: list[dict[str, Any]] = [
-            {
-                "id": repo_node,
-                "type": "repository",
-                "name": ns,
-                "domain": "dockerhub",
-                "source_system": make_source_id("dockerhub", ns),
-            }
-        ]
-        for doc in docs:
-            rec = _record_of(doc)
-            name = coalesce(rec, "name") or getattr(doc, "id", None)
-            if not name:
-                continue
-            img_id = f"dockerhub:{ns}/{name}"
-            entities.append(
-                {
-                    "id": img_id,
-                    "type": "container_image",
-                    "name": f"{ns}/{name}",
-                    "description": rec.get("description") or "",
-                    "pull_count": rec.get("pull_count"),
-                    "star_count": rec.get("star_count"),
-                    "is_private": rec.get("is_private"),
-                    "domain": "dockerhub",
-                    "source_system": make_source_id("dockerhub", ns),
-                    "externalToolId": f"{ns}/{name}",
-                    "updatedAt": rec.get("last_updated"),
-                    "_links": [
-                        {
-                            "source": repo_node,
-                            "target": img_id,
-                            "type": "contains",
-                            "domain": "dockerhub",
-                        }
-                    ],
-                }
-            )
-        _ok, failed = _ingest_entities_via_envelope(
-            engine, "dockerhub", entities, source_instance=ns
-        )
+        images, failed, since = _dockerhub_namespace_slice(engine, ns, mode)
         total_failed += failed
         # NOTE: the per-envelope watermark advance already happened atomically
         # inside ingest_envelope (monotonic-guarded per entity) — `since` above
         # is only this run's read of the last-advanced watermark, not a second
         # write (AU-P1-5).
-        total += len(docs)
-        results.append({"namespace": ns, "images": len(docs), "since": since})
+        total += images
+        results.append({"namespace": ns, "images": images, "since": since})
     return {
         "status": "ok",
         "source": "dockerhub",
@@ -3368,6 +3980,55 @@ def _sync_dockerhub(
         "images_ingested": total,
         "failed": total_failed,
     }
+
+
+def _langfuse_trace_entity(doc: Any) -> dict[str, Any] | None:
+    """One Langfuse trace record as a :Trace entity."""
+    tid = getattr(doc, "id", None)
+    if not tid:
+        return None
+    rec = _record_of(doc)
+    return {
+        "id": f"langfuse:trace:{tid}",
+        "type": "trace",
+        "name": rec.get("name") or f"Trace {tid}",
+        "user_id": rec.get("userId"),
+        "session_id": rec.get("sessionId"),
+        "domain": "langfuse",
+        "source_system": "langfuse",
+        "externalToolId": str(tid),
+        "updatedAt": rec.get("timestamp"),
+    }
+
+
+def _langfuse_observation_entity(doc: Any) -> dict[str, Any] | None:
+    """One Langfuse observation as an :Observation (LLM calls → :Generation)."""
+    oid = getattr(doc, "id", None)
+    if not oid:
+        return None
+    rec = _record_of(doc)
+    is_gen = str(rec.get("type") or "").upper() == "GENERATION"
+    node_id = f"langfuse:obs:{oid}"
+    entity: dict[str, Any] = {
+        "id": node_id,
+        "type": "generation" if is_gen else "observation",
+        "name": rec.get("name") or f"Observation {oid}",
+        "model": rec.get("model"),
+        "domain": "langfuse",
+        "source_system": "langfuse",
+        "externalToolId": str(oid),
+        "updatedAt": rec.get("startTime"),
+    }
+    if tid := rec.get("traceId"):
+        entity["_links"] = [
+            {
+                "source": node_id,
+                "target": f"langfuse:trace:{tid}",
+                "type": "part_of",
+                "domain": "langfuse",
+            }
+        ]
+    return entity
 
 
 def _sync_langfuse(
@@ -3394,52 +4055,10 @@ def _sync_langfuse(
 
     trace_docs = _drain_preset("langfuse-traces")
     obs_docs = _drain_preset("langfuse-observations")
-    entities: list[dict[str, Any]] = []
-    for doc in trace_docs:
-        tid = getattr(doc, "id", None)
-        if not tid:
-            continue
-        rec = _record_of(doc)
-        entities.append(
-            {
-                "id": f"langfuse:trace:{tid}",
-                "type": "trace",
-                "name": rec.get("name") or f"Trace {tid}",
-                "user_id": rec.get("userId"),
-                "session_id": rec.get("sessionId"),
-                "domain": "langfuse",
-                "source_system": src,
-                "externalToolId": str(tid),
-                "updatedAt": rec.get("timestamp"),
-            }
-        )
-    for doc in obs_docs:
-        oid = getattr(doc, "id", None)
-        if not oid:
-            continue
-        rec = _record_of(doc)
-        is_gen = str(rec.get("type") or "").upper() == "GENERATION"
-        node_id = f"langfuse:obs:{oid}"
-        entity: dict[str, Any] = {
-            "id": node_id,
-            "type": "generation" if is_gen else "observation",
-            "name": rec.get("name") or f"Observation {oid}",
-            "model": rec.get("model"),
-            "domain": "langfuse",
-            "source_system": src,
-            "externalToolId": str(oid),
-            "updatedAt": rec.get("startTime"),
-        }
-        if tid := rec.get("traceId"):
-            entity["_links"] = [
-                {
-                    "source": node_id,
-                    "target": f"langfuse:trace:{tid}",
-                    "type": "part_of",
-                    "domain": "langfuse",
-                }
-            ]
-        entities.append(entity)
+    entities: list[dict[str, Any]] = [
+        *_entity_rows(trace_docs, _langfuse_trace_entity),
+        *_entity_rows(obs_docs, _langfuse_observation_entity),
+    ]
     ok, failed = _ingest_entities_via_envelope(engine, src, entities)
     return {
         "status": "ok",
@@ -3452,6 +4071,95 @@ def _sync_langfuse(
         "failed": failed,
         "since": since,
     }
+
+
+def _technitium_record_value(rec: dict[str, Any]) -> str:
+    """A DNS record's rendered value, out of its ``rData`` envelope."""
+    rdata = rec.get("rData")
+    if not isinstance(rdata, dict):
+        return ""
+    return str(rdata.get("ipAddress") or rdata.get("value") or rdata.get("text") or "")
+
+
+def _technitium_record_entity(
+    rec: Any, zname: str, zone_node: str
+) -> dict[str, Any] | None:
+    """One Technitium record as a :DnsRecord ``part_of`` its :DnsZone."""
+    if not isinstance(rec, dict):
+        return None
+    rname = rec.get("name")
+    rtype = rec.get("type")
+    value = _technitium_record_value(rec)
+    rec_node = f"technitium:rec:{zname}:{rname}:{rtype}:{value}"
+    return {
+        "id": rec_node,
+        "type": "dns_record",
+        "name": f"{rname} {rtype}".strip(),
+        "record_type": rtype,
+        "ttl": rec.get("ttl"),
+        "value": value,
+        "disabled": rec.get("disabled"),
+        "domain": "technitium",
+        "source_system": "technitium",
+        "_links": [
+            {
+                "source": rec_node,
+                "target": zone_node,
+                "type": "part_of",
+                "domain": "technitium",
+            }
+        ],
+    }
+
+
+def _technitium_zone_records(
+    call: Callable[..., Any], zname: str, zone_node: str
+) -> list[dict[str, Any]]:
+    """Every :DnsRecord in one zone; one bad zone never aborts the rest."""
+    from ...protocols.source_connectors.connectors.rest import _dig
+
+    try:
+        rec_res = call(
+            "get_records", {"domain": zname, "zone": zname, "list_zone": True}
+        )
+    except Exception as exc:  # noqa: BLE001 — one bad zone never aborts the rest
+        logger.warning(
+            "[KG-2.157] technitium records fetch failed for %s: %s", zname, exc
+        )
+        return []
+    records = (
+        (_dig(rec_res, "response.records") or []) if isinstance(rec_res, dict) else []
+    )
+    return _entity_rows(
+        records, lambda rec: _technitium_record_entity(rec, zname, zone_node)
+    )
+
+
+def _technitium_zone_slice(
+    call: Callable[..., Any], zone: Any
+) -> tuple[list[dict[str, Any]], int]:
+    """One zone plus its records, as ``(entities, record_count)``."""
+    if not isinstance(zone, dict):
+        return [], 0
+    zname = zone.get("name")
+    if not zname:
+        return [], 0
+    zone_node = f"technitium:zone:{zname}"
+    entities: list[dict[str, Any]] = [
+        {
+            "id": zone_node,
+            "type": "dns_zone",
+            "name": zname,
+            "zone_type": zone.get("type"),
+            "disabled": zone.get("disabled"),
+            "domain": "technitium",
+            "source_system": "technitium",
+            "externalToolId": zname,
+        }
+    ]
+    records = _technitium_zone_records(call, zname, zone_node)
+    entities.extend(records)
+    return entities, len(records)
 
 
 def _sync_technitium(
@@ -3496,75 +4204,9 @@ def _sync_technitium(
     entities: list[dict[str, Any]] = []
     records_total = 0
     for zone in zones:
-        if not isinstance(zone, dict):
-            continue
-        zname = zone.get("name")
-        if not zname:
-            continue
-        zone_node = f"technitium:zone:{zname}"
-        entities.append(
-            {
-                "id": zone_node,
-                "type": "dns_zone",
-                "name": zname,
-                "zone_type": zone.get("type"),
-                "disabled": zone.get("disabled"),
-                "domain": "technitium",
-                "source_system": "technitium",
-                "externalToolId": zname,
-            }
-        )
-        try:
-            rec_res = _call(
-                "get_records", {"domain": zname, "zone": zname, "list_zone": True}
-            )
-        except Exception as exc:  # noqa: BLE001 — one bad zone never aborts the rest
-            logger.warning(
-                "[KG-2.157] technitium records fetch failed for %s: %s", zname, exc
-            )
-            continue
-        records = (
-            (_dig(rec_res, "response.records") or [])
-            if isinstance(rec_res, dict)
-            else []
-        )
-        for rec in records:
-            if not isinstance(rec, dict):
-                continue
-            rname = rec.get("name")
-            rtype = rec.get("type")
-            rdata = rec.get("rData")
-            value = ""
-            if isinstance(rdata, dict):
-                value = str(
-                    rdata.get("ipAddress")
-                    or rdata.get("value")
-                    or rdata.get("text")
-                    or ""
-                )
-            rec_node = f"technitium:rec:{zname}:{rname}:{rtype}:{value}"
-            entities.append(
-                {
-                    "id": rec_node,
-                    "type": "dns_record",
-                    "name": f"{rname} {rtype}".strip(),
-                    "record_type": rtype,
-                    "ttl": rec.get("ttl"),
-                    "value": value,
-                    "disabled": rec.get("disabled"),
-                    "domain": "technitium",
-                    "source_system": "technitium",
-                    "_links": [
-                        {
-                            "source": rec_node,
-                            "target": zone_node,
-                            "type": "part_of",
-                            "domain": "technitium",
-                        }
-                    ],
-                }
-            )
-            records_total += 1
+        zone_entities, zone_records = _technitium_zone_slice(_call, zone)
+        entities.extend(zone_entities)
+        records_total += zone_records
     ok, failed = _ingest_entities_via_envelope(engine, "technitium", entities)
     return {
         "status": "ok",
@@ -3576,6 +4218,50 @@ def _sync_technitium(
         "nodes_hydrated": ok,
         "failed": failed,
     }
+
+
+def _tunnel_host_rows(alias: Any, cfg: Any) -> list[dict[str, Any]]:
+    """One tunnel-manager alias as its optional :Tunnel plus its :Host node."""
+    if not isinstance(cfg, dict):
+        return []
+    extra = ec if isinstance((ec := cfg.get("extra_config")), dict) else {}
+    host_node = f"tunnel:host:{alias}"
+    host_entity: dict[str, Any] = {
+        "id": host_node,
+        "type": "host",
+        "name": str(alias),
+        "hostname": cfg.get("hostname"),
+        "ssh_user": cfg.get("user"),
+        "ssh_port": cfg.get("port"),
+        "group": extra.get("group") or extra.get("ansible_group"),
+        "ip_address": extra.get("ansible_host") or cfg.get("hostname"),
+        "domain": "tunnel_manager",
+        "source_system": "tunnel_manager",
+        "externalToolId": str(alias),
+    }
+    proxy = cfg.get("proxy_command")
+    if not proxy:
+        return [host_entity]
+    tun_node = f"tunnel:link:{alias}"
+    host_entity["_links"] = [
+        {
+            "source": host_node,
+            "target": tun_node,
+            "type": "connects_via",
+            "domain": "tunnel_manager",
+        }
+    ]
+    return [
+        {
+            "id": tun_node,
+            "type": "tunnel",
+            "name": f"tunnel:{alias}",
+            "proxy_command": str(proxy),
+            "domain": "tunnel_manager",
+            "source_system": "tunnel_manager",
+        },
+        host_entity,
+    ]
 
 
 def _sync_tunnel_manager(
@@ -3611,44 +4297,7 @@ def _sync_tunnel_manager(
     hosts = (res.get("hosts") if isinstance(res, dict) else None) or {}
     entities: list[dict[str, Any]] = []
     for alias, cfg in hosts.items():
-        if not isinstance(cfg, dict):
-            continue
-        extra = ec if isinstance((ec := cfg.get("extra_config")), dict) else {}
-        host_node = f"tunnel:host:{alias}"
-        host_entity: dict[str, Any] = {
-            "id": host_node,
-            "type": "host",
-            "name": str(alias),
-            "hostname": cfg.get("hostname"),
-            "ssh_user": cfg.get("user"),
-            "ssh_port": cfg.get("port"),
-            "group": extra.get("group") or extra.get("ansible_group"),
-            "ip_address": extra.get("ansible_host") or cfg.get("hostname"),
-            "domain": "tunnel_manager",
-            "source_system": "tunnel_manager",
-            "externalToolId": str(alias),
-        }
-        if proxy := cfg.get("proxy_command"):
-            tun_node = f"tunnel:link:{alias}"
-            entities.append(
-                {
-                    "id": tun_node,
-                    "type": "tunnel",
-                    "name": f"tunnel:{alias}",
-                    "proxy_command": str(proxy),
-                    "domain": "tunnel_manager",
-                    "source_system": "tunnel_manager",
-                }
-            )
-            host_entity["_links"] = [
-                {
-                    "source": host_node,
-                    "target": tun_node,
-                    "type": "connects_via",
-                    "domain": "tunnel_manager",
-                }
-            ]
-        entities.append(host_entity)
+        entities.extend(_tunnel_host_rows(alias, cfg))
     ok, failed = _ingest_entities_via_envelope(engine, "tunnel_manager", entities)
     return {
         "status": "ok",
@@ -3660,6 +4309,103 @@ def _sync_tunnel_manager(
         "nodes_hydrated": ok,
         "failed": failed,
     }
+
+
+def _uptime_monitor_list(monitors: Any) -> list[dict[str, Any]]:
+    """Normalize ``get_monitors`` to a list of monitor dicts.
+
+    It may return a bare list OR a dict keyed by id, depending on the
+    ``uptime_kuma_api`` version.
+    """
+    if isinstance(monitors, dict):
+        return [m for m in monitors.values() if isinstance(m, dict)]
+    if isinstance(monitors, list):
+        return [m for m in monitors if isinstance(m, dict)]
+    return []
+
+
+def _uptime_heartbeat_map(server: str) -> dict[Any, Any]:
+    """The latest heartbeats keyed by monitor id (best-effort enrichment)."""
+    from ...protocols.source_connectors.connectors.mcp_package import _run_async
+    from ...protocols.source_connectors.connectors.mcp_tool import call_tool_once
+
+    try:
+        heartbeats = _run_async(
+            call_tool_once(
+                server=server,
+                tool="uptime_kuma_status",
+                params={"action": "get_heartbeats"},
+                params_style="json",
+                action="",
+            )
+        )
+    except Exception:  # noqa: BLE001 — heartbeats are best-effort enrichment
+        heartbeats = {}
+    return heartbeats if isinstance(heartbeats, dict) else {}
+
+
+def _uptime_monitor_entity(
+    mon: dict[str, Any], mid: Any, mon_node: str
+) -> dict[str, Any]:
+    """One Uptime Kuma monitor as a :Monitor entity."""
+    return {
+        "id": mon_node,
+        "type": "uptime_monitor",
+        "name": mon.get("name") or f"Monitor {mid}",
+        "url": mon.get("url"),
+        "monitor_type": mon.get("type"),
+        "active": mon.get("active"),
+        "domain": "uptime_kuma",
+        "source_system": "uptime_kuma",
+        "externalToolId": str(mid),
+    }
+
+
+def _uptime_heartbeat_entity(
+    hb_map: dict[Any, Any], mid: Any, mon_node: str
+) -> dict[str, Any] | None:
+    """One monitor's latest heartbeat as a :HeartbeatStat ``part_of`` it."""
+    beats = hb_map.get(str(mid)) or hb_map.get(mid) or []
+    last = beats[-1] if isinstance(beats, list) and beats else None
+    if not isinstance(last, dict):
+        return None
+    hb_node = f"uptime:hb:{mid}"
+    return {
+        "id": hb_node,
+        "type": "heartbeat_stat",
+        "name": f"heartbeat:{mid}",
+        "up": last.get("status") == 1,
+        "ping": last.get("ping"),
+        "msg": last.get("msg"),
+        "domain": "uptime_kuma",
+        "source_system": "uptime_kuma",
+        "updatedAt": last.get("time"),
+        "_links": [
+            {
+                "source": hb_node,
+                "target": mon_node,
+                "type": "part_of",
+                "domain": "uptime_kuma",
+            }
+        ],
+    }
+
+
+def _uptime_entities(
+    mon_list: list[dict[str, Any]], hb_map: dict[Any, Any]
+) -> list[dict[str, Any]]:
+    """Every monitor plus its latest heartbeat, in monitor order."""
+    entities: list[dict[str, Any]] = []
+    for mon in mon_list:
+        mid = mon.get("id")
+        if mid is None:
+            continue
+        mon_node = f"uptime:monitor:{mid}"
+        entities.append(_uptime_monitor_entity(mon, mid, mon_node))
+        heartbeat = _uptime_heartbeat_entity(hb_map, mid, mon_node)
+        if heartbeat is not None:
+            entities.append(heartbeat)
+    return entities
 
 
 def _sync_uptime_kuma(
@@ -3696,72 +4442,8 @@ def _sync_uptime_kuma(
             action="",
         )
     )
-    # get_monitors may return a bare list OR a dict keyed by id, depending on the
-    # uptime_kuma_api version — normalize both to a list of monitor dicts.
-    if isinstance(monitors, dict):
-        mon_list = [m for m in monitors.values() if isinstance(m, dict)]
-    elif isinstance(monitors, list):
-        mon_list = [m for m in monitors if isinstance(m, dict)]
-    else:
-        mon_list = []
-    try:
-        heartbeats = _run_async(
-            call_tool_once(
-                server=server,
-                tool="uptime_kuma_status",
-                params={"action": "get_heartbeats"},
-                params_style="json",
-                action="",
-            )
-        )
-    except Exception:  # noqa: BLE001 — heartbeats are best-effort enrichment
-        heartbeats = {}
-    hb_map = heartbeats if isinstance(heartbeats, dict) else {}
-
-    entities: list[dict[str, Any]] = []
-    for mon in mon_list:
-        mid = mon.get("id")
-        if mid is None:
-            continue
-        mon_node = f"uptime:monitor:{mid}"
-        entities.append(
-            {
-                "id": mon_node,
-                "type": "uptime_monitor",
-                "name": mon.get("name") or f"Monitor {mid}",
-                "url": mon.get("url"),
-                "monitor_type": mon.get("type"),
-                "active": mon.get("active"),
-                "domain": "uptime_kuma",
-                "source_system": "uptime_kuma",
-                "externalToolId": str(mid),
-            }
-        )
-        beats = hb_map.get(str(mid)) or hb_map.get(mid) or []
-        last = beats[-1] if isinstance(beats, list) and beats else None
-        if isinstance(last, dict):
-            hb_node = f"uptime:hb:{mid}"
-            entities.append(
-                {
-                    "id": hb_node,
-                    "type": "heartbeat_stat",
-                    "name": f"heartbeat:{mid}",
-                    "up": last.get("status") == 1,
-                    "ping": last.get("ping"),
-                    "msg": last.get("msg"),
-                    "domain": "uptime_kuma",
-                    "source_system": "uptime_kuma",
-                    "updatedAt": last.get("time"),
-                    "_links": [
-                        {
-                            "source": hb_node,
-                            "target": mon_node,
-                            "type": "part_of",
-                            "domain": "uptime_kuma",
-                        }
-                    ],
-                }
-            )
+    mon_list = _uptime_monitor_list(monitors)
+    entities = _uptime_entities(mon_list, _uptime_heartbeat_map(server))
     ok, failed = _ingest_entities_via_envelope(engine, "uptime_kuma", entities)
     return {
         "status": "ok",
@@ -3772,6 +4454,57 @@ def _sync_uptime_kuma(
         "nodes_hydrated": ok,
         "failed": failed,
     }
+
+
+def _hass_entity_rows(doc: Any, devices: set[str]) -> list[dict[str, Any]]:
+    """One HA state record as its :Entity, preceded by its :Device on first sight.
+
+    ``devices`` is the running set of device classes already emitted this run; it
+    is mutated so the roll-up :Device node is written exactly once.
+    """
+    eid = getattr(doc, "id", None)
+    if not eid:
+        return []
+    rec = rd if isinstance((rd := _record_of(doc)), dict) else {}
+    attrs = a if isinstance((a := rec.get("attributes")), dict) else {}
+    device_class = str(eid).split(".", 1)[0]  # light / sensor / switch / …
+    ent_node = f"hass:entity:{eid}"
+    dev_node = f"hass:device:{device_class}"
+    rows: list[dict[str, Any]] = []
+    if device_class not in devices:
+        rows.append(
+            {
+                "id": dev_node,
+                "type": "device",
+                "name": f"HA {device_class}",
+                "domain": "home_assistant",
+                "source_system": "home_assistant",
+            }
+        )
+        devices.add(device_class)
+    rows.append(
+        {
+            "id": ent_node,
+            "type": "entity",
+            "name": attrs.get("friendly_name") or str(eid),
+            "entity_id": str(eid),
+            "state": rec.get("state"),
+            "device_class": device_class,
+            "domain": "home_assistant",
+            "source_system": "home_assistant",
+            "externalToolId": str(eid),
+            "updatedAt": rec.get("last_updated"),
+            "_links": [
+                {
+                    "source": ent_node,
+                    "target": dev_node,
+                    "type": "part_of",
+                    "domain": "home_assistant",
+                }
+            ],
+        }
+    )
+    return rows
 
 
 def _sync_home_assistant(
@@ -3803,47 +4536,7 @@ def _sync_home_assistant(
     entities: list[dict[str, Any]] = []
     devices: set[str] = set()
     for doc in docs:
-        eid = getattr(doc, "id", None)
-        if not eid:
-            continue
-        rec = rd if isinstance((rd := _record_of(doc)), dict) else {}
-        attrs = a if isinstance((a := rec.get("attributes")), dict) else {}
-        device_class = str(eid).split(".", 1)[0]  # light / sensor / switch / …
-        ent_node = f"hass:entity:{eid}"
-        dev_node = f"hass:device:{device_class}"
-        if device_class not in devices:
-            entities.append(
-                {
-                    "id": dev_node,
-                    "type": "device",
-                    "name": f"HA {device_class}",
-                    "domain": "home_assistant",
-                    "source_system": "home_assistant",
-                }
-            )
-            devices.add(device_class)
-        entities.append(
-            {
-                "id": ent_node,
-                "type": "entity",
-                "name": attrs.get("friendly_name") or str(eid),
-                "entity_id": str(eid),
-                "state": rec.get("state"),
-                "device_class": device_class,
-                "domain": "home_assistant",
-                "source_system": "home_assistant",
-                "externalToolId": str(eid),
-                "updatedAt": rec.get("last_updated"),
-                "_links": [
-                    {
-                        "source": ent_node,
-                        "target": dev_node,
-                        "type": "part_of",
-                        "domain": "home_assistant",
-                    }
-                ],
-            }
-        )
+        entities.extend(_hass_entity_rows(doc, devices))
     ok, failed = _ingest_entities_via_envelope(engine, "home_assistant", entities)
     return {
         "status": "ok",
@@ -3856,6 +4549,98 @@ def _sync_home_assistant(
         "failed": failed,
         "since": since,
     }
+
+
+def _twenty_company_id(rec: dict[str, Any]) -> str | None:
+    """The company a Twenty person/opportunity record references, if any."""
+    cid = rec.get("companyId")
+    if cid:
+        return str(cid)
+    company = rec.get("company")
+    return (
+        str(company["id"]) if isinstance(company, dict) and company.get("id") else None
+    )
+
+
+def _twenty_company_link(node_id: str, cid: str, rel_type: str) -> list[dict[str, Any]]:
+    """The self-sourced edge from a person/opportunity to its :Company."""
+    return [
+        {
+            "source": node_id,
+            "target": f"twenty:company:{cid}",
+            "type": rel_type,
+            "domain": "twenty",
+        }
+    ]
+
+
+def _twenty_company_entity(doc: Any) -> dict[str, Any] | None:
+    """One Twenty CRM company record as a :Company entity."""
+    cid = getattr(doc, "id", None)
+    if not cid:
+        return None
+    rec = _record_of(doc)
+    return {
+        "id": f"twenty:company:{cid}",
+        "type": "company",
+        "name": rec.get("name") or f"Company {cid}",
+        "domain": "twenty",
+        "source_system": "twenty",
+        "externalToolId": str(cid),
+        "updatedAt": rec.get("updatedAt"),
+    }
+
+
+def _twenty_person_name(rec: dict[str, Any]) -> str:
+    """A Twenty person's display name from its structured ``name`` block."""
+    name = rec.get("name") or {}
+    if not isinstance(name, dict):
+        return str(name)
+    return f"{name.get('firstName', '')} {name.get('lastName', '')}".strip()
+
+
+def _twenty_person_entity(doc: Any) -> dict[str, Any] | None:
+    """One Twenty CRM person record as a :Person ``member_of`` their :Company."""
+    pid = getattr(doc, "id", None)
+    if not pid:
+        return None
+    rec = _record_of(doc)
+    node_id = f"twenty:person:{pid}"
+    person: dict[str, Any] = {
+        "id": node_id,
+        "type": "person",
+        "name": _twenty_person_name(rec) or f"Person {pid}",
+        "job_title": rec.get("jobTitle"),
+        "domain": "twenty",
+        "source_system": "twenty",
+        "externalToolId": str(pid),
+        "updatedAt": rec.get("updatedAt"),
+    }
+    if cid := _twenty_company_id(rec):
+        person["_links"] = _twenty_company_link(node_id, cid, "member_of")
+    return person
+
+
+def _twenty_opportunity_entity(doc: Any) -> dict[str, Any] | None:
+    """One Twenty CRM opportunity record as an :Opportunity ``part_of`` a :Company."""
+    oid = getattr(doc, "id", None)
+    if not oid:
+        return None
+    rec = _record_of(doc)
+    node_id = f"twenty:opportunity:{oid}"
+    opp: dict[str, Any] = {
+        "id": node_id,
+        "type": "opportunity",
+        "name": rec.get("name") or f"Opportunity {oid}",
+        "stage": rec.get("stage"),
+        "domain": "twenty",
+        "source_system": "twenty",
+        "externalToolId": str(oid),
+        "updatedAt": rec.get("updatedAt"),
+    }
+    if cid := _twenty_company_id(rec):
+        opp["_links"] = _twenty_company_link(node_id, cid, "part_of")
+    return opp
 
 
 def _sync_twenty(
@@ -3883,93 +4668,11 @@ def _sync_twenty(
     people = _drain_preset("twenty-people")
     companies = _drain_preset("twenty-companies")
     opps = _drain_preset("twenty-opportunities")
-    entities: list[dict[str, Any]] = []
-
-    def _company_id(rec: dict[str, Any]) -> str | None:
-        cid = rec.get("companyId")
-        if cid:
-            return str(cid)
-        company = rec.get("company")
-        return (
-            str(company["id"])
-            if isinstance(company, dict) and company.get("id")
-            else None
-        )
-
-    for doc in companies:
-        cid = getattr(doc, "id", None)
-        if not cid:
-            continue
-        rec = _record_of(doc)
-        entities.append(
-            {
-                "id": f"twenty:company:{cid}",
-                "type": "company",
-                "name": rec.get("name") or f"Company {cid}",
-                "domain": "twenty",
-                "source_system": src,
-                "externalToolId": str(cid),
-                "updatedAt": rec.get("updatedAt"),
-            }
-        )
-    for doc in people:
-        pid = getattr(doc, "id", None)
-        if not pid:
-            continue
-        rec = _record_of(doc)
-        name = rec.get("name") or {}
-        full = (
-            f"{name.get('firstName', '')} {name.get('lastName', '')}".strip()
-            if isinstance(name, dict)
-            else str(name)
-        )
-        node_id = f"twenty:person:{pid}"
-        person: dict[str, Any] = {
-            "id": node_id,
-            "type": "person",
-            "name": full or f"Person {pid}",
-            "job_title": rec.get("jobTitle"),
-            "domain": "twenty",
-            "source_system": src,
-            "externalToolId": str(pid),
-            "updatedAt": rec.get("updatedAt"),
-        }
-        if cid := _company_id(rec):
-            person["_links"] = [
-                {
-                    "source": node_id,
-                    "target": f"twenty:company:{cid}",
-                    "type": "member_of",
-                    "domain": "twenty",
-                }
-            ]
-        entities.append(person)
-    for doc in opps:
-        oid = getattr(doc, "id", None)
-        if not oid:
-            continue
-        rec = _record_of(doc)
-        node_id = f"twenty:opportunity:{oid}"
-        opp: dict[str, Any] = {
-            "id": node_id,
-            "type": "opportunity",
-            "name": rec.get("name") or f"Opportunity {oid}",
-            "stage": rec.get("stage"),
-            "domain": "twenty",
-            "source_system": src,
-            "externalToolId": str(oid),
-            "updatedAt": rec.get("updatedAt"),
-        }
-        if cid := _company_id(rec):
-            opp["_links"] = [
-                {
-                    "source": node_id,
-                    "target": f"twenty:company:{cid}",
-                    "type": "part_of",
-                    "domain": "twenty",
-                }
-            ]
-        entities.append(opp)
+    entities: list[dict[str, Any]] = [
+        *_entity_rows(companies, _twenty_company_entity),
+        *_entity_rows(people, _twenty_person_entity),
+        *_entity_rows(opps, _twenty_opportunity_entity),
+    ]
     ok, failed = _ingest_entities_via_envelope(engine, src, entities)
     return {
         "status": "ok",
@@ -3996,6 +4699,167 @@ def _sync_twenty(
 # CONCEPT:AU-KG.compute.firefly-iii-accounts-transactions — Firefly III accounts/transactions/budgets → :Account / :Transaction / :Budget
 # CONCEPT:AU-KG.compute.paperless-ngx-documents-correspondents — Paperless-ngx documents/correspondents/tags → :Document / :Correspondent / :Tag
 # CONCEPT:AU-KG.compute.gramps-web-people-families — Gramps Web people/families/events → :Person / :Family / :Event
+
+
+def _abs_libraries(libs_res: Any) -> list[Any]:
+    """Normalize the Audiobookshelf ``library_operations(action=list)`` payload.
+
+    Some ABS builds return a bare list of libraries, others the documented
+    ``{"libraries": [...]}`` envelope; anything else yields no libraries.
+    """
+    if isinstance(libs_res, list):  # some ABS builds return a bare list
+        return libs_res
+    if isinstance(libs_res, dict):
+        return libs_res.get("libraries") or []
+    return []
+
+
+def _abs_author_node(author: Any) -> str | None:
+    """The ``abs:author:<id-or-name>`` node id for one ABS author record."""
+    if not isinstance(author, dict):
+        return None
+    aid = author.get("id")
+    aname = author.get("name")
+    if not (aid or aname):
+        return None
+    return f"abs:author:{aid or aname}"
+
+
+def _abs_author_links(authors: Any, book_node: str) -> list[dict[str, Any]]:
+    """``authored_by`` edges from one book to each of its named authors."""
+    links: list[dict[str, Any]] = []
+    for author in authors or []:
+        author_node = _abs_author_node(author)
+        if author_node is None:
+            continue
+        links.append(
+            {
+                "source": book_node,
+                "target": author_node,
+                "type": "authored_by",
+                "domain": "audiobookshelf",
+            }
+        )
+    return links
+
+
+def _abs_book_entity(item: Any, lib_node: str) -> dict[str, Any] | None:
+    """One ABS library item as a :Book entity, or ``None`` when unidentifiable."""
+    if not isinstance(item, dict):
+        return None
+    item_id = item.get("id")
+    if not item_id:
+        return None
+    media = m if isinstance((m := item.get("media")), dict) else {}
+    meta = mm if isinstance((mm := media.get("metadata")), dict) else {}
+    title = meta.get("title") or item.get("title") or f"Book {item_id}"
+    book_node = f"abs:book:{item_id}"
+    book_links: list[dict[str, Any]] = [
+        {
+            "source": book_node,
+            "target": lib_node,
+            "type": "part_of",
+            "domain": "audiobookshelf",
+        }
+    ]
+    book_links.extend(_abs_author_links(meta.get("authors"), book_node))
+    return {
+        "id": book_node,
+        "type": "book",
+        "name": str(title),
+        "subtitle": meta.get("subtitle"),
+        "isbn": meta.get("isbn"),
+        "asin": meta.get("asin"),
+        "publisher": meta.get("publisher"),
+        "published_year": meta.get("publishedYear"),
+        "duration": media.get("duration"),
+        "domain": "audiobookshelf",
+        "source_system": "audiobookshelf",
+        "externalToolId": str(item_id),
+        "updatedAt": item.get("updatedAt"),
+        "_links": book_links,
+    }
+
+
+def _abs_author_entity(author: Any) -> dict[str, Any] | None:
+    """One ABS author record as an :Author entity, or ``None`` when unidentifiable."""
+    author_node = _abs_author_node(author)
+    if author_node is None:
+        return None
+    aid = author.get("id")
+    aname = author.get("name")
+    return {
+        "id": author_node,
+        "type": "author",
+        "name": aname or f"Author {aid}",
+        "num_books": author.get("numBooks"),
+        "domain": "audiobookshelf",
+        "source_system": "audiobookshelf",
+        "externalToolId": str(aid or aname),
+    }
+
+
+def _abs_books(call: Callable[..., Any], lib_id: Any, lib_node: str) -> list[dict]:
+    """Every :Book in one ABS library; one bad library never aborts the rest."""
+    try:
+        items_res = call("items", {"id": lib_id, "limit": 500})
+    except Exception as exc:  # noqa: BLE001 — one bad library never aborts the rest
+        logger.warning(
+            "[KG-2.163] audiobookshelf items fetch failed for %s: %s", lib_id, exc
+        )
+        items_res = {}
+    items = (items_res.get("results") if isinstance(items_res, dict) else None) or []
+    books: list[dict[str, Any]] = []
+    for item in items:
+        entity = _abs_book_entity(item, lib_node)
+        if entity is not None:
+            books.append(entity)
+    return books
+
+
+def _abs_authors(call: Callable[..., Any], lib_id: Any) -> list[dict[str, Any]]:
+    """Every :Author in one ABS library (best-effort enrichment)."""
+    try:
+        authors_res = call("authors", {"id": lib_id})
+    except Exception:  # noqa: BLE001 — authors are best-effort enrichment
+        authors_res = {}
+    records = (
+        authors_res.get("authors") if isinstance(authors_res, dict) else None
+    ) or []
+    authors: list[dict[str, Any]] = []
+    for record in records:
+        entity = _abs_author_entity(record)
+        if entity is not None:
+            authors.append(entity)
+    return authors
+
+
+def _abs_library_slice(
+    call: Callable[..., Any], lib: Any
+) -> tuple[list[dict[str, Any]], int, int]:
+    """One ABS library plus its books and authors, as ``(entities, books, authors)``."""
+    if not isinstance(lib, dict):
+        return [], 0, 0
+    lib_id = lib.get("id")
+    if not lib_id:
+        return [], 0, 0
+    lib_node = f"abs:library:{lib_id}"
+    entities: list[dict[str, Any]] = [
+        {
+            "id": lib_node,
+            "type": "library",
+            "name": lib.get("name") or f"Library {lib_id}",
+            "media_type": lib.get("mediaType"),
+            "domain": "audiobookshelf",
+            "source_system": "audiobookshelf",
+            "externalToolId": str(lib_id),
+        }
+    ]
+    books = _abs_books(call, lib_id, lib_node)
+    authors = _abs_authors(call, lib_id)
+    entities.extend(books)
+    entities.extend(authors)
+    return entities, len(books), len(authors)
 
 
 def _sync_audiobookshelf(
@@ -4034,123 +4898,15 @@ def _sync_audiobookshelf(
             )
         )
 
-    libs_res = _call("list", {})
-    libraries = (
-        libs_res.get("libraries") if isinstance(libs_res, dict) else None
-    ) or []
-    if isinstance(libs_res, list):  # some ABS builds return a bare list
-        libraries = libs_res
+    libraries = _abs_libraries(_call("list", {}))
     entities: list[dict[str, Any]] = []
     books_total = 0
     authors_total = 0
     for lib in libraries:
-        if not isinstance(lib, dict):
-            continue
-        lib_id = lib.get("id")
-        if not lib_id:
-            continue
-        lib_node = f"abs:library:{lib_id}"
-        entities.append(
-            {
-                "id": lib_node,
-                "type": "library",
-                "name": lib.get("name") or f"Library {lib_id}",
-                "media_type": lib.get("mediaType"),
-                "domain": "audiobookshelf",
-                "source_system": "audiobookshelf",
-                "externalToolId": str(lib_id),
-            }
-        )
-        try:
-            items_res = _call("items", {"id": lib_id, "limit": 500})
-        except Exception as exc:  # noqa: BLE001 — one bad library never aborts the rest
-            logger.warning(
-                "[KG-2.163] audiobookshelf items fetch failed for %s: %s", lib_id, exc
-            )
-            items_res = {}
-        items = (
-            items_res.get("results") if isinstance(items_res, dict) else None
-        ) or []
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            item_id = item.get("id")
-            if not item_id:
-                continue
-            media = m if isinstance((m := item.get("media")), dict) else {}
-            meta = mm if isinstance((mm := media.get("metadata")), dict) else {}
-            title = meta.get("title") or item.get("title") or f"Book {item_id}"
-            book_node = f"abs:book:{item_id}"
-            book_links: list[dict[str, Any]] = [
-                {
-                    "source": book_node,
-                    "target": lib_node,
-                    "type": "part_of",
-                    "domain": "audiobookshelf",
-                }
-            ]
-            for author in meta.get("authors") or []:
-                if not isinstance(author, dict):
-                    continue
-                aid = author.get("id")
-                aname = author.get("name")
-                if not (aid or aname):
-                    continue
-                author_node = f"abs:author:{aid or aname}"
-                book_links.append(
-                    {
-                        "source": book_node,
-                        "target": author_node,
-                        "type": "authored_by",
-                        "domain": "audiobookshelf",
-                    }
-                )
-            entities.append(
-                {
-                    "id": book_node,
-                    "type": "book",
-                    "name": str(title),
-                    "subtitle": meta.get("subtitle"),
-                    "isbn": meta.get("isbn"),
-                    "asin": meta.get("asin"),
-                    "publisher": meta.get("publisher"),
-                    "published_year": meta.get("publishedYear"),
-                    "duration": media.get("duration"),
-                    "domain": "audiobookshelf",
-                    "source_system": "audiobookshelf",
-                    "externalToolId": str(item_id),
-                    "updatedAt": item.get("updatedAt"),
-                    "_links": book_links,
-                }
-            )
-            books_total += 1
-        try:
-            authors_res = _call("authors", {"id": lib_id})
-        except Exception:  # noqa: BLE001 — authors are best-effort enrichment
-            authors_res = {}
-        authors = (
-            authors_res.get("authors") if isinstance(authors_res, dict) else None
-        ) or []
-        for author in authors:
-            if not isinstance(author, dict):
-                continue
-            aid = author.get("id")
-            aname = author.get("name")
-            if not (aid or aname):
-                continue
-            author_node = f"abs:author:{aid or aname}"
-            entities.append(
-                {
-                    "id": author_node,
-                    "type": "author",
-                    "name": aname or f"Author {aid}",
-                    "num_books": author.get("numBooks"),
-                    "domain": "audiobookshelf",
-                    "source_system": "audiobookshelf",
-                    "externalToolId": str(aid or aname),
-                }
-            )
-            authors_total += 1
+        lib_entities, books, authors = _abs_library_slice(_call, lib)
+        entities.extend(lib_entities)
+        books_total += books
+        authors_total += authors
     ok, failed = _ingest_entities_via_envelope(engine, "audiobookshelf", entities)
     return {
         "status": "ok",
@@ -4162,6 +4918,119 @@ def _sync_audiobookshelf(
         "authors": authors_total,
         "nodes_hydrated": ok,
         "failed": failed,
+    }
+
+
+def _firefly_attrs(doc: Any) -> dict[str, Any]:
+    """A Firefly III JSON:API record's ``attributes`` block (the real fields)."""
+    from ..etl.transforms import dig
+
+    return dig(_record_of(doc), "attributes", default={})
+
+
+def _firefly_account_entity(doc: Any) -> dict[str, Any] | None:
+    """One Firefly III account record as an :Account entity."""
+    from ..etl.transforms import coalesce, stable_id
+
+    aid = getattr(doc, "id", None)
+    if not aid:
+        return None
+    attrs = _firefly_attrs(doc)
+    return {
+        "id": stable_id(aid, prefix="firefly:account"),
+        "type": "account",
+        "name": coalesce(attrs, "name", default=f"Account {aid}"),
+        "account_type": attrs.get("type"),
+        "account_role": attrs.get("account_role"),
+        "currency_code": attrs.get("currency_code"),
+        "current_balance": attrs.get("current_balance"),
+        "domain": "firefly_iii",
+        "source_system": "firefly_iii",
+        "externalToolId": str(aid),
+        "updatedAt": attrs.get("updated_at"),
+    }
+
+
+def _firefly_budget_entity(doc: Any) -> dict[str, Any] | None:
+    """One Firefly III budget record as a :Budget entity."""
+    from ..etl.transforms import coalesce, stable_id
+
+    bid = getattr(doc, "id", None)
+    if not bid:
+        return None
+    attrs = _firefly_attrs(doc)
+    return {
+        "id": stable_id(bid, prefix="firefly:budget"),
+        "type": "budget",
+        "name": coalesce(attrs, "name", default=f"Budget {bid}"),
+        "active": attrs.get("active"),
+        "domain": "firefly_iii",
+        "source_system": "firefly_iii",
+        "externalToolId": str(bid),
+        "updatedAt": attrs.get("updated_at"),
+    }
+
+
+def _firefly_first_split(attrs: dict[str, Any]) -> dict[str, Any]:
+    """A transaction's first split — where its real per-transaction fields live."""
+    splits = attrs.get("transactions")
+    first = splits[0] if isinstance(splits, list) and splits else {}
+    return first if isinstance(first, dict) else {}
+
+
+def _firefly_transaction_links(
+    first: dict[str, Any], node_id: str
+) -> list[dict[str, Any]]:
+    """A transaction's ``part_of`` source account and ``member_of`` budget edges."""
+    from ..etl.transforms import stable_id
+
+    tx_links: list[dict[str, Any]] = []
+    if src_acct := first.get("source_id"):
+        tx_links.append(
+            {
+                "source": node_id,
+                "target": stable_id(src_acct, prefix="firefly:account"),
+                "type": "part_of",
+                "domain": "firefly_iii",
+            }
+        )
+    if budget_id := first.get("budget_id"):
+        tx_links.append(
+            {
+                "source": node_id,
+                "target": stable_id(budget_id, prefix="firefly:budget"),
+                "type": "member_of",
+                "domain": "firefly_iii",
+            }
+        )
+    return tx_links
+
+
+def _firefly_transaction_entity(doc: Any) -> dict[str, Any] | None:
+    """One Firefly III transaction record as a :Transaction entity."""
+    from ..etl.transforms import coalesce, stable_id
+
+    tid = getattr(doc, "id", None)
+    if not tid:
+        return None
+    attrs = _firefly_attrs(doc)
+    first = _firefly_first_split(attrs)
+    node_id = stable_id(tid, prefix="firefly:transaction")
+    return {
+        "id": node_id,
+        "type": "transaction",
+        "name": coalesce(attrs, "group_title")
+        or coalesce(first, "description", default=f"Transaction {tid}"),
+        "transaction_type": first.get("type"),
+        "amount": first.get("amount"),
+        "currency_code": first.get("currency_code"),
+        "transaction_date": first.get("date"),
+        "category_name": first.get("category_name"),
+        "domain": "firefly_iii",
+        "source_system": "firefly_iii",
+        "externalToolId": str(tid),
+        "updatedAt": attrs.get("updated_at"),
+        "_links": _firefly_transaction_links(first, node_id),
     }
 
 
@@ -4189,7 +5058,6 @@ def _sync_firefly_iii(
     """
     if not _server_configured(("firefly-iii-mcp", "firefly-iii-agent")):
         return {"status": "skipped", "reason": "firefly-iii-mcp not in mcp_config"}
-    from ..etl.transforms import coalesce, dig, stable_id
 
     since = (
         None
@@ -4204,91 +5072,11 @@ def _sync_firefly_iii(
     accounts = _drain_preset("firefly-accounts")
     transactions = _drain_preset("firefly-transactions")
     budgets = _drain_preset("firefly-budgets")
-    entities: list[dict[str, Any]] = []
-
-    for doc in accounts:
-        aid = getattr(doc, "id", None)
-        if not aid:
-            continue
-        attrs = dig(_record_of(doc), "attributes", default={})
-        entities.append(
-            {
-                "id": stable_id(aid, prefix="firefly:account"),
-                "type": "account",
-                "name": coalesce(attrs, "name", default=f"Account {aid}"),
-                "account_type": attrs.get("type"),
-                "account_role": attrs.get("account_role"),
-                "currency_code": attrs.get("currency_code"),
-                "current_balance": attrs.get("current_balance"),
-                "domain": "firefly_iii",
-                "source_system": src,
-                "externalToolId": str(aid),
-                "updatedAt": attrs.get("updated_at"),
-            }
-        )
-    for doc in budgets:
-        bid = getattr(doc, "id", None)
-        if not bid:
-            continue
-        attrs = dig(_record_of(doc), "attributes", default={})
-        entities.append(
-            {
-                "id": stable_id(bid, prefix="firefly:budget"),
-                "type": "budget",
-                "name": coalesce(attrs, "name", default=f"Budget {bid}"),
-                "active": attrs.get("active"),
-                "domain": "firefly_iii",
-                "source_system": src,
-                "externalToolId": str(bid),
-                "updatedAt": attrs.get("updated_at"),
-            }
-        )
-    for doc in transactions:
-        tid = getattr(doc, "id", None)
-        if not tid:
-            continue
-        attrs = dig(_record_of(doc), "attributes", default={})
-        splits = attrs.get("transactions")
-        first = splits[0] if isinstance(splits, list) and splits else {}
-        first = first if isinstance(first, dict) else {}
-        node_id = stable_id(tid, prefix="firefly:transaction")
-        tx_links: list[dict[str, Any]] = []
-        if src_acct := first.get("source_id"):
-            tx_links.append(
-                {
-                    "source": node_id,
-                    "target": stable_id(src_acct, prefix="firefly:account"),
-                    "type": "part_of",
-                    "domain": "firefly_iii",
-                }
-            )
-        if budget_id := first.get("budget_id"):
-            tx_links.append(
-                {
-                    "source": node_id,
-                    "target": stable_id(budget_id, prefix="firefly:budget"),
-                    "type": "member_of",
-                    "domain": "firefly_iii",
-                }
-            )
-        entities.append(
-            {
-                "id": node_id,
-                "type": "transaction",
-                "name": coalesce(attrs, "group_title")
-                or coalesce(first, "description", default=f"Transaction {tid}"),
-                "transaction_type": first.get("type"),
-                "amount": first.get("amount"),
-                "currency_code": first.get("currency_code"),
-                "transaction_date": first.get("date"),
-                "category_name": first.get("category_name"),
-                "domain": "firefly_iii",
-                "source_system": src,
-                "externalToolId": str(tid),
-                "updatedAt": attrs.get("updated_at"),
-                "_links": tx_links,
-            }
-        )
+    entities: list[dict[str, Any]] = [
+        *_entity_rows(accounts, _firefly_account_entity),
+        *_entity_rows(budgets, _firefly_budget_entity),
+        *_entity_rows(transactions, _firefly_transaction_entity),
+    ]
     ok, failed = _ingest_entities_via_envelope(engine, src, entities)
     return {
         "status": "ok",
@@ -4302,6 +5090,90 @@ def _sync_firefly_iii(
         "failed": failed,
         "since": since,
     }
+
+
+# The certified zero-PII Paperless-ngx projection's complete node/edge vocabulary.
+# Anything outside it is off-contract and fails the sync closed.
+_PAPERLESS_NODE_TYPES = frozenset(
+    {
+        "PaperlessCorrespondentReference",
+        "PaperlessDocumentReference",
+        "PaperlessDocumentTypeReference",
+        "PaperlessStoragePathReference",
+        "PaperlessTagReference",
+    }
+)
+_PAPERLESS_RELATIONSHIPS = frozenset(
+    {
+        "hasCorrespondentReference",
+        "hasDocumentTypeReference",
+        "hasStoragePathReference",
+        "hasTagReference",
+    }
+)
+
+
+def _paperless_projection(client: Any) -> dict[str, Any]:
+    """Fetch and shape-validate the signed ``paperless-document-structure`` result."""
+    from ...protocols.source_connectors.connectors.mcp_package import _run_async
+    from ...protocols.source_connectors.connectors.mcp_tool import call_preset_once
+
+    projection = _run_async(
+        call_preset_once(
+            "paperless-document-structure",
+            provider="paperless-ngx-mcp",
+            client=client,
+        )
+    )
+    if (
+        not isinstance(projection, dict)
+        or set(projection) != {"records", "relationships"}
+        or not isinstance(projection["records"], list)
+        or not isinstance(projection["relationships"], list)
+    ):
+        raise ValueError("Paperless-ngx projection is malformed")
+    return projection
+
+
+def _paperless_node(record: Any) -> dict[str, Any]:
+    """One validated opaque projection node; anything off-contract raises."""
+    if not isinstance(record, dict) or set(record) != {"id", "node_type"}:
+        raise ValueError("Paperless-ngx projection contains an invalid node")
+    node_id = record.get("id")
+    node_type = record.get("node_type")
+    prefix = f"paperless:{node_type}:"
+    if (
+        not isinstance(node_id, str)
+        or not isinstance(node_type, str)
+        or node_type not in _PAPERLESS_NODE_TYPES
+        or not node_id.startswith(prefix)
+        or re.fullmatch(r"[0-9a-f]{64}", node_id.removeprefix(prefix)) is None
+    ):
+        raise ValueError("Paperless-ngx projection contains an invalid node")
+    return {"id": node_id, "node_type": node_type}
+
+
+def _paperless_nodes(records: list[Any]) -> tuple[list[dict[str, Any]], set[str]]:
+    """Every validated projection node, plus the id set edges must resolve into."""
+    entities = [_paperless_node(record) for record in records]
+    return entities, {str(entity["id"]) for entity in entities}
+
+
+def _paperless_relationship(relationship: Any, node_ids: set[str]) -> dict[str, Any]:
+    """One validated structural edge; an unreviewed shape or endpoint raises."""
+    if not isinstance(relationship, dict) or set(relationship) != {
+        "source",
+        "target",
+        "relationship",
+    }:
+        raise ValueError("Paperless-ngx projection contains an invalid relationship")
+    if (
+        relationship.get("source") not in node_ids
+        or relationship.get("target") not in node_ids
+        or relationship.get("relationship") not in _PAPERLESS_RELATIONSHIPS
+    ):
+        raise ValueError("Paperless-ngx projection contains an invalid relationship")
+    return dict(relationship)
 
 
 def _sync_paperless_ngx(
@@ -4329,79 +5201,14 @@ def _sync_paperless_ngx(
     if client is None and server is None:
         return {"status": "skipped", "reason": "paperless-ngx-mcp not in mcp_config"}
 
-    from ...protocols.source_connectors.connectors.mcp_package import _run_async
-    from ...protocols.source_connectors.connectors.mcp_tool import call_preset_once
     from ..ingestion.envelope_ingest import ingest_graph_slice
 
-    projection = _run_async(
-        call_preset_once(
-            "paperless-document-structure",
-            provider="paperless-ngx-mcp",
-            client=client,
-        )
-    )
-    if (
-        not isinstance(projection, dict)
-        or set(projection) != {"records", "relationships"}
-        or not isinstance(projection["records"], list)
-        or not isinstance(projection["relationships"], list)
-    ):
-        raise ValueError("Paperless-ngx projection is malformed")
-
-    allowed_nodes = {
-        "PaperlessCorrespondentReference",
-        "PaperlessDocumentReference",
-        "PaperlessDocumentTypeReference",
-        "PaperlessStoragePathReference",
-        "PaperlessTagReference",
-    }
-    allowed_relationships = {
-        "hasCorrespondentReference",
-        "hasDocumentTypeReference",
-        "hasStoragePathReference",
-        "hasTagReference",
-    }
-    entities: list[dict[str, Any]] = []
-    node_ids: set[str] = set()
-    for record in projection["records"]:
-        if not isinstance(record, dict) or set(record) != {"id", "node_type"}:
-            raise ValueError("Paperless-ngx projection contains an invalid node")
-        node_id = record.get("id")
-        node_type = record.get("node_type")
-        prefix = f"paperless:{node_type}:"
-        if (
-            not isinstance(node_id, str)
-            or not isinstance(node_type, str)
-            or node_type not in allowed_nodes
-            or not node_id.startswith(prefix)
-            or re.fullmatch(r"[0-9a-f]{64}", node_id.removeprefix(prefix)) is None
-        ):
-            raise ValueError("Paperless-ngx projection contains an invalid node")
-        node_ids.add(node_id)
-        entities.append({"id": node_id, "node_type": node_type})
-
-    relationships: list[dict[str, Any]] = []
-    for relationship in projection["relationships"]:
-        if not isinstance(relationship, dict) or set(relationship) != {
-            "source",
-            "target",
-            "relationship",
-        }:
-            raise ValueError(
-                "Paperless-ngx projection contains an invalid relationship"
-            )
-        source = relationship.get("source")
-        target = relationship.get("target")
-        rel_type = relationship.get("relationship")
-        if (
-            source not in node_ids
-            or target not in node_ids
-            or rel_type not in allowed_relationships
-        ):
-            raise ValueError(
-                "Paperless-ngx projection contains an invalid relationship"
-            )
-        relationships.append(dict(relationship))
+    projection = _paperless_projection(client)
+    entities, node_ids = _paperless_nodes(projection["records"])
+    relationships: list[dict[str, Any]] = [
+        _paperless_relationship(relationship, node_ids)
+        for relationship in projection["relationships"]
+    ]
 
     result = ingest_graph_slice(
         engine,
@@ -4416,6 +5223,135 @@ def _sync_paperless_ngx(
         "delta_capable": False,
         "nodes_hydrated": len(entities),
         "edges": len(relationships),
+    }
+
+
+def _gramps_type_string(rec: dict[str, Any]) -> Any:
+    """A Gramps record's ``type.string``, or ``None`` when ``type`` isn't a dict."""
+    type_field = rec.get("type")
+    if isinstance(type_field, dict):
+        return type_field.get("string")
+    return None
+
+
+def _gramps_surname(name: dict[str, Any]) -> str:
+    """The first surname of a Gramps ``primary_name`` block."""
+    surnames = name.get("surname_list") or []
+    if not isinstance(surnames, list) or not surnames:
+        return ""
+    first = surnames[0]
+    return first.get("surname", "") if isinstance(first, dict) else ""
+
+
+def _gramps_person_name(rec: dict[str, Any]) -> str:
+    """A person's ``<first> <surname>``, falling back to their gramps id/handle."""
+    name = rec.get("primary_name")
+    if isinstance(name, dict):
+        full = f"{name.get('first_name') or ''} {_gramps_surname(name)}".strip()
+        if full:
+            return full
+    return rec.get("gramps_id") or rec.get("handle") or "Person"
+
+
+def _gramps_person_event_links(
+    rec: dict[str, Any], node_id: str
+) -> list[dict[str, Any]]:
+    """``part_of`` edges from one person to each event they are referenced in."""
+    links: list[dict[str, Any]] = []
+    for eref in rec.get("event_ref_list") or []:
+        if not isinstance(eref, dict):
+            continue
+        if ev := eref.get("ref"):
+            links.append(
+                {
+                    "source": node_id,
+                    "target": f"gramps:event:{ev}",
+                    "type": "part_of",
+                    "domain": "gramps",
+                }
+            )
+    return links
+
+
+def _gramps_person_entity(rec: dict[str, Any]) -> dict[str, Any] | None:
+    """One Gramps person record as a :Person entity, or ``None`` without a handle."""
+    handle = rec.get("handle")
+    if not handle:
+        return None
+    node_id = f"gramps:person:{handle}"
+    return {
+        "id": node_id,
+        "type": "person",
+        "name": _gramps_person_name(rec),
+        "gramps_id": rec.get("gramps_id"),
+        "gender": rec.get("gender"),
+        "domain": "gramps",
+        "source_system": "gramps",
+        "externalToolId": str(handle),
+        "updatedAt": rec.get("change"),
+        "_links": _gramps_person_event_links(rec, node_id),
+    }
+
+
+def _gramps_family_members(rec: dict[str, Any]) -> list[Any]:
+    """The father/mother/child person handles of one family record."""
+    members: list[Any] = [rec.get("father_handle"), rec.get("mother_handle")]
+    for child in rec.get("child_ref_list") or []:
+        if isinstance(child, dict) and child.get("ref"):
+            members.append(child["ref"])
+    return members
+
+
+def _gramps_family_entity(rec: dict[str, Any]) -> dict[str, Any] | None:
+    """One Gramps family record as a :Family entity, or ``None`` without a handle."""
+    handle = rec.get("handle")
+    if not handle:
+        return None
+    fam_node = f"gramps:family:{handle}"
+    fam_links = [
+        {
+            "source": f"gramps:person:{member}",
+            "target": fam_node,
+            "type": "member_of",
+            "domain": "gramps",
+        }
+        for member in _gramps_family_members(rec)
+        if member
+    ]
+    return {
+        "id": fam_node,
+        "type": "family",
+        "name": rec.get("gramps_id") or f"Family {handle}",
+        "gramps_id": rec.get("gramps_id"),
+        "relationship": _gramps_type_string(rec),
+        "domain": "gramps",
+        "source_system": "gramps",
+        "externalToolId": str(handle),
+        "updatedAt": rec.get("change"),
+        "_links": fam_links,
+    }
+
+
+def _gramps_event_entity(rec: dict[str, Any]) -> dict[str, Any] | None:
+    """One Gramps event record as an :Event entity, or ``None`` without a handle."""
+    handle = rec.get("handle")
+    if not handle:
+        return None
+    named = (
+        _gramps_type_string(rec)
+        if isinstance(rec.get("type"), dict)
+        else rec.get("gramps_id")
+    )
+    return {
+        "id": f"gramps:event:{handle}",
+        "type": "event",
+        "name": named or f"Event {handle}",
+        "gramps_id": rec.get("gramps_id"),
+        "description": rec.get("description"),
+        "domain": "gramps",
+        "source_system": "gramps",
+        "externalToolId": str(handle),
+        "updatedAt": rec.get("change"),
     }
 
 
@@ -4474,115 +5410,12 @@ def _sync_gramps(
     people = _collection("gramps_people", "get_people")
     families = _collection("gramps_families", "get_families")
     events = _collection("gramps_events", "get_events")
-    entities: list[dict[str, Any]] = []
 
-    def _person_name(rec: dict[str, Any]) -> str:
-        name = rec.get("primary_name")
-        if isinstance(name, dict):
-            first = name.get("first_name") or ""
-            surnames = name.get("surname_list") or []
-            last = ""
-            if isinstance(surnames, list) and surnames:
-                s0 = surnames[0]
-                last = s0.get("surname", "") if isinstance(s0, dict) else ""
-            full = f"{first} {last}".strip()
-            if full:
-                return full
-        return rec.get("gramps_id") or rec.get("handle") or "Person"
-
-    person_handles: set[str] = set()
-    for rec in people:
-        handle = rec.get("handle")
-        if not handle:
-            continue
-        person_handles.add(str(handle))
-        node_id = f"gramps:person:{handle}"
-        person_links: list[dict[str, Any]] = []
-        for eref in rec.get("event_ref_list") or []:
-            if not isinstance(eref, dict):
-                continue
-            if ev := eref.get("ref"):
-                person_links.append(
-                    {
-                        "source": node_id,
-                        "target": f"gramps:event:{ev}",
-                        "type": "part_of",
-                        "domain": "gramps",
-                    }
-                )
-        entities.append(
-            {
-                "id": node_id,
-                "type": "person",
-                "name": _person_name(rec),
-                "gramps_id": rec.get("gramps_id"),
-                "gender": rec.get("gender"),
-                "domain": "gramps",
-                "source_system": "gramps",
-                "externalToolId": str(handle),
-                "updatedAt": rec.get("change"),
-                "_links": person_links,
-            }
-        )
-    for rec in families:
-        handle = rec.get("handle")
-        if not handle:
-            continue
-        fam_node = f"gramps:family:{handle}"
-        members: list[Any] = [rec.get("father_handle"), rec.get("mother_handle")]
-        for child in rec.get("child_ref_list") or []:
-            if isinstance(child, dict) and child.get("ref"):
-                members.append(child["ref"])
-        fam_links = [
-            {
-                "source": f"gramps:person:{member}",
-                "target": fam_node,
-                "type": "member_of",
-                "domain": "gramps",
-            }
-            for member in members
-            if member
-        ]
-        entities.append(
-            {
-                "id": fam_node,
-                "type": "family",
-                "name": rec.get("gramps_id") or f"Family {handle}",
-                "gramps_id": rec.get("gramps_id"),
-                "relationship": (
-                    (rec.get("type") or {}).get("string")
-                    if isinstance(rec.get("type"), dict)
-                    else None
-                ),
-                "domain": "gramps",
-                "source_system": "gramps",
-                "externalToolId": str(handle),
-                "updatedAt": rec.get("change"),
-                "_links": fam_links,
-            }
-        )
-    for rec in events:
-        handle = rec.get("handle")
-        if not handle:
-            continue
-        entities.append(
-            {
-                "id": f"gramps:event:{handle}",
-                "type": "event",
-                "name": (
-                    (rec.get("type") or {}).get("string")
-                    if isinstance(rec.get("type"), dict)
-                    else rec.get("gramps_id")
-                )
-                or f"Event {handle}",
-                "gramps_id": rec.get("gramps_id"),
-                "description": rec.get("description"),
-                "domain": "gramps",
-                "source_system": "gramps",
-                "externalToolId": str(handle),
-                "updatedAt": rec.get("change"),
-            }
-        )
+    entities = [
+        *_entity_rows(people, _gramps_person_entity),
+        *_entity_rows(families, _gramps_family_entity),
+        *_entity_rows(events, _gramps_event_entity),
+    ]
     ok, failed = _ingest_entities_via_envelope(
         engine, "gramps", entities, version_field="updatedAt"
     )
@@ -4718,6 +5551,99 @@ def _resolve_ard_registries() -> list[dict[str, Any]]:
     return out
 
 
+def _ard_slug(value: str) -> str:
+    """A stable, url-safe slug for an ARD registry/resource/capability id."""
+    import re as _re
+
+    return _re.sub(r"[^a-z0-9]+", "-", str(value).lower()).strip("-") or "x"
+
+
+def _ard_capabilities(
+    record: dict[str, Any], node_id: str, src: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """A resource's tags as ``(:ServiceCapability nodes, providesCapability edges)``."""
+    entities: list[dict[str, Any]] = []
+    links: list[dict[str, Any]] = []
+    for tag in record.get("tags") or []:
+        cap = str(tag).strip().lower()
+        if not cap:
+            continue
+        cap_node = f"capability:{_ard_slug(cap)}"
+        entities.append(
+            {
+                "id": cap_node,
+                "type": "ServiceCapability",
+                "name": cap,
+                "domain": "ard",
+                "source_system": src,
+            }
+        )
+        links.append(
+            {
+                "source": node_id,
+                "target": cap_node,
+                "type": "providesCapability",
+                "domain": "ard",
+            }
+        )
+    return entities, links
+
+
+def _ard_resource_node(
+    doc: Any,
+    node_id: str,
+    media: str,
+    src: str,
+    record: dict[str, Any],
+    resource_links: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """The typed node for one ARD resource, with its self-sourced ``_links``."""
+    eid = getattr(doc, "id", None)
+    return {
+        "id": node_id,
+        "type": "Skill" if media == "application/ai-skill" else "MCPServer",
+        "name": getattr(doc, "title", None) or str(eid),
+        "description": getattr(doc, "text", "") or "",
+        "domain": "ard",
+        "source_system": src,
+        "externalToolId": str(eid),
+        "ardMediaType": media,
+        "publisherDomain": str((record.get("publisher") or {}).get("domain", "")),
+        "updatedAt": getattr(doc, "updated_at", None),
+        "_links": resource_links,
+    }
+
+
+def _ard_resource_rows(
+    doc: Any, registry_name: str, registry_node: str, src: str
+) -> list[dict[str, Any]]:
+    """One ARD resource as its capability nodes plus its own typed node.
+
+    ``application/ai-skill`` → ``:Skill``; anything else → ``:MCPServer``.
+    """
+    eid = getattr(doc, "id", None)
+    if not eid:
+        return []
+    meta = getattr(doc, "metadata", None) or {}
+    record = r if isinstance((r := meta.get("record")), dict) else {}
+    media = str((meta or {}).get("ard_media_type") or "")
+    node_id = f"ard:{registry_name}:{_ard_slug(eid)}"
+    cap_entities, cap_links = _ard_capabilities(record, node_id, src)
+    resource_links: list[dict[str, Any]] = [
+        {
+            "source": node_id,
+            "target": registry_node,
+            "type": "registeredIn",
+            "domain": "ard",
+        },
+        *cap_links,
+    ]
+    return [
+        *cap_entities,
+        _ard_resource_node(doc, node_id, media, src, record, resource_links),
+    ]
+
+
 def _ard_entities(docs: list[Any], registry_name: str) -> list[dict[str, Any]]:
     """Map drained ARD resource docs → typed KG entities (KG-2.188).
 
@@ -4732,15 +5658,9 @@ def _ard_entities(docs: list[Any], registry_name: str) -> list[dict[str, Any]]:
     ``_links`` — the resource also carries the real per-record ``updated_at``, unlike
     the versionless registry/capability nodes.
     """
-    import re as _re
-
-    def _slug(value: str) -> str:
-        return _re.sub(r"[^a-z0-9]+", "-", str(value).lower()).strip("-") or "x"
-
-    entities: list[dict[str, Any]] = []
     src = f"ard:{registry_name}"
-    registry_node = f"ard:registry:{_slug(registry_name)}"
-    entities.append(
+    registry_node = f"ard:registry:{_ard_slug(registry_name)}"
+    entities: list[dict[str, Any]] = [
         {
             "id": registry_node,
             "type": "ResourceRegistry",
@@ -4748,63 +5668,68 @@ def _ard_entities(docs: list[Any], registry_name: str) -> list[dict[str, Any]]:
             "domain": "ard",
             "source_system": src,
         }
-    )
+    ]
     for doc in docs:
-        eid = getattr(doc, "id", None)
-        if not eid:
-            continue
-        meta = getattr(doc, "metadata", None) or {}
-        record = r if isinstance((r := meta.get("record")), dict) else {}
-        media = str((meta or {}).get("ard_media_type") or "")
-        node_type = "Skill" if media == "application/ai-skill" else "MCPServer"
-        node_id = f"ard:{registry_name}:{_slug(eid)}"
-        publisher_domain = str((record.get("publisher") or {}).get("domain", ""))
-        resource_links: list[dict[str, Any]] = [
-            {
-                "source": node_id,
-                "target": registry_node,
-                "type": "registeredIn",
-                "domain": "ard",
-            }
-        ]
-        for tag in record.get("tags") or []:
-            cap = str(tag).strip().lower()
-            if not cap:
-                continue
-            cap_node = f"capability:{_slug(cap)}"
-            entities.append(
-                {
-                    "id": cap_node,
-                    "type": "ServiceCapability",
-                    "name": cap,
-                    "domain": "ard",
-                    "source_system": src,
-                }
-            )
-            resource_links.append(
-                {
-                    "source": node_id,
-                    "target": cap_node,
-                    "type": "providesCapability",
-                    "domain": "ard",
-                }
-            )
-        entities.append(
-            {
-                "id": node_id,
-                "type": node_type,
-                "name": getattr(doc, "title", None) or str(eid),
-                "description": getattr(doc, "text", "") or "",
-                "domain": "ard",
-                "source_system": src,
-                "externalToolId": str(eid),
-                "ardMediaType": media,
-                "publisherDomain": publisher_domain,
-                "updatedAt": getattr(doc, "updated_at", None),
-                "_links": resource_links,
-            }
-        )
+        entities.extend(_ard_resource_rows(doc, registry_name, registry_node, src))
     return entities
+
+
+def _ard_registry_conn(reg: dict[str, Any], client: Any) -> Any:
+    """Build one registry's signature-verified ``ard`` connector.
+
+    ``client`` may inject a fetch function for offline tests.
+    """
+    from ...protocols.source_connectors.registry import build_connector
+
+    conf = {k: v for k, v in reg.items() if k != "name"}
+    if callable(client):
+        conf["fetch_fn"] = client
+    return build_connector("ard", conf)
+
+
+def _ard_registry_result(
+    engine: Any, reg: dict[str, Any], mode: str, client: Any
+) -> tuple[dict[str, Any], int, int, set[str]]:
+    """Drain + ingest one ARD registry, as ``(row, nodes, failures, live_ids)``."""
+    name = str(reg.get("name") or reg.get("preset") or "ard")
+    try:
+        conn = _ard_registry_conn(reg, client)
+    except Exception as exc:  # noqa: BLE001 — a misconfigured registry is a skip
+        return (
+            {"registry": name, "status": "skipped", "reason": str(exc)[:160]},
+            0,
+            0,
+            set(),
+        )
+    since = (
+        None
+        if mode == "full"
+        else _read_envelope_watermark(
+            engine,
+            "ard",
+            source_instance=name,
+        )
+    )
+    docs = _drain_incremental(conn, since)
+    live = {str(getattr(d, "id", "")) for d in docs if getattr(d, "id", None)}
+    if mode == "reconcile":
+        return _reconcile(engine, "ard", live) | {"registry": name}, 0, 0, live
+    entities = _ard_entities(docs, name)
+    ok, failed = _ingest_entities_via_envelope(
+        engine, "ard", entities, source_instance=name
+    )
+    fails = int(getattr(conn, "verify_failures", 0) or 0) + failed
+    return (
+        {
+            "registry": name,
+            "resources": len(docs),
+            "verify_failures": fails,
+            "since": since,
+        },
+        ok,
+        fails,
+        live,
+    )
 
 
 def _sync_ard(
@@ -4824,8 +5749,6 @@ def _sync_ard(
     per-envelope watermark key (``ard:<name>``) matches this handler's own existing
     ``wm_key`` format exactly.
     """
-    from ...protocols.source_connectors.registry import build_connector
-
     registries = _resolve_ard_registries()
     if not registries:
         return {"status": "skipped", "reason": "no ARD_REGISTRIES configured"}
@@ -4834,47 +5757,11 @@ def _sync_ard(
     total_e = total_fail = 0
     all_live: set[str] = set()
     for reg in registries:
-        name = str(reg.get("name") or reg.get("preset") or "ard")
-        conf = {k: v for k, v in reg.items() if k != "name"}
-        if callable(client):
-            conf["fetch_fn"] = client
-        try:
-            conn = build_connector("ard", conf)
-        except Exception as exc:  # noqa: BLE001 — a misconfigured registry is a skip
-            results.append(
-                {"registry": name, "status": "skipped", "reason": str(exc)[:160]}
-            )
-            continue
-        since = (
-            None
-            if mode == "full"
-            else _read_envelope_watermark(
-                engine,
-                "ard",
-                source_instance=name,
-            )
-        )
-        docs = _drain_incremental(conn, since)
-        live = {str(getattr(d, "id", "")) for d in docs if getattr(d, "id", None)}
-        all_live |= live
-        if mode == "reconcile":
-            results.append(_reconcile(engine, "ard", live) | {"registry": name})
-            continue
-        entities = _ard_entities(docs, name)
-        ok, failed = _ingest_entities_via_envelope(
-            engine, "ard", entities, source_instance=name
-        )
-        fails = int(getattr(conn, "verify_failures", 0) or 0) + failed
-        total_e += ok
+        row, hydrated, fails, live = _ard_registry_result(engine, reg, mode, client)
+        results.append(row)
+        total_e += hydrated
         total_fail += fails
-        results.append(
-            {
-                "registry": name,
-                "resources": len(docs),
-                "verify_failures": fails,
-                "since": since,
-            }
-        )
+        all_live |= live
     return {
         "status": "ok",
         "source": "ard",
@@ -4933,6 +5820,108 @@ def _sync_package_install(
     return sync_package_install(engine, mode=mode, ids=ids, client=client)
 
 
+def _claude_memory_files() -> list[Any]:
+    """Every Claude Code memory *topic* file (the MEMORY indexes are excluded).
+
+    The memory dir is ``CLAUDE_MEMORY_DIR`` when set, else every
+    ``~/.claude/projects/*/memory`` is swept.
+    """
+    import glob
+    import os
+    from pathlib import Path
+
+    from ...core.config import setting
+
+    explicit = (setting("CLAUDE_MEMORY_DIR", default="") or "").strip()
+    dirs = (
+        [explicit]
+        if explicit
+        else sorted(glob.glob(os.path.expanduser("~/.claude/projects/*/memory")))
+    )
+    files: list[Any] = []
+    for d in dirs:
+        p = Path(d)
+        if p.is_dir():
+            files.extend(
+                f
+                for f in sorted(p.glob("*.md"))
+                if f.name not in ("MEMORY.md", "MEMORY-ARCHIVE.md")
+            )
+    return files
+
+
+def _claude_memory_record(path: Any) -> tuple[str, dict[str, Any]]:
+    """One memory topic file as ``(slug, connector record)``."""
+    slug, name, description, mtype, body, links = _parse_memory_file(path)
+    eid = f"claude_memory:{slug}"
+    text = (f"{description}\n\n{body}").strip()
+    record: dict[str, Any] = {
+        "id": eid,
+        "type": "AgentMemory",
+        "name": name,
+        "slug": slug,
+        "memory_type": mtype,
+        "description": description,
+        "text": text,
+        # The durable envelope may identify the configured source class,
+        # never the host/user-specific filesystem location.
+        "source_uri": "configured-memory",
+        # A stable digest of the file's actual content -- NOT the constant
+        # ``id`` -- so ``ChangeEnvelope.from_connector_record``'s
+        # ``source_version``/idempotency key genuinely varies with content
+        # (the documented "content-hash write-delta": an unchanged topic
+        # file is skipped, but a changed one under the same slug must
+        # produce a new idempotent version rather than colliding with the
+        # previous commit under that slug). Full 64-hex-char sha256: the
+        # envelope privacy gate's opaque-digest allowlist
+        # (envelope_ingest._OPAQUE_DIGEST) only recognizes 24/32/40/64-hex
+        # lengths as opaque and exempt from the free-text privacy scan; a
+        # truncated digest falls through to that scan and can trip its
+        # regex heuristics on ordinary hex material (the same class of
+        # false positive already documented there for sha256 digests).
+        "content_version": hashlib.sha256(
+            f"{name}\n{mtype}\n{text}".encode()
+        ).hexdigest(),
+    }
+    rel_links = [
+        {"source": eid, "target": f"claude_memory:{tgt}", "type": "RELATED_TO"}
+        for tgt in dict.fromkeys(links)  # de-dup, preserve order
+        if tgt != slug
+    ]
+    if rel_links:
+        record["_links"] = rel_links
+    return slug, record
+
+
+def _claude_memory_apply(engine: Any, record: dict[str, Any]) -> tuple[int, int, int]:
+    """Commit one memory envelope, as ``(nodes, edges, failed)``."""
+    from ..ingestion.change_envelope import ChangeEnvelope
+    from ..ingestion.envelope_ingest import ingest_envelope
+
+    env: ChangeEnvelope | None = ChangeEnvelope.from_connector_record(
+        record,
+        connector="claude_memory",
+        id_field="id",
+        version_field="content_version",
+    )
+    env, blocked = _apply_with_preflight_one(engine, "claude_memory", env)
+    if env is None:
+        logger.warning(
+            "claude_memory envelope blocked by backfeed preflight: %s", blocked
+        )
+        return 0, 0, 1
+    result = ingest_envelope(engine, env)
+    if result.get("status") not in {"success", "skipped"}:
+        logger.warning(
+            "claude_memory envelope %s failed: %s",
+            env.idempotency_key,
+            result.get("error"),
+        )
+        return 0, 0, 1
+    wr = result.get("write_result") or {}
+    return wr.get("nodes", 0), wr.get("edges", 0), 0
+
+
 def _sync_claude_memory(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
@@ -4962,107 +5951,25 @@ def _sync_claude_memory(
     Migrated second (after ``leanix``) as the simplest self-contained offline
     exemplar.
     """
-    import glob
-    import os
-    from pathlib import Path
-
-    from ...core.config import setting
-
-    explicit = (setting("CLAUDE_MEMORY_DIR", default="") or "").strip()
-    dirs = (
-        [explicit]
-        if explicit
-        else sorted(glob.glob(os.path.expanduser("~/.claude/projects/*/memory")))
-    )
-    files: list[Any] = []
-    for d in dirs:
-        p = Path(d)
-        if p.is_dir():
-            files.extend(
-                f
-                for f in sorted(p.glob("*.md"))
-                if f.name not in ("MEMORY.md", "MEMORY-ARCHIVE.md")
-            )
+    files = _claude_memory_files()
     if not files:
         return {
             "status": "skipped",
             "reason": "no Claude memory dir (set CLAUDE_MEMORY_DIR) or no *.md topic files",
         }
 
-    from ..ingestion.change_envelope import ChangeEnvelope
-    from ..ingestion.envelope_ingest import ingest_envelope
-
     id_filter = set(ids or [])
     nodes = 0
     edges = 0
     failed = 0
-    for f in files:
-        slug, name, description, mtype, body, links = _parse_memory_file(f)
+    for path in files:
+        slug, record = _claude_memory_record(path)
         if id_filter and slug not in id_filter:
             continue
-        eid = f"claude_memory:{slug}"
-        text = (f"{description}\n\n{body}").strip()
-        record: dict[str, Any] = {
-            "id": eid,
-            "type": "AgentMemory",
-            "name": name,
-            "slug": slug,
-            "memory_type": mtype,
-            "description": description,
-            "text": text,
-            # The durable envelope may identify the configured source class,
-            # never the host/user-specific filesystem location.
-            "source_uri": "configured-memory",
-            # A stable digest of the file's actual content -- NOT the constant
-            # ``id`` -- so ``ChangeEnvelope.from_connector_record``'s
-            # ``source_version``/idempotency key genuinely varies with content
-            # (the documented "content-hash write-delta": an unchanged topic
-            # file is skipped, but a changed one under the same slug must
-            # produce a new idempotent version rather than colliding with the
-            # previous commit under that slug). Full 64-hex-char sha256: the
-            # envelope privacy gate's opaque-digest allowlist
-            # (envelope_ingest._OPAQUE_DIGEST) only recognizes 24/32/40/64-hex
-            # lengths as opaque and exempt from the free-text privacy scan; a
-            # truncated digest falls through to that scan and can trip its
-            # regex heuristics on ordinary hex material (the same class of
-            # false positive already documented there for sha256 digests).
-            "content_version": hashlib.sha256(
-                f"{name}\n{mtype}\n{text}".encode()
-            ).hexdigest(),
-        }
-        rel_links = [
-            {"source": eid, "target": f"claude_memory:{tgt}", "type": "RELATED_TO"}
-            for tgt in dict.fromkeys(links)  # de-dup, preserve order
-            if tgt != slug
-        ]
-        if rel_links:
-            record["_links"] = rel_links
-
-        env: ChangeEnvelope | None = ChangeEnvelope.from_connector_record(
-            record,
-            connector="claude_memory",
-            id_field="id",
-            version_field="content_version",
-        )
-        env, _blocked = _apply_with_preflight_one(engine, "claude_memory", env)
-        if env is None:
-            failed += 1
-            logger.warning(
-                "claude_memory envelope blocked by backfeed preflight: %s", _blocked
-            )
-            continue
-        result = ingest_envelope(engine, env)
-        if result.get("status") not in {"success", "skipped"}:
-            failed += 1
-            logger.warning(
-                "claude_memory envelope %s failed: %s",
-                env.idempotency_key,
-                result.get("error"),
-            )
-            continue
-        wr = result.get("write_result") or {}
-        nodes += wr.get("nodes", 0)
-        edges += wr.get("edges", 0)
+        memory_nodes, memory_edges, memory_failed = _claude_memory_apply(engine, record)
+        nodes += memory_nodes
+        edges += memory_edges
+        failed += memory_failed
 
     return {
         "status": "ok",
@@ -5165,6 +6072,82 @@ ENVELOPE_NATIVE_SOURCES: frozenset[str] = (
 )
 
 
+def _connector_manifest_gate(norm_source: str, mode: str) -> dict[str, Any] | None:
+    """Run the compile-before-sync gate; a dict result is a fail-closed refusal.
+
+    ``None`` means the source may dispatch. Missing manifests/providers, drift, or
+    a precheck exception all refuse BEFORE dispatch — there is no unowned runtime
+    connector pass-through (CONCEPT:AU-KG.ontology.connector-manifest-gate, D17).
+    """
+    from ..etl.result import EtlResult
+
+    try:
+        from ..ontology.connector_manifest_gate import precheck_source
+
+        gate = precheck_source(norm_source)
+    except Exception as exc:  # noqa: BLE001 - gate failure must fail closed
+        logger.warning(
+            "connector-manifest precheck failed closed for %s (%s)",
+            norm_source,
+            type(exc).__name__,
+        )
+        return EtlResult(
+            status="error",
+            source=norm_source or None,
+            mode=mode,
+            reason=f"connector-manifest precheck failed closed ({type(exc).__name__})",
+        ).model_dump()
+    if not gate.get("checked") or not gate.get("ok"):
+        logger.warning(
+            "source_sync: %s refused — connector_manifest.yml failed the "
+            "compile-before-sync gate: %s",
+            norm_source,
+            gate.get("violations"),
+        )
+        return EtlResult(
+            status="error",
+            source=norm_source or None,
+            mode=mode,
+            reason="connector_manifest.yml failed the compile-before-sync "
+            f"gate ({gate.get('connector')}): {gate.get('violations')}",
+        ).model_dump()
+    return None
+
+
+def _etl_split_fields(res: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Split a raw connector result into canonical ``EtlResult`` fields + details."""
+    from ..etl.result import EtlResult
+
+    canonical_fields = set(EtlResult.model_fields)
+    payload = {key: value for key, value in res.items() if key in canonical_fields}
+    details = {key: value for key, value in res.items() if key not in canonical_fields}
+    return payload, details
+
+
+def _etl_result_payload(res: Any, norm_source: str, mode: str) -> dict[str, Any]:
+    """Project any dispatch result onto the strict ``EtlResult`` wire schema.
+
+    Connector-specific diagnostics are namespaced under ``details`` and are never
+    interpreted as canonical counts (CONCEPT:AU-KG.etl.result-contract).
+    """
+    from ..etl.result import EtlResult
+
+    if isinstance(res, EtlResult):
+        return res.model_dump()
+    if not isinstance(res, dict):
+        return EtlResult(
+            status="error",
+            source=norm_source or None,
+            mode=mode,
+            error="connector returned a non-object result",
+        ).model_dump()
+    payload, details = _etl_split_fields(res)
+    payload.setdefault("source", norm_source or None)
+    payload.setdefault("mode", mode)
+    payload["details"] = {**dict(payload.get("details") or {}), **details}
+    return EtlResult.model_validate(payload).model_dump()
+
+
 def sync_source(
     engine: Any,
     source: str,
@@ -5192,60 +6175,90 @@ def sync_source(
     precheck exception fail closed before dispatch. There is no unowned runtime
     connector pass-through.
     """
-    from ..etl.result import EtlResult
-
     norm_source = (source or "").lower().strip()
 
     if norm_source not in {"all", "*", "sweep"}:
-        try:
-            from ..ontology.connector_manifest_gate import precheck_source
-
-            gate = precheck_source(norm_source)
-        except Exception as exc:  # noqa: BLE001 - gate failure must fail closed
-            logger.warning(
-                "connector-manifest precheck failed closed for %s (%s)",
-                norm_source,
-                type(exc).__name__,
-            )
-            return EtlResult(
-                status="error",
-                source=norm_source or None,
-                mode=mode,
-                reason="connector-manifest precheck failed closed "
-                f"({type(exc).__name__})",
-            ).model_dump()
-        if not gate.get("checked") or not gate.get("ok"):
-            logger.warning(
-                "source_sync: %s refused — connector_manifest.yml failed the "
-                "compile-before-sync gate: %s",
-                norm_source,
-                gate.get("violations"),
-            )
-            return EtlResult(
-                status="error",
-                source=norm_source or None,
-                mode=mode,
-                reason="connector_manifest.yml failed the compile-before-sync "
-                f"gate ({gate.get('connector')}): {gate.get('violations')}",
-            ).model_dump()
+        refused = _connector_manifest_gate(norm_source, mode)
+        if refused is not None:
+            return refused
 
     res = _dispatch_sync_source(engine, norm_source, mode=mode, ids=ids, client=client)
-    if isinstance(res, EtlResult):
-        return res.model_dump()
-    if not isinstance(res, dict):
-        return EtlResult(
-            status="error",
-            source=norm_source or None,
-            mode=mode,
-            error="connector returned a non-object result",
-        ).model_dump()
-    canonical_fields = set(EtlResult.model_fields)
-    payload = {key: value for key, value in res.items() if key in canonical_fields}
-    details = {key: value for key, value in res.items() if key not in canonical_fields}
-    payload.setdefault("source", norm_source or None)
-    payload.setdefault("mode", mode)
-    payload["details"] = {**dict(payload.get("details") or {}), **details}
-    return EtlResult.model_validate(payload).model_dump()
+    return _etl_result_payload(res, norm_source, mode)
+
+
+# An UNCONFIGURED upstream (its MCP server isn't in mcp_config, no creds, etc.) is a
+# *skip*, never a task failure — the fleet sweep routinely runs with only a subset of
+# connectors provisioned (CONCEPT:AU-KG.ingest.enterprise-source-extractor). Real
+# errors still propagate.
+#
+# ``unknown mcp_tool preset`` is the same class: a source is "configured" (its MCP
+# server is registered in mcp_config) but the connector PACKAGE that ships the matching
+# contributed mcp_tool preset isn't pip-installed in this process — e.g. FreshRSS /
+# ScholarX reached purely over the wire without the freshrss-agent/scholarx package
+# co-installed (CONCEPT:AU-KG.ingest.research-connector-presets). The preset genuinely
+# isn't resolvable here, so it is a skip too.
+_UNCONFIGURED_HANDLER_TOKENS = (
+    "not found in mcp_config",
+    "not configured",
+    "no client",
+    "credential",
+    "unconfigured",
+    "unknown mcp_tool preset",
+)
+
+
+def _run_delta_handler(
+    engine: Any,
+    source: str,
+    handler: Callable[..., dict[str, Any]],
+    mode: str,
+    ids: list[str] | None,
+    client: Any,
+) -> dict[str, Any]:
+    """Run one registered delta handler; an unconfigured upstream becomes a skip."""
+    try:
+        return handler(engine, mode=mode, ids=ids, client=client)
+    except Exception as exc:  # noqa: BLE001
+        msg = str(exc).lower()
+        if any(token in msg for token in _UNCONFIGURED_HANDLER_TOKENS):
+            return {"status": "skipped", "source": source, "reason": str(exc)[:160]}
+        raise
+
+
+def _chunked_drain_handle(engine: Any, source: str) -> dict[str, Any] | None:
+    """A handle for a chunked full drain, or ``None`` to keep the sync inline."""
+    from .chunked_drain import (
+        chunked_drain_enabled,
+        start_chunked_drain,
+        supports_chunked_drain,
+    )
+
+    if chunked_drain_enabled() and supports_chunked_drain(source):
+        return start_chunked_drain(engine, source, mode="full")
+    return None
+
+
+def _materialize_or_hydrate(engine: Any, source: str) -> dict[str, Any]:
+    """The no-delta-handler fallback: materialize substrate, else generic hydrate."""
+    # Extractor/materialize-substrate sources (camunda/aris/egeria) route through the
+    # shared materialize core so this stays the one entrypoint for every source.
+    from ..enrichment.materialize import MATERIALIZE_SOURCES, run_materialize_source
+
+    if source in MATERIALIZE_SOURCES:
+        res = run_materialize_source(engine, source)
+        res.setdefault("mode", "full")
+        res.setdefault("delta_capable", False)
+        return res
+
+    # Otherwise: generic full hydrate via the CAPABILITY_REGISTRY.
+    from .hydration import HydrationManager
+
+    res = HydrationManager().hydrate_source(engine, source)
+    if isinstance(res, dict):
+        res.setdefault("source", source)
+        res.setdefault("mode", "full")
+        res.setdefault("delta_capable", False)
+    return res
 
 
 def _dispatch_sync_source(
@@ -5269,45 +6282,13 @@ def _dispatch_sync_source(
     # capacity-guarded, paginated ``connector_drain`` batch-tasks and return a handle IMMEDIATELY
     # — the "controlled waves" are baked in, not hand-driven. Small/delta syncs stay inline (fast).
     if mode == "full" and hasattr(engine, "submit_task"):
-        from .chunked_drain import (
-            chunked_drain_enabled,
-            start_chunked_drain,
-            supports_chunked_drain,
-        )
-
-        if chunked_drain_enabled() and supports_chunked_drain(source):
-            return start_chunked_drain(engine, source, mode="full")
+        handle = _chunked_drain_handle(engine, source)
+        if handle is not None:
+            return handle
 
     handler = _DELTA_HANDLERS.get(source)
     if handler is not None:
-        try:
-            return handler(engine, mode=mode, ids=ids, client=client)
-        except Exception as exc:  # noqa: BLE001
-            # An UNCONFIGURED upstream (its MCP server isn't in mcp_config, no
-            # creds, etc.) is a *skip*, never a task failure — the fleet sweep
-            # routinely runs with only a subset of connectors provisioned
-            # (CONCEPT:AU-KG.ingest.enterprise-source-extractor). Real errors still propagate.
-            msg = str(exc).lower()
-            if any(
-                t in msg
-                for t in (
-                    "not found in mcp_config",
-                    "not configured",
-                    "no client",
-                    "credential",
-                    "unconfigured",
-                    # A source is "configured" (e.g. its MCP server is registered
-                    # in mcp_config) but the connector PACKAGE that ships the
-                    # matching contributed mcp_tool preset isn't pip-installed in
-                    # this process — e.g. FreshRSS/ScholarX reached purely over
-                    # the wire without the freshrss-agent/scholarx package
-                    # co-installed (CONCEPT:AU-KG.ingest.research-connector-presets). Also a skip, not a
-                    # task failure — the preset genuinely isn't resolvable here.
-                    "unknown mcp_tool preset",
-                )
-            ):
-                return {"status": "skipped", "source": source, "reason": str(exc)[:160]}
-            raise
+        return _run_delta_handler(engine, source, handler, mode, ids, client)
 
     if mode == "reconcile":
         return {
@@ -5315,25 +6296,197 @@ def _dispatch_sync_source(
             "reason": f"reconcile not supported for '{source}' (no delta handler)",
         }
 
-    # Extractor/materialize-substrate sources (camunda/aris/egeria) route through the
-    # shared materialize core so this stays the one entrypoint for every source.
-    from ..enrichment.materialize import MATERIALIZE_SOURCES, run_materialize_source
+    return _materialize_or_hydrate(engine, source)
 
-    if source in MATERIALIZE_SOURCES:
-        res = run_materialize_source(engine, source)
-        res.setdefault("mode", "full")
-        res.setdefault("delta_capable", False)
-        return res
 
-    # Otherwise: generic full hydrate via the CAPABILITY_REGISTRY.
+def _sweep_drop_unconfigured_trackers(candidates: set[str]) -> None:
+    """Drop MCP-backed dedicated trackers whose ``*-mcp`` server is absent.
+
+    CONCEPT:AU-KG.compute.mcp-backed-dedicated-trackers — the MCP-backed dedicated
+    trackers (jira/confluence/plane) reach their upstream ONLY through a fleet
+    ``*-mcp`` server, so their "configured" signal is *"the server is registered in
+    mcp_config.json"* — NOT an env token (capability-registry) nor always-on
+    (feed/fleet handlers). Keep one as a candidate when its server is in mcp_config
+    (the live remote-routed atlassian/plane case the operator runs), and DROP it when
+    truly unconfigured so the sweep neither wastes a connector_sync task nor
+    misreports a reachable tracker as missing. (Before this gate they were enqueued
+    unconditionally, so a tracker whose ``*-mcp`` server was absent under the expected
+    key still spawned a task that the connector then aborted with "not found in
+    mcp_config" → 0 nodes, never surfacing as configured work.)
+    """
+    for tracker in _MCP_TRACKER_SERVERS:
+        if tracker in candidates and not _mcp_tracker_configured(tracker):
+            candidates.discard(tracker)
+
+
+def _sweep_configured_capability_sources() -> set[str]:
+    """Capability-registry sources that env-detect as *configured* (best-effort)."""
     from .hydration import HydrationManager
 
-    res = HydrationManager().hydrate_source(engine, source)
-    if isinstance(res, dict):
-        res.setdefault("source", source)
-        res.setdefault("mode", "full")
-        res.setdefault("delta_capable", False)
-    return res
+    try:
+        return {
+            src
+            for src, conf in HydrationManager().get_status().items()
+            if isinstance(conf, dict) and conf.get("configured")
+        }
+    except Exception:  # noqa: BLE001 — status probe is best-effort
+        logger.debug("capability status probe failed", exc_info=True)
+        return set()
+
+
+def _sweep_materialize_sources() -> set[str]:
+    """Materialize extractor sources whose client provider is importable here."""
+    try:
+        from ..enrichment.materialize import (
+            MATERIALIZE_SOURCES,
+            source_client_provider_installed,
+        )
+
+        return {
+            source
+            for source in MATERIALIZE_SOURCES
+            if source_client_provider_installed(source)
+        }
+    except Exception:  # noqa: BLE001
+        logger.debug("materialize source list unavailable", exc_info=True)
+        return set()
+
+
+def _sweep_candidate_sources(include_materialize: bool) -> set[str]:
+    """The union of delta handlers, configured capability sources and extractors."""
+    candidates: set[str] = set(_DELTA_HANDLERS)
+    # ``fleet`` capability elevation re-probes ~62 MCP servers; the capability
+    # vocabulary is slow-changing, so it runs at boot + on explicit refresh
+    # (``source_sync source=fleet``), not on every */20m document sweep.
+    candidates.discard("fleet")
+    _sweep_drop_unconfigured_trackers(candidates)
+    candidates |= _sweep_configured_capability_sources()
+    if include_materialize:
+        candidates |= _sweep_materialize_sources()
+    return candidates
+
+
+def _sweep_governed_candidates(candidates: set[str]) -> set[str]:
+    """Filter the candidate union through the signed compile-before-sync contract.
+
+    A registered handler or locally importable extractor is only a candidate
+    implementation, not authority to schedule an external pull. Filtering the
+    complete union through the same contract used by :func:`sync_source` keeps boot
+    from creating guaranteed-failure jobs for stale aliases (for example
+    ``freshrss`` or ``homeassistant``) whose provider is neither installed nor
+    represented by a valid release-pinned bundle.
+    """
+    from ..ontology.connector_manifest_gate import precheck_source
+
+    governed: set[str] = set()
+    for source in sorted(candidates):
+        try:
+            if bool(precheck_source(source).get("ok")):
+                governed.add(source)
+            else:
+                logger.debug(
+                    "source sweep omitted %s because its governed provider "
+                    "contract is unavailable",
+                    source,
+                )
+        except Exception:  # noqa: BLE001 - fail closed before queue publication
+            logger.debug(
+                "source sweep contract precheck failed for %s",
+                source,
+                exc_info=True,
+            )
+    return governed
+
+
+def _enqueue_sweep_tasks(
+    engine: Any, candidates: set[str], mode: str, priority: int | None
+) -> list[str]:
+    """Submit one laned ``connector_sync`` task per candidate source."""
+    jobs: list[str] = []
+    for src in sorted(candidates):
+        try:
+            jobs.append(
+                engine.submit_task(
+                    target_path=src,
+                    is_codebase=False,
+                    provenance={"sync_mode": mode},
+                    task_type="connector_sync",
+                    **({"priority": priority} if priority is not None else {}),
+                )
+            )
+        except Exception:  # noqa: BLE001 — one bad enqueue never aborts the sweep
+            logger.debug("enqueue connector_sync failed for %s", src, exc_info=True)
+    return jobs
+
+
+_SWEEP_UNCONFIGURED = (
+    "not configured",
+    "no client",
+    "missing",
+    "unconfigured",
+    "credential",
+)
+
+
+def _sweep_error_reason(res: Any) -> str:
+    """The reason string for a connector result that reported error/failed."""
+    if not isinstance(res, dict):
+        return "error"
+    return str(res.get("error") or res.get("reason") or "error")
+
+
+def _sweep_synced_entry(res: Any, status: Any) -> Any:
+    """The recorded value for a connector that synced."""
+    if not isinstance(res, dict):
+        return status
+    return {
+        "counts": dict(res.get("counts") or {}),
+        "details": dict(res.get("details") or {}),
+    }
+
+
+def _classify_sweep_result(res: Any) -> tuple[str, Any]:
+    """Bucket one connector's sync result as ``synced`` / ``skipped`` / ``errors``."""
+    status = res.get("status") if isinstance(res, dict) else "ok"
+    if status in {"skipped", "noop"}:
+        reason = res.get("reason") if isinstance(res, dict) else None
+        return "skipped", str(reason or "skipped")
+    if status in {"error", "failed"}:
+        return "errors", _sweep_error_reason(res)
+    return "synced", _sweep_synced_entry(res, status)
+
+
+def _classify_sweep_exception(src: str, exc: Exception) -> tuple[str, str]:
+    """Bucket a raised connector failure — an unconfigured upstream is a skip."""
+    msg = str(exc)
+    if any(token in msg.lower() for token in _SWEEP_UNCONFIGURED):
+        return "skipped", f"unconfigured: {msg[:120]}"
+    logger.warning("sweep: source '%s' failed: %s", src, exc)
+    return "errors", msg[:200]
+
+
+def _sweep_inline(engine: Any, candidates: set[str], mode: str) -> dict[str, Any]:
+    """Sequentially sync every candidate, isolating each connector's failure."""
+    buckets: dict[str, dict[str, Any]] = {"synced": {}, "skipped": {}, "errors": {}}
+    for src in sorted(candidates):
+        try:
+            bucket, value = _classify_sweep_result(sync_source(engine, src, mode=mode))
+        except Exception as exc:  # noqa: BLE001 — isolate one bad connector
+            bucket, value = _classify_sweep_exception(src, exc)
+        buckets[bucket][src] = value
+    return {
+        "status": "ok",
+        "mode": mode,
+        "swept": len(candidates),
+        "synced": buckets["synced"],
+        "skipped": buckets["skipped"],
+        "errors": buckets["errors"],
+        "counts": {
+            "synced": len(buckets["synced"]),
+            "skipped": len(buckets["skipped"]),
+            "errors": len(buckets["errors"]),
+        },
+    }
 
 
 def sweep_all_sources(
@@ -5359,96 +6512,16 @@ def sweep_all_sources(
     background sweep never aborts on one bad connector. Optional unconfigured
     sources are reported as *skipped*; mandatory contract failures are *errored*.
     """
-    candidates: set[str] = set(_DELTA_HANDLERS)
-    # ``fleet`` capability elevation re-probes ~62 MCP servers; the capability
-    # vocabulary is slow-changing, so it runs at boot + on explicit refresh
-    # (``source_sync source=fleet``), not on every */20m document sweep.
-    candidates.discard("fleet")
-
-    # CONCEPT:AU-KG.compute.mcp-backed-dedicated-trackers — the MCP-backed dedicated trackers (jira/confluence/plane) reach
-    # their upstream ONLY through a fleet ``*-mcp`` server, so their "configured" signal is
-    # *"the server is registered in mcp_config.json"* — NOT an env token (capability-registry)
-    # nor always-on (feed/fleet handlers). Keep one as a candidate when its server is in
-    # mcp_config (the live remote-routed atlassian/plane case the operator runs), and DROP it
-    # when truly unconfigured so the sweep neither wastes a connector_sync task nor misreports
-    # a reachable tracker as missing. (Before this gate they were enqueued unconditionally,
-    # so a tracker whose ``*-mcp`` server was absent under the expected key still spawned a
-    # task that the connector then aborted with "not found in mcp_config" → 0 nodes, never
-    # surfacing as configured work.)
-    for _tracker in _MCP_TRACKER_SERVERS:
-        if _tracker in candidates and not _mcp_tracker_configured(_tracker):
-            candidates.discard(_tracker)
-
-    from .hydration import HydrationManager
-
-    try:
-        for src, conf in HydrationManager().get_status().items():
-            if isinstance(conf, dict) and conf.get("configured"):
-                candidates.add(src)
-    except Exception:  # noqa: BLE001 — status probe is best-effort
-        logger.debug("capability status probe failed", exc_info=True)
-
-    if include_materialize:
-        try:
-            from ..enrichment.materialize import (
-                MATERIALIZE_SOURCES,
-                source_client_provider_installed,
-            )
-
-            candidates |= {
-                source
-                for source in MATERIALIZE_SOURCES
-                if source_client_provider_installed(source)
-            }
-        except Exception:  # noqa: BLE001
-            logger.debug("materialize source list unavailable", exc_info=True)
-
-    # A registered handler or locally importable extractor is only a candidate
-    # implementation, not authority to schedule an external pull.  Filter the
-    # complete union through the same signed compile-before-sync contract used by
-    # ``sync_source`` so boot does not create guaranteed-failure jobs for stale
-    # aliases (for example ``freshrss`` or ``homeassistant``) whose provider is
-    # neither installed nor represented by a valid release-pinned bundle.
-    from ..ontology.connector_manifest_gate import precheck_source
-
-    governed_candidates: set[str] = set()
-    for source in sorted(candidates):
-        try:
-            if bool(precheck_source(source).get("ok")):
-                governed_candidates.add(source)
-            else:
-                logger.debug(
-                    "source sweep omitted %s because its governed provider "
-                    "contract is unavailable",
-                    source,
-                )
-        except Exception:  # noqa: BLE001 - fail closed before queue publication
-            logger.debug(
-                "source sweep contract precheck failed for %s",
-                source,
-                exc_info=True,
-            )
-    candidates = governed_candidates
-
-    # CONCEPT:AU-ORCH.dispatch.laned-sweep-fanout — fan the sweep out as LANED ``connector_sync`` tasks (the 'connectors'
-    # lane) so every connector syncs in PARALLEL instead of one slow connector (gitlab/
-    # servicenow) head-of-line-blocking the rest in the sequential inline loop below. Each task
-    # runs ``sync_source(src, mode)`` → the same watermark/delta machinery + content-hash delta.
+    candidates = _sweep_governed_candidates(
+        _sweep_candidate_sources(include_materialize)
+    )
+    # CONCEPT:AU-ORCH.dispatch.laned-sweep-fanout — fan the sweep out as LANED
+    # ``connector_sync`` tasks (the 'connectors' lane) so every connector syncs in
+    # PARALLEL instead of one slow connector (gitlab/servicenow) head-of-line-blocking
+    # the rest in the sequential inline loop below. Each task runs
+    # ``sync_source(src, mode)`` → the same watermark/delta machinery + content-hash delta.
     if enqueue and hasattr(engine, "submit_task"):
-        jobs: list[str] = []
-        for src in sorted(candidates):
-            try:
-                jobs.append(
-                    engine.submit_task(
-                        target_path=src,
-                        is_codebase=False,
-                        provenance={"sync_mode": mode},
-                        task_type="connector_sync",
-                        **({"priority": priority} if priority is not None else {}),
-                    )
-                )
-            except Exception:  # noqa: BLE001 — one bad enqueue never aborts the sweep
-                logger.debug("enqueue connector_sync failed for %s", src, exc_info=True)
+        jobs = _enqueue_sweep_tasks(engine, candidates, mode, priority)
         return {
             "status": "enqueued",
             "enqueued": len(jobs),
@@ -5456,57 +6529,4 @@ def sweep_all_sources(
             "mode": mode,
             "jobs": jobs,
         }
-
-    synced: dict[str, Any] = {}
-    skipped: dict[str, str] = {}
-    errors: dict[str, str] = {}
-    _UNCONFIGURED = (
-        "not configured",
-        "no client",
-        "missing",
-        "unconfigured",
-        "credential",
-    )
-
-    for src in sorted(candidates):
-        try:
-            res = sync_source(engine, src, mode=mode)
-            status = res.get("status") if isinstance(res, dict) else "ok"
-            if status in {"skipped", "noop"}:
-                reason = res.get("reason") if isinstance(res, dict) else None
-                skipped[src] = str(reason or "skipped")
-            elif status in {"error", "failed"}:
-                errors[src] = str(
-                    (isinstance(res, dict) and (res.get("error") or res.get("reason")))
-                    or "error"
-                )
-            else:
-                synced[src] = (
-                    {
-                        "counts": dict(res.get("counts") or {}),
-                        "details": dict(res.get("details") or {}),
-                    }
-                    if isinstance(res, dict)
-                    else status
-                )
-        except Exception as e:  # noqa: BLE001 — isolate one bad connector
-            msg = str(e)
-            if any(t in msg.lower() for t in _UNCONFIGURED):
-                skipped[src] = f"unconfigured: {msg[:120]}"
-            else:
-                errors[src] = msg[:200]
-                logger.warning("sweep: source '%s' failed: %s", src, e)
-
-    return {
-        "status": "ok",
-        "mode": mode,
-        "swept": len(candidates),
-        "synced": synced,
-        "skipped": skipped,
-        "errors": errors,
-        "counts": {
-            "synced": len(synced),
-            "skipped": len(skipped),
-            "errors": len(errors),
-        },
-    }
+    return _sweep_inline(engine, candidates, mode)
