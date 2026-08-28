@@ -67,25 +67,35 @@ So this mode re-scans the tree directly with the same marker grammar
 directory — consistent with THIS gate's existing scope, not
 ``build_concepts_yaml.py``'s narrower one.
 
-Because a bare re-scan would instantly redline every pre-existing gap the day
-this mode ships, it is a **ratchet keyed by concept id** (not a bare count —
-see CONCEPT:AU-AHE.evaluation.swallow-baseline-stable-key for why a count or a
-line-number key rots: it can't tell "a new gap appeared" from "an old gap was
-fixed and a different old gap remains", and it can be trivially satisfied by
-fixing an unrelated entry). The accepted, already-known debt is frozen in
-``scripts/concept_design_doc_baseline.txt`` (one concept id per line). A run:
+This mode originally froze the accepted-debt set into
+``scripts/concept_design_doc_baseline.txt`` (one concept id per line) — a
+ratchet keyed by concept id rather than a bare count (a count or line-number
+key rots: it can't tell "a new gap appeared" from "an old gap was fixed and a
+different old gap remains", and it can be trivially satisfied by fixing an
+unrelated entry — see ``scripts/check_swallowed_errors.py``'s docstring for
+the canonical example). That was still a ratchet, and this project does not
+allow ratchets: a frozen debt file hides whether the real backlog is growing
+or shrinking, and the only way to see the true number was to read the file
+itself. Measured before retiring it (D-WD5-RAT-03): the baseline held 495
+ids, essentially the whole live undocumented set — this mode had frozen
+almost everything it ever found, not made a dent in it.
 
-* fails on any undocumented concept NOT in the baseline — this is what makes
-  a *newly regressed* or *newly merged-without-a-doc* concept visible, forever,
-  even after it reaches ``main``;
-* never fails on a baselined (already-known) gap — that debt is tracked and
-  cleaned up deliberately, not force-fixed by this gate;
-* reports (informationally) any baseline entries that now have a doc, so the
-  baseline can be shrunk with ``--update-baseline``.
+``--audit-merged`` is now purely an **unconditional census**: it prints the
+full undocumented set on *every* run, pass or fail, nothing written to disk,
+so the real number cannot go stale and cannot hide behind a file nobody
+reads. It still enforces, unconditionally, the three invariants below that
+are not ordinary debt but active contradictions in the governance registry
+itself — a broken parent link, a revived retirement, a revived rename — the
+same ``HARD_ZERO_SHAPES`` pattern the swallowed-error gate uses for a bare
+``except:``. The bulk "no design doc yet" backlog is reported, never gated,
+here: catching a concept BEFORE it merges without a doc is the diff-based
+mode above's job (already non-ratchet, already diff-scoped against the
+nearest trunk) — ``--audit-merged``'s job is to keep that backlog visible
+forever, including after merge, not to force it to zero on every commit that
+happens to run it.
 
-Run ``--update-baseline`` to (re)freeze the current undocumented set — the
-correct move immediately after fixing/retiring a batch of concepts, or when
-deliberately accepting a new gap with a stated reason.
+``--update-baseline`` is retired (exits 2, writes nothing) — there is no
+baseline left to freeze.
 
 Parent-satisfied documentation (CONCEPT:AU-OS.governance.concept-lineage-parent-doc)
 ------------------------------------------------------------------------------------
@@ -124,7 +134,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DESIGN_DIR = ROOT / ".specify" / "design"
-MERGED_AUDIT_BASELINE = ROOT / "scripts" / "concept_design_doc_baseline.txt"
 
 sys.path.insert(0, str(ROOT))
 from agent_utilities.governance.concept_hierarchy import (  # noqa: E402
@@ -175,8 +184,12 @@ def resolve_base(explicit: str | None) -> str | None:
         return _merge_base(explicit)
 
     candidates = [r for r in ("origin/main", "main") if _ref_exists(r)]
-    bases = [(r, _merge_base(r)) for r in candidates]
-    bases = [(r, b) for r, b in bases if b]
+    raw_bases = [(r, _merge_base(r)) for r in candidates]
+    # D-WD5-RAT-03 (pre-existing mypy debt, fixed in passing): an explicit
+    # `is not None` guard (rather than a bare truthy filter) lets mypy narrow
+    # `b: str | None` to `str` inside the comprehension -- the runtime
+    # behavior (drop refs with no merge-base) is unchanged.
+    bases: list[tuple[str, str]] = [(r, b) for r, b in raw_bases if b is not None]
     if not bases:
         return None
 
@@ -382,38 +395,24 @@ def reintroduced_renames(
     )
 
 
-def read_baseline(baseline: Path = MERGED_AUDIT_BASELINE) -> set[str]:
-    if not baseline.exists():
-        return set()
-    return {
-        line.strip()
-        for line in baseline.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.strip().startswith("#")
-    }
-
-
-def write_baseline(ids: set[str], baseline: Path = MERGED_AUDIT_BASELINE) -> None:
-    header = (
-        "# Concept ids with NO design document, accepted as known/tracked debt.\n"
-        "# Generated by `check_concept_governance.py --audit-merged --update-baseline`.\n"
-        "# This is a RATCHET: the gate fails on any undocumented concept NOT listed\n"
-        "# here (new or newly-merged debt), never on an entry already listed here.\n"
-        "# Fix or retire an entry, then re-run --update-baseline to shrink this file —\n"
-        "# never hand-add an entry to dodge a real violation.\n"
-    )
-    body = "\n".join(sorted(ids))
-    baseline.write_text(f"{header}{body}\n" if body else header, encoding="utf-8")
-
-
-def audit_merged(
+def undocumented_concepts(
     *,
-    update: bool,
     scan_root: Path = ROOT,
     design_dir: Path = DESIGN_DIR,
-    baseline_path: Path = MERGED_AUDIT_BASELINE,
     lineage_path: str | None = None,
-) -> int:
-    """Base-less mode: audit every live concept id, regardless of merge status."""
+) -> tuple[set[str], list[str], list[str], Lineage]:
+    """The LIVE undocumented-concept set, computed fresh off the tree.
+
+    Returns ``(undocumented, all_ids, broken_links, lineage)``.
+
+    Shared by :func:`audit_merged` (the gate) and
+    ``scripts/concept_domain_triage.py`` (which used to read this off the
+    frozen ``concept_design_doc_baseline.txt`` ratchet -- retired under
+    D-WD5-RAT-03, see the module docstring). Computing it directly off the
+    live tree, every call, is the whole point of retiring that baseline:
+    there is no snapshot left to go stale, so every caller sees the same
+    real number.
+    """
     all_ids = all_registered_concepts(scan_root)
     live = frozenset(all_ids)
     lineage = load_lineage(lineage_path)
@@ -429,146 +428,135 @@ def audit_merged(
         if not documented:
             undocumented.add(cid)
 
+    return undocumented, all_ids, broken_links, lineage
+
+
+def _print_merged_census(
+    *,
+    all_ids: list[str],
+    undocumented: set[str],
+    covered_by_parent: list[str],
+    lineage: Lineage,
+) -> None:
+    """The unconditional part: always printed, never fails on its own."""
+    print(
+        f"Merged-concept audit: {len(all_ids)} live concept(s) discovered "
+        f"(unconditional census, no baseline), {len(undocumented)} without a "
+        f"design doc, {len(covered_by_parent)} covered by a declared parent, "
+        f"{len(lineage.retired)} retired, {len(lineage.renamed)} renamed."
+    )
+    if not undocumented:
+        return
+    print(
+        f"\n{len(undocumented)} concept(s) with NO design document "
+        "(real backlog -- informational only, not gated; fix or retire "
+        "deliberately):"
+    )
+    for c in sorted(undocumented):
+        print(f"  - {c}")
+
+
+def _report_broken_links(broken_links: list[str]) -> bool:
+    if not broken_links:
+        return False
+    print(
+        f"\nFAIL: {len(broken_links)} broken parent link(s) in "
+        "agent_utilities/governance/concept_lineage.yaml:"
+    )
+    for msg in broken_links:
+        print(f"  - {msg}")
+    return True
+
+
+def _report_revived_retirements(revived: list[tuple[str, str]]) -> bool:
+    if not revived:
+        return False
+    print(
+        f"\nFAIL: {len(revived)} deliberately-retired concept id(s) have a live "
+        "marker again:"
+    )
+    for cid, reason in revived:
+        print(f"  - {cid} — retired because: {reason}")
+    print(
+        "  Either delete the re-introduced marker, or (if the decision is real "
+        "now) drop the retirement entry and give the concept a design document."
+    )
+    return True
+
+
+def _report_revived_renames(respawned: list[tuple[str, str, str]]) -> bool:
+    if not respawned:
+        return False
+    print(
+        f"\nFAIL: {len(respawned)} renamed concept id(s) have a live marker "
+        "again under the OLD id:"
+    )
+    for cid, new_id, reason in respawned:
+        print(f"  - {cid} — renamed to {new_id} because: {reason}")
+    print(
+        "  Use the new id — the decision was deliberately moved, not deleted. "
+        "If the old name genuinely needs to come back too, that is a new "
+        "governance call, not a silent revert."
+    )
+    return True
+
+
+def audit_merged(
+    *,
+    scan_root: Path = ROOT,
+    design_dir: Path = DESIGN_DIR,
+    lineage_path: str | None = None,
+) -> int:
+    """Base-less mode: audit every live concept id, regardless of merge status.
+
+    No baseline any more (see the module docstring, "Merged-but-undocumented
+    mode"). This is an UNCONDITIONAL CENSUS of every concept lacking a design
+    doc, printed on every run whether it passes or fails -- nothing is
+    written to disk, so the number cannot go stale. It fails only on the
+    three ABSOLUTE invariants that were already unconditional and already at
+    zero: a broken parent link, a revived retirement, a revived rename. The
+    undocumented-concept backlog itself is reported, never gated, here --
+    debt to burn down deliberately, not something one unrelated commit is
+    forced to fix.
+    """
+    undocumented, all_ids, broken_links, lineage = undocumented_concepts(
+        scan_root=scan_root, design_dir=design_dir, lineage_path=lineage_path
+    )
+    live = frozenset(all_ids)
+    all_ids_set = set(all_ids)
+
     revived = reintroduced_retirements(live, lineage)
     respawned = reintroduced_renames(live, lineage)
-
-    if update:
-        # Refuse to freeze a baseline while a pointer is broken: --update-baseline
-        # is the "accept this as known debt" button, and a broken parent link is
-        # not debt, it is a claim of coverage that is false. Laundering it into
-        # the baseline is exactly the failure mode the id-keyed ratchet exists to
-        # prevent.
-        if broken_links or revived or respawned:
-            print(
-                "REFUSING to update the baseline while the lineage registry is "
-                "inconsistent — fix these first:",
-                file=sys.stderr,
-            )
-            for msg in broken_links:
-                print(f"  - {msg}", file=sys.stderr)
-            for cid, reason in revived:
-                print(
-                    f"  - {cid} was retired ({reason}) but has a live marker again",
-                    file=sys.stderr,
-                )
-            for cid, new_id, reason in respawned:
-                print(
-                    f"  - {cid} was renamed to {new_id} ({reason}) but has a live "
-                    "marker again under the old id",
-                    file=sys.stderr,
-                )
-            return 1
-        write_baseline(undocumented, baseline_path)
-        print(
-            f"Baseline updated: {len(undocumented)} undocumented concept(s) frozen "
-            f"in {baseline_path}."
-        )
-        return 0
-
-    baseline = read_baseline(baseline_path)
-    new_undocumented = sorted(undocumented - baseline)
-    all_ids_set = set(all_ids)
-    stale = sorted(baseline - all_ids_set)  # baselined id no longer even exists
-    # "Resolved" means genuinely fixed: still exists AND now has a doc — NOT
-    # merely absent from `undocumented`, which a retired (no-longer-existing)
-    # marker also satisfies. Without excluding `stale` here, a removed marker
-    # would double-report as both "now documented" and "no longer exists".
-    resolved = sorted((baseline - undocumented) & all_ids_set)
-
     covered_by_parent = sorted(
         c for c in lineage.parents if c in all_ids_set and c not in undocumented
     )
 
-    print(
-        f"Merged-concept audit: {len(all_ids)} live concept(s) discovered, "
-        f"{len(undocumented)} without a design doc, {len(baseline)} baselined, "
-        f"{len(covered_by_parent)} covered by a declared parent, "
-        f"{len(lineage.retired)} retired, {len(lineage.renamed)} renamed."
+    _print_merged_census(
+        all_ids=all_ids,
+        undocumented=undocumented,
+        covered_by_parent=covered_by_parent,
+        lineage=lineage,
     )
 
-    if resolved:
-        print(
-            f"\n{len(resolved)} baselined concept(s) now have a design doc "
-            "(baseline can be shrunk with --update-baseline):"
-        )
-        for c in resolved:
-            print(f"  + {c}")
-
-    if stale:
-        print(
-            f"\n{len(stale)} baselined concept(s) no longer exist in code at all "
-            "(retired marker — baseline can be shrunk with --update-baseline):"
-        )
-        for c in stale:
-            print(f"  + {c}")
-
-    failed = False
-
-    # Broken pointers and revived retirements fail unconditionally — the baseline
-    # never excuses them, because neither is pre-existing debt: both are claims
-    # someone wrote in this registry that the tree contradicts.
-    if broken_links:
-        print(
-            f"\nFAIL: {len(broken_links)} broken parent link(s) in "
-            "agent_utilities/governance/concept_lineage.yaml:"
-        )
-        for msg in broken_links:
-            print(f"  - {msg}")
-        failed = True
-
-    if revived:
-        print(
-            f"\nFAIL: {len(revived)} deliberately-retired concept id(s) have a live "
-            "marker again:"
-        )
-        for cid, reason in revived:
-            print(f"  - {cid} — retired because: {reason}")
-        print(
-            "  Either delete the re-introduced marker, or (if the decision is real "
-            "now) drop the retirement entry and give the concept a design document."
-        )
-        failed = True
-
-    if respawned:
-        print(
-            f"\nFAIL: {len(respawned)} renamed concept id(s) have a live marker "
-            "again under the OLD id:"
-        )
-        for cid, new_id, reason in respawned:
-            print(f"  - {cid} — renamed to {new_id} because: {reason}")
-        print(
-            "  Use the new id — the decision was deliberately moved, not deleted. "
-            "If the old name genuinely needs to come back too, that is a new "
-            "governance call, not a silent revert."
-        )
-        failed = True
-
-    if new_undocumented:
-        print(
-            f"\nFAIL: {len(new_undocumented)} concept(s) have NO design document "
-            "and are not in the accepted baseline (new or newly-merged debt):"
-        )
-        for c in new_undocumented:
-            print(f"  - {c}")
-        print(
-            "\nTo fix, pick the one that is true:\n"
-            "  * it IS a decision  -> write a design document in .specify/design/<feature>/\n"
-            "  * it REALISES a decision documented elsewhere -> declare a parent in\n"
-            "    agent_utilities/governance/concept_lineage.yaml (one doc, N pointers)\n"
-            "  * it names NO decision -> retire the marker and record the retirement\n"
-            "  `scripts/concept_domain_triage.py propose <PILLAR>.<domain>` proposes\n"
-            "  which of the three each concept is, with evidence."
-        )
-        failed = True
-
+    # Broken pointers and revived retirements/renames fail unconditionally --
+    # neither is ordinary debt, both are claims someone wrote in the lineage
+    # registry that the tree now contradicts.
+    failed = (
+        _report_broken_links(broken_links)
+        | _report_revived_retirements(revived)
+        | _report_revived_renames(respawned)
+    )
     if failed:
         return 1
 
-    print("\nNo new merged-but-undocumented concepts. Governance check passed.")
+    print(
+        "\nNo governance-breaking concept found (undocumented backlog above, if "
+        "any, is informational only)."
+    )
     return 0
 
 
-def main() -> int:
+def _build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
         "--base", help="explicit base ref to diff against (default: nearest trunk)"
@@ -577,39 +565,23 @@ def main() -> int:
         "--audit-merged",
         action="store_true",
         help=(
-            "base-less mode: audit every live concept id in docs/concepts.yaml "
-            "(not just the diff since the last trunk merge) against the design "
-            "corpus, ratcheted against scripts/concept_design_doc_baseline.txt"
+            "base-less mode: audit every live concept id (not just the diff "
+            "since the last trunk merge) against the design corpus -- an "
+            "unconditional census, no baseline, see the module docstring"
         ),
     )
     ap.add_argument(
         "--update-baseline",
         action="store_true",
-        help="with --audit-merged, (re)freeze the current undocumented set as accepted debt",
+        help=argparse.SUPPRESS,
     )
-    args = ap.parse_args()
+    return ap
 
-    if args.audit_merged:
-        return audit_merged(update=args.update_baseline)
-    if args.update_baseline:
-        print(
-            "ERROR: --update-baseline only applies with --audit-merged", file=sys.stderr
-        )
-        return 2
 
-    base = resolve_base(args.base)
-    if not base:
-        print("No base ref available; skipping concept governance (nothing to diff).")
-        return 0
-
-    concepts = new_concepts(base)
-    if not concepts:
-        print("No new CONCEPT: tags found. Governance check passed.")
-        return 0
-
-    slugs = valid_slugs()
-    lineage = load_lineage()
-    live = frozenset(all_registered_concepts())
+def _diff_based_violations(
+    concepts: list[str], *, slugs: set[str], lineage: Lineage, live: frozenset[str]
+) -> list[str]:
+    """One violation line per problem found in a newly-introduced concept id."""
     violations: list[str] = []
     for concept in concepts:
         parsed = parse_okf_id(concept)
@@ -632,26 +604,67 @@ def main() -> int:
                 f"  {concept} - Domain {parsed.domain!r} is not registered "
                 f"for pillar {parsed.pillar}"
             )
+    return violations
 
-    if violations:
-        print(f"New CONCEPT tags introduced since {base[:12]}:")
-        for c in concepts:
-            print(f"  - {c}")
-        print("\nGovernance violations found:")
-        print("\n".join(violations))
+
+def _report_diff_based_result(
+    base: str, concepts: list[str], violations: list[str]
+) -> int:
+    if not violations:
         print(
-            "\nTo fix: create a design document in .specify/design/<feature>/ that "
-            "references each new CONCEPT tag (see .specify/design/_template.md), or — "
-            "if the marker realises a decision that is already documented — declare "
-            "that decision as its parent in "
-            "agent_utilities/governance/concept_lineage.yaml."
+            f"All {len(concepts)} new concept(s) have design documents. "
+            "Governance check passed."
         )
-        return 1
-
+        return 0
+    print(f"New CONCEPT tags introduced since {base[:12]}:")
+    for c in concepts:
+        print(f"  - {c}")
+    print("\nGovernance violations found:")
+    print("\n".join(violations))
     print(
-        f"All {len(concepts)} new concept(s) have design documents. Governance check passed."
+        "\nTo fix: create a design document in .specify/design/<feature>/ that "
+        "references each new CONCEPT tag (see .specify/design/_template.md), or — "
+        "if the marker realises a decision that is already documented — declare "
+        "that decision as its parent in "
+        "agent_utilities/governance/concept_lineage.yaml."
     )
-    return 0
+    return 1
+
+
+def main() -> int:
+    args = _build_arg_parser().parse_args()
+
+    if args.update_baseline:
+        print(
+            "--update-baseline is RETIRED. --audit-merged has no baseline: it "
+            "prints the full undocumented census every run and enforces only "
+            "the unconditional broken-link/revived-retirement/revived-rename "
+            "invariants, so there is nothing to freeze. See the module "
+            "docstring.",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.audit_merged:
+        return audit_merged()
+
+    base = resolve_base(args.base)
+    if not base:
+        print("No base ref available; skipping concept governance (nothing to diff).")
+        return 0
+
+    concepts = new_concepts(base)
+    if not concepts:
+        print("No new CONCEPT: tags found. Governance check passed.")
+        return 0
+
+    violations = _diff_based_violations(
+        concepts,
+        slugs=valid_slugs(),
+        lineage=load_lineage(),
+        live=frozenset(all_registered_concepts()),
+    )
+    return _report_diff_based_result(base, concepts, violations)
 
 
 if __name__ == "__main__":

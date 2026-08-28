@@ -55,8 +55,9 @@ Five dispositions
     "this just needs a better/legal name" apart is a judgement call, not a
     cheap signal.
 ``keep``
-    A deliberate non-decision: leave it in the accepted baseline for now, with a
-    stated reason. Never suggested, only chosen.
+    A deliberate non-decision: leave it undocumented for now (visible in
+    ``--audit-merged``'s census, not gated — D-WD5-RAT-03: no baseline any
+    more), with a stated reason. Never suggested, only chosen.
 
 The tool's own sixth *suggestion*, ``review``, is not a disposition — it is the
 tool saying "the cheap signals ran out here". Its size is what a domain costs.
@@ -126,7 +127,7 @@ from agent_utilities.governance.concept_lineage import (  # noqa: E402
 from scripts.check_concept_governance import (  # noqa: E402
     all_registered_concepts,
     has_design_doc,
-    read_baseline,
+    undocumented_concepts,
 )
 
 #: Proposals live under ``.specify/`` (the spec-driven-development state
@@ -567,7 +568,13 @@ def cmd_propose(domain_prefix: str, *, refresh_suggestions: bool = True) -> int:
     path = proposal_path(domain_prefix)
     existing = _load_yaml(path).get("concepts") or {}
 
-    baseline = read_baseline()
+    # D-WD5-RAT-03: concept_design_doc_baseline.txt (a frozen ratchet) was
+    # retired -- this is now the LIVE undocumented set, recomputed off the
+    # tree every call rather than read off a snapshot that could go stale.
+    # The evidence field below keeps its old name ("in_baseline") to avoid
+    # churning the on-disk `.specify/triage/*.yaml` schema; its meaning is
+    # now simply "currently undocumented".
+    undocumented, _all_ids, _broken_links, _lineage = undocumented_concepts()
     concepts_out: dict[str, dict] = {}
     for cid in sorted(evidence):
         ev = evidence[cid]
@@ -590,7 +597,7 @@ def cmd_propose(domain_prefix: str, *, refresh_suggestions: bool = True) -> int:
             entry["suggestion_why"] = prior.get("suggestion_why", why)
         entry["evidence"] = {
             "has_design_doc": ev.has_doc,
-            "in_baseline": cid in baseline,
+            "in_baseline": cid in undocumented,
             "source_files": ev.source_files,
             "test_files": ev.test_files,
             "doc_files": ev.doc_files,
@@ -819,7 +826,8 @@ def cmd_apply(domain_prefix: str, *, write: bool) -> int:
             # NOT a blocker: "this earns its own document" is a classification,
             # and classifying a domain is useful before every document is
             # written. The gate is the enforcer here — an undocumented concept
-            # simply stays in the accepted-debt baseline until someone writes it.
+            # simply stays visible in --audit-merged's unconditional census
+            # (D-WD5-RAT-03: no baseline any more) until someone writes it.
             if not has_design_doc(cid):
                 owed.append(cid)
             continue
@@ -950,7 +958,8 @@ def cmd_apply(domain_prefix: str, *, write: bool) -> int:
     if owed:
         print(
             f"\n{len(owed)} concept(s) are classified 'document' but nobody has "
-            "written it yet — they stay in the accepted-debt baseline until someone does:"
+            "written it yet — they stay visible in the undocumented census "
+            "(--audit-merged) until someone does:"
         )
         for cid in owed:
             print(f"  - {cid}")
@@ -978,8 +987,8 @@ def cmd_apply(domain_prefix: str, *, write: bool) -> int:
         print(f"\nWrote {LINEAGE_PATH.relative_to(ROOT)}.")
         print(
             "Next: `python3 scripts/check_concept_governance.py --audit-merged` to "
-            "confirm the gate honours the links, then `--update-baseline` to shrink "
-            "the accepted-debt list."
+            "confirm the gate honours the links and see the undocumented count drop "
+            "(no baseline to shrink any more — D-WD5-RAT-03)."
         )
     elif edits:
         print("\nRe-run with --write to apply.")
@@ -1126,10 +1135,12 @@ def cmd_packet(domain_prefix: str) -> int:
 
 def cmd_domains(limit: int) -> int:
     """Every ``PILLAR.domain`` with undocumented concepts, biggest group first."""
-    baseline = read_baseline()
-    live = set(all_registered_concepts())
+    # D-WD5-RAT-03: LIVE undocumented set (the frozen baseline this used to
+    # read is retired) -- already a subset of all_registered_concepts(), so
+    # no separate `live` intersection is needed.
+    undocumented, _all_ids, _broken_links, _lineage = undocumented_concepts()
     groups: dict[str, list[str]] = defaultdict(list)
-    for cid in sorted(baseline & live):
+    for cid in sorted(undocumented):
         parsed = parse_okf_id(cid)
         groups[f"{parsed.slug}-{parsed.pillar}.{parsed.domain}"].append(cid)
     ranked = sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0]))
