@@ -1973,29 +1973,38 @@ _CLASSIFICATION_RANK = {
 }
 
 
-def _require_governance_not_weaker(
+def _require_classification_not_weaker(
     source: ResolvedArtifact, output: ResolvedArtifact
 ) -> None:
-    """Ensure a prepared artifact cannot broaden or shorten source authority."""
-
     if (
         _CLASSIFICATION_RANK[output.classification]
         < _CLASSIFICATION_RANK[source.classification]
     ):
         raise DataPrepToolError("prepared classification would downgrade source policy")
+
+
+def _require_acl_not_broader(
+    source: ResolvedArtifact, output: ResolvedArtifact
+) -> None:
     if not source.acl.is_public and output.acl.is_public:
         raise DataPrepToolError("prepared ACL would broaden source visibility")
-    if not source.acl.is_public:
-        if not set(output.acl.principal_ids).issubset(source.acl.principal_ids):
-            raise DataPrepToolError("prepared principal ACL is broader than source")
-        if not set(output.acl.principal_emails).issubset(source.acl.principal_emails):
-            raise DataPrepToolError("prepared email ACL is broader than source")
-        if not set(output.acl.group_ids).issubset(source.acl.group_ids):
-            raise DataPrepToolError("prepared group ACL is broader than source")
-        if not set(output.acl.roles).issubset(source.acl.roles):
-            raise DataPrepToolError("prepared role ACL is broader than source")
-        if not set(output.acl.markings).issubset(source.acl.markings):
-            raise DataPrepToolError("prepared markings ACL is broader than source")
+    if source.acl.is_public:
+        return
+    if not set(output.acl.principal_ids).issubset(source.acl.principal_ids):
+        raise DataPrepToolError("prepared principal ACL is broader than source")
+    if not set(output.acl.principal_emails).issubset(source.acl.principal_emails):
+        raise DataPrepToolError("prepared email ACL is broader than source")
+    if not set(output.acl.group_ids).issubset(source.acl.group_ids):
+        raise DataPrepToolError("prepared group ACL is broader than source")
+    if not set(output.acl.roles).issubset(source.acl.roles):
+        raise DataPrepToolError("prepared role ACL is broader than source")
+    if not set(output.acl.markings).issubset(source.acl.markings):
+        raise DataPrepToolError("prepared markings ACL is broader than source")
+
+
+def _require_retention_not_weaker(
+    source: ResolvedArtifact, output: ResolvedArtifact
+) -> None:
     if source.expires_at_ms and (
         not output.expires_at_ms or output.expires_at_ms > source.expires_at_ms
     ):
@@ -2004,10 +2013,26 @@ def _require_governance_not_weaker(
         raise DataPrepToolError("prepared retention policy is not preserved")
     if source.legal_hold and not output.legal_hold:
         raise DataPrepToolError("prepared legal hold cannot be cleared")
+
+
+def _require_policy_version_preserved(
+    source: ResolvedArtifact, output: ResolvedArtifact
+) -> None:
     if not output.policy_version:
         raise DataPrepToolError("prepared policy version is missing")
     if output.policy_version != source.policy_version:
         raise DataPrepToolError("prepared policy version is not preserved")
+
+
+def _require_governance_not_weaker(
+    source: ResolvedArtifact, output: ResolvedArtifact
+) -> None:
+    """Ensure a prepared artifact cannot broaden or shorten source authority."""
+
+    _require_classification_not_weaker(source, output)
+    _require_acl_not_broader(source, output)
+    _require_retention_not_weaker(source, output)
+    _require_policy_version_preserved(source, output)
 
 
 def _require_artifact_access(
