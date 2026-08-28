@@ -71,6 +71,41 @@ def _pillar_of(data: dict[str, Any]) -> str:
     return ""
 
 
+def _feature_nodes_full_scan_fallback(
+    graph: Any, restrict_to: set[str], wanted: set[str]
+) -> dict[str, dict]:
+    """Filtered full-scan fallback when the per-id view returns nothing —
+    correctness must never depend on the view supporting ``[id]``."""
+    try:
+        return {
+            nid: data
+            for nid, data in graph.nodes(data=True)
+            if nid in restrict_to
+            and isinstance(data, dict)
+            and str(data.get("type", "")).lower() in wanted
+        }
+    except TypeError:  # pragma: no cover
+        return {}
+
+
+def _feature_nodes_scoped(
+    graph: Any, restrict_to: set[str], wanted: set[str]
+) -> dict[str, dict]:
+    """SCOPED (CONCEPT:AU-KG.ingest.fetch-only-requested-ids): fetch only the
+    requested ids per-id — avoids the whole-graph node pull that makes
+    per-cohort synthesis O(graph) not O(cohort)."""
+    scoped: dict[str, dict] = {}
+    for nid in restrict_to:
+        data = _node_data_by_id(graph, nid)
+        if data is None:
+            continue
+        if str(data.get("type", "")).lower() in wanted:
+            scoped[nid] = data
+    if scoped or not restrict_to:
+        return scoped
+    return _feature_nodes_full_scan_fallback(graph, restrict_to, wanted)
+
+
 def _feature_nodes(
     engine: Any,
     feature_types: tuple[str, ...],
@@ -80,30 +115,8 @@ def _feature_nodes(
     if graph is None:
         return {}
     wanted = {t.lower() for t in feature_types}  # case-insensitive (live labels)
-    # SCOPED (CONCEPT:AU-KG.ingest.fetch-only-requested-ids): fetch only the requested ids per-id — avoids the
-    # whole-graph node pull that makes per-cohort synthesis O(graph) not O(cohort).
     if restrict_to is not None:
-        scoped: dict[str, dict] = {}
-        for nid in restrict_to:
-            data = _node_data_by_id(graph, nid)
-            if data is None:
-                continue
-            if str(data.get("type", "")).lower() in wanted:
-                scoped[nid] = data
-        if scoped or not restrict_to:
-            return scoped
-        # per-id view unavailable (returned nothing) → fall through to a filtered
-        # full scan so correctness never depends on the view supporting [id].
-        try:
-            return {
-                nid: data
-                for nid, data in graph.nodes(data=True)
-                if nid in restrict_to
-                and isinstance(data, dict)
-                and str(data.get("type", "")).lower() in wanted
-            }
-        except TypeError:  # pragma: no cover
-            return {}
+        return _feature_nodes_scoped(graph, restrict_to, wanted)
     # Unrestricted: BOUNDED per-label fetch (CONCEPT:EG-KG.txn.per-graph-write-isolation/2.264) — never a
     # whole-graph ``GetNodes`` dump (refused as RESULT_TOO_LARGE at scale).
     return dict(iter_typed_nodes(graph, feature_types))
@@ -174,21 +187,58 @@ def _connected_components(ids: set[str], adj: dict[str, set[str]]) -> list[list[
     return comps
 
 
+def _engine_communities(engine: Any, ids: set[str]) -> list[list[str]] | None:
+    """Engine Louvain community_detection, filtered+scoped to ``ids``.
+
+    None when the engine has no such method, it raises, or it yields nothing
+    scoped — the caller falls back to local connected components.
+    """
+    fn = getattr(engine, "community_detection", None)
+    if not callable(fn):
+        return None
+    try:
+        raw = fn()
+        scoped = [[n for n in c if n in ids] for c in raw]
+        scoped = [c for c in scoped if len(c) >= 1]
+    except Exception:  # noqa: BLE001 — optional engine algorithm has local fallback
+        return None
+    return scoped or None
+
+
 def _communities(
     engine: Any, ids: set[str], adj: dict[str, set[str]]
 ) -> list[list[str]]:
     """Engine Louvain (filtered to features) if available, else components."""
-    fn = getattr(engine, "community_detection", None)
-    if callable(fn):
-        try:
-            raw = fn()
-            scoped = [[n for n in c if n in ids] for c in raw]
-            scoped = [c for c in scoped if len(c) >= 1]
-            if scoped:
-                return scoped
-        except Exception:  # noqa: BLE001 — optional engine algorithm has local fallback
-            pass
-    return _connected_components(ids, adj)
+    return _engine_communities(engine, ids) or _connected_components(ids, adj)
+
+
+def _bundle_pillars(
+    nodes: dict[str, dict], comm: list[str], min_pillars: int
+) -> list[str] | None:
+    """Sorted pillar set for one community, or None if below ``min_pillars``."""
+    pillars = sorted({p for p in (_pillar_of(nodes[n]) for n in comm) if p})
+    if len(pillars) < min_pillars:
+        return None
+    return pillars
+
+
+def _write_synergy_edges(engine: Any, ordered: list[str]) -> int:
+    """Pairwise HAS_SYNERGY_WITH edges across an ordered community. Returns
+    the number of edges written."""
+    written = 0
+    for i in range(len(ordered)):
+        for j in range(i + 1, len(ordered)):
+            engine.link_nodes(
+                ordered[i],
+                ordered[j],
+                RegistryEdgeType.HAS_SYNERGY_WITH,
+                properties={
+                    "_rel": "HAS_SYNERGY_WITH",
+                    "concept": "AU-KG.query.vendor-agnostic-traversal",
+                },
+            )
+            written += 1
+    return written
 
 
 def synergy_bundles(
@@ -216,25 +266,35 @@ def synergy_bundles(
     for comm in comms:
         if len(comm) < 2:
             continue
-        pillars = sorted({p for p in (_pillar_of(nodes[n]) for n in comm) if p})
-        if len(pillars) < min_pillars:
+        pillars = _bundle_pillars(nodes, comm, min_pillars)
+        if pillars is None:
             continue
         report.bundles.append(SynergyBundle(members=sorted(comm), pillars=pillars))
         if write:
-            ordered = sorted(comm)
-            for i in range(len(ordered)):
-                for j in range(i + 1, len(ordered)):
-                    engine.link_nodes(
-                        ordered[i],
-                        ordered[j],
-                        RegistryEdgeType.HAS_SYNERGY_WITH,
-                        properties={
-                            "_rel": "HAS_SYNERGY_WITH",
-                            "concept": "AU-KG.query.vendor-agnostic-traversal",
-                        },
-                    )
-                    report.edges_written += 1
+            report.edges_written += _write_synergy_edges(engine, sorted(comm))
     return report
+
+
+def _engine_pagerank_centrality(engine: Any, ids: set[str]) -> dict[str, float] | None:
+    """Engine PageRank centrality, gated by ``ASSIMILATION_ENGINE_PAGERANK=1``.
+
+    None when disabled, unavailable, it raises, or yields nothing scoped —
+    the caller falls back to local degree centrality.
+    """
+    if setting("ASSIMILATION_ENGINE_PAGERANK", "").lower() not in (
+        "1",
+        "true",
+        "yes",
+    ):
+        return None
+    fn = getattr(engine, "pagerank", None)
+    if not callable(fn):
+        return None
+    try:
+        scores = {nid: float(s) for nid, s in fn() if nid in ids}
+    except Exception:  # noqa: BLE001 — optional engine algorithm has local fallback
+        return None
+    return scores or None
 
 
 def _centrality(
@@ -247,20 +307,9 @@ def _centrality(
     live backend to rank a few dozen features — so it is opt-in via
     ``ASSIMILATION_ENGINE_PAGERANK=1``.
     """
-
-    if setting("ASSIMILATION_ENGINE_PAGERANK", "").lower() in (
-        "1",
-        "true",
-        "yes",
-    ):
-        fn = getattr(engine, "pagerank", None)
-        if callable(fn):
-            try:
-                scores = {nid: float(s) for nid, s in fn() if nid in ids}
-                if scores:
-                    return scores
-            except Exception:  # noqa: BLE001 — optional engine algorithm has local fallback
-                pass
+    scores = _engine_pagerank_centrality(engine, ids)
+    if scores is not None:
+        return scores
     denom = float(max(1, len(ids) - 1))
     return {i: len(adj.get(i, ())) / denom for i in ids}
 

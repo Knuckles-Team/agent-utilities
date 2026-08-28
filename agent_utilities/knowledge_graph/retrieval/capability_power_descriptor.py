@@ -73,7 +73,7 @@ orchestration (build the tool registry, load the EG ledger, write the docs) is
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, ClassVar
 
 __all__ = [
     "CapabilityPowerDescriptor",
@@ -173,6 +173,21 @@ class Provenance:
         }
 
 
+def _provenance_from_dict(prov: dict[str, Any]) -> Provenance:
+    """Build a :class:`Provenance` from its serialized dict form."""
+    return Provenance(
+        generator_version=str(prov.get("generator_version", "1.0.0")),
+        source_repo_au=str(prov.get("source_repo_au", "agent-utilities")),
+        source_module_au=str(
+            prov.get("source_module_au", "agent_utilities.mcp.kg_server")
+        ),
+        source_method_eg=prov.get("source_method_eg"),
+        eg_ledger_path=prov.get("eg_ledger_path"),
+        eg_ledger_available=bool(prov.get("eg_ledger_available", False)),
+        generated_at=str(prov.get("generated_at", "")),
+    )
+
+
 @dataclass
 class CapabilityPowerDescriptor:
     """One capability's full "power" record — see module docstring for sources."""
@@ -220,40 +235,39 @@ class CapabilityPowerDescriptor:
             "provenance": self.provenance.to_dict(),
         }
 
+    _LIST_FIELDS: ClassVar[tuple[str, ...]] = (
+        "intent_verbs",
+        "does",
+        "scopes",
+        "preconditions",
+        "when_to_use",
+        "when_not",
+        "examples",
+    )
+    _DICT_FIELDS: ClassVar[tuple[str, ...]] = (
+        "typed_io",
+        "side_effects",
+        "policy",
+        "cost",
+        "latency",
+        "reliability",
+        "eligibility_predicates",
+        "calibrated_outcomes",
+    )
+
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> CapabilityPowerDescriptor:
-        prov = d.get("provenance") or {}
-        return cls(
-            id=str(d["id"]),
-            title=str(d.get("title", "")),
-            one_line=str(d.get("one_line", "")),
-            intent_verbs=list(d.get("intent_verbs") or []),
-            does=list(d.get("does") or []),
-            typed_io=dict(d.get("typed_io") or {}),
-            side_effects=dict(d.get("side_effects") or {}),
-            scopes=list(d.get("scopes") or []),
-            policy=dict(d.get("policy") or {}),
-            cost=dict(d.get("cost") or {}),
-            latency=dict(d.get("latency") or {}),
-            reliability=dict(d.get("reliability") or {}),
-            preconditions=list(d.get("preconditions") or []),
-            when_to_use=list(d.get("when_to_use") or []),
-            when_not=list(d.get("when_not") or []),
-            examples=list(d.get("examples") or []),
-            eligibility_predicates=dict(d.get("eligibility_predicates") or {}),
-            calibrated_outcomes=dict(d.get("calibrated_outcomes") or {}),
-            provenance=Provenance(
-                generator_version=str(prov.get("generator_version", "1.0.0")),
-                source_repo_au=str(prov.get("source_repo_au", "agent-utilities")),
-                source_module_au=str(
-                    prov.get("source_module_au", "agent_utilities.mcp.kg_server")
-                ),
-                source_method_eg=prov.get("source_method_eg"),
-                eg_ledger_path=prov.get("eg_ledger_path"),
-                eg_ledger_available=bool(prov.get("eg_ledger_available", False)),
-                generated_at=str(prov.get("generated_at", "")),
-            ),
-        )
+        kwargs: dict[str, Any] = {
+            "id": str(d["id"]),
+            "title": str(d.get("title", "")),
+            "one_line": str(d.get("one_line", "")),
+            "provenance": _provenance_from_dict(d.get("provenance") or {}),
+        }
+        for name in cls._LIST_FIELDS:
+            kwargs[name] = list(d.get(name) or [])
+        for name in cls._DICT_FIELDS:
+            kwargs[name] = dict(d.get(name) or {})
+        return cls(**kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -384,6 +398,29 @@ def snake_tokens(name: str, *extra: str) -> set[str]:
     return toks
 
 
+def _method_overlap(
+    method: str,
+    action_tokens: set[str],
+    domain_tokens: set[str],
+) -> tuple[float, set[str]] | None:
+    """Coverage score for one candidate Method against the action, or None if it
+    doesn't clear the core/domain overlap checks (see `match_action_to_method`)."""
+    method_tokens = camel_tokens(method)
+    core_overlap = action_tokens & method_tokens
+    if not core_overlap:
+        return None
+    full_core = core_overlap == method_tokens
+    if full_core:
+        overlap = core_overlap
+    else:
+        domain_overlap = domain_tokens & method_tokens
+        if domain_tokens and not domain_overlap:
+            return None
+        overlap = core_overlap | domain_overlap
+    coverage = len(overlap) / len(method_tokens) if method_tokens else 0.0
+    return coverage, overlap
+
+
 def match_action_to_method(
     tool_name: str, action: str, ledger: dict[str, LedgerRow]
 ) -> tuple[LedgerRow | None, float, list[str]]:
@@ -414,19 +451,10 @@ def match_action_to_method(
     best_coverage = 0.0
     best_overlap: set[str] = set()
     for method, row in ledger.items():
-        method_tokens = camel_tokens(method)
-        core_overlap = action_tokens & method_tokens
-        if not core_overlap:
+        result = _method_overlap(method, action_tokens, domain_tokens)
+        if result is None:
             continue
-        full_core = core_overlap == method_tokens
-        if full_core:
-            overlap = core_overlap
-        else:
-            domain_overlap = domain_tokens & method_tokens
-            if domain_tokens and not domain_overlap:
-                continue
-            overlap = core_overlap | domain_overlap
-        coverage = len(overlap) / len(method_tokens) if method_tokens else 0.0
+        coverage, overlap = result
         if coverage > best_coverage:
             best_coverage = coverage
             best_row = row
@@ -474,14 +502,36 @@ def build_does_items(
     return items
 
 
-def aggregate_side_effects(does_items: list[dict[str, Any]]) -> dict[str, Any]:
-    """Roll up per-action ledger facts into one tool-level side-effects summary."""
-    matched = [d for d in does_items if d.get("eg_method")]
+def _side_effects_note(has_matched: bool) -> str:
+    if has_matched:
+        return (
+            "derived by matching each action to its EG-P0-1 ledger Method (see "
+            "each does[] item for the per-action match + confidence); a tool with "
+            "0 matched actions has no rollup here (see does[] notes) rather than a "
+            "guessed value"
+        )
+    return (
+        "no action on this tool matched an EG ledger Method by name — no "
+        "side-effect rollup is stated rather than guessed"
+    )
+
+
+def _side_effect_value_sets(
+    matched: list[dict[str, Any]],
+) -> tuple[set[Any], set[Any], set[Any]]:
+    """Distinct mutates/durability/txn_participation values seen across matched actions."""
     mutates_values = {d.get("mutates") for d in matched}
     durability_values = {d.get("durability") for d in matched if d.get("durability")}
     txn_values = {
         d.get("txn_participation") for d in matched if d.get("txn_participation")
     }
+    return mutates_values, durability_values, txn_values
+
+
+def aggregate_side_effects(does_items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Roll up per-action ledger facts into one tool-level side-effects summary."""
+    matched = [d for d in does_items if d.get("eg_method")]
+    mutates_values, durability_values, txn_values = _side_effect_value_sets(matched)
     any_mutates = any(v in ("true", "~true") for v in mutates_values)
     all_mutates = bool(matched) and all(v in ("true", "~true") for v in mutates_values)
     return {
@@ -491,15 +541,7 @@ def aggregate_side_effects(does_items: list[dict[str, Any]]) -> dict[str, Any]:
         "all_matched_actions_mutate": all_mutates,
         "durability_values_seen": sorted(durability_values),
         "txn_participation_values_seen": sorted(txn_values),
-        "note": (
-            "derived by matching each action to its EG-P0-1 ledger Method (see "
-            "each does[] item for the per-action match + confidence); a tool with "
-            "0 matched actions has no rollup here (see does[] notes) rather than a "
-            "guessed value"
-            if matched
-            else "no action on this tool matched an EG ledger Method by name — no "
-            "side-effect rollup is stated rather than guessed"
-        ),
+        "note": _side_effects_note(bool(matched)),
     }
 
 
@@ -537,32 +579,33 @@ _VERB_TAG_HINTS: dict[str, tuple[str, ...]] = {
 }
 
 
+# Fallback verb inference from the tool name alone, checked in this priority
+# order (first keyword-set match wins) — see `infer_intent_verbs`.
+_NAME_VERB_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("ask", ("query", "search", "ask", "table", "reach")),
+    ("write", ("write", "ingest", "etl")),
+    ("why", ("explain", "observe")),
+    ("manage", ("configure", "secret", "tenant", "lifecycle", "reshard")),
+    ("act", ("orchestrate", "loop", "goal", "sandbox", "runvcs")),
+)
+
+
+def _infer_verb_from_name(name: str) -> str:
+    """First matching verb by name-keyword hint, else the conservative default."""
+    for verb, keywords in _NAME_VERB_HINTS:
+        if any(k in name for k in keywords):
+            return verb
+    return "ask"  # conservative default: read-shaped until proven otherwise
+
+
 def infer_intent_verbs(tool_name: str, tags: set[str]) -> list[str]:
     """Which 2a intent verb(s) this capability would resolve under, from its tags/name."""
     verbs: list[str] = []
     for verb, hints in _VERB_TAG_HINTS.items():
         if tags & set(hints):
             verbs.append(verb)
-    name = tool_name.lower()
     if not verbs:
-        if any(k in name for k in ("query", "search", "ask", "table", "reach")):
-            verbs.append("ask")
-        elif any(k in name for k in ("write", "ingest", "etl")):
-            verbs.append("write")
-        elif any(k in name for k in ("explain", "observe")):
-            verbs.append("why")
-        elif any(
-            k in name for k in ("configure", "secret", "tenant", "lifecycle", "reshard")
-        ):
-            verbs.append("manage")
-        elif any(
-            k in name for k in ("orchestrate", "loop", "goal", "sandbox", "runvcs")
-        ):
-            verbs.append("act")
-        else:
-            verbs.append(
-                "ask"
-            )  # conservative default: read-shaped until proven otherwise
+        verbs.append(_infer_verb_from_name(tool_name.lower()))
     if tool_name in ("find_tools", "list_catalog", "load_tools", "unload_tools"):
         verbs = ["find"]
     return sorted(set(verbs))
@@ -586,7 +629,9 @@ def truncate_at_word(text: str, limit: int) -> str:
     return cut
 
 
-def render_markdown(cpds: list[CapabilityPowerDescriptor], *, generated_at: str) -> str:
+def _render_markdown_header(
+    cpds: list[CapabilityPowerDescriptor], *, generated_at: str
+) -> list[str]:
     lines: list[str] = []
     lines.append("# graph-os Capability Power Descriptors (generated)")
     lines.append("")
@@ -607,89 +652,112 @@ def render_markdown(cpds: list[CapabilityPowerDescriptor], *, generated_at: str)
         "never a fabricated one."
     )
     lines.append("")
+    return lines
+
+
+def _render_index_row(c: CapabilityPowerDescriptor) -> str:
+    rest = c.typed_io.get("rest_route", "")
+    return (
+        f"| [`{c.id}`](#capability-{c.id}) | {', '.join(c.intent_verbs)} "
+        f"| {truncate_at_word(c.one_line, 100)} | {len(c.does)} | `{rest}` |"
+    )
+
+
+def _render_capability_does(c: CapabilityPowerDescriptor) -> list[str]:
+    if not c.does:
+        return []
+    lines = ["", "**Does:**", ""]
+    for d in c.does[:60]:
+        eg = (
+            f" → EG `{d['eg_method']}` (confidence {d.get('match_confidence')})"
+            if d.get("eg_method")
+            else " → (no EG ledger match)"
+        )
+        lines.append(f"- `{d['action']}`{eg}")
+    if len(c.does) > 60:
+        lines.append(f"- ... and {len(c.does) - 60} more actions")
+    return lines
+
+
+def _render_capability_typed_input(c: CapabilityPowerDescriptor) -> list[str]:
+    if not c.typed_io.get("input_params"):
+        return []
+    lines = ["", "**Typed input:**", ""]
+    for p in c.typed_io["input_params"]:
+        # rstrip: an empty schema description must not leave a
+        # dangling trailing space (trailing-whitespace hook would
+        # otherwise rewrite this file on every regeneration).
+        lines.append(
+            (
+                f"- `{p['name']}` ({p.get('type', 'any')}"
+                f"{', required' if p.get('required') else ''}): {p.get('description', '')}"
+            ).rstrip()
+        )
+    return lines
+
+
+def _render_capability_section(c: CapabilityPowerDescriptor) -> list[str]:
+    lines: list[str] = []
+    lines.append(f"### `{c.id}` {{ #capability-{c.id} }}")
+    lines.append("")
+    lines.append(f"**{c.title}**")
+    lines.append("")
+    lines.append(c.one_line)
+    lines.append("")
+    lines.append(
+        f"- **Intent verbs:** {', '.join(c.intent_verbs) or '(none inferred)'}"
+    )
+    lines.append(f"- **REST route:** `{c.typed_io.get('rest_route', '(none)')}`")
+    lines.append(f"- **MCP tags:** {', '.join(c.typed_io.get('tags', []))}")
+    se = c.side_effects
+    lines.append(
+        f"- **Side effects:** {se.get('matched_action_count', 0)}/"
+        f"{se.get('matched_action_count', 0) + se.get('unmatched_action_count', 0)} "
+        f"actions matched an EG ledger Method; any_mutates="
+        f"{se.get('any_action_mutates')}; durability={se.get('durability_values_seen')}; "
+        f"txn={se.get('txn_participation_values_seen')}"
+    )
+    if c.cost or c.latency:
+        lines.append(f"- **Cost:** {c.cost or '(unmeasured)'}")
+        lines.append(f"- **Latency:** {c.latency or '(unmeasured)'}")
+    else:
+        lines.append(
+            "- **Cost/Latency:** unmeasured for this capability (no benchmark source)"
+        )
+    lines.append(
+        f"- **Reliability:** {c.reliability or '(unmeasured — no live engine reward reachable at generation time)'}"
+    )
+    lines.extend(_render_capability_does(c))
+    lines.extend(_render_capability_typed_input(c))
+    lines.append("")
+    lines.append(
+        f"**Eligibility predicates:** {c.eligibility_predicates.get('formula', '(n/a)')}"
+    )
+    lines.append("")
+    lines.append(
+        f"**Calibrated outcomes:** {c.calibrated_outcomes or '(empty — no live bandit reward reachable at generation time)'}"
+    )
+    lines.append("")
+    lines.append(f"*Provenance: {c.provenance.to_dict()}*")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    return lines
+
+
+def render_markdown(cpds: list[CapabilityPowerDescriptor], *, generated_at: str) -> str:
+    lines = _render_markdown_header(cpds, generated_at=generated_at)
     lines.append("## Index")
     lines.append("")
     lines.append("| Capability | Intent verbs | One-line power | Actions | REST |")
     lines.append("|---|---|---|---:|---|")
     for c in cpds:
-        rest = c.typed_io.get("rest_route", "")
-        lines.append(
-            f"| [`{c.id}`](#capability-{c.id}) | {', '.join(c.intent_verbs)} "
-            f"| {truncate_at_word(c.one_line, 100)} | {len(c.does)} | `{rest}` |"
-        )
+        lines.append(_render_index_row(c))
     lines.append("")
     lines.append("## Capabilities")
     lines.append("")
     for c in cpds:
-        lines.append(f"### `{c.id}` {{ #capability-{c.id} }}")
-        lines.append("")
-        lines.append(f"**{c.title}**")
-        lines.append("")
-        lines.append(c.one_line)
-        lines.append("")
-        lines.append(
-            f"- **Intent verbs:** {', '.join(c.intent_verbs) or '(none inferred)'}"
-        )
-        lines.append(f"- **REST route:** `{c.typed_io.get('rest_route', '(none)')}`")
-        lines.append(f"- **MCP tags:** {', '.join(c.typed_io.get('tags', []))}")
-        se = c.side_effects
-        lines.append(
-            f"- **Side effects:** {se.get('matched_action_count', 0)}/"
-            f"{se.get('matched_action_count', 0) + se.get('unmatched_action_count', 0)} "
-            f"actions matched an EG ledger Method; any_mutates="
-            f"{se.get('any_action_mutates')}; durability={se.get('durability_values_seen')}; "
-            f"txn={se.get('txn_participation_values_seen')}"
-        )
-        if c.cost or c.latency:
-            lines.append(f"- **Cost:** {c.cost or '(unmeasured)'}")
-            lines.append(f"- **Latency:** {c.latency or '(unmeasured)'}")
-        else:
-            lines.append(
-                "- **Cost/Latency:** unmeasured for this capability (no benchmark source)"
-            )
-        lines.append(
-            f"- **Reliability:** {c.reliability or '(unmeasured — no live engine reward reachable at generation time)'}"
-        )
-        if c.does:
-            lines.append("")
-            lines.append("**Does:**")
-            lines.append("")
-            for d in c.does[:60]:
-                eg = (
-                    f" → EG `{d['eg_method']}` (confidence {d.get('match_confidence')})"
-                    if d.get("eg_method")
-                    else " → (no EG ledger match)"
-                )
-                lines.append(f"- `{d['action']}`{eg}")
-            if len(c.does) > 60:
-                lines.append(f"- ... and {len(c.does) - 60} more actions")
-        if c.typed_io.get("input_params"):
-            lines.append("")
-            lines.append("**Typed input:**")
-            lines.append("")
-            for p in c.typed_io["input_params"]:
-                # rstrip: an empty schema description must not leave a
-                # dangling trailing space (trailing-whitespace hook would
-                # otherwise rewrite this file on every regeneration).
-                lines.append(
-                    (
-                        f"- `{p['name']}` ({p.get('type', 'any')}"
-                        f"{', required' if p.get('required') else ''}): {p.get('description', '')}"
-                    ).rstrip()
-                )
-        lines.append("")
-        lines.append(
-            f"**Eligibility predicates:** {c.eligibility_predicates.get('formula', '(n/a)')}"
-        )
-        lines.append("")
-        lines.append(
-            f"**Calibrated outcomes:** {c.calibrated_outcomes or '(empty — no live bandit reward reachable at generation time)'}"
-        )
-        lines.append("")
-        lines.append(f"*Provenance: {c.provenance.to_dict()}*")
-        lines.append("")
-        lines.append("---")
-        lines.append("")
+        lines.extend(_render_capability_section(c))
     return "\n".join(lines)
 
 

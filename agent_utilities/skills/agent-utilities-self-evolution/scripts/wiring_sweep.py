@@ -33,6 +33,134 @@ from pathlib import Path
 from typing import Any
 
 # ---------------------------------------------------------------------------
+# Mermaid node parsing helpers (module-level: no instance state needed)
+# ---------------------------------------------------------------------------
+
+_MERMAID_STRUCTURE_PREFIXES = (
+    "%%",
+    "subgraph",
+    "direction",
+    "style",
+    "end",
+    "graph",
+    "flowchart",
+    "C4Context",
+    "C4Container",
+    "C4Component",
+    "title",
+)
+# C4 diagram nodes which do not map to canonical concepts
+_MERMAID_C4_PREFIXES = (
+    "Person",
+    "System",
+    "System_Ext",
+    "Container",
+    "Component",
+    "Rel",
+)
+# Non-architectural process nodes
+_MERMAID_EXCLUDED_LABEL_SUBSTRINGS = (
+    "phase ",
+    "stage ",
+    "step ",
+    "background research",
+    "synthesis",
+    "feature recommendations",
+    "wiring audit",
+)
+# Basic shapes and boundaries that represent generic groupings
+_MERMAID_EXCLUDED_LABEL_TOKENS = (
+    "<b>",
+    "<br",
+    "pydantic",
+    "scripts/",
+    "git:",
+    "fastapi",
+    "vite",
+    "react",
+    "textual",
+    "rich",
+    "httpx",
+    "neo4j",
+    "networkx",
+    "database",
+    "sqlite",
+    "postgresql",
+)
+_MERMAID_EXCLUDED_LABEL_EXACT = (
+    "nx",
+    "val",
+    "exp",
+    "evo",
+    "db",
+    "ui",
+    "api",
+    "cli",
+    "auth",
+    "mcp",
+    "htn",
+    "c4",
+)
+
+
+def _is_mermaid_skippable_line(line_str: str) -> bool:
+    """Empty lines, comments, structure keywords, and C4 diagram node lines."""
+    if not line_str or line_str.startswith(_MERMAID_STRUCTURE_PREFIXES):
+        return True
+    return line_str.startswith(_MERMAID_C4_PREFIXES)
+
+
+def _mermaid_label_from_match(brackets_label: str) -> str:
+    """Extract + clean the text inside a Mermaid node's outermost brackets/quotes."""
+    label_match = re.search(r'[\[\(\{">]+(.*)[\]\)\}"]+', brackets_label)
+    label = label_match.group(1) if label_match else brackets_label
+    label = label.replace('"', "").strip()
+    return re.sub(r'^[\[\(\{">]+|[\]\)\}"]+$', "", label).strip()
+
+
+def _mermaid_label_excluded(label: str) -> bool:
+    """True for a label that names a non-architectural or generic-grouping node."""
+    lower = label.lower()
+    if any(x in lower for x in _MERMAID_EXCLUDED_LABEL_SUBSTRINGS):
+        return True
+    if any(y in lower for y in _MERMAID_EXCLUDED_LABEL_TOKENS):
+        return True
+    return lower in _MERMAID_EXCLUDED_LABEL_EXACT
+
+
+def _mermaid_nodes_in_line(line_str: str) -> list[tuple[str | None, str]]:
+    """All node definitions found on one (already-stripped) Mermaid block line."""
+    if _is_mermaid_skippable_line(line_str):
+        return []
+    # Split line by arrow connections or transitions to process multi-node lines
+    parts = re.split(r"\s*(?:--+|-\.-+|==+)(?:>|<|>)?(?:\|[^|]+\|)?\s*", line_str)
+    found: list[tuple[str | None, str]] = []
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        node = _mermaid_node_from_part(part)
+        if node is not None:
+            found.append(node)
+    return found
+
+
+def _mermaid_node_from_part(part: str) -> tuple[str | None, str] | None:
+    """Extract one (concept_id_or_None, raw_part) node from a Mermaid line
+    segment, matching ``A[Label]``/``A("Label")``-style node definitions.
+    Returns None when the segment isn't a node definition or its label is
+    excluded (non-architectural / generic grouping)."""
+    match = re.match(r'^([A-Za-z0-9_]+)\s*([\[\(\{>]+.*[\]\)\}"]+)$', part)
+    if not match:
+        return None
+    label = _mermaid_label_from_match(match.group(2))
+    if _mermaid_label_excluded(label):
+        return None
+    concept_match = re.search(r"([A-Z]+-\d+\.\d+)", part)
+    return (concept_match.group(1), part) if concept_match else (None, part)
+
+
+# ---------------------------------------------------------------------------
 # Core AST Analysis Engine
 # ---------------------------------------------------------------------------
 
@@ -105,6 +233,87 @@ class WiringSweep:
 
     # -- Phase 1: Source File Scanning ---
 
+    @staticmethod
+    def _read_source_text(py_file: Path) -> str | None:
+        try:
+            return py_file.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            return None
+
+    def _collect_definitions(
+        self, tree: ast.AST, rel: str
+    ) -> tuple[list[str], list[str]]:
+        """Function and class names defined in ``tree``, recorded into
+        ``self.all_definitions`` as a side effect."""
+        functions: list[str] = []
+        classes: list[str] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                functions.append(node.name)
+                self.all_definitions[node.name].append(rel)
+            elif isinstance(node, ast.ClassDef):
+                classes.append(node.name)
+                self.all_definitions[node.name].append(rel)
+        return functions, classes
+
+    def _collect_import_targets(self, tree: ast.AST) -> list[str]:
+        """Import target names in ``tree``; also records ``from`` import
+        aliases into ``self.all_references`` as a side effect."""
+        imports: list[str] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    imports.append(alias.name)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imports.append(node.module)
+                for alias in node.names or []:
+                    self.all_references.add(alias.name)
+        return imports
+
+    def _collect_name_references(self, tree: ast.AST) -> None:
+        """Record every Name/Attribute reference in ``tree`` into ``self.all_references``."""
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                self.all_references.add(node.id)
+            elif isinstance(node, ast.Attribute):
+                self.all_references.add(node.attr)
+
+    def _collect_imports_and_references(self, tree: ast.AST) -> list[str]:
+        """Import target names in ``tree``; also records name/attribute
+        references into ``self.all_references`` as a side effect."""
+        imports = self._collect_import_targets(tree)
+        self._collect_name_references(tree)
+        return imports
+
+    def _record_source_module(
+        self, py_file: Path, rel: str, text: str
+    ) -> tuple[int, int]:
+        """Parse one file's AST and record its definitions/imports/concepts
+        into ``self.*`` state. Returns ``(function_count, class_count)``.
+        Raises ``SyntaxError`` if the file doesn't parse.
+        """
+        tree = ast.parse(text, filename=rel)
+
+        functions, classes = self._collect_definitions(tree, rel)
+        imports = self._collect_imports_and_references(tree)
+
+        # Extract concept tags
+        concepts = self.CONCEPT_RE.findall(text)
+
+        self.modules[rel] = {
+            "functions": functions,
+            "classes": classes,
+            "imports": imports,
+            "concepts": list(set(concepts)),
+            "lines": text.count("\n") + 1,
+            "is_init": py_file.name == "__init__.py",
+        }
+
+        for c in set(concepts):
+            self.concept_to_files[c].append(rel)
+
+        return len(functions), len(classes)
+
     def _scan_source_files(self) -> None:
         """Parse all .py files in agent_utilities/."""
         if not self.src_dir.exists():
@@ -124,63 +333,21 @@ class WiringSweep:
             total_files += 1
             rel = str(py_file.relative_to(self.root))
 
-            try:
-                text = py_file.read_text(encoding="utf-8", errors="ignore")
-            except Exception:
+            text = self._read_source_text(py_file)
+            if text is None:
                 syntax_errors.append(rel)
                 continue
 
-            lines = text.count("\n") + 1
-            total_lines += lines
+            total_lines += text.count("\n") + 1
 
-            # Parse AST
             try:
-                tree = ast.parse(text, filename=rel)
+                func_count, class_count = self._record_source_module(py_file, rel, text)
             except SyntaxError:
                 syntax_errors.append(rel)
                 continue
 
-            # Extract definitions and references
-            functions: list[str] = []
-            classes: list[str] = []
-            imports: list[str] = []
-
-            for node in ast.walk(tree):
-                if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                    functions.append(node.name)
-                    total_functions += 1
-                    self.all_definitions[node.name].append(rel)
-                elif isinstance(node, ast.ClassDef):
-                    classes.append(node.name)
-                    total_classes += 1
-                    self.all_definitions[node.name].append(rel)
-                elif isinstance(node, ast.Import):
-                    for alias in node.names:
-                        imports.append(alias.name)
-                elif isinstance(node, ast.ImportFrom):
-                    if node.module:
-                        imports.append(node.module)
-                        for alias in node.names or []:
-                            self.all_references.add(alias.name)
-                elif isinstance(node, ast.Name):
-                    self.all_references.add(node.id)
-                elif isinstance(node, ast.Attribute):
-                    self.all_references.add(node.attr)
-
-            # Extract concept tags
-            concepts = self.CONCEPT_RE.findall(text)
-
-            self.modules[rel] = {
-                "functions": functions,
-                "classes": classes,
-                "imports": imports,
-                "concepts": list(set(concepts)),
-                "lines": lines,
-                "is_init": py_file.name == "__init__.py",
-            }
-
-            for c in set(concepts):
-                self.concept_to_files[c].append(rel)
+            total_functions += func_count
+            total_classes += class_count
 
         self.results["source"] = {
             "total_files": total_files,
@@ -192,6 +359,19 @@ class WiringSweep:
 
     # -- Phase 2: Test File Scanning ---
 
+    def _record_test_module(self, rel: str, text: str) -> None:
+        """Record concept tags + import references for one test file."""
+        concepts = self.CONCEPT_RE.findall(text)
+        for c in set(concepts):
+            self.concept_to_tests[c].append(rel)
+
+        # Also scan for references to track test coverage
+        for node in ast.walk(ast.parse(text, filename=rel)):
+            if isinstance(node, ast.ImportFrom | ast.Import):
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    for alias in node.names or []:
+                        self.all_references.add(alias.name)
+
     def _scan_test_files(self) -> None:
         """Scan test files for concept tags."""
         if not self.test_dir.exists():
@@ -202,22 +382,12 @@ class WiringSweep:
             if "__pycache__" in str(py_file):
                 continue
             test_count += 1
-            try:
-                text = py_file.read_text(encoding="utf-8", errors="ignore")
-            except Exception:
+            text = self._read_source_text(py_file)
+            if text is None:
                 continue
 
-            concepts = self.CONCEPT_RE.findall(text)
             rel = str(py_file.relative_to(self.root))
-            for c in set(concepts):
-                self.concept_to_tests[c].append(rel)
-
-            # Also scan for references to track test coverage
-            for node in ast.walk(ast.parse(text, filename=rel)):
-                if isinstance(node, ast.ImportFrom | ast.Import):
-                    if isinstance(node, ast.ImportFrom) and node.module:
-                        for alias in node.names or []:
-                            self.all_references.add(alias.name)
+            self._record_test_module(rel, text)
 
         self.results["tests"] = {
             "total_test_files": test_count,
@@ -285,7 +455,7 @@ class WiringSweep:
 
     def _parse_mermaid_nodes(self, content: str) -> list[tuple[str | None, str]]:
         """Extract nodes with Concept IDs from Mermaid blocks, handles multi-node lines robustly."""
-        nodes = []
+        nodes: list[tuple[str | None, str]] = []
         in_mermaid = False
 
         for line in content.split("\n"):
@@ -295,125 +465,8 @@ class WiringSweep:
             if in_mermaid and line.strip() == "```":
                 in_mermaid = False
                 continue
-
             if in_mermaid:
-                line_str = line.strip()
-                # Skip empty lines, comments, and structure definitions like 'subgraph' or 'direction'
-                if (
-                    not line_str
-                    or line_str.startswith("%%")
-                    or line_str.startswith("subgraph")
-                    or line_str.startswith("direction")
-                    or line_str.startswith("style")
-                    or line_str.startswith("end")
-                    or line_str.startswith("graph")
-                    or line_str.startswith("flowchart")
-                    or line_str.startswith("C4Context")
-                    or line_str.startswith("C4Container")
-                    or line_str.startswith("C4Component")
-                    or line_str.startswith("title")
-                ):
-                    continue
-
-                # Exclude C4 diagram nodes which do not map to canonical concepts
-                if any(
-                    line_str.startswith(x)
-                    for x in [
-                        "Person",
-                        "System",
-                        "System_Ext",
-                        "Container",
-                        "Component",
-                        "Rel",
-                    ]
-                ):
-                    continue
-
-                # Split line by arrow connections or transitions to process multi-node lines
-                parts = re.split(
-                    r"\s*(?:--+|-\.-+|==+)(?:>|<|>)?(?:\|[^|]+\|)?\s*", line_str
-                )
-                for part in parts:
-                    part = part.strip()
-                    if not part:
-                        continue
-
-                    # Match node definitions like A[Label], A("Label"), etc.
-                    match = re.match(
-                        r'^([A-Za-z0-9_]+)\s*([\[\(\{>]+.*[\]\)\}"]+)$', part
-                    )
-                    if match:
-                        brackets_label = match.group(2)
-                        # Extract text inside the outermost brackets/quotes
-                        label_match = re.search(
-                            r'[\[\(\{">]+(.*)[\]\)\}"]+', brackets_label
-                        )
-                        label = label_match.group(1) if label_match else brackets_label
-                        label = label.replace('"', "").strip()
-                        # Clean up any trailing brackets/quotes
-                        label = re.sub(r'^[\[\(\{">]+|[\]\)\}"]+$', "", label).strip()
-
-                        # Exclude non-architectural process nodes
-                        if any(
-                            x in label.lower()
-                            for x in [
-                                "phase ",
-                                "stage ",
-                                "step ",
-                                "background research",
-                                "synthesis",
-                                "feature recommendations",
-                                "wiring audit",
-                            ]
-                        ):
-                            continue
-                        # Exclude basic shapes and boundaries that represent generic groupings
-                        if any(
-                            y in label.lower()
-                            for y in [
-                                "<b>",
-                                "<br",
-                                "pydantic",
-                                "scripts/",
-                                "git:",
-                                "fastapi",
-                                "vite",
-                                "react",
-                                "textual",
-                                "rich",
-                                "httpx",
-                                "neo4j",
-                                "networkx",
-                                "database",
-                                "sqlite",
-                                "postgresql",
-                            ]
-                        ):
-                            continue
-                        if any(
-                            y == label.lower()
-                            for y in [
-                                "nx",
-                                "val",
-                                "exp",
-                                "evo",
-                                "db",
-                                "ui",
-                                "api",
-                                "cli",
-                                "auth",
-                                "mcp",
-                                "htn",
-                                "c4",
-                            ]
-                        ):
-                            continue
-
-                        concept_match = re.search(r"([A-Z]+-\d+\.\d+)", part)
-                        if concept_match:
-                            nodes.append((concept_match.group(1), part))
-                        else:
-                            nodes.append((None, part))
+                nodes.extend(_mermaid_nodes_in_line(line.strip()))
 
         return nodes
 
@@ -437,49 +490,47 @@ class WiringSweep:
 
     # -- Phase 5: Orphan Analysis ---
 
+    def _init_reexports_module(self, rel_path: str) -> bool:
+        """True if this module's package __init__.py re-exports it by name."""
+        pkg_dir = str(Path(rel_path).parent)
+        init_path = pkg_dir + "/__init__.py"
+        module_name = Path(rel_path).stem
+
+        if init_path not in self.modules:
+            return False
+        init_data = self.modules[init_path]
+        return any(module_name in imp for imp in init_data["imports"])
+
+    def _orphan_record(
+        self, rel_path: str, data: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Orphan-report entry for one module, or None if it isn't an orphan."""
+        if data["is_init"] or rel_path.startswith("tests/"):
+            return None
+
+        importers = self.reverse_import_graph.get(rel_path, set())
+        # Filter out self-imports and test imports
+        real_importers = {
+            imp for imp in importers if imp != rel_path and not imp.startswith("tests/")
+        }
+        if real_importers or self._init_reexports_module(rel_path):
+            return None
+
+        return {
+            "module": rel_path,
+            "functions": len(data["functions"]),
+            "classes": len(data["classes"]),
+            "lines": data["lines"],
+            "concepts": data["concepts"],
+        }
+
     def _analyze_orphans(self) -> None:
         """Find modules never imported by any non-test, non-init module."""
-        orphans: list[dict[str, Any]] = []
-
-        for rel_path, data in self.modules.items():
-            if data["is_init"]:
-                continue
-            if rel_path.startswith("tests/"):
-                continue
-
-            importers = self.reverse_import_graph.get(rel_path, set())
-            # Filter out self-imports and test imports
-            real_importers = {
-                imp
-                for imp in importers
-                if imp != rel_path and not imp.startswith("tests/")
-            }
-
-            if not real_importers:
-                # Check if it's re-exported from an __init__.py
-                pkg_dir = str(Path(rel_path).parent)
-                init_path = pkg_dir + "/__init__.py"
-                module_name = Path(rel_path).stem
-
-                init_reexports = False
-                if init_path in self.modules:
-                    init_data = self.modules[init_path]
-                    # Check if the init imports from this module
-                    for imp in init_data["imports"]:
-                        if module_name in imp:
-                            init_reexports = True
-                            break
-
-                if not init_reexports:
-                    orphans.append(
-                        {
-                            "module": rel_path,
-                            "functions": len(data["functions"]),
-                            "classes": len(data["classes"]),
-                            "lines": data["lines"],
-                            "concepts": data["concepts"],
-                        }
-                    )
+        orphans = [
+            record
+            for rel_path, data in self.modules.items()
+            if (record := self._orphan_record(rel_path, data)) is not None
+        ]
 
         self.results["orphans"] = {
             "count": len(orphans),
@@ -660,8 +711,7 @@ class WiringSweep:
         """Serialize results to JSON."""
         return json.dumps(self.results, indent=2, default=str)
 
-    def to_markdown(self) -> str:
-        """Render results as a markdown report."""
+    def _markdown_header_lines(self) -> list[str]:
         lines: list[str] = []
         lines.append("# Wiring Sweep Report\n")
         lines.append(
@@ -674,12 +724,13 @@ class WiringSweep:
             lines.append("\n## ⚠️ Warnings\n")
             for w in warnings:
                 lines.append(f"- {w}")
+        return lines
 
-        # Health Score
+    def _markdown_health_score_lines(self) -> list[str]:
         hs = self.results.get("health_score", {})
         score = hs.get("total", 0)
         emoji = "🟢" if score >= 80 else "🟡" if score >= 60 else "🔴"
-        lines.append(f"\n## {emoji} Health Score: {score}/100\n")
+        lines = [f"\n## {emoji} Health Score: {score}/100\n"]
         lines.append("| Component | Score |")
         lines.append("|-----------|-------|")
         lines.append(f"| Concept Coverage | {hs.get('concept_coverage', 0)}/30 |")
@@ -691,26 +742,29 @@ class WiringSweep:
         lines.append(
             f"| Syntax Errors | {hs.get('syntax_errors', 0)} (10pt bonus if 0) |"
         )
+        return lines
 
-        # Source stats
+    def _markdown_source_stats_lines(self) -> list[str]:
         src = self.results.get("source", {})
-        lines.append("\n## Source Statistics\n")
+        lines = ["\n## Source Statistics\n"]
         lines.append(f"- **Files**: {src.get('total_files', 0)}")
         lines.append(f"- **Functions**: {src.get('total_functions', 0)}")
         lines.append(f"- **Classes**: {src.get('total_classes', 0)}")
         lines.append(f"- **Lines**: {src.get('total_lines', 0):,}")
         lines.append(f"- **Syntax Errors**: {len(src.get('syntax_errors', []))}")
+        return lines
 
-        # Concept Gaps
+    def _markdown_concept_traceability_lines(self) -> list[str]:
         cg = self.results.get("concept_gaps", {})
-        lines.append("\n## Concept Traceability\n")
+        lines = ["\n## Concept Traceability\n"]
         lines.append(f"- **In Code**: {cg.get('total_concepts_in_code', 0)} concepts")
         lines.append(f"- **In Tests**: {cg.get('total_concepts_in_tests', 0)} concepts")
         lines.append(f"- **In Docs**: {cg.get('total_concepts_in_docs', 0)} concepts")
+        return lines
 
-        # Mermaid Diagrams
+    def _markdown_mermaid_lines(self) -> list[str]:
         md = self.results.get("mermaid_diagrams", {})
-        lines.append("\n## Mermaid Diagram Concept Mapping\n")
+        lines = ["\n## Mermaid Diagram Concept Mapping\n"]
         lines.append(f"- **Total Diagram Nodes**: {md.get('total_nodes', 0)}")
         lines.append(f"- **Mapped Concept Nodes**: {md.get('mapped_nodes', 0)}")
         lines.append(f"- **Diagram Coverage**: {md.get('coverage_pct', 0)}%")
@@ -732,27 +786,32 @@ class WiringSweep:
                 lines.append(f"| `{mi['file']}` | `{mi['line']}` |")
             if len(missing_ids) > 20:
                 lines.append(f"| ... | and {len(missing_ids) - 20} more |")
+        return lines
 
+    def _markdown_gaps_lines(self) -> list[str]:
+        cg = self.results.get("concept_gaps", {})
         gaps = cg.get("gaps", [])
-        if gaps:
-            lines.append("\n### Gaps\n")
-            lines.append("| Concept | Code | Tests | Docs | Missing |")
-            lines.append("|---------|:----:|:-----:|:----:|---------|")
-            for g in gaps:
-                missing = []
-                if g["missing_tests"]:
-                    missing.append("tests")
-                if g["missing_docs"]:
-                    missing.append("docs")
-                lines.append(
-                    f"| `{g['concept']}` | {g['in_code']} | "
-                    f"{g['in_tests']} | {g['in_docs']} | "
-                    f"{', '.join(missing)} |"
-                )
+        if not gaps:
+            return []
+        lines = ["\n### Gaps\n"]
+        lines.append("| Concept | Code | Tests | Docs | Missing |")
+        lines.append("|---------|:----:|:-----:|:----:|---------|")
+        for g in gaps:
+            missing = []
+            if g["missing_tests"]:
+                missing.append("tests")
+            if g["missing_docs"]:
+                missing.append("docs")
+            lines.append(
+                f"| `{g['concept']}` | {g['in_code']} | "
+                f"{g['in_tests']} | {g['in_docs']} | "
+                f"{', '.join(missing)} |"
+            )
+        return lines
 
-        # Orphans
+    def _markdown_orphans_lines(self) -> list[str]:
         orph = self.results.get("orphans", {})
-        lines.append(f"\n## Orphan Modules: {orph.get('count', 0)}\n")
+        lines = [f"\n## Orphan Modules: {orph.get('count', 0)}\n"]
         if orph.get("modules"):
             lines.append("| Module | Lines | Functions | Classes | Concepts |")
             lines.append("|--------|------:|----------:|--------:|----------|")
@@ -762,10 +821,11 @@ class WiringSweep:
                     f"| `{m['module']}` | {m['lines']} | "
                     f"{m['functions']} | {m['classes']} | {concepts} |"
                 )
+        return lines
 
-        # Dead definitions
+    def _markdown_dead_definitions_lines(self) -> list[str]:
         dead = self.results.get("potentially_dead", {})
-        lines.append(f"\n## Potentially Dead Definitions: {dead.get('count', 0)}\n")
+        lines = [f"\n## Potentially Dead Definitions: {dead.get('count', 0)}\n"]
         if dead.get("definitions"):
             lines.append("> [!NOTE]")
             lines.append("> These may be false positives for MRO mixins, decorators,")
@@ -774,7 +834,19 @@ class WiringSweep:
             lines.append("|------|------|")
             for d in dead["definitions"][:30]:
                 lines.append(f"| `{d['name']}` | `{d['file']}` |")
+        return lines
 
+    def to_markdown(self) -> str:
+        """Render results as a markdown report."""
+        lines: list[str] = []
+        lines.extend(self._markdown_header_lines())
+        lines.extend(self._markdown_health_score_lines())
+        lines.extend(self._markdown_source_stats_lines())
+        lines.extend(self._markdown_concept_traceability_lines())
+        lines.extend(self._markdown_mermaid_lines())
+        lines.extend(self._markdown_gaps_lines())
+        lines.extend(self._markdown_orphans_lines())
+        lines.extend(self._markdown_dead_definitions_lines())
         lines.append(
             f"\n---\n*Sweep completed in {self.results.get('duration_seconds', 0)}s*\n"
         )

@@ -80,40 +80,68 @@ TLS_PROFILE_DYNAMIC_ENV_SUFFIXES: tuple[str, ...] = (
 )
 
 
-def tls_environment_from_config(
-    config: Any,
-    *,
-    base_environ: Mapping[str, str] | None = None,
-) -> dict[str, str]:
-    """Render only runtime TLS selectors from ``AgentConfig`` for resolution.
+#: Prefixes whose full CA/mTLS override family is preserved from the ambient
+#: environment (see ``_inherited_trust_keys``) so uvx, Requests, HTTPX, and
+#: the application can share one complete-chain PEM bundle per service.
+_INHERITED_TRUST_ENV_PREFIXES: tuple[str, ...] = (
+    "MODEL",
+    "EMBEDDING",
+    "OAUTH2_TOKEN",
+    "OTEL",
+    "POSTGRES",
+    "QDRANT",
+    "MONGODB",
+    "REDIS",
+)
 
-    This closes the gap between process environment and XDG-backed AgentConfig:
-    callers can use one resolver without copying endpoints, certificate bodies,
-    secret values, or local paths into durable configuration or diagnostics.
+#: AgentConfig scalar fields projected into the runtime TLS env view, keyed
+#: by the environment variable name resolution expects.
+_SCALAR_CONFIG_TLS_FIELDS: dict[str, str] = {
+    "TLS_PROFILE": "tls_profile",
+    "TLS_PROFILE_REF": "tls_profile_ref",
+    "TLS_PROFILES_REF": "tls_profiles_ref",
+    "TLS_CA_BUNDLE_REF": "tls_ca_bundle_ref",
+    "TLS_CLIENT_CERT_REF": "tls_client_cert_ref",
+    "TLS_CLIENT_KEY_REF": "tls_client_key_ref",
+    "TLS_CLIENT_KEY_PASSWORD_REF": "tls_client_key_password_ref",
+    "TLS_PROXY_URL_REF": "tls_proxy_url_ref",
+    "MODEL_TLS_PROFILE": "model_tls_profile",
+    "MODEL_TLS_PROFILE_REF": "model_tls_profile_ref",
+    "EMBEDDING_TLS_PROFILE": "embedding_tls_profile",
+    "EMBEDDING_TLS_PROFILE_REF": "embedding_tls_profile_ref",
+    "OAUTH2_TOKEN_TLS_PROFILE": "oauth2_token_tls_profile",
+    "OAUTH2_TOKEN_TLS_PROFILE_REF": "oauth2_token_tls_profile_ref",
+    "OTEL_TLS_PROFILE": "otel_tls_profile",
+    "OTEL_TLS_PROFILE_REF": "otel_tls_profile_ref",
+    "POSTGRES_TLS_PROFILE": "postgres_tls_profile",
+    "POSTGRES_TLS_PROFILE_REF": "postgres_tls_profile_ref",
+    "QDRANT_TLS_PROFILE": "qdrant_tls_profile",
+    "QDRANT_TLS_PROFILE_REF": "qdrant_tls_profile_ref",
+    "MONGODB_TLS_PROFILE": "mongodb_tls_profile",
+    "MONGODB_TLS_PROFILE_REF": "mongodb_tls_profile_ref",
+    "REDIS_TLS_PROFILE": "redis_tls_profile",
+    "REDIS_TLS_PROFILE_REF": "redis_tls_profile_ref",
+    "CERT_PROMETHEUS_TLS_PROFILE": "cert_prometheus_tls_profile",
+    "CERT_PROMETHEUS_TLS_PROFILE_REF": "cert_prometheus_tls_profile_ref",
+}
+
+#: AgentConfig boolean fields projected into the runtime TLS env view, as
+#: ``env_name -> (field_name, default)``.
+_BOOLEAN_CONFIG_TLS_FIELDS: dict[str, tuple[str, bool]] = {
+    "TLS_SYSTEM_TRUST": ("tls_system_trust", True),
+    "TLS_TRUST_ENV": ("tls_trust_env", True),
+}
+
+
+def _inherited_trust_keys() -> set[str]:
+    """Ambient environment keys preserved verbatim into the runtime TLS view.
+
+    Ambient proxy and unrelated environment variables are deliberately not
+    copied into this trust-only view.
     """
-
-    # Preserve standard/runtime CA variables so uvx, Requests, HTTPX, and the
-    # application can share one complete-chain PEM bundle.  Ambient proxy and
-    # unrelated environment variables are deliberately not copied into this
-    # trust-only view.
-    inherited = os.environ if base_environ is None else base_environ
-    inherited_keys = {
-        "SSL_CERT_DIR",
-        "SSL_CERT_FILE",
-        "REQUESTS_CA_BUNDLE",
-        "TLS_PROFILES",
-    }
-    for prefix in (
-        "MODEL",
-        "EMBEDDING",
-        "OAUTH2_TOKEN",
-        "OTEL",
-        "POSTGRES",
-        "QDRANT",
-        "MONGODB",
-        "REDIS",
-    ):
-        inherited_keys.update(
+    keys = {"SSL_CERT_DIR", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "TLS_PROFILES"}
+    for prefix in _INHERITED_TRUST_ENV_PREFIXES:
+        keys.update(
             {
                 f"{prefix}_CA_BUNDLE",
                 f"{prefix}_CA_BUNDLE_REF",
@@ -125,60 +153,51 @@ def tls_environment_from_config(
                 f"{prefix}_CLIENT_KEY_PASSWORD_REF",
             }
         )
+    return keys
+
+
+def _project_env_reference(
+    result: dict[str, str], inherited: Mapping[str, str], reference: str
+) -> None:
+    """If ``reference`` is an ``env://NAME`` selector, copy NAME's ambient
+    value into ``result`` in place — a rendered trust view is an isolated
+    runtime boundary, so resolution never falls through to unrelated ambient
+    process state."""
+    rendered = str(reference or "").strip()
+    if not rendered.startswith("env://"):
+        return
+    target = rendered.removeprefix("env://")
+    if _ENV_NAME_RE.fullmatch(target) and inherited.get(target) not in (None, ""):
+        result[target] = str(inherited[target])
+
+
+def tls_environment_from_config(
+    config: Any,
+    *,
+    base_environ: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Render only runtime TLS selectors from ``AgentConfig`` for resolution.
+
+    This closes the gap between process environment and XDG-backed AgentConfig:
+    callers can use one resolver without copying endpoints, certificate bodies,
+    secret values, or local paths into durable configuration or diagnostics.
+    """
+    inherited = os.environ if base_environ is None else base_environ
+    inherited_keys = _inherited_trust_keys()
     result: dict[str, str] = {
         key: str(inherited[key])
         for key in inherited_keys
         if inherited.get(key) not in (None, "")
     }
-    scalar_fields = {
-        "TLS_PROFILE": "tls_profile",
-        "TLS_PROFILE_REF": "tls_profile_ref",
-        "TLS_PROFILES_REF": "tls_profiles_ref",
-        "TLS_CA_BUNDLE_REF": "tls_ca_bundle_ref",
-        "TLS_CLIENT_CERT_REF": "tls_client_cert_ref",
-        "TLS_CLIENT_KEY_REF": "tls_client_key_ref",
-        "TLS_CLIENT_KEY_PASSWORD_REF": "tls_client_key_password_ref",
-        "TLS_PROXY_URL_REF": "tls_proxy_url_ref",
-        "MODEL_TLS_PROFILE": "model_tls_profile",
-        "MODEL_TLS_PROFILE_REF": "model_tls_profile_ref",
-        "EMBEDDING_TLS_PROFILE": "embedding_tls_profile",
-        "EMBEDDING_TLS_PROFILE_REF": "embedding_tls_profile_ref",
-        "OAUTH2_TOKEN_TLS_PROFILE": "oauth2_token_tls_profile",
-        "OAUTH2_TOKEN_TLS_PROFILE_REF": "oauth2_token_tls_profile_ref",
-        "OTEL_TLS_PROFILE": "otel_tls_profile",
-        "OTEL_TLS_PROFILE_REF": "otel_tls_profile_ref",
-        "POSTGRES_TLS_PROFILE": "postgres_tls_profile",
-        "POSTGRES_TLS_PROFILE_REF": "postgres_tls_profile_ref",
-        "QDRANT_TLS_PROFILE": "qdrant_tls_profile",
-        "QDRANT_TLS_PROFILE_REF": "qdrant_tls_profile_ref",
-        "MONGODB_TLS_PROFILE": "mongodb_tls_profile",
-        "MONGODB_TLS_PROFILE_REF": "mongodb_tls_profile_ref",
-        "REDIS_TLS_PROFILE": "redis_tls_profile",
-        "REDIS_TLS_PROFILE_REF": "redis_tls_profile_ref",
-        "CERT_PROMETHEUS_TLS_PROFILE": "cert_prometheus_tls_profile",
-        "CERT_PROMETHEUS_TLS_PROFILE_REF": "cert_prometheus_tls_profile_ref",
-    }
-    for environment_key, field_name in scalar_fields.items():
+    for environment_key, field_name in _SCALAR_CONFIG_TLS_FIELDS.items():
         value = getattr(config, field_name, None)
         if value not in (None, ""):
             result[environment_key] = str(value)
 
-    # A rendered trust view is an isolated runtime boundary. Copy only the
-    # environment values explicitly named by configured env:// references so
-    # resolution never falls through to unrelated ambient process state.
     for reference in tuple(result.values()):
-        rendered = str(reference or "").strip()
-        if not rendered.startswith("env://"):
-            continue
-        target = rendered.removeprefix("env://")
-        if _ENV_NAME_RE.fullmatch(target) and inherited.get(target) not in (None, ""):
-            result[target] = str(inherited[target])
+        _project_env_reference(result, inherited, reference)
 
-    boolean_fields = {
-        "TLS_SYSTEM_TRUST": ("tls_system_trust", True),
-        "TLS_TRUST_ENV": ("tls_trust_env", True),
-    }
-    for environment_key, (field_name, default) in boolean_fields.items():
+    for environment_key, (field_name, default) in _BOOLEAN_CONFIG_TLS_FIELDS.items():
         value = bool(getattr(config, field_name, default))
         result[environment_key] = "true" if value else "false"
     return result
@@ -338,6 +357,53 @@ def _select_named_profile(catalog: dict[str, Any], name: str) -> dict[str, Any]:
     return dict(selected)
 
 
+#: Per-service env suffix -> (service-prefixed suffix, global fallback name),
+#: for the non-boolean fields ``_profile_from_environment`` resolves.
+_PROFILE_ENV_ALIASES: dict[str, tuple[str, str]] = {
+    "ca_bundle_ref": ("CA_BUNDLE_REF", "TLS_CA_BUNDLE_REF"),
+    "ca_bundle_path": ("CA_BUNDLE", "TLS_CA_BUNDLE"),
+    "ca_directory": ("CA_DIRECTORY", "TLS_CA_DIRECTORY"),
+    "client_cert_ref": ("CLIENT_CERT_REF", "TLS_CLIENT_CERT_REF"),
+    "client_cert_path": ("CLIENT_CERT", "TLS_CLIENT_CERT"),
+    "client_key_ref": ("CLIENT_KEY_REF", "TLS_CLIENT_KEY_REF"),
+    "client_key_path": ("CLIENT_KEY", "TLS_CLIENT_KEY"),
+    "client_key_password_ref": (
+        "CLIENT_KEY_PASSWORD_REF",
+        "TLS_CLIENT_KEY_PASSWORD_REF",
+    ),
+    "proxy_url_ref": ("PROXY_URL_REF", "TLS_PROXY_URL_REF"),
+    "proxy_url": ("PROXY_URL", "TLS_PROXY_URL"),
+    "no_proxy": ("NO_PROXY", "NO_PROXY"),
+}
+
+
+def _apply_standard_ca_fallback(
+    profile: dict[str, Any], environ: Mapping[str, str]
+) -> None:
+    """Interoperate with the standard variables used by HTTPX and Requests
+    when no service profile CA was selected. The values remain runtime-only."""
+    if any(
+        profile.get(key) for key in ("ca_bundle_ref", "ca_bundle_path", "ca_directory")
+    ):
+        return
+    standard_file = _first(environ, "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE")
+    standard_dir = _first(environ, "SSL_CERT_DIR")
+    if standard_file:
+        profile["ca_bundle_path"] = standard_file
+    elif standard_dir:
+        profile["ca_directory"] = standard_dir
+
+
+def _apply_standard_proxy_fallback(
+    profile: dict[str, Any], environ: Mapping[str, str]
+) -> None:
+    if profile.get("proxy_url"):
+        return
+    proxy = _first(environ, "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy")
+    if proxy:
+        profile["proxy_url"] = proxy
+
+
 def _profile_from_environment(
     prefix: str, environ: Mapping[str, str]
 ) -> dict[str, Any]:
@@ -351,48 +417,13 @@ def _profile_from_environment(
         "system_trust": value("TLS_SYSTEM_TRUST", "TLS_SYSTEM_TRUST") or True,
         "trust_env": value("TLS_TRUST_ENV", "TLS_TRUST_ENV") or True,
     }
-    aliases = {
-        "ca_bundle_ref": ("CA_BUNDLE_REF", "TLS_CA_BUNDLE_REF"),
-        "ca_bundle_path": ("CA_BUNDLE", "TLS_CA_BUNDLE"),
-        "ca_directory": ("CA_DIRECTORY", "TLS_CA_DIRECTORY"),
-        "client_cert_ref": ("CLIENT_CERT_REF", "TLS_CLIENT_CERT_REF"),
-        "client_cert_path": ("CLIENT_CERT", "TLS_CLIENT_CERT"),
-        "client_key_ref": ("CLIENT_KEY_REF", "TLS_CLIENT_KEY_REF"),
-        "client_key_path": ("CLIENT_KEY", "TLS_CLIENT_KEY"),
-        "client_key_password_ref": (
-            "CLIENT_KEY_PASSWORD_REF",
-            "TLS_CLIENT_KEY_PASSWORD_REF",
-        ),
-        "proxy_url_ref": ("PROXY_URL_REF", "TLS_PROXY_URL_REF"),
-        "proxy_url": ("PROXY_URL", "TLS_PROXY_URL"),
-        "no_proxy": ("NO_PROXY", "NO_PROXY"),
-    }
-    for key, (suffix, global_name) in aliases.items():
+    for key, (suffix, global_name) in _PROFILE_ENV_ALIASES.items():
         resolved = value(suffix, global_name)
         if resolved:
             profile[key] = resolved
 
-    # Interoperate with the standard variables used by HTTPX and Requests when
-    # no service profile was selected.  The values remain runtime-only.
-    if not any(
-        profile.get(key) for key in ("ca_bundle_ref", "ca_bundle_path", "ca_directory")
-    ):
-        standard_file = _first(environ, "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE")
-        standard_dir = _first(environ, "SSL_CERT_DIR")
-        if standard_file:
-            profile["ca_bundle_path"] = standard_file
-        elif standard_dir:
-            profile["ca_directory"] = standard_dir
-    if not profile.get("proxy_url"):
-        proxy = _first(
-            environ,
-            "HTTPS_PROXY",
-            "https_proxy",
-            "ALL_PROXY",
-            "all_proxy",
-        )
-        if proxy:
-            profile["proxy_url"] = proxy
+    _apply_standard_ca_fallback(profile, environ)
+    _apply_standard_proxy_fallback(profile, environ)
     return profile
 
 
@@ -710,6 +741,327 @@ class ResolvedTLSProfile:
             _MATERIALIZED_PATHS.discard(path)
 
 
+def _resolve_profile_selector(
+    prefix: str,
+    profile_name: str | None,
+    profile_ref: str | None,
+    target_env: Mapping[str, str],
+) -> tuple[str, str]:
+    """Selected (name, ref), from the explicit args or environment fallback.
+
+    Once a caller supplies either selector, the pair is an isolated trust
+    decision. Never fill the missing half from ambient service/global state:
+    doing so can silently combine two unrelated provider trust policies.
+    """
+    explicit_selector = bool(profile_name or profile_ref)
+    selected_name = str(
+        profile_name or ""
+        if explicit_selector
+        else _first(target_env, f"{prefix}_TLS_PROFILE", "TLS_PROFILE")
+    ).strip()
+    selected_ref = str(
+        profile_ref or ""
+        if explicit_selector
+        else _first(target_env, f"{prefix}_TLS_PROFILE_REF", "TLS_PROFILE_REF")
+    ).strip()
+    return selected_name, selected_ref
+
+
+def _direct_env_configured(prefix: str, target_env: Mapping[str, str]) -> bool:
+    """Whether any service/global direct TLS material env var is set."""
+    direct_keys = (
+        f"{prefix}_TLS_SYSTEM_TRUST",
+        f"{prefix}_TLS_TRUST_ENV",
+        f"{prefix}_CA_BUNDLE_REF",
+        f"{prefix}_CA_BUNDLE",
+        f"{prefix}_CA_DIRECTORY",
+        f"{prefix}_CLIENT_CERT_REF",
+        f"{prefix}_CLIENT_CERT",
+        f"{prefix}_CLIENT_KEY_REF",
+        f"{prefix}_CLIENT_KEY",
+        f"{prefix}_PROXY_URL_REF",
+        f"{prefix}_PROXY_URL",
+        "TLS_CA_BUNDLE_REF",
+        "TLS_CA_BUNDLE",
+        "TLS_CA_DIRECTORY",
+        "TLS_CLIENT_CERT_REF",
+        "TLS_CLIENT_CERT",
+        "TLS_CLIENT_KEY_REF",
+        "TLS_CLIENT_KEY",
+        "TLS_PROXY_URL_REF",
+        "TLS_PROXY_URL",
+    )
+    return any(target_env.get(key) not in (None, "") for key in direct_keys)
+
+
+def _resolve_profile_by_ref(
+    selected_ref: str,
+    selected_name: str,
+    resolver: Callable[[str], str | None] | None,
+    target_env: Mapping[str, str],
+) -> dict[str, Any]:
+    resolved = _parse_profile_json(_resolve_secret(selected_ref, resolver, target_env))
+    return _select_named_profile(resolved, selected_name) if selected_name else resolved
+
+
+def _resolve_profile_by_name(
+    selected_name: str,
+    resolver: Callable[[str], str | None] | None,
+    target_env: Mapping[str, str],
+) -> tuple[dict[str, Any], str]:
+    """Returns ``(profile, source)`` where source is secret_catalog|runtime_catalog."""
+    if not _NAME_RE.fullmatch(selected_name):
+        raise TransportSecurityError("tls_profile_name_invalid")
+    catalog_ref = _first(target_env, "TLS_PROFILES_REF")
+    catalog_raw = (
+        _resolve_secret(catalog_ref, resolver, target_env)
+        if catalog_ref
+        else _first(target_env, "TLS_PROFILES")
+    )
+    if not catalog_raw:
+        raise TransportSecurityError("tls_profile_catalog_unavailable")
+    resolved_profile = _select_named_profile(
+        _parse_profile_json(catalog_raw), selected_name
+    )
+    return resolved_profile, ("secret_catalog" if catalog_ref else "runtime_catalog")
+
+
+def _select_resolved_profile(
+    *,
+    profile: Mapping[str, Any] | None,
+    selected_ref: str,
+    selected_name: str,
+    prefix: str,
+    resolver: Callable[[str], str | None] | None,
+    target_env: Mapping[str, str],
+) -> tuple[dict[str, Any], str, bool]:
+    """Resolution order: explicit profile, explicit/service profile reference,
+    named profile catalog, then service/global environment variables.
+
+    Returns ``(resolved_profile, source, explicitly_configured)``.
+    """
+    if profile is not None:
+        return dict(profile), "inline", True
+    if selected_ref:
+        return (
+            _resolve_profile_by_ref(selected_ref, selected_name, resolver, target_env),
+            "secret_ref",
+            True,
+        )
+    if selected_name:
+        resolved_profile, source = _resolve_profile_by_name(
+            selected_name, resolver, target_env
+        )
+        return resolved_profile, source, True
+    resolved_profile = _profile_from_environment(prefix, target_env)
+    return (
+        resolved_profile,
+        "environment",
+        _direct_env_configured(prefix, target_env),
+    )
+
+
+def _resolve_ca_material(
+    resolved_profile: Mapping[str, Any],
+    *,
+    resolver: Callable[[str], str | None] | None,
+    environ: Mapping[str, str],
+    destination_root: Path | None,
+) -> tuple[Path | None, bool, Path | None]:
+    """Resolve CA bundle/directory material. Returns ``(ca_path, ca_materialized, ca_directory)``.
+
+    Does NOT check source ambiguity (ca_path AND ca_directory both set) —
+    the caller must do that itself, once these values are assigned in its
+    OWN scope, so a subsequent raise still lets its except-clause clean up
+    an already-materialized file. Raising it here instead would abort the
+    tuple-assignment in the caller, leaving the caller's own
+    ca_path/ca_materialized at their pre-call defaults and leaking the file.
+    """
+    ca_profile = dict(resolved_profile)
+    for alias, canonical in (
+        ("ca_ref", "ca_bundle_ref"),
+        ("ca_pem", "ca_bundle_pem"),
+        ("ca_path", "ca_bundle_path"),
+    ):
+        if ca_profile.get(canonical) in (
+            None,
+            "",
+        ) and ca_profile.get(alias) not in (None, ""):
+            ca_profile[canonical] = ca_profile[alias]
+    ca_path, ca_materialized = _material(
+        ca_profile,
+        kind="ca_bundle",
+        resolver=resolver,
+        environ=environ,
+        destination_root=destination_root,
+    )
+    directory_value = _pick(resolved_profile, "ca_directory", "ca_dir")
+    ca_directory = _path(directory_value, directory=True) if directory_value else None
+    return ca_path, ca_materialized, ca_directory
+
+
+def _resolve_client_cert_material(
+    resolved_profile: Mapping[str, Any],
+    *,
+    resolver: Callable[[str], str | None] | None,
+    environ: Mapping[str, str],
+    destination_root: Path | None,
+) -> tuple[Path | None, bool, Path | None, bool]:
+    """Returns ``(cert_path, cert_materialized, key_path, key_materialized)``.
+
+    Does NOT check for a mismatched cert/key pair — same reason as
+    ``_resolve_ca_material``: the caller must check after these values land
+    in its own scope, or an already-materialized cert/key leaks on raise.
+    """
+    cert_path, cert_materialized = _material(
+        resolved_profile,
+        kind="client_cert",
+        resolver=resolver,
+        environ=environ,
+        destination_root=destination_root,
+    )
+    key_path, key_materialized = _material(
+        resolved_profile,
+        kind="client_key",
+        resolver=resolver,
+        environ=environ,
+        destination_root=destination_root,
+    )
+    return cert_path, cert_materialized, key_path, key_materialized
+
+
+def _resolve_client_key_password(
+    resolved_profile: Mapping[str, Any],
+    *,
+    resolver: Callable[[str], str | None] | None,
+    environ: Mapping[str, str],
+) -> str | None:
+    password_ref = _pick(resolved_profile, "client_key_password_ref")
+    password_value = _pick(resolved_profile, "client_key_password")
+    if password_ref and password_value:
+        raise TransportSecurityError("tls_client_key_password_ambiguous")
+    if password_ref:
+        return _resolve_secret(str(password_ref), resolver, environ)
+    return str(password_value) if password_value else None
+
+
+def _resolve_proxy_settings(
+    resolved_profile: Mapping[str, Any],
+    *,
+    resolver: Callable[[str], str | None] | None,
+    environ: Mapping[str, str],
+) -> tuple[str | None, str | None]:
+    """Returns ``(proxy_url, no_proxy)``."""
+    proxy_ref = _pick(resolved_profile, "proxy_url_ref", "proxy_ref")
+    proxy_value = _pick(resolved_profile, "proxy_url", "proxy")
+    if proxy_ref and proxy_value:
+        raise TransportSecurityError("tls_proxy_source_ambiguous")
+    if proxy_ref:
+        proxy_value = _resolve_secret(str(proxy_ref), resolver, environ)
+    proxy_url = _proxy_url(str(proxy_value)) if proxy_value else None
+    no_proxy = str(_pick(resolved_profile, "no_proxy") or "").strip() or None
+    return proxy_url, no_proxy
+
+
+def _check_ca_source(
+    ca_path: Path | None, ca_directory: Path | None, system_trust: bool
+) -> None:
+    """Raise if the CA source is ambiguous, or missing when required.
+
+    Call only AFTER ``ca_path``/``ca_directory`` are already assigned in the
+    caller's own frame (post `_resolve_ca_material`): a raise here still lets
+    the caller's except-clause see and clean up an already-materialized file,
+    unlike raising inside the resolver itself (see its docstring).
+    """
+    if ca_path is not None and ca_directory is not None:
+        raise TransportSecurityError("tls_ca_source_ambiguous")
+    if not system_trust and ca_path is None and ca_directory is None:
+        raise TransportSecurityError("tls_trust_anchor_missing")
+
+
+def _check_client_cert_pair(cert_path: Path | None, key_path: Path | None) -> None:
+    """Raise if exactly one of cert/key is present.
+
+    Call only AFTER both are already assigned in the caller's own frame (post
+    `_resolve_client_cert_material`) — same reasoning as `_check_ca_source`.
+    """
+    if (cert_path is None) != (key_path is None):
+        raise TransportSecurityError("tls_client_certificate_incomplete")
+
+
+def _build_ssl_context(
+    *, system_trust: bool, ca_path: Path | None, ca_directory: Path | None
+) -> ssl.SSLContext:
+    context = (
+        ssl.create_default_context()
+        if system_trust
+        else ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    )
+    context.check_hostname = True
+    context.verify_mode = ssl.CERT_REQUIRED
+    if ca_path is not None:
+        context.load_verify_locations(cafile=str(ca_path))
+    elif ca_directory is not None:
+        context.load_verify_locations(capath=str(ca_directory))
+    return context
+
+
+def _apply_client_cert_to_context(
+    context: ssl.SSLContext,
+    cert_path: Path,
+    key_path: Path,
+    client_key_password: str | None,
+    *,
+    environ: Mapping[str, str],
+    destination_root: Path | None,
+) -> Path:
+    """Load the client cert chain into ``context`` (mutates it) and
+    materialize a combined cert+key bundle file. Returns the bundle path."""
+    context.load_cert_chain(
+        certfile=str(cert_path),
+        keyfile=str(key_path),
+        password=client_key_password,
+    )
+    private_key_pem = key_path.read_bytes()
+    if client_key_password:
+        from cryptography.hazmat.primitives import serialization
+
+        private_key = serialization.load_pem_private_key(
+            private_key_pem,
+            password=client_key_password.encode("utf-8"),
+        )
+        private_key_pem = private_key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+    return _materialize(
+        cert_path.read_text(encoding="utf-8") + "\n" + private_key_pem.decode("ascii"),
+        kind="cert",
+        environ=environ,
+        destination_root=destination_root,
+    )
+
+
+def _cleanup_materialized_on_failure(
+    candidates: tuple[tuple[Path | None, bool], ...],
+) -> None:
+    """Best-effort delete of every materialized-this-call path, on any failure."""
+    for candidate, created in candidates:
+        if candidate is not None and created:
+            try:
+                candidate.unlink(missing_ok=True)
+            except OSError:
+                continue
+            _MATERIALIZED_PATHS.discard(candidate)
+
+
+def _materialized_paths(
+    candidates: tuple[tuple[Path | None, bool], ...],
+) -> tuple[Path, ...]:
+    return tuple(path for path, created in candidates if path is not None and created)
+
+
 def resolve_tls_profile(
     service: str,
     *,
@@ -729,78 +1081,17 @@ def resolve_tls_profile(
 
     target_env: Mapping[str, str] = environ if environ is not None else os.environ
     prefix = _service_prefix(service)
-    # Once a caller supplies either selector, the pair is an isolated trust
-    # decision.  Never fill the missing half from ambient service/global state:
-    # doing so can silently combine two unrelated provider trust policies.
-    explicit_selector = bool(profile_name or profile_ref)
-    selected_name = str(
-        profile_name or ""
-        if explicit_selector
-        else _first(target_env, f"{prefix}_TLS_PROFILE", "TLS_PROFILE")
-    ).strip()
-    selected_ref = str(
-        profile_ref or ""
-        if explicit_selector
-        else _first(target_env, f"{prefix}_TLS_PROFILE_REF", "TLS_PROFILE_REF")
-    ).strip()
-    source = "environment"
-    explicitly_configured = profile is not None or bool(selected_name or selected_ref)
-
-    if profile is not None:
-        resolved_profile = dict(profile)
-        source = "inline"
-    elif selected_ref:
-        resolved = _parse_profile_json(
-            _resolve_secret(selected_ref, resolver, target_env)
-        )
-        resolved_profile = (
-            _select_named_profile(resolved, selected_name)
-            if selected_name
-            else resolved
-        )
-        source = "secret_ref"
-    elif selected_name:
-        if not _NAME_RE.fullmatch(selected_name):
-            raise TransportSecurityError("tls_profile_name_invalid")
-        catalog_ref = _first(target_env, "TLS_PROFILES_REF")
-        catalog_raw = (
-            _resolve_secret(catalog_ref, resolver, target_env)
-            if catalog_ref
-            else _first(target_env, "TLS_PROFILES")
-        )
-        if not catalog_raw:
-            raise TransportSecurityError("tls_profile_catalog_unavailable")
-        resolved_profile = _select_named_profile(
-            _parse_profile_json(catalog_raw), selected_name
-        )
-        source = "secret_catalog" if catalog_ref else "runtime_catalog"
-    else:
-        resolved_profile = _profile_from_environment(prefix, target_env)
-        direct_keys = (
-            f"{prefix}_TLS_SYSTEM_TRUST",
-            f"{prefix}_TLS_TRUST_ENV",
-            f"{prefix}_CA_BUNDLE_REF",
-            f"{prefix}_CA_BUNDLE",
-            f"{prefix}_CA_DIRECTORY",
-            f"{prefix}_CLIENT_CERT_REF",
-            f"{prefix}_CLIENT_CERT",
-            f"{prefix}_CLIENT_KEY_REF",
-            f"{prefix}_CLIENT_KEY",
-            f"{prefix}_PROXY_URL_REF",
-            f"{prefix}_PROXY_URL",
-            "TLS_CA_BUNDLE_REF",
-            "TLS_CA_BUNDLE",
-            "TLS_CA_DIRECTORY",
-            "TLS_CLIENT_CERT_REF",
-            "TLS_CLIENT_CERT",
-            "TLS_CLIENT_KEY_REF",
-            "TLS_CLIENT_KEY",
-            "TLS_PROXY_URL_REF",
-            "TLS_PROXY_URL",
-        )
-        explicitly_configured = any(
-            target_env.get(key) not in (None, "") for key in direct_keys
-        )
+    selected_name, selected_ref = _resolve_profile_selector(
+        prefix, profile_name, profile_ref, target_env
+    )
+    resolved_profile, source, explicitly_configured = _select_resolved_profile(
+        profile=profile,
+        selected_ref=selected_ref,
+        selected_name=selected_name,
+        prefix=prefix,
+        resolver=resolver,
+        target_env=target_env,
+    )
 
     retired_controls = {"verify", "allow_insecure"}.intersection(resolved_profile)
     if retired_controls:
@@ -820,134 +1111,64 @@ def resolve_tls_profile(
     no_proxy: str | None = None
     client_bundle_path: Path | None = None
     try:
-        ca_profile = dict(resolved_profile)
-        for alias, canonical in (
-            ("ca_ref", "ca_bundle_ref"),
-            ("ca_pem", "ca_bundle_pem"),
-            ("ca_path", "ca_bundle_path"),
-        ):
-            if ca_profile.get(canonical) in (
-                None,
-                "",
-            ) and ca_profile.get(alias) not in (None, ""):
-                ca_profile[canonical] = ca_profile[alias]
-        ca_path, ca_materialized = _material(
-            ca_profile,
-            kind="ca_bundle",
-            resolver=resolver,
-            environ=target_env,
-            destination_root=destination_root,
-        )
-        directory_value = _pick(resolved_profile, "ca_directory", "ca_dir")
-        ca_directory = (
-            _path(directory_value, directory=True) if directory_value else None
-        )
-        if ca_path is not None and ca_directory is not None:
-            raise TransportSecurityError("tls_ca_source_ambiguous")
-        if not system_trust and ca_path is None and ca_directory is None:
-            raise TransportSecurityError("tls_trust_anchor_missing")
-
-        cert_path, cert_materialized = _material(
+        ca_path, ca_materialized, ca_directory = _resolve_ca_material(
             resolved_profile,
-            kind="client_cert",
             resolver=resolver,
             environ=target_env,
             destination_root=destination_root,
         )
-        key_path, key_materialized = _material(
-            resolved_profile,
-            kind="client_key",
-            resolver=resolver,
-            environ=target_env,
-            destination_root=destination_root,
-        )
-        if (cert_path is None) != (key_path is None):
-            raise TransportSecurityError("tls_client_certificate_incomplete")
+        _check_ca_source(ca_path, ca_directory, system_trust)
 
-        password_ref = _pick(resolved_profile, "client_key_password_ref")
-        password_value = _pick(resolved_profile, "client_key_password")
-        if password_ref and password_value:
-            raise TransportSecurityError("tls_client_key_password_ambiguous")
-        client_key_password = (
-            _resolve_secret(str(password_ref), resolver, target_env)
-            if password_ref
-            else (str(password_value) if password_value else None)
+        cert_path, cert_materialized, key_path, key_materialized = (
+            _resolve_client_cert_material(
+                resolved_profile,
+                resolver=resolver,
+                environ=target_env,
+                destination_root=destination_root,
+            )
+        )
+        _check_client_cert_pair(cert_path, key_path)
+
+        client_key_password = _resolve_client_key_password(
+            resolved_profile, resolver=resolver, environ=target_env
+        )
+        proxy_url, no_proxy = _resolve_proxy_settings(
+            resolved_profile, resolver=resolver, environ=target_env
         )
 
-        proxy_ref = _pick(resolved_profile, "proxy_url_ref", "proxy_ref")
-        proxy_value = _pick(resolved_profile, "proxy_url", "proxy")
-        if proxy_ref and proxy_value:
-            raise TransportSecurityError("tls_proxy_source_ambiguous")
-        if proxy_ref:
-            proxy_value = _resolve_secret(str(proxy_ref), resolver, target_env)
-        proxy_url = _proxy_url(str(proxy_value)) if proxy_value else None
-        no_proxy = str(_pick(resolved_profile, "no_proxy") or "").strip() or None
-
-        context = (
-            ssl.create_default_context()
-            if system_trust
-            else ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context = _build_ssl_context(
+            system_trust=system_trust, ca_path=ca_path, ca_directory=ca_directory
         )
-        context.check_hostname = True
-        context.verify_mode = ssl.CERT_REQUIRED
-        if ca_path is not None:
-            context.load_verify_locations(cafile=str(ca_path))
-        elif ca_directory is not None:
-            context.load_verify_locations(capath=str(ca_directory))
         if cert_path is not None:
             assert key_path is not None
-            context.load_cert_chain(
-                certfile=str(cert_path),
-                keyfile=str(key_path),
-                password=client_key_password,
-            )
-            private_key_pem = key_path.read_bytes()
-            if client_key_password:
-                from cryptography.hazmat.primitives import serialization
-
-                private_key = serialization.load_pem_private_key(
-                    private_key_pem,
-                    password=client_key_password.encode("utf-8"),
-                )
-                private_key_pem = private_key.private_bytes(
-                    serialization.Encoding.PEM,
-                    serialization.PrivateFormat.PKCS8,
-                    serialization.NoEncryption(),
-                )
-            client_bundle_path = _materialize(
-                cert_path.read_text(encoding="utf-8")
-                + "\n"
-                + private_key_pem.decode("ascii"),
-                kind="cert",
+            client_bundle_path = _apply_client_cert_to_context(
+                context,
+                cert_path,
+                key_path,
+                client_key_password,
                 environ=target_env,
                 destination_root=destination_root,
             )
     except Exception as exc:
-        for candidate, created in (
-            (ca_path, ca_materialized),
-            (cert_path, cert_materialized),
-            (key_path, key_materialized),
-            (client_bundle_path, client_bundle_path is not None),
-        ):
-            if candidate is not None and created:
-                try:
-                    candidate.unlink(missing_ok=True)
-                except OSError:
-                    continue
-                _MATERIALIZED_PATHS.discard(candidate)
+        _cleanup_materialized_on_failure(
+            (
+                (ca_path, ca_materialized),
+                (cert_path, cert_materialized),
+                (key_path, key_materialized),
+                (client_bundle_path, client_bundle_path is not None),
+            )
+        )
         if isinstance(exc, TransportSecurityError):
             raise
         raise TransportSecurityError("tls_profile_material_invalid") from None
 
-    materialized = tuple(
-        path
-        for path, created in (
+    materialized = _materialized_paths(
+        (
             (ca_path, ca_materialized),
             (cert_path, cert_materialized),
             (key_path, key_materialized),
             (client_bundle_path, client_bundle_path is not None),
         )
-        if path is not None and created
     )
     profile_label = selected_name if _NAME_RE.fullmatch(selected_name) else "default"
     return ResolvedTLSProfile(
