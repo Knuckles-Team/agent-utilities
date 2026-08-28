@@ -618,16 +618,13 @@ def get_kg_ingest_paths(workspace_path: Path) -> list[Path]:
     return resolved
 
 
-def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
-    """Processes a single SKILL.md file, checking for changes and versioning."""
+def _read_skill_file_if_changed(
+    file_path: Path, file_key: str
+) -> tuple[str, float] | None:
     from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
         skill_reference,
     )
 
-    if not file_path.exists():
-        return
-
-    file_key = str(file_path.resolve())
     try:
         mtime = file_path.stat().st_mtime
     except Exception as e:  # noqa: BLE001 — mtime=0.0 fallback just forces a content-hash re-check on the next scan, no data lost
@@ -639,7 +636,7 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
         mtime = 0.0
 
     if _SEEN_MTIMES.get(file_key) == mtime:
-        return
+        return None
 
     try:
         content = file_path.read_text(encoding="utf-8", errors="ignore")
@@ -649,59 +646,49 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
             skill_reference(file_path.parent.name),
             e,
         )
-        return
+        return None
+    return content, mtime
 
-    content_hash = _get_md5(content)
 
-    if file_key not in _SEEN_HASHES:
-        _SEEN_HASHES[file_key] = set()
+def _parse_skill_frontmatter(content: str, default_name: str) -> tuple[str, str]:
+    skill_name = default_name
+    skill_desc = ""
+    if not content.startswith("---"):
+        return skill_name, skill_desc
+    end_idx = content.find("---", 3)
+    if end_idx == -1:
+        return skill_name, skill_desc
 
     import yaml
 
-    frontmatter: dict[str, Any] = {}
-    skill_name = file_path.parent.name
-    skill_desc = ""
-
-    if content.startswith("---"):
-        end_idx = content.find("---", 3)
-        if end_idx != -1:
-            try:
-                frontmatter_str = content[3:end_idx].strip()
-                frontmatter = yaml.safe_load(frontmatter_str) or {}
-                skill_name = str(frontmatter.get("name", skill_name))
-                skill_desc = frontmatter.get("description", "")
-            except Exception as e:  # noqa: BLE001 — malformed frontmatter falls back to the directory-name default already assigned above
-                logger.debug(
-                    "Failed to parse frontmatter for %s: %s",
-                    skill_reference(file_path.parent.name),
-                    e,
-                )
-
-    prefix = f"skill_{skill_name.lower().replace(' ', '_').replace('-', '_')}"
-    history_dir = workspace_path / ".specify" / "history" / "skills"
-
-    if not _SEEN_HASHES[file_key]:
-        latest_v, historical_hashes = _get_latest_version_from_history(
-            history_dir, prefix
+    try:
+        frontmatter_str = content[3:end_idx].strip()
+        frontmatter = yaml.safe_load(frontmatter_str) or {}
+        skill_name = str(frontmatter.get("name", skill_name))
+        skill_desc = frontmatter.get("description", "")
+    except Exception as e:  # noqa: BLE001 — malformed frontmatter falls back to the directory-name default already assigned above
+        from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+            skill_reference,
         )
-        _SEEN_HASHES[file_key].update(historical_hashes)
-        version = latest_v
-    else:
-        if content_hash in _SEEN_HASHES[file_key]:
-            _SEEN_MTIMES[file_key] = mtime
-            return
-        latest_v, _ = _get_latest_version_from_history(history_dir, prefix)
-        version = latest_v
 
-    if content_hash in _SEEN_HASHES[file_key]:
-        _SEEN_MTIMES[file_key] = mtime
-        return
+        logger.debug(
+            "Failed to parse frontmatter for %s: %s",
+            skill_reference(default_name),
+            e,
+        )
+    return skill_name, skill_desc
 
-    version += 1
+
+def _write_skill_history(
+    history_dir: Path, prefix: str, version: int, content: str, skill_name: str
+) -> Path | None:
+    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+        skill_reference,
+    )
+
     timestamp_str = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     history_dir.mkdir(parents=True, exist_ok=True)
     history_file = history_dir / f"{prefix}_v{version}_{timestamp_str}.md"
-
     try:
         history_file.write_text(content, encoding="utf-8")
         logger.info("Archived skill version for %s", skill_reference(skill_name))
@@ -711,10 +698,38 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
             skill_reference(skill_name),
             e,
         )
-        return
+        return None
+    return history_file
+
+
+def _link_skill_to_current_project(engine: Any, node_id: str, skill_name: str) -> None:
+    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+        skill_reference,
+    )
 
     try:
-        node_id = f"skill_{skill_name.lower().replace(' ', '_').replace('-', '_')}"
+        proj_rows = engine.backend.execute(
+            "MATCH (proj:Project) WHERE proj.name = 'current' RETURN proj.id AS id"
+        )
+        project_id = proj_rows[0].get("id") if proj_rows else None
+        if project_id:
+            engine.link_nodes(project_id, node_id, "HAS_ARTIFACT")
+    except Exception as e:  # noqa: BLE001 — Project linkage is a discoverability edge; the Skill node itself is already added above unconditionally
+        logger.debug(
+            "Could not link %s to project: %s",
+            skill_reference(skill_name),
+            e,
+        )
+
+
+def _ingest_skill_node(
+    engine: Any, node_id: str, skill_name: str, skill_desc: str, version: int
+) -> None:
+    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+        skill_reference,
+    )
+
+    try:
         props = {
             "name": skill_name,
             "description": skill_desc,
@@ -722,29 +737,48 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
             "version": version,
             "last_updated": int(time.time() * 1000),
         }
-
         engine.add_node(node_id, node_type="Skill", properties=props)
-
-        try:
-            proj_rows = engine.backend.execute(
-                "MATCH (proj:Project) WHERE proj.name = 'current' RETURN proj.id AS id"
-            )
-            project_id = proj_rows[0].get("id") if proj_rows else None
-            if project_id:
-                engine.link_nodes(project_id, node_id, "HAS_ARTIFACT")
-        except Exception as e:  # noqa: BLE001 — Project linkage is a discoverability edge; the Skill node itself is already added above unconditionally
-            logger.debug(
-                "Could not link %s to project: %s",
-                skill_reference(skill_name),
-                e,
-            )
-
+        _link_skill_to_current_project(engine, node_id, skill_name)
     except Exception as e:
         logger.error(
             "Failed to ingest %s: %s",
             skill_reference(skill_name),
             e,
         )
+
+
+def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
+    """Processes a single SKILL.md file, checking for changes and versioning."""
+    if not file_path.exists():
+        return
+
+    file_key = str(file_path.resolve())
+    read = _read_skill_file_if_changed(file_path, file_key)
+    if read is None:
+        return
+    content, mtime = read
+    content_hash = _get_md5(content)
+
+    if file_key not in _SEEN_HASHES:
+        _SEEN_HASHES[file_key] = set()
+
+    skill_name, skill_desc = _parse_skill_frontmatter(content, file_path.parent.name)
+    prefix = f"skill_{skill_name.lower().replace(' ', '_').replace('-', '_')}"
+    history_dir = workspace_path / ".specify" / "history" / "skills"
+
+    version = _resolve_next_watched_version(file_key, content_hash, history_dir, prefix)
+    if version is None:
+        _SEEN_MTIMES[file_key] = mtime
+        return
+
+    history_file = _write_skill_history(
+        history_dir, prefix, version, content, skill_name
+    )
+    if history_file is None:
+        return
+
+    node_id = f"skill_{skill_name.lower().replace(' ', '_').replace('-', '_')}"
+    _ingest_skill_node(engine, node_id, skill_name, skill_desc, version)
 
     _SEEN_HASHES[file_key].add(content_hash)
     _SEEN_MTIMES[file_key] = mtime
@@ -801,6 +835,50 @@ def process_watched_file(
         )
 
 
+def _read_kg_ingest_content(file_path: Path) -> str | None:
+    try:
+        return file_path.read_text(encoding="utf-8", errors="ignore")
+    except Exception as exc:  # noqa: BLE001 — binary files fall back to mtime
+        logger.debug(
+            "Could not read KG ingest location %s: %s", redact_for_log(file_path), exc
+        )
+    try:
+        return str(file_path.stat().st_mtime)
+    except Exception as stat_exc:  # noqa: BLE001 — vanished files are skipped
+        logger.debug(
+            "Could not stat KG ingest location %s: %s",
+            redact_for_log(file_path),
+            stat_exc,
+        )
+        return None
+
+
+def _reingest_mcp_config(engine: Any) -> None:
+    try:
+        from agent_utilities.mcp.kg_server import _ingest_capabilities
+
+        _ingest_capabilities(engine)
+    except Exception as e:
+        # D-SWG-2: loud, not debug — the content hash below is recorded
+        # unconditionally regardless of this try's outcome, so a failed
+        # re-ingest is never retried on a later scan; a buried DEBUG line
+        # would make a stale capability inventory permanently invisible.
+        logger.error(f"Failed to re-ingest capabilities: {e}")
+
+
+def _reingest_generic_kg_location(engine: Any, file_path: Path) -> None:
+    try:
+        if hasattr(engine, "submit_task"):
+            engine.submit_task(
+                target_path=str(file_path.resolve()),
+                is_codebase=False,
+                task_type="document",
+                provenance={"source": "watcher_kg_ingest"},
+            )
+    except Exception as e:
+        logger.error(f"Failed to submit KG re-ingestion task: {e}")
+
+
 def process_kg_ingest_location(engine: Any, file_path: Path):
     """Processes a Knowledge Graph ingestion location, re-triggering ingestion on changes."""
     if not file_path.exists() or not file_path.is_file():
@@ -810,21 +888,9 @@ def process_kg_ingest_location(engine: Any, file_path: Path):
     if file_key not in _SEEN_HASHES:
         _SEEN_HASHES[file_key] = set()
 
-    try:
-        content = file_path.read_text(encoding="utf-8", errors="ignore")
-    except Exception as exc:  # noqa: BLE001 — binary files fall back to mtime
-        logger.debug(
-            "Could not read KG ingest location %s: %s", redact_for_log(file_path), exc
-        )
-        try:
-            content = str(file_path.stat().st_mtime)
-        except Exception as stat_exc:  # noqa: BLE001 — vanished files are skipped
-            logger.debug(
-                "Could not stat KG ingest location %s: %s",
-                redact_for_log(file_path),
-                stat_exc,
-            )
-            return
+    content = _read_kg_ingest_content(file_path)
+    if content is None:
+        return
 
     content_hash = _get_md5(content)
     if content_hash in _SEEN_HASHES[file_key]:
@@ -833,27 +899,9 @@ def process_kg_ingest_location(engine: Any, file_path: Path):
     logger.info("Knowledge Graph ingestion location modified; re-ingesting")
 
     if file_path.name == "mcp_config.json":
-        try:
-            from agent_utilities.mcp.kg_server import _ingest_capabilities
-
-            _ingest_capabilities(engine)
-        except Exception as e:
-            # D-SWG-2: loud, not debug — the content hash below is recorded
-            # unconditionally regardless of this try's outcome, so a failed
-            # re-ingest is never retried on a later scan; a buried DEBUG line
-            # would make a stale capability inventory permanently invisible.
-            logger.error(f"Failed to re-ingest capabilities: {e}")
+        _reingest_mcp_config(engine)
     else:
-        try:
-            if hasattr(engine, "submit_task"):
-                engine.submit_task(
-                    target_path=str(file_path.resolve()),
-                    is_codebase=False,
-                    task_type="document",
-                    provenance={"source": "watcher_kg_ingest"},
-                )
-        except Exception as e:
-            logger.error(f"Failed to submit KG re-ingestion task: {e}")
+        _reingest_generic_kg_location(engine, file_path)
 
     _SEEN_HASHES[file_key].add(content_hash)
 
