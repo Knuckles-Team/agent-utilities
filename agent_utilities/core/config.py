@@ -6538,6 +6538,10 @@ def _populate_lazy_config(
     _apply_otel_sdk_policy(cfg.enable_otel)
 
     _LAZY_CACHE["DEFAULT_MAX_CRON_LOG_ENTRIES"] = 50
+    # WD5-ARCH-02: piggyback CORE_FILES/get_workspace_path onto the existing
+    # lazy-attribute cache generation -- see _ensure_workspace_reexports()'s
+    # docstring for why (keeps __getattr__ itself branch-free for these).
+    _ensure_workspace_reexports()
 
 
 def _init_lazy_config(
@@ -6713,7 +6717,6 @@ from pathlib import Path
 from typing import Any
 
 from agent_utilities.base_utilities import to_integer
-from agent_utilities.core.workspace import CORE_FILES, get_workspace_path
 from agent_utilities.models import (
     MCPAgent,
     MCPAgentRegistryModel,
@@ -6722,6 +6725,55 @@ from agent_utilities.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    # agent_utilities.core.workspace imports load_config/setting FROM this
+    # module (core/workspace.py:~20), so a top-level import here forms an
+    # eager 2-module cycle -- see scripts/check_import_cycles.py. CORE_FILES
+    # and get_workspace_path are instead materialized as real globals on
+    # first use of load_mcp_config()/save_mcp_config() below, via
+    # _ensure_workspace_reexports(); this block exists purely so mypy (and
+    # any other static reader) sees their concrete types.
+    from agent_utilities.core.workspace import CORE_FILES, get_workspace_path
+
+
+def _ensure_workspace_reexports() -> None:
+    """Bind ``CORE_FILES``/``get_workspace_path`` into this module's globals
+    AND the lazy-attribute cache (``_LAZY_CACHE``).
+
+    Deferred deliberately (see the ``TYPE_CHECKING`` block above).
+
+    Two separate targets, two separate reasons:
+
+    * ``globals()`` -- so bare-name references inside ``load_mcp_config()``/
+      ``save_mcp_config()`` below (a plain ``LOAD_GLOBAL``, which never
+      consults ``__getattr__``) resolve correctly. Guarded with
+      ``setdefault`` so it never clobbers a value a test has already
+      monkeypatched onto this module (``monkeypatch.setattr(config,
+      "get_workspace_path", ...)`` is a documented pattern in
+      tests/unit/core/test_config_helpers.py) -- each name is populated
+      independently so patching only one leaves the other's real value
+      intact.
+    * ``_LAZY_CACHE`` -- so *external* attribute access before either
+      function above has ever run (e.g. ``hasattr(config,
+      "get_workspace_path")``, which pytest's ``monkeypatch.setattr`` does
+      internally) resolves via this module's EXISTING ``__getattr__``
+      fallback (``if name in _LAZY_CACHE: return _LAZY_CACHE[name]``)
+      without adding a new branch to ``__getattr__`` itself -- see the call
+      in ``_populate_lazy_config()``. Always overwritten (no monkeypatch
+      ever targets ``_LAZY_CACHE`` directly, and a real monkeypatch on this
+      module's globals always wins regardless, since Python checks a
+      module's own ``__dict__`` before ever calling ``__getattr__``).
+    """
+    from agent_utilities.core.workspace import CORE_FILES as _core_files
+    from agent_utilities.core.workspace import get_workspace_path as _get_workspace_path
+
+    g = globals()
+    g.setdefault("CORE_FILES", _core_files)
+    g.setdefault("get_workspace_path", _get_workspace_path)
+    _LAZY_CACHE["CORE_FILES"] = _core_files
+    _LAZY_CACHE["get_workspace_path"] = _get_workspace_path
+
 
 import os
 
@@ -7243,6 +7295,7 @@ def load_mcp_config() -> MCPConfigModel:
         An MCPConfigModel object containing server definitions and settings.
 
     """
+    _ensure_workspace_reexports()
     path = get_workspace_path(CORE_FILES["MCP_CONFIG"])
     if path.exists():
         try:
@@ -7260,6 +7313,7 @@ def save_mcp_config(config: MCPConfigModel):
         config: The MCPConfigModel to be saved.
 
     """
+    _ensure_workspace_reexports()
     path = get_workspace_path(CORE_FILES["MCP_CONFIG"])
     path.write_text(config.model_dump_json(indent=2), encoding="utf-8")
 
