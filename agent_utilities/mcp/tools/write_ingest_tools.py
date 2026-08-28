@@ -15,6 +15,7 @@ from pydantic import Field
 
 from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.mcp import kg_server
+from agent_utilities.mcp.write_ingest_types import IngestRequest
 from agent_utilities.security.error_surface import (
     public_error_json,
     public_error_text,
@@ -498,21 +499,15 @@ def _ingest_summarize(async_jobs, sync_out, paths, graph, connection):
     return " ; ".join(msgs) if msgs else "Nothing to ingest."
 
 
-async def _ingest_action_ingest(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_ingest(engine, request: IngestRequest) -> str:
+    target_path, max_depth, agent_id, content_type, connection, graph = (
+        request.target_path,
+        request.max_depth,
+        request.agent_id,
+        request.content_type,
+        request.connection,
+        request.graph,
+    )
     # action(s): 'ingest'
     from agent_utilities.knowledge_graph.ingestion.engine import (
         ContentType,
@@ -578,21 +573,12 @@ async def _ingest_action_ingest(
     return _ingest_summarize(async_jobs, sync_out, paths, graph, connection)
 
 
-async def _ingest_action_ingest_url(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_ingest_url(engine, request: IngestRequest) -> str:
+    target_path, agent_id, description = (
+        request.target_path,
+        request.agent_id,
+        request.description,
+    )
     # action(s): 'ingest_url'
     if not target_path:
         return "Error: target_path (a URL) required for ingest_url"
@@ -627,20 +613,13 @@ async def _ingest_action_ingest_url(
 
 
 async def _ingest_action_backfill_platform_history(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+    engine, request: IngestRequest
+) -> str:
+    target_path, agent_id, corpus_name = (
+        request.target_path,
+        request.agent_id,
+        request.corpus_name,
+    )
     # action(s): 'backfill_platform_history'
     from agent_utilities.messaging.backfill import (
         backfill_platform_history,
@@ -665,21 +644,8 @@ async def _ingest_action_backfill_platform_history(
     return json.dumps(result)
 
 
-async def _ingest_action_archivebox_sync(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_archivebox_sync(engine, request: IngestRequest) -> str:
+    corpus_name, base_path = request.corpus_name, request.base_path
     # action(s): 'archivebox_sync'
     from agent_utilities.knowledge_graph.core.source_sync import (
         sync_source,
@@ -698,21 +664,8 @@ async def _ingest_action_archivebox_sync(
     return json.dumps(res_d)
 
 
-async def _ingest_action_gitlab_sync(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_gitlab_sync(engine, request: IngestRequest) -> str:
+    corpus_name, base_path = request.corpus_name, request.base_path
     # action(s): 'gitlab_sync'
     from agent_utilities.knowledge_graph.core.source_sync import (
         sync_source,
@@ -731,21 +684,8 @@ async def _ingest_action_gitlab_sync(
     return json.dumps(res_d)
 
 
-async def _ingest_action_cdc_catchup(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_cdc_catchup(engine, request: IngestRequest) -> str:
+    corpus_name = request.corpus_name
     # action(s): 'cdc_catchup'
     from agent_utilities.knowledge_graph.ingestion.debezium_envelope import (
         get_envelope_source,
@@ -774,21 +714,12 @@ async def _ingest_action_cdc_catchup(
     return json.dumps(res_d)
 
 
-async def _ingest_action_opensearch_reindex(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_opensearch_reindex(engine, request: IngestRequest) -> str:
+    target_path, corpus_name, base_path = (
+        request.target_path,
+        request.corpus_name,
+        request.base_path,
+    )
     # action(s): 'opensearch_reindex'
     from agent_utilities.knowledge_graph.search.rebuild import mcp_reindex
 
@@ -816,21 +747,8 @@ async def _ingest_action_opensearch_reindex(
     return json.dumps(res_d)
 
 
-async def _ingest_action_gitlab_webhook(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_gitlab_webhook(engine, request: IngestRequest) -> str:
+    description = request.description
     # action(s): 'gitlab_webhook'
     from agent_utilities.knowledge_graph.core.gitlab_indexer import (
         handle_gitlab_webhook,
@@ -844,21 +762,12 @@ async def _ingest_action_gitlab_webhook(
     return json.dumps(webhook_result)
 
 
-async def _ingest_action_corpus(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_corpus(engine, request: IngestRequest) -> str:
+    corpus_name, base_path, description = (
+        request.corpus_name,
+        request.base_path,
+        request.description,
+    )
     # action(s): 'corpus'
     if not corpus_name:
         return "Error: corpus_name required"
@@ -872,21 +781,7 @@ async def _ingest_action_corpus(
     return f"Corpus {corpus_name} added/updated."
 
 
-async def _ingest_action_jobs(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_jobs(engine, request: IngestRequest) -> str:
     # action(s): 'jobs'
     import json as _json
 
@@ -914,21 +809,8 @@ async def _ingest_action_jobs(
     )
 
 
-async def _ingest_action_job_status(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_job_status(engine, request: IngestRequest) -> str:
+    job_id = request.job_id
     # action(s): 'job_status', 'status'
     if not job_id:
         return "Error: job_id required"
@@ -967,21 +849,8 @@ async def _ingest_action_job_status(
     return f"Job {job_id} status: {status}\n" + _json.dumps(metrics, indent=2)
 
 
-async def _ingest_action_cancel(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_cancel(engine, request: IngestRequest) -> str:
+    job_id = request.job_id
     # action(s): 'cancel'
     import json as _json
 
@@ -990,21 +859,8 @@ async def _ingest_action_cancel(
     return _json.dumps(engine.cancel_task(job_id), indent=2)
 
 
-async def _ingest_action_clear(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_clear(engine, request: IngestRequest) -> str:
+    target_path = request.target_path
     # action(s): 'clear'
     import json as _json
 
@@ -1014,21 +870,8 @@ async def _ingest_action_clear(
     )
 
 
-async def _ingest_action_prioritize(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_prioritize(engine, request: IngestRequest) -> str:
+    job_id, priority_bucket = request.job_id, request.priority_bucket
     # action(s): 'prioritize'
     import json as _json
 
@@ -1040,21 +883,12 @@ async def _ingest_action_prioritize(
     )
 
 
-async def _ingest_action_cohort_create(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_cohort_create(engine, request: IngestRequest) -> str:
+    target_path, base_path, description = (
+        request.target_path,
+        request.base_path,
+        request.description,
+    )
     # action(s): 'cohort_create'
     import json as _json
 
@@ -1090,21 +924,8 @@ async def _ingest_action_cohort_create(
     )
 
 
-async def _ingest_action_cohort_status(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_cohort_status(engine, request: IngestRequest) -> str:
+    target_path, job_id = request.target_path, request.job_id
     # action(s): 'cohort_status'
     import json as _json
 
@@ -1118,21 +939,8 @@ async def _ingest_action_cohort_status(
     return _json.dumps(cohort_status(engine, cid), indent=2)
 
 
-async def _ingest_action_profile(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_profile(engine, request: IngestRequest) -> str:
+    corpus_name = request.corpus_name
     # action(s): 'profile'
     import json as _json
 
@@ -1144,21 +952,8 @@ async def _ingest_action_profile(
     )
 
 
-async def _ingest_action_fleet_relevance(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_fleet_relevance(engine, request: IngestRequest) -> str:
+    corpus_name = request.corpus_name
     # action(s): 'fleet_relevance'
     import json as _json
 
@@ -1173,41 +968,14 @@ async def _ingest_action_fleet_relevance(
     return _json.dumps(grade_fleet(engine, threshold_pct=thr), indent=2)
 
 
-async def _ingest_action_rebuild_indexes(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_rebuild_indexes(engine, request: IngestRequest) -> str:
     # action(s): 'rebuild_indexes'
     engine.build_indexes()
     return "Indexes rebuilt successfully."
 
 
-async def _ingest_action_observe(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_observe(engine, request: IngestRequest) -> str:
+    target_path, agent_id = request.target_path, request.agent_id
     # action(s): 'observe'
     try:
         from pathlib import Path as _Path
@@ -1226,21 +994,7 @@ async def _ingest_action_observe(
         return public_error_text(e)
 
 
-async def _ingest_action_materialize(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_materialize(engine, request: IngestRequest) -> str:
     # action(s): 'materialize'
     try:
         from agent_utilities.knowledge_graph.memory import (
@@ -1258,21 +1012,7 @@ async def _ingest_action_materialize(
         return public_error_text(e)
 
 
-async def _ingest_action_sync(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_sync(engine, request: IngestRequest) -> str:
     # action(s): 'sync'
     try:
         from agent_utilities.knowledge_graph.memory import (
@@ -1289,21 +1029,7 @@ async def _ingest_action_sync(
         return public_error_text(e)
 
 
-async def _ingest_action_reflect(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_reflect(engine, request: IngestRequest) -> str:
     # action(s): 'reflect'
     try:
         from agent_utilities.knowledge_graph.memory import (
@@ -1316,21 +1042,8 @@ async def _ingest_action_reflect(
         return public_error_text(e)
 
 
-async def _ingest_action_materialize_source(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_materialize_source(engine, request: IngestRequest) -> str:
+    corpus_name, description = request.corpus_name, request.description
     # action(s): 'materialize_source'
     try:
         from agent_utilities.knowledge_graph.enrichment.materialize import (
@@ -1359,21 +1072,8 @@ async def _ingest_action_materialize_source(
         return public_error_text(e)
 
 
-async def _ingest_action_skill_workflows(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_skill_workflows(engine, request: IngestRequest) -> str:
+    target_path, agent_id = request.target_path, request.agent_id
     # action(s): 'skill_workflows'
     try:
         root = target_path if isinstance(target_path, str) else ""
@@ -1399,21 +1099,8 @@ async def _ingest_action_skill_workflows(
         return public_error_text(e)
 
 
-async def _ingest_action_curate_wiki(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_curate_wiki(engine, request: IngestRequest) -> str:
+    target_path = request.target_path
     # action(s): 'curate_wiki'
     try:
         from agent_utilities.knowledge_graph.ingestion.wiki_curator import (
@@ -1430,21 +1117,14 @@ async def _ingest_action_curate_wiki(
         return public_error_text(e)
 
 
-async def _ingest_action_distill(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_distill(engine, request: IngestRequest) -> str:
+    target_path, max_depth, corpus_name, description, content_type = (
+        request.target_path,
+        request.max_depth,
+        request.corpus_name,
+        request.description,
+        request.content_type,
+    )
     # action(s): 'distill'
     try:
         from agent_utilities.knowledge_graph.distillation import (
@@ -1505,21 +1185,14 @@ async def _ingest_action_distill(
         return public_error_text(e)
 
 
-async def _ingest_action_build_skill_graph(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_build_skill_graph(engine, request: IngestRequest) -> str:
+    action, target_path, corpus_name, base_path, description = (
+        request.action,
+        request.target_path,
+        request.corpus_name,
+        request.base_path,
+        request.description,
+    )
     # action(s): 'build_skill_graph', 'skill_graph_status', 'rebuild_skill_graph'
     import asyncio
 
@@ -1570,21 +1243,8 @@ async def _ingest_action_build_skill_graph(
     return json.dumps(sg_rebuilt, default=str)
 
 
-async def _ingest_action_agent_toolkit(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_agent_toolkit(engine, request: IngestRequest) -> str:
+    target_path, description = request.target_path, request.description
     # action(s): 'agent_toolkit'
     sources = json.loads(target_path) if target_path.startswith("[") else [target_path]
     # Use `description` param as optional agent_card_path override
@@ -1593,21 +1253,8 @@ async def _ingest_action_agent_toolkit(
     return json.dumps(result, default=str)
 
 
-async def _ingest_action_ingest_knowledge_pack(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_ingest_knowledge_pack(engine, request: IngestRequest) -> str:
+    target_path = request.target_path
     # action(s): 'ingest_knowledge_pack'
     from pathlib import Path
 
@@ -1639,21 +1286,8 @@ async def _ingest_action_ingest_knowledge_pack(
     return f"Knowledge pack from {target_path} hydrated and ingested."
 
 
-async def _ingest_action_import_pack(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_import_pack(engine, request: IngestRequest) -> str:
+    target_path, corpus_name = request.target_path, request.corpus_name
     # action(s): 'import_pack'
     from agent_utilities.knowledge_graph.distillation import (
         import_skill_graph_pack,
@@ -1693,21 +1327,8 @@ async def _ingest_fact_extract_text(description, target_path, path_cls):
     return target_path, ""
 
 
-async def _ingest_action_fact_extract(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_fact_extract(engine, request: IngestRequest) -> str:
+    target_path, description = request.target_path, request.description
     # action(s): 'fact_extract'
     from pathlib import Path
 
@@ -1760,21 +1381,12 @@ async def _ingest_action_fact_extract(
     )
 
 
-async def _ingest_action_sync_second_brain(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_sync_second_brain(engine, request: IngestRequest) -> str:
+    target_path, corpus_name, base_path = (
+        request.target_path,
+        request.corpus_name,
+        request.base_path,
+    )
     # action(s): 'sync_second_brain'
     from datetime import datetime as _datetime
 
@@ -1807,21 +1419,12 @@ async def _ingest_action_sync_second_brain(
     return json.dumps(sync_result.model_dump(), default=str)
 
 
-async def _ingest_action_classify_topics(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_classify_topics(engine, request: IngestRequest) -> str:
+    target_path, corpus_name, description = (
+        request.target_path,
+        request.corpus_name,
+        request.description,
+    )
     # action(s): 'classify_topics'
     import hashlib
     from pathlib import Path
@@ -1863,20 +1466,8 @@ async def _ingest_action_classify_topics(
 
 
 async def _ingest_action_enrich_pending_documents(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+    engine, request: IngestRequest
+) -> str:
     # action(s): 'enrich_pending_documents'
     from agent_utilities.knowledge_graph.memory.native_ingest import (
         enrich_pending_documents,
@@ -1928,21 +1519,14 @@ async def _ingest_extract_by_job_id(mgr, action, job_id):
     return json.dumps({"status": "resumed", "job_id": job_id})
 
 
-async def _ingest_action_extract_submit(
-    engine,
-    action,
-    target_path,
-    max_depth,
-    agent_id,
-    job_id,
-    priority_bucket,
-    corpus_name,
-    base_path,
-    description,
-    content_type,
-    connection,
-    graph,
-):
+async def _ingest_action_extract_submit(engine, request: IngestRequest) -> str:
+    action, target_path, max_depth, job_id, description = (
+        request.action,
+        request.target_path,
+        request.max_depth,
+        request.job_id,
+        request.description,
+    )
     # action(s): 'extract_submit', 'extract_jobs', 'extract_status', 'extract_pause', 'extract_resume', 'extract_jsonl'
     mgr = kg_server._get_extraction_manager(engine)
 
@@ -2759,22 +2343,22 @@ def register_write_ingest_tools(mcp):
         handler = _INGEST_ACTION_DISPATCH.get(action)
         if handler is None:
             return f"Error: Unknown ingest action '{action}'"
+        request = IngestRequest(
+            action=action,
+            target_path=target_path,
+            max_depth=max_depth,
+            agent_id=agent_id,
+            job_id=job_id,
+            priority_bucket=priority_bucket,
+            corpus_name=corpus_name,
+            base_path=base_path,
+            description=description,
+            content_type=content_type,
+            connection=connection,
+            graph=graph,
+        )
         try:
-            return await handler(
-                engine,
-                action,
-                target_path,
-                max_depth,
-                agent_id,
-                job_id,
-                priority_bucket,
-                corpus_name,
-                base_path,
-                description,
-                content_type,
-                connection,
-                graph,
-            )
+            return await handler(engine, request)
         except Exception as e:
             return public_error_text(e)
 

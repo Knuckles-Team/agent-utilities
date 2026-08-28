@@ -15,6 +15,10 @@ from typing import Any
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+from agent_utilities.mcp.ontology_types import (
+    OntologyCatalogRequest,
+    OntologyProposalRequest,
+)
 from agent_utilities.security.error_surface import (
     public_error_json,
     public_error_payload,
@@ -232,55 +236,50 @@ def _graph_ontology_validate(lc: Any, *, source: str, source_type: str) -> str:
     return json.dumps(lc.validate(source, source_type=source_type), default=str)
 
 
-def _graph_ontology_catalog(
-    action: str,
-    lc: Any,
-    *,
-    source: str,
-    source_type: str,
-    iri: str,
-    version: str,
-    serialize: bool,
-    active_only: bool,
-    deprecated_only: bool,
-    drop_inferences: bool,
-    category: str,
-    tags_json: str,
-    search: str,
-    tag: str,
-) -> str:
+def _graph_ontology_catalog(action: str, lc: Any, request: OntologyCatalogRequest) -> str:
     if action == "load":
         return _graph_ontology_load(
             lc,
-            source=source,
-            source_type=source_type,
-            iri=iri,
-            version=version,
-            category=category,
-            tags_json=tags_json,
+            source=request.source,
+            source_type=request.source_type,
+            iri=request.iri,
+            version=request.version,
+            category=request.category,
+            tags_json=request.tags_json,
         )
     if action == "list":
         return _graph_ontology_list(
             lc,
-            source_type=source_type,
-            active_only=active_only,
-            deprecated_only=deprecated_only,
-            search=search,
-            category=category,
-            tag=tag,
+            source_type=request.source_type,
+            active_only=request.active_only,
+            deprecated_only=request.deprecated_only,
+            search=request.search,
+            category=request.category,
+            tag=request.tag,
         )
     if action == "get":
-        return _graph_ontology_get(lc, iri=iri, version=version, serialize=serialize)
+        return _graph_ontology_get(
+            lc, iri=request.iri, version=request.version, serialize=request.serialize
+        )
     if action == "update":
         return _graph_ontology_update(
-            lc, source=source, iri=iri, version=version, source_type=source_type
+            lc,
+            source=request.source,
+            iri=request.iri,
+            version=request.version,
+            source_type=request.source_type,
         )
     if action == "delete":
         return _graph_ontology_delete(
-            lc, iri=iri, version=version, drop_inferences=drop_inferences
+            lc,
+            iri=request.iri,
+            version=request.version,
+            drop_inferences=request.drop_inferences,
         )
     # Only "validate" remains among `_ONTOLOGY_CATALOG_ACTIONS` at this point.
-    return _graph_ontology_validate(lc, source=source, source_type=source_type)
+    return _graph_ontology_validate(
+        lc, source=request.source, source_type=request.source_type
+    )
 
 
 def _graph_ontology_publish_stardog(*, named_graph: str, overwrite: bool) -> str:
@@ -357,19 +356,11 @@ def _graph_ontology_lifecycle_flag(
 
 
 def _graph_ontology_propose(
-    engine: Any,
-    tenant: str,
-    *,
-    source: str,
-    iri: str,
-    source_type: str,
-    evidence_refs_json: str,
-    proposer: str,
-    reason: str,
+    engine: Any, tenant: str, request: OntologyProposalRequest
 ) -> str:
-    if not (source and iri):
+    if not (request.source and request.iri):
         return json.dumps({"error": "propose requires `source` and `iri`"})
-    parsed_evidence = _parse_json_str_list(evidence_refs_json)
+    parsed_evidence = _parse_json_str_list(request.evidence_refs_json)
     from agent_utilities.knowledge_graph.ontology.evolution import (
         propose_ontology_change,
     )
@@ -378,12 +369,12 @@ def _graph_ontology_propose(
         propose_ontology_change(
             engine,
             tenant or None,
-            source,
-            iri=iri,
-            source_type=source_type,
+            request.source,
+            iri=request.iri,
+            source_type=request.source_type,
             evidence_refs=parsed_evidence,
-            proposer=proposer,
-            reason=reason,
+            proposer=request.proposer,
+            reason=request.reason,
         ),
         default=str,
     )
@@ -466,50 +457,33 @@ def _graph_ontology_rollback_proposal(
 
 
 def _graph_ontology_proposal(
-    action: str,
-    engine: Any,
-    tenant: str,
-    *,
-    proposal_id: str,
-    source: str,
-    iri: str,
-    source_type: str,
-    evidence_refs_json: str,
-    proposer: str,
-    reason: str,
-    approve: bool,
-    reviewer: str,
-    notes: str,
-    status: str,
+    action: str, engine: Any, tenant: str, request: OntologyProposalRequest
 ) -> str:
     if action == "propose":
-        return _graph_ontology_propose(
-            engine,
-            tenant,
-            source=source,
-            iri=iri,
-            source_type=source_type,
-            evidence_refs_json=evidence_refs_json,
-            proposer=proposer,
-            reason=reason,
-        )
+        return _graph_ontology_propose(engine, tenant, request)
     if action == "list_proposals":
-        return _graph_ontology_list_proposals(engine, tenant, status=status)
+        return _graph_ontology_list_proposals(engine, tenant, status=request.status)
     if action == "get_proposal":
-        return _graph_ontology_get_proposal(engine, tenant, proposal_id=proposal_id)
+        return _graph_ontology_get_proposal(
+            engine, tenant, proposal_id=request.proposal_id
+        )
     if action == "review_proposal":
         return _graph_ontology_review_proposal(
             engine,
             tenant,
-            proposal_id=proposal_id,
-            approve=approve,
-            reviewer=reviewer,
-            notes=notes,
+            proposal_id=request.proposal_id,
+            approve=request.approve,
+            reviewer=request.reviewer,
+            notes=request.notes,
         )
     if action == "promote_proposal":
-        return _graph_ontology_promote_proposal(engine, tenant, proposal_id=proposal_id)
+        return _graph_ontology_promote_proposal(
+            engine, tenant, proposal_id=request.proposal_id
+        )
     # Only "rollback_proposal" remains among `_ONTOLOGY_PROPOSAL_ACTIONS`.
-    return _graph_ontology_rollback_proposal(engine, tenant, proposal_id=proposal_id)
+    return _graph_ontology_rollback_proposal(
+        engine, tenant, proposal_id=request.proposal_id
+    )
 
 
 def _ontology_interface_list(reg: Any, registry: str) -> str:
@@ -2185,9 +2159,7 @@ def register_ontology_tools(mcp):
             lc = OntologyLifecycle(engine=engine, tenant=(tenant or None))
 
             if action in _ONTOLOGY_CATALOG_ACTIONS:
-                return _graph_ontology_catalog(
-                    action,
-                    lc,
+                catalog_request = OntologyCatalogRequest(
                     source=source,
                     source_type=source_type,
                     iri=iri,
@@ -2201,6 +2173,7 @@ def register_ontology_tools(mcp):
                     search=search,
                     tag=tag,
                 )
+                return _graph_ontology_catalog(action, lc, catalog_request)
             if action in _ONTOLOGY_STARDOG_ACTIONS:
                 return _graph_ontology_stardog(
                     action,
@@ -2215,10 +2188,7 @@ def register_ontology_tools(mcp):
                     action, lc, iri=iri, version=version
                 )
             if action in _ONTOLOGY_PROPOSAL_ACTIONS:
-                return _graph_ontology_proposal(
-                    action,
-                    engine,
-                    tenant,
+                proposal_request = OntologyProposalRequest(
                     proposal_id=proposal_id,
                     source=source,
                     iri=iri,
@@ -2231,6 +2201,7 @@ def register_ontology_tools(mcp):
                     notes=notes,
                     status=status,
                 )
+                return _graph_ontology_proposal(action, engine, tenant, proposal_request)
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
