@@ -1974,35 +1974,11 @@ async def _manage_lifecycle(
     supplied_plan_ref = str(raw_hints.get("plan_ref") or "")
     action = str(raw_hints.get("action") or "").strip().lower()
     if execute and supplied_plan_ref and not action:
-        _expire_preview_plans(time.monotonic())
-        cached = _PREVIEW_PLAN_CACHE.get(supplied_plan_ref)
-        if (
-            cached is not None
-            and cached.verb == "manage"
-            and str(cached.hints.get("action") or "") in _RECLAIM_ACTIONS
-        ):
-            restored_hints = _restore_preview_hints(
-                supplied_plan_ref,
-                verb="manage",
-                intent_ref=intent_ref,
-                outcome_scope_ref=outcome_scope_ref,
-            )
-            if restored_hints is None:
-                return {
-                    "executed": False,
-                    "error": (
-                        "Unknown, expired, or context-mismatched lifecycle plan_ref; "
-                        "request a new preview before execution."
-                    ),
-                }
-            replayed_hints = {k: v for k, v in raw_hints.items() if k != "plan_ref"}
-            if replayed_hints and replayed_hints != restored_hints:
-                return {
-                    "executed": False,
-                    "error": "Supplied hints do not match the reviewed lifecycle plan.",
-                }
-            raw_hints = {**restored_hints, "plan_ref": supplied_plan_ref}
-            action = str(raw_hints["action"]).strip().lower()
+        raw_hints, action, replay_error = await _manage_lifecycle_replay_from_plan_ref(
+            raw_hints, supplied_plan_ref, intent_ref, outcome_scope_ref
+        )
+        if replay_error is not None:
+            return replay_error
     if action in _STATUS_ACTIONS:
         # Read-only: no preview/plan_ref/approval machinery needed (unlike
         # load/unload/reclaim below) — a status read never mutates anything.
@@ -2010,6 +1986,107 @@ async def _manage_lifecycle(
         return {"executed": True, "action": action, "status": status}
     if action not in _RECLAIM_ACTIONS:
         return None
+    return await _manage_lifecycle_preview_or_execute(
+        mcp, action, raw_hints, intent_ref, outcome_scope_ref, execute
+    )
+
+
+async def _manage_lifecycle_preview_or_execute(
+    mcp: Any,
+    action: str,
+    raw_hints: dict[str, Any],
+    intent_ref: str,
+    outcome_scope_ref: str | None,
+    execute: bool,
+) -> dict[str, Any]:
+    """Helper for `_manage_lifecycle`: preview (default) or execute a reclaim-action plan."""
+    plan, plan_hints = _manage_lifecycle_plan(action, raw_hints)
+    if not execute:
+        _remember_preview_plan(
+            plan["plan_ref"],
+            verb="manage",
+            intent_ref=intent_ref,
+            outcome_scope_ref=outcome_scope_ref,
+            hints=plan_hints,
+        )
+        return {"executed": False, "plan": plan}
+    if str(raw_hints.get("plan_ref") or "") != plan["plan_ref"]:
+        return {
+            "executed": False,
+            "error": (
+                "Preview required: review the lifecycle plan and resubmit its "
+                "plan_ref with execute=true."
+            ),
+            "plan": plan,
+        }
+    return await _manage_lifecycle_execute(mcp, action, raw_hints)
+
+
+def _is_replayable_reclaim_plan_ref(supplied_plan_ref: str) -> bool:
+    """Helper for `_manage_lifecycle_replay_from_plan_ref`: does `supplied_plan_ref`
+
+    name a cached, non-expired ``manage`` reclaim-action preview plan?
+    """
+    _expire_preview_plans(time.monotonic())
+    cached = _PREVIEW_PLAN_CACHE.get(supplied_plan_ref)
+    return (
+        cached is not None
+        and cached.verb == "manage"
+        and str(cached.hints.get("action") or "") in _RECLAIM_ACTIONS
+    )
+
+
+async def _manage_lifecycle_replay_from_plan_ref(
+    raw_hints: dict[str, Any],
+    supplied_plan_ref: str,
+    intent_ref: str,
+    outcome_scope_ref: str | None,
+) -> tuple[dict[str, Any], str, dict[str, Any] | None]:
+    """Helper for `_manage_lifecycle`: replay a reclaim-action plan from its plan_ref.
+
+    Returns (raw_hints, action, error_response). `error_response` is not None
+    when the caller must return it immediately; otherwise `raw_hints`/`action`
+    are the (possibly plan-ref-restored) values to continue with — unchanged
+    from the inputs when the plan_ref doesn't name a cached reclaim plan.
+    """
+    if not _is_replayable_reclaim_plan_ref(supplied_plan_ref):
+        return raw_hints, str(raw_hints.get("action") or "").strip().lower(), None
+    restored_hints = _restore_preview_hints(
+        supplied_plan_ref,
+        verb="manage",
+        intent_ref=intent_ref,
+        outcome_scope_ref=outcome_scope_ref,
+    )
+    if restored_hints is None:
+        return (
+            raw_hints,
+            "",
+            {
+                "executed": False,
+                "error": (
+                    "Unknown, expired, or context-mismatched lifecycle plan_ref; "
+                    "request a new preview before execution."
+                ),
+            },
+        )
+    replayed_hints = {k: v for k, v in raw_hints.items() if k != "plan_ref"}
+    if replayed_hints and replayed_hints != restored_hints:
+        return (
+            raw_hints,
+            "",
+            {
+                "executed": False,
+                "error": "Supplied hints do not match the reviewed lifecycle plan.",
+            },
+        )
+    new_raw_hints = {**restored_hints, "plan_ref": supplied_plan_ref}
+    return new_raw_hints, str(new_raw_hints["action"]).strip().lower(), None
+
+
+def _manage_lifecycle_plan(
+    action: str, raw_hints: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Helper for `_manage_lifecycle`: build the (idempotent) reclaim-action plan."""
     plan_hints = {k: v for k, v in raw_hints.items() if k != "plan_ref"}
     plan_ref = persistence_reference(
         "intent_plan",
@@ -2030,24 +2107,13 @@ async def _manage_lifecycle(
         "plan_ref": plan_ref,
         "approval": {"required": False, "route": "dynamic_tool_policy"},
     }
-    if not execute:
-        _remember_preview_plan(
-            plan_ref,
-            verb="manage",
-            intent_ref=intent_ref,
-            outcome_scope_ref=outcome_scope_ref,
-            hints=plan_hints,
-        )
-        return {"executed": False, "plan": plan}
-    if str(raw_hints.get("plan_ref") or "") != plan_ref:
-        return {
-            "executed": False,
-            "error": (
-                "Preview required: review the lifecycle plan and resubmit its "
-                "plan_ref with execute=true."
-            ),
-            "plan": plan,
-        }
+    return plan, plan_hints
+
+
+async def _manage_lifecycle_execute(
+    mcp: Any, action: str, raw_hints: dict[str, Any]
+) -> dict[str, Any]:
+    """Helper for `_manage_lifecycle`: perform the load/unload/reclaim action via the fleet mux."""
     mux = getattr(mcp, "_fleet_mux", None)
     if mux is None:
         return {
