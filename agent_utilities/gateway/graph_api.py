@@ -21,6 +21,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
 logger = logging.getLogger(__name__)
 
 # Cached OWL/RDF bridge for the local SPARQL endpoint (built lazily from the
@@ -59,8 +62,6 @@ def _get_sparql_bridge() -> Any:
 
 def _mount_sparql_route(app, prefix: str = "/api") -> None:
     """Mount ``{prefix}/sparql`` — a local, zero-dependency SPARQL endpoint."""
-    from starlette.requests import Request
-    from starlette.responses import JSONResponse
 
     async def sparql_endpoint(request: Request) -> JSONResponse:
         from agent_utilities.knowledge_graph.core.session import (
@@ -141,6 +142,89 @@ def _mount_sparql_route(app, prefix: str = "/api") -> None:
     logger.info("Mounted local SPARQL endpoint")
 
 
+SQL_SCHEMA_PATH = "/graph/sql-schema"
+
+SQL_SCHEMA_SUMMARY = "Introspect the engine SQL catalog (read-only, no caller SQL)"
+
+SQL_SCHEMA_DESCRIPTION = (
+    "Return the `catalogs -> tables/views -> columns` projection of the "
+    "engine's synthesized, read-only `information_schema` -- the schema tree a "
+    "catalog browser renders. Accepts an OPTIONAL JSON body "
+    '`{"schema": "<name>"}`; it carries **no SQL**. Every statement issued is a '
+    "server-authored constant "
+    "(`agent_utilities.mcp.tools.graph_tools.CATALOG_STATEMENTS`) and the schema "
+    "filter is validated as a SQL identifier and applied in Python, so there is "
+    "no interpolation and no path to row data. Dispatches through the same "
+    "`_execute_tool` action core as the MCP `graph_table` tool, under the "
+    "caller's own GraphSession (`kg:read`) and the engine's row-level "
+    "isolation. Fails closed: an unreadable catalog is a typed 4xx/5xx error, "
+    "never an empty success. The response's `capabilities` block reports which "
+    "facets the engine can actually answer (primary keys and nullability are "
+    "currently not tracked engine-side)."
+)
+
+
+async def _sql_schema_endpoint(request: Request) -> JSONResponse:
+    """Serve ``POST /graph/sql-schema`` — the read-only catalog projection."""
+    from agent_utilities.knowledge_graph.core.session import resolve_session
+    from agent_utilities.mcp.tools.graph_tools import SqlSchemaUnavailable, sql_schema
+
+    try:
+        resolve_session(required_scope="kg:read")
+    except Exception as exc:  # noqa: BLE001 — authz failures are 403, never 500
+        logger.info("sql-schema denied (%s)", type(exc).__name__)
+        return JSONResponse(
+            {
+                "status": "error",
+                "code": "forbidden",
+                "message": "SQL catalog introspection denied",
+            },
+            status_code=403,
+        )
+
+    try:
+        schema = await _sql_schema_filter(request)
+        return JSONResponse(await sql_schema(schema=schema))
+    except SqlSchemaUnavailable as exc:
+        return JSONResponse(exc.as_payload(), status_code=exc.status_code)
+
+
+async def _sql_schema_filter(request: Request) -> str | None:
+    """The optional ``schema`` name from the request body (never SQL text)."""
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001 — an absent/blank body means "every schema"
+        return None
+    if not isinstance(body, dict):
+        return None
+    return body.get("schema")
+
+
+def _mount_sql_schema_route(app, prefix: str = "/api") -> None:
+    """Mount ``{prefix}/graph/sql-schema``.
+
+    Registered with FastAPI's ``add_api_route`` (not raw ``add_route``) so the
+    route is visible in the generated OpenAPI spec -- ``scripts/
+    check_openapi_coverage.py`` ratchets on undocumented raw-Starlette routes,
+    and a new one would be a regression.
+    """
+    path = f"{prefix}{SQL_SCHEMA_PATH}"
+    if any(getattr(r, "path", None) == path for r in getattr(app, "routes", [])):
+        return
+    if hasattr(app, "add_api_route"):  # FastAPI
+        app.add_api_route(
+            path,
+            _sql_schema_endpoint,
+            methods=["POST"],
+            name="graph_sql_schema",
+            summary=SQL_SCHEMA_SUMMARY,
+            description=SQL_SCHEMA_DESCRIPTION,
+        )
+    else:  # plain Starlette
+        app.add_route(path, _sql_schema_endpoint, methods=["POST"])
+    logger.info("Mounted read-only SQL catalog introspection at %s", path)
+
+
 def register_graph_routes(app, prefix: str = "/api") -> None:
     """Mount the centralized Knowledge Graph REST surface onto ``app``.
 
@@ -212,6 +296,14 @@ def register_graph_routes(app, prefix: str = "/api") -> None:
     # inferences); an external Fuseki/Stardog is optional enterprise scale-out, not
     # required. Works in the zero-dep tiny profile.
     _mount_sparql_route(app, prefix=prefix)
+
+    # Read-only SQL catalog introspection (CONCEPT:AU-KG.query.raw-python) — the
+    # catalogs → tables/views → columns projection the agent-webui catalog
+    # browser renders. Deliberately NOT a raw SQL passthrough: it takes no query
+    # text, only an optional identifier-validated schema filter, and dispatches
+    # through the same ``_execute_tool`` action core as the MCP ``graph_table``
+    # tool. See agent_utilities/mcp/tools/graph_tools.py.
+    _mount_sql_schema_route(app, prefix=prefix)
 
     # Native swarm supervisory plane (CONCEPT:AU-OS.safety.ontological-guardrail): /fleet/* + approvals.
     from agent_utilities.gateway.fleet import mount_fleet_routes
