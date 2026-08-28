@@ -244,24 +244,14 @@ class PlacementProposal:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def gather_access_records(
-    engine: Any, *, limit: int = _SCAN_LIMIT, after_sequence: int = 0
-) -> list[dict[str, Any]]:
+def _query_access_rows(engine: Any, *, limit: int, after_sequence: int) -> list[Any]:
     """Query canonical trace provenance after a numeric durable cursor.
-
-    Returns one record per ``(trace, tool_call)`` row:
-    ``{trace_id, event_sequence, tool_name, tenant, modality, entity_id, entity_type}``.
-    ``tenant``/``modality`` are read from ``ToolCall.args`` (parsed JSON if
-    stored as a string) — never guessed; a row missing them simply carries
-    an empty string for that field. Empty (never raises) on a missing
-    engine or a query failure, matching every other mining pass's tolerance.
+    Empty (never raises) on a query failure.
     """
-    if engine is None:
-        return []
     from agent_utilities.observability.trace_ontology import TRACE_USED_TOOL_EDGE
 
     try:
-        rows = (
+        return (
             engine.query_cypher(
                 f"MATCH (r:RunTrace)-[:{TRACE_USED_TOOL_EDGE}]->(t:ToolCall) "
                 "WHERE r.event_sequence > $after_sequence "
@@ -279,47 +269,80 @@ def gather_access_records(
         logger.debug("placement_mining: access-record query failed: %s", e)
         return []
 
-    # A full row page may end in the middle of one trace's tool calls. Drop
-    # that final trace from this pass so the numeric cursor never advances past
-    # unseen access records.
-    if len(rows) >= int(limit) and rows:
-        partial_trace = rows[-1].get("trace_id") if isinstance(rows[-1], dict) else None
-        if partial_trace:
-            rows = [
-                row
-                for row in rows
-                if not isinstance(row, dict) or row.get("trace_id") != partial_trace
-            ]
+
+def _drop_partial_trailing_trace(rows: list[Any], limit: int) -> list[Any]:
+    """A full row page may end in the middle of one trace's tool calls. Drop
+    that final trace from this pass so the numeric cursor never advances past
+    unseen access records.
+    """
+    if not (len(rows) >= int(limit) and rows):
+        return rows
+    partial_trace = rows[-1].get("trace_id") if isinstance(rows[-1], dict) else None
+    if not partial_trace:
+        return rows
+    return [
+        row
+        for row in rows
+        if not isinstance(row, dict) or row.get("trace_id") != partial_trace
+    ]
+
+
+def _parse_tool_call_args(args: Any) -> dict[str, Any]:
+    if isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except (TypeError, ValueError):
+            args = {}
+    return args if isinstance(args, dict) else {}
+
+
+def _resolve_tenant(row: dict[str, Any], args: dict[str, Any]) -> str:
+    return str(
+        row.get("tenant_ref")
+        or args.get("tenant_ref")
+        or args.get("tenant_id")
+        or args.get("tenant")
+        or ""
+    )
+
+
+def _record_from_row(row: Any) -> dict[str, Any] | None:
+    if not isinstance(row, dict) or not row.get("trace_id"):
+        return None
+    args = _parse_tool_call_args(row.get("args"))
+    return {
+        "trace_id": str(row["trace_id"]),
+        "event_sequence": int(row.get("event_sequence") or 0),
+        "tool_name": str(row.get("tool_name") or ""),
+        "tenant": _resolve_tenant(row, args),
+        "modality": str(args.get("modality") or ""),
+        "entity_id": str(row.get("entity_id") or ""),
+        "entity_type": str(row.get("entity_type") or ""),
+    }
+
+
+def gather_access_records(
+    engine: Any, *, limit: int = _SCAN_LIMIT, after_sequence: int = 0
+) -> list[dict[str, Any]]:
+    """Query canonical trace provenance after a numeric durable cursor.
+
+    Returns one record per ``(trace, tool_call)`` row:
+    ``{trace_id, event_sequence, tool_name, tenant, modality, entity_id, entity_type}``.
+    ``tenant``/``modality`` are read from ``ToolCall.args`` (parsed JSON if
+    stored as a string) — never guessed; a row missing them simply carries
+    an empty string for that field. Empty (never raises) on a missing
+    engine or a query failure, matching every other mining pass's tolerance.
+    """
+    if engine is None:
+        return []
+    rows = _query_access_rows(engine, limit=limit, after_sequence=after_sequence)
+    rows = _drop_partial_trailing_trace(rows, limit)
 
     records: list[dict[str, Any]] = []
     for row in rows:
-        if not isinstance(row, dict) or not row.get("trace_id"):
-            continue
-        args = row.get("args")
-        if isinstance(args, str):
-            try:
-                args = json.loads(args)
-            except (TypeError, ValueError):
-                args = {}
-        if not isinstance(args, dict):
-            args = {}
-        records.append(
-            {
-                "trace_id": str(row["trace_id"]),
-                "event_sequence": int(row.get("event_sequence") or 0),
-                "tool_name": str(row.get("tool_name") or ""),
-                "tenant": str(
-                    row.get("tenant_ref")
-                    or args.get("tenant_ref")
-                    or args.get("tenant_id")
-                    or args.get("tenant")
-                    or ""
-                ),
-                "modality": str(args.get("modality") or ""),
-                "entity_id": str(row.get("entity_id") or ""),
-                "entity_type": str(row.get("entity_type") or ""),
-            }
-        )
+        record = _record_from_row(row)
+        if record is not None:
+            records.append(record)
     return records
 
 
@@ -432,6 +455,37 @@ def build_tenant_sequences(records: list[dict[str, Any]]) -> dict[str, list[str]
 # ═══════════════════════════════════════════════════════════════════════════
 
 
+def _run_mining_action(
+    action: str,
+    params: dict[str, Any],
+    default: dict[str, Any],
+    errors: list[str],
+    *,
+    label: str,
+) -> dict[str, Any]:
+    """One best-effort ``graph_mine`` pass: invoke -> parse -> degrade to
+    ``default`` on any failure — never lets mining break the caller, matching
+    every other mining pass's tolerance.
+    """
+    from agent_utilities.mcp.tools.engine_surface_tools import _invoke
+
+    try:
+        raw = _invoke(
+            surface="mining",
+            action=action,
+            graph="",
+            candidates=(("mining", action),),
+            params=params,
+        )
+        payload = json.loads(raw)
+        if _mining_ok(payload):
+            return payload.get("result") or default
+        errors.append(f"placement_mining:{label}: {payload.get('error') or payload}")
+    except Exception as e:  # noqa: BLE001 — never let mining break the caller
+        errors.append(f"placement_mining:{label}: {e}")
+    return default
+
+
 def mine_placement_patterns(
     engine: Any,
     *,
@@ -455,8 +509,6 @@ def mine_placement_patterns(
     3. **sequence** — per-tenant ordered access sequences (a predictable
        "what reliably follows what" -> a ``cache_prewarm`` candidate).
     """
-    from agent_utilities.mcp.tools.engine_surface_tools import _invoke
-
     errors: list[str] = []
     records = gather_access_records(engine, limit=limit, after_sequence=after_sequence)
     baskets = build_baskets(records)
@@ -466,99 +518,55 @@ def mine_placement_patterns(
 
     association: dict[str, Any] = {"rules": []}
     if baskets:
-        try:
-            raw = _invoke(
-                surface="mining",
-                action="associate",
-                graph="",
-                candidates=(("mining", "associate"),),
-                params={
-                    "transactions": baskets,
-                    "min_support": min_support,
-                    "min_confidence": min_confidence,
-                    "algorithm": "fpgrowth",
-                    "writeback": True,
-                },
-            )
-            payload = json.loads(raw)
-            if _mining_ok(payload):
-                association = payload.get("result") or {"rules": []}
-            else:
-                errors.append(
-                    f"placement_mining:associate: {payload.get('error') or payload}"
-                )
-        except Exception as e:  # noqa: BLE001 — never let mining break the caller
-            errors.append(f"placement_mining:associate: {e}")
+        association = _run_mining_action(
+            "associate",
+            {
+                "transactions": baskets,
+                "min_support": min_support,
+                "min_confidence": min_confidence,
+                "algorithm": "fpgrowth",
+                "writeback": True,
+            },
+            {"rules": []},
+            errors,
+            label="associate",
+        )
 
     tenant_ids = list(access_counts.keys())
     tenant_anomaly: dict[str, Any] = {"rows": []}
     if len(tenant_ids) >= 3:
-        try:
-            raw = _invoke(
-                surface="mining",
-                action="anomaly",
-                graph="",
-                candidates=(("mining", "anomaly"),),
-                params={
-                    "values": [float(access_counts[t]) for t in tenant_ids],
-                    "algorithm": "zscore",
-                    "writeback": True,
-                },
-            )
-            payload = json.loads(raw)
-            if _mining_ok(payload):
-                tenant_anomaly = payload.get("result") or {"rows": []}
-            else:
-                errors.append(
-                    f"placement_mining:tenant_anomaly: {payload.get('error') or payload}"
-                )
-        except Exception as e:  # noqa: BLE001
-            errors.append(f"placement_mining:tenant_anomaly: {e}")
+        tenant_anomaly = _run_mining_action(
+            "anomaly",
+            {
+                "values": [float(access_counts[t]) for t in tenant_ids],
+                "algorithm": "zscore",
+                "writeback": True,
+            },
+            {"rows": []},
+            errors,
+            label="tenant_anomaly",
+        )
 
     drift_anomaly: dict[str, Any] = {"rows": []}
     if len(drift_values) >= 3:
-        try:
-            raw = _invoke(
-                surface="mining",
-                action="anomaly",
-                graph="",
-                candidates=(("mining", "anomaly"),),
-                params={
-                    "values": drift_values,
-                    "algorithm": "zscore",
-                    "writeback": True,
-                },
-            )
-            payload = json.loads(raw)
-            if _mining_ok(payload):
-                drift_anomaly = payload.get("result") or {"rows": []}
-            else:
-                errors.append(
-                    f"placement_mining:drift_anomaly: {payload.get('error') or payload}"
-                )
-        except Exception as e:  # noqa: BLE001
-            errors.append(f"placement_mining:drift_anomaly: {e}")
+        drift_anomaly = _run_mining_action(
+            "anomaly",
+            {"values": drift_values, "algorithm": "zscore", "writeback": True},
+            {"rows": []},
+            errors,
+            label="drift_anomaly",
+        )
 
     sequence: dict[str, Any] = {"patterns": []}
     seqs = list(sequences_by_tenant.values())
     if seqs:
-        try:
-            raw = _invoke(
-                surface="mining",
-                action="sequence",
-                graph="",
-                candidates=(("mining", "sequence"),),
-                params={"sequences": seqs, "min_support": 0.3, "writeback": True},
-            )
-            payload = json.loads(raw)
-            if _mining_ok(payload):
-                sequence = payload.get("result") or {"patterns": []}
-            else:
-                errors.append(
-                    f"placement_mining:sequence: {payload.get('error') or payload}"
-                )
-        except Exception as e:  # noqa: BLE001
-            errors.append(f"placement_mining:sequence: {e}")
+        sequence = _run_mining_action(
+            "sequence",
+            {"sequences": seqs, "min_support": 0.3, "writeback": True},
+            {"patterns": []},
+            errors,
+            label="sequence",
+        )
 
     return {
         "association": association,
@@ -591,6 +599,93 @@ def _prefixed(items: list[str], prefix: str) -> list[str]:
     return [i for i in items if i.startswith(prefix)]
 
 
+def _proposal_from_join_rule(
+    rule: dict[str, Any], ante: list[str], cons: list[str], confidence: float
+) -> PlacementProposal | None:
+    entities_ante = _prefixed(ante, "entity:")
+    entities_cons = _prefixed(cons, "entity:")
+    if not (entities_ante and entities_cons and entities_ante[0] != entities_cons[0]):
+        return None
+    target = f"{entities_ante[0]}|{entities_cons[0]}"
+    return PlacementProposal(
+        kind="materialized_join",
+        target=target,
+        statement=(
+            f"{entities_ante[0]} and {entities_cons[0]} are frequently "
+            f"co-accessed (confidence={rule.get('confidence')}, "
+            f"lift={rule.get('lift')})"
+        ),
+        confidence=confidence,
+        evidence=dict(rule),
+        expected_benefit=(
+            "materialize this cross-entity join to avoid repeated separate fetches"
+        ),
+    )
+
+
+def _proposal_from_index_rule(
+    rule: dict[str, Any], all_items: list[str], tools: list[str], confidence: float
+) -> PlacementProposal | None:
+    entity_types = _prefixed(all_items, "entity_type:")
+    if not (tools and entity_types and confidence >= _INDEX_CONFIDENCE):
+        return None
+    etype = entity_types[0]
+    tool = tools[0]
+    return PlacementProposal(
+        kind="index_change",
+        target=etype,
+        statement=(
+            f"{tool} very reliably resolves against {etype} "
+            f"(confidence={rule.get('confidence')}) — index candidate"
+        ),
+        confidence=confidence,
+        evidence=dict(rule),
+        expected_benefit=f"add/verify an index on {etype} to serve {tool} lookups",
+    )
+
+
+def _proposal_from_replica_rule(
+    rule: dict[str, Any], tenants_ante: list[str], tools: list[str], confidence: float
+) -> PlacementProposal | None:
+    if not (tenants_ante and tools):
+        return None
+    reading_tools = [t for t in tools if _is_read_tool(t.split(":", 1)[-1])]
+    if not reading_tools:
+        return None
+    tenant = tenants_ante[0]
+    return PlacementProposal(
+        kind="replica",
+        target=tenant,
+        statement=(
+            f"{tenant} has a hot, read-heavy access pattern via "
+            f"{reading_tools[0]} (confidence={rule.get('confidence')})"
+        ),
+        confidence=confidence,
+        evidence=dict(rule),
+        expected_benefit=f"dedicate a read-serving placement for {tenant}",
+    )
+
+
+def _proposal_from_rule(rule: dict[str, Any]) -> PlacementProposal | None:
+    """Classify one association rule (most-specific first, one proposal kind
+    per rule) — see :func:`proposals_from_association` for the classification
+    order.
+    """
+    ante, cons = _rule_items(rule)
+    all_items = ante + cons
+    confidence = _clamp01(rule.get("confidence"))
+    tools = _prefixed(ante, "tool:") + _prefixed(cons, "tool:")
+    tenants_ante = _prefixed(ante, "tenant:")
+
+    proposal = _proposal_from_join_rule(rule, ante, cons, confidence)
+    if proposal is not None:
+        return proposal
+    proposal = _proposal_from_index_rule(rule, all_items, tools, confidence)
+    if proposal is not None:
+        return proposal
+    return _proposal_from_replica_rule(rule, tenants_ante, tools, confidence)
+
+
 def proposals_from_association(
     association: dict[str, Any] | None,
 ) -> list[PlacementProposal]:
@@ -610,68 +705,41 @@ def proposals_from_association(
     for rule in (association or {}).get("rules") or []:
         if not isinstance(rule, dict):
             continue
-        ante, cons = _rule_items(rule)
-        all_items = ante + cons
-        confidence = _clamp01(rule.get("confidence"))
-        entities_ante = _prefixed(ante, "entity:")
-        entities_cons = _prefixed(cons, "entity:")
-        tools = _prefixed(ante, "tool:") + _prefixed(cons, "tool:")
-        tenants_ante = _prefixed(ante, "tenant:")
-        entity_types = _prefixed(all_items, "entity_type:")
-
-        if entities_ante and entities_cons and entities_ante[0] != entities_cons[0]:
-            target = f"{entities_ante[0]}|{entities_cons[0]}"
-            out.append(
-                PlacementProposal(
-                    kind="materialized_join",
-                    target=target,
-                    statement=(
-                        f"{entities_ante[0]} and {entities_cons[0]} are frequently "
-                        f"co-accessed (confidence={rule.get('confidence')}, "
-                        f"lift={rule.get('lift')})"
-                    ),
-                    confidence=confidence,
-                    evidence=dict(rule),
-                    expected_benefit=(
-                        "materialize this cross-entity join to avoid repeated "
-                        "separate fetches"
-                    ),
-                )
-            )
-        elif tools and entity_types and confidence >= _INDEX_CONFIDENCE:
-            etype = entity_types[0]
-            tool = tools[0]
-            out.append(
-                PlacementProposal(
-                    kind="index_change",
-                    target=etype,
-                    statement=(
-                        f"{tool} very reliably resolves against {etype} "
-                        f"(confidence={rule.get('confidence')}) — index candidate"
-                    ),
-                    confidence=confidence,
-                    evidence=dict(rule),
-                    expected_benefit=f"add/verify an index on {etype} to serve {tool} lookups",
-                )
-            )
-        elif tenants_ante and tools:
-            reading_tools = [t for t in tools if _is_read_tool(t.split(":", 1)[-1])]
-            if reading_tools:
-                tenant = tenants_ante[0]
-                out.append(
-                    PlacementProposal(
-                        kind="replica",
-                        target=tenant,
-                        statement=(
-                            f"{tenant} has a hot, read-heavy access pattern via "
-                            f"{reading_tools[0]} (confidence={rule.get('confidence')})"
-                        ),
-                        confidence=confidence,
-                        evidence=dict(rule),
-                        expected_benefit=f"dedicate a read-serving placement for {tenant}",
-                    )
-                )
+        proposal = _proposal_from_rule(rule)
+        if proposal is not None:
+            out.append(proposal)
     return out
+
+
+def _parse_anomaly_score(row: dict[str, Any]) -> float:
+    try:
+        return float(row.get("anomaly_score") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _proposal_from_tenant_row(
+    row: Any, tenant_ids: list[Any], idx: int
+) -> PlacementProposal | None:
+    if not isinstance(row, dict) or not row.get("is_anomaly"):
+        return None
+    score = _parse_anomaly_score(row)
+    if score <= 0:
+        return None
+    tenant = tenant_ids[idx] if idx < len(tenant_ids) else row.get("id")
+    if not tenant:
+        return None
+    return PlacementProposal(
+        kind="shard_split",
+        target=str(tenant),
+        statement=(
+            f"tenant {tenant} is a hot-access outlier "
+            f"(anomaly_score={row.get('anomaly_score')})"
+        ),
+        confidence=_clamp01(abs(score) / 5.0),
+        evidence=dict(row),
+        expected_benefit=f"split {tenant} onto its own virtual shard to isolate its load",
+    )
 
 
 def proposals_from_tenant_anomaly(
@@ -687,33 +755,32 @@ def proposals_from_tenant_anomaly(
     tenant_ids = tenant_anomaly.get("tenant_ids") or []
     out: list[PlacementProposal] = []
     for idx, row in enumerate(result.get("rows") or []):
-        if not isinstance(row, dict) or not row.get("is_anomaly"):
-            continue
-        try:
-            score = float(row.get("anomaly_score") or 0.0)
-        except (TypeError, ValueError):
-            score = 0.0
-        if score <= 0:
-            continue
-        tenant = tenant_ids[idx] if idx < len(tenant_ids) else row.get("id")
-        if not tenant:
-            continue
-        out.append(
-            PlacementProposal(
-                kind="shard_split",
-                target=str(tenant),
-                statement=(
-                    f"tenant {tenant} is a hot-access outlier "
-                    f"(anomaly_score={row.get('anomaly_score')})"
-                ),
-                confidence=_clamp01(abs(score) / 5.0),
-                evidence=dict(row),
-                expected_benefit=(
-                    f"split {tenant} onto its own virtual shard to isolate its load"
-                ),
-            )
-        )
+        proposal = _proposal_from_tenant_row(row, tenant_ids, idx)
+        if proposal is not None:
+            out.append(proposal)
     return out
+
+
+def _proposal_from_drift_row(
+    row: Any, entity_ids: list[Any], idx: int
+) -> PlacementProposal | None:
+    if not isinstance(row, dict) or not row.get("is_anomaly"):
+        return None
+    score = _parse_anomaly_score(row)
+    entity_id = entity_ids[idx] if idx < len(entity_ids) else row.get("id")
+    if not entity_id:
+        return None
+    return PlacementProposal(
+        kind="embedding_refresh",
+        target=str(entity_id),
+        statement=(
+            f"{entity_id}'s temporal-drift score is a statistical outlier "
+            f"(anomaly_score={row.get('anomaly_score')})"
+        ),
+        confidence=_clamp01(abs(score) / 5.0),
+        evidence=dict(row),
+        expected_benefit=f"refresh {entity_id}'s embedding to correct drift",
+    )
 
 
 def proposals_from_drift_anomaly(
@@ -725,28 +792,9 @@ def proposals_from_drift_anomaly(
     entity_ids = drift_anomaly.get("entity_ids") or []
     out: list[PlacementProposal] = []
     for idx, row in enumerate(result.get("rows") or []):
-        if not isinstance(row, dict) or not row.get("is_anomaly"):
-            continue
-        try:
-            score = float(row.get("anomaly_score") or 0.0)
-        except (TypeError, ValueError):
-            score = 0.0
-        entity_id = entity_ids[idx] if idx < len(entity_ids) else row.get("id")
-        if not entity_id:
-            continue
-        out.append(
-            PlacementProposal(
-                kind="embedding_refresh",
-                target=str(entity_id),
-                statement=(
-                    f"{entity_id}'s temporal-drift score is a statistical outlier "
-                    f"(anomaly_score={row.get('anomaly_score')})"
-                ),
-                confidence=_clamp01(abs(score) / 5.0),
-                evidence=dict(row),
-                expected_benefit=f"refresh {entity_id}'s embedding to correct drift",
-            )
-        )
+        proposal = _proposal_from_drift_row(row, entity_ids, idx)
+        if proposal is not None:
+            out.append(proposal)
     return out
 
 
@@ -881,17 +929,16 @@ def _promql_latency_measurement(proposal: PlacementProposal) -> dict[str, float]
     return {}
 
 
-def _shard_load_skew_measurement() -> dict[str, float]:
-    """``max(shard.total) - min(shard.total)`` over ``rebalance_plan``'s live
-    shard-load listing — a real, already-wired ``engine_resharding`` stat
-    (never a fabricated series). Empty on any failure (no resharding surface,
-    unreachable engine, non-redb build, no shards reported)."""
+def _fetch_rebalance_plan() -> Any:
+    """Query the resharding surface's ``rebalance_plan``. ``None`` on any
+    failure (no resharding surface, unreachable engine, non-redb build).
+    """
     try:
         from agent_utilities.mcp.tools import engine_tools
 
         methods = _resharding_methods()
         if "rebalance_plan" not in methods:
-            return {}
+            return None
         raw = engine_tools._dispatch(
             "resharding",
             methods,
@@ -899,24 +946,109 @@ def _shard_load_skew_measurement() -> dict[str, float]:
             json.dumps({"max_moves": 0}),
             "",
         )
-        payload = json.loads(raw)
-    except Exception as e:  # noqa: BLE001 — returns {} (the documented 'no measurement' case) — every caller below already checks payload.get(...)/isinstance(..., dict) before use, so an empty dict here is handled identically to a real empty measurement
+        return json.loads(raw)
+    except Exception as e:  # noqa: BLE001 — returns None (the documented 'no measurement' case) — every caller below already checks payload.get(...)/isinstance(..., dict) before use, so a missing payload here is handled identically to a real empty measurement
         logger.debug("placement_mining: shard load-skew measurement failed: %s", e)
-        return {}
-    if isinstance(payload, dict) and payload.get("error"):
-        return {}
-    shards = payload.get("shards") if isinstance(payload, dict) else None
+        return None
+
+
+def _extract_shard_totals(payload: Any) -> list[float]:
+    if not isinstance(payload, dict) or payload.get("error"):
+        return []
+    shards = payload.get("shards")
     if not isinstance(shards, list) or not shards:
-        return {}
+        return []
     try:
-        totals = [
+        return [
             float(s["total"]) for s in shards if isinstance(s, dict) and "total" in s
         ]
     except (TypeError, ValueError):
-        return {}
+        return []
+
+
+def _shard_load_skew_measurement() -> dict[str, float]:
+    """``max(shard.total) - min(shard.total)`` over ``rebalance_plan``'s live
+    shard-load listing — a real, already-wired ``engine_resharding`` stat
+    (never a fabricated series). Empty on any failure (no resharding surface,
+    unreachable engine, non-redb build, no shards reported)."""
+    totals = _extract_shard_totals(_fetch_rebalance_plan())
     if not totals:
         return {}
     return {"shard_load_skew": max(totals) - min(totals)}
+
+
+def _apply_canary_change(
+    proposal: PlacementProposal, apply_: ApplyFn
+) -> dict[str, Any]:
+    try:
+        return apply_(proposal) or {}
+    except Exception as e:  # noqa: BLE001 — an apply failure is data, not a crash
+        return {"applied": False, "detail": str(e)}
+
+
+def _compute_canary_deltas(
+    baseline: dict[str, float], canary_metrics: dict[str, float]
+) -> tuple[dict[str, float], float]:
+    delta: dict[str, float] = {}
+    worst = 0.0
+    for key, base_v in baseline.items():
+        if key not in canary_metrics:
+            continue
+        canary_v = canary_metrics[key]
+        d = (
+            (canary_v - base_v) / abs(base_v)
+            if base_v
+            else (0.0 if canary_v == 0 else 1.0)
+        )
+        delta[key] = round(d, 4)
+        worst = max(worst, d)
+    return delta, worst
+
+
+def _canary_verdict(
+    baseline: dict[str, float], canary_metrics: dict[str, float], tolerance: float
+) -> tuple[str, str, dict[str, float]]:
+    """Returns ``(verdict, reason, delta)``. A regression beyond ``tolerance``
+    (fraction of the baseline value, any measured metric) rolls back; no
+    measurement at all (baseline or canary) also rolls back — absence of
+    evidence is never treated as evidence of safety.
+    """
+    if not baseline or not canary_metrics:
+        return "rollback", "no measurement available — conservatively rolling back", {}
+
+    delta, worst = _compute_canary_deltas(baseline, canary_metrics)
+    if not delta:
+        return (
+            "rollback",
+            "no overlapping metrics between baseline and canary — rolling back",
+            delta,
+        )
+    if worst <= tolerance:
+        return (
+            "promote",
+            f"max metric delta {worst:.2%} within tolerance {tolerance:.0%}",
+            delta,
+        )
+    return (
+        "rollback",
+        f"max metric delta {worst:.2%} exceeds tolerance {tolerance:.0%}",
+        delta,
+    )
+
+
+def _maybe_rollback(
+    verdict: str, applied: bool, proposal: PlacementProposal, rollback_: ApplyFn
+) -> bool:
+    """Rolls back an applied canary-scope change when the verdict says
+    rollback. Returns the (possibly updated) ``applied`` flag.
+    """
+    if not (verdict == "rollback" and applied):
+        return applied
+    try:
+        rollback_(proposal)
+    except Exception as e:  # noqa: BLE001 — rollback failure is logged, never raised
+        logger.debug("placement_mining: rollback failed for %s: %s", proposal.target, e)
+    return False  # the canary-scope change was reverted; nothing stayed applied
 
 
 def run_canary(
@@ -947,56 +1079,13 @@ def run_canary(
     rollback_ = rollback_fn or rollback_placement_change
 
     baseline = measure(proposal, "baseline") or {}
-    try:
-        apply_result = apply_(proposal) or {}
-    except Exception as e:  # noqa: BLE001 — an apply failure is data, not a crash
-        apply_result = {"applied": False, "detail": str(e)}
+    apply_result = _apply_canary_change(proposal, apply_)
     canary_metrics = measure(proposal, "canary") or {}
-    delta: dict[str, float] = {}
 
-    if not baseline or not canary_metrics:
-        verdict, reason = (
-            "rollback",
-            "no measurement available — conservatively rolling back",
-        )
-    else:
-        worst = 0.0
-        for key, base_v in baseline.items():
-            if key not in canary_metrics:
-                continue
-            canary_v = canary_metrics[key]
-            d = (
-                (canary_v - base_v) / abs(base_v)
-                if base_v
-                else (0.0 if canary_v == 0 else 1.0)
-            )
-            delta[key] = round(d, 4)
-            worst = max(worst, d)
-        if not delta:
-            verdict, reason = (
-                "rollback",
-                "no overlapping metrics between baseline and canary — rolling back",
-            )
-        elif worst <= tolerance:
-            verdict, reason = (
-                "promote",
-                f"max metric delta {worst:.2%} within tolerance {tolerance:.0%}",
-            )
-        else:
-            verdict, reason = (
-                "rollback",
-                f"max metric delta {worst:.2%} exceeds tolerance {tolerance:.0%}",
-            )
+    verdict, reason, delta = _canary_verdict(baseline, canary_metrics, tolerance)
 
     applied = bool(apply_result.get("applied"))
-    if verdict == "rollback" and applied:
-        try:
-            rollback_(proposal)
-        except Exception as e:  # noqa: BLE001 — rollback failure is logged, never raised
-            logger.debug(
-                "placement_mining: rollback failed for %s: %s", proposal.target, e
-            )
-        applied = False  # the canary-scope change was reverted; nothing stayed applied
+    applied = _maybe_rollback(verdict, applied, proposal, rollback_)
 
     return CanaryResult(
         proposal_id=proposal.proposal_id,
@@ -1139,6 +1228,103 @@ def _target_group(proposal: PlacementProposal) -> int:
     return abs(hash(proposal.target)) % 8
 
 
+def _placement_route(
+    methods: set[str], tenant: str
+) -> tuple[Any, dict[str, Any] | None]:
+    """Query the raft placement route for ``tenant``. Returns
+    ``(route, error)`` — exactly one is non-``None``; ``error`` is the
+    ready-to-return failure dict on any query error.
+    """
+    from agent_utilities.mcp.tools import engine_tools
+
+    try:
+        route_raw = engine_tools._dispatch(
+            "placement",
+            methods,
+            "route",
+            json.dumps({"tenant": tenant, "sub_key": tenant}),
+            "",
+        )
+        route = json.loads(route_raw)
+    except Exception as e:  # noqa: BLE001 — surface as data, never raise
+        return None, {"applied": False, "method": "placement_route", "detail": str(e)}
+    if isinstance(route, dict) and route.get("error"):
+        return None, {
+            "applied": False,
+            "method": "placement_route",
+            "detail": route["error"],
+        }
+    return route, None
+
+
+def _placement_no_op_result(proposal: PlacementProposal, route: Any) -> dict[str, Any]:
+    _invalidate_placement_cache(proposal.target)
+    return {
+        "applied": True,
+        "method": "placement_move",
+        "detail": {"no_op": True, "route": route},
+    }
+
+
+def _dispatch_placement_action(
+    methods: set[str], tenant: str, target_group: int, *, action: str
+) -> Any:
+    from agent_utilities.mcp.tools import engine_tools
+
+    if action == "assign":
+        raw = engine_tools._dispatch(
+            "placement",
+            methods,
+            "assign",
+            json.dumps({"tenant": tenant, "group": target_group}),
+            "",
+        )
+    else:
+        raw = engine_tools._dispatch(
+            "placement",
+            methods,
+            "move",
+            json.dumps(
+                {
+                    "tenant": tenant,
+                    "range_start": 0,
+                    "range_end": 2**64 - 1,
+                    "target": target_group,
+                }
+            ),
+            "",
+        )
+    return json.loads(raw)
+
+
+def _apply_placement_assign_or_move(
+    proposal: PlacementProposal,
+    methods: set[str],
+    tenant: str,
+    target_group: int,
+    route: Any,
+    *,
+    action: str,
+) -> dict[str, Any]:
+    try:
+        payload = _dispatch_placement_action(
+            methods, tenant, target_group, action=action
+        )
+    except Exception as e:  # noqa: BLE001 — surface as data, never raise
+        return {"applied": False, "method": f"placement_{action}", "detail": str(e)}
+    if isinstance(payload, dict) and payload.get("error"):
+        return {
+            "applied": False,
+            "method": f"placement_{action}",
+            "detail": payload["error"],
+        }
+    proposal.evidence[_PLACEMENT_MOVE_TENANT_KEY] = tenant
+    if action == "move" and isinstance(route, dict) and route.get("group") is not None:
+        proposal.evidence[_PLACEMENT_MOVE_FROM_GROUP_KEY] = route["group"]
+    _invalidate_placement_cache(proposal.target)
+    return {"applied": True, "method": f"placement_{action}", "detail": payload}
+
+
 def _apply_via_raft_placement(proposal: PlacementProposal) -> dict[str, Any] | None:
     """Prefer the REAL DIST-P2-1 raft ``PlacementCatalog`` admin RPC over the
     R5 single-node fallback in :func:`_apply_via_catalog`, when the connected
@@ -1153,8 +1339,6 @@ def _apply_via_raft_placement(proposal: PlacementProposal) -> dict[str, Any] | N
     is extracted with the SAME ``split_tenant_key`` convention the engine
     itself uses (first ``:`` splits tenant from sub-key).
     """
-    from agent_utilities.mcp.tools import engine_tools
-
     methods = _placement_methods()
     if not {"route", "assign", "move"} <= methods:
         return None
@@ -1162,67 +1346,19 @@ def _apply_via_raft_placement(proposal: PlacementProposal) -> dict[str, Any] | N
         proposal.target.split(":", 1)[0] if ":" in proposal.target else proposal.target
     )
     target_group = _target_group(proposal)
-    try:
-        route_raw = engine_tools._dispatch(
-            "placement",
-            methods,
-            "route",
-            json.dumps({"tenant": tenant, "sub_key": tenant}),
-            "",
-        )
-        route = json.loads(route_raw)
-    except Exception as e:  # noqa: BLE001 — surface as data, never raise
-        return {"applied": False, "method": "placement_route", "detail": str(e)}
-    if isinstance(route, dict) and route.get("error"):
-        return {"applied": False, "method": "placement_route", "detail": route["error"]}
+
+    route, error = _placement_route(methods, tenant)
+    if error is not None:
+        return error
 
     already_placed = isinstance(route, dict) and bool(route.get("placed"))
     if already_placed and route.get("group") == target_group:
-        _invalidate_placement_cache(proposal.target)
-        return {
-            "applied": True,
-            "method": "placement_move",
-            "detail": {"no_op": True, "route": route},
-        }
+        return _placement_no_op_result(proposal, route)
+
     action = "move" if already_placed else "assign"
-    try:
-        if action == "assign":
-            raw = engine_tools._dispatch(
-                "placement",
-                methods,
-                "assign",
-                json.dumps({"tenant": tenant, "group": target_group}),
-                "",
-            )
-        else:
-            raw = engine_tools._dispatch(
-                "placement",
-                methods,
-                "move",
-                json.dumps(
-                    {
-                        "tenant": tenant,
-                        "range_start": 0,
-                        "range_end": 2**64 - 1,
-                        "target": target_group,
-                    }
-                ),
-                "",
-            )
-        payload = json.loads(raw)
-    except Exception as e:  # noqa: BLE001 — surface as data, never raise
-        return {"applied": False, "method": f"placement_{action}", "detail": str(e)}
-    if isinstance(payload, dict) and payload.get("error"):
-        return {
-            "applied": False,
-            "method": f"placement_{action}",
-            "detail": payload["error"],
-        }
-    proposal.evidence[_PLACEMENT_MOVE_TENANT_KEY] = tenant
-    if action == "move" and isinstance(route, dict) and route.get("group") is not None:
-        proposal.evidence[_PLACEMENT_MOVE_FROM_GROUP_KEY] = route["group"]
-    _invalidate_placement_cache(proposal.target)
-    return {"applied": True, "method": f"placement_{action}", "detail": payload}
+    return _apply_placement_assign_or_move(
+        proposal, methods, tenant, target_group, route, action=action
+    )
 
 
 def _rollback_via_raft_placement(proposal: PlacementProposal) -> dict[str, Any]:
@@ -1291,42 +1427,48 @@ def _target_shard(proposal: PlacementProposal) -> int:
     return abs(hash(proposal.target)) % 8
 
 
-def _apply_via_catalog(proposal: PlacementProposal) -> dict[str, Any]:
+def _apply_via_reshard(
+    proposal: PlacementProposal, methods: set[str], shard: int
+) -> dict[str, Any]:
+    """The REAL online-move RPC (wire ``Method::Reshard`` ->
+    ``RedbBackend::reshard_graph``): copies the graph's rows onto ``shard``
+    and flips its catalog route — a full data move, not just a routing-table
+    update.
+    """
     from agent_utilities.mcp.tools import engine_tools
 
-    methods = _resharding_methods()
-    shard = _target_shard(proposal)
+    try:
+        raw = engine_tools._dispatch(
+            "resharding",
+            methods,
+            "reshard",
+            json.dumps({"graph": proposal.target, "to_shard": shard}),
+            "",
+        )
+        payload = json.loads(raw)
+    except Exception as e:  # noqa: BLE001 — surface as data, never raise
+        return {"applied": False, "method": "reshard", "detail": str(e)}
+    if isinstance(payload, dict) and payload.get("error"):
+        return {"applied": False, "method": "reshard", "detail": payload["error"]}
 
-    if "reshard" in methods:
-        # The REAL online-move RPC (wire ``Method::Reshard`` ->
-        # ``RedbBackend::reshard_graph``): copies the graph's rows onto
-        # ``shard`` and flips its catalog route — a full data move, not just a
-        # routing-table update.
-        try:
-            raw = engine_tools._dispatch(
-                "resharding",
-                methods,
-                "reshard",
-                json.dumps({"graph": proposal.target, "to_shard": shard}),
-                "",
-            )
-            payload = json.loads(raw)
-        except Exception as e:  # noqa: BLE001 — surface as data, never raise
-            return {"applied": False, "method": "reshard", "detail": str(e)}
-        if isinstance(payload, dict) and payload.get("error"):
-            return {"applied": False, "method": "reshard", "detail": payload["error"]}
+    # The engine's ``ReshardReport`` echoes the graph's PRE-move shard —
+    # stash it so a rollback resharding straight back knows its target.
+    if isinstance(payload, dict) and payload.get("from_shard") is not None:
+        proposal.evidence[_RESHARD_FROM_SHARD_KEY] = payload["from_shard"]
+    _invalidate_placement_cache(proposal.target)
+    return {"applied": True, "method": "reshard", "detail": payload}
 
-        # The engine's ``ReshardReport`` echoes the graph's PRE-move shard —
-        # stash it so a rollback resharding straight back knows its target.
-        if isinstance(payload, dict) and payload.get("from_shard") is not None:
-            proposal.evidence[_RESHARD_FROM_SHARD_KEY] = payload["from_shard"]
-        _invalidate_placement_cache(proposal.target)
-        return {"applied": True, "method": "reshard", "detail": payload}
 
-    # Degrade path: an engine build whose ``engine_resharding`` surface does
-    # not expose ``reshard`` yet — fall back to the route-only admin call
-    # (better than nothing, but it does NOT move any already-resident rows;
-    # see ``apply_placement_change``'s docstring).
+def _apply_via_catalog_assign(
+    proposal: PlacementProposal, methods: set[str], shard: int
+) -> dict[str, Any]:
+    """Degrade path: an engine build whose ``engine_resharding`` surface does
+    not expose ``reshard`` yet — fall back to the route-only admin call
+    (better than nothing, but it does NOT move any already-resident rows;
+    see ``apply_placement_change``'s docstring).
+    """
+    from agent_utilities.mcp.tools import engine_tools
+
     if "catalog_assign" not in methods:
         return {
             "applied": False,
@@ -1353,6 +1495,14 @@ def _apply_via_catalog(proposal: PlacementProposal) -> dict[str, Any]:
 
     _invalidate_placement_cache(proposal.target)
     return {"applied": True, "method": "catalog_assign", "detail": payload}
+
+
+def _apply_via_catalog(proposal: PlacementProposal) -> dict[str, Any]:
+    methods = _resharding_methods()
+    shard = _target_shard(proposal)
+    if "reshard" in methods:
+        return _apply_via_reshard(proposal, methods, shard)
+    return _apply_via_catalog_assign(proposal, methods, shard)
 
 
 def _rollback_via_catalog(proposal: PlacementProposal) -> dict[str, Any]:
@@ -1457,6 +1607,329 @@ def _apply_via_kvcache(proposal: PlacementProposal) -> dict[str, Any]:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
+@dataclass
+class _MiningCycleContext:
+    """Shared, per-cycle collaborators for :func:`_process_one_proposal` — the
+    SAME validator/policy/flywheel/router instances used for every proposal in
+    one :func:`run_placement_mining_cycle` call.
+    """
+
+    engine: Any
+    validator: Any
+    action_policy: Any
+    flywheel: Any
+    router: Any
+    measurement_fn: MeasurementFn | None
+    tolerance: float
+
+
+def _persist_proposal(
+    ctx: _MiningCycleContext,
+    prop: PlacementProposal,
+    claim: Any,
+    bundle: Any,
+    errors: list[str],
+) -> bool:
+    """Persist the claim as a fresh proposal node. Returns True on success."""
+    try:
+        ctx.engine.add_node(
+            claim.id,
+            "PlacementProposal",
+            properties={
+                **claim.to_graph_properties(),
+                "status": "proposal",
+                "kind": prop.kind,
+                "target": prop.target,
+                "evidence_bundle_json": bundle.model_dump_json(),
+            },
+        )
+        return True
+    except Exception as e:  # noqa: BLE001 — persistence is best-effort
+        errors.append(f"placement_mining:persist {claim.id}: {e}")
+        return False
+
+
+def _flywheel_propose_and_register(
+    ctx: _MiningCycleContext, claim: Any, prop: PlacementProposal, errors: list[str]
+) -> None:
+    from .candidate_insight import register_claim_materialization
+
+    # -- X-6 / Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance): the SAME
+    # shared writeback seam ``loop_controller._run_insight_validation`` /
+    # ``_run_trace_mining`` use — see ``candidate_insight.
+    # register_claim_materialization`` docstring. --
+    register_claim_materialization(
+        ctx.engine, claim, errors, context="placement_mining"
+    )
+    try:
+        ctx.flywheel.propose(claim.id, reason=f"mined {prop.kind} placement finding")
+    except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
+        errors.append(f"placement_mining:flywheel_propose {claim.id}: {e}")
+
+
+def _validate_governance(
+    ctx: _MiningCycleContext, spec: dict[str, Any], claim: Any, errors: list[str]
+) -> Any | None:
+    """Returns the governance verdict, or ``None`` if the validator itself
+    raised (the caller must stop processing this proposal, matching the
+    original inline ``continue``).
+    """
+    try:
+        verdict = ctx.validator.validate(spec)
+    except Exception as e:  # noqa: BLE001 — a validator error holds, never crashes
+        errors.append(f"placement_mining:validate {claim.id}: {e}")
+        return None
+    try:
+        ctx.flywheel.validate(
+            claim.id, verdict.valid, reason="; ".join(verdict.failures)
+        )
+    except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
+        errors.append(f"placement_mining:flywheel_validate {claim.id}: {e}")
+    return verdict
+
+
+def _decide_action_policy(
+    ctx: _MiningCycleContext,
+    prop: PlacementProposal,
+    verdict: Any,
+    claim: Any,
+    errors: list[str],
+) -> Any | None:
+    """SAFETY-CRITICAL: action_policy.decide() MUST run — and complete —
+    BEFORE the canary (which itself applies to a small scope) for every
+    candidate, unconditionally. Returns ``None`` only if ``decide()`` itself
+    raised (fail closed, never crash); a ``deny`` decision retracts the claim
+    but is still returned so the caller can record the outcome.
+    """
+    from agent_utilities.orchestration.action_policy import ActionRequest
+
+    try:
+        decision = ctx.action_policy.decide(
+            ActionRequest(
+                kind="apply_placement_change",
+                target=prop.target,
+                params={
+                    "proposal_kind": prop.kind,
+                    "confidence": prop.confidence,
+                    "governance_valid": verdict.valid,
+                },
+                source="placement_mining",
+                reason=f"apply a mined {prop.kind} placement change for {prop.target}",
+            )
+        )
+    except Exception as e:  # noqa: BLE001 — fail closed, never crash
+        errors.append(f"placement_mining:action_policy {claim.id}: {e}")
+        return None
+
+    # -- fail-closed: a policy DENIAL retracts the claim outright — it is
+    # never applied, never canaried, and (durably, via the flywheel's own
+    # RETRACTED-is-terminal rule) never re-proposed by a later cycle. --
+    if decision.decision == "deny":
+        try:
+            ctx.flywheel.reject(
+                claim.id,
+                reason=f"action_policy denied: {decision.reason}",
+                action_decision=decision.decision,
+            )
+        except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
+            errors.append(f"placement_mining:flywheel_reject {claim.id}: {e}")
+    return decision
+
+
+def _run_canary_step(
+    ctx: _MiningCycleContext,
+    prop: PlacementProposal,
+    claim: Any,
+    record: dict[str, Any],
+    errors: list[str],
+) -> Any | None:
+    """Runs the canary, recording its shape into ``record`` IN PLACE on
+    success (left untouched on failure). Returns the canary result or None —
+    never lets a canary crash the cycle.
+    """
+    try:
+        canary = run_canary(
+            prop, measurement_fn=ctx.measurement_fn, tolerance=ctx.tolerance
+        )
+        record["canary"] = canary.to_dict()
+        record["applied"] = bool(canary.applied)
+        return canary
+    except Exception as e:  # noqa: BLE001 — never let a canary crash the cycle
+        errors.append(f"placement_mining:canary {claim.id}: {e}")
+        return None
+
+
+def _record_canary_transition(
+    ctx: _MiningCycleContext, claim: Any, canary: Any, decision: Any, errors: list[str]
+) -> int:
+    """Flywheel ACCEPTED/REJECTED transition from the canary's verdict.
+    Returns 1 if the canary applied (feeds the caller's ``applied`` counter).
+    """
+    applied_delta = 0
+    try:
+        if canary.applied:
+            applied_delta = 1
+            ctx.flywheel.accept(
+                claim.id, reason=canary.reason, action_decision=decision.decision
+            )
+        else:
+            ctx.flywheel.reject(
+                claim.id,
+                reason=f"canary rollback: {canary.reason}",
+                action_decision=decision.decision,
+            )
+    except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
+        errors.append(f"placement_mining:flywheel_transition {claim.id}: {e}")
+    return applied_delta
+
+
+def _record_canary_outcome(
+    ctx: _MiningCycleContext,
+    prop: PlacementProposal,
+    claim: Any,
+    canary: Any,
+    errors: list[str],
+) -> int:
+    """Durable bandit observation for this ``(kind, target)`` — the SAME
+    observation a later mining pass over the same target reads back. Returns
+    1 on success.
+    """
+    # -- close the loop: the canary's verdict becomes the flywheel's
+    # ACCEPTED/RETRACTED transition AND a durable bandit observation keyed on
+    # this (kind, target) (``OutcomeRouter.reward_of`` / ``CapabilityIndex``). --
+    reward = 1.0 if canary.applied else 0.0
+    try:
+        ctx.router.record(prop.kind, prop.target, reward)
+        ctx.flywheel.record_outcome(
+            claim.id,
+            reward=prop.confidence,
+            durable_reward=reward,
+            note=canary.reason,
+            durable_key=ctx.router.key(prop.kind, prop.target),
+        )
+        return 1
+    except Exception as e:  # noqa: BLE001 — outcome feedback is best-effort
+        errors.append(f"placement_mining:outcome {claim.id}: {e}")
+        return 0
+
+
+def _apply_and_canary(
+    ctx: _MiningCycleContext,
+    prop: PlacementProposal,
+    claim: Any,
+    bundle: Any,
+    decision: Any,
+    record: dict[str, Any],
+    errors: list[str],
+) -> tuple[int, int]:
+    """ONLY reachable after action_policy.decide() (see
+    :func:`_decide_action_policy`) returned allowed. The shipped tier is
+    approval_required, so this never fires out of the box. Runs the canary,
+    closes the epistemic loop, and promotes the claim's status. Returns
+    ``(applied_delta, outcomes_delta)``.
+    """
+    canary = _run_canary_step(ctx, prop, claim, record, errors)
+
+    applied_delta = 0
+    outcomes_delta = 0
+    new_status = "proposal"
+    if canary is not None:
+        new_status = "applied" if canary.applied else "rejected"
+        applied_delta = _record_canary_transition(ctx, claim, canary, decision, errors)
+        outcomes_delta = _record_canary_outcome(ctx, prop, claim, canary, errors)
+
+    try:
+        ctx.engine.add_node(
+            claim.id,
+            "PlacementProposal",
+            properties={
+                **claim.to_graph_properties(),
+                "status": new_status,
+                "kind": prop.kind,
+                "target": prop.target,
+                "evidence_bundle_json": bundle.model_dump_json(),
+            },
+        )
+    except Exception as e:  # noqa: BLE001 — status update is best-effort
+        errors.append(f"placement_mining:promote {claim.id}: {e}")
+
+    return applied_delta, outcomes_delta
+
+
+def _process_one_proposal(
+    ctx: _MiningCycleContext,
+    prop: PlacementProposal,
+    counters: dict[str, int],
+    examples: list[dict[str, Any]],
+    errors: list[str],
+) -> None:
+    """One proposal through mine -> propose -> govern -> canary -> apply ->
+    outcome. Mutates ``counters`` and ``examples`` IN PLACE (see
+    :func:`run_placement_mining_cycle`).
+    """
+    claim = prop.to_claim_node()
+    bundle = prop.to_evidence_bundle()
+
+    # -- X3: a retracted claim (e.g. a prior human/forbidden-tier denial of
+    # this SAME content-addressed finding) is never re-proposed. --
+    if ctx.flywheel.is_retracted(claim.id):
+        if len(examples) < 5:
+            examples.append(
+                {
+                    "claim_id": claim.id,
+                    "kind": prop.kind,
+                    "target": prop.target,
+                    "skipped": "retracted",
+                }
+            )
+        return
+
+    if not _persist_proposal(ctx, prop, claim, bundle, errors):
+        return
+    counters["persisted"] += 1
+
+    _flywheel_propose_and_register(ctx, claim, prop, errors)
+
+    spec = {
+        "id": claim.id,
+        "name": claim.name,
+        "goal": claim.claim_text,
+        "description": claim.claim_text,
+        "quality_score": claim.confidence,
+        "type": "PlacementProposal",
+    }
+    verdict = _validate_governance(ctx, spec, claim, errors)
+    if verdict is None:
+        return
+
+    decision = _decide_action_policy(ctx, prop, verdict, claim, errors)
+    if decision is None:
+        return
+
+    record: dict[str, Any] = {
+        "claim_id": claim.id,
+        "kind": prop.kind,
+        "target": prop.target,
+        "confidence": round(prop.confidence, 4),
+        "governance_valid": verdict.valid,
+        "action_decision": decision.decision,
+        "applied": False,
+    }
+
+    # -- ONLY reachable after action_policy.decide() (above) returned allowed
+    # (auto/auto_notify). The shipped tier is approval_required, so this
+    # branch never fires out of the box. --
+    if verdict.valid and decision.allowed:
+        applied_delta, outcomes_delta = _apply_and_canary(
+            ctx, prop, claim, bundle, decision, record, errors
+        )
+        counters["applied"] += applied_delta
+        counters["outcomes_recorded"] += outcomes_delta
+
+    if len(examples) < 5:
+        examples.append(record)
+
+
 def run_placement_mining_cycle(
     engine: Any,
     *,
@@ -1497,13 +1970,9 @@ def run_placement_mining_cycle(
         load_trace_cursor,
         save_trace_cursor,
     )
-    from agent_utilities.orchestration.action_policy import (
-        ActionRequest,
-        get_action_policy,
-    )
+    from agent_utilities.orchestration.action_policy import get_action_policy
     from agent_utilities.orchestration.outcome_router import OutcomeRouter
 
-    from .candidate_insight import register_claim_materialization
     from .claim_flywheel import ClaimFlywheel
     from .promotion_governance import PromotionGovernanceValidator
 
@@ -1522,206 +1991,25 @@ def run_placement_mining_cycle(
     below_floor = [p for p in proposals if not p.clears_floor]
     eligible = [p for p in proposals if p.clears_floor]
 
-    validator = PromotionGovernanceValidator(engine)
-    action_policy = get_action_policy(engine)
     # X3 — the epistemic mining flywheel's lifecycle overlay (CONCEPT:AU-KG.
     # evolution.mining-flywheel) + the SAME durable contextual-bandit spine
     # (CONCEPT:AU-P1-3) every other mining pass in this controller closes its
     # loop through — one instance per cycle, mirroring
     # ``loop_controller._run_trace_mining``.
-    flywheel = ClaimFlywheel(engine)
-    router = OutcomeRouter(namespace="placement_mining")
+    ctx = _MiningCycleContext(
+        engine=engine,
+        validator=PromotionGovernanceValidator(engine),
+        action_policy=get_action_policy(engine),
+        flywheel=ClaimFlywheel(engine),
+        router=OutcomeRouter(namespace="placement_mining"),
+        measurement_fn=measurement_fn,
+        tolerance=tolerance,
+    )
 
-    persisted = 0
-    applied = 0
-    outcomes_recorded = 0
+    counters = {"persisted": 0, "applied": 0, "outcomes_recorded": 0}
     examples: list[dict[str, Any]] = []
-
     for prop in eligible:
-        claim = prop.to_claim_node()
-        bundle = prop.to_evidence_bundle()
-        spec = {
-            "id": claim.id,
-            "name": claim.name,
-            "goal": claim.claim_text,
-            "description": claim.claim_text,
-            "quality_score": claim.confidence,
-            "type": "PlacementProposal",
-        }
-
-        # -- X3: a retracted claim (e.g. a prior human/forbidden-tier denial
-        # of this SAME content-addressed finding) is never re-proposed. --
-        if flywheel.is_retracted(claim.id):
-            if len(examples) < 5:
-                examples.append(
-                    {
-                        "claim_id": claim.id,
-                        "kind": prop.kind,
-                        "target": prop.target,
-                        "skipped": "retracted",
-                    }
-                )
-            continue
-
-        try:
-            engine.add_node(
-                claim.id,
-                "PlacementProposal",
-                properties={
-                    **claim.to_graph_properties(),
-                    "status": "proposal",
-                    "kind": prop.kind,
-                    "target": prop.target,
-                    "evidence_bundle_json": bundle.model_dump_json(),
-                },
-            )
-            persisted += 1
-        except Exception as e:  # noqa: BLE001 — persistence is best-effort
-            errors.append(f"placement_mining:persist {claim.id}: {e}")
-            continue
-
-        # -- X-6 / Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance): the SAME
-        # shared writeback seam ``loop_controller._run_insight_validation`` /
-        # ``_run_trace_mining`` use — see ``candidate_insight.
-        # register_claim_materialization`` docstring. --
-        register_claim_materialization(
-            engine, claim, errors, context="placement_mining"
-        )
-
-        try:
-            flywheel.propose(claim.id, reason=f"mined {prop.kind} placement finding")
-        except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
-            errors.append(f"placement_mining:flywheel_propose {claim.id}: {e}")
-
-        try:
-            verdict = validator.validate(spec)
-        except Exception as e:  # noqa: BLE001 — a validator error holds, never crashes
-            errors.append(f"placement_mining:validate {claim.id}: {e}")
-            continue
-
-        try:
-            flywheel.validate(
-                claim.id, verdict.valid, reason="; ".join(verdict.failures)
-            )
-        except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
-            errors.append(f"placement_mining:flywheel_validate {claim.id}: {e}")
-
-        # -- SAFETY-CRITICAL: action_policy.decide() MUST run — and complete —
-        # BEFORE the canary (which itself applies to a small scope) for every
-        # candidate, unconditionally. --
-        try:
-            decision = action_policy.decide(
-                ActionRequest(
-                    kind="apply_placement_change",
-                    target=prop.target,
-                    params={
-                        "proposal_kind": prop.kind,
-                        "confidence": prop.confidence,
-                        "governance_valid": verdict.valid,
-                    },
-                    source="placement_mining",
-                    reason=(
-                        f"apply a mined {prop.kind} placement change for {prop.target}"
-                    ),
-                )
-            )
-        except Exception as e:  # noqa: BLE001 — fail closed, never crash
-            errors.append(f"placement_mining:action_policy {claim.id}: {e}")
-            continue
-
-        # -- fail-closed: a policy DENIAL retracts the claim outright — it is
-        # never applied, never canaried, and (durably, via the flywheel's own
-        # RETRACTED-is-terminal rule) never re-proposed by a later cycle. --
-        if decision.decision == "deny":
-            try:
-                flywheel.reject(
-                    claim.id,
-                    reason=f"action_policy denied: {decision.reason}",
-                    action_decision=decision.decision,
-                )
-            except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
-                errors.append(f"placement_mining:flywheel_reject {claim.id}: {e}")
-
-        record: dict[str, Any] = {
-            "claim_id": claim.id,
-            "kind": prop.kind,
-            "target": prop.target,
-            "confidence": round(prop.confidence, 4),
-            "governance_valid": verdict.valid,
-            "action_decision": decision.decision,
-            "applied": False,
-        }
-
-        # -- ONLY reachable after action_policy.decide() (above) returned
-        # allowed (auto/auto_notify). The shipped tier is approval_required,
-        # so this branch never fires out of the box. --
-        if verdict.valid and decision.allowed:
-            try:
-                canary = run_canary(
-                    prop, measurement_fn=measurement_fn, tolerance=tolerance
-                )
-                record["canary"] = canary.to_dict()
-                record["applied"] = bool(canary.applied)
-            except Exception as e:  # noqa: BLE001 — never let a canary crash the cycle
-                errors.append(f"placement_mining:canary {claim.id}: {e}")
-                canary = None
-
-            new_status = "proposal"
-            if canary is not None:
-                new_status = "applied" if canary.applied else "rejected"
-                # -- close the loop: the canary's verdict becomes the
-                # flywheel's ACCEPTED/RETRACTED transition AND a durable
-                # bandit observation keyed on this (kind, target) — the SAME
-                # observation a later mining pass over the same target reads
-                # back (``OutcomeRouter.reward_of`` / ``CapabilityIndex``). --
-                reward = 1.0 if canary.applied else 0.0
-                try:
-                    if canary.applied:
-                        applied += 1
-                        flywheel.accept(
-                            claim.id,
-                            reason=canary.reason,
-                            action_decision=decision.decision,
-                        )
-                    else:
-                        flywheel.reject(
-                            claim.id,
-                            reason=f"canary rollback: {canary.reason}",
-                            action_decision=decision.decision,
-                        )
-                except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
-                    errors.append(
-                        f"placement_mining:flywheel_transition {claim.id}: {e}"
-                    )
-                try:
-                    router.record(prop.kind, prop.target, reward)
-                    flywheel.record_outcome(
-                        claim.id,
-                        reward=prop.confidence,
-                        durable_reward=reward,
-                        note=canary.reason,
-                        durable_key=router.key(prop.kind, prop.target),
-                    )
-                    outcomes_recorded += 1
-                except Exception as e:  # noqa: BLE001 — outcome feedback is best-effort
-                    errors.append(f"placement_mining:outcome {claim.id}: {e}")
-            try:
-                engine.add_node(
-                    claim.id,
-                    "PlacementProposal",
-                    properties={
-                        **claim.to_graph_properties(),
-                        "status": new_status,
-                        "kind": prop.kind,
-                        "target": prop.target,
-                        "evidence_bundle_json": bundle.model_dump_json(),
-                    },
-                )
-            except Exception as e:  # noqa: BLE001 — status update is best-effort
-                errors.append(f"placement_mining:promote {claim.id}: {e}")
-
-        if len(examples) < 5:
-            examples.append(record)
+        _process_one_proposal(ctx, prop, counters, examples, errors)
 
     completed_cursor = prior_cursor
     if not errors:
@@ -1735,9 +2023,9 @@ def run_placement_mining_cycle(
         "proposals": len(proposals),
         "below_floor": len(below_floor),
         "eligible": len(eligible),
-        "persisted": persisted,
-        "applied": applied,
-        "outcomes_recorded": outcomes_recorded,
+        "persisted": counters["persisted"],
+        "applied": counters["applied"],
+        "outcomes_recorded": counters["outcomes_recorded"],
         "after_event_sequence": prior_cursor.event_sequence,
         "next_event_sequence": completed_cursor.event_sequence,
         "cursor_advanced": completed_cursor > prior_cursor,

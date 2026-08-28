@@ -335,6 +335,50 @@ def _record_wave_results(
             satisfied.add(sid)
 
 
+def _decision(edata: dict[str, Any]) -> str:
+    return (
+        "rejected"
+        if str(edata.get("decision") or "").lower() == "rejected"
+        else "approved"
+    )
+
+
+def _edge_relationship_label(edata: dict[str, Any]) -> str:
+    # "relationship" is the canonical GraphComputeEngine edge property
+    # (engine.link_nodes writes it); "type"/"rel_type" are kept as a
+    # fallback for callers that hand this a raw/foreign edge dict.
+    return str(
+        (edata or {}).get("relationship")
+        or (edata or {}).get("type")
+        or (edata or {}).get("rel_type")
+        or ""
+    )
+
+
+def _gate_via_compute_graph(graph: Any, step_id: str) -> str | None:
+    try:
+        for _src, _tgt, edata in graph.out_edges(step_id, data=True):
+            if _edge_relationship_label(edata or {}) == "satisfiedBy":
+                return _decision(edata or {})
+    except Exception as exc:  # noqa: BLE001 — read is best-effort
+        logger.debug("[ORCH.gate] compute-graph gate check failed: %s", exc)
+    return None
+
+
+def _gate_via_backend(backend: Any, step_id: str) -> str | None:
+    try:
+        rows = backend.execute(
+            "MATCH (s)-[r:satisfiedBy]->(x) WHERE s.id = $sid "
+            "RETURN r.decision AS decision LIMIT 1",
+            {"sid": step_id},
+        )
+        if rows:
+            return _decision({"decision": rows[0].get("decision")})
+    except Exception as exc:  # noqa: BLE001 — read is best-effort
+        logger.debug("[ORCH.gate] backend gate check failed: %s", exc)
+    return None
+
+
 def _default_gate_checker(engine: Any, step: Any) -> str | None:
     """Default gate satisfaction check (§7.1 delta 3).
 
@@ -349,43 +393,15 @@ def _default_gate_checker(engine: Any, step: Any) -> str | None:
     if not step_id or engine is None:
         return None
 
-    def _decision(edata: dict[str, Any]) -> str:
-        return (
-            "rejected"
-            if str(edata.get("decision") or "").lower() == "rejected"
-            else "approved"
-        )
-
     graph = getattr(engine, "graph", None)
     if graph is not None:
-        try:
-            for _src, _tgt, edata in graph.out_edges(step_id, data=True):
-                # "relationship" is the canonical GraphComputeEngine edge property
-                # (engine.link_nodes writes it); "type"/"rel_type" are kept as a
-                # fallback for callers that hand this a raw/foreign edge dict.
-                rel = str(
-                    (edata or {}).get("relationship")
-                    or (edata or {}).get("type")
-                    or (edata or {}).get("rel_type")
-                    or ""
-                )
-                if rel == "satisfiedBy":
-                    return _decision(edata or {})
-        except Exception as exc:  # noqa: BLE001 — read is best-effort
-            logger.debug("[ORCH.gate] compute-graph gate check failed: %s", exc)
+        decision = _gate_via_compute_graph(graph, step_id)
+        if decision is not None:
+            return decision
 
     backend = getattr(engine, "backend", None)
     if backend is not None:
-        try:
-            rows = backend.execute(
-                "MATCH (s)-[r:satisfiedBy]->(x) WHERE s.id = $sid "
-                "RETURN r.decision AS decision LIMIT 1",
-                {"sid": step_id},
-            )
-            if rows:
-                return _decision({"decision": rows[0].get("decision")})
-        except Exception as exc:  # noqa: BLE001 — read is best-effort
-            logger.debug("[ORCH.gate] backend gate check failed: %s", exc)
+        return _gate_via_backend(backend, step_id)
     return None
 
 
@@ -486,6 +502,325 @@ class WorkflowResult:
             ],
             "mermaid": self.mermaid,
         }
+
+
+def _step_results_from_wave_results(
+    wave_results: list[Any], execution_id: str
+) -> list[StepResult]:
+    """Flatten ``ParallelEngine`` wave results into ``StepResult`` rows,
+    extracted verbatim from ``WorkflowRunner.execute`` (pure extract-method,
+    no behaviour change).
+    """
+    step_results = []
+    for wave_idx, w_res in enumerate(wave_results):
+        for r in w_res.results:
+            step_results.append(
+                StepResult(
+                    step_index=wave_idx,
+                    node_id=r.agent_id,
+                    # CONCEPT:AU-ORCH.execution.workflow-engine-wiring — ``AgentExecutionResult`` (the ParallelEngine
+                    # wave result) carries no ``task`` field; it lives in its
+                    # ``metadata``. Reading ``r.task`` raised AttributeError and
+                    # crashed every wired ``execute_workflow`` run after the steps
+                    # had already executed. Fall back through metadata → agent_id.
+                    task=(
+                        getattr(r, "task", None)
+                        or (r.metadata or {}).get("task")
+                        or r.agent_id
+                    ),
+                    output=r.output,
+                    status="completed" if r.success else "failed",
+                    duration_ms=r.duration_ms,
+                    error=r.error or None,
+                    trace_id=r.metadata.get("trace_id") or execution_id,
+                )
+            )
+    return step_results
+
+
+def _derive_workflow_status(exec_res: Any) -> str:
+    status = "completed" if exec_res.success else "failed"
+    if exec_res.wave_results and not exec_res.success:
+        if any(r.success for w in exec_res.wave_results for r in w.results):
+            status = "partial"
+    return status
+
+
+def _realized_process_via_backend(
+    backend: Any, workflow_name: str
+) -> tuple[str | None, str | None, dict[str, Any]] | None:
+    """The graph-backend REALIZES lookup half of
+    ``WorkflowRunner._find_realized_process`` -- ``None`` means "nothing
+    found, fall through to the compute-graph path", not an error.
+    """
+    try:
+        rows = backend.execute(
+            "MATCH (w:WorkflowDefinition)-[:REALIZES]->(p) "
+            "WHERE w.name = $name "
+            "RETURN w.id AS wid, p.id AS pid, "
+            "p.externalToolId AS external_id LIMIT 1",
+            {"name": workflow_name},
+        )
+        if rows:
+            return (
+                rows[0].get("wid"),
+                rows[0].get("pid"),
+                {"externalToolId": rows[0].get("external_id")},
+            )
+    except Exception as exc:  # noqa: BLE001 — fall through to compute graph
+        logger.debug("[ORCH-1.43] backend REALIZES lookup failed: %s", exc)
+    return None
+
+
+def _is_named_workflow_definition_node(
+    data: dict[str, Any], workflow_name: str
+) -> bool:
+    # "node_type" is the canonical GraphComputeEngine node property; "type"
+    # is kept as a fallback for callers that hand this a raw/foreign node dict.
+    node_label = data.get("node_type") or data.get("type")
+    return node_label == "WorkflowDefinition" and data.get("name") == workflow_name
+
+
+def _realizes_target(graph: Any, nid: Any) -> tuple[str | None, dict[str, Any]]:
+    """The REALIZES-target node id + its properties for workflow node ``nid``,
+    or ``(None, {})`` when it has no such out-edge.
+    """
+    for _src, tgt, edata in graph.out_edges(nid, data=True):
+        if _edge_relationship_label(edata or {}).upper() == "REALIZES":
+            try:
+                props = dict(graph.nodes[tgt])
+            except Exception:  # noqa: BLE001
+                props = {}
+            return tgt, props
+    return None, {}
+
+
+def _realized_process_via_compute_graph(
+    graph: Any, workflow_name: str
+) -> tuple[str | None, str | None, dict[str, Any]] | None:
+    """The compute-graph REALIZES lookup half of
+    ``WorkflowRunner._find_realized_process`` -- ``None`` means "no matching
+    WorkflowDefinition node found", not an error.
+    """
+    try:
+        for nid, data in graph.nodes(data=True):
+            if not _is_named_workflow_definition_node(data, workflow_name):
+                continue
+            tgt, props = _realizes_target(graph, nid)
+            return nid, tgt, props
+    except Exception as exc:  # noqa: BLE001 — provenance is best-effort
+        logger.debug("[ORCH-1.43] compute REALIZES lookup failed: %s", exc)
+    return None
+
+
+def _widen_invalidated_region(
+    region: dict[str, Any], failed_step: str, workflow_name: str
+) -> set[str]:
+    """Extracted verbatim from ``WorkflowRunner.resume_localized`` (pure
+    extract-method, no behaviour change).
+    """
+    invalidated = set(region["invalidated"]) | {failed_step}
+    if region.get("degraded"):
+        # localized_repair_region already failed safe (widened invalidated
+        # to the full step set rather than risk preserving an unconfirmed
+        # step's stale result) — surface it so a degraded-graph-read repair
+        # is diagnosable, not indistinguishable from a normal localized one.
+        logger.warning(
+            "[ORCH.repair] workflow %s localized repair from %s: edge read "
+            "failed mid-walk; invalidated widened to the full %d-step plan "
+            "instead of trusting a partial region.",
+            workflow_name,
+            failed_step,
+            len(invalidated),
+        )
+    return invalidated
+
+
+def _trim_prior_completion_state(
+    prior_completed: dict[str, Any], prior_satisfied: set, invalidated: set
+) -> dict[str, Any]:
+    return {
+        "completed": {
+            sid: rec for sid, rec in prior_completed.items() if sid not in invalidated
+        },
+        "satisfied": {sid for sid in prior_satisfied if sid not in invalidated},
+    }
+
+
+def _load_raw_run_state_from_graph(graph: Any, node_id: str) -> dict[str, Any]:
+    try:
+        data = graph.nodes[node_id]
+        if data:
+            return dict(data)
+    except Exception:  # noqa: BLE001 — fall through to backend
+        pass
+    return {}
+
+
+def _load_raw_run_state_from_backend(backend: Any, node_id: str) -> dict[str, Any]:
+    try:
+        rows = backend.execute(
+            "MATCH (r:WorkflowRun) WHERE r.id = $rid RETURN r",
+            {"rid": node_id},
+        )
+        if rows and isinstance(rows[0].get("r"), dict):
+            return dict(rows[0]["r"])
+    except Exception as exc:  # noqa: BLE001 — backend fallback failing just means raw stays {}; the caller treats "no persisted state" as "start fresh" (idempotent), matching the save side's already-justified best-effort persistence at line 811
+        logger.debug("[ORCH.gate] run-state load failed: %s", exc)
+    return {}
+
+
+def _decode_run_state(raw: dict[str, Any]) -> dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        return {
+            "completed": json.loads(raw.get("completed_json") or "{}"),
+            "satisfied": set(json.loads(raw.get("satisfied_json") or "[]")),
+        }
+    except Exception as exc:  # noqa: BLE001 — malformed persisted state degrades to "start fresh" (idempotent), same rationale as the backend-fallback except above
+        logger.debug("[ORCH.gate] run-state decode failed: %s", exc)
+        return {}
+
+
+def _resolve_step_context(step: Any, outputs: dict[str, str]) -> str:
+    """Thread completed upstream outputs in as context. Extracted verbatim
+    from ``WorkflowRunner._run_workflow_step`` (pure extract-method, no
+    behaviour change).
+    """
+    deps = getattr(step, "depends_on", None) or []
+    return "\n\n".join(
+        f"Output of '{d}':\n{outputs.get(d, '')}" for d in deps if outputs.get(d)
+    )
+
+
+def _resolve_step_model_tier(step: Any) -> tuple[str | None, str | None]:
+    """CONCEPT:AU-ORCH.routing.functional-role-resolution — model-tier
+    routing hint (ATG paper idea #3). Only honored when the step didn't
+    already pin an exact model_id (which always wins); unrecognized/absent
+    tiers pass reasoning_effort=None through unchanged (today's default).
+    """
+    tier = str(getattr(step, "model_tier", "") or "").lower() or None
+    effort = (
+        MODEL_TIER_REASONING_EFFORT.get(tier)
+        if tier and not getattr(step, "model_id", None)
+        else None
+    )
+    return tier, effort
+
+
+def _step_result_ok(
+    sid: str,
+    wave: int,
+    step_task: Any,
+    out: Any,
+    duration_ms: float,
+    session_id: str,
+    tier: str | None,
+) -> StepResult:
+    ok = not str(out).startswith("Agent execution failed")
+    return StepResult(
+        step_index=wave,
+        node_id=sid,
+        task=str(step_task),
+        output=str(out),
+        status="completed" if ok else "failed",
+        duration_ms=duration_ms,
+        error=None if ok else str(out)[:300],
+        trace_id=session_id,
+        model_tier=tier,
+    )
+
+
+def _step_result_from_exception(
+    sid: str,
+    wave: int,
+    step_task: Any,
+    exc: Exception,
+    duration_ms: float,
+    session_id: str,
+    tier: str | None,
+) -> StepResult:
+    return StepResult(
+        step_index=wave,
+        node_id=sid,
+        task=str(step_task),
+        output="",
+        status="failed",
+        duration_ms=duration_ms,
+        error=str(exc)[:300],
+        model_tier=tier,
+        trace_id=session_id,
+    )
+
+
+def _mark_gate_blocked(
+    steps: list[Any],
+    suspended_gate: str,
+    wave_idx: int,
+    session_id: str,
+    completed: dict[str, StepResult],
+) -> None:
+    """Mutates ``completed`` IN PLACE. Extracted verbatim from
+    ``WorkflowRunner._finalize_suspended_workflow`` (pure extract-method, no
+    behaviour change).
+    """
+    for s in steps:
+        if (getattr(s, "id", "") or "") == suspended_gate:
+            completed[suspended_gate] = StepResult(
+                step_index=wave_idx,
+                node_id=suspended_gate,
+                task=str(getattr(s, "refined_subtask", "") or suspended_gate),
+                output="",
+                status=STATUS_BLOCKED,
+                duration_ms=0.0,
+                error="awaiting gate satisfaction",
+                trace_id=session_id,
+            )
+            break
+
+
+def _step_results_in_plan_order(
+    steps: list[Any], completed: dict[str, StepResult]
+) -> list[StepResult]:
+    """Shared by ``_finalize_suspended_workflow`` and
+    ``_finalize_completed_workflow`` (both had this exact block inline).
+    """
+    return [
+        completed[getattr(s, "id", "")]
+        for s in steps
+        if getattr(s, "id", "") in completed
+    ]
+
+
+def _record_skipped_steps(
+    skipped: set[str],
+    completed: dict[str, StepResult],
+    wave_idx: int,
+    session_id: str,
+) -> None:
+    """Skipped (rejected-downstream) steps are recorded for visibility.
+    Mutates ``completed`` IN PLACE. Extracted verbatim from
+    ``WorkflowRunner._finalize_completed_workflow``.
+    """
+    for sid in skipped:
+        if sid not in completed:
+            completed[sid] = StepResult(
+                step_index=wave_idx,
+                node_id=sid,
+                task="",
+                output="",
+                status=STATUS_SKIPPED,
+                duration_ms=0.0,
+                error="skipped (upstream gate rejected)",
+                trace_id=session_id,
+            )
+
+
+def _derive_completion_status(step_results: list[StepResult]) -> str:
+    n_failed = sum(1 for r in step_results if r.status == "failed")
+    n_ok = sum(1 for r in step_results if r.status == "completed")
+    return "completed" if n_failed == 0 else ("partial" if n_ok else "failed")
 
 
 class WorkflowRunner:
@@ -608,35 +943,10 @@ class WorkflowRunner:
             ),
         )
 
-        step_results = []
-        for wave_idx, w_res in enumerate(exec_res.wave_results):
-            for r in w_res.results:
-                step_results.append(
-                    StepResult(
-                        step_index=wave_idx,
-                        node_id=r.agent_id,
-                        # CONCEPT:AU-ORCH.execution.workflow-engine-wiring — ``AgentExecutionResult`` (the ParallelEngine
-                        # wave result) carries no ``task`` field; it lives in its
-                        # ``metadata``. Reading ``r.task`` raised AttributeError and
-                        # crashed every wired ``execute_workflow`` run after the steps
-                        # had already executed. Fall back through metadata → agent_id.
-                        task=(
-                            getattr(r, "task", None)
-                            or (r.metadata or {}).get("task")
-                            or r.agent_id
-                        ),
-                        output=r.output,
-                        status="completed" if r.success else "failed",
-                        duration_ms=r.duration_ms,
-                        error=r.error or None,
-                        trace_id=r.metadata.get("trace_id") or exec_res.execution_id,
-                    )
-                )
-
-        status = "completed" if exec_res.success else "failed"
-        if exec_res.wave_results and not exec_res.success:
-            if any(r.success for w in exec_res.wave_results for r in w.results):
-                status = "partial"
+        step_results = _step_results_from_wave_results(
+            exec_res.wave_results, exec_res.execution_id
+        )
+        status = _derive_workflow_status(exec_res)
 
         result = WorkflowResult(
             workflow_name=workflow_name,
@@ -669,55 +979,15 @@ class WorkflowRunner:
         """
         backend = getattr(engine, "backend", None)
         if backend is not None:
-            try:
-                rows = backend.execute(
-                    "MATCH (w:WorkflowDefinition)-[:REALIZES]->(p) "
-                    "WHERE w.name = $name "
-                    "RETURN w.id AS wid, p.id AS pid, "
-                    "p.externalToolId AS external_id LIMIT 1",
-                    {"name": workflow_name},
-                )
-                if rows:
-                    return (
-                        rows[0].get("wid"),
-                        rows[0].get("pid"),
-                        {"externalToolId": rows[0].get("external_id")},
-                    )
-            except Exception as exc:  # noqa: BLE001 — fall through to compute graph
-                logger.debug("[ORCH-1.43] backend REALIZES lookup failed: %s", exc)
+            found = _realized_process_via_backend(backend, workflow_name)
+            if found is not None:
+                return found
 
         graph = getattr(engine, "graph", None)
         if graph is not None:
-            try:
-                for nid, data in graph.nodes(data=True):
-                    # "node_type" is the canonical GraphComputeEngine node
-                    # property; "type" is kept as a fallback for callers that
-                    # hand this a raw/foreign node dict.
-                    node_label = data.get("node_type") or data.get("type")
-                    if (
-                        node_label != "WorkflowDefinition"
-                        or data.get("name") != workflow_name
-                    ):
-                        continue
-                    for _src, tgt, edata in graph.out_edges(nid, data=True):
-                        # "relationship" is the canonical GraphComputeEngine edge
-                        # property; "type"/"rel_type" are kept as a fallback for
-                        # callers that hand this a raw/foreign edge dict.
-                        rel = str(
-                            (edata or {}).get("relationship")
-                            or (edata or {}).get("type")
-                            or (edata or {}).get("rel_type")
-                            or ""
-                        ).upper()
-                        if rel == "REALIZES":
-                            try:
-                                props = dict(graph.nodes[tgt])
-                            except Exception:  # noqa: BLE001
-                                props = {}
-                            return nid, tgt, props
-                    return nid, None, {}
-            except Exception as exc:  # noqa: BLE001 — provenance is best-effort
-                logger.debug("[ORCH-1.43] compute REALIZES lookup failed: %s", exc)
+            found = _realized_process_via_compute_graph(graph, workflow_name)
+            if found is not None:
+                return found
         return None, None, {}
 
     def _close_out_process_lineage(
@@ -913,6 +1183,34 @@ class WorkflowRunner:
             grounding=grounding,
         )
 
+    async def _resolve_prior_completion_state(
+        self,
+        engine: Any,
+        session_id: str,
+        prior_result: WorkflowResult | None,
+    ) -> tuple[dict[str, Any], set]:
+        """The prior run's completed-step state, sourced from ``prior_result``
+        when the caller already has it in hand, else :meth:`_load_run_state`
+        (a gate-suspended run resumed into a subsequent step failure) --
+        extracted verbatim from :meth:`resume_localized`.
+        """
+        if prior_result is not None:
+            prior_completed = {
+                r.node_id: {
+                    "output": r.output,
+                    "status": r.status,
+                    "node_id": r.node_id,
+                }
+                for r in prior_result.step_results
+            }
+            prior_satisfied = {
+                r.node_id for r in prior_result.step_results if r.status == "completed"
+            }
+            return prior_completed, prior_satisfied
+
+        prior = await run_blocking_ordered(self._load_run_state, engine, session_id)
+        return dict(prior.get("completed") or {}), set(prior.get("satisfied") or set())
+
     async def resume_localized(
         self,
         workflow_name: str,
@@ -966,46 +1264,14 @@ class WorkflowRunner:
             engine=engine,
             all_nodes=all_step_ids,
         )
-        invalidated = set(region["invalidated"]) | {failed_step}
-        if region.get("degraded"):
-            # localized_repair_region already failed safe (widened invalidated
-            # to the full step set rather than risk preserving an unconfirmed
-            # step's stale result) — surface it so a degraded-graph-read repair
-            # is diagnosable, not indistinguishable from a normal localized one.
-            logger.warning(
-                "[ORCH.repair] workflow %s localized repair from %s: edge read "
-                "failed mid-walk; invalidated widened to the full %d-step plan "
-                "instead of trusting a partial region.",
-                workflow_name,
-                failed_step,
-                len(invalidated),
-            )
+        invalidated = _widen_invalidated_region(region, failed_step, workflow_name)
 
-        if prior_result is not None:
-            prior_completed = {
-                r.node_id: {
-                    "output": r.output,
-                    "status": r.status,
-                    "node_id": r.node_id,
-                }
-                for r in prior_result.step_results
-            }
-            prior_satisfied = {
-                r.node_id for r in prior_result.step_results if r.status == "completed"
-            }
-        else:
-            prior = await run_blocking_ordered(self._load_run_state, engine, session_id)
-            prior_completed = dict(prior.get("completed") or {})
-            prior_satisfied = set(prior.get("satisfied") or set())
-
-        trimmed = {
-            "completed": {
-                sid: rec
-                for sid, rec in prior_completed.items()
-                if sid not in invalidated
-            },
-            "satisfied": {sid for sid in prior_satisfied if sid not in invalidated},
-        }
+        prior_completed, prior_satisfied = await self._resolve_prior_completion_state(
+            engine, session_id, prior_result
+        )
+        trimmed = _trim_prior_completion_state(
+            prior_completed, prior_satisfied, invalidated
+        )
 
         result = await self._execute_plan_via_agents(
             plan=plan,
@@ -1092,34 +1358,12 @@ class WorkflowRunner:
         raw: dict[str, Any] = {}
         graph = getattr(engine, "graph", None)
         if graph is not None:
-            try:
-                data = graph.nodes[node_id]
-                if data:
-                    raw = dict(data)
-            except Exception:  # noqa: BLE001 — fall through to backend
-                raw = {}
+            raw = _load_raw_run_state_from_graph(graph, node_id)
         if not raw:
             backend = getattr(engine, "backend", None)
             if backend is not None:
-                try:
-                    rows = backend.execute(
-                        "MATCH (r:WorkflowRun) WHERE r.id = $rid RETURN r",
-                        {"rid": node_id},
-                    )
-                    if rows and isinstance(rows[0].get("r"), dict):
-                        raw = dict(rows[0]["r"])
-                except Exception as exc:  # noqa: BLE001 — backend fallback failing just means raw stays {}; the caller treats "no persisted state" as "start fresh" (idempotent), matching the save side's already-justified best-effort persistence at line 811
-                    logger.debug("[ORCH.gate] run-state load failed: %s", exc)
-        if not raw:
-            return {}
-        try:
-            return {
-                "completed": json.loads(raw.get("completed_json") or "{}"),
-                "satisfied": set(json.loads(raw.get("satisfied_json") or "[]")),
-            }
-        except Exception as exc:  # noqa: BLE001 — malformed persisted state degrades to "start fresh" (idempotent), same rationale as the backend-fallback except above
-            logger.debug("[ORCH.gate] run-state decode failed: %s", exc)
-            return {}
+                raw = _load_raw_run_state_from_backend(backend, node_id)
+        return _decode_run_state(raw)
 
     async def _process_gate_steps(
         self,
@@ -1207,21 +1451,9 @@ class WorkflowRunner:
             or task
             or sid
         )
-        # Thread completed upstream outputs in as context.
-        deps = getattr(step, "depends_on", None) or []
-        ctx = "\n\n".join(
-            f"Output of '{d}':\n{outputs.get(d, '')}" for d in deps if outputs.get(d)
-        )
-        # CONCEPT:AU-ORCH.routing.functional-role-resolution — model-tier routing hint (ATG
-        # paper idea #3). Only honored when the step didn't already pin an
-        # exact model_id (which always wins); unrecognized/absent tiers pass
-        # reasoning_effort=None through unchanged (today's default).
-        tier = str(getattr(step, "model_tier", "") or "").lower() or None
-        effort = (
-            MODEL_TIER_REASONING_EFFORT.get(tier)
-            if tier and not getattr(step, "model_id", None)
-            else None
-        )
+        ctx = _resolve_step_context(step, outputs)
+        tier, effort = _resolve_step_model_tier(step)
+
         t0 = _time.monotonic()
         try:
             with use_grounding_policy(grounding):
@@ -1234,29 +1466,14 @@ class WorkflowRunner:
                     session_id=session_id,
                     reasoning_effort=effort,
                 )
-            ok = not str(out).startswith("Agent execution failed")
-            return StepResult(
-                step_index=wave,
-                node_id=sid,
-                task=str(step_task),
-                output=str(out),
-                status="completed" if ok else "failed",
-                duration_ms=(_time.monotonic() - t0) * 1000,
-                error=None if ok else str(out)[:300],
-                trace_id=session_id,
-                model_tier=tier,
+            duration_ms = (_time.monotonic() - t0) * 1000
+            return _step_result_ok(
+                sid, wave, step_task, out, duration_ms, session_id, tier
             )
         except Exception as exc:  # noqa: BLE001 — one step must not kill the DAG
-            return StepResult(
-                step_index=wave,
-                node_id=sid,
-                task=str(step_task),
-                output="",
-                status="failed",
-                duration_ms=(_time.monotonic() - t0) * 1000,
-                error=str(exc)[:300],
-                model_tier=tier,
-                trace_id=session_id,
+            duration_ms = (_time.monotonic() - t0) * 1000
+            return _step_result_from_exception(
+                sid, wave, step_task, exc, duration_ms, session_id, tier
             )
 
     async def _finalize_suspended_workflow(
@@ -1279,24 +1496,8 @@ class WorkflowRunner:
         """
         import time as _time
 
-        for s in steps:
-            if (getattr(s, "id", "") or "") == suspended_gate:
-                completed[suspended_gate] = StepResult(
-                    step_index=wave_idx,
-                    node_id=suspended_gate,
-                    task=str(getattr(s, "refined_subtask", "") or suspended_gate),
-                    output="",
-                    status=STATUS_BLOCKED,
-                    duration_ms=0.0,
-                    error="awaiting gate satisfaction",
-                    trace_id=session_id,
-                )
-                break
-        step_results = [
-            completed[getattr(s, "id", "")]
-            for s in steps
-            if getattr(s, "id", "") in completed
-        ]
+        _mark_gate_blocked(steps, suspended_gate, wave_idx, session_id, completed)
+        step_results = _step_results_in_plan_order(steps, completed)
         result = WorkflowResult(
             workflow_name=workflow_name,
             session_id=session_id,
@@ -1356,28 +1557,9 @@ class WorkflowRunner:
         """
         import time as _time
 
-        # Skipped (rejected-downstream) steps are recorded for visibility.
-        for sid in skipped:
-            if sid not in completed:
-                completed[sid] = StepResult(
-                    step_index=wave_idx,
-                    node_id=sid,
-                    task="",
-                    output="",
-                    status=STATUS_SKIPPED,
-                    duration_ms=0.0,
-                    error="skipped (upstream gate rejected)",
-                    trace_id=session_id,
-                )
-
-        step_results = [
-            completed[getattr(s, "id", "")]
-            for s in steps
-            if getattr(s, "id", "") in completed
-        ]
-        n_failed = sum(1 for r in step_results if r.status == "failed")
-        n_ok = sum(1 for r in step_results if r.status == "completed")
-        status = "completed" if n_failed == 0 else ("partial" if n_ok else "failed")
+        _record_skipped_steps(skipped, completed, wave_idx, session_id)
+        step_results = _step_results_in_plan_order(steps, completed)
+        status = _derive_completion_status(step_results)
 
         result = WorkflowResult(
             workflow_name=workflow_name,
