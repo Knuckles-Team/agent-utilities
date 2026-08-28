@@ -203,19 +203,32 @@ def _parse_mirror_targets(raw: Any) -> list[str]:
     s = str(raw).strip()
     if not s:
         return []
-    # JSON first: handles the env-injected '["a","b"]' shape losslessly.
+    json_result = _parse_mirror_targets_json(s)
+    if json_result is not None:
+        return json_result
+    return _parse_mirror_targets_csv(s)
+
+
+def _parse_mirror_targets_json(s: str) -> list[str] | None:
+    """Try JSON first: handles the env-injected '["a","b"]' shape losslessly.
+    Returns ``None`` when ``s`` isn't (or doesn't decode to) a usable shape,
+    so the caller falls back to comma-splitting."""
     try:
         import json as _json
 
         parsed = _json.loads(s)
     except Exception:
-        parsed = None
+        return None
     if isinstance(parsed, list):
         return [str(t).strip() for t in parsed if str(t).strip()]
     if isinstance(parsed, str) and parsed.strip():
         return [parsed.strip()]
-    # Fall back to comma-split, defensively stripping any leftover JSON
-    # punctuation (brackets / quotes) from each fragment.
+    return None
+
+
+def _parse_mirror_targets_csv(s: str) -> list[str]:
+    """Comma-split fallback, defensively stripping any leftover JSON
+    punctuation (brackets / quotes) from each fragment."""
     return [
         item
         for raw_item in s.split(",")
@@ -341,6 +354,13 @@ def _resolve_mirror_target_names() -> list[str]:
     targets = _parse_mirror_targets(_cfg.graph_mirror_targets or [])
     # CONCEPT:AU-KG.backend.derive-mirror-set — derive the mirror set from connections with role="mirror";
     # the explicit GRAPH_MIRROR_TARGETS above stays an optional override/addition.
+    role_mirrors = _role_mirror_names(_cfg)
+    return _dedupe_preserve_order(targets + role_mirrors)
+
+
+def _role_mirror_names(_cfg: Any) -> list[str]:
+    """Connection names carrying ``role="mirror"``, plus the implicit
+    continuous-stardog mirror when that setting is enabled."""
     role_mirrors = [
         str(s.get("name") or "").strip()
         for s in (_cfg.kg_connections or [])
@@ -349,13 +369,18 @@ def _resolve_mirror_target_names() -> list[str]:
     ]
     if getattr(_cfg, "continuous_stardog_mirror", False):
         role_mirrors.append("stardog")
-    _seen: set[str] = set()
-    _deduped: list[str] = []
-    for t in targets + role_mirrors:
-        if t and t not in _seen:
-            _seen.add(t)
-            _deduped.append(t)
-    return _deduped
+    return role_mirrors
+
+
+def _dedupe_preserve_order(items: list[str]) -> list[str]:
+    """Drop falsy/duplicate entries, keeping first-seen order."""
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for t in items:
+        if t and t not in seen:
+            seen.add(t)
+            deduped.append(t)
+    return deduped
 
 
 def _build_mirror_set(skip_names: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -379,129 +404,166 @@ def _build_mirror_set(skip_names: tuple[str, ...] = ()) -> dict[str, Any]:
     targets = _resolve_mirror_target_names()
     if not targets:
         return {}
+    conn_specs = _mirror_conn_specs(_cfg.kg_connections or [])
+    mirrors: dict[str, Any] = {}
+    role_cache: dict[str, str] = {}
+    for name in targets:
+        if name in skip_names:
+            continue
+        spec = dict(conn_specs.get(name) or {"backend_type": name})
+        backend_type = str(spec.get("backend_type") or name).strip().lower()
+        if _mirror_excluded(name, backend_type, role_cache):
+            continue
+        member = _construct_mirror(name, backend_type, spec)
+        if member is not None:
+            mirrors[name] = member
+    return mirrors
+
+
+def _mirror_conn_specs(
+    kg_connections: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """``name -> connection spec`` with the legacy ``backend`` key normalized
+    to ``backend_type``."""
     conn_specs: dict[str, dict[str, Any]] = {}
-    for spec in _cfg.kg_connections or []:
+    for spec in kg_connections:
         d = dict(spec)
         nm = str(d.pop("name", "")).strip()
         if "backend" in d and "backend_type" not in d:
             d["backend_type"] = d.pop("backend")
         if nm:
             conn_specs[nm] = d
-    mirrors: dict[str, Any] = {}
-    _role: str | None = None
-    for name in targets:
-        if name in skip_names:
-            continue
-        spec = dict(conn_specs.get(name) or {"backend_type": name})
-        backend_type = str(spec.get("backend_type") or name).strip().lower()
-        if backend_type in {"epistemic_graph", "fanout", "memory", "file"}:
-            logger.warning(
-                "mirror '%s' resolves to the operational authority; skipping "
-                "because mirrors must be external projections.",
-                name,
-            )
-            continue
-        # A single-writer file mirror is owned by exactly one process: the host
-        # write daemon. Client processes (MCP children) skip it so they don't
-        # contend on its exclusive file lock.
-        if backend_type in _SINGLE_WRITER_BACKENDS:
-            if _role is None:
-                from ..core.host_lock import effective_daemon_role
+    return conn_specs
 
-                _role = effective_daemon_role()
-            if _role != "host":
-                logger.info(
-                    "mirror '%s' (%s) is single-writer (file-locked); only the host "
-                    "daemon owns it — skipping in role=%s.",
-                    name,
-                    backend_type,
-                    _role,
-                )
-                continue
-        try:
-            from agent_utilities.knowledge_graph.core.connection_registry import (
-                _resolve_connection_runtime_fields,
-            )
 
-            spec = _resolve_connection_runtime_fields(spec)
-            member = _build_member(spec)
-            if member is not None:
-                # Pre-flight BEFORE the mirror can be written to: create a
-                # dedicated target if absent, and refuse a non-empty instance
-                # default (CONCEPT:AU-KG.backend.mirror-nonempty-default-guard).
-                preflight_mirror_target(name, member)
-        except MirrorTargetRefused as exc:
-            # CONCEPT:AU-KG.backend.mirror-nonempty-default-guard — the pre-flight
-            # guard refused this mirror rather than write the KG into data the
-            # instance already holds. NOT a transient outage: log the full
-            # actionable message at ERROR (it names the dedicated-graph fix and
-            # the explicit override), mark the mirror refused so the ``kg_mirrors``
-            # health check reports it distinctly, and attach nothing. The
-            # authority stays up — a misconfigured optional mirror must not take
-            # the KG down — but it is impossible to miss, and NOTHING was written.
-            logger.error(
-                "kg_connections mirror '%s' (backend_type=%s) REFUSED by the "
-                "mirror-target guard: %s",
+def _mirror_excluded(name: str, backend_type: str, role_cache: dict[str, str]) -> bool:
+    """True when this mirror must be skipped outright: it resolves to the
+    operational authority, or it is a single-writer (file-locked) backend and
+    this process is not the host daemon.
+
+    A single-writer file mirror is owned by exactly one process: the host
+    write daemon. Client processes (MCP children) skip it so they don't
+    contend on its exclusive file lock.
+    """
+    if backend_type in {"epistemic_graph", "fanout", "memory", "file"}:
+        logger.warning(
+            "mirror '%s' resolves to the operational authority; skipping "
+            "because mirrors must be external projections.",
+            name,
+        )
+        return True
+    if backend_type in _SINGLE_WRITER_BACKENDS:
+        role = role_cache.get("role")
+        if role is None:
+            from ..core.host_lock import effective_daemon_role
+
+            role = effective_daemon_role()
+            role_cache["role"] = role
+        if role != "host":
+            logger.info(
+                "mirror '%s' (%s) is single-writer (file-locked); only the host "
+                "daemon owns it — skipping in role=%s.",
                 name,
                 backend_type,
-                exc,
+                role,
             )
-            _record_mirror_status(
-                name, backend_type, ok=False, reason=str(exc), refused=True
-            )
-            continue
-        except Exception as exc:  # noqa: BLE001 — cause-preserving, see comment below
-            # An optional mirror is NOT allowed to take the operational
-            # authority (or any other mirror) down with it — isolate the
-            # failure here, right at its source, and keep going. Log the real
-            # cause (message + traceback), never just the exception type: that
-            # anti-pattern has repeatedly hidden the actual reason ("ImportError:
-            # Neo4j driver is not installed", a bad host, bad credentials, an
-            # invalid connection_profile_ref, ...) behind an undiagnosable stack.
-            logger.error(
-                "kg_connections mirror '%s' (backend_type=%s) failed to "
-                "construct and is DEGRADED/SKIPPED — the epistemic-graph "
-                "engine authority and every other mirror are unaffected "
-                "(%s: %s)",
-                name,
-                backend_type,
-                type(exc).__name__,
-                # Pass the exception OBJECT, not str(exc): core/log_privacy.py's
-                # `_sanitize_value` no longer collapses a BaseException log arg
-                # down to just its class name (that WAS the historical bug this
-                # comment used to work around) — it now sanitizes and KEEPS the
-                # message (`f"{type(exc).__name__}: {sanitized_message}"`), same
-                # as every other error log in this codebase (e.g. kg_server.py's
-                # `_ingest_skill_capabilities`). Pre-stringifying here would still
-                # render fine but bypasses that shared sanitizer for this value.
-                # (The ``noqa: BLE001`` marker above is for scripts/check_swallowed_errors.py:
-                # its heuristic flags any call whose args contain
-                # ``type(exc).__name__`` unless it ALSO contains a wrapped
-                # ``str(exc)``/``repr(exc)`` — a separate bare ``exc`` arg in the
-                # same call, as here, doesn't register as the override even though
-                # it is the real, fully cause-preserving reference.)
-                exc,
-                exc_info=True,
-            )
-            _record_mirror_status(
-                name, backend_type, ok=False, reason=f"{type(exc).__name__}: {exc}"
-            )
-            continue
+            return True
+    return False
+
+
+def _construct_mirror(name: str, backend_type: str, spec: dict[str, Any]) -> Any | None:
+    """Build one mirror member, isolating every failure mode: preflight
+    refusal, and any other construction exception. Records
+    ``get_mirror_build_status()`` for observability either way. Returns the
+    built member, or ``None`` when it could not be built.
+
+    An optional mirror is NOT allowed to take the operational authority (or
+    any other mirror) down with it — every failure is isolated here, right at
+    its source, and the caller keeps going.
+    """
+    try:
+        from agent_utilities.knowledge_graph.core.connection_registry import (
+            _resolve_connection_runtime_fields,
+        )
+
+        resolved_spec = _resolve_connection_runtime_fields(spec)
+        member = _build_member(resolved_spec)
         if member is not None:
-            mirrors[name] = member
-            _record_mirror_status(name, backend_type, ok=True)
-        else:
-            logger.warning(
-                "mirror '%s' unavailable (missing driver / unreachable); skipping.",
-                name,
-            )
-            _record_mirror_status(
-                name,
-                backend_type,
-                ok=False,
-                reason="backend factory returned None (missing driver / unavailable)",
-            )
-    return mirrors
+            # Pre-flight BEFORE the mirror can be written to: create a
+            # dedicated target if absent, and refuse a non-empty instance
+            # default (CONCEPT:AU-KG.backend.mirror-nonempty-default-guard).
+            preflight_mirror_target(name, member)
+    except MirrorTargetRefused as exc:
+        # CONCEPT:AU-KG.backend.mirror-nonempty-default-guard — the pre-flight
+        # guard refused this mirror rather than write the KG into data the
+        # instance already holds. NOT a transient outage: log the full
+        # actionable message at ERROR (it names the dedicated-graph fix and
+        # the explicit override), mark the mirror refused so the ``kg_mirrors``
+        # health check reports it distinctly, and attach nothing. The
+        # authority stays up — a misconfigured optional mirror must not take
+        # the KG down — but it is impossible to miss, and NOTHING was written.
+        logger.error(
+            "kg_connections mirror '%s' (backend_type=%s) REFUSED by the "
+            "mirror-target guard: %s",
+            name,
+            backend_type,
+            exc,
+        )
+        _record_mirror_status(
+            name, backend_type, ok=False, reason=str(exc), refused=True
+        )
+        return None
+    except Exception as exc:  # noqa: BLE001 — cause-preserving, see comment below
+        # An optional mirror is NOT allowed to take the operational
+        # authority (or any other mirror) down with it — isolate the
+        # failure here, right at its source, and keep going. Log the real
+        # cause (message + traceback), never just the exception type: that
+        # anti-pattern has repeatedly hidden the actual reason ("ImportError:
+        # Neo4j driver is not installed", a bad host, bad credentials, an
+        # invalid connection_profile_ref, ...) behind an undiagnosable stack.
+        logger.error(
+            "kg_connections mirror '%s' (backend_type=%s) failed to "
+            "construct and is DEGRADED/SKIPPED — the epistemic-graph "
+            "engine authority and every other mirror are unaffected "
+            "(%s: %s)",
+            name,
+            backend_type,
+            type(exc).__name__,
+            # Pass the exception OBJECT, not str(exc): core/log_privacy.py's
+            # `_sanitize_value` no longer collapses a BaseException log arg
+            # down to just its class name (that WAS the historical bug this
+            # comment used to work around) — it now sanitizes and KEEPS the
+            # message (`f"{type(exc).__name__}: {sanitized_message}"`), same
+            # as every other error log in this codebase (e.g. kg_server.py's
+            # `_ingest_skill_capabilities`). Pre-stringifying here would still
+            # render fine but bypasses that shared sanitizer for this value.
+            # (The ``noqa: BLE001`` marker above is for scripts/check_swallowed_errors.py:
+            # its heuristic flags any call whose args contain
+            # ``type(exc).__name__`` unless it ALSO contains a wrapped
+            # ``str(exc)``/``repr(exc)`` — a separate bare ``exc`` arg in the
+            # same call, as here, doesn't register as the override even though
+            # it is the real, fully cause-preserving reference.)
+            exc,
+            exc_info=True,
+        )
+        _record_mirror_status(
+            name, backend_type, ok=False, reason=f"{type(exc).__name__}: {exc}"
+        )
+        return None
+    if member is not None:
+        _record_mirror_status(name, backend_type, ok=True)
+        return member
+    logger.warning(
+        "mirror '%s' unavailable (missing driver / unreachable); skipping.",
+        name,
+    )
+    _record_mirror_status(
+        name,
+        backend_type,
+        ok=False,
+        reason="backend factory returned None (missing driver / unavailable)",
+    )
+    return None
 
 
 def get_active_backend():
@@ -735,39 +797,46 @@ def _finalize_backend(backend, *, backend_type: str, operational_authority: bool
     global _ACTIVE_BACKEND
 
     if backend:
-        try:
-            backend.create_schema()
-            # Run schema migrations to add any missing columns/properties
-            if (
-                backend_type == "ladybug"
-                and setting("AGENT_UTILITIES_TESTING") != "true"
-            ):
-                from ..migrations import migrate_graph
-
-                migrate_graph(backend)
-        except Exception as e:  # noqa: BLE001 — best-effort schema auto-migration on backend construction (guarded to non-testing environments above); the backend is already usable at this point, migrate_graph only adds schema conveniences on top
-            logger.debug(f"Failed to auto-initialize or migrate graph schema: {e}")
-
-        # CONCEPT:AU-KG.backend.company-brain-write-guard — wrap with the Company Brain write-path guard
-        # (provenance + source-authority arbitration) only when enforcement is
-        # on, so the default path stays byte-identical.
-        try:
-            from ..core.company_brain_runtime import brain_enforcement_enabled
-
-            if operational_authority and brain_enforcement_enabled():
-                from ..core.company_brain_runtime import get_company_brain
-                from .brain_guarded_backend import BrainGuardedBackend
-
-                backend = BrainGuardedBackend(  # type: ignore[assignment]
-                    backend, get_company_brain()
-                )
-                logger.info("Company Brain write-path guard installed")
-        except Exception as e:  # pragma: no cover - guard is best-effort
-            logger.warning("Brain guard not installed: %s", e)
+        _init_backend_schema(backend, backend_type)
+        backend = _maybe_wrap_brain_guard(backend, operational_authority)
 
     if backend and operational_authority and _ACTIVE_BACKEND is None:
         _ACTIVE_BACKEND = backend
 
+    return backend
+
+
+def _init_backend_schema(backend, backend_type: str) -> None:
+    """Best-effort schema init + migration; a failure here never blocks using
+    the backend that already constructed successfully."""
+    try:
+        backend.create_schema()
+        # Run schema migrations to add any missing columns/properties
+        if backend_type == "ladybug" and setting("AGENT_UTILITIES_TESTING") != "true":
+            from ..migrations import migrate_graph
+
+            migrate_graph(backend)
+    except Exception as e:  # noqa: BLE001 — best-effort schema auto-migration on backend construction (guarded to non-testing environments above); the backend is already usable at this point, migrate_graph only adds schema conveniences on top
+        logger.debug(f"Failed to auto-initialize or migrate graph schema: {e}")
+
+
+def _maybe_wrap_brain_guard(backend, operational_authority: bool):
+    """Wrap with the Company Brain write-path guard (CONCEPT:AU-KG.backend.company-brain-write-guard
+    — provenance + source-authority arbitration) only when enforcement is on,
+    so the default path stays byte-identical."""
+    try:
+        from ..core.company_brain_runtime import brain_enforcement_enabled
+
+        if operational_authority and brain_enforcement_enabled():
+            from ..core.company_brain_runtime import get_company_brain
+            from .brain_guarded_backend import BrainGuardedBackend
+
+            backend = BrainGuardedBackend(  # type: ignore[assignment]
+                backend, get_company_brain()
+            )
+            logger.info("Company Brain write-path guard installed")
+    except Exception as e:  # pragma: no cover - guard is best-effort
+        logger.warning("Brain guard not installed: %s", e)
     return backend
 
 
@@ -786,46 +855,13 @@ def _resolve_backend_request(
     """Validate the operational/explicit backend request and resolve any
     connection_profile_ref onto the individual transport fields."""
     operational_authority = backend_type is None
-    explicit_transport = any(
-        value is not None
-        for value in (db_path, host, port, uri, user, password, db_name)
+    transport = (db_path, host, port, uri, user, password, db_name)
+    requested_type, connection_profile_ref = _classify_backend_request(
+        backend_type, operational_authority, transport, connection_profile_ref
     )
-    external_transport = any(
-        value is not None for value in (host, port, uri, user, password, db_name)
-    )
-    if operational_authority and (external_transport or connection_profile_ref):
-        raise ValueError(
-            "operational graph authority does not accept external transport fields"
-        )
-
-    requested_type = (
-        "fanout" if operational_authority else str(backend_type).lower().strip()
-    )
-    if not operational_authority and requested_type == "fanout":
-        raise ValueError(
-            "fan-out is an automatic operational projection wrapper, not an "
-            "explicit backend adapter"
-        )
-    if (
-        not operational_authority
-        and requested_type not in {"epistemic_graph", "fanout", "memory", "file"}
-        and connection_profile_ref is None
-        and not explicit_transport
-    ):
-        from agent_utilities.core.config import config as _cfg
-
-        connection_profile_ref = _cfg.graph_db_connection_profile_ref
     profile = _resolve_connection_profile(connection_profile_ref)
-    db_path = db_path if db_path is not None else profile.pop("db_path", None)
-    host = host if host is not None else profile.pop("host", None)
-    port = port if port is not None else profile.pop("port", None)
-    uri = uri if uri is not None else profile.pop("uri", None)
-    user = user if user is not None else profile.pop("user", None)
-    password = password if password is not None else profile.pop("password", None)
-    db_name = db_name if db_name is not None else profile.pop("db_name", None)
-    if "database" in profile and "database" not in kwargs:
-        kwargs["database"] = profile.pop("database")
-    kwargs = {**profile, **kwargs}
+    transport, kwargs = _apply_connection_profile(transport, profile, kwargs)
+    db_path, host, port, uri, user, password, db_name = transport
     return (
         requested_type,
         operational_authority,
@@ -838,6 +874,92 @@ def _resolve_backend_request(
         db_name,
         kwargs,
     )
+
+
+def _classify_backend_request(
+    backend_type: str | None,
+    operational_authority: bool,
+    transport: tuple,
+    connection_profile_ref: str | None,
+) -> tuple[str, str | None]:
+    """Validate the operational/explicit split and resolve the normalized
+    ``requested_type`` plus the effective ``connection_profile_ref`` (falling
+    back to the deployment default only for a non-authority request with no
+    other transport supplied)."""
+    db_path = transport[0]
+    external_transport = any(value is not None for value in transport[1:])
+    _validate_authority_transport(
+        operational_authority, external_transport, connection_profile_ref
+    )
+    requested_type = (
+        "fanout" if operational_authority else str(backend_type).lower().strip()
+    )
+    if not operational_authority and requested_type == "fanout":
+        raise ValueError(
+            "fan-out is an automatic operational projection wrapper, not an "
+            "explicit backend adapter"
+        )
+    explicit_transport = external_transport or db_path is not None
+    connection_profile_ref = _default_connection_profile_ref(
+        requested_type,
+        operational_authority,
+        connection_profile_ref,
+        explicit_transport,
+    )
+    return requested_type, connection_profile_ref
+
+
+def _validate_authority_transport(
+    operational_authority: bool,
+    external_transport: bool,
+    connection_profile_ref: str | None,
+) -> None:
+    """Refuse external transport fields on the operational authority request."""
+    if operational_authority and (external_transport or connection_profile_ref):
+        raise ValueError(
+            "operational graph authority does not accept external transport fields"
+        )
+
+
+def _default_connection_profile_ref(
+    requested_type: str,
+    operational_authority: bool,
+    connection_profile_ref: str | None,
+    explicit_transport: bool,
+) -> str | None:
+    """Fall back to the deployment-default connection_profile_ref, but only
+    for a non-authority, non-builtin request with no other transport
+    supplied."""
+    if (
+        not operational_authority
+        and requested_type not in {"epistemic_graph", "fanout", "memory", "file"}
+        and connection_profile_ref is None
+        and not explicit_transport
+    ):
+        from agent_utilities.core.config import config as _cfg
+
+        return _cfg.graph_db_connection_profile_ref
+    return connection_profile_ref
+
+
+def _apply_connection_profile(
+    transport: tuple, profile: dict[str, Any], kwargs: dict
+) -> tuple[tuple, dict]:
+    """Fill any unset transport field from the resolved connection profile,
+    then merge the remainder of the profile into ``kwargs`` (explicit kwargs
+    win)."""
+    db_path, host, port, uri, user, password, db_name = transport
+    db_path = db_path if db_path is not None else profile.pop("db_path", None)
+    host = host if host is not None else profile.pop("host", None)
+    port = port if port is not None else profile.pop("port", None)
+    uri = uri if uri is not None else profile.pop("uri", None)
+    user = user if user is not None else profile.pop("user", None)
+    password = password if password is not None else profile.pop("password", None)
+    db_name = db_name if db_name is not None else profile.pop("db_name", None)
+    if "database" in profile and "database" not in kwargs:
+        kwargs["database"] = profile.pop("database")
+    kwargs = {**profile, **kwargs}
+    return (db_path, host, port, uri, user, password, db_name), kwargs
 
 
 def create_backend(
