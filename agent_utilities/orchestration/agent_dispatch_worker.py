@@ -67,6 +67,7 @@ import secrets
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, TypedDict
 
 from agent_utilities.orchestration.agent_dispatch import (
@@ -247,6 +248,56 @@ def _renew_interval_seconds(lease_ttl_s: float, value: float | None = None) -> f
 # ── claims (idempotent, stale-claim aware) ─────────────────────────────────
 
 
+def _goal_concept_row(rows: list[dict[str, Any]] | None) -> dict[str, Any] | None:
+    return next(
+        (r for r in (rows or []) if isinstance(r, dict) and r.get("goal_id")), None
+    )
+
+
+def _goal_work_item_is_terminal(engine: Any, goal_id: str) -> bool:
+    from agent_utilities.orchestration.work_item import (
+        TERMINAL_WORK_ITEM_STATUSES,
+        work_item_view_of_loop,
+    )
+
+    work_view = work_item_view_of_loop(engine, goal_id)
+    return bool(work_view and work_view.get("status") in TERMINAL_WORK_ITEM_STATUSES)
+
+
+def _base_goal_spec(goal_id: str, row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "goal_id": goal_id,
+        "session_id": str(row.get("session_id") or ""),
+        "objective": str(row.get("objective") or ""),
+        "validation_cmd": str(row.get("validation_cmd") or ""),
+        "max_iterations": int(row.get("max_iterations") or 20),
+        "constraints": [],
+    }
+
+
+def _apply_session_goal_spec_fallback(spec: dict[str, Any], session_id: str) -> None:
+    """Overlay any ``goal_spec`` persisted in the session's metadata, best-effort."""
+    from agent_utilities.core import sessions as _sessions
+
+    try:
+        conn = _sessions._connect_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT metadata_json FROM sessions WHERE id = ?", (session_id,))
+        sess = cursor.fetchone()
+        conn.close()
+        if sess:
+            stored = (json.loads(sess["metadata_json"] or "{}") or {}).get(
+                "goal_spec"
+            ) or {}
+            for key in ("objective", "validation_cmd", "max_iterations"):
+                if stored.get(key):
+                    spec[key] = stored[key]
+            if stored.get("constraints"):
+                spec["constraints"] = list(stored["constraints"])
+    except Exception as e:  # noqa: BLE001 — session goal_spec is a fallback
+        logger.debug("session goal_spec fallback failed: %s", e)
+
+
 def load_goal_run(
     goal_id: str,
     *,
@@ -280,48 +331,16 @@ def load_goal_run(
     except Exception as e:  # noqa: BLE001
         logger.warning("Goal claim query failed (%s)", type(e).__name__)
         return None
-    row = next(
-        (r for r in (rows or []) if isinstance(r, dict) and r.get("goal_id")), None
-    )
+    row = _goal_concept_row(rows)
     if not row:
         logger.warning("Dispatch envelope for unknown goal %s skipped.", goal_id)
         return None
-    from agent_utilities.orchestration.work_item import (
-        TERMINAL_WORK_ITEM_STATUSES,
-        work_item_view_of_loop,
-    )
-
-    work_view = work_item_view_of_loop(engine, goal_id)
-    if work_view and work_view.get("status") in TERMINAL_WORK_ITEM_STATUSES:
+    if _goal_work_item_is_terminal(engine, goal_id):
         logger.debug("Duplicate delivery of terminal goal %s skipped.", goal_id)
         return None
 
-    session_id = str(row.get("session_id") or "")
-    spec: dict[str, Any] = {
-        "goal_id": goal_id,
-        "session_id": session_id,
-        "objective": str(row.get("objective") or ""),
-        "validation_cmd": str(row.get("validation_cmd") or ""),
-        "max_iterations": int(row.get("max_iterations") or 20),
-        "constraints": [],
-    }
-    try:
-        conn = _sessions._connect_db()
-        cursor = conn.cursor()
-        cursor.execute("SELECT metadata_json FROM sessions WHERE id = ?", (session_id,))
-        sess = cursor.fetchone()
-        conn.close()
-        if sess:
-            stored = (json.loads(sess["metadata_json"] or "{}") or {}).get(
-                "goal_spec"
-            ) or {}
-            for key in ("objective", "validation_cmd", "max_iterations"):
-                if stored.get(key):
-                    spec[key] = stored[key]
-            if stored.get("constraints"):
-                spec["constraints"] = list(stored["constraints"])
-    except Exception as e:  # noqa: BLE001 — session goal_spec is a fallback
-        logger.debug("session goal_spec fallback failed: %s", e)
+    spec = _base_goal_spec(goal_id, row)
+    _apply_session_goal_spec_fallback(spec, spec["session_id"])
 
     # Read-only rehydration. LoopController claims the goal's WorkItem; this
     # dispatch layer owns only the parent agent-turn WorkItem.
@@ -605,6 +624,13 @@ def _fence_still_valid(
 # reuse-audit against ``AgentIdentityNode.capabilities``/``AgentCapabilityNode``.
 
 
+def _grant_row_is_live(row: dict[str, Any], now: float) -> bool:
+    if not row.get("id") or row.get("revoked"):
+        return False
+    expires_at = row.get("expires_at")
+    return not (expires_at is not None and float(expires_at) <= now)
+
+
 def resolve_capability_grant(
     engine: Any,
     agent_id: str,
@@ -639,10 +665,7 @@ def resolve_capability_grant(
     if not rows:
         return None
     row = rows[0]
-    if not row.get("id") or row.get("revoked"):
-        return None
-    expires_at = row.get("expires_at")
-    if expires_at is not None and float(expires_at) <= now:
+    if not _grant_row_is_live(row, now):
         return None
     return dict(row)
 
@@ -949,6 +972,267 @@ def _finalize_work_item(
     return str(committed or "blocked")
 
 
+@dataclass
+class _WorkItemTurnContext:
+    """Shared identity/evidence/tuning bundle threaded through one WorkItem turn."""
+
+    engine: Any
+    work_item_id: str
+    claim: dict[str, Any]
+    agent_id: str
+    evidence: Any
+    capability: str
+    now: float
+    claim_ttl_s: float
+
+
+@dataclass
+class _WorkItemTurnRequest:
+    """The caller-supplied inputs :func:`_prepare_work_item_turn` needs to claim
+    a WorkItem and build its :class:`_WorkItemTurnContext` (bundled to stay
+    under the 7-parameter cap)."""
+
+    agent_id: str
+    capability: str
+    evidence: Any
+    token: str | None
+    now: float
+    claim_ttl_s: float
+
+
+def _finalize_blocked_or_denied(
+    ctx: _WorkItemTurnContext,
+    *,
+    policy_decision_node: Any,
+    lease: WorkItemLeaseGuard,
+    policy_decision: Any,
+) -> str:
+    from agent_utilities.orchestration.action_policy import DECISION_QUEUE
+
+    status = "blocked" if policy_decision.decision == DECISION_QUEUE else "denied"
+    result = (
+        f"policy {policy_decision.decision} ({policy_decision.tier}): "
+        f"{policy_decision.reason}"
+    )
+    try:
+        finalization = lease.side_effect(
+            _finalize_work_item,
+            ctx.engine,
+            ctx.work_item_id,
+            ctx.claim,
+            status=status,
+            reward=0.0,
+            feedback_text=result[:2000],
+        )
+    except WorkItemLeaseLost:
+        return "fenced"
+    finally:
+        lease.close()
+    if finalization in {"fenced", "missing", "conflict"}:
+        return "fenced"
+    provenance_status = _write_work_item_provenance(
+        ctx.engine,
+        work_item_id=ctx.work_item_id,
+        claim=ctx.claim,
+        agent_id=ctx.agent_id,
+        status=status,
+        result=result,
+        evidence=ctx.evidence,
+        policy_decision_node=policy_decision_node,
+        grant_id=None,
+    )
+    # BUG-015/GOC-20 (B7/B8): the WorkItem's OutcomeEvaluation and its
+    # Observation/Claim/Action/Trace provenance are both REQUIRED — a
+    # terminal report may not claim a clean outcome while either is
+    # missing. See decisions/GOC-20-atomic-outcome-provenance.md.
+    if finalization == "degraded" or provenance_status != "written":
+        return "degraded"
+    return "blocked" if status == "blocked" else "denied"
+
+
+def _resolve_or_grant_capability(
+    ctx: _WorkItemTurnContext, lease: WorkItemLeaseGuard
+) -> str | None:
+    if not ctx.agent_id:
+        return None
+    existing = resolve_capability_grant(
+        ctx.engine, ctx.agent_id, ctx.capability, now=ctx.now
+    )
+    grant_id = existing.get("id") if existing else None
+    if grant_id is None:
+        grant_id = lease.side_effect(
+            grant_capability,
+            ctx.engine,
+            ctx.agent_id,
+            ctx.capability,
+            issuer="agent-dispatch",
+            ttl_seconds=ctx.claim_ttl_s,
+            now=ctx.now,
+        )
+    return grant_id
+
+
+def _run_work_item_executor(
+    ctx: _WorkItemTurnContext,
+    lease: WorkItemLeaseGuard,
+    executor: Callable[[dict[str, Any], WorkItemLeaseGuard], Any] | None,
+) -> tuple[str, float, Any]:
+    """Run the bound executor under the current lease.
+
+    Returns ``(status, reward, result)``; never raises except
+    ``WorkItemLeaseLost``, which propagates so the caller can fence.
+    """
+    try:
+        lease.require_current()
+        # BUG-070: bind WorkItem/lease/agent identity for the exact
+        # duration of the executor call so any generic engine mutation
+        # it triggers (e.g. lifecycle.batch_update) is attributable from
+        # logs alone -- see work_item_context's module docstring for the
+        # BUG-064 incident this closes the gap for.
+        from agent_utilities.orchestration.work_item_context import (
+            bind_work_item_context,
+        )
+
+        with bind_work_item_context(
+            work_item_id=ctx.work_item_id,
+            agent_id=ctx.agent_id,
+            lease_id=str(ctx.claim.get("lease_id", "")),
+            capability=ctx.capability,
+        ):
+            result = (executor or _default_work_item_executor)(ctx.claim, lease)
+        return "completed", 1.0, result
+    except WorkItemLeaseLost:
+        raise
+    except NoExecutorBoundError as e:
+        return "unroutable", 0.0, str(e)
+    except Exception as e:  # noqa: BLE001 — durably record, never raise
+        return "failed", 0.0, str(e)
+
+
+def _execute_and_finalize_work_item(
+    ctx: _WorkItemTurnContext,
+    lease: WorkItemLeaseGuard,
+    executor: Callable[[dict[str, Any], WorkItemLeaseGuard], Any] | None,
+) -> tuple[str, Any, str, str | None]:
+    """Resolve capability, run the executor, and finalize the WorkItem.
+
+    Raises ``WorkItemLeaseLost`` (uncaught) if the lease is reclaimed at any
+    point — the caller's try/finally is responsible for closing the lease and
+    reporting "fenced".
+    """
+    grant_id = _resolve_or_grant_capability(ctx, lease)
+
+    # Execute — pluggable body; the default FAILS CLOSED. The lease guard
+    # renews periodically, and the executor receives the current-only
+    # side-effect fencing surface.
+    status, reward, result = _run_work_item_executor(ctx, lease, executor)
+
+    finalization = lease.side_effect(
+        _finalize_work_item,
+        ctx.engine,
+        ctx.work_item_id,
+        ctx.claim,
+        status=status,
+        reward=reward,
+        feedback_text=str(result)[:2000],
+    )
+    return status, result, finalization, grant_id
+
+
+def _prepare_work_item_turn(
+    engine: Any,
+    work_item_id: str,
+    request: _WorkItemTurnRequest,
+) -> _WorkItemTurnContext | None:
+    """Claim the WorkItem and build its turn context; ``None`` means "skipped"."""
+    from agent_utilities.orchestration.work_item import claim_execution_work_item
+
+    claim = claim_execution_work_item(
+        engine,
+        work_item_id,
+        token=request.token,
+        now=request.now,
+        claim_ttl_s=request.claim_ttl_s,
+    )
+    if claim is None:
+        return None
+    from agent_utilities.messaging.bus_privacy import bus_reference
+
+    agent_id = bus_reference(
+        "agent", request.agent_id, tenant=str(claim.get("tenant") or "")
+    )
+
+    # EvidenceBundle (C1) — minimal, honest envelope: what is known about this
+    # claim before executing. Callers with a real retrieval surface should
+    # pass `evidence=` instead of relying on this placeholder.
+    evidence = request.evidence
+    if evidence is None:
+        from agent_utilities.models.evidence_bundle import EvidenceBundle
+
+        evidence = EvidenceBundle(
+            reasoning_trace=[{"step": "work_item_claim", **claim}]
+        )
+
+    return _WorkItemTurnContext(
+        engine=engine,
+        work_item_id=work_item_id,
+        claim=claim,
+        agent_id=agent_id,
+        evidence=evidence,
+        capability=request.capability,
+        now=request.now,
+        claim_ttl_s=request.claim_ttl_s,
+    )
+
+
+def _start_lease_and_decide_policy(
+    engine: Any,
+    work_item_id: str,
+    claim: dict[str, Any],
+    agent_id: str,
+    claim_ttl_s: float,
+) -> tuple[WorkItemLeaseGuard, Any, Any] | None:
+    """Start the WorkItem lease and run the action-policy decision.
+
+    Returns ``(lease, policy_decision, policy_decision_node)``, or ``None``
+    if the lease was lost before a decision landed (already closed). Any
+    other exception is re-raised after closing the lease.
+    """
+    from agent_utilities.models.knowledge_graph import AgentPolicyDecisionNode
+    from agent_utilities.orchestration.action_policy import (
+        ActionRequest,
+        get_action_policy,
+    )
+
+    lease = WorkItemLeaseGuard(
+        engine,
+        work_item_id,
+        claim,
+        lease_ttl_s=claim_ttl_s,
+    )
+    try:
+        lease.start()
+        policy_decision = lease.side_effect(
+            get_action_policy(engine).decide,
+            ActionRequest(
+                kind="work_item.execute",
+                target=work_item_id,
+                source="agent-dispatch",
+                actor_id=agent_id,
+            ),
+        )
+    except WorkItemLeaseLost:
+        lease.close()
+        return None
+    except Exception:
+        lease.close()
+        raise
+    policy_decision_node = AgentPolicyDecisionNode.from_action_decision(
+        policy_decision, agent_id=agent_id
+    )
+    return lease, policy_decision, policy_decision_node
+
+
 def execute_work_item_turn(
     engine: Any,
     work_item_id: str,
@@ -1000,166 +1284,48 @@ def execute_work_item_turn(
     now = now if now is not None else time.time()
     claim_ttl_s = _claim_ttl_seconds(claim_ttl_s)
 
-    from agent_utilities.orchestration.work_item import claim_execution_work_item
-
-    claim = claim_execution_work_item(
-        engine, work_item_id, token=token, now=now, claim_ttl_s=claim_ttl_s
+    ctx = _prepare_work_item_turn(
+        engine,
+        work_item_id,
+        _WorkItemTurnRequest(
+            agent_id=agent_id,
+            capability=capability,
+            evidence=evidence,
+            token=token,
+            now=now,
+            claim_ttl_s=claim_ttl_s,
+        ),
     )
-    if claim is None:
+    if ctx is None:
         return "skipped"
-    from agent_utilities.messaging.bus_privacy import bus_reference
-
-    agent_id = bus_reference("agent", agent_id, tenant=str(claim.get("tenant") or ""))
-
-    # EvidenceBundle (C1) — minimal, honest envelope: what is known about this
-    # claim before executing. Callers with a real retrieval surface should
-    # pass `evidence=` instead of relying on this placeholder.
-    if evidence is None:
-        from agent_utilities.models.evidence_bundle import EvidenceBundle
-
-        evidence = EvidenceBundle(
-            reasoning_trace=[{"step": "work_item_claim", **claim}]
-        )
+    claim = ctx.claim
+    agent_id = ctx.agent_id
+    evidence = ctx.evidence
 
     # Policy frame (AgentPolicyDecision) — the SAME action_policy gate every
     # other autonomous mutating action goes through.
-    from agent_utilities.models.knowledge_graph import AgentPolicyDecisionNode
-    from agent_utilities.orchestration.action_policy import (
-        DECISION_QUEUE,
-        ActionRequest,
-        get_action_policy,
+    decided = _start_lease_and_decide_policy(
+        engine, work_item_id, claim, agent_id, claim_ttl_s
     )
-
-    lease = WorkItemLeaseGuard(
-        engine,
-        work_item_id,
-        claim,
-        lease_ttl_s=claim_ttl_s,
-    )
-    try:
-        lease.start()
-        policy_decision = lease.side_effect(
-            get_action_policy(engine).decide,
-            ActionRequest(
-                kind="work_item.execute",
-                target=work_item_id,
-                source="agent-dispatch",
-                actor_id=agent_id,
-            ),
-        )
-    except WorkItemLeaseLost:
-        lease.close()
+    if decided is None:
         return "fenced"
-    except Exception:
-        lease.close()
-        raise
-    policy_decision_node = AgentPolicyDecisionNode.from_action_decision(
-        policy_decision, agent_id=agent_id
-    )
+    lease, policy_decision, policy_decision_node = decided
 
     if not policy_decision.allowed:
-        status = "blocked" if policy_decision.decision == DECISION_QUEUE else "denied"
-        result = (
-            f"policy {policy_decision.decision} ({policy_decision.tier}): "
-            f"{policy_decision.reason}"
-        )
-        try:
-            finalization = lease.side_effect(
-                _finalize_work_item,
-                engine,
-                work_item_id,
-                claim,
-                status=status,
-                reward=0.0,
-                feedback_text=result[:2000],
-            )
-        except WorkItemLeaseLost:
-            return "fenced"
-        finally:
-            lease.close()
-        if finalization in {"fenced", "missing", "conflict"}:
-            return "fenced"
-        provenance_status = _write_work_item_provenance(
-            engine,
-            work_item_id=work_item_id,
-            claim=claim,
-            agent_id=agent_id,
-            status=status,
-            result=result,
-            evidence=evidence,
+        return _finalize_blocked_or_denied(
+            ctx,
             policy_decision_node=policy_decision_node,
-            grant_id=None,
+            lease=lease,
+            policy_decision=policy_decision,
         )
-        # BUG-015/GOC-20 (B7/B8): the WorkItem's OutcomeEvaluation and its
-        # Observation/Claim/Action/Trace provenance are both REQUIRED — a
-        # terminal report may not claim a clean outcome while either is
-        # missing. See decisions/GOC-20-atomic-outcome-provenance.md.
-        if finalization == "degraded" or provenance_status != "written":
-            return "degraded"
-        return "blocked" if status == "blocked" else "denied"
 
     # Capability grant — resolve an existing grant, or self-issue a bootstrap
     # one so there is always SOME AUTHORIZED_FOR audit trail for the
     # execution (advisory today: action_policy above is the hard gate; this
     # is the per-grant record team-synthesis already reads).
-    grant_id: str | None = None
     try:
-        if agent_id:
-            existing = resolve_capability_grant(engine, agent_id, capability, now=now)
-            grant_id = existing.get("id") if existing else None
-            if grant_id is None:
-                grant_id = lease.side_effect(
-                    grant_capability,
-                    engine,
-                    agent_id,
-                    capability,
-                    issuer="agent-dispatch",
-                    ttl_seconds=claim_ttl_s,
-                    now=now,
-                )
-
-        # Execute — pluggable body; the default FAILS CLOSED. The lease guard
-        # renews periodically, and the executor receives the current-only
-        # side-effect fencing surface.
-        try:
-            lease.require_current()
-            # BUG-070: bind WorkItem/lease/agent identity for the exact
-            # duration of the executor call so any generic engine mutation
-            # it triggers (e.g. lifecycle.batch_update) is attributable from
-            # logs alone -- see work_item_context's module docstring for the
-            # BUG-064 incident this closes the gap for.
-            from agent_utilities.orchestration.work_item_context import (
-                bind_work_item_context,
-            )
-
-            with bind_work_item_context(
-                work_item_id=work_item_id,
-                agent_id=agent_id,
-                lease_id=str(claim.get("lease_id", "")),
-                capability=capability,
-            ):
-                result = (executor or _default_work_item_executor)(claim, lease)
-            status = "completed"
-            reward = 1.0
-        except WorkItemLeaseLost:
-            raise
-        except NoExecutorBoundError as e:
-            result = str(e)
-            status = "unroutable"
-            reward = 0.0
-        except Exception as e:  # noqa: BLE001 — durably record, never raise
-            result = str(e)
-            status = "failed"
-            reward = 0.0
-
-        finalization = lease.side_effect(
-            _finalize_work_item,
-            engine,
-            work_item_id,
-            claim,
-            status=status,
-            reward=reward,
-            feedback_text=str(result)[:2000],
+        status, result, finalization, grant_id = _execute_and_finalize_work_item(
+            ctx, lease, executor
         )
     except WorkItemLeaseLost:
         logger.warning(
@@ -1244,6 +1410,46 @@ def _finalize_agent_task(
     return committed
 
 
+def _run_agent_task_executor(
+    claim: dict[str, Any],
+    executor: Callable[[dict[str, Any]], Any] | None,
+    *,
+    work_item_id: str,
+    agent_id: str,
+    task_id: str,
+    lease: WorkItemLeaseGuard,
+) -> tuple[str, Any]:
+    """Run the bound AgentTask executor.
+
+    Returns ``(status, result)``; never raises except ``WorkItemLeaseLost``,
+    which propagates so the caller can fence.
+    """
+    try:
+        lease.require_current()
+        # BUG-070: same WorkItem-identity binding as execute_work_item_turn
+        # -- the AgentTask bridge shadows onto a WorkItem 1:1, so it is the
+        # same claimed-WorkItem execution seam a generic engine mutation
+        # (e.g. lifecycle.batch_update) can reach through.
+        from agent_utilities.orchestration.work_item_context import (
+            bind_work_item_context,
+        )
+
+        with bind_work_item_context(
+            work_item_id=work_item_id,
+            agent_id=agent_id,
+            lease_id=str(claim.get("lease_id", "")),
+            task_id=task_id,
+        ):
+            result = (executor or _default_agent_task_executor)(claim)
+        return "completed", result
+    except WorkItemLeaseLost:
+        raise
+    except NoExecutorBoundError as e:
+        return "unroutable", str(e)
+    except Exception as e:  # noqa: BLE001 — durably record, never raise
+        return "failed", str(e)
+
+
 def execute_agent_task_turn(
     engine: Any,
     task_id: str,
@@ -1314,33 +1520,14 @@ def execute_agent_task_turn(
     lease = WorkItemLeaseGuard(engine, work_item_id, claim, lease_ttl_s=claim_ttl_s)
     try:
         lease.start()
-        try:
-            lease.require_current()
-            # BUG-070: same WorkItem-identity binding as execute_work_item_turn
-            # -- the AgentTask bridge shadows onto a WorkItem 1:1, so it is the
-            # same claimed-WorkItem execution seam a generic engine mutation
-            # (e.g. lifecycle.batch_update) can reach through.
-            from agent_utilities.orchestration.work_item_context import (
-                bind_work_item_context,
-            )
-
-            with bind_work_item_context(
-                work_item_id=work_item_id,
-                agent_id=agent_id,
-                lease_id=str(claim.get("lease_id", "")),
-                task_id=task_id,
-            ):
-                result = (executor or _default_agent_task_executor)(claim)
-            status = "completed"
-        except WorkItemLeaseLost:
-            raise
-        except NoExecutorBoundError as e:
-            result = str(e)
-            status = "unroutable"
-        except Exception as e:  # noqa: BLE001 — durably record, never raise
-            result = str(e)
-            status = "failed"
-
+        status, result = _run_agent_task_executor(
+            claim,
+            executor,
+            work_item_id=work_item_id,
+            agent_id=agent_id,
+            task_id=task_id,
+            lease=lease,
+        )
         finalization = lease.side_effect(
             _finalize_agent_task,
             engine,
@@ -1558,6 +1745,91 @@ def _fail_expired(envelope: AgentTurnEnvelope, engine: Any) -> None:
             logger.error("Failed to expire task %s: %s", envelope.payload_ref, e)
 
 
+def _resolve_dispatch_engine(engine: Any, envelope: AgentTurnEnvelope) -> Any:
+    if engine is None and envelope.kind == KIND_GOAL_LOOP:
+        from agent_utilities.core import sessions as _sessions
+
+        engine = _sessions._goal_engine()
+    if engine is None:
+        raise RuntimeError("agent turn dispatch requires the process graph authority")
+    return engine
+
+
+def _run_agent_turn_kind(
+    envelope: AgentTurnEnvelope,
+    engine: Any,
+    lease: WorkItemLeaseGuard,
+    *,
+    token: str | None,
+    now: float | None,
+    claim_ttl_s: float,
+) -> str:
+    """Dispatch by envelope kind; returns the turn outcome (default "failed")."""
+    if envelope.kind == KIND_GOAL_LOOP:
+        spec = load_goal_run(envelope.payload_ref, token=token, now=now)
+        if spec is None:
+            return "failed"
+        lease.require_current()
+        return _execute_goal_turn(spec, engine=engine)
+    if envelope.kind == KIND_ORCHESTRATOR_TASK:
+        claim = lease.side_effect(
+            claim_orchestrator_work_item,
+            engine,
+            envelope.payload_ref,
+            token=token,
+            now=now,
+            claim_ttl_s=claim_ttl_s,
+        )
+        if claim is None:
+            return "failed"
+        return _execute_orchestrator_turn(
+            engine, envelope, claim, claim_ttl_s=claim_ttl_s
+        )
+    from agent_utilities.messaging.bus_privacy import bus_reference
+
+    logger.error(
+        "Unknown dispatch kind %r (job_ref=%s)",
+        envelope.kind,
+        bus_reference("dispatch_job", envelope.job_id, tenant=envelope.tenant),
+    )
+    return "failed"
+
+
+def _commit_agent_turn_result(
+    lease: WorkItemLeaseGuard,
+    engine: Any,
+    dispatch_item_id: str,
+    dispatch_claim: dict[str, Any],
+    *,
+    job_id: str,
+    outcome: str,
+    error_detail: str,
+) -> str:
+    """Durably commit the dispatch WorkItem's result; returns ``outcome`` unchanged.
+
+    Raises ``WorkItemBackendUnavailable`` if the commit itself was rejected.
+    """
+    from agent_utilities.orchestration import work_item as _wi
+
+    committed = lease.side_effect(
+        _wi.commit_result,
+        engine,
+        dispatch_item_id,
+        dispatch_claim,
+        outcome="succeeded" if outcome == "completed" else "failed",
+        result_ref=f"dispatch:{job_id}:completed" if outcome == "completed" else None,
+        error_ref=f"dispatch:{job_id}:{error_detail or outcome}"
+        if outcome != "completed"
+        else None,
+        retryable=False,
+    )
+    if committed not in {"committed", "noop"}:
+        raise _wi.WorkItemBackendUnavailable(
+            f"agent turn commit was rejected ({committed})"
+        )
+    return outcome
+
+
 def execute_agent_turn(
     envelope: AgentTurnEnvelope,
     engine: Any = None,
@@ -1574,12 +1846,7 @@ def execute_agent_turn(
     """
     token = token or worker_token()
     claim_ttl_s = _claim_ttl_seconds(claim_ttl_s)
-    if engine is None and envelope.kind == KIND_GOAL_LOOP:
-        from agent_utilities.core import sessions as _sessions
-
-        engine = _sessions._goal_engine()
-    if engine is None:
-        raise RuntimeError("agent turn dispatch requires the process graph authority")
+    engine = _resolve_dispatch_engine(engine, envelope)
 
     from agent_utilities.orchestration import work_item as _wi
 
@@ -1613,41 +1880,14 @@ def execute_agent_turn(
             outcome = "failed"
             error_detail = ""
             try:
-                if envelope.kind == KIND_GOAL_LOOP:
-                    spec = load_goal_run(
-                        envelope.payload_ref,
-                        token=token,
-                        now=now,
-                    )
-                    if spec is not None:
-                        lease.require_current()
-                        outcome = _execute_goal_turn(spec, engine=engine)
-                elif envelope.kind == KIND_ORCHESTRATOR_TASK:
-                    claim = lease.side_effect(
-                        claim_orchestrator_work_item,
-                        engine,
-                        envelope.payload_ref,
-                        token=token,
-                        now=now,
-                        claim_ttl_s=claim_ttl_s,
-                    )
-                    if claim is not None:
-                        outcome = _execute_orchestrator_turn(
-                            engine,
-                            envelope,
-                            claim,
-                            claim_ttl_s=claim_ttl_s,
-                        )
-                else:
-                    from agent_utilities.messaging.bus_privacy import bus_reference
-
-                    logger.error(
-                        "Unknown dispatch kind %r (job_ref=%s)",
-                        envelope.kind,
-                        bus_reference(
-                            "dispatch_job", envelope.job_id, tenant=envelope.tenant
-                        ),
-                    )
+                outcome = _run_agent_turn_kind(
+                    envelope,
+                    engine,
+                    lease,
+                    token=token,
+                    now=now,
+                    claim_ttl_s=claim_ttl_s,
+                )
             except WorkItemLeaseLost:
                 raise
             except Exception as e:  # noqa: BLE001 — BUG-003: a turn-execution
@@ -1666,25 +1906,15 @@ def execute_agent_turn(
                 )
                 outcome = "failed"
                 error_detail = f"{type(e).__name__}: {e}"[:500]
-            committed = lease.side_effect(
-                _wi.commit_result,
+            return _commit_agent_turn_result(
+                lease,
                 engine,
                 dispatch_item_id,
                 dispatch_claim,
-                outcome="succeeded" if outcome == "completed" else "failed",
-                result_ref=f"dispatch:{envelope.job_id}:completed"
-                if outcome == "completed"
-                else None,
-                error_ref=f"dispatch:{envelope.job_id}:{error_detail or outcome}"
-                if outcome != "completed"
-                else None,
-                retryable=False,
+                job_id=envelope.job_id,
+                outcome=outcome,
+                error_detail=error_detail,
             )
-            if committed not in {"committed", "noop"}:
-                raise _wi.WorkItemBackendUnavailable(
-                    f"agent turn commit was rejected ({committed})"
-                )
-            return outcome
         except WorkItemLeaseLost:
             return "fenced"
         finally:
@@ -1923,6 +2153,279 @@ def _await_reconnect(
     return False
 
 
+def _maybe_heartbeat(
+    queue: Any,
+    token: str,
+    active: list[str],
+    next_heartbeat: float,
+    heartbeat_interval_s: float,
+) -> float:
+    """Heartbeat if due; returns the (possibly updated) next-heartbeat deadline."""
+    if time.monotonic() >= next_heartbeat:
+        _heartbeat(queue, token, active)
+        return time.monotonic() + heartbeat_interval_s
+    return next_heartbeat
+
+
+def _poll_dispatch_item(queue: Any, idle_sleep_s: float) -> tuple[Any, Any] | None:
+    """Poll the queue once; sleeps and returns None when there is nothing to process."""
+    try:
+        item = queue.get()
+    except Exception as e:  # noqa: BLE001 — transport hiccup: back off, retry
+        logger.warning("agent-dispatch poll error (%s)", type(e).__name__)
+        time.sleep(2.0)
+        return None
+    if item is None:
+        time.sleep(idle_sleep_s)
+        return None
+    return item
+
+
+def _parse_or_poison_envelope(
+    engine: Any, queue: Any, item_id: Any, payload: Any, idle_sleep_s: float
+) -> AgentTurnEnvelope | None:
+    """Parse one envelope; on failure, dead-letter + ack it and return None."""
+    try:
+        return AgentTurnEnvelope.from_item(payload)
+    except Exception as e:  # noqa: BLE001 — BUG-003: poison envelope. A
+        # durable dead-letter record MUST exist before this message may
+        # ever be acked — the prior behavior (log + unconditional ack)
+        # dropped the message and every trace of its failure together.
+        logger.error("agent-dispatch poison envelope (%s)", type(e).__name__)
+        poison_id = _dead_letter_poison_envelope(engine, payload, error=e)
+        _record_turn_outcome("poison" if poison_id else "poison_unrecorded")
+        if not _ack_after_durable_outcome(queue, item_id, engine, poison_id):
+            time.sleep(idle_sleep_s)
+        return None
+
+
+def _authenticate_or_poison(
+    engine: Any,
+    queue: Any,
+    item_id: Any,
+    payload: Any,
+    envelope: AgentTurnEnvelope,
+    idle_sleep_s: float,
+) -> bool:
+    """Authenticate the wire envelope; on failure, dead-letter + ack it.
+
+    Returns True if the delivery is authenticated and should proceed.
+    """
+    try:
+        authenticate_dispatch_delivery(envelope)
+        return True
+    except DispatchCarrierError as e:
+        # Log the typed reason, not just the class name: every
+        # DispatchCarrierError message is a fixed, developer-authored string
+        # (expiry, tenant binding, signature, version) with no attacker-
+        # controlled wire data interpolated into it, so it is safe to emit
+        # and it is the only way an operator can tell an expired carrier
+        # from an identity-binding mismatch.
+        logger.error("agent-dispatch unauthenticated carrier: %s", e)
+        poison_id = _dead_letter_poison_envelope(engine, payload, error=e)
+        _record_turn_outcome(
+            "carrier_rejected" if poison_id else "carrier_rejected_unrecorded"
+        )
+        if not _ack_after_durable_outcome(queue, item_id, engine, poison_id):
+            time.sleep(idle_sleep_s)
+        return False
+
+
+def _dispatch_tenant_mismatch(
+    engine: Any, dispatch_item_id: str, envelope: AgentTurnEnvelope
+) -> bool:
+    """Whether the wire tenant disagrees with the WorkItem's admitted tenant."""
+    if engine is None or not envelope.tenant:
+        return False
+    from agent_utilities.orchestration import work_item as _wi
+
+    admitted_item = _wi.get_work_item(engine, dispatch_item_id)
+    admitted_tenant = admitted_item.get("tenant") if admitted_item else None
+    return bool(admitted_tenant and envelope.tenant != admitted_tenant)
+
+
+def _reject_tenant_mismatch(
+    queue: Any,
+    item_id: Any,
+    engine: Any,
+    payload: Any,
+    envelope: AgentTurnEnvelope,
+    lifecycle: DispatchWorkerLifecycle,
+    idle_sleep_s: float,
+) -> None:
+    """Dead-letter + ack a delivery whose wire tenant disagrees with the admitted WorkItem."""
+    dispatch_item_id = f"workitem:dispatch:{envelope.job_id}"
+    logger.error(
+        "agent-dispatch tenant mismatch for %s: wire tenant "
+        "disagrees with the admitted WorkItem — rejecting delivery",
+        dispatch_item_id,
+    )
+    mismatch = TenantMismatchError(
+        f"envelope tenant does not match the WorkItem {dispatch_item_id} "
+        "was admitted under"
+    )
+    poison_id = _dead_letter_poison_envelope(engine, payload, error=mismatch)
+    _record_turn_outcome(
+        "tenant_mismatch" if poison_id else "tenant_mismatch_unrecorded"
+    )
+    if not _ack_after_durable_outcome(queue, item_id, engine, poison_id):
+        time.sleep(idle_sleep_s)
+    lifecycle.end_session(envelope.session_id)
+
+
+def _execute_dispatch_turn(
+    queue: Any,
+    engine: Any,
+    envelope: AgentTurnEnvelope,
+    token: str,
+    lifecycle: DispatchWorkerLifecycle,
+    active: list[str],
+    heartbeat_interval_s: float,
+) -> tuple[str, float]:
+    """Run one claimed turn under the session guard.
+
+    Returns ``(outcome, next_heartbeat)``.
+    """
+    outcome = "failed"
+    next_heartbeat = time.monotonic() + heartbeat_interval_s
+    try:
+        active[:] = [envelope.session_id]
+        _heartbeat(queue, token, active)
+        outcome = execute_agent_turn(envelope, engine, token=token)
+    except SessionLockCapacityError:
+        # The local coordination cap is a bounded admission signal, not a
+        # terminal WorkItem outcome.  Leave the delivery for another
+        # worker/generation instead of spinning on the same head item.
+        logger.warning("agent-dispatch session capacity reached")
+        lifecycle.request_drain(reason="session_lock_capacity")
+        outcome = "capacity"
+    except Exception as e:  # noqa: BLE001 — record + keep consuming; the
+        # ack gate below withholds ack unless a durable terminal state
+        # is confirmed, so this catch-all can no longer mask data loss.
+        logger.error("agent-dispatch worker error (%s)", type(e).__name__)
+        outcome = "failed"
+    finally:
+        active.clear()
+        lifecycle.end_session(envelope.session_id)
+    return outcome, next_heartbeat
+
+
+def _handle_dispatch_outcome(
+    queue: Any,
+    item_id: Any,
+    engine: Any,
+    dispatch_item_id: str,
+    outcome: str,
+    idle_sleep_s: float,
+) -> None:
+    """Ack/sleep per the turn outcome — the ONE ack chokepoint (CONCEPT: BUG-003)."""
+    _record_turn_outcome(outcome)
+    if outcome == "fenced":
+        # The message remains unacknowledged so Kafka/Postgres can redeliver
+        # after the current claim is replaced or expires. Acknowledging a
+        # stale execution would turn lease loss into data loss.
+        time.sleep(idle_sleep_s)
+        return
+    if outcome == "capacity":
+        # No claim/commit occurred; the broker must redeliver after a
+        # replacement generation reconnects with available session slots.
+        return
+    if outcome == "skipped":
+        # No new durable state was produced by THIS delivery attempt (a
+        # duplicate of an already-terminal item, or a live claim held
+        # elsewhere) — nothing new to protect, so ack directly. Mirrors
+        # the ingest worker's identical idempotent-skip-then-ack pattern.
+        try:
+            queue.ack(item_id)
+        except Exception as e:  # noqa: BLE001 — redelivery is safe (idempotent)
+            logger.warning(
+                "agent-dispatch ack failed (%s); redelivery is safe.",
+                type(e).__name__,
+            )
+        return
+    # The ONE ack chokepoint (CONCEPT: BUG-003): re-reads the durable
+    # WorkItem before acking, regardless of what the local `outcome`
+    # variable claims — see `_ack_after_durable_outcome`'s docstring.
+    if not _ack_after_durable_outcome(queue, item_id, engine, dispatch_item_id):
+        time.sleep(idle_sleep_s)
+
+
+def _resolve_dispatch_worker_engine(engine: Any) -> Any:
+    """Mirror execute_agent_turn's own auto-resolve courtesy (it falls back to
+    the process-wide engine for goal_loop turns when a caller leaves
+    ``engine`` unset) -- this loop's poison/dead-letter branch calls
+    _dead_letter_poison_envelope(engine, ...) directly, BEFORE ever reaching
+    execute_agent_turn's own resolution, so without this a caller that (like
+    execute_agent_turn's callers) relies on the already-active process engine
+    would silently dead-letter nothing and withhold every ack forever.
+    """
+    if engine is None:
+        from agent_utilities.core import sessions as _sessions
+
+        return _sessions._goal_engine()
+    return engine
+
+
+def _dispatch_loop_gate(
+    lifecycle: DispatchWorkerLifecycle,
+    stop_event: threading.Event,
+    idle_sleep_s: float,
+) -> str:
+    """Whether the loop may claim now: ``"proceed"``, ``"continue"``, or ``"break"``."""
+    if lifecycle.should_claim():
+        return "proceed"
+    if _await_reconnect(lifecycle, stop_event, idle_sleep_s):
+        return "continue"
+    return "break"
+
+
+def _receive_and_admit_delivery(
+    queue: Any,
+    engine: Any,
+    lifecycle: DispatchWorkerLifecycle,
+    token: str,
+    idle_sleep_s: float,
+) -> tuple[Any, Any, AgentTurnEnvelope, str] | None:
+    """Poll, parse, authenticate, and admit one delivery into the active session set.
+
+    Returns ``(item_id, payload, envelope, dispatch_item_id)`` on success, or
+    None if the caller should just ``continue`` (already handled/logged).
+    """
+    polled = _poll_dispatch_item(queue, idle_sleep_s)
+    if polled is None:
+        return None
+    item_id, payload = polled
+
+    envelope = _parse_or_poison_envelope(engine, queue, item_id, payload, idle_sleep_s)
+    if envelope is None:
+        return None
+
+    dispatch_item_id = f"workitem:dispatch:{envelope.job_id}"
+
+    # The broker carrier is untrusted wire data.  Verify its signature,
+    # exact tenant/session/job binding and expiry before reading or
+    # claiming the native WorkItem.  Invalid/replayed-after-expiry data is
+    # durably dead-lettered; it is never silently treated as a reconnect.
+    if not _authenticate_or_poison(
+        engine, queue, item_id, payload, envelope, idle_sleep_s
+    ):
+        return None
+
+    # A scale-down/drain may race the broker poll.  Leave this delivery
+    # unacknowledged if it was not admitted into the local active set; the
+    # replacement generation will reconnect and claim it normally.
+    if not lifecycle.begin_session(envelope.session_id):
+        logger.info(
+            "agent-dispatch worker %s is draining; leaving delivery for "
+            "reconnect (generation=%s)",
+            token,
+            lifecycle.generation,
+        )
+        return None
+
+    return item_id, payload, envelope, dispatch_item_id
+
+
 def run_dispatch_consumer_loop(
     queue: Any,
     stop_event: threading.Event,
@@ -1943,90 +2446,27 @@ def run_dispatch_consumer_loop(
     queue-pull: workers claim work when they have capacity — no central
     placer to fail or rebalance; see ``orchestration/agent_dispatch.py``).
     """
-    if engine is None:
-        # Mirror execute_agent_turn's own auto-resolve courtesy (it falls
-        # back to the process-wide engine for goal_loop turns when a caller
-        # leaves ``engine`` unset) -- this loop's poison/dead-letter branch
-        # calls _dead_letter_poison_envelope(engine, ...) directly, BEFORE
-        # ever reaching execute_agent_turn's own resolution, so without this
-        # a caller that (like execute_agent_turn's callers) relies on the
-        # already-active process engine would silently dead-letter nothing
-        # and withhold every ack forever.
-        from agent_utilities.core import sessions as _sessions
-
-        engine = _sessions._goal_engine()
+    engine = _resolve_dispatch_worker_engine(engine)
     token = worker_id or worker_token()
     lifecycle = lifecycle or DispatchWorkerLifecycle(token)
     active: list[str] = []
     next_heartbeat = 0.0
     while not stop_event.is_set():
-        if not lifecycle.should_claim():
-            if _await_reconnect(lifecycle, stop_event, idle_sleep_s):
-                continue
+        gate = _dispatch_loop_gate(lifecycle, stop_event, idle_sleep_s)
+        if gate == "continue":
+            continue
+        if gate == "break":
             break
-        if time.monotonic() >= next_heartbeat:
-            _heartbeat(queue, token, active)
-            next_heartbeat = time.monotonic() + heartbeat_interval_s
+        next_heartbeat = _maybe_heartbeat(
+            queue, token, active, next_heartbeat, heartbeat_interval_s
+        )
 
-        try:
-            item = queue.get()
-        except Exception as e:  # noqa: BLE001 — transport hiccup: back off, retry
-            logger.warning("agent-dispatch poll error (%s)", type(e).__name__)
-            time.sleep(2.0)
+        admitted = _receive_and_admit_delivery(
+            queue, engine, lifecycle, token, idle_sleep_s
+        )
+        if admitted is None:
             continue
-        if item is None:
-            time.sleep(idle_sleep_s)
-            continue
-
-        item_id, payload = item
-        try:
-            envelope = AgentTurnEnvelope.from_item(payload)
-        except Exception as e:  # noqa: BLE001 — BUG-003: poison envelope. A
-            # durable dead-letter record MUST exist before this message may
-            # ever be acked — the prior behavior (log + unconditional ack)
-            # dropped the message and every trace of its failure together.
-            logger.error("agent-dispatch poison envelope (%s)", type(e).__name__)
-            poison_id = _dead_letter_poison_envelope(engine, payload, error=e)
-            _record_turn_outcome("poison" if poison_id else "poison_unrecorded")
-            if not _ack_after_durable_outcome(queue, item_id, engine, poison_id):
-                time.sleep(idle_sleep_s)
-            continue
-
-        dispatch_item_id = f"workitem:dispatch:{envelope.job_id}"
-
-        # The broker carrier is untrusted wire data.  Verify its signature,
-        # exact tenant/session/job binding and expiry before reading or
-        # claiming the native WorkItem.  Invalid/replayed-after-expiry data is
-        # durably dead-lettered; it is never silently treated as a reconnect.
-        try:
-            authenticate_dispatch_delivery(envelope)
-        except DispatchCarrierError as e:
-            # Log the typed reason, not just the class name: every
-            # DispatchCarrierError message is a fixed, developer-authored string
-            # (expiry, tenant binding, signature, version) with no attacker-
-            # controlled wire data interpolated into it, so it is safe to emit
-            # and it is the only way an operator can tell an expired carrier
-            # from an identity-binding mismatch.
-            logger.error("agent-dispatch unauthenticated carrier: %s", e)
-            poison_id = _dead_letter_poison_envelope(engine, payload, error=e)
-            _record_turn_outcome(
-                "carrier_rejected" if poison_id else "carrier_rejected_unrecorded"
-            )
-            if not _ack_after_durable_outcome(queue, item_id, engine, poison_id):
-                time.sleep(idle_sleep_s)
-            continue
-
-        # A scale-down/drain may race the broker poll.  Leave this delivery
-        # unacknowledged if it was not admitted into the local active set; the
-        # replacement generation will reconnect and claim it normally.
-        if not lifecycle.begin_session(envelope.session_id):
-            logger.info(
-                "agent-dispatch worker %s is draining; leaving delivery for "
-                "reconnect (generation=%s)",
-                token,
-                lifecycle.generation,
-            )
-            continue
+        item_id, payload, envelope, dispatch_item_id = admitted
 
         # CONCEPT: GOC-18 defense in depth — reject a wire tenant that
         # disagrees with the tenant this WorkItem was durably admitted under,
@@ -2037,85 +2477,22 @@ def run_dispatch_consumer_loop(
         # unaffected by that surface. A missing WorkItem or a missing/blank
         # envelope tenant is not a mismatch — the existing claim/skip and
         # producer-side admission checks own those cases.
-        if engine is not None and envelope.tenant:
-            from agent_utilities.orchestration import work_item as _wi
+        if _dispatch_tenant_mismatch(engine, dispatch_item_id, envelope):
+            _reject_tenant_mismatch(
+                queue, item_id, engine, payload, envelope, lifecycle, idle_sleep_s
+            )
+            continue
 
-            admitted_item = _wi.get_work_item(engine, dispatch_item_id)
-            admitted_tenant = admitted_item.get("tenant") if admitted_item else None
-            if admitted_tenant and envelope.tenant != admitted_tenant:
-                logger.error(
-                    "agent-dispatch tenant mismatch for %s: wire tenant "
-                    "disagrees with the admitted WorkItem — rejecting delivery",
-                    dispatch_item_id,
-                )
-                mismatch = TenantMismatchError(
-                    f"envelope tenant does not match the WorkItem {dispatch_item_id} "
-                    "was admitted under"
-                )
-                poison_id = _dead_letter_poison_envelope(
-                    engine, payload, error=mismatch
-                )
-                _record_turn_outcome(
-                    "tenant_mismatch" if poison_id else "tenant_mismatch_unrecorded"
-                )
-                if not _ack_after_durable_outcome(queue, item_id, engine, poison_id):
-                    time.sleep(idle_sleep_s)
-                lifecycle.end_session(envelope.session_id)
-                continue
-
-        outcome = "failed"
-        try:
-            active[:] = [envelope.session_id]
-            _heartbeat(queue, token, active)
-            next_heartbeat = time.monotonic() + heartbeat_interval_s
-            outcome = execute_agent_turn(envelope, engine, token=token)
-        except SessionLockCapacityError:
-            # The local coordination cap is a bounded admission signal, not a
-            # terminal WorkItem outcome.  Leave the delivery for another
-            # worker/generation instead of spinning on the same head item.
-            logger.warning("agent-dispatch session capacity reached")
-            lifecycle.request_drain(reason="session_lock_capacity")
-            outcome = "capacity"
-        except Exception as e:  # noqa: BLE001 — record + keep consuming; the
-            # ack gate below withholds ack unless a durable terminal state
-            # is confirmed, so this catch-all can no longer mask data loss.
-            logger.error("agent-dispatch worker error (%s)", type(e).__name__)
-            outcome = "failed"
-        finally:
-            active.clear()
-            lifecycle.end_session(envelope.session_id)
-        _record_turn_outcome(outcome)
-        if outcome == "fenced":
-            # The message remains unacknowledged so Kafka/Postgres can redeliver
-            # after the current claim is replaced or expires. Acknowledging a
-            # stale execution would turn lease loss into data loss.
-            time.sleep(idle_sleep_s)
-            continue
-        if outcome == "capacity":
-            # No claim/commit occurred; the broker must redeliver after a
-            # replacement generation reconnects with available session slots.
-            # ``continue`` (not ``break``): the top-of-loop check now waits
-            # for the drain to clear and calls ``reconnect`` itself, via
-            # ``_await_reconnect``.
-            continue
-        if outcome == "skipped":
-            # No new durable state was produced by THIS delivery attempt (a
-            # duplicate of an already-terminal item, or a live claim held
-            # elsewhere) — nothing new to protect, so ack directly. Mirrors
-            # the ingest worker's identical idempotent-skip-then-ack pattern.
-            try:
-                queue.ack(item_id)
-            except Exception as e:  # noqa: BLE001 — redelivery is safe (idempotent)
-                logger.warning(
-                    "agent-dispatch ack failed (%s); redelivery is safe.",
-                    type(e).__name__,
-                )
-            continue
-        # The ONE ack chokepoint (CONCEPT: BUG-003): re-reads the durable
-        # WorkItem before acking, regardless of what the local `outcome`
-        # variable claims — see `_ack_after_durable_outcome`'s docstring.
-        if not _ack_after_durable_outcome(queue, item_id, engine, dispatch_item_id):
-            time.sleep(idle_sleep_s)
+        outcome, next_heartbeat = _execute_dispatch_turn(
+            queue, engine, envelope, token, lifecycle, active, heartbeat_interval_s
+        )
+        # ``continue`` (not ``break``): the top-of-loop check now waits for
+        # the drain to clear and calls ``reconnect`` itself, via
+        # ``_await_reconnect``. The ONE ack chokepoint (CONCEPT: BUG-003) is
+        # inside ``_handle_dispatch_outcome``.
+        _handle_dispatch_outcome(
+            queue, item_id, engine, dispatch_item_id, outcome, idle_sleep_s
+        )
 
     lifecycle.mark_stopped()
 

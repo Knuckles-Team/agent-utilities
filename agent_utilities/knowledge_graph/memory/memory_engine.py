@@ -422,6 +422,14 @@ def _ensure_memory_dir() -> Path:
     return d
 
 
+_IDENTITY_EXCLUDED_FIELDS = ("type", "embedding", "ewc_fisher_diag", "id")
+
+
+def _filter_identity_fields(data: dict[str, Any]) -> dict[str, Any]:
+    """Drop internal/empty fields from a raw User node before returning identity."""
+    return {k: v for k, v in data.items() if k not in _IDENTITY_EXCLUDED_FIELDS and v}
+
+
 class MemoryMaterializer:
     """Renders KG memory state into beautiful, inspectable Markdown files.
 
@@ -631,28 +639,26 @@ class MemoryMaterializer:
         except Exception:
             return self._query_nx(node_type, limit)
 
-    def _query_identity(self) -> dict[str, Any]:
-        if not self.engine.backend:
-            for _, a in self.engine.graph.nodes(data=True):
-                if a.get("node_type") == "user":
-                    return {
-                        k: v
-                        for k, v in a.items()
-                        if k not in ("type", "embedding", "ewc_fisher_diag", "id") and v
-                    }
-            return {}
+    def _query_identity_nx(self) -> dict[str, Any]:
+        for _, a in self.engine.graph.nodes(data=True):
+            if a.get("node_type") == "user":
+                return _filter_identity_fields(a)
+        return {}
+
+    def _query_identity_backend(self) -> dict[str, Any]:
         try:
             res = self.engine.backend.execute("MATCH (n:User) RETURN n LIMIT 1", {})
             if res:
                 n = res[0].get("n", {})
-                return {
-                    k: v
-                    for k, v in n.items()
-                    if k not in ("type", "embedding", "ewc_fisher_diag", "id") and v
-                }
+                return _filter_identity_fields(n)
         except Exception:
             pass  # nosec B110
         return {}
+
+    def _query_identity(self) -> dict[str, Any]:
+        if not self.engine.backend:
+            return self._query_identity_nx()
+        return self._query_identity_backend()
 
     def _query_active_goals(self) -> list[dict[str, Any]]:
         if not self.engine.backend:
@@ -724,6 +730,35 @@ class MemoryMaterializer:
                 count += 1
         return count
 
+    def _ingest_observation_line(self, line: str, current_date: str) -> bool:
+        om = re.match(
+            r"^- (?:[\U0001f534\U0001f7e1\U0001f7e2] )?(.+?)(?:\s*\[.+\])?$", line
+        )
+        if not (om and current_date):
+            return False
+        t = om.group(1).strip()
+        if not t or t.startswith("*"):
+            return False
+        oid = f"obs_{hashlib.sha256(t.encode()).hexdigest()[:32]}"
+        priority = (
+            "critical"
+            if "\U0001f534" in line
+            else ("important" if "\U0001f7e1" in line else "normal")
+        )
+        self.engine.add_node(
+            oid,
+            "observation",
+            {
+                "name": t[:80],
+                "content": t,
+                "description": t,
+                "priority": priority,
+                "timestamp": f"{current_date}T00:00:00Z",
+                "importance_score": 0.5,
+            },
+        )
+        return True
+
     def _ingest_observation_edits(self, content: str) -> int:
         count = 0
         current_date = ""
@@ -732,31 +767,8 @@ class MemoryMaterializer:
             if dm:
                 current_date = dm.group(1)
                 continue
-            om = re.match(
-                r"^- (?:[\U0001f534\U0001f7e1\U0001f7e2] )?(.+?)(?:\s*\[.+\])?$", line
-            )
-            if om and current_date:
-                t = om.group(1).strip()
-                if t and not t.startswith("*"):
-                    oid = f"obs_{hashlib.sha256(t.encode()).hexdigest()[:32]}"
-                    priority = (
-                        "critical"
-                        if "\U0001f534" in line
-                        else ("important" if "\U0001f7e1" in line else "normal")
-                    )
-                    self.engine.add_node(
-                        oid,
-                        "observation",
-                        {
-                            "name": t[:80],
-                            "content": t,
-                            "description": t,
-                            "priority": priority,
-                            "timestamp": f"{current_date}T00:00:00Z",
-                            "importance_score": 0.5,
-                        },
-                    )
-                    count += 1
+            if self._ingest_observation_line(line, current_date):
+                count += 1
         return count
 
     # -- Cursor --
@@ -884,6 +896,15 @@ class StartupPayload:
         }
 
 
+def _cwd_route_terms(cwd: str) -> list[str]:
+    p = Path(cwd)
+    return [part.lower() for part in (p.name, p.parent.name) if part]
+
+
+def _task_route_terms(task: str) -> list[str]:
+    return [w.lower() for w in re.findall(r"[a-zA-Z0-9_.-]+", task) if len(w) >= 3]
+
+
 class StartupContextBuilder:
     """Builds budgeted startup context from KG memory.
 
@@ -897,6 +918,52 @@ class StartupContextBuilder:
     def __init__(self, engine: IntelligenceGraphEngine) -> None:
         self.engine = engine
         self.materializer = MemoryMaterializer(engine)
+
+    def _augment_chunks(
+        self, chunks: list[StartupChunk], *, team: str | None, cwd: str | None
+    ) -> list[StartupChunk]:
+        """Extend base chunks with team KG context and layered AGENTS.md."""
+        # Inject team-specific context from KG
+        if team:
+            chunks = [*chunks, *self._load_team_context(team)]
+        # Inject layered AGENTS.md from CWD
+        if cwd:
+            layered_chunk = self._load_layered_agents_md(cwd)
+            if layered_chunk:
+                chunks = [*chunks, layered_chunk]
+        return chunks
+
+    def _select_within_budget(
+        self, chunks: list[StartupChunk], *, budget: int, used: int
+    ) -> tuple[list[StartupChunk], list[StartupChunk]]:
+        selected: list[StartupChunk] = []
+        overflow: list[StartupChunk] = []
+        for chunk in sorted(chunks, key=lambda c: (-c.priority, c.source, c.heading)):
+            chunk_text = "\n\n" + chunk.body.strip()
+            if used + len(chunk_text) <= budget:
+                selected.append(chunk)
+                used += len(chunk_text)
+            else:
+                overflow.append(chunk)
+        return selected, overflow
+
+    def _assemble_payload_text(
+        self,
+        *,
+        header: str,
+        preamble: str,
+        selected: list[StartupChunk],
+        overflow: list[StartupChunk],
+        footer: str,
+    ) -> str:
+        parts = [header.rstrip()]
+        if preamble:
+            parts.append(preamble)
+        parts.extend(c.body.strip() for c in selected)
+        if overflow:
+            parts.append(self._overflow_section(overflow))
+        parts.append(footer.rstrip())
+        return "\n\n".join(p for p in parts if p).rstrip() + "\n"
 
     def build_payload(
         self,
@@ -927,17 +994,7 @@ class StartupContextBuilder:
 
         # Build chunks from materialized files
         chunks = self._build_chunks(base_dir, cwd=cwd, task=task, agent=agent)
-
-        # Inject team-specific context from KG
-        if team:
-            team_chunks = self._load_team_context(team)
-            chunks.extend(team_chunks)
-
-        # Inject layered AGENTS.md from CWD
-        if cwd:
-            layered_chunk = self._load_layered_agents_md(cwd)
-            if layered_chunk:
-                chunks.append(layered_chunk)
+        chunks = self._augment_chunks(chunks, team=team, cwd=cwd)
 
         # Assemble payload
         header = self._build_header(budget, cwd=cwd, task=task, agent=agent)
@@ -948,25 +1005,17 @@ class StartupContextBuilder:
         )
         preamble = self._build_authority_preamble(auth_sources)
         used = len(header) + len(footer) + (len(preamble) + 2 if preamble else 0)
-        selected: list[StartupChunk] = []
-        overflow: list[StartupChunk] = []
 
-        for chunk in sorted(chunks, key=lambda c: (-c.priority, c.source, c.heading)):
-            chunk_text = "\n\n" + chunk.body.strip()
-            if used + len(chunk_text) <= budget:
-                selected.append(chunk)
-                used += len(chunk_text)
-            else:
-                overflow.append(chunk)
-
-        parts = [header.rstrip()]
-        if preamble:
-            parts.append(preamble)
-        parts.extend(c.body.strip() for c in selected)
-        if overflow:
-            parts.append(self._overflow_section(overflow))
-        parts.append(footer.rstrip())
-        text = "\n\n".join(p for p in parts if p).rstrip() + "\n"
+        selected, overflow = self._select_within_budget(
+            chunks, budget=budget, used=used
+        )
+        text = self._assemble_payload_text(
+            header=header,
+            preamble=preamble,
+            selected=selected,
+            overflow=overflow,
+            footer=footer,
+        )
 
         if len(text) > budget:
             text = self._hard_trim(text, budget)
@@ -1064,16 +1113,8 @@ class StartupContextBuilder:
                 current.append(line)
         return [(h, "\n".join(b).strip()) for h, b in chunks if "\n".join(b).strip()]
 
-    def _chunk_priority(
-        self,
-        source: str,
-        heading: str,
-        body: str,
-        *,
-        cwd: str | None,
-        task: str | None,
-        agent: str | None,
-    ) -> int:
+    @staticmethod
+    def _base_chunk_priority(source: str, heading: str) -> int:
         h = heading.lower()
         priority = 4
         if source == "profile":
@@ -1086,6 +1127,20 @@ class StartupContextBuilder:
             priority = 9
         if "current session" in h:
             priority = 9
+        return priority
+
+    def _chunk_priority(
+        self,
+        source: str,
+        heading: str,
+        body: str,
+        *,
+        cwd: str | None,
+        task: str | None,
+        agent: str | None,
+    ) -> int:
+        h = heading.lower()
+        priority = self._base_chunk_priority(source, heading)
         terms = self._route_terms(cwd=cwd, task=task, agent=agent)
         if terms and any(t in body.lower() or t in h for t in terms):
             priority += 5
@@ -1099,12 +1154,9 @@ class StartupContextBuilder:
     ) -> list[str]:
         terms: list[str] = []
         if cwd:
-            p = Path(cwd)
-            terms.extend(part.lower() for part in (p.name, p.parent.name) if part)
+            terms.extend(_cwd_route_terms(cwd))
         if task:
-            terms.extend(
-                w.lower() for w in re.findall(r"[a-zA-Z0-9_.-]+", task) if len(w) >= 3
-            )
+            terms.extend(_task_route_terms(task))
         if agent:
             terms.append(agent.lower())
         return [t for t in terms if len(t) >= 3]
@@ -1303,6 +1355,28 @@ class EvolvingMemoryAPI:
         )
         return node_id
 
+    @staticmethod
+    def _is_valid_personalized_result(
+        r: dict[str, Any], user_id: str, now: int
+    ) -> bool:
+        if r.get("user_id") != user_id and r.get("user_id") is not None:
+            return False
+        valid_until = r.get("valid_until")
+        return not (valid_until and valid_until < now)
+
+    def _expand_with_neighbors(
+        self,
+        result: dict[str, Any],
+        valid_results: list[dict[str, Any]],
+        max_hops: int,
+    ) -> None:
+        if max_hops <= 0:
+            return
+        neighbors = self.engine.get_blast_radius(result["id"], max_hops=max_hops)
+        for neighbor in neighbors:
+            if neighbor not in valid_results:
+                valid_results.append(neighbor)
+
     def retrieve_personalized_context(
         self, user_id: str, query: str, top_k: int = 10, max_hops: int = 1
     ) -> list[dict[str, Any]]:
@@ -1315,18 +1389,11 @@ class EvolvingMemoryAPI:
             )
 
         now = int(time.time())
-        valid_results = []
+        valid_results: list[dict[str, Any]] = []
         for r in results:
-            if r.get("user_id") != user_id and r.get("user_id") is not None:
-                continue
-            if r.get("valid_until") and r.get("valid_until") < now:
+            if not self._is_valid_personalized_result(r, user_id, now):
                 continue
             valid_results.append(r)
-
-            if max_hops > 0:
-                neighbors = self.engine.get_blast_radius(r["id"], max_hops=max_hops)
-                for neighbor in neighbors:
-                    if neighbor not in valid_results:
-                        valid_results.append(neighbor)
+            self._expand_with_neighbors(r, valid_results, max_hops)
 
         return valid_results

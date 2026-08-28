@@ -233,6 +233,64 @@ def _new_epistemic_authority() -> GraphBackend:
     return EpistemicGraphBackend()
 
 
+def _copy_typed_operation(operation: Any) -> dict[str, Any]:
+    if not isinstance(operation, dict):
+        raise ValueError("typed batch operations must be mappings")
+    copied = dict(operation)
+    props = copied.get("properties")
+    if not isinstance(props, dict):
+        raise ValueError("typed batch operation properties must be a mapping")
+    copied["properties"] = dict(props)
+    return copied
+
+
+def _prepare_typed_upsert_node(
+    copied: dict[str, Any],
+) -> tuple[tuple[str, dict[str, Any]], str]:
+    node_id = str(copied.get("id") or "").strip()
+    node_type = str(copied["properties"].get("node_type") or "").strip()
+    if not node_id or not node_type:
+        raise ValueError("typed node batch requires id and node_type")
+    payload = {"id": node_id, **copied["properties"]}
+    prepared = (
+        "upsert_node",
+        {"node_id": node_id, "label": node_type, "properties": payload},
+    )
+    return prepared, node_id
+
+
+def _prepare_typed_upsert_edge(
+    copied: dict[str, Any],
+) -> tuple[tuple[str, dict[str, Any]], str]:
+    source_id = str(copied.get("source") or "").strip()
+    target_id = str(copied.get("target") or "").strip()
+    relationship = str(copied["properties"].get("relationship") or "").strip()
+    if not source_id or not target_id or not relationship:
+        raise ValueError("typed edge batch requires source, target, and relationship")
+    prepared = (
+        "upsert_edge",
+        {
+            "source_id": source_id,
+            "target_id": target_id,
+            "rel_type": relationship,
+            "props": copied["properties"],
+        },
+    )
+    key = f"edge\x00{source_id}\x00{target_id}\x00{relationship}"
+    return prepared, key
+
+
+def _prepare_one_typed_mutation(
+    copied: dict[str, Any],
+) -> tuple[tuple[str, dict[str, Any]], str]:
+    op = str(copied.get("op") or "")
+    if op == "upsert_node":
+        return _prepare_typed_upsert_node(copied)
+    if op == "upsert_edge":
+        return _prepare_typed_upsert_edge(copied)
+    raise ValueError(f"unsupported typed batch operation: {op!r}")
+
+
 class FanOutBackend(GraphBackend):
     """The epistemic-graph authority mirrored to N external projections."""
 
@@ -371,6 +429,83 @@ class FanOutBackend(GraphBackend):
         """Return the fixed ordering stripe for one entity identity."""
         return self._mutation_locks[hash(str(node_id)) % len(self._mutation_locks)]
 
+    def _enqueue_admission_step(
+        self, op: str, payload: dict[str, Any], ticket: int | None
+    ) -> tuple[bool, int | None, bool]:
+        """One iteration of the fair-admission ticket protocol under the hand-off lock.
+
+        Returns ``(done, ticket, should_help)``. ``done`` means the mutation was
+        admitted onto the ring and the caller should return immediately.
+        """
+        assert self._handoff is not None  # caller (_enqueue) already checked
+        should_help = False
+        with self._handoff_condition:
+            if ticket is None:
+                if self._admission_waiters == 0:
+                    try:
+                        self._handoff.put_nowait((op, payload))
+                    except queue.Full:  # noqa: BLE001 — expected saturation; fall through to ordered overflow admission
+                        pass
+                    else:
+                        # Increment while the hand-off condition excludes the
+                        # persister from claiming this item. That closes the old
+                        # put-then-increment race that could make inflight negative.
+                        with self._inflight_lock:
+                            self._inflight += 1
+                        self._handoff_condition.notify_all()
+                        return True, ticket, should_help
+                ticket = self._admission_next_ticket
+                self._admission_next_ticket += 1
+                self._admission_waiters += 1
+
+            if ticket == self._admission_serving_ticket:
+                try:
+                    self._handoff.put_nowait((op, payload))
+                except queue.Full:
+                    should_help = not self._handoff_appending
+                else:
+                    with self._inflight_lock:
+                        self._inflight += 1
+                    self._admission_waiters -= 1
+                    self._admission_serving_ticket += 1
+                    self._handoff_condition.notify_all()
+                    return True, ticket, should_help
+
+            if not should_help:
+                self._handoff_condition.wait(timeout=_IDLE_POLL_S)
+        return False, ticket, should_help
+
+    def _help_persist_after_overflow(self, op: str, warned: bool) -> bool:
+        """Overflow backstop: synchronously help persist an older head item.
+
+        Returns the updated ``warned`` flag.
+        """
+        assert self._handoff is not None  # caller (_enqueue) already checked
+        if not warned:
+            logger.warning(
+                "FanOutBackend: mirror hand-off ring full (cap=%d) — persister "
+                "is behind; synchronously helping persist older writes before "
+                "admitting op=%s (ordered backpressure, not loss)",
+                self._handoff.maxsize,
+                op,
+            )
+            warned = True
+        try:
+            progressed = self._persist_one_handoff()
+        except Exception as exc:  # noqa: BLE001 — overflow backpressure retries; authority already committed
+            logger.warning(
+                "FanOutBackend: ordered overflow persistence failed; retrying: %s",
+                exc,
+            )
+            progressed = False
+        if not progressed:
+            # Another thread owns the older head (or the outbox is
+            # recovering). Wait briefly for space; never append this newer
+            # mutation ahead of it and never grow the bounded ring.
+            with self._handoff_condition:
+                self._handoff_condition.wait(timeout=_IDLE_POLL_S)
+        return warned
+
     def _enqueue(self, op: str, payload: dict[str, Any]) -> None:
         """Hand a mutation off to the mirror fan-out **without blocking the ack**.
 
@@ -387,66 +522,14 @@ class FanOutBackend(GraphBackend):
         warned = False
         ticket: int | None = None
         while True:
-            should_help = False
-            with self._handoff_condition:
-                if ticket is None:
-                    if self._admission_waiters == 0:
-                        try:
-                            self._handoff.put_nowait((op, payload))
-                        except queue.Full:  # noqa: BLE001 — expected saturation; fall through to ordered overflow admission
-                            pass
-                        else:
-                            # Increment while the hand-off condition excludes the
-                            # persister from claiming this item. That closes the old
-                            # put-then-increment race that could make inflight negative.
-                            with self._inflight_lock:
-                                self._inflight += 1
-                            self._handoff_condition.notify_all()
-                            return
-                    ticket = self._admission_next_ticket
-                    self._admission_next_ticket += 1
-                    self._admission_waiters += 1
-
-                if ticket == self._admission_serving_ticket:
-                    try:
-                        self._handoff.put_nowait((op, payload))
-                    except queue.Full:
-                        should_help = not self._handoff_appending
-                    else:
-                        with self._inflight_lock:
-                            self._inflight += 1
-                        self._admission_waiters -= 1
-                        self._admission_serving_ticket += 1
-                        self._handoff_condition.notify_all()
-                        return
-
-                if not should_help:
-                    self._handoff_condition.wait(timeout=_IDLE_POLL_S)
-                    continue
-
-            if not warned:
-                logger.warning(
-                    "FanOutBackend: mirror hand-off ring full (cap=%d) — persister "
-                    "is behind; synchronously helping persist older writes before "
-                    "admitting op=%s (ordered backpressure, not loss)",
-                    self._handoff.maxsize,
-                    op,
-                )
-                warned = True
-            try:
-                progressed = self._persist_one_handoff()
-            except Exception as exc:  # noqa: BLE001 — overflow backpressure retries; authority already committed
-                logger.warning(
-                    "FanOutBackend: ordered overflow persistence failed; retrying: %s",
-                    exc,
-                )
-                progressed = False
-            if not progressed:
-                # Another thread owns the older head (or the outbox is
-                # recovering). Wait briefly for space; never append this newer
-                # mutation ahead of it and never grow the bounded ring.
-                with self._handoff_condition:
-                    self._handoff_condition.wait(timeout=_IDLE_POLL_S)
+            done, ticket, should_help = self._enqueue_admission_step(
+                op, payload, ticket
+            )
+            if done:
+                return
+            if not should_help:
+                continue
+            warned = self._help_persist_after_overflow(op, warned)
 
     def _claim_handoff(self) -> tuple[str, dict[str, Any]] | None:
         """Claim the oldest ring item without blocking concurrent producers."""
@@ -624,57 +707,10 @@ class FanOutBackend(GraphBackend):
         copied_operations: list[dict[str, Any]] = []
         mutation_keys: list[str] = []
         for operation in operations:
-            if not isinstance(operation, dict):
-                raise ValueError("typed batch operations must be mappings")
-            copied = dict(operation)
-            props = copied.get("properties")
-            if not isinstance(props, dict):
-                raise ValueError("typed batch operation properties must be a mapping")
-            copied["properties"] = dict(props)
-            op = str(copied.get("op") or "")
-            if op == "upsert_node":
-                node_id = str(copied.get("id") or "").strip()
-                node_type = str(copied["properties"].get("node_type") or "").strip()
-                if not node_id or not node_type:
-                    raise ValueError("typed node batch requires id and node_type")
-                payload = {"id": node_id, **copied["properties"]}
-                prepared.append(
-                    (
-                        "upsert_node",
-                        {
-                            "node_id": node_id,
-                            "label": node_type,
-                            "properties": payload,
-                        },
-                    )
-                )
-                mutation_keys.append(node_id)
-            elif op == "upsert_edge":
-                source_id = str(copied.get("source") or "").strip()
-                target_id = str(copied.get("target") or "").strip()
-                relationship = str(
-                    copied["properties"].get("relationship") or ""
-                ).strip()
-                if not source_id or not target_id or not relationship:
-                    raise ValueError(
-                        "typed edge batch requires source, target, and relationship"
-                    )
-                prepared.append(
-                    (
-                        "upsert_edge",
-                        {
-                            "source_id": source_id,
-                            "target_id": target_id,
-                            "rel_type": relationship,
-                            "props": copied["properties"],
-                        },
-                    )
-                )
-                mutation_keys.append(
-                    f"edge\x00{source_id}\x00{target_id}\x00{relationship}"
-                )
-            else:
-                raise ValueError(f"unsupported typed batch operation: {op!r}")
+            copied = _copy_typed_operation(operation)
+            item, key = _prepare_one_typed_mutation(copied)
+            prepared.append(item)
+            mutation_keys.append(key)
             copied_operations.append(copied)
         return prepared, copied_operations, mutation_keys
 
@@ -844,6 +880,37 @@ class FanOutBackend(GraphBackend):
                 },
             )
 
+    def _fold_governed_updates(
+        self, before: dict[str, Any], updates: dict[str, Any], label: str
+    ) -> dict[str, Any]:
+        """Add any missing ownership/classification fields the CAS must also carry."""
+        from ..core.tenant_sharing import stamp_classification, stamp_ownership
+
+        governed = {**before, **updates}
+        stamp_ownership(governed, actor=self._resolve_governance_actor())
+        stamp_classification(governed, label)
+        missing = {
+            field: value
+            for field, value in governed.items()
+            if field not in before and field not in updates
+        }
+        if missing:
+            return {**updates, **missing}
+        return updates
+
+    def _enqueue_cas_mirror_snapshot(
+        self, node_id: str, label: str, get_properties: Callable[[str], Any]
+    ) -> None:
+        after = get_properties(node_id)
+        if after is None:
+            raise RuntimeError(
+                "fan-out authority node disappeared after compare-and-set"
+            )
+        self._enqueue(
+            "upsert_node",
+            {"node_id": node_id, "label": label, "properties": dict(after)},
+        )
+
     def compare_and_set_node_fields(
         self,
         node_id: str,
@@ -887,35 +954,12 @@ class FanOutBackend(GraphBackend):
                 raise RuntimeError(
                     "fan-out compare-and-set requires a typed authority node"
                 )
-            from ..core.tenant_sharing import stamp_classification, stamp_ownership
-
-            governed = {**before, **updates}
-            stamp_ownership(governed, actor=self._resolve_governance_actor())
-            stamp_classification(governed, label)
-            missing = {
-                field: value
-                for field, value in governed.items()
-                if field not in before and field not in updates
-            }
-            if missing:
-                updates = {**updates, **missing}
+            updates = self._fold_governed_updates(before, updates, label)
             if not bool(compare_and_set(node_id, conditions, updates)):
                 return False
             self._authority_writes += 1
             if self._mirrors:
-                after = get_properties(node_id)
-                if after is None:
-                    raise RuntimeError(
-                        "fan-out authority node disappeared after compare-and-set"
-                    )
-                self._enqueue(
-                    "upsert_node",
-                    {
-                        "node_id": node_id,
-                        "label": label,
-                        "properties": dict(after),
-                    },
-                )
+                self._enqueue_cas_mirror_snapshot(node_id, label, get_properties)
             return True
 
     def compare_and_set_node_embedding(
@@ -954,6 +998,30 @@ class FanOutBackend(GraphBackend):
             embedding,
         )
 
+    @staticmethod
+    def _snapshot_for_embedding_mirror(
+        node_id: str, snapshotter: Callable[[str], Any] | None
+    ) -> tuple[dict[str, Any], str]:
+        """Snapshot + label the authority node after an atomic embedding update."""
+        assert snapshotter is not None
+        snapshot = snapshotter(node_id)
+        if not isinstance(snapshot, dict):
+            raise RuntimeError(
+                "fan-out authority node disappeared after atomic embedding update"
+            )
+        properties = dict(snapshot)
+        label = str(
+            properties.get("node_type")
+            or properties.get("label")
+            or properties.get("type")
+            or ""
+        ).strip()
+        if not label:
+            raise RuntimeError(
+                "fan-out atomic embedding update requires a typed authority node"
+            )
+        return properties, label
+
     def _compare_and_set_node_embedding_with_authority(
         self,
         authority: GraphBackend,
@@ -985,23 +1053,9 @@ class FanOutBackend(GraphBackend):
             properties: dict[str, Any] = {}
             label = ""
             if self._mirrors:
-                assert snapshotter is not None
-                snapshot = snapshotter(node_id)
-                if not isinstance(snapshot, dict):
-                    raise RuntimeError(
-                        "fan-out authority node disappeared after atomic embedding update"
-                    )
-                properties = dict(snapshot)
-                label = str(
-                    properties.get("node_type")
-                    or properties.get("label")
-                    or properties.get("type")
-                    or ""
-                ).strip()
-                if not label:
-                    raise RuntimeError(
-                        "fan-out atomic embedding update requires a typed authority node"
-                    )
+                properties, label = self._snapshot_for_embedding_mirror(
+                    node_id, snapshotter
+                )
             self._enqueue(
                 "compare_and_set_node_embedding",
                 {
@@ -1041,136 +1095,189 @@ class FanOutBackend(GraphBackend):
     # ------------------------------------------------------------------
     # Consumer side — per-mirror drainer
     # ------------------------------------------------------------------
+    def _apply_execute(self, backend: GraphBackend, p: dict[str, Any]) -> None:
+        backend.execute(p["query"], p.get("params"))
+
+    def _apply_upsert_node(self, backend: GraphBackend, p: dict[str, Any]) -> None:
+        self._node_writer(backend)._upsert_node(
+            p["label"],
+            p["node_id"],
+            p.get("properties") or {},
+        )
+
+    def _apply_upsert_edge(self, backend: GraphBackend, p: dict[str, Any]) -> None:
+        # Dialect-correct edge write per backend (reuses the engine's
+        # backend-aware _upsert_edge: native props for Neo4j/FalkorDB/AGE,
+        # `properties` JSON column for strict-schema LadybugDB).
+        self._edge_writer(backend)._upsert_edge(
+            p["source_id"], p["target_id"], p["rel_type"], p.get("props") or {}
+        )
+
+    def _apply_execute_batch(self, backend: GraphBackend, p: dict[str, Any]) -> None:
+        backend.execute_batch(p["query"], p.get("batch") or [])
+
+    def _apply_add_embedding(self, backend: GraphBackend, p: dict[str, Any]) -> None:
+        if getattr(backend, "supports_native_vector_search", True) is False:
+            return
+        if not _overrides_backend_method(backend, "verify_node_embedding"):
+            raise RuntimeError(
+                "mirror embedding replay lacks read-after-write verification"
+            )
+        backend.add_embedding(p["node_id"], p["embedding"])
+        if not backend.verify_node_embedding(p["node_id"], p["embedding"]):
+            raise RuntimeError("mirror embedding replay was not verified")
+
+    def _apply_create_schema(self, backend: GraphBackend, p: dict[str, Any]) -> None:
+        backend.create_schema()
+
+    def _apply_prune(self, backend: GraphBackend, p: dict[str, Any]) -> None:
+        backend.prune(p.get("criteria") or {})
+
+    @staticmethod
+    def _try_atomic_cas_embedding(backend: GraphBackend, p: dict[str, Any]) -> bool:
+        """Try the backend's own atomic CAS+embedding path. Returns True if applied."""
+        if not _overrides_backend_method(backend, "compare_and_set_node_embedding"):
+            return False
+        atomic_update = backend.compare_and_set_node_embedding
+        try:
+            applied = bool(
+                atomic_update(
+                    p["node_id"],
+                    p.get("conditions") or {},
+                    p.get("updates") or {},
+                    p["embedding"],
+                )
+            )
+        except NotImplementedError:
+            return False
+        return applied
+
+    @staticmethod
+    def _cas_fields_already_match(backend: GraphBackend, p: dict[str, Any]) -> bool:
+        """Whether the authority node's current fields already match ``updates``
+        (a prior replay crashed after its field CAS but before the ANN add)."""
+        get_properties = getattr(backend, "get_node_properties", None)
+        current = get_properties(p["node_id"]) if callable(get_properties) else None
+        return isinstance(current, dict) and all(
+            current.get(field) == expected
+            for field, expected in (p.get("updates") or {}).items()
+        )
+
+    @staticmethod
+    def _apply_cas_embedding_after_fields(
+        backend: GraphBackend, p: dict[str, Any]
+    ) -> None:
+        """Finish a CAS-embedding replay once the fields side is known applied."""
+        if getattr(backend, "supports_native_vector_search", True) is False:
+            return
+        if not backend.embedding_is_node_property:
+            backend.add_embedding(p["node_id"], p["embedding"])
+        if not _overrides_backend_method(
+            backend, "verify_node_embedding"
+        ) or not backend.verify_node_embedding(p["node_id"], p["embedding"]):
+            raise RuntimeError("mirror embedding replay was not verified")
+
+    def _try_cas_fields_then_embedding(
+        self, backend: GraphBackend, p: dict[str, Any]
+    ) -> bool:
+        """Try the fields-CAS + separate embedding path. Returns True if applied."""
+        if not _overrides_backend_method(backend, "compare_and_set_node_fields"):
+            return False
+        try:
+            applied = backend.compare_and_set_node_fields(
+                p["node_id"],
+                p.get("conditions") or {},
+                p.get("updates") or {},
+            )
+        except NotImplementedError:
+            applied = False
+        if not applied:
+            applied = self._cas_fields_already_match(backend, p)
+        if not applied:
+            return False
+        self._apply_cas_embedding_after_fields(backend, p)
+        return True
+
+    @staticmethod
+    def _snapshot_replay_properties(
+        backend: GraphBackend, properties: dict[str, Any]
+    ) -> dict[str, Any]:
+        # PostgreSQL/Ladybug/Neo4j store the vector as the node property, so
+        # the full snapshot upsert is their ONE vector write. Side-index
+        # backends omit it structurally and perform ONE add_embedding call.
+        # Either storage mode must verify before cursor advance.
+        if backend.embedding_is_node_property:
+            return properties
+        return {
+            field: value for field, value in properties.items() if field != "embedding"
+        }
+
+    def _replay_cas_embedding_from_snapshot(
+        self, backend: GraphBackend, p: dict[str, Any]
+    ) -> None:
+        """Standard mirrors do not implement either optional CAS contract.
+
+        Replay the authority's full post-commit node snapshot through the
+        existing dialect-aware writer, then project the vector.  This is
+        idempotent and lets the cursor advance instead of poison-retrying
+        an inherited NotImplementedError forever.
+        """
+        properties = p.get("properties")
+        label = str(p.get("label") or "").strip()
+        if not isinstance(properties, dict) or not label:
+            raise RuntimeError(
+                "mirror atomic embedding replay lacks an authority snapshot"
+            )
+        replay_properties = self._snapshot_replay_properties(backend, properties)
+        self._node_writer(backend)._upsert_node(
+            label,
+            p["node_id"],
+            replay_properties,
+        )
+        if getattr(backend, "supports_native_vector_search", True) is False:
+            return
+        if not backend.embedding_is_node_property:
+            backend.add_embedding(p["node_id"], p["embedding"])
+        if not _overrides_backend_method(backend, "verify_node_embedding"):
+            raise RuntimeError(
+                "mirror embedding replay lacks read-after-write verification"
+            )
+        if not backend.verify_node_embedding(p["node_id"], p["embedding"]):
+            raise RuntimeError("mirror embedding replay was not verified")
+
+    def _apply_compare_and_set_node_embedding(
+        self, backend: GraphBackend, p: dict[str, Any]
+    ) -> None:
+        if self._try_atomic_cas_embedding(backend, p):
+            return
+        # Compatibility mirrors may not own a cross-modal transaction. The
+        # authority is the only read source, so replay is allowed to converge
+        # the mirror in two idempotent steps. If a prior replay crashed after
+        # its field CAS, matching updates prove it is safe to retry ANN add.
+        if self._try_cas_fields_then_embedding(backend, p):
+            return
+        self._replay_cas_embedding_from_snapshot(backend, p)
+
     def _apply(self, backend: GraphBackend, entry: OutboxEntry) -> None:
         """Apply one outbox entry to a single mirror backend."""
         p = entry.payload
         op = entry.op
         if op == "execute":
-            backend.execute(p["query"], p.get("params"))
+            self._apply_execute(backend, p)
         elif op == "upsert_node":
-            self._node_writer(backend)._upsert_node(
-                p["label"],
-                p["node_id"],
-                p.get("properties") or {},
-            )
+            self._apply_upsert_node(backend, p)
         elif op == "upsert_edge":
-            # Dialect-correct edge write per backend (reuses the engine's
-            # backend-aware _upsert_edge: native props for Neo4j/FalkorDB/AGE,
-            # `properties` JSON column for strict-schema LadybugDB).
-            self._edge_writer(backend)._upsert_edge(
-                p["source_id"], p["target_id"], p["rel_type"], p.get("props") or {}
-            )
+            self._apply_upsert_edge(backend, p)
         elif op == "execute_batch":
-            backend.execute_batch(p["query"], p.get("batch") or [])
+            self._apply_execute_batch(backend, p)
         elif op == "add_embedding":
-            if getattr(backend, "supports_native_vector_search", True) is False:
-                return
-            if not _overrides_backend_method(backend, "verify_node_embedding"):
-                raise RuntimeError(
-                    "mirror embedding replay lacks read-after-write verification"
-                )
-            backend.add_embedding(p["node_id"], p["embedding"])
-            if not backend.verify_node_embedding(p["node_id"], p["embedding"]):
-                raise RuntimeError("mirror embedding replay was not verified")
+            self._apply_add_embedding(backend, p)
         elif op == "compare_and_set_node_embedding":
-            if _overrides_backend_method(backend, "compare_and_set_node_embedding"):
-                atomic_update = backend.compare_and_set_node_embedding
-                try:
-                    applied = bool(
-                        atomic_update(
-                            p["node_id"],
-                            p.get("conditions") or {},
-                            p.get("updates") or {},
-                            p["embedding"],
-                        )
-                    )
-                except NotImplementedError:
-                    applied = False
-                else:
-                    if applied:
-                        return
-
-            # Compatibility mirrors may not own a cross-modal transaction. The
-            # authority is the only read source, so replay is allowed to converge
-            # the mirror in two idempotent steps. If a prior replay crashed after
-            # its field CAS, matching updates prove it is safe to retry ANN add.
-            if _overrides_backend_method(backend, "compare_and_set_node_fields"):
-                try:
-                    applied = backend.compare_and_set_node_fields(
-                        p["node_id"],
-                        p.get("conditions") or {},
-                        p.get("updates") or {},
-                    )
-                except NotImplementedError:
-                    applied = False
-                if not applied:
-                    get_properties = getattr(backend, "get_node_properties", None)
-                    current = (
-                        get_properties(p["node_id"])
-                        if callable(get_properties)
-                        else None
-                    )
-                    applied = isinstance(current, dict) and all(
-                        current.get(field) == expected
-                        for field, expected in (p.get("updates") or {}).items()
-                    )
-                if applied:
-                    if getattr(backend, "supports_native_vector_search", True) is False:
-                        return
-                    if not backend.embedding_is_node_property:
-                        backend.add_embedding(p["node_id"], p["embedding"])
-                    if not _overrides_backend_method(
-                        backend, "verify_node_embedding"
-                    ) or not backend.verify_node_embedding(
-                        p["node_id"], p["embedding"]
-                    ):
-                        raise RuntimeError("mirror embedding replay was not verified")
-                    return
-
-            # Standard mirrors do not implement either optional CAS contract.
-            # Replay the authority's full post-commit node snapshot through the
-            # existing dialect-aware writer, then project the vector.  This is
-            # idempotent and lets the cursor advance instead of poison-retrying
-            # an inherited NotImplementedError forever.
-            properties = p.get("properties")
-            label = str(p.get("label") or "").strip()
-            if not isinstance(properties, dict) or not label:
-                raise RuntimeError(
-                    "mirror atomic embedding replay lacks an authority snapshot"
-                )
-            # PostgreSQL/Ladybug/Neo4j store the vector as the node property, so
-            # the full snapshot upsert is their ONE vector write. Side-index
-            # backends omit it structurally and perform ONE add_embedding call.
-            # Either storage mode must verify before cursor advance.
-            structural_properties = {
-                field: value
-                for field, value in properties.items()
-                if field != "embedding"
-            }
-            replay_properties = (
-                properties
-                if backend.embedding_is_node_property
-                else structural_properties
-            )
-            self._node_writer(backend)._upsert_node(
-                label,
-                p["node_id"],
-                replay_properties,
-            )
-            if getattr(backend, "supports_native_vector_search", True) is False:
-                return
-            if not backend.embedding_is_node_property:
-                backend.add_embedding(p["node_id"], p["embedding"])
-            if not _overrides_backend_method(backend, "verify_node_embedding"):
-                raise RuntimeError(
-                    "mirror embedding replay lacks read-after-write verification"
-                )
-            if not backend.verify_node_embedding(p["node_id"], p["embedding"]):
-                raise RuntimeError("mirror embedding replay was not verified")
+            self._apply_compare_and_set_node_embedding(backend, p)
         elif op == "create_schema":
-            backend.create_schema()
+            self._apply_create_schema(backend, p)
         elif op == "prune":
-            backend.prune(p.get("criteria") or {})
+            self._apply_prune(backend, p)
         else:  # pragma: no cover — forward-compat guard
             logger.warning("FanOutBackend: unknown outbox op %r; skipping", op)
 
@@ -1233,6 +1340,142 @@ class FanOutBackend(GraphBackend):
 
         return system_write_session().actor
 
+    def _maybe_drop_poison_entry(
+        self, mirror: str, st: _MirrorState, entry: OutboxEntry, exc: Exception
+    ) -> bool:
+        """Track/drop a PERMANENT malformed entry after repeated confirmation.
+
+        Returns True if this entry was just dropped (cursor advanced).
+        """
+        assert self._outbox is not None  # caller (_drain) already checked
+        if st.poison_seq == entry.seq:
+            st.poison_count += 1
+        else:
+            st.poison_seq = entry.seq
+            st.poison_count = 1
+        if st.poison_count < _POISON_DROP_AFTER:
+            return False
+        logger.error(
+            "FanOutBackend: mirror %s DROPPING poison entry "
+            "seq=%d op=%s after %d permanent failures "
+            "(reconcile is the backstop): %s",
+            mirror,
+            entry.seq,
+            entry.op,
+            st.poison_count,
+            exc,
+        )
+        self._outbox.ack(mirror, entry.seq)
+        st.dropped += 1
+        st.poison_seq = None
+        st.poison_count = 0
+        st.consecutive_failures = 0
+        st.stalled = False
+        return True
+
+    def _classify_apply_failure(
+        self, mirror: str, st: _MirrorState, entry: OutboxEntry, exc: Exception
+    ) -> tuple[bool, bool]:
+        """Classify one failed apply; returns ``(progressed, should_break)``."""
+        st.failures += 1
+        st.consecutive_failures += 1
+        st.last_error = str(exc)
+        st.stalled = st.consecutive_failures >= _STALL_THRESHOLD
+        # BUG-055: a permanent authorization failure (no verified
+        # actor bound in this drainer thread) is NOT a "transient
+        # mirror outage" — it will retry forever and never
+        # self-heal until an operator fixes the identity wiring,
+        # yet the pre-fix comment/log line here called it
+        # transient, which let mirror replication silently stop
+        # syncing while `stalled` stayed false for the first 5
+        # failures. Flag it immediately (no threshold wait) and
+        # log at CRITICAL so it cannot be mistaken for ordinary
+        # backpressure or a dialect/network hiccup; still never
+        # drop the entry -- an authorization failure must not
+        # silently discard a mutation the way a poison query may.
+        if _is_authorization_error(exc):
+            st.auth_failed = True
+            st.stalled = True
+            logger.critical(
+                "FanOutBackend: mirror %s PERMANENT AUTHORIZATION "
+                "FAILURE applying seq %d op=%s -- no verified actor "
+                "bound in the drainer thread; this is a caller/wiring "
+                "defect (BUG-055 class), NOT a transient mirror "
+                "outage, and will retry forever until fixed: %s",
+                mirror,
+                entry.seq,
+                entry.op,
+                exc,
+            )
+            # Do NOT advance the cursor and do NOT run the
+            # poison-drop path below: a permanent authorization
+            # failure keeps retrying (in case the process-level
+            # session is later repaired) rather than being
+            # dropped like a malformed query reconcile() can
+            # repair structurally -- dropping an unauthorized
+            # write would just as silently lose it.
+            return False, True
+        # PERMANENT malformed/dialect-incompatible graph mutations are
+        # skipped after repeated confirmation so one poison query cannot
+        # block the mirror forever; reconcile() repairs that graph state.
+        # Vector publication is deliberately exempt: an exception whose
+        # text happens to contain a permanent marker may have come from
+        # durable read-back verification. Only successful verification or
+        # an explicit graph-only capability may advance a vector cursor.
+        if entry.op not in _NON_DROPPABLE_REPLAY_OPS and _is_permanent_apply_error(exc):
+            if self._maybe_drop_poison_entry(mirror, st, entry, exc):
+                return True, False
+        # Do NOT advance the cursor: the entry replays after backoff.
+        if st.stalled:
+            logger.warning(
+                "FanOutBackend: mirror %s stalled at seq %d after %d "
+                "consecutive failures: %s",
+                mirror,
+                entry.seq,
+                st.consecutive_failures,
+                exc,
+            )
+        return False, True
+
+    def _apply_and_classify_entry(
+        self, mirror: str, st: _MirrorState, backend: GraphBackend, entry: OutboxEntry
+    ) -> tuple[bool, bool]:
+        """Apply one outbox entry to ``backend``; returns ``(progressed, should_break)``."""
+        assert self._outbox is not None  # caller (_drain) already checked
+        try:
+            self._apply(backend, entry)
+            self._outbox.ack(mirror, entry.seq)
+            st.writes += 1
+            st.consecutive_failures = 0
+            st.last_error = None
+            st.stalled = False
+            st.auth_failed = False
+            st.poison_seq = None
+            st.poison_count = 0
+            return True, False
+        except Exception as exc:  # noqa: BLE001 — transient mirror outage OR a permanent authorization failure (classified below, never silently conflated)
+            return self._classify_apply_failure(mirror, st, entry, exc)
+
+    def _drain_pending_batch(
+        self,
+        mirror: str,
+        st: _MirrorState,
+        backend: GraphBackend,
+        pending: list[OutboxEntry],
+    ) -> bool:
+        """Apply one pending batch in order; returns whether any entry progressed."""
+        progressed = False
+        for entry in pending:
+            if self._stop.is_set():
+                break
+            entry_progressed, should_break = self._apply_and_classify_entry(
+                mirror, st, backend, entry
+            )
+            progressed = progressed or entry_progressed
+            if should_break:
+                break
+        return progressed
+
     def _drain(self, mirror: str) -> None:
         """Background loop: apply this mirror's outbox tail, in order, with
         replay. Never advances the cursor past an entry that failed, so an
@@ -1254,106 +1497,7 @@ class FanOutBackend(GraphBackend):
             if not pending:
                 st.wake.wait(_IDLE_POLL_S)
                 continue
-            progressed = False
-            for entry in pending:
-                if self._stop.is_set():
-                    break
-                try:
-                    self._apply(backend, entry)
-                    self._outbox.ack(mirror, entry.seq)
-                    st.writes += 1
-                    st.consecutive_failures = 0
-                    st.last_error = None
-                    st.stalled = False
-                    st.auth_failed = False
-                    st.poison_seq = None
-                    st.poison_count = 0
-                    progressed = True
-                except Exception as exc:  # noqa: BLE001 — transient mirror outage OR a permanent authorization failure (classified below, never silently conflated)
-                    st.failures += 1
-                    st.consecutive_failures += 1
-                    st.last_error = str(exc)
-                    st.stalled = st.consecutive_failures >= _STALL_THRESHOLD
-                    # BUG-055: a permanent authorization failure (no verified
-                    # actor bound in this drainer thread) is NOT a "transient
-                    # mirror outage" — it will retry forever and never
-                    # self-heal until an operator fixes the identity wiring,
-                    # yet the pre-fix comment/log line here called it
-                    # transient, which let mirror replication silently stop
-                    # syncing while `stalled` stayed false for the first 5
-                    # failures. Flag it immediately (no threshold wait) and
-                    # log at CRITICAL so it cannot be mistaken for ordinary
-                    # backpressure or a dialect/network hiccup; still never
-                    # drop the entry -- an authorization failure must not
-                    # silently discard a mutation the way a poison query may.
-                    if _is_authorization_error(exc):
-                        st.auth_failed = True
-                        st.stalled = True
-                        logger.critical(
-                            "FanOutBackend: mirror %s PERMANENT AUTHORIZATION "
-                            "FAILURE applying seq %d op=%s -- no verified actor "
-                            "bound in the drainer thread; this is a caller/wiring "
-                            "defect (BUG-055 class), NOT a transient mirror "
-                            "outage, and will retry forever until fixed: %s",
-                            mirror,
-                            entry.seq,
-                            entry.op,
-                            exc,
-                        )
-                        # Do NOT advance the cursor and do NOT run the
-                        # poison-drop path below: a permanent authorization
-                        # failure keeps retrying (in case the process-level
-                        # session is later repaired) rather than being
-                        # dropped like a malformed query reconcile() can
-                        # repair structurally -- dropping an unauthorized
-                        # write would just as silently lose it.
-                        break
-                    # PERMANENT malformed/dialect-incompatible graph mutations are
-                    # skipped after repeated confirmation so one poison query cannot
-                    # block the mirror forever; reconcile() repairs that graph state.
-                    # Vector publication is deliberately exempt: an exception whose
-                    # text happens to contain a permanent marker may have come from
-                    # durable read-back verification. Only successful verification or
-                    # an explicit graph-only capability may advance a vector cursor.
-                    if (
-                        entry.op not in _NON_DROPPABLE_REPLAY_OPS
-                        and _is_permanent_apply_error(exc)
-                    ):
-                        if st.poison_seq == entry.seq:
-                            st.poison_count += 1
-                        else:
-                            st.poison_seq = entry.seq
-                            st.poison_count = 1
-                        if st.poison_count >= _POISON_DROP_AFTER:
-                            logger.error(
-                                "FanOutBackend: mirror %s DROPPING poison entry "
-                                "seq=%d op=%s after %d permanent failures "
-                                "(reconcile is the backstop): %s",
-                                mirror,
-                                entry.seq,
-                                entry.op,
-                                st.poison_count,
-                                exc,
-                            )
-                            self._outbox.ack(mirror, entry.seq)
-                            st.dropped += 1
-                            st.poison_seq = None
-                            st.poison_count = 0
-                            st.consecutive_failures = 0
-                            st.stalled = False
-                            progressed = True
-                            continue  # move on to the next entry this pass
-                    # Do NOT advance the cursor: the entry replays after backoff.
-                    if st.stalled:
-                        logger.warning(
-                            "FanOutBackend: mirror %s stalled at seq %d after %d "
-                            "consecutive failures: %s",
-                            mirror,
-                            entry.seq,
-                            st.consecutive_failures,
-                            exc,
-                        )
-                    break
+            progressed = self._drain_pending_batch(mirror, st, backend, pending)
             if progressed:
                 backoff = _BASE_BACKOFF_S
             else:
@@ -1514,66 +1658,84 @@ class FanOutBackend(GraphBackend):
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
+    def _begin_close(self) -> bool:
+        """Establish CLOSING (blocking for active producers to drain first).
+
+        Returns True if the backend was already closed (caller should return).
+        """
+        with self._lifecycle_condition:
+            if self._lifecycle_state == "closed":
+                return True
+            self._lifecycle_state = "closing"
+            while self._active_producers:
+                self._lifecycle_condition.wait(timeout=_IDLE_POLL_S)
+        return False
+
+    def _stop_persister(self) -> None:
+        self._stop.set()
+        with self._handoff_condition:
+            self._handoff_condition.notify_all()
+        if self._persister is not None:
+            self._persister.join(timeout=10.0)
+            if self._persister.is_alive():
+                raise RuntimeError(
+                    "FanOutBackend persister did not stop; refusing to close outbox"
+                )
+
+    def _finish_handoff_drain(self) -> None:
+        # No producer or persister can append now. Strictly persist every
+        # admitted mutation before the SQLite handle is closed; an append
+        # failure aborts close and leaves the handle open for a retry.
+        self._drain_handoff_remaining()
+        with self._handoff_condition:
+            if self._handoff_appending or self._handoff_active is not None:
+                raise RuntimeError(
+                    "FanOutBackend append claim remained active during close"
+                )
+        with self._inflight_lock:
+            if self._inflight:
+                raise RuntimeError(
+                    f"FanOutBackend close left {self._inflight} handoff(s) volatile"
+                )
+
+    def _stop_mirror_drainers(self) -> None:
+        for st in self._state.values():
+            st.wake.set()
+            if st.thread is not None:
+                st.thread.join(timeout=10.0)
+                if st.thread.is_alive():
+                    raise RuntimeError(
+                        "FanOutBackend mirror drainer did not stop; refusing close"
+                    )
+
+    def _close_authority_and_mirrors(self) -> BaseException | None:
+        close_error: BaseException | None = None
+        try:
+            self._authority.close()
+        except BaseException as exc:  # noqa: BLE001 - close all mirrors, then relay
+            close_error = exc
+        for name, backend in self._mirrors.items():
+            try:
+                backend.close()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("FanOutBackend: mirror %s close failed: %s", name, exc)
+        return close_error
+
     def close(self) -> None:
         # One close owner establishes CLOSING before any resource teardown. New
         # producers fail before authority mutation; already-registered producers
         # finish authority + ring admission before the persister is stopped.
         with self._close_lock:
-            with self._lifecycle_condition:
-                if self._lifecycle_state == "closed":
-                    return
-                self._lifecycle_state = "closing"
-                while self._active_producers:
-                    self._lifecycle_condition.wait(timeout=_IDLE_POLL_S)
+            if self._begin_close():
+                return
 
-            self._stop.set()
-            with self._handoff_condition:
-                self._handoff_condition.notify_all()
-            if self._persister is not None:
-                self._persister.join(timeout=10.0)
-                if self._persister.is_alive():
-                    raise RuntimeError(
-                        "FanOutBackend persister did not stop; refusing to close outbox"
-                    )
-
-            # No producer or persister can append now. Strictly persist every
-            # admitted mutation before the SQLite handle is closed; an append
-            # failure aborts close and leaves the handle open for a retry.
-            self._drain_handoff_remaining()
-            with self._handoff_condition:
-                if self._handoff_appending or self._handoff_active is not None:
-                    raise RuntimeError(
-                        "FanOutBackend append claim remained active during close"
-                    )
-            with self._inflight_lock:
-                if self._inflight:
-                    raise RuntimeError(
-                        f"FanOutBackend close left {self._inflight} handoff(s) volatile"
-                    )
-
-            for st in self._state.values():
-                st.wake.set()
-                if st.thread is not None:
-                    st.thread.join(timeout=10.0)
-                    if st.thread.is_alive():
-                        raise RuntimeError(
-                            "FanOutBackend mirror drainer did not stop; refusing close"
-                        )
+            self._stop_persister()
+            self._finish_handoff_drain()
+            self._stop_mirror_drainers()
             if self._outbox is not None:
                 self._outbox.close()
 
-            close_error: BaseException | None = None
-            try:
-                self._authority.close()
-            except BaseException as exc:  # noqa: BLE001 - close all mirrors, then relay
-                close_error = exc
-            for name, backend in self._mirrors.items():
-                try:
-                    backend.close()
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "FanOutBackend: mirror %s close failed: %s", name, exc
-                    )
+            close_error = self._close_authority_and_mirrors()
             with self._lifecycle_condition:
                 self._lifecycle_state = "closed"
                 self._lifecycle_condition.notify_all()

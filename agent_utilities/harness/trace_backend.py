@@ -51,6 +51,26 @@ def _first(row: dict[str, Any], *keys: str, default: Any = None) -> Any:
     return default
 
 
+def _first_truthy(*values: Any) -> Any:
+    """Mirror a chain of ``or`` fallbacks: first truthy value, else the last operand."""
+    for v in values[:-1]:
+        if v:
+            return v
+    return values[-1]
+
+
+def _otel_trace_score(trace: dict[str, Any]) -> Any:
+    """Extract an OTel trace's score, falling back to its first ``scores`` entry."""
+    score = _first_truthy(trace.get("score"), trace.get("value"), 0.0)
+    if not score and "scores" in trace:
+        scores_dict = trace["scores"]
+        if isinstance(scores_dict, dict) and scores_dict:
+            score = list(scores_dict.values())[0]
+        elif isinstance(scores_dict, list) and scores_dict:
+            score = scores_dict[0].get("value", 0.0)
+    return score
+
+
 class TraceBackend(ABC):
     """Abstract backend for trace ingestion (database-style abstraction).
 
@@ -137,6 +157,81 @@ class TraceBackend(ABC):
     ) -> list[dict[str, Any]]:
         """Return per-name cost/latency rollups exceeding the given p95 budgets."""
         return []
+
+
+def _cost_latency_window_query(since: str | None) -> dict[str, Any]:
+    """Build the v2 metrics query for a p95-latency/cost anomaly scan."""
+    import time
+
+    # The metrics API requires BOTH fromTimestamp and toTimestamp; a null
+    # toTimestamp is a 400. Default the window to the last 24h when unset.
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    from_ts = since or time.strftime(
+        "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 86400)
+    )
+    return {
+        "view": "observations",
+        "dimensions": [{"field": "name"}],
+        "metrics": [
+            {"measure": "latency", "aggregation": "p95"},
+            {"measure": "totalCost", "aggregation": "sum"},
+            {"measure": "totalTokens", "aggregation": "sum"},
+            {"measure": "count", "aggregation": "count"},
+        ],
+        "filters": [],
+        "fromTimestamp": from_ts,
+        "toTimestamp": now,
+    }
+
+
+def _budget_exceeded(value: float, budget: float | None) -> bool:
+    return budget is not None and value > budget
+
+
+def _cost_latency_anomaly_row(
+    row: dict[str, Any],
+    *,
+    p95_latency_ms: float | None,
+    p95_cost_usd: float | None,
+) -> dict[str, Any] | None:
+    """Shape one metrics row; returns None if it isn't an anomaly candidate."""
+    # Langfuse keys aggregated measures as ``{aggregation}_{measure}``;
+    # fall back to the bare measure name across API versions.
+    lat = _first(row, "p95_latency", "latency", default=0.0)
+    cost = _first(row, "sum_totalCost", "totalCost", default=0.0)
+    tokens = _first(row, "sum_totalTokens", "totalTokens", default=0)
+    count = _first(row, "count_count", "count", default=0)
+    p95_val = float(lat or 0.0)
+    cost_val = float(cost or 0.0)
+    over_latency = _budget_exceeded(p95_val, p95_latency_ms)
+    over_cost = _budget_exceeded(cost_val, p95_cost_usd)
+    no_budget_set = p95_latency_ms is None and p95_cost_usd is None
+    if not (over_latency or over_cost or no_budget_set):
+        return None
+    return {
+        "name": row.get("name") or "unknown",
+        "p95_latency_ms": p95_val,
+        "total_cost_usd": cost_val,
+        "total_tokens": int(tokens or 0),
+        "count": int(count or 0),
+        "over_latency": over_latency,
+        "over_cost": over_cost,
+    }
+
+
+def _coerce_score_value(v: Any) -> float | None:
+    """Coerce one Langfuse score value into ``[0, 1]``, or None if unrecognized."""
+    if isinstance(v, bool):
+        return 1.0 if v else 0.0
+    if isinstance(v, int | float):
+        return max(0.0, min(1.0, float(v)))
+    if isinstance(v, str):
+        lowered = v.strip().casefold()
+        if lowered in {"true", "correct", "pass", "passed", "good"}:
+            return 1.0
+        if lowered in {"false", "incorrect", "fail", "failed", "bad"}:
+            return 0.0
+    return None
 
 
 class LangfuseTraceBackend(TraceBackend):
@@ -350,17 +445,9 @@ class LangfuseTraceBackend(TraceBackend):
             return None
         values: list[float] = []
         for row in self._safe_rows(resp.get("data", []) or []):
-            v = row.get("value")
-            if isinstance(v, bool):
-                values.append(1.0 if v else 0.0)
-            elif isinstance(v, int | float):
-                values.append(max(0.0, min(1.0, float(v))))
-            elif isinstance(v, str):
-                lowered = v.strip().casefold()
-                if lowered in {"true", "correct", "pass", "passed", "good"}:
-                    values.append(1.0)
-                elif lowered in {"false", "incorrect", "fail", "failed", "bad"}:
-                    values.append(0.0)
+            coerced = _coerce_score_value(row.get("value"))
+            if coerced is not None:
+                values.append(coerced)
         if not values:
             return None
         return sum(values) / len(values)
@@ -475,28 +562,9 @@ class LangfuseTraceBackend(TraceBackend):
         the analyzer, this method only shapes the metrics response.
         """
         import json
-        import time
 
         api = self._get_api()
-        # The metrics API requires BOTH fromTimestamp and toTimestamp; a null
-        # toTimestamp is a 400. Default the window to the last 24h when unset.
-        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        from_ts = since or time.strftime(
-            "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 86400)
-        )
-        query: dict[str, Any] = {
-            "view": "observations",
-            "dimensions": [{"field": "name"}],
-            "metrics": [
-                {"measure": "latency", "aggregation": "p95"},
-                {"measure": "totalCost", "aggregation": "sum"},
-                {"measure": "totalTokens", "aggregation": "sum"},
-                {"measure": "count", "aggregation": "count"},
-            ],
-            "filters": [],
-            "fromTimestamp": from_ts,
-            "toTimestamp": now,
-        }
+        query = _cost_latency_window_query(since)
         try:
             # ``/api/public/metrics`` (the v2 ``/api/public/v2/metrics`` alias is
             # absent on older self-hosted versions and 404s); the query schema is
@@ -510,31 +578,11 @@ class LangfuseTraceBackend(TraceBackend):
             return []
         out: list[dict[str, Any]] = []
         for row in self._safe_rows(resp.get("data", []) or []):
-            # Langfuse keys aggregated measures as ``{aggregation}_{measure}``;
-            # fall back to the bare measure name across API versions.
-            lat = _first(row, "p95_latency", "latency", default=0.0)
-            cost = _first(row, "sum_totalCost", "totalCost", default=0.0)
-            tokens = _first(row, "sum_totalTokens", "totalTokens", default=0)
-            count = _first(row, "count_count", "count", default=0)
-            p95_val = float(lat or 0.0)
-            cost_val = float(cost or 0.0)
-            row_out = {
-                "name": row.get("name") or "unknown",
-                "p95_latency_ms": p95_val,
-                "total_cost_usd": cost_val,
-                "total_tokens": int(tokens or 0),
-                "count": int(count or 0),
-            }
-            over_latency = p95_latency_ms is not None and p95_val > p95_latency_ms
-            over_cost = p95_cost_usd is not None and cost_val > p95_cost_usd
-            if (
-                over_latency
-                or over_cost
-                or (p95_latency_ms is None and p95_cost_usd is None)
-            ):
-                row_out["over_latency"] = over_latency
-                row_out["over_cost"] = over_cost
-                out.append(row_out)
+            anomaly = _cost_latency_anomaly_row(
+                row, p95_latency_ms=p95_latency_ms, p95_cost_usd=p95_cost_usd
+            )
+            if anomaly is not None:
+                out.append(anomaly)
         return out
 
     # ── dataset-based regression (CONCEPT:AU-AHE.harness.failure-evolution, Phase 4)
@@ -682,58 +730,87 @@ class OTelTraceBackend(TraceBackend):
                 )
         return traces
 
+    @staticmethod
+    def _trace_matches(t: Any, trace_id: str) -> bool:
+        return isinstance(t, dict) and (
+            t.get("id") == trace_id
+            or t.get("traceId") == trace_id
+            or t.get("trace_id") == trace_id
+        )
+
+    def _find_trace_in_one_file(
+        self, path: str, trace_id: str
+    ) -> dict[str, Any] | None:
+        import json
+
+        try:
+            with open(path) as f:
+                data = json.load(f)
+            trace_list = data if isinstance(data, list) else [data]
+            for t in trace_list:
+                if self._trace_matches(t, trace_id):
+                    return self._format_otel_summary(t, trace_id)
+        except Exception as e:
+            logger.debug("Trace-file parse failed (%s)", type(e).__name__)
+        return None
+
+    def _find_trace_in_export_dir(self, trace_id: str) -> dict[str, Any] | None:
+        """Search exported JSON trace files for one matching ``trace_id``."""
+        if not self.export_dir:
+            return None
+        import glob
+
+        for path in glob.glob(os.path.join(self.export_dir, "*.json")):
+            found = self._find_trace_in_one_file(path, trace_id)
+            if found is not None:
+                return found
+        return None
+
+    async def _find_trace_via_endpoint(self, trace_id: str) -> dict[str, Any] | None:
+        """Query the configured OTel endpoint (e.g. Jaeger API) for one trace."""
+        if not self.endpoint:
+            return None
+        try:
+            from agent_utilities.core.http_client import create_async_http_client
+            from agent_utilities.observability.custom_observability import (
+                _resolve_otel_transport,
+            )
+
+            url = f"{self.endpoint.rstrip('/')}/api/traces/{trace_id}"
+            trust = _resolve_otel_transport(url)
+            try:
+                async with create_async_http_client(
+                    timeout=5.0,
+                    **trust.httpx_kwargs(),
+                ) as client:
+                    resp = await client.get(url)
+                    if resp.status_code == 200:
+                        t_data = resp.json()
+                        if (
+                            "data" in t_data
+                            and isinstance(t_data["data"], list)
+                            and t_data["data"]
+                        ):
+                            return self._format_otel_summary(
+                                t_data["data"][0], trace_id
+                            )
+            finally:
+                trust.cleanup()
+        except Exception as e:
+            logger.debug("Failed to fetch trace: %s", type(e).__name__)
+        return None
+
     async def get_trace_summary(self, trace_id: str) -> dict[str, Any]:
         """Get a lightweight trace summary from OTel/Logfire."""
         # 1. First search in exported directory files
-        if self.export_dir:
-            import glob
-            import json
-
-            for path in glob.glob(os.path.join(self.export_dir, "*.json")):
-                try:
-                    with open(path) as f:
-                        data = json.load(f)
-                    trace_list = data if isinstance(data, list) else [data]
-                    for t in trace_list:
-                        if isinstance(t, dict) and (
-                            t.get("id") == trace_id
-                            or t.get("traceId") == trace_id
-                            or t.get("trace_id") == trace_id
-                        ):
-                            return self._format_otel_summary(t, trace_id)
-                except Exception as e:
-                    logger.debug("Trace-file parse failed (%s)", type(e).__name__)
+        found = self._find_trace_in_export_dir(trace_id)
+        if found is not None:
+            return found
 
         # 2. If endpoint is configured, try querying the endpoint (e.g. Jaeger API or local server)
-        if self.endpoint:
-            try:
-                from agent_utilities.core.http_client import create_async_http_client
-                from agent_utilities.observability.custom_observability import (
-                    _resolve_otel_transport,
-                )
-
-                url = f"{self.endpoint.rstrip('/')}/api/traces/{trace_id}"
-                trust = _resolve_otel_transport(url)
-                try:
-                    async with create_async_http_client(
-                        timeout=5.0,
-                        **trust.httpx_kwargs(),
-                    ) as client:
-                        resp = await client.get(url)
-                        if resp.status_code == 200:
-                            t_data = resp.json()
-                            if (
-                                "data" in t_data
-                                and isinstance(t_data["data"], list)
-                                and t_data["data"]
-                            ):
-                                return self._format_otel_summary(
-                                    t_data["data"][0], trace_id
-                                )
-                finally:
-                    trust.cleanup()
-            except Exception as e:
-                logger.debug("Failed to fetch trace: %s", type(e).__name__)
+        found = await self._find_trace_via_endpoint(trace_id)
+        if found is not None:
+            return found
 
         return {"id": trace_id, "status": "unknown", "error": "trace_not_found"}
 
@@ -741,26 +818,21 @@ class OTelTraceBackend(TraceBackend):
         self, trace: dict[str, Any], trace_id: str
     ) -> dict[str, Any]:
         """Format an OTel trace dict into a standard summary structure."""
-        name = trace.get("name") or trace.get("traceName") or ""
-        duration = (
-            trace.get("duration")
-            or trace.get("latency")
-            or trace.get("duration_ms")
-            or 0
+        name = _first_truthy(trace.get("name"), trace.get("traceName"), "")
+        duration = _first_truthy(
+            trace.get("duration"), trace.get("latency"), trace.get("duration_ms"), 0
         )
-        status = trace.get("status") or trace.get("statusMessage") or "unknown"
+        status = _first_truthy(
+            trace.get("status"), trace.get("statusMessage"), "unknown"
+        )
 
-        usage = trace.get("usageDetails") or trace.get("usage") or {}
-        input_tokens = usage.get("input") or usage.get("prompt_tokens") or 0
-        output_tokens = usage.get("output") or usage.get("completion_tokens") or 0
+        usage = _first_truthy(trace.get("usageDetails"), trace.get("usage"), {})
+        input_tokens = _first_truthy(usage.get("input"), usage.get("prompt_tokens"), 0)
+        output_tokens = _first_truthy(
+            usage.get("output"), usage.get("completion_tokens"), 0
+        )
 
-        score = trace.get("score") or trace.get("value") or 0.0
-        if not score and "scores" in trace:
-            scores_dict = trace["scores"]
-            if isinstance(scores_dict, dict) and scores_dict:
-                score = list(scores_dict.values())[0]
-            elif isinstance(scores_dict, list) and scores_dict:
-                score = scores_dict[0].get("value", 0.0)
+        score = _otel_trace_score(trace)
 
         return {
             "id": trace_id,
@@ -1408,6 +1480,43 @@ class KGTraceBackend(TraceBackend):
         except Exception:  # pragma: no cover - pricing is best-effort
             return 0.0
 
+    def _fill_missing_generation_costs(self, generations: list[Any]) -> None:
+        """Fill in $ cost for any generation that didn't carry one."""
+        for g in generations:
+            if getattr(g, "total_cost_usd", 0.0) in (0.0, None):
+                g.total_cost_usd = self._cost_usd(
+                    getattr(g, "model", None),
+                    getattr(g, "input_tokens", 0),
+                    getattr(g, "output_tokens", 0),
+                )
+
+    @staticmethod
+    def _apply_trace_rollups(
+        trace: Any, spans: list[Any], generations: list[Any]
+    ) -> None:
+        """Roll up trace-level cost/tokens/tool_calls from its spans/generations."""
+        trace.total_cost_usd = sum(
+            getattr(g, "total_cost_usd", 0.0) for g in generations
+        )
+        trace.input_tokens = sum(getattr(g, "input_tokens", 0) for g in generations)
+        trace.output_tokens = sum(getattr(g, "output_tokens", 0) for g in generations)
+        # Gap-6 — same tool_calls rollup as the incremental record_event path.
+        trace.tool_calls = sum(
+            1 for s in spans if getattr(s, "span_kind", None) == "tool"
+        )
+
+    def _sanitize_nodes(self, nodes: list[Any]) -> list[Any]:
+        return [clean for node in nodes if (clean := self._sanitize_node(node))]
+
+    def _maybe_persist_emitted_trace(
+        self, clean_trace: Any, clean_spans: list[Any], clean_generations: list[Any]
+    ) -> None:
+        if self.backend is not None and hasattr(self.backend, "add_node"):
+            try:
+                self._persist(clean_trace, clean_spans, clean_generations)
+            except Exception as exc:  # pragma: no cover - persistence best-effort
+                logger.debug("KGTraceBackend persist failed (%s)", type(exc).__name__)
+
     def emit_trace(
         self,
         trace: Any,
@@ -1422,33 +1531,15 @@ class KGTraceBackend(TraceBackend):
         """
         spans = spans or []
         generations = generations or []
-        # Fill in $ cost for any generation that didn't carry one.
-        for g in generations:
-            if getattr(g, "total_cost_usd", 0.0) in (0.0, None):
-                g.total_cost_usd = self._cost_usd(
-                    getattr(g, "model", None),
-                    getattr(g, "input_tokens", 0),
-                    getattr(g, "output_tokens", 0),
-                )
-        # Roll up trace-level cost/tokens from its generations.
-        trace.total_cost_usd = sum(
-            getattr(g, "total_cost_usd", 0.0) for g in generations
-        )
-        trace.input_tokens = sum(getattr(g, "input_tokens", 0) for g in generations)
-        trace.output_tokens = sum(getattr(g, "output_tokens", 0) for g in generations)
-        # Gap-6 — same tool_calls rollup as the incremental record_event path.
-        trace.tool_calls = sum(
-            1 for s in spans if getattr(s, "span_kind", None) == "tool"
-        )
+        self._fill_missing_generation_costs(generations)
+        self._apply_trace_rollups(trace, spans, generations)
 
         clean_trace = self._sanitize_node(trace)
         if clean_trace is None:
             logger.debug("KGTraceBackend batch skipped: unsafe trace identity")
             return
-        clean_spans = [clean for node in spans if (clean := self._sanitize_node(node))]
-        clean_generations = [
-            clean for node in generations if (clean := self._sanitize_node(node))
-        ]
+        clean_spans = self._sanitize_nodes(spans)
+        clean_generations = self._sanitize_nodes(generations)
 
         self._traces[clean_trace.id] = {
             "trace": clean_trace,
@@ -1456,11 +1547,7 @@ class KGTraceBackend(TraceBackend):
             "generations": clean_generations,
         }
 
-        if self.backend is not None and hasattr(self.backend, "add_node"):
-            try:
-                self._persist(clean_trace, clean_spans, clean_generations)
-            except Exception as exc:  # pragma: no cover - persistence best-effort
-                logger.debug("KGTraceBackend persist failed (%s)", type(exc).__name__)
+        self._maybe_persist_emitted_trace(clean_trace, clean_spans, clean_generations)
 
     def _persist(self, trace: Any, spans: list[Any], generations: list[Any]) -> None:
         from agent_utilities.models.knowledge_graph import RegistryEdgeType

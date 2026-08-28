@@ -198,7 +198,7 @@ def inactive_marker(
     )
 
 
-def _validate_marker(marker: ManagedProviderMarker) -> None:
+def _validate_marker_shape(marker: ManagedProviderMarker) -> None:
     if marker.schema_version != MANAGED_PROVIDER_SCHEMA_VERSION:
         raise ValueError("provider marker schema is unsupported")
     if not is_safe_provider_name(marker.provider):
@@ -209,6 +209,9 @@ def _validate_marker(marker: ManagedProviderMarker) -> None:
     _require_digest(marker.content_digest, "content_digest")
     if not isinstance(marker.active, bool):  # bool is intentionally exact here
         raise ValueError("active must be a boolean")
+
+
+def _validate_marker_counts(marker: ManagedProviderMarker) -> None:
     if (
         not isinstance(marker.file_count, int)
         or isinstance(marker.file_count, bool)
@@ -223,6 +226,9 @@ def _validate_marker(marker: ManagedProviderMarker) -> None:
         raise ValueError("byte_count must be a non-negative integer")
     if marker.file_count > MAX_PROVIDER_FILES or marker.byte_count > MAX_PROVIDER_BYTES:
         raise ValueError("provider marker exceeds materialization bounds")
+
+
+def _validate_marker_active_consistency(marker: ManagedProviderMarker) -> None:
     if marker.active and marker.file_count == 0:
         raise ValueError("active provider marker cannot be empty")
     if not marker.active and (
@@ -231,6 +237,12 @@ def _validate_marker(marker: ManagedProviderMarker) -> None:
         or marker.content_digest != EMPTY_MANIFEST_DIGEST
     ):
         raise ValueError("inactive provider marker must describe the empty manifest")
+
+
+def _validate_marker(marker: ManagedProviderMarker) -> None:
+    _validate_marker_shape(marker)
+    _validate_marker_counts(marker)
+    _validate_marker_active_consistency(marker)
 
 
 def _pairs_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -267,6 +279,45 @@ def marker_path_exists(root: Path) -> bool:
     return True
 
 
+def _read_marker_bytes(marker_path: Path) -> bytes | None:
+    """Read the marker's raw bytes, or None if it fails the bounded-file shape."""
+
+    info = marker_path.lstat()
+    if not stat.S_ISREG(info.st_mode) or _is_linklike(marker_path):
+        return None
+    if info.st_size <= 0 or info.st_size > MAX_MARKER_BYTES:
+        return None
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(marker_path, flags)
+    try:
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode) or opened.st_size > MAX_MARKER_BYTES:
+            return None
+        raw_bytes = os.read(descriptor, MAX_MARKER_BYTES + 1)
+    finally:
+        os.close(descriptor)
+    if len(raw_bytes) > MAX_MARKER_BYTES:
+        return None
+    return raw_bytes
+
+
+def _parse_marker_payload(raw_bytes: bytes) -> ManagedProviderMarker | None:
+    """Parse and validate one marker payload, or None if its shape is wrong."""
+
+    raw = json.loads(
+        raw_bytes.decode("utf-8"), object_pairs_hook=_pairs_without_duplicates
+    )
+    if not isinstance(raw, dict) or set(raw) != _MARKER_KEYS:
+        return None
+    if not isinstance(raw.get("schema_version"), int) or isinstance(
+        raw.get("schema_version"), bool
+    ):
+        return None
+    marker = ManagedProviderMarker(**raw)
+    _validate_marker(marker)
+    return marker
+
+
 def read_managed_provider_marker(
     root: Path,
     *,
@@ -279,33 +330,12 @@ def read_managed_provider_marker(
         return None
     marker_path = root / MANAGED_PROVIDER_MARKER
     try:
-        info = marker_path.lstat()
-        if not stat.S_ISREG(info.st_mode) or _is_linklike(marker_path):
+        raw_bytes = _read_marker_bytes(marker_path)
+        if raw_bytes is None:
             return None
-        if info.st_size <= 0 or info.st_size > MAX_MARKER_BYTES:
+        marker = _parse_marker_payload(raw_bytes)
+        if marker is None:
             return None
-        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-        descriptor = os.open(marker_path, flags)
-        try:
-            opened = os.fstat(descriptor)
-            if not stat.S_ISREG(opened.st_mode) or opened.st_size > MAX_MARKER_BYTES:
-                return None
-            raw_bytes = os.read(descriptor, MAX_MARKER_BYTES + 1)
-        finally:
-            os.close(descriptor)
-        if len(raw_bytes) > MAX_MARKER_BYTES:
-            return None
-        raw = json.loads(
-            raw_bytes.decode("utf-8"), object_pairs_hook=_pairs_without_duplicates
-        )
-        if not isinstance(raw, dict) or set(raw) != _MARKER_KEYS:
-            return None
-        if not isinstance(raw.get("schema_version"), int) or isinstance(
-            raw.get("schema_version"), bool
-        ):
-            return None
-        marker = ManagedProviderMarker(**raw)
-        _validate_marker(marker)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
         return None
     if provider is not None and marker.provider != provider:
@@ -418,6 +448,27 @@ def _manifest_digest(entries: Iterable[ManifestEntry]) -> str:
     return digest.hexdigest()
 
 
+def _classify_directory_entry(
+    directory_entry: os.DirEntry[str], pending: list[Path]
+) -> Path | None:
+    """Queue a subdirectory or return one file to yield; raise on unsafe entries."""
+
+    path = Path(directory_entry.path)
+    try:
+        info = directory_entry.stat(follow_symlinks=False)
+    except OSError as exc:
+        raise ProviderAssetError("provider asset cannot be inspected") from exc
+    if _is_linklike(path):
+        raise ProviderAssetError("provider source contains a linked or special entry")
+    if stat.S_ISDIR(info.st_mode):
+        if directory_entry.name not in _IGNORED_DIRS:
+            pending.append(path)
+        return None
+    if not stat.S_ISREG(info.st_mode):
+        raise ProviderAssetError("provider source contains a linked or special entry")
+    return path
+
+
 def _bounded_regular_files(root: Path) -> Iterable[Path]:
     """Yield regular files without first materializing an unbounded directory list."""
 
@@ -436,26 +487,59 @@ def _bounded_regular_files(root: Path) -> Iterable[Path]:
                     raise ProviderAssetError(
                         "provider source exceeds the tree-entry bound"
                     )
-                path = Path(directory_entry.path)
-                try:
-                    info = directory_entry.stat(follow_symlinks=False)
-                except OSError as exc:
-                    raise ProviderAssetError(
-                        "provider asset cannot be inspected"
-                    ) from exc
-                if _is_linklike(path):
-                    raise ProviderAssetError(
-                        "provider source contains a linked or special entry"
-                    )
-                if stat.S_ISDIR(info.st_mode):
-                    if directory_entry.name not in _IGNORED_DIRS:
-                        pending.append(path)
-                    continue
-                if not stat.S_ISREG(info.st_mode):
-                    raise ProviderAssetError(
-                        "provider source contains a linked or special entry"
-                    )
-                yield path
+                found = _classify_directory_entry(directory_entry, pending)
+                if found is not None:
+                    yield found
+
+
+def _leg_required_asset(leg: str, relative: PurePosixPath) -> bool:
+    """Whether *relative* is the marker of a leg carrying at least one asset."""
+
+    if leg == "skills":
+        return relative.name == "SKILL.md"
+    if leg == "prompts":
+        return True
+    if leg == "ontologies":
+        return len(relative.parts) == 1
+    if leg == "data":
+        return True
+    return False
+
+
+def _manifest_entry_for_path(
+    path: Path,
+    *,
+    canonical_root: Path,
+    leg: str,
+    allowed_relative_paths: frozenset[str] | None,
+) -> tuple[ManifestEntry, bool] | None:
+    """Build one manifest entry for *path*, or None if the leg does not select it."""
+
+    if path.name == MANAGED_PROVIDER_MARKER:
+        raise ProviderAssetError("provider source contains the reserved marker")
+    relative = PurePosixPath(path.relative_to(canonical_root).as_posix())
+    if not _selected_for_leg(relative, leg):
+        return None
+    if (
+        allowed_relative_paths is not None
+        and relative.as_posix() not in allowed_relative_paths
+    ):
+        raise ProviderAssetError(
+            "provider asset is not owned by the registering distribution"
+        )
+    resolved = path.resolve(strict=True)
+    if not resolved.is_relative_to(canonical_root):
+        raise ProviderAssetError("provider asset escapes its source root")
+    content, opened = _read_regular_file(path, maximum=MAX_PROVIDER_FILE_BYTES)
+    mode = stat.S_IMODE(opened.st_mode) & 0o777
+    entry = ManifestEntry(
+        relative_path=relative.as_posix(),
+        source=path,
+        size=len(content),
+        mode=mode,
+        digest=hashlib.sha256(content).hexdigest(),
+    )
+    return entry, _leg_required_asset(leg, relative)
 
 
 def build_asset_manifest(
@@ -476,44 +560,20 @@ def build_asset_manifest(
     byte_count = 0
 
     for path in _bounded_regular_files(canonical_root):
-        if path.name == MANAGED_PROVIDER_MARKER:
-            raise ProviderAssetError("provider source contains the reserved marker")
-        relative = PurePosixPath(path.relative_to(canonical_root).as_posix())
-        if not _selected_for_leg(relative, leg):
+        outcome = _manifest_entry_for_path(
+            path,
+            canonical_root=canonical_root,
+            leg=leg,
+            allowed_relative_paths=allowed_relative_paths,
+        )
+        if outcome is None:
             continue
-        if (
-            allowed_relative_paths is not None
-            and relative.as_posix() not in allowed_relative_paths
-        ):
-            raise ProviderAssetError(
-                "provider asset is not owned by the registering distribution"
-            )
-        resolved = path.resolve(strict=True)
-        if not resolved.is_relative_to(canonical_root):
-            raise ProviderAssetError("provider asset escapes its source root")
-        content, opened = _read_regular_file(path, maximum=MAX_PROVIDER_FILE_BYTES)
-        size = len(content)
-        byte_count += size
+        entry, is_required = outcome
+        byte_count += entry.size
         if byte_count > MAX_PROVIDER_BYTES:
             raise ProviderAssetError("provider assets exceed the total byte bound")
-        mode = stat.S_IMODE(opened.st_mode) & 0o777
-        entries.append(
-            ManifestEntry(
-                relative_path=relative.as_posix(),
-                source=path,
-                size=size,
-                mode=mode,
-                digest=hashlib.sha256(content).hexdigest(),
-            )
-        )
-        if leg == "skills" and relative.name == "SKILL.md":
-            required_asset_seen = True
-        elif leg == "prompts":
-            required_asset_seen = True
-        elif leg == "ontologies" and len(relative.parts) == 1:
-            required_asset_seen = True
-        elif leg == "data":
-            required_asset_seen = True
+        entries.append(entry)
+        required_asset_seen = required_asset_seen or is_required
 
     entries.sort(key=lambda item: item.relative_path)
     if not entries or not required_asset_seen:
@@ -529,9 +589,7 @@ def build_asset_manifest(
     )
 
 
-def copy_manifest(manifest: AssetManifest, destination: Path) -> None:
-    """Copy one verified manifest as regular bytes, then verify the staged result."""
-
+def _ensure_empty_private_destination(destination: Path) -> None:
     if not _safe_directory(destination):
         raise ProviderOwnershipConflict("provider staging destination is unsafe")
     if os.name != "nt" and stat.S_IMODE(destination.lstat().st_mode) & 0o077:
@@ -543,29 +601,37 @@ def copy_manifest(manifest: AssetManifest, destination: Path) -> None:
         raise ProviderOwnershipConflict(
             "provider staging destination cannot be inspected"
         ) from exc
+
+
+def _copy_manifest_entry(entry: ManifestEntry, destination: Path) -> None:
+    relative = PurePosixPath(entry.relative_path)
+    target = destination.joinpath(*relative.parts)
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    content, opened = _read_regular_file(entry.source, maximum=MAX_PROVIDER_FILE_BYTES)
+    if (
+        len(content) != entry.size
+        or hashlib.sha256(content).hexdigest() != entry.digest
+        or (stat.S_IMODE(opened.st_mode) & 0o777) != entry.mode
+    ):
+        raise ProviderAssetError("provider asset changed during materialization")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    descriptor = os.open(target, flags, entry.mode or 0o600)
+    try:
+        with os.fdopen(descriptor, "wb", closefd=False) as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(target, entry.mode)
+    finally:
+        os.close(descriptor)
+
+
+def copy_manifest(manifest: AssetManifest, destination: Path) -> None:
+    """Copy one verified manifest as regular bytes, then verify the staged result."""
+
+    _ensure_empty_private_destination(destination)
     for entry in manifest.entries:
-        relative = PurePosixPath(entry.relative_path)
-        target = destination.joinpath(*relative.parts)
-        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        content, opened = _read_regular_file(
-            entry.source, maximum=MAX_PROVIDER_FILE_BYTES
-        )
-        if (
-            len(content) != entry.size
-            or hashlib.sha256(content).hexdigest() != entry.digest
-            or (stat.S_IMODE(opened.st_mode) & 0o777) != entry.mode
-        ):
-            raise ProviderAssetError("provider asset changed during materialization")
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-        descriptor = os.open(target, flags, entry.mode or 0o600)
-        try:
-            with os.fdopen(descriptor, "wb", closefd=False) as handle:
-                handle.write(content)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.chmod(target, entry.mode)
-        finally:
-            os.close(descriptor)
+        _copy_manifest_entry(entry, destination)
     staged = build_asset_manifest(destination, leg=_infer_leg(manifest, destination))
     if (
         staged.content_digest != manifest.content_digest
@@ -594,6 +660,30 @@ def _fsync_tree(root: Path) -> None:
         _fsync_directory(Path(directory))
 
 
+def _marker_matches_source(
+    marker: ManagedProviderMarker,
+    *,
+    registration: str,
+    source_manifest: AssetManifest,
+) -> bool:
+    return (
+        marker.registration_digest == registration
+        and marker.content_digest == source_manifest.content_digest
+        and marker.file_count == source_manifest.file_count
+        and marker.byte_count == source_manifest.byte_count
+    )
+
+
+def _generation_matches_marker(
+    materialized: AssetManifest, marker: ManagedProviderMarker
+) -> bool:
+    return (
+        materialized.content_digest == marker.content_digest
+        and materialized.file_count == marker.file_count
+        and materialized.byte_count == marker.byte_count
+    )
+
+
 def resolve_managed_generation(
     root: Path,
     *,
@@ -607,11 +697,8 @@ def resolve_managed_generation(
     marker = read_managed_provider_marker(root, provider=provider, leg=leg)
     if marker is None or not marker.active:
         return None
-    if (
-        marker.registration_digest != registration
-        or marker.content_digest != source_manifest.content_digest
-        or marker.file_count != source_manifest.file_count
-        or marker.byte_count != source_manifest.byte_count
+    if not _marker_matches_source(
+        marker, registration=registration, source_manifest=source_manifest
     ):
         return None
     generation = root / MANAGED_PROVIDER_GENERATIONS / marker.content_digest
@@ -619,10 +706,6 @@ def resolve_managed_generation(
         materialized = build_asset_manifest(generation, leg=leg)
     except (OSError, ProviderAssetError, ValueError):
         return None
-    if (
-        materialized.content_digest != marker.content_digest
-        or materialized.file_count != marker.file_count
-        or materialized.byte_count != marker.byte_count
-    ):
+    if not _generation_matches_marker(materialized, marker):
         return None
     return generation
