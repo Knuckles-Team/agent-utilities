@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Awaitable, Callable, Iterator, Mapping
 from typing import Any, Generic, Literal, TypeVar
 from urllib.parse import urlsplit, urlunsplit
 
@@ -1065,7 +1065,15 @@ def _authorized_count(
     engine: Any,
 ) -> int:
     """``SELECT COUNT(*)`` for the total matching the same predicate as the
-    page read, instead of counting a materialized Python list."""
+    page read, instead of counting a materialized Python list.
+
+    ⚠ An aggregate has no rows, so :func:`_validate_scope` cannot judge it —
+    this function validates only the SHAPE of the returned value, never its
+    scope. Callers MUST NOT serve this number on its own: route it through
+    :func:`_reconciled_total`, and prefer :func:`_page_is_the_whole_result`,
+    which derives the total from the already-scope-validated page instead of
+    asking the engine at all (BUG-CX-118).
+    """
 
     spec = _KIND_SPECS[kind]
     sql_exec = _require_sql_exec(engine)
@@ -1090,6 +1098,57 @@ def _authorized_count(
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise CatalogUnavailable("authoritative catalog count is malformed")
     return value
+
+
+def _page_is_the_whole_result(has_more: bool, after: tuple[str, str] | None) -> bool:
+    """Is this page the COMPLETE authorized result set for the caller?
+
+    True only for an uncursored page that did not trip the ``limit + 1``
+    over-fetch. In that case ``len(page_rows)`` is itself the total, and it is
+    already scope-validated by :func:`_validate_scope` — so the engine's
+    ``SELECT COUNT(*)`` is neither needed nor trusted (BUG-CX-118: the count
+    is the one value on this route that no row-level check can reach, and a
+    measured probe showed an engine honoring the WHERE on the page but not on
+    the aggregate returns ``count`` including another tenant's rows while
+    ``items`` correctly shows none of them).
+    """
+
+    return not has_more and after is None
+
+
+async def _page_total(
+    page_rows: list[dict[str, Any]],
+    *,
+    has_more: bool,
+    after: tuple[str, str] | None,
+    count: Callable[[], Awaitable[int]],
+) -> int:
+    """The authorized total for one page, derived from the page where possible.
+
+    Prefers :func:`_page_is_the_whole_result` — a total taken from rows that
+    :func:`_validate_scope` has already judged — and only falls back to the
+    engine's unvalidatable ``SELECT COUNT(*)`` (via ``count``) when the page is
+    genuinely incomplete, reconciling it against the page even then.
+    """
+
+    if _page_is_the_whole_result(has_more, after):
+        return len(page_rows)
+    return _reconciled_total(await count(), page_rows)
+
+
+def _reconciled_total(total: int, page_rows: list[dict[str, Any]]) -> int:
+    """Reject a catalog count that contradicts the page it describes.
+
+    The only invariant an aggregate can be held to from here: it can never be
+    smaller than the scope-validated rows already in hand. Weaker than
+    :func:`_validate_scope`, and deliberately not a substitute for it — this
+    is the residual path, taken only when the page is incomplete and the total
+    genuinely cannot be derived from it.
+    """
+
+    if total < len(page_rows):
+        raise CatalogUnavailable("authoritative catalog count is malformed")
+    return total
 
 
 def _authorized_page(
@@ -1224,15 +1283,9 @@ async def _list_kind(
     spec = _KIND_SPECS[kind]
     engine = _get_catalog_engine()
     try:
-        total = await _offload_catalog_call(
-            _authorized_count,
-            kind,
-            tenant=tenant,
-            principal=principal,
-            grant_digests=grant_digests,
-            query=query,
-            engine=engine,
-        )
+        # The page is read FIRST so its scope-validated length can supply the
+        # total whenever it is the complete result set — the engine's
+        # unvalidatable COUNT is then never issued at all (BUG-CX-118).
         rows = await _offload_catalog_call(
             _authorized_page,
             kind,
@@ -1243,6 +1296,22 @@ async def _list_kind(
             after=after,
             limit=limit,
             engine=engine,
+        )
+        has_more = len(rows) > limit
+        page_rows = rows[:limit]
+        total = await _page_total(
+            page_rows,
+            has_more=has_more,
+            after=after,
+            count=lambda: _offload_catalog_call(
+                _authorized_count,
+                kind,
+                tenant=tenant,
+                principal=principal,
+                grant_digests=grant_digests,
+                query=query,
+                engine=engine,
+            ),
         )
     except CatalogUnavailable as exc:
         logger.warning("registry %s unavailable: %s", kind, exc)
@@ -1256,8 +1325,6 @@ async def _list_kind(
             {"status": "unavailable", "reason": "catalog_unavailable"},
             status_code=503,
         )
-    has_more = len(rows) > limit
-    page_rows = rows[:limit]
     next_cursor = None
     if has_more and page_rows:
         last = _row_key(spec, page_rows[-1])
@@ -1471,15 +1538,8 @@ async def _list_multi_kind(request: Request) -> RegistryMultiKindPage:
     async def _read_one(kind: str) -> tuple[str, RegistryKindResult]:
         spec = _KIND_SPECS[kind]
         try:
-            total = await _offload_catalog_call(
-                _authorized_count,
-                kind,
-                tenant=tenant,
-                principal=principal,
-                grant_digests=grant_digests,
-                query=query,
-                engine=engine,
-            )
+            # Page first, then a count only if the page is not the whole
+            # result set — same BUG-CX-118 reasoning as the single-kind route.
             rows = await _offload_catalog_call(
                 _authorized_page,
                 kind,
@@ -1491,14 +1551,28 @@ async def _list_multi_kind(request: Request) -> RegistryMultiKindPage:
                 limit=limit,
                 engine=engine,
             )
+            has_more = len(rows) > limit
+            page_rows = rows[:limit]
+            total = await _page_total(
+                page_rows,
+                has_more=has_more,
+                after=afters[kind],
+                count=lambda: _offload_catalog_call(
+                    _authorized_count,
+                    kind,
+                    tenant=tenant,
+                    principal=principal,
+                    grant_digests=grant_digests,
+                    query=query,
+                    engine=engine,
+                ),
+            )
         except Exception as exc:  # noqa: BLE001 - explicit per-kind unavailable
             logger.warning("registry %s unavailable (multi-kind): %s", kind, exc)
             return kind, RegistryKindResult(
                 status="unavailable", reason="catalog_unavailable"
             )
 
-        has_more = len(rows) > limit
-        page_rows = rows[:limit]
         next_cursor = None
         if has_more and page_rows:
             last = _row_key(spec, page_rows[-1])
