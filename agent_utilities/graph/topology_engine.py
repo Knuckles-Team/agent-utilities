@@ -50,6 +50,65 @@ class TopologyAdmissionError(ValueError):
     """A topology or sandbox request exceeded its immutable admission contract."""
 
 
+def _check_sandbox_int_types(
+    memory_bytes: object, max_pids: object, max_wasm_pages: object
+) -> None:
+    """Type-check the strictly-integer fields of
+    ``SandboxResourceLimits.__post_init__``."""
+    if (
+        isinstance(memory_bytes, bool)
+        or not isinstance(memory_bytes, int)
+        or isinstance(max_pids, bool)
+        or not isinstance(max_pids, int)
+        or isinstance(max_wasm_pages, bool)
+        or not isinstance(max_wasm_pages, int)
+    ):
+        raise TopologyAdmissionError("sandbox integer limits must be integers")
+
+
+def _check_sandbox_float_types(cpu_cores: object, deadline_s: object) -> None:
+    """Type-check the int-or-float fields of
+    ``SandboxResourceLimits.__post_init__``."""
+    if (
+        isinstance(cpu_cores, bool)
+        or not isinstance(cpu_cores, int | float)
+        or isinstance(deadline_s, bool)
+        or not isinstance(deadline_s, int | float)
+    ):
+        raise TopologyAdmissionError("sandbox integer limits must be integers")
+
+
+def _check_sandbox_limit_types(
+    memory_bytes: object,
+    max_pids: object,
+    max_wasm_pages: object,
+    cpu_cores: object,
+    deadline_s: object,
+) -> None:
+    """Type-check ``SandboxResourceLimits.__post_init__``'s raw fields before
+    any numeric coercion or range check runs."""
+    _check_sandbox_int_types(memory_bytes, max_pids, max_wasm_pages)
+    _check_sandbox_float_types(cpu_cores, deadline_s)
+
+
+def _check_sandbox_limit_ranges(
+    cpu: float, memory: int, pids: int, pages: int, deadline: float
+) -> None:
+    """Range-check ``SandboxResourceLimits.__post_init__``'s coerced fields."""
+    if not math.isfinite(cpu) or not 0.1 <= cpu <= 16.0:
+        raise TopologyAdmissionError("sandbox CPU limit is out of range")
+    if not 64 * 1024 * 1024 <= memory <= 64 * 1024 * 1024 * 1024:
+        raise TopologyAdmissionError("sandbox memory limit is out of range")
+    if not 16 <= pids <= 1_024:
+        raise TopologyAdmissionError("sandbox PID limit is out of range")
+    if not 1 <= pages <= 1_048_576:
+        raise TopologyAdmissionError("sandbox WASM page limit is out of range")
+    if pages * 65_536 > memory:
+        raise TopologyAdmissionError("sandbox WASM page limit exceeds the memory limit")
+    if not math.isfinite(deadline) or not 1.0 <= deadline <= 600.0:
+        raise TopologyAdmissionError("sandbox deadline is out of range")
+
+
 @dataclass(frozen=True, slots=True)
 class SandboxResourceLimits:
     """Actual per-sandbox resource ceilings carried by one admission.
@@ -69,19 +128,13 @@ class SandboxResourceLimits:
     deadline_s: float = 120.0
 
     def __post_init__(self) -> None:
-        if (
-            isinstance(self.memory_bytes, bool)
-            or not isinstance(self.memory_bytes, int)
-            or isinstance(self.max_pids, bool)
-            or not isinstance(self.max_pids, int)
-            or isinstance(self.max_wasm_pages, bool)
-            or not isinstance(self.max_wasm_pages, int)
-            or isinstance(self.cpu_cores, bool)
-            or not isinstance(self.cpu_cores, int | float)
-            or isinstance(self.deadline_s, bool)
-            or not isinstance(self.deadline_s, int | float)
-        ):
-            raise TopologyAdmissionError("sandbox integer limits must be integers")
+        _check_sandbox_limit_types(
+            self.memory_bytes,
+            self.max_pids,
+            self.max_wasm_pages,
+            self.cpu_cores,
+            self.deadline_s,
+        )
         try:
             cpu = float(self.cpu_cores)
             memory = self.memory_bytes
@@ -90,20 +143,7 @@ class SandboxResourceLimits:
             deadline = float(self.deadline_s)
         except (TypeError, ValueError, OverflowError) as exc:
             raise TopologyAdmissionError("sandbox resource limits are invalid") from exc
-        if not math.isfinite(cpu) or not 0.1 <= cpu <= 16.0:
-            raise TopologyAdmissionError("sandbox CPU limit is out of range")
-        if not 64 * 1024 * 1024 <= memory <= 64 * 1024 * 1024 * 1024:
-            raise TopologyAdmissionError("sandbox memory limit is out of range")
-        if not 16 <= pids <= 1_024:
-            raise TopologyAdmissionError("sandbox PID limit is out of range")
-        if not 1 <= pages <= 1_048_576:
-            raise TopologyAdmissionError("sandbox WASM page limit is out of range")
-        if pages * 65_536 > memory:
-            raise TopologyAdmissionError(
-                "sandbox WASM page limit exceeds the memory limit"
-            )
-        if not math.isfinite(deadline) or not 1.0 <= deadline <= 600.0:
-            raise TopologyAdmissionError("sandbox deadline is out of range")
+        _check_sandbox_limit_ranges(cpu, memory, pids, pages, deadline)
         object.__setattr__(self, "cpu_cores", cpu)
         object.__setattr__(self, "memory_bytes", memory)
         object.__setattr__(self, "max_pids", pids)
@@ -119,6 +159,189 @@ class SandboxResourceLimits:
             "max_wasm_pages": self.max_wasm_pages,
             "deadline_s": self.deadline_s,
         }
+
+
+def _check_tenant_and_delegation(
+    tenant_raw: object, delegation_id_raw: object
+) -> tuple[str, str]:
+    """Normalize and validate ``ElasticTopologyAdmission.__post_init__``'s
+    ``tenant``/``delegation_id`` fields."""
+    if not isinstance(tenant_raw, str) or not isinstance(delegation_id_raw, str):
+        raise TopologyAdmissionError("tenant and delegation_id must be strings")
+    tenant = tenant_raw.strip()
+    delegation_id = delegation_id_raw.strip()
+    if not tenant or not delegation_id:
+        raise TopologyAdmissionError(
+            "tenant and delegation_id are required for topology admission"
+        )
+    if any(ord(c) < 32 or ord(c) == 127 for c in tenant + delegation_id):
+        raise TopologyAdmissionError(
+            "tenant and delegation_id contain control characters"
+        )
+    return tenant, delegation_id
+
+
+def _check_capabilities(capabilities_raw: Sequence[str]) -> tuple[str, ...]:
+    """Normalize and validate ``ElasticTopologyAdmission.__post_init__``'s
+    ``capabilities`` field."""
+    if any(not isinstance(value, str) for value in capabilities_raw):
+        raise TopologyAdmissionError("capability identifiers must be strings")
+    capabilities = tuple(sorted({value.strip() for value in capabilities_raw}))
+    if any(not value or any(ord(c) < 32 for c in value) for value in capabilities):
+        raise TopologyAdmissionError(
+            "capability identifiers must be non-empty and printable"
+        )
+    return capabilities
+
+
+def _check_integer_limits(
+    max_nodes: int,
+    max_depth: int,
+    max_fan_out: int,
+    max_parallelism: int,
+    max_tokens: int,
+    max_payload_bytes: int,
+) -> None:
+    """Range-check ``ElasticTopologyAdmission.__post_init__``'s six bounded
+    integer limits."""
+    integer_limits = {
+        "max_nodes": (max_nodes, 1, 1_024),
+        "max_depth": (max_depth, 1, 64),
+        "max_fan_out": (max_fan_out, 1, 256),
+        "max_parallelism": (max_parallelism, 1, 256),
+        "max_tokens": (max_tokens, 1, 10_000_000),
+        "max_payload_bytes": (max_payload_bytes, 1, 64 * 1024 * 1024),
+    }
+    for name, (raw, lower, upper) in integer_limits.items():
+        if (
+            isinstance(raw, bool)
+            or not isinstance(raw, int)
+            or not lower <= raw <= upper
+        ):
+            raise TopologyAdmissionError(f"{name} is out of range")
+
+
+def _compute_issued_and_deadline(
+    issued_at_raw: object,
+    deadline_unix_raw: float | None,
+    resource_limits: SandboxResourceLimits,
+) -> tuple[float, float]:
+    """Coerce and validate ``ElasticTopologyAdmission.__post_init__``'s
+    ``issued_at``/``deadline_unix`` pair."""
+    try:
+        issued_at = float(issued_at_raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise TopologyAdmissionError("issued_at must be finite") from exc
+    if not math.isfinite(issued_at):
+        raise TopologyAdmissionError("issued_at must be finite")
+    try:
+        deadline = (
+            issued_at + resource_limits.deadline_s
+            if deadline_unix_raw is None
+            else float(deadline_unix_raw)
+        )
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise TopologyAdmissionError("deadline_unix must be finite") from exc
+    if (
+        not math.isfinite(deadline)
+        or deadline <= issued_at
+        or deadline > issued_at + resource_limits.deadline_s
+    ):
+        raise TopologyAdmissionError("deadline_unix must be after issued_at")
+    return issued_at, deadline
+
+
+def _check_schema_version(schema_version: object) -> None:
+    """Validate ``ElasticTopologyAdmission.__post_init__``'s ``schema_version``
+    field."""
+    if (
+        not isinstance(schema_version, str)
+        or not schema_version.strip()
+        or any(ord(c) < 32 or ord(c) == 127 for c in schema_version)
+    ):
+        raise TopologyAdmissionError("schema_version must be printable and non-empty")
+
+
+def _collect_topology_roles(specialists: Sequence[Mapping[str, Any]]) -> set[str]:
+    """Validate and collect the unique role set for
+    ``ElasticTopologyAdmission.require_topology``."""
+    roles: list[str] = []
+    for specialist in specialists:
+        if not isinstance(specialist, Mapping):
+            raise TopologyAdmissionError("topology nodes must be mappings")
+        raw_role = specialist.get("role", "")
+        if not isinstance(raw_role, str):
+            raise TopologyAdmissionError("topology node roles must be strings")
+        role = raw_role.strip()
+        if not role:
+            raise TopologyAdmissionError("every topology node requires a role")
+        roles.append(role)
+    if len(set(roles)) != len(roles):
+        raise TopologyAdmissionError("topology roles must be unique")
+    return set(roles)
+
+
+def _check_step_fanout(
+    step: Mapping[str, Any],
+    step_roles: Sequence[str],
+    max_fan_out: int,
+    max_parallelism: int,
+) -> None:
+    """Fan-out/parallelism half of ``_check_topology_step``."""
+    fan_out = len(step_roles)
+    if fan_out > max_fan_out:
+        raise TopologyAdmissionError(
+            f"topology fan-out exceeds admission ({fan_out} > {max_fan_out})"
+        )
+    if str(step.get("mode", "")) == "parallel" and fan_out > max_parallelism:
+        raise TopologyAdmissionError(
+            f"topology parallelism exceeds admission ({fan_out} > {max_parallelism})"
+        )
+
+
+def _check_step_roles(step_roles: Sequence[str], role_set: set[str]) -> None:
+    """Role type/uniqueness/membership half of ``_check_topology_step``."""
+    if any(not isinstance(role, str) for role in step_roles):
+        raise TopologyAdmissionError("topology step roles must be strings")
+    if len(set(step_roles)) != len(step_roles):
+        raise TopologyAdmissionError("topology step roles must be unique")
+    if any(str(role) not in role_set for role in step_roles):
+        raise TopologyAdmissionError("topology plan references an unknown role")
+
+
+def _check_topology_step(
+    step: Mapping[str, Any],
+    role_set: set[str],
+    max_fan_out: int,
+    max_parallelism: int,
+) -> None:
+    """Validate one plan step for
+    ``ElasticTopologyAdmission.require_topology``."""
+    if not isinstance(step, Mapping):
+        raise TopologyAdmissionError("topology steps must be mappings")
+    step_roles = step.get("roles", ())
+    if not isinstance(step_roles, Sequence) or isinstance(step_roles, (str, bytes)):
+        raise TopologyAdmissionError("topology step roles must be a sequence")
+    _check_step_fanout(step, step_roles, max_fan_out, max_parallelism)
+    _check_step_roles(step_roles, role_set)
+
+
+def _check_parallel_group(
+    group: Sequence[str],
+    role_set: set[str],
+    max_parallelism: int,
+    grouped_roles: set[str],
+) -> None:
+    """Validate one parallel group for
+    ``ElasticTopologyAdmission.require_topology``."""
+    if len(group) > max_parallelism:
+        raise TopologyAdmissionError(
+            f"parallel group exceeds admission ({len(group)} > {max_parallelism})"
+        )
+    if any(str(role) not in role_set for role in group):
+        raise TopologyAdmissionError("parallel group references an unknown role")
+    if len(set(group)) != len(group) or grouped_roles.intersection(group):
+        raise TopologyAdmissionError("parallel groups must be disjoint and unique")
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,74 +373,26 @@ class ElasticTopologyAdmission:
     schema_version: str = "elastic-topology-admission.v1"
 
     def __post_init__(self) -> None:
-        if not isinstance(self.tenant, str) or not isinstance(self.delegation_id, str):
-            raise TopologyAdmissionError("tenant and delegation_id must be strings")
-        tenant = str(self.tenant).strip()
-        delegation_id = str(self.delegation_id).strip()
-        if not tenant or not delegation_id:
-            raise TopologyAdmissionError(
-                "tenant and delegation_id are required for topology admission"
-            )
-        if any(ord(c) < 32 or ord(c) == 127 for c in tenant + delegation_id):
-            raise TopologyAdmissionError(
-                "tenant and delegation_id contain control characters"
-            )
-        if any(not isinstance(value, str) for value in self.capabilities):
-            raise TopologyAdmissionError("capability identifiers must be strings")
-        capabilities = tuple(sorted({value.strip() for value in self.capabilities}))
-        if any(not value or any(ord(c) < 32 for c in value) for value in capabilities):
-            raise TopologyAdmissionError(
-                "capability identifiers must be non-empty and printable"
-            )
-
-        integer_limits = {
-            "max_nodes": (self.max_nodes, 1, 1_024),
-            "max_depth": (self.max_depth, 1, 64),
-            "max_fan_out": (self.max_fan_out, 1, 256),
-            "max_parallelism": (self.max_parallelism, 1, 256),
-            "max_tokens": (self.max_tokens, 1, 10_000_000),
-            "max_payload_bytes": (self.max_payload_bytes, 1, 64 * 1024 * 1024),
-        }
-        for name, (raw, lower, upper) in integer_limits.items():
-            if (
-                isinstance(raw, bool)
-                or not isinstance(raw, int)
-                or not lower <= raw <= upper
-            ):
-                raise TopologyAdmissionError(f"{name} is out of range")
-
+        tenant, delegation_id = _check_tenant_and_delegation(
+            self.tenant, self.delegation_id
+        )
+        capabilities = _check_capabilities(self.capabilities)
+        _check_integer_limits(
+            self.max_nodes,
+            self.max_depth,
+            self.max_fan_out,
+            self.max_parallelism,
+            self.max_tokens,
+            self.max_payload_bytes,
+        )
         if not isinstance(self.resource_limits, SandboxResourceLimits):
             raise TopologyAdmissionError(
                 "resource_limits must be SandboxResourceLimits"
             )
-        try:
-            issued_at = float(self.issued_at)
-        except (TypeError, ValueError, OverflowError) as exc:
-            raise TopologyAdmissionError("issued_at must be finite") from exc
-        if not math.isfinite(issued_at):
-            raise TopologyAdmissionError("issued_at must be finite")
-        try:
-            deadline = (
-                issued_at + self.resource_limits.deadline_s
-                if self.deadline_unix is None
-                else float(self.deadline_unix)
-            )
-        except (TypeError, ValueError, OverflowError) as exc:
-            raise TopologyAdmissionError("deadline_unix must be finite") from exc
-        if (
-            not math.isfinite(deadline)
-            or deadline <= issued_at
-            or deadline > issued_at + self.resource_limits.deadline_s
-        ):
-            raise TopologyAdmissionError("deadline_unix must be after issued_at")
-        if (
-            not isinstance(self.schema_version, str)
-            or not self.schema_version.strip()
-            or any(ord(c) < 32 or ord(c) == 127 for c in self.schema_version)
-        ):
-            raise TopologyAdmissionError(
-                "schema_version must be printable and non-empty"
-            )
+        issued_at, deadline = _compute_issued_and_deadline(
+            self.issued_at, self.deadline_unix, self.resource_limits
+        )
+        _check_schema_version(self.schema_version)
 
         object.__setattr__(self, "tenant", tenant)
         object.__setattr__(self, "delegation_id", delegation_id)
@@ -330,10 +505,8 @@ class ElasticTopologyAdmission:
             },
         }
 
-    def require_work_item(self, item: Mapping[str, Any] | None) -> None:
-        """Require a native WorkItem to carry this exact admission identity."""
-        if not isinstance(item, Mapping):
-            raise TopologyAdmissionError("native WorkItem is missing")
+    def _check_work_item_identity(self, item: Mapping[str, Any]) -> None:
+        """Tenant/deadline half of ``require_work_item``."""
         if str(item.get("tenant") or "") != self.tenant:
             raise TopologyAdmissionError(
                 "WorkItem tenant does not match topology admission"
@@ -342,6 +515,9 @@ class ElasticTopologyAdmission:
             raise TopologyAdmissionError(
                 "WorkItem deadline does not match topology admission"
             )
+
+    def _check_work_item_metadata(self, item: Mapping[str, Any]) -> Mapping[str, Any]:
+        """Metadata-presence-and-match half of ``require_work_item``."""
         metadata = item.get("metadata")
         if not isinstance(metadata, Mapping):
             raise TopologyAdmissionError(
@@ -353,12 +529,24 @@ class ElasticTopologyAdmission:
                 raise TopologyAdmissionError(
                     f"WorkItem {key} does not match topology admission"
                 )
+        return metadata
+
+    def _check_work_item_digest(self, metadata: Mapping[str, Any]) -> None:
+        """Digest-match half of ``require_work_item``."""
         nested = metadata.get("metadata")
         observed_digest = metadata.get("admission_digest")
         if isinstance(nested, Mapping):
             observed_digest = observed_digest or nested.get("admission_digest")
         if observed_digest != self.digest:
             raise TopologyAdmissionError("WorkItem admission digest does not match")
+
+    def require_work_item(self, item: Mapping[str, Any] | None) -> None:
+        """Require a native WorkItem to carry this exact admission identity."""
+        if not isinstance(item, Mapping):
+            raise TopologyAdmissionError("native WorkItem is missing")
+        self._check_work_item_identity(item)
+        metadata = self._check_work_item_metadata(item)
+        self._check_work_item_digest(metadata)
 
     def require_topology(
         self,
@@ -376,62 +564,79 @@ class ElasticTopologyAdmission:
             raise TopologyAdmissionError(
                 f"topology depth exceeds admission ({len(plan)} > {self.max_depth})"
             )
-        roles: list[str] = []
-        for specialist in specialists:
-            if not isinstance(specialist, Mapping):
-                raise TopologyAdmissionError("topology nodes must be mappings")
-            raw_role = specialist.get("role", "")
-            if not isinstance(raw_role, str):
-                raise TopologyAdmissionError("topology node roles must be strings")
-            role = raw_role.strip()
-            if not role:
-                raise TopologyAdmissionError("every topology node requires a role")
-            roles.append(role)
-        if len(set(roles)) != len(roles):
-            raise TopologyAdmissionError("topology roles must be unique")
-        role_set = set(roles)
+        role_set = _collect_topology_roles(specialists)
         for step in plan:
-            if not isinstance(step, Mapping):
-                raise TopologyAdmissionError("topology steps must be mappings")
-            step_roles = step.get("roles", ())
-            if not isinstance(step_roles, Sequence) or isinstance(
-                step_roles, (str, bytes)
-            ):
-                raise TopologyAdmissionError("topology step roles must be a sequence")
-            fan_out = len(step_roles)
-            if fan_out > self.max_fan_out:
-                raise TopologyAdmissionError(
-                    f"topology fan-out exceeds admission ({fan_out} > {self.max_fan_out})"
-                )
-            if (
-                str(step.get("mode", "")) == "parallel"
-                and fan_out > self.max_parallelism
-            ):
-                raise TopologyAdmissionError(
-                    f"topology parallelism exceeds admission ({fan_out} > {self.max_parallelism})"
-                )
-            if any(not isinstance(role, str) for role in step_roles):
-                raise TopologyAdmissionError("topology step roles must be strings")
-            if len(set(step_roles)) != len(step_roles):
-                raise TopologyAdmissionError("topology step roles must be unique")
-            if any(str(role) not in role_set for role in step_roles):
-                raise TopologyAdmissionError("topology plan references an unknown role")
+            _check_topology_step(step, role_set, self.max_fan_out, self.max_parallelism)
         grouped_roles: set[str] = set()
         for group in parallel_groups:
-            if len(group) > self.max_parallelism:
-                raise TopologyAdmissionError(
-                    f"parallel group exceeds admission ({len(group)} > {self.max_parallelism})"
-                )
-            if any(str(role) not in role_set for role in group):
-                raise TopologyAdmissionError(
-                    "parallel group references an unknown role"
-                )
-            if len(set(group)) != len(group) or grouped_roles.intersection(group):
-                raise TopologyAdmissionError(
-                    "parallel groups must be disjoint and unique"
-                )
+            _check_parallel_group(group, role_set, self.max_parallelism, grouped_roles)
             grouped_roles.update(group)
         self.require_payload(specialists, label="topology specialists")
+
+
+def _find_role_group(
+    role: str, parallel_groups: list[list[str]], scheduled: set[str]
+) -> list[str] | None:
+    """First not-fully-scheduled parallel group containing ``role``, for
+    ``_schedule_parallel_role``. ``None`` if no such group exists."""
+    for group in parallel_groups:
+        if role in group and not all(r in scheduled for r in group):
+            return group
+    return None
+
+
+def _schedule_parallel_role(
+    role: str,
+    parallel_groups: list[list[str]],
+    role_to_spec: dict[str, dict[str, Any]],
+    scheduled: set[str],
+    steps: list[dict[str, Any]],
+    step_idx: int,
+) -> int:
+    """Schedule one parallel-group role for
+    ``TopologyEngine._build_mixed_plan``. Appends to ``steps`` and
+    ``scheduled`` in place; returns the (possibly advanced) ``step_idx``."""
+    group = _find_role_group(role, parallel_groups, scheduled)
+    if group is None:
+        return step_idx
+
+    group_specs = [
+        role_to_spec[r] for r in group if r in role_to_spec and r not in scheduled
+    ]
+    if group_specs:
+        steps.append(
+            {
+                "step": step_idx,
+                "roles": [s["role"] for s in group_specs],
+                "mode": "parallel",
+                "agent_ids": [s.get("agent_id", s["role"]) for s in group_specs],
+            }
+        )
+        step_idx += 1
+        scheduled.update(s["role"] for s in group_specs)
+    return step_idx
+
+
+def _schedule_sequential_role(
+    specialist: dict[str, Any],
+    role: str,
+    scheduled: set[str],
+    steps: list[dict[str, Any]],
+    step_idx: int,
+) -> int:
+    """Schedule one sequential role for
+    ``TopologyEngine._build_mixed_plan``. Appends to ``steps`` and
+    ``scheduled`` in place; returns the advanced ``step_idx``."""
+    steps.append(
+        {
+            "step": step_idx,
+            "roles": [role],
+            "mode": "sequential",
+            "agent_ids": [specialist.get("agent_id", role)],
+        }
+    )
+    scheduled.add(role)
+    return step_idx + 1
 
 
 class TopologyEngine:
@@ -584,6 +789,94 @@ class TopologyEngine:
             )
         )
 
+    def _build_sequential_plan(
+        self, adaptive_agent_router: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """``"sequential"`` shape of ``_build_execution_plan``."""
+        return [
+            {
+                "step": i,
+                "roles": [s["role"]],
+                "mode": "sequential",
+                "agent_ids": [s.get("agent_id", s["role"])],
+            }
+            for i, s in enumerate(adaptive_agent_router)
+        ]
+
+    def _build_parallel_plan(
+        self, adaptive_agent_router: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """``"parallel"`` shape of ``_build_execution_plan``: all
+        adaptive_agent_router execute in parallel, then join."""
+        return [
+            {
+                "step": 0,
+                "roles": [s["role"] for s in adaptive_agent_router],
+                "mode": "parallel",
+                "agent_ids": [
+                    s.get("agent_id", s["role"]) for s in adaptive_agent_router
+                ],
+            }
+        ]
+
+    def _build_fan_out_plan(
+        self, adaptive_agent_router: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """``"fan_out"`` shape of ``_build_execution_plan``: the first
+        specialist fans out to the rest."""
+        if len(adaptive_agent_router) < 2:
+            return self._build_sequential_plan(adaptive_agent_router)
+
+        return [
+            {
+                "step": 0,
+                "roles": [adaptive_agent_router[0]["role"]],
+                "mode": "sequential",
+                "agent_ids": [
+                    adaptive_agent_router[0].get(
+                        "agent_id", adaptive_agent_router[0]["role"]
+                    )
+                ],
+            },
+            {
+                "step": 1,
+                "roles": [s["role"] for s in adaptive_agent_router[1:]],
+                "mode": "parallel",
+                "agent_ids": [
+                    s.get("agent_id", s["role"]) for s in adaptive_agent_router[1:]
+                ],
+            },
+        ]
+
+    def _build_fan_in_plan(
+        self, adaptive_agent_router: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """``"fan_in"`` shape of ``_build_execution_plan``: all but the last
+        execute in parallel, then the last gathers."""
+        if len(adaptive_agent_router) < 2:
+            return self._build_sequential_plan(adaptive_agent_router)
+
+        return [
+            {
+                "step": 0,
+                "roles": [s["role"] for s in adaptive_agent_router[:-1]],
+                "mode": "parallel",
+                "agent_ids": [
+                    s.get("agent_id", s["role"]) for s in adaptive_agent_router[:-1]
+                ],
+            },
+            {
+                "step": 1,
+                "roles": [adaptive_agent_router[-1]["role"]],
+                "mode": "sequential",
+                "agent_ids": [
+                    adaptive_agent_router[-1].get(
+                        "agent_id", adaptive_agent_router[-1]["role"]
+                    )
+                ],
+            },
+        ]
+
     def _build_execution_plan(
         self,
         adaptive_agent_router: list[dict[str, Any]],
@@ -597,92 +890,18 @@ class TopologyEngine:
         - Multiple adaptive_agent_router (parallel group)
         """
         if mode == "sequential":
-            return [
-                {
-                    "step": i,
-                    "roles": [s["role"]],
-                    "mode": "sequential",
-                    "agent_ids": [s.get("agent_id", s["role"])],
-                }
-                for i, s in enumerate(adaptive_agent_router)
-            ]
-
+            return self._build_sequential_plan(adaptive_agent_router)
         if mode == "parallel":
-            # All adaptive_agent_router execute in parallel, then join
-            return [
-                {
-                    "step": 0,
-                    "roles": [s["role"] for s in adaptive_agent_router],
-                    "mode": "parallel",
-                    "agent_ids": [
-                        s.get("agent_id", s["role"]) for s in adaptive_agent_router
-                    ],
-                }
-            ]
-
+            return self._build_parallel_plan(adaptive_agent_router)
         if mode == "fan_out":
-            # First specialist fans out to the rest
-            if len(adaptive_agent_router) < 2:
-                return self._build_execution_plan(
-                    adaptive_agent_router, "sequential", []
-                )
-
-            steps = [
-                {
-                    "step": 0,
-                    "roles": [adaptive_agent_router[0]["role"]],
-                    "mode": "sequential",
-                    "agent_ids": [
-                        adaptive_agent_router[0].get(
-                            "agent_id", adaptive_agent_router[0]["role"]
-                        )
-                    ],
-                },
-                {
-                    "step": 1,
-                    "roles": [s["role"] for s in adaptive_agent_router[1:]],
-                    "mode": "parallel",
-                    "agent_ids": [
-                        s.get("agent_id", s["role"]) for s in adaptive_agent_router[1:]
-                    ],
-                },
-            ]
-            return steps
-
+            return self._build_fan_out_plan(adaptive_agent_router)
         if mode == "fan_in":
-            # All but last execute in parallel, then last gathers
-            if len(adaptive_agent_router) < 2:
-                return self._build_execution_plan(
-                    adaptive_agent_router, "sequential", []
-                )
-
-            steps = [
-                {
-                    "step": 0,
-                    "roles": [s["role"] for s in adaptive_agent_router[:-1]],
-                    "mode": "parallel",
-                    "agent_ids": [
-                        s.get("agent_id", s["role"]) for s in adaptive_agent_router[:-1]
-                    ],
-                },
-                {
-                    "step": 1,
-                    "roles": [adaptive_agent_router[-1]["role"]],
-                    "mode": "sequential",
-                    "agent_ids": [
-                        adaptive_agent_router[-1].get(
-                            "agent_id", adaptive_agent_router[-1]["role"]
-                        )
-                    ],
-                },
-            ]
-            return steps
-
+            return self._build_fan_in_plan(adaptive_agent_router)
         if mode == "mixed":
             return self._build_mixed_plan(adaptive_agent_router, parallel_groups)
 
         # Fallback: sequential
-        return self._build_execution_plan(adaptive_agent_router, "sequential", [])
+        return self._build_sequential_plan(adaptive_agent_router)
 
     def _build_mixed_plan(
         self,
@@ -712,41 +931,13 @@ class TopologyEngine:
                 continue
 
             if role in parallel_roles:
-                # Find which parallel group this role belongs to
-                for group in parallel_groups:
-                    if role in group and not all(r in scheduled for r in group):
-                        group_specs = [
-                            role_to_spec[r]
-                            for r in group
-                            if r in role_to_spec and r not in scheduled
-                        ]
-                        if group_specs:
-                            steps.append(
-                                {
-                                    "step": step_idx,
-                                    "roles": [s["role"] for s in group_specs],
-                                    "mode": "parallel",
-                                    "agent_ids": [
-                                        s.get("agent_id", s["role"])
-                                        for s in group_specs
-                                    ],
-                                }
-                            )
-                            step_idx += 1
-                            scheduled.update(s["role"] for s in group_specs)
-                        break
-            else:
-                # Sequential step
-                steps.append(
-                    {
-                        "step": step_idx,
-                        "roles": [role],
-                        "mode": "sequential",
-                        "agent_ids": [specialist.get("agent_id", role)],
-                    }
+                step_idx = _schedule_parallel_role(
+                    role, parallel_groups, role_to_spec, scheduled, steps, step_idx
                 )
-                step_idx += 1
-                scheduled.add(role)
+            else:
+                step_idx = _schedule_sequential_role(
+                    specialist, role, scheduled, steps, step_idx
+                )
 
         return steps
 
