@@ -181,6 +181,30 @@ def _concept_text(data: dict[str, Any]) -> str:
     return " — ".join(p for p in parts if p).strip()
 
 
+@dataclass
+class _ConceptIndex:
+    """Bundled per-``satisfy``-call concept lookup structures (keeps
+    ``_match_all_features``'s parameter count under the cap)."""
+
+    by_key: dict[str, str]
+    vecs: list[tuple[str, list[float]]]
+    text: dict[str, str]
+    recall_fn: Callable[[list[float]], list[tuple[str, float]]] | None
+
+
+def _parse_recall_hit(h: Any) -> tuple[str, float] | None:
+    """Normalize one HNSW recall hit (a ``(id, score)`` pair or a dict) to a
+    plain tuple, or ``None`` when the shape isn't recognized."""
+    if isinstance(h, list | tuple) and len(h) >= 2:
+        return str(h[0]), float(h[1])
+    if isinstance(h, dict):
+        return (
+            str(h.get("id", "")),
+            float(h.get("_similarity", h.get("score", 0.0)) or 0.0),
+        )
+    return None
+
+
 # --------------------------------------------------------------------------- #
 # matcher
 # --------------------------------------------------------------------------- #
@@ -239,13 +263,10 @@ class ConceptMatcher:
                 return []
             out: list[tuple[str, float]] = []
             for h in hits:
-                if isinstance(h, list | tuple) and len(h) >= 2:
-                    cid, score = str(h[0]), float(h[1])
-                elif isinstance(h, dict):
-                    cid = str(h.get("id", ""))
-                    score = float(h.get("_similarity", h.get("score", 0.0)) or 0.0)
-                else:
+                parsed = _parse_recall_hit(h)
+                if parsed is None:
                     continue
+                cid, score = parsed
                 if cid in concept_ids and score >= self.retrieval_threshold:
                     out.append((cid, score))
                     if len(out) >= self.top_k:
@@ -266,6 +287,66 @@ class ConceptMatcher:
         self._judge_cache[key] = out
         return out
 
+    def _ensure_feature_vec(
+        self, feature_vec: list[float] | None, fdata: dict[str, Any]
+    ) -> list[float] | None:
+        """Embed the feature text ON-THE-FLY when it has no stored node
+        embedding (CONCEPT:AU-KG.ingest.fetch-only-requested-ids) — embeddings
+        live in the engine HNSW, not the node property, so we never rely on a
+        node-level vector here."""
+        if feature_vec:
+            return feature_vec
+        ftext0 = _feature_text(fdata)
+        if not ftext0.strip():
+            return None
+        try:
+            return self._embed([ftext0])[0]
+        except Exception:  # noqa: BLE001 — embed unavailable → no recall
+            return None
+
+    def _recall_candidates(
+        self,
+        feature_vec: list[float] | None,
+        concept_vecs: list[tuple[str, list[float]]],
+        recall_fn: Callable[[list[float]], list[tuple[str, float]]] | None,
+    ) -> list[tuple[str, float]]:
+        """Prefer the engine HNSW recall (where add_embedding/enrich_concepts
+        store vectors); fall back to the in-memory cosine index (test doubles
+        / when node embeddings are present)."""
+        if not feature_vec:
+            return []
+        if recall_fn is not None:
+            return recall_fn(feature_vec)
+        if concept_vecs:
+            return _top_k_cosine(
+                feature_vec, concept_vecs, self.top_k, self.retrieval_threshold
+            )
+        return []
+
+    def _adjudicate_candidates(
+        self,
+        ftext: str,
+        fhash: str,
+        concept_text: dict[str, str],
+        candidates: list[tuple[str, float]],
+    ) -> list[Match]:
+        """Stage 2 — adjudicate each candidate (LLM judge, else cosine
+        fallback), then Stage 3 — fuse the cosine retrieval signal with the
+        verdict confidence."""
+        matches: list[Match] = []
+        for cid, cos in candidates:
+            if self._use_llm:
+                verdict, conf, why = self._judge(
+                    ftext, fhash, cid, concept_text.get(cid, cid)
+                )
+                method = "llm_judge"
+            else:
+                verdict, conf, why = _cosine_verdict(cos)
+                method = "cosine"
+            score = round(0.4 * cos + 0.6 * conf, 6) if verdict != "unrelated" else 0.0
+            matches.append(Match(cid, round(cos, 6), verdict, conf, score, method, why))
+        return matches
+
     # -- core decision for one feature ------------------------------------- #
     def match_feature(
         self,
@@ -279,55 +360,44 @@ class ConceptMatcher:
         recall_fn: Callable[[list[float]], list[tuple[str, float]]] | None = None,
     ) -> FeatureMatch:
         # Stage 0 — explicit id (highest precision)
-        for ref in _feature_refs(fid, fdata):
-            cid = concept_by_key.get(ref)
-            if cid:
-                m = Match(cid, 1.0, "covered", 1.0, 1.0, "id", "declared concept id")
-                return FeatureMatch(fid, "covered", m, 0.0, [m])
+        explicit = _explicit_id_match(fid, fdata, concept_by_key)
+        if explicit is not None:
+            return explicit
 
         # Stage 1 — embedding retrieval (recall: candidate generation only).
-        # The feature vector is embedded ON-THE-FLY from its text when it has no
-        # stored node embedding (CONCEPT:AU-KG.ingest.fetch-only-requested-ids) — embeddings live in the engine
-        # HNSW, not the node property, so we never rely on a node-level vector here.
-        if not feature_vec:
-            ftext0 = _feature_text(fdata)
-            if ftext0.strip():
-                try:
-                    feature_vec = self._embed([ftext0])[0]
-                except Exception:  # noqa: BLE001 — embed unavailable → no recall
-                    feature_vec = None
-        candidates: list[tuple[str, float]] = []
-        if feature_vec:
-            # Prefer the engine HNSW recall (where add_embedding/enrich_concepts store
-            # vectors); fall back to the in-memory cosine index (test doubles / when
-            # node embeddings are present).
-            if recall_fn is not None:
-                candidates = recall_fn(feature_vec)
-            elif concept_vecs:
-                candidates = _top_k_cosine(
-                    feature_vec, concept_vecs, self.top_k, self.retrieval_threshold
-                )
+        feature_vec = self._ensure_feature_vec(feature_vec, fdata)
+        candidates = self._recall_candidates(feature_vec, concept_vecs, recall_fn)
         if not candidates:
             return FeatureMatch(fid, "unrelated", None, 1.0, [])
 
         ftext = _feature_text(fdata)
         fhash = content_fingerprint(ftext)
-        matches: list[Match] = []
-        # Stage 2 — adjudicate each candidate (LLM judge, else cosine fallback)
-        for cid, cos in candidates:
-            if self._use_llm:
-                verdict, conf, why = self._judge(
-                    ftext, fhash, cid, concept_text.get(cid, cid)
-                )
-                method = "llm_judge"
-            else:
-                verdict, conf, why = _cosine_verdict(cos)
-                method = "cosine"
-            # Stage 3 — fuse cosine retrieval signal with the verdict confidence.
-            score = round(0.4 * cos + 0.6 * conf, 6) if verdict != "unrelated" else 0.0
-            matches.append(Match(cid, round(cos, 6), verdict, conf, score, method, why))
-
+        matches = self._adjudicate_candidates(ftext, fhash, concept_text, candidates)
         return _decide(fid, matches, self.judge_accept)
+
+    def _match_all_features(
+        self,
+        engine: Any,
+        report: MatchReport,
+        features: dict[str, dict[str, Any]],
+        restrict_to: set[str] | None,
+        index: _ConceptIndex,
+        write: bool,
+    ) -> None:
+        for fid, fdata in features.items():
+            if restrict_to and fid not in restrict_to:
+                continue
+            fm = self.match_feature(
+                fid,
+                fdata,
+                concept_by_key=index.by_key,
+                concept_vecs=index.vecs,
+                concept_text=index.text,
+                feature_vec=fdata.get("embedding"),
+                recall_fn=index.recall_fn,
+            )
+            report.feature_matches.append(fm)
+            _record_feature_decision(engine, report, fid, fm, write=write)
 
     # -- whole-graph pass (assimilate-stage entry; replaces auto_satisfy) --- #
     def satisfy(
@@ -360,64 +430,78 @@ class ConceptMatcher:
         recall_fn = (
             self._hnsw_recall_fn(engine, set(concepts)) if not concept_vecs else None
         )
-
-        for fid, fdata in features.items():
-            if restrict_to and fid not in restrict_to:
-                continue
-            fm = self.match_feature(
-                fid,
-                fdata,
-                concept_by_key=concept_by_key,
-                concept_vecs=concept_vecs,
-                concept_text=concept_text,
-                feature_vec=fdata.get("embedding"),
-                recall_fn=recall_fn,
-            )
-            report.feature_matches.append(fm)
-            if fm.best is None or fm.decision == "unrelated":
-                report.unrelated += 1
-                continue
-            best = fm.best
-            report.candidates.append((fid, best.concept_id, best.score))
-            if fm.decision == "covered":
-                report.satisfied += 1
-                if write:
-                    engine.link_nodes(
-                        fid,
-                        best.concept_id,
-                        RegistryEdgeType.SATISFIED_BY,
-                        properties={
-                            "_rel": "SATISFIED_BY",
-                            "score": best.score,
-                            "auto": True,
-                            "concept": best.concept_id,
-                            "match": best.method,
-                            "rationale": best.rationale,
-                        },
-                    )
-            else:  # related (novel but relevant) — stays an open gap
-                report.related += 1
-                if write:
-                    engine.link_nodes(
-                        fid,
-                        best.concept_id,
-                        _RELATES_TO,
-                        properties={
-                            "_rel": _RELATES_TO,
-                            "score": best.score,
-                            "auto": True,
-                            "concept": best.concept_id,
-                            "match": best.method,
-                            "rationale": best.rationale,
-                            "novelty": fm.novelty_score,
-                        },
-                    )
+        index = _ConceptIndex(concept_by_key, concept_vecs, concept_text, recall_fn)
+        self._match_all_features(engine, report, features, restrict_to, index, write)
         return report
 
 
 # --------------------------------------------------------------------------- #
 # helpers
 # --------------------------------------------------------------------------- #
+def _record_satisfied(
+    engine: Any, report: MatchReport, fid: str, best: Match, *, write: bool
+) -> None:
+    report.satisfied += 1
+    if write:
+        engine.link_nodes(
+            fid,
+            best.concept_id,
+            RegistryEdgeType.SATISFIED_BY,
+            properties={
+                "_rel": "SATISFIED_BY",
+                "score": best.score,
+                "auto": True,
+                "concept": best.concept_id,
+                "match": best.method,
+                "rationale": best.rationale,
+            },
+        )
+
+
+def _record_related(
+    engine: Any,
+    report: MatchReport,
+    fid: str,
+    best: Match,
+    novelty_score: float,
+    *,
+    write: bool,
+) -> None:
+    report.related += 1
+    if write:
+        engine.link_nodes(
+            fid,
+            best.concept_id,
+            _RELATES_TO,
+            properties={
+                "_rel": _RELATES_TO,
+                "score": best.score,
+                "auto": True,
+                "concept": best.concept_id,
+                "match": best.method,
+                "rationale": best.rationale,
+                "novelty": novelty_score,
+            },
+        )
+
+
+def _record_feature_decision(
+    engine: Any, report: MatchReport, fid: str, fm: FeatureMatch, *, write: bool
+) -> None:
+    """Update ``report`` (and optionally write the graph edge) for one
+    feature's decision — unrelated / covered / related (novel but relevant,
+    stays an open gap)."""
+    if fm.best is None or fm.decision == "unrelated":
+        report.unrelated += 1
+        return
+    best = fm.best
+    report.candidates.append((fid, best.concept_id, best.score))
+    if fm.decision == "covered":
+        _record_satisfied(engine, report, fid, best, write=write)
+    else:
+        _record_related(engine, report, fid, best, fm.novelty_score, write=write)
+
+
 def _build_concept_index(
     concepts: dict[str, dict[str, Any]],
 ) -> tuple[dict[str, str], list[tuple[str, list[float]]], dict[str, str]]:
@@ -435,6 +519,33 @@ def _build_concept_index(
     return concept_by_key, concept_vecs, concept_text
 
 
+def _normalized_or_none(fvec: list[float]) -> list[float] | None:
+    """L2-normalize ``fvec``, or ``None`` when it has zero magnitude."""
+    fnorm = math.sqrt(sum(value * value for value in fvec))
+    if not fnorm:
+        return None
+    return [value / fnorm for value in fvec]
+
+
+def _cosine_scores(
+    normalized: list[float], concept_vecs: list[tuple[str, list[float]]]
+) -> list[tuple[str, float]]:
+    """Cosine of each concept vector against an already-normalized ``normalized``."""
+    from agent_utilities.numeric import xp
+
+    ids = [cid for cid, _ in concept_vecs]
+    vectors = [list(vector) for _, vector in concept_vecs]
+    # Rank the complete bounded concept batch with one native matmul.  The
+    # previous loop crossed the numeric boundary once per concept vector.
+    dots = xp.matmul(vectors, [[value] for value in normalized])
+    norms = [math.sqrt(sum(value * value for value in vector)) for vector in vectors]
+    return [
+        (cid, float(row[0]) / norm)
+        for cid, row, norm in zip(ids, dots, norms, strict=True)
+        if norm
+    ]
+
+
 def _top_k_cosine(
     fvec: list[float],
     concept_vecs: list[tuple[str, list[float]]],
@@ -444,27 +555,27 @@ def _top_k_cosine(
     """Top-k concepts by cosine ≥ threshold over the native list boundary."""
     if not concept_vecs:
         return []
-    from agent_utilities.numeric import xp
-
-    fnorm = math.sqrt(sum(value * value for value in fvec))
-    if not fnorm:
+    normalized = _normalized_or_none(fvec)
+    if normalized is None:
         return []
-    normalized = [value / fnorm for value in fvec]
-    ids = [cid for cid, _ in concept_vecs]
-    vectors = [list(vector) for _, vector in concept_vecs]
-    # Rank the complete bounded concept batch with one native matmul.  The
-    # previous loop crossed the numeric boundary once per concept vector.
-    dots = xp.matmul(vectors, [[value] for value in normalized])
-    norms = [math.sqrt(sum(value * value for value in vector)) for vector in vectors]
-    scored = [
-        (cid, float(row[0]) / norm)
-        for cid, row, norm in zip(ids, dots, norms, strict=True)
-        if norm
-    ]
+    scored = _cosine_scores(normalized, concept_vecs)
     scored.sort(key=lambda t: (-t[1], t[0]))
     return [
         (concept_id, score) for concept_id, score in scored[:k] if score >= threshold
     ]
+
+
+def _explicit_id_match(
+    fid: str, fdata: dict[str, Any], concept_by_key: dict[str, str]
+) -> FeatureMatch | None:
+    """Stage 0 — highest-precision match: the feature declares a concept id
+    that exists in the registry. ``None`` when no declared ref resolves."""
+    for ref in _feature_refs(fid, fdata):
+        cid = concept_by_key.get(ref)
+        if cid:
+            m = Match(cid, 1.0, "covered", 1.0, 1.0, "id", "declared concept id")
+            return FeatureMatch(fid, "covered", m, 0.0, [m])
+    return None
 
 
 def _cosine_verdict(cos: float) -> tuple[Verdict, float, str]:
@@ -494,38 +605,60 @@ def _decide(fid: str, matches: list[Match], judge_accept: float) -> FeatureMatch
     return FeatureMatch(fid, "unrelated", None, 1.0, matches)
 
 
+def _auto_edges_from_iter(
+    edges: Any, feature_ids: set[str], rels: tuple[str, ...]
+) -> list[tuple[str, str, str]]:
+    pairs: list[tuple[str, str, str]] = []
+    for src, dst, props in edges:
+        rel = _rel_of(props)
+        if (
+            src in feature_ids
+            and rel in rels
+            and isinstance(props, dict)
+            and props.get("auto")
+        ):
+            pairs.append((src, dst, rel))
+    return pairs
+
+
+def _auto_edges_from_graph(
+    graph: Any, feature_ids: set[str], rels: tuple[str, ...]
+) -> list[tuple[str, str, str]]:
+    pairs: list[tuple[str, str, str]] = []
+    for fid in feature_ids:
+        try:
+            for _s, dst, props in graph.out_edges(fid, data=True):
+                rel = _rel_of(props)
+                if isinstance(props, dict) and rel in rels and props.get("auto"):
+                    pairs.append((fid, dst, rel))
+        except (TypeError, AttributeError):  # pragma: no cover
+            continue
+    return pairs
+
+
+def _delete_edge_pairs(
+    deleter: Callable[[str, str, str], Any], pairs: list[tuple[str, str, str]]
+) -> None:
+    for src, dst, rel in pairs:
+        try:
+            deleter(src, dst, rel)
+        except Exception:  # pragma: no cover - best-effort reconcile
+            pass
+
+
 def _clear_auto(engine: Any, feature_ids: set[str], rels: tuple[str, ...]) -> int:
     """Remove prior auto-written edges of ``rels`` from ``feature_ids`` (idempotent)."""
     graph = getattr(engine, "graph", None)
     deleter = getattr(engine, "delete_edge", None)
     if graph is None or not callable(deleter):
         return 0
-    pairs: list[tuple[str, str, str]] = []
     edges = iter_all_edges(graph)
-    if edges is not None:
-        for src, dst, props in edges:
-            rel = _rel_of(props)
-            if (
-                src in feature_ids
-                and rel in rels
-                and isinstance(props, dict)
-                and props.get("auto")
-            ):
-                pairs.append((src, dst, rel))
-    else:
-        for fid in feature_ids:
-            try:
-                for _s, dst, props in graph.out_edges(fid, data=True):
-                    rel = _rel_of(props)
-                    if isinstance(props, dict) and rel in rels and props.get("auto"):
-                        pairs.append((fid, dst, rel))
-            except (TypeError, AttributeError):  # pragma: no cover
-                continue
-    for src, dst, rel in pairs:
-        try:
-            deleter(src, dst, rel)
-        except Exception:  # pragma: no cover - best-effort reconcile
-            pass
+    pairs = (
+        _auto_edges_from_iter(edges, feature_ids, rels)
+        if edges is not None
+        else _auto_edges_from_graph(graph, feature_ids, rels)
+    )
+    _delete_edge_pairs(deleter, pairs)
     return len(pairs)
 
 
