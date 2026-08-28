@@ -1042,6 +1042,59 @@ def _plot_spec(
     return spec
 
 
+def _complete_row(row: Any, fields: list[str]) -> dict[str, Any] | None:
+    """The row's value for EVERY field, or ``None`` when any one is absent.
+
+    Never fabricates: a missing key or a SQL NULL disqualifies the whole row
+    rather than being backfilled with an invented ``0.0``/``""``.
+    """
+    if not isinstance(row, dict):
+        return None
+    values: dict[str, Any] = {}
+    for f in fields:
+        v = row.get(f)
+        if v is None:
+            return None
+        values[f] = v
+    return values
+
+
+def _keep_complete_rows(
+    rows: list[Any], fields: list[str], row_limit: int
+) -> list[dict[str, Any]]:
+    """The first ``row_limit`` rows carrying a value for every one of ``fields``."""
+    kept: list[dict[str, Any]] = []
+    for row in rows:
+        values = _complete_row(row, fields)
+        if values is None:
+            continue
+        kept.append(values)
+        if len(kept) >= row_limit:
+            break
+    return kept
+
+
+def _encode_columns(kept: list[dict[str, Any]], fields: list[str]) -> dict[str, Any]:
+    """Encode surviving rows as ``VizColumnValues`` columns.
+
+    A field is ``F64`` iff every surviving value in it is a real number
+    (excluding bool, which JSON/SQL both can return where a caller might expect
+    a numeric flag but this DTO has no bool column type); otherwise the whole
+    field is ``Utf8`` — matching ``eg_types::viz::VizColumnValues``'s only two
+    variants.
+    """
+    columns: dict[str, Any] = {}
+    for f in fields:
+        col_values = [row[f] for row in kept]
+        if all(
+            isinstance(v, int | float) and not isinstance(v, bool) for v in col_values
+        ):
+            columns[f] = {"F64": [float(v) for v in col_values]}
+        else:
+            columns[f] = {"Utf8": [str(v) for v in col_values]}
+    return columns
+
+
 def _rows_to_inline_columns(
     rows: list[Any], fields: list[str], row_limit: int
 ) -> tuple[dict[str, Any] | None, int, int]:
@@ -1057,44 +1110,15 @@ def _rows_to_inline_columns(
     ``(None, 0, rows_returned)`` when zero rows survive that filter (the
     caller turns this into an explicit ``unavailable`` response, never an
     empty-but-"successful" chart) — otherwise ``(columns, rows_used,
-    rows_returned)``. A field is encoded ``F64`` iff every surviving value in
-    it is a real number (excluding bool, which JSON/SQL both can return where
-    a caller might expect a numeric flag but this DTO has no bool column type);
-    otherwise the whole field is encoded ``Utf8`` (``str()`` of the value) —
-    matching ``eg_types::viz::VizColumnValues``'s only two variants.
+    rows_returned)``.
     """
     if not isinstance(rows, list):
         return None, 0, 0
     rows_returned = len(rows)
-    kept: list[dict[str, Any]] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        values = {}
-        ok = True
-        for f in fields:
-            v = row.get(f)
-            if v is None:
-                ok = False
-                break
-            values[f] = v
-        if ok:
-            kept.append(values)
-            if len(kept) >= row_limit:
-                break
-    rows_used = len(kept)
-    if rows_used == 0:
+    kept = _keep_complete_rows(rows, fields, row_limit)
+    if not kept:
         return None, 0, rows_returned
-    columns: dict[str, Any] = {}
-    for f in fields:
-        col_values = [row[f] for row in kept]
-        if all(
-            isinstance(v, int | float) and not isinstance(v, bool) for v in col_values
-        ):
-            columns[f] = {"F64": [float(v) for v in col_values]}
-        else:
-            columns[f] = {"Utf8": [str(v) for v in col_values]}
-    return columns, rows_used, rows_returned
+    return _encode_columns(kept, fields), len(kept), rows_returned
 
 
 def _render_chart(
@@ -1134,6 +1158,55 @@ def _render_chart(
     )
 
 
+def _spec_mark(spec_json: str) -> Any:
+    """The first mark's ``kind`` from a ViewSpec JSON string, or ``None``.
+
+    Never raises: an absent, unparseable or unexpectedly shaped spec simply
+    yields ``None`` (the summary then says "a chart" rather than naming a mark).
+    """
+    if not spec_json.strip():
+        return None
+    try:
+        spec = json.loads(spec_json)
+        marks = spec.get("marks") if isinstance(spec, dict) else None
+        if isinstance(marks, list) and marks and isinstance(marks[0], dict):
+            return marks[0].get("kind")
+    except (TypeError, ValueError):
+        return None
+    return None
+
+
+def _chart_summary_parts(vr: dict[str, Any], mark: Any) -> list[str]:
+    """The plain-language sentences describing what a ``ViewResult`` reports.
+
+    States only what the payload itself carries, and is explicit that a
+    non-exact render is an approximation the caller must not read as precise.
+    """
+    row_count = vr.get("row_count")
+    what = f"a {mark} chart" if mark else "a chart"
+    parts = [
+        f"Rendered {what} from {row_count if row_count is not None else 'an unknown number of'} row(s)."
+    ]
+    lod_tier = vr.get("lod_tier")
+    if lod_tier is not None:
+        parts.append(f"LOD tier: {lod_tier}.")
+    exact = vr.get("exact")
+    if exact is True:
+        parts.append(
+            "Exact — every row is individually represented; no reduction was applied."
+        )
+    elif exact is False:
+        reduction = vr.get("reduction")
+        parts.append(
+            f"Approximated (reduction: {reduction or 'unknown'}) — not every row is individually "
+            "represented; treat values read off this chart as visual trends, not precise per-row facts."
+        )
+    wall_time_ms = vr.get("wall_time_ms")
+    if wall_time_ms is not None:
+        parts.append(f"Rendered in {wall_time_ms} ms.")
+    return parts
+
+
 def _describe_chart(view_result_json: str, spec_json: str) -> str:
     """A pure, LLM-facing summary of a ``ViewResult`` already in hand — no
     engine call. States only what ``view_result`` itself reports (row count,
@@ -1162,52 +1235,192 @@ def _describe_chart(view_result_json: str, spec_json: str) -> str:
                 "error": "view_result_json must decode to an object",
             }
         )
-    mark = None
-    if spec_json.strip():
-        try:
-            spec = json.loads(spec_json)
-            marks = spec.get("marks") if isinstance(spec, dict) else None
-            if isinstance(marks, list) and marks and isinstance(marks[0], dict):
-                mark = marks[0].get("kind")
-        except (TypeError, ValueError):
-            mark = None
-    row_count = vr.get("row_count")
-    lod_tier = vr.get("lod_tier")
-    exact = vr.get("exact")
-    reduction = vr.get("reduction")
-    wall_time_ms = vr.get("wall_time_ms")
-    what = f"a {mark} chart" if mark else "a chart"
-    parts = [
-        f"Rendered {what} from {row_count if row_count is not None else 'an unknown number of'} row(s)."
-    ]
-    if lod_tier is not None:
-        parts.append(f"LOD tier: {lod_tier}.")
-    if exact is True:
-        parts.append(
-            "Exact — every row is individually represented; no reduction was applied."
-        )
-    elif exact is False:
-        parts.append(
-            f"Approximated (reduction: {reduction or 'unknown'}) — not every row is individually "
-            "represented; treat values read off this chart as visual trends, not precise per-row facts."
-        )
-    if wall_time_ms is not None:
-        parts.append(f"Rendered in {wall_time_ms} ms.")
-    summary = " ".join(parts)
+    mark = _spec_mark(spec_json)
     return json.dumps(
         {
             "surface": "viz",
             "action": "describe_chart",
             "result": {
-                "summary": summary,
+                "summary": " ".join(_chart_summary_parts(vr, mark)),
                 "mark": mark,
-                "row_count": row_count,
-                "lod_tier": lod_tier,
-                "exact": exact,
-                "reduction": reduction,
+                "row_count": vr.get("row_count"),
+                "lod_tier": vr.get("lod_tier"),
+                "exact": vr.get("exact"),
+                "reduction": vr.get("reduction"),
             },
         }
     )
+
+
+def _viz_capability_matrix(viz_client: Any, action: str) -> str:
+    """``action='capability_matrix'`` — which mark x surface pairs are real today."""
+    try:
+        result = viz_client.capability_matrix()
+    except Exception as exc:  # noqa: BLE001 — surface engine errors as data
+        return _surface_error(exc, surface="viz", action=action)
+    return json.dumps(
+        {"surface": "viz", "action": action, "result": result},
+        default=_json_default,
+    )
+
+
+def _viz_export_chart(
+    viz_client: Any,
+    action: str,
+    spec_json: str,
+    dataset_json: str,
+    render_opts: dict[str, Any],
+) -> str:
+    """``action='export_chart'`` — a thin already-built ViewSpec/dataset pass-through."""
+    try:
+        spec = json.loads(spec_json) if spec_json else {}
+        dataset = json.loads(dataset_json) if dataset_json else {}
+    except (TypeError, ValueError) as exc:
+        return _surface_error(exc, surface="viz", action=action, code="invalid_request")
+    if not spec or not dataset:
+        return json.dumps(
+            {
+                "surface": "viz",
+                "action": action,
+                "error": "spec_json and dataset_json are both required",
+            }
+        )
+    return _render_chart(
+        viz_client,
+        surface="viz",
+        action=action,
+        spec=spec,
+        dataset=dataset,
+        **render_opts,
+    )
+
+
+def _viz_plot_query_guard(action: str, plot: dict[str, Any]) -> str | None:
+    """Reject a ``plot_from_query`` request the flat-result path cannot serve.
+
+    Returns the ready-to-send rejection, or ``None`` when the request is
+    serviceable. The order of the two checks is load-bearing: a request that is
+    both incomplete AND asks for a non-flat mark still reports the missing
+    fields first, exactly as before.
+    """
+    if (
+        not plot["query"].strip()
+        or not plot["x_field"].strip()
+        or not plot["y_field"].strip()
+    ):
+        return json.dumps(
+            {
+                "surface": "viz",
+                "action": action,
+                "error": "query, x_field, and y_field are all required",
+            }
+        )
+    mark = plot["mark"]
+    if mark not in _VIZ_QUERY_MARKS:
+        return json.dumps(
+            {
+                "surface": "viz",
+                "action": action,
+                "error": f"mark {mark!r} is not usable from a flat query result; "
+                f"use one of {sorted(_VIZ_QUERY_MARKS)} or action='export_chart' "
+                "with an explicit graph/node-edge dataset",
+            }
+        )
+    return None
+
+
+def _viz_query_rows(client: Any, action: str, query: str) -> tuple[Any, str | None]:
+    """Run the read-only SQL behind ``plot_from_query``.
+
+    Returns ``(rows, None)``, or ``(None, error_json)`` when the query surface is
+    absent or the query itself failed.
+    """
+    query_client = getattr(client, "query", None)
+    if query_client is None or not hasattr(query_client, "sql"):
+        return None, _degraded("viz", action, ["client.query.sql"])
+    try:
+        return query_client.sql(query), None
+    except Exception as exc:  # noqa: BLE001 — surface engine errors as data
+        return None, _surface_error(
+            exc, surface="viz", action=action, code="query_failed"
+        )
+
+
+def _viz_with_row_counts(resp: str, rows_returned: int, rows_used: int) -> str:
+    """Fold ``plot_from_query``'s row accounting into a successful render envelope."""
+    try:
+        payload = json.loads(resp)
+    except (TypeError, ValueError):
+        return resp
+    if "result" in payload:
+        payload["rows_returned"] = rows_returned
+        payload["rows_rendered"] = rows_used
+    return json.dumps(payload, default=_json_default)
+
+
+def _viz_plot_from_query(
+    client: Any,
+    viz_client: Any,
+    action: str,
+    plot: dict[str, Any],
+    render_opts: dict[str, Any],
+) -> str:
+    """``action='plot_from_query'`` — run the SQL, shape it, render it.
+
+    Answers an explicit ``{'unavailable': true}`` rather than an empty chart
+    when no row carries every encoded field.
+    """
+    guard = _viz_plot_query_guard(action, plot)
+    if guard is not None:
+        return guard
+    rows, error = _viz_query_rows(client, action, plot["query"])
+    if error is not None:
+        return error
+    fields = [
+        f
+        for f in (
+            plot["x_field"],
+            plot["y_field"],
+            plot["color_field"],
+            plot["size_field"],
+        )
+        if f
+    ]
+    effective_row_limit = min(max(1, plot["row_limit"]), _VIZ_MAX_INLINE_ROWS)
+    columns, rows_used, rows_returned = _rows_to_inline_columns(
+        rows, fields, effective_row_limit
+    )
+    if columns is None:
+        return json.dumps(
+            {
+                "surface": "viz",
+                "action": action,
+                "unavailable": True,
+                "reason": (
+                    f"query returned {rows_returned} row(s); 0 had every one of "
+                    f"{fields} present, so there is nothing to render — this is "
+                    "reported as unavailable, not rendered as an empty chart"
+                ),
+            }
+        )
+    spec = _plot_spec(
+        plot["mark"],
+        render_opts["dataset_ref"],
+        plot["x_field"],
+        plot["y_field"],
+        plot["color_field"],
+        plot["size_field"],
+        plot["title"],
+    )
+    resp = _render_chart(
+        viz_client,
+        surface="viz",
+        action=action,
+        spec=spec,
+        dataset={"InlineColumns": {"columns": columns}},
+        **render_opts,
+    )
+    return _viz_with_row_counts(resp, rows_returned, rows_used)
 
 
 def _prometheus_base_url() -> str | None:
@@ -4020,115 +4233,37 @@ def register_engine_surface_tools(mcp) -> None:
         viz_client = getattr(client, "viz", None)
         if viz_client is None:
             return _degraded(surface, action, ["client.viz"])
+        render_opts: dict[str, Any] = {
+            "width_px": width_px,
+            "height_px": height_px,
+            "format": format,
+            "max_primitives": max_primitives,
+            "max_bytes": max_bytes,
+            "dataset_ref": dataset_ref,
+        }
         if action == "capability_matrix":
-            try:
-                result = viz_client.capability_matrix()
-            except Exception as exc:  # noqa: BLE001 — surface engine errors as data
-                return _surface_error(exc, surface=surface, action=action)
-            return json.dumps(
-                {"surface": surface, "action": action, "result": result},
-                default=_json_default,
-            )
+            return _viz_capability_matrix(viz_client, action)
         if action == "export_chart":
-            try:
-                spec = json.loads(spec_json) if spec_json else {}
-                dataset = json.loads(dataset_json) if dataset_json else {}
-            except (TypeError, ValueError) as exc:
-                return _surface_error(
-                    exc, surface=surface, action=action, code="invalid_request"
-                )
-            if not spec or not dataset:
-                return json.dumps(
-                    {
-                        "surface": surface,
-                        "action": action,
-                        "error": "spec_json and dataset_json are both required",
-                    }
-                )
-            return _render_chart(
-                viz_client,
-                surface=surface,
-                action=action,
-                spec=spec,
-                dataset=dataset,
-                width_px=width_px,
-                height_px=height_px,
-                format=format,
-                max_primitives=max_primitives,
-                max_bytes=max_bytes,
-                dataset_ref=dataset_ref,
+            return _viz_export_chart(
+                viz_client, action, spec_json, dataset_json, render_opts
             )
         if action == "plot_from_query":
-            if not query.strip() or not x_field.strip() or not y_field.strip():
-                return json.dumps(
-                    {
-                        "surface": surface,
-                        "action": action,
-                        "error": "query, x_field, and y_field are all required",
-                    }
-                )
-            if mark not in _VIZ_QUERY_MARKS:
-                return json.dumps(
-                    {
-                        "surface": surface,
-                        "action": action,
-                        "error": f"mark {mark!r} is not usable from a flat query result; "
-                        f"use one of {sorted(_VIZ_QUERY_MARKS)} or action='export_chart' "
-                        "with an explicit graph/node-edge dataset",
-                    }
-                )
-            query_client = getattr(client, "query", None)
-            if query_client is None or not hasattr(query_client, "sql"):
-                return _degraded(surface, action, ["client.query.sql"])
-            try:
-                rows = query_client.sql(query)
-            except Exception as exc:  # noqa: BLE001 — surface engine errors as data
-                return _surface_error(
-                    exc, surface=surface, action=action, code="query_failed"
-                )
-            fields = [f for f in (x_field, y_field, color_field, size_field) if f]
-            effective_row_limit = min(max(1, row_limit), _VIZ_MAX_INLINE_ROWS)
-            columns, rows_used, rows_returned = _rows_to_inline_columns(
-                rows, fields, effective_row_limit
-            )
-            if columns is None:
-                return json.dumps(
-                    {
-                        "surface": surface,
-                        "action": action,
-                        "unavailable": True,
-                        "reason": (
-                            f"query returned {rows_returned} row(s); 0 had every one of "
-                            f"{fields} present, so there is nothing to render — this is "
-                            "reported as unavailable, not rendered as an empty chart"
-                        ),
-                    }
-                )
-            spec = _plot_spec(
-                mark, dataset_ref, x_field, y_field, color_field, size_field, title
-            )
-            dataset = {"InlineColumns": {"columns": columns}}
-            resp = _render_chart(
+            return _viz_plot_from_query(
+                client,
                 viz_client,
-                surface=surface,
-                action=action,
-                spec=spec,
-                dataset=dataset,
-                width_px=width_px,
-                height_px=height_px,
-                format=format,
-                max_primitives=max_primitives,
-                max_bytes=max_bytes,
-                dataset_ref=dataset_ref,
+                action,
+                {
+                    "query": query,
+                    "mark": mark,
+                    "x_field": x_field,
+                    "y_field": y_field,
+                    "color_field": color_field,
+                    "size_field": size_field,
+                    "title": title,
+                    "row_limit": row_limit,
+                },
+                render_opts,
             )
-            try:
-                payload = json.loads(resp)
-            except (TypeError, ValueError):
-                return resp
-            if "result" in payload:
-                payload["rows_returned"] = rows_returned
-                payload["rows_rendered"] = rows_used
-            return json.dumps(payload, default=_json_default)
         return json.dumps(
             {
                 "surface": surface,
