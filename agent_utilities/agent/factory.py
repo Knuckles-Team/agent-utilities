@@ -260,6 +260,348 @@ def _resolve_agent_extra_body(model: Any) -> dict[str, Any]:
     return merge_extra_body(model_extra, DEFAULT_EXTRA_BODY or {})
 
 
+def _maybe_enable_rlm_for_db_tools(use_rlm: bool) -> bool:
+    """Default RLM on when DB-traversal tools are enabled, unless overridden.
+
+    CONCEPT: ORCH-1.1 + ECO-4.33 — a db_query returning millions of rows needs
+    the rlm_large_output_hook to avoid overflowing the context window. An
+    explicit ``use_rlm=`` always wins (this only flips False -> True).
+    """
+    if not use_rlm and to_boolean(setting("DB_TOOLS", "False")):
+        return True
+    return use_rlm
+
+
+def _prepare_explicit_mcp_http_clients(mcp_toolsets: list[Any], mcp_tls: Any) -> None:
+    """Give each caller-supplied MCP server an http client if it lacks one."""
+    from agent_utilities.core.http_client import create_async_http_client
+
+    for server in mcp_toolsets:
+        if server is None:
+            continue
+        if hasattr(server, "http_client") and not getattr(server, "http_client", None):
+            server.http_client = create_async_http_client(
+                timeout=DEFAULT_TIMEOUT,
+                **mcp_tls.httpx_kwargs(),
+            )
+
+
+def _wrap_explicit_mcp_toolset(server: Any) -> Any:
+    if type(server).__name__ == "FastMCP":
+        # v2: a FastMCP server instance is wrapped directly by MCPToolset
+        return force_legacy_protocol_mode(MCPToolset(server))
+    return server
+
+
+def _setup_explicit_mcp_toolsets(
+    mcp_toolsets: list[Any] | None, mcp_tls: Any
+) -> list[Any]:
+    """Wrap caller-supplied MCP toolsets, ensuring each has an http client.
+
+    Returns the initialized toolsets to register — empty when there are none
+    or VALIDATION_MODE is skipping the connection.
+    """
+    if not mcp_toolsets:
+        return []
+    if DEFAULT_VALIDATION_MODE:
+        logger.info("VALIDATION_MODE: Skipping external mcp_toolsets connection")
+        return []
+
+    _prepare_explicit_mcp_http_clients(mcp_toolsets, mcp_tls)
+    return [
+        _wrap_explicit_mcp_toolset(server)
+        for server in mcp_toolsets
+        if server is not None
+    ]
+
+
+def _setup_mcp_config_toolset(
+    mcp_config: str | None,
+    tool_tags: list[str] | None,
+    mcp_tls: Any,
+) -> tuple[str | None, list[Any]]:
+    """Load the configured MCP fleet.
+
+    Returns the (possibly path-resolved) ``mcp_config`` and the initialized
+    toolsets — empty when there is no config, VALIDATION_MODE skips the
+    connection, or the load fails (all logged, never raised).
+    """
+    if not mcp_config:
+        return mcp_config, []
+    if DEFAULT_VALIDATION_MODE:
+        logger.info("VALIDATION_MODE: skipping MCP configuration load")
+        return mcp_config, []
+
+    from agent_utilities.core.http_client import create_async_http_client
+
+    try:
+        from agent_utilities.core.workspace import resolve_mcp_config_path
+
+        mcp_path = resolve_mcp_config_path(mcp_config)
+        if mcp_path:
+            mcp_config = str(mcp_path)
+            logger.info("Resolved MCP configuration")
+
+        mcp_toolset = load_mcp_servers(mcp_config)
+        for server in mcp_toolset:
+            if hasattr(server, "http_client") and not getattr(
+                server, "http_client", None
+            ):
+                server.http_client = create_async_http_client(
+                    timeout=DEFAULT_TIMEOUT,
+                    **mcp_tls.httpx_kwargs(),
+                )
+
+        if tool_tags:
+            mcp_toolset = [filter_tools_by_tag(s, tool_tags) for s in mcp_toolset]
+
+        logger.info("Connected to configured MCP fleet")
+        return mcp_config, list(mcp_toolset)
+    except Exception as e:
+        logger.warning("MCP configuration failed (%s)", type(e).__name__)
+        return mcp_config, []
+
+
+def _register_mcp_toolsets(
+    toolsets: list[Any],
+    isolate_mcp: bool,
+    initialized_mcp_toolsets: list[Any],
+    agent_toolsets: list[Any],
+) -> None:
+    """Fold newly-initialized MCP toolsets into the tracking lists.
+
+    Always tracked in ``initialized_mcp_toolsets``; only added to the
+    agent-visible ``agent_toolsets`` when not isolated.
+    """
+    initialized_mcp_toolsets.extend(toolsets)
+    if not isolate_mcp:
+        agent_toolsets.extend(toolsets)
+
+
+_DEFAULT_SKILL_TYPES: list[str] = [
+    "universal",
+    "graphs",
+    "tdd-methodology",
+    "manual_testing",
+    "walkthroughs",
+]
+
+
+def _collect_base_skill_dirs(skill_types: list[str] | None) -> list[str]:
+    _skill_types = skill_types if skill_types is not None else _DEFAULT_SKILL_TYPES
+    skill_dirs: list[str] = []
+
+    if skills_path := get_skills_path():
+        skill_dirs.extend(skills_path)
+
+    if "universal" in _skill_types:
+        from universal_skills.skill_utilities import get_universal_skills_path
+
+        skill_dirs.extend(get_universal_skills_path())
+
+    if "graphs" in _skill_types:
+        try:
+            from skill_graphs.skill_graph_utilities import get_skill_graphs_path
+
+            skill_dirs.extend(get_skill_graphs_path(default_enabled=True))
+        except ImportError:
+            pass
+
+    return skill_dirs
+
+
+def _append_custom_skill_dir_list(skill_dirs: list[str], dirs: Any) -> None:
+    for d in dirs:
+        if d and os.path.exists(d):
+            skill_dirs.append(str(d))
+            logger.info("Loaded configured custom skills directory")
+
+
+def _append_custom_skill_directory(
+    skill_dirs: list[str], custom_skills_directory: Any
+) -> None:
+    if not custom_skills_directory:
+        return
+    if isinstance(custom_skills_directory, list | tuple):
+        _append_custom_skill_dir_list(skill_dirs, custom_skills_directory)
+    elif os.path.exists(custom_skills_directory):
+        logger.debug("Loading configured custom skills directory")
+        skill_dirs.append(str(custom_skills_directory))
+        logger.info("Loaded configured custom skills directory")
+
+
+def _resolve_skill_dirs(
+    skill_types: list[str] | None,
+    tool_tags: list[str] | None,
+    custom_skills_directory: Any,
+) -> list[str]:
+    skill_dirs = _collect_base_skill_dirs(skill_types)
+
+    if tool_tags:
+        skill_dirs = [d for d in skill_dirs if skill_matches_tags(d, tool_tags)]
+
+    _append_custom_skill_directory(skill_dirs, custom_skills_directory)
+    return skill_dirs
+
+
+def _load_skills_toolset(
+    enable_skills: bool,
+    skill_types: list[str] | None,
+    tool_tags: list[str] | None,
+    custom_skills_directory: Any,
+    agent_toolsets: list[Any],
+) -> None:
+    from pydantic_ai_skills import SkillsToolset
+
+    if not (enable_skills and not DEFAULT_VALIDATION_MODE):
+        return
+
+    skill_dirs = _resolve_skill_dirs(skill_types, tool_tags, custom_skills_directory)
+
+    # CONCEPT:AU-ORCH.dispatch.warm-skills-share — warm-share the SkillsToolset across the fan-out cohort: the
+    # directory scan + SKILL.md parse is deterministic per skill-dir set, so build it once
+    # and reuse it (pydantic-ai toolsets attach to many agents). Falls back to a fresh build.
+    from agent_utilities.agent.warm_skills import get_or_build_skills_toolset
+
+    skills = get_or_build_skills_toolset(
+        skill_dirs, lambda: SkillsToolset(directories=skill_dirs)
+    )
+    agent_toolsets.append(skills)
+    logger.info(f"Loaded {len(skill_dirs)} Skills")
+
+
+def _build_agent_model_settings(
+    extra_body: dict[str, Any], agent_thinking: Any | None
+) -> ModelSettings:
+    """Assemble the base ``ModelSettings`` shared by every create_agent call."""
+    return ModelSettings(
+        max_tokens=DEFAULT_MAX_TOKENS,
+        temperature=DEFAULT_TEMPERATURE,
+        top_p=DEFAULT_TOP_P,
+        timeout=DEFAULT_TIMEOUT,
+        parallel_tool_calls=DEFAULT_PARALLEL_TOOL_CALLS,
+        seed=DEFAULT_SEED,
+        presence_penalty=DEFAULT_PRESENCE_PENALTY,
+        frequency_penalty=DEFAULT_FREQUENCY_PENALTY,
+        logit_bias=DEFAULT_LOGIT_BIAS,
+        stop_sequences=DEFAULT_STOP_SEQUENCES,
+        extra_headers=DEFAULT_EXTRA_HEADERS,
+        extra_body=extra_body,
+        **({"thinking": agent_thinking} if agent_thinking is not None else {}),
+    )
+
+
+def _resolve_agent_output_type(output_type: Any | None) -> Any:
+    return [str, DeferredToolRequests] if output_type is None else output_type
+
+
+def _resolve_permission_identity(permission_context: Any | None) -> tuple[Any, Any]:
+    """Return (kernel, identity) from an optional resolved permission context."""
+    if permission_context is None:
+        return None, None
+    return permission_context.kernel, permission_context.identity
+
+
+def _resolve_max_output_repairs(max_output_repairs: int | None) -> int:
+    from agent_utilities.capabilities.output_repair import DEFAULT_MAX_OUTPUT_REPAIRS
+
+    return (
+        max_output_repairs
+        if max_output_repairs is not None
+        else DEFAULT_MAX_OUTPUT_REPAIRS
+    )
+
+
+def _apply_defer_tool_loading(
+    agent_toolsets: list[Any], defer_tool_loading: bool
+) -> list[Any]:
+    """Opt-in: swap each toolset for its on-demand-catalog form when supported.
+
+    CONCEPT (v2 synergy) — on-demand tool loading: keep agent-local toolsets out
+    of the prompt as a one-line catalog until the model loads them, cutting
+    prompt bloat for tool-heavy agents. Orthogonal to the cross-process
+    multiplexer (find_tools/load_tools).
+    """
+    if not (defer_tool_loading and agent_toolsets):
+        return agent_toolsets
+    return [
+        ts.defer_loading() if hasattr(ts, "defer_loading") else ts
+        for ts in agent_toolsets
+    ]
+
+
+def _apply_output_style(agent: Any, output_style: str | None) -> None:
+    """Register the built-in output-style instruction, if one is configured."""
+    if not output_style:
+        return
+
+    from agent_utilities.tools.style_tools import BUILTIN_STYLES
+
+    style_instr = BUILTIN_STYLES.get(output_style.lower(), "")
+    if not style_instr:
+        return
+
+    @agent.instructions
+    def inject_style_prompt() -> str:
+        return f"\n\nOUTPUT STYLE: {style_instr}"
+
+
+def _wants_recursive_reasoner(use_rlm: bool, skill_types: list[str] | None) -> bool:
+    return bool(use_rlm or (skill_types and "recursive_reasoner" in skill_types))
+
+
+def _maybe_register_rlm_tool(
+    agent: Any, use_rlm: bool, skill_types: list[str] | None
+) -> None:
+    """Attach the recursive-reasoner tool when RLM or the matching skill type is on."""
+    if not _wants_recursive_reasoner(use_rlm, skill_types):
+        return
+
+    from pydantic_ai import Tool
+
+    from agent_utilities.rlm.specialist import recursive_reasoner_tool
+
+    agent._function_toolset.add_tool(
+        Tool(
+            recursive_reasoner_tool,
+            takes_ctx=True,
+            description="Recursive reasoning specialist for massive contexts",
+            name="recursive_reasoner_tool",
+        )
+    )
+    logger.info("Enabled RLM Recursive Reasoner Tool")
+
+
+def _maybe_register_universal_tools(
+    agent: Any, enable_universal_tools: bool, graph_bundle: tuple[Any, ...] | None
+) -> None:
+    if not enable_universal_tools:
+        return
+
+    from agent_utilities.tools.tool_registry import register_agent_tools
+
+    register_agent_tools(agent, graph_bundle=graph_bundle)
+
+
+def _maybe_register_capability_tools(
+    agent: Any, capabilities: list[str] | None
+) -> None:
+    """Bind tools from declared capability intents (rename/prefix-proof).
+
+    CONCEPT:AU-ECO.toolkit.capability-tool-binding — never bind from
+    hard-coded names.
+    """
+    if not capabilities:
+        return
+
+    from agent_utilities.agent.capability_resolver import register_capability_tools
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+
+    register_capability_tools(
+        agent, list(capabilities), kg=IntelligenceGraphEngine.get_active()
+    )
+
+
 def create_agent(
     provider: str | None = DEFAULT_LLM_PROVIDER,
     model_id: str | None = DEFAULT_LLM_MODEL_ID,
@@ -375,13 +717,11 @@ def create_agent(
     # on so a db_query returning millions of rows is recursively processed by the
     # rlm_large_output_hook instead of overflowing the context window (CONCEPT:
     # ORCH-1.1 + ECO-4.33). An explicit ``use_rlm=`` always wins.
-    if not use_rlm and to_boolean(setting("DB_TOOLS", "False")):
-        use_rlm = True
+    use_rlm = _maybe_enable_rlm_for_db_tools(use_rlm)
 
     agent_toolsets: list[Any] = []
     initialized_mcp_toolsets: list[Any] = []
     from agent_utilities.core.config import config
-    from agent_utilities.core.http_client import create_async_http_client
     from agent_utilities.core.transport_security import resolve_configured_tls_profile
 
     mcp_tls = resolve_configured_tls_profile("mcp", config=config)
@@ -408,77 +748,17 @@ def create_agent(
 
     _setup_mcp_url_toolset()
 
-    def _setup_mcp_config_toolset() -> None:
-        nonlocal mcp_config
-        if mcp_config:
-            if DEFAULT_VALIDATION_MODE:
-                logger.info("VALIDATION_MODE: skipping MCP configuration load")
-            else:
-                try:
-                    from agent_utilities.core.workspace import resolve_mcp_config_path
+    mcp_config, _mcp_fleet_toolsets = _setup_mcp_config_toolset(
+        mcp_config, tool_tags, mcp_tls
+    )
+    _register_mcp_toolsets(
+        _mcp_fleet_toolsets, isolate_mcp, initialized_mcp_toolsets, agent_toolsets
+    )
 
-                    mcp_path = resolve_mcp_config_path(mcp_config)
-                    if mcp_path:
-                        mcp_config = str(mcp_path)
-                        logger.info("Resolved MCP configuration")
-
-                    mcp_toolset = load_mcp_servers(mcp_config)
-                    for server in mcp_toolset:
-                        if hasattr(server, "http_client") and not getattr(
-                            server, "http_client", None
-                        ):
-                            server.http_client = create_async_http_client(
-                                timeout=DEFAULT_TIMEOUT,
-                                **mcp_tls.httpx_kwargs(),
-                            )
-
-                    if tool_tags:
-                        mcp_toolset = [
-                            filter_tools_by_tag(s, tool_tags) for s in mcp_toolset
-                        ]
-
-                    initialized_mcp_toolsets.extend(mcp_toolset)
-                    if not isolate_mcp:
-                        agent_toolsets.extend(mcp_toolset)
-                    logger.info("Connected to configured MCP fleet")
-                except Exception as e:
-                    logger.warning("MCP configuration failed (%s)", type(e).__name__)
-
-    _setup_mcp_config_toolset()
-
-    def _setup_explicit_mcp_toolsets() -> None:
-        if mcp_toolsets:
-            if DEFAULT_VALIDATION_MODE:
-                logger.info(
-                    "VALIDATION_MODE: Skipping external mcp_toolsets connection"
-                )
-            else:
-                for server in mcp_toolsets:
-                    if server is None:
-                        continue
-                    if hasattr(server, "http_client") and not getattr(
-                        server, "http_client", None
-                    ):
-                        server.http_client = create_async_http_client(
-                            timeout=DEFAULT_TIMEOUT,
-                            **mcp_tls.httpx_kwargs(),
-                        )
-                for server in mcp_toolsets:
-                    if server is None:
-                        continue
-
-                    ts = None
-                    if type(server).__name__ == "FastMCP":
-                        # v2: a FastMCP server instance is wrapped directly by MCPToolset
-                        ts = force_legacy_protocol_mode(MCPToolset(server))
-                    else:
-                        ts = server
-
-                    initialized_mcp_toolsets.append(ts)
-                    if not isolate_mcp:
-                        agent_toolsets.append(ts)
-
-    _setup_explicit_mcp_toolsets()
+    _explicit_mcp_toolsets = _setup_explicit_mcp_toolsets(mcp_toolsets, mcp_tls)
+    _register_mcp_toolsets(
+        _explicit_mcp_toolsets, isolate_mcp, initialized_mcp_toolsets, agent_toolsets
+    )
 
     permission_context = None
 
@@ -557,81 +837,11 @@ def create_agent(
         _extra_body, reasoning_wire_directives(reasoning_effort)
     )
 
-    settings = ModelSettings(
-        max_tokens=DEFAULT_MAX_TOKENS,
-        temperature=DEFAULT_TEMPERATURE,
-        top_p=DEFAULT_TOP_P,
-        timeout=DEFAULT_TIMEOUT,
-        parallel_tool_calls=DEFAULT_PARALLEL_TOOL_CALLS,
-        seed=DEFAULT_SEED,
-        presence_penalty=DEFAULT_PRESENCE_PENALTY,
-        frequency_penalty=DEFAULT_FREQUENCY_PENALTY,
-        logit_bias=DEFAULT_LOGIT_BIAS,
-        stop_sequences=DEFAULT_STOP_SEQUENCES,
-        extra_headers=DEFAULT_EXTRA_HEADERS,
-        extra_body=_extra_body,
-        **({"thinking": _agent_thinking} if _agent_thinking is not None else {}),
+    settings = _build_agent_model_settings(_extra_body, _agent_thinking)
+
+    _load_skills_toolset(
+        enable_skills, skill_types, tool_tags, custom_skills_directory, agent_toolsets
     )
-
-    def _load_skills_toolset() -> None:
-        from pydantic_ai_skills import SkillsToolset
-
-        if enable_skills and not DEFAULT_VALIDATION_MODE:
-            skill_dirs = []
-            _skill_types = (
-                skill_types
-                if skill_types is not None
-                else [
-                    "universal",
-                    "graphs",
-                    "tdd-methodology",
-                    "manual_testing",
-                    "walkthroughs",
-                ]
-            )
-
-            if skills_path := get_skills_path():
-                skill_dirs.extend(skills_path)
-
-            if "universal" in _skill_types:
-                from universal_skills.skill_utilities import get_universal_skills_path
-
-                skill_dirs.extend(get_universal_skills_path())
-
-            if "graphs" in _skill_types:
-                try:
-                    from skill_graphs.skill_graph_utilities import get_skill_graphs_path
-
-                    skill_dirs.extend(get_skill_graphs_path(default_enabled=True))
-                except ImportError:
-                    pass
-
-            if tool_tags:
-                skill_dirs = [d for d in skill_dirs if skill_matches_tags(d, tool_tags)]
-
-            if custom_skills_directory:
-                if isinstance(custom_skills_directory, list | tuple):
-                    for d in custom_skills_directory:
-                        if d and os.path.exists(d):
-                            skill_dirs.append(str(d))
-                            logger.info("Loaded configured custom skills directory")
-                elif os.path.exists(custom_skills_directory):
-                    logger.debug("Loading configured custom skills directory")
-                    skill_dirs.append(str(custom_skills_directory))
-                    logger.info("Loaded configured custom skills directory")
-
-            # CONCEPT:AU-ORCH.dispatch.warm-skills-share — warm-share the SkillsToolset across the fan-out cohort: the
-            # directory scan + SKILL.md parse is deterministic per skill-dir set, so build it once
-            # and reuse it (pydantic-ai toolsets attach to many agents). Falls back to a fresh build.
-            from agent_utilities.agent.warm_skills import get_or_build_skills_toolset
-
-            skills = get_or_build_skills_toolset(
-                skill_dirs, lambda: SkillsToolset(directories=skill_dirs)
-            )
-            agent_toolsets.append(skills)
-            logger.info(f"Loaded {len(skill_dirs)} Skills")
-
-    _load_skills_toolset()
 
     def _build_system_prompt() -> str:
         if system_prompt is None:
@@ -670,7 +880,7 @@ def create_agent(
         # agent and a directly-built graph/KG agent can never drift. Build the hooks list
         # first (incl. the RLM large-output hook) so HooksCapability captures the full set.
         all_hooks = list(hooks or [])
-        if use_rlm or (skill_types and "recursive_reasoner" in skill_types):
+        if _wants_recursive_reasoner(use_rlm, skill_types):
             try:
                 from agent_utilities.rlm.hook import rlm_large_output_hook
 
@@ -735,30 +945,20 @@ def create_agent(
     # the prompt as a one-line catalog until the model loads them, cutting prompt bloat
     # for tool-heavy agents. Opt-in (default off) because it changes tool visibility.
     # Orthogonal to the cross-process multiplexer (find_tools/load_tools).
-    if defer_tool_loading and agent_toolsets:
-        agent_toolsets = [
-            ts.defer_loading() if hasattr(ts, "defer_loading") else ts
-            for ts in agent_toolsets
-        ]
+    agent_toolsets = _apply_defer_tool_loading(agent_toolsets, defer_tool_loading)
 
-    from agent_utilities.capabilities.output_repair import (
-        DEFAULT_MAX_OUTPUT_REPAIRS,
-        output_repair_retries,
-    )
+    from agent_utilities.capabilities.output_repair import output_repair_retries
+
+    _perm_kernel, _perm_identity = _resolve_permission_identity(permission_context)
+    _effective_max_output_repairs = _resolve_max_output_repairs(max_output_repairs)
 
     agent = create_context_agent(
         model=model,
-        permissions_kernel=(
-            permission_context.kernel if permission_context is not None else None
-        ),
-        agent_identity=(
-            permission_context.identity if permission_context is not None else None
-        ),
+        permissions_kernel=_perm_kernel,
+        agent_identity=_perm_identity,
         model_settings=settings,
         name=name,
-        output_type=(
-            [str, DeferredToolRequests] if output_type is None else output_type
-        ),
+        output_type=_resolve_agent_output_type(output_type),
         toolsets=agent_toolsets,
         tool_timeout=DEFAULT_TOOL_TIMEOUT,
         deps_type=AgentDeps,
@@ -771,9 +971,7 @@ def create_agent(
         default_capabilities=False,
         retries=output_repair_retries(
             structured_output_repair=structured_output_repair,
-            max_output_repairs=max_output_repairs
-            if max_output_repairs is not None
-            else DEFAULT_MAX_OUTPUT_REPAIRS,
+            max_output_repairs=_effective_max_output_repairs,
         ),
         # pydantic-ai v2 default; set explicitly. Function tools requested
         # alongside an output/deferred tool now run — side-effecting tools are
@@ -782,30 +980,8 @@ def create_agent(
         end_strategy="graceful",
     )
 
-    if output_style:
-        from agent_utilities.tools.style_tools import BUILTIN_STYLES
-
-        style_instr = BUILTIN_STYLES.get(output_style.lower(), "")
-        if style_instr:
-
-            @agent.instructions
-            def inject_style_prompt() -> str:
-                return f"\n\nOUTPUT STYLE: {style_instr}"
-
-    if use_rlm or (skill_types and "recursive_reasoner" in skill_types):
-        from pydantic_ai import Tool
-
-        from agent_utilities.rlm.specialist import recursive_reasoner_tool
-
-        agent._function_toolset.add_tool(
-            Tool(
-                recursive_reasoner_tool,
-                takes_ctx=True,
-                description="Recursive reasoning specialist for massive contexts",
-                name="recursive_reasoner_tool",
-            )
-        )
-        logger.info("Enabled RLM Recursive Reasoner Tool")
+    _apply_output_style(agent, output_style)
+    _maybe_register_rlm_tool(agent, use_rlm, skill_types)
 
     @agent.instructions
     def inject_system_prompt() -> str:
@@ -843,21 +1019,12 @@ def create_agent(
             )
             return ""
 
-    if enable_universal_tools:
-        from agent_utilities.tools.tool_registry import register_agent_tools
-
-        register_agent_tools(agent, graph_bundle=graph_bundle)
+    _maybe_register_universal_tools(agent, enable_universal_tools, graph_bundle)
 
     # CONCEPT:AU-ECO.toolkit.capability-tool-binding — bind tools from declared capability intents (rename/prefix-proof),
     # never from hard-coded names. Blueprints/callers pass `capabilities`; the KG resolves the
     # long tail when an engine is available.
-    if capabilities:
-        from agent_utilities.agent.capability_resolver import register_capability_tools
-        from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-
-        register_capability_tools(
-            agent, list(capabilities), kg=IntelligenceGraphEngine.get_active()
-        )
+    _maybe_register_capability_tools(agent, capabilities)
 
     apply_tool_guard_approvals(agent)
 
