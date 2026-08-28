@@ -223,6 +223,11 @@ def _parse_time(value: object, field_name: str) -> datetime:
     return parsed.astimezone(UTC)
 
 
+def _optional_time(value: Mapping[str, Any], field_name: str) -> datetime | None:
+    raw = value.get(field_name)
+    return _parse_time(raw, field_name) if raw else None
+
+
 def _refs(values: Iterable[object] | None, field_name: str) -> tuple[str, ...]:
     if values is None:
         return ()
@@ -471,6 +476,36 @@ class ConceptReservationRequest:
         return payload
 
 
+def _request_conflicts_with_policy(
+    request: ConceptReservationRequest, policy: ConceptNamespacePolicy
+) -> bool:
+    """True if a caller's namespace/range/policy_version diverges from the
+    authority-owned policy it matched -- shared by both authority
+    implementations' ``_normalize_request``."""
+
+    return (
+        request.namespace != policy.namespace
+        or (
+            request.range_start is not None
+            and request.range_start != policy.range_start
+        )
+        or (request.range_end is not None and request.range_end != policy.range_end)
+        or (request.policy_version and request.policy_version != policy.policy_version)
+    )
+
+
+def _normalized_for_policy(
+    request: ConceptReservationRequest, policy: ConceptNamespacePolicy
+) -> ConceptReservationRequest:
+    return replace(
+        request,
+        namespace=policy.namespace,
+        range_start=policy.range_start,
+        range_end=policy.range_end,
+        policy_version=policy.policy_version,
+    )
+
+
 def reservation_request(
     concept_id: str,
     *,
@@ -655,13 +690,9 @@ class ConceptReservationRecord:
         )
         return value
 
-    @classmethod
-    def from_wire(cls, value: Mapping[str, Any]) -> Self:
-        if value.get("schema_version") != SCHEMA_VERSION:
-            raise ConceptReservationError(
-                "concept reservation schema_version is unsupported"
-            )
-        request = ConceptReservationRequest(
+    @staticmethod
+    def _request_from_wire(value: Mapping[str, Any]) -> ConceptReservationRequest:
+        return ConceptReservationRequest(
             tenant_ref=_reference(value.get("tenant_ref"), "tenant_ref"),
             concept_id=_nonblank(value.get("concept_id"), "concept_id"),
             namespace=_nonblank(value.get("namespace"), "namespace"),
@@ -682,13 +713,29 @@ class ConceptReservationRecord:
             policy_version=str(value.get("policy_version") or ""),
             provenance_refs=_refs(value.get("provenance_refs"), "provenance_refs"),
         )
+
+    @staticmethod
+    def _lifecycle_enums_from_wire(
+        value: Mapping[str, Any],
+    ) -> tuple[ConceptReservationState, ConceptReservationVisibility]:
         try:
-            state = ConceptReservationState(str(value.get("state")))
-            visibility = ConceptReservationVisibility(str(value.get("visibility")))
+            return (
+                ConceptReservationState(str(value.get("state"))),
+                ConceptReservationVisibility(str(value.get("visibility"))),
+            )
         except ValueError as exc:
             raise ConceptReservationError(
                 "concept reservation state is invalid"
             ) from exc
+
+    @classmethod
+    def from_wire(cls, value: Mapping[str, Any]) -> Self:
+        if value.get("schema_version") != SCHEMA_VERSION:
+            raise ConceptReservationError(
+                "concept reservation schema_version is unsupported"
+            )
+        request = cls._request_from_wire(value)
+        state, visibility = cls._lifecycle_enums_from_wire(value)
         fence = value.get("fence")
         if not isinstance(fence, int) or isinstance(fence, bool):
             raise ConceptReservationError("concept reservation fence is invalid")
@@ -703,31 +750,11 @@ class ConceptReservationRecord:
             transitioned_at=_parse_time(
                 value.get("transitioned_at"), "transitioned_at"
             ),
-            materialized_at=(
-                _parse_time(value.get("materialized_at"), "materialized_at")
-                if value.get("materialized_at")
-                else None
-            ),
-            landed_at=(
-                _parse_time(value.get("landed_at"), "landed_at")
-                if value.get("landed_at")
-                else None
-            ),
-            released_at=(
-                _parse_time(value.get("released_at"), "released_at")
-                if value.get("released_at")
-                else None
-            ),
-            expired_at=(
-                _parse_time(value.get("expired_at"), "expired_at")
-                if value.get("expired_at")
-                else None
-            ),
-            tombstoned_at=(
-                _parse_time(value.get("tombstoned_at"), "tombstoned_at")
-                if value.get("tombstoned_at")
-                else None
-            ),
+            materialized_at=_optional_time(value, "materialized_at"),
+            landed_at=_optional_time(value, "landed_at"),
+            released_at=_optional_time(value, "released_at"),
+            expired_at=_optional_time(value, "expired_at"),
+            tombstoned_at=_optional_time(value, "tombstoned_at"),
         )
 
 
@@ -1024,28 +1051,11 @@ class NativeConceptReservationAuthority:
                 "authority policy selection is ambiguous for the concept id"
             )
         policy = matches[0]
-        if (
-            request.namespace != policy.namespace
-            or (
-                request.range_start is not None
-                and request.range_start != policy.range_start
-            )
-            or (request.range_end is not None and request.range_end != policy.range_end)
-            or (
-                request.policy_version
-                and request.policy_version != policy.policy_version
-            )
-        ):
+        if _request_conflicts_with_policy(request, policy):
             raise ConceptReservationConflict(
                 "request namespace/range/policy differs from authority policy"
             )
-        return replace(
-            request,
-            namespace=policy.namespace,
-            range_start=policy.range_start,
-            range_end=policy.range_end,
-            policy_version=policy.policy_version,
-        )
+        return _normalized_for_policy(request, policy)
 
     def _record_properties(self, record: ConceptReservationRecord) -> dict[str, Any]:
         value = record.to_wire()
@@ -1468,28 +1478,11 @@ class FixtureConceptReservationAuthority:
                 "authority policy selection is ambiguous for the concept id"
             )
         policy = matches[0]
-        if (
-            request.namespace != policy.namespace
-            or (
-                request.range_start is not None
-                and request.range_start != policy.range_start
-            )
-            or (request.range_end is not None and request.range_end != policy.range_end)
-            or (
-                request.policy_version
-                and request.policy_version != policy.policy_version
-            )
-        ):
+        if _request_conflicts_with_policy(request, policy):
             raise ConceptReservationConflict(
                 "request namespace/range/policy differs from authority policy"
             )
-        return replace(
-            request,
-            namespace=policy.namespace,
-            range_start=policy.range_start,
-            range_end=policy.range_end,
-            policy_version=policy.policy_version,
-        )
+        return _normalized_for_policy(request, policy)
 
     def _require(
         self, reservation_id: str, tenant_ref: str
