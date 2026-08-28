@@ -747,6 +747,61 @@ def _json_default(obj: Any) -> Any:
     return str(obj)
 
 
+def _waterfall_span_node(span: Any, trace: Any) -> dict[str, Any]:
+    """One SpanNode flattened into the waterfall's nested-duration node shape."""
+    return {
+        "id": span.id,
+        "parentId": span.parent_span_id or getattr(trace, "id", None),
+        "kind": span.span_kind,
+        "name": span.name,
+        "latencyMs": span.latency_ms or 0,
+        "error": span.error,
+    }
+
+
+def _waterfall_generation_node(gen: Any, trace: Any) -> dict[str, Any]:
+    """One GenerationNode flattened into the waterfall's node shape (+ token/cost)."""
+    return {
+        "id": gen.id,
+        "parentId": gen.parent_span_id or getattr(trace, "id", None),
+        "kind": "generation",
+        "name": gen.name,
+        "latencyMs": gen.latency_ms or 0,
+        "model": gen.model,
+        "costUsd": gen.total_cost_usd,
+        "inputTokens": gen.input_tokens,
+        "outputTokens": gen.output_tokens,
+        "error": gen.error,
+    }
+
+
+def _waterfall_trace_header(trace: Any, trace_id: str) -> dict[str, Any]:
+    """The trace-level roll-up the waterfall renders above its nodes."""
+    return {
+        "id": getattr(trace, "id", trace_id),
+        "name": getattr(trace, "name", ""),
+        "status": getattr(trace, "status", "ok"),
+        "latencyMs": getattr(trace, "latency_ms", None),
+        "costUsd": getattr(trace, "total_cost_usd", 0.0),
+        "inputTokens": getattr(trace, "input_tokens", 0),
+        "outputTokens": getattr(trace, "output_tokens", 0),
+        "toolCalls": getattr(trace, "tool_calls", 0),
+    }
+
+
+def _waterfall_result(entry: dict[str, Any], trace_id: str) -> dict[str, Any]:
+    """Flatten one sink trace entry into ``{"trace": ..., "nodes": [...]}``."""
+    trace = entry.get("trace")
+    nodes: list[dict[str, Any]] = [
+        _waterfall_span_node(span, trace) for span in entry.get("spans", []) or []
+    ]
+    nodes.extend(
+        _waterfall_generation_node(gen, trace)
+        for gen in entry.get("generations", []) or []
+    )
+    return {"trace": _waterfall_trace_header(trace, trace_id), "nodes": nodes}
+
+
 def _trace_waterfall(trace_id: str) -> str:
     """Fetch one trace's full Span/Generation subgraph from the ALWAYS-ON KG-native
     sink (CONCEPT:AU-OS.config.model-factory-passthrough) and flatten it into a
@@ -784,49 +839,12 @@ def _trace_waterfall(trace_id: str) -> str:
                 "trace_id": trace_id,
             }
         )
-    trace = entry.get("trace")
-    nodes: list[dict[str, Any]] = []
-    for span in entry.get("spans", []) or []:
-        nodes.append(
-            {
-                "id": span.id,
-                "parentId": span.parent_span_id or getattr(trace, "id", None),
-                "kind": span.span_kind,
-                "name": span.name,
-                "latencyMs": span.latency_ms or 0,
-                "error": span.error,
-            }
-        )
-    for gen in entry.get("generations", []) or []:
-        nodes.append(
-            {
-                "id": gen.id,
-                "parentId": gen.parent_span_id or getattr(trace, "id", None),
-                "kind": "generation",
-                "name": gen.name,
-                "latencyMs": gen.latency_ms or 0,
-                "model": gen.model,
-                "costUsd": gen.total_cost_usd,
-                "inputTokens": gen.input_tokens,
-                "outputTokens": gen.output_tokens,
-                "error": gen.error,
-            }
-        )
-    result = {
-        "trace": {
-            "id": getattr(trace, "id", trace_id),
-            "name": getattr(trace, "name", ""),
-            "status": getattr(trace, "status", "ok"),
-            "latencyMs": getattr(trace, "latency_ms", None),
-            "costUsd": getattr(trace, "total_cost_usd", 0.0),
-            "inputTokens": getattr(trace, "input_tokens", 0),
-            "outputTokens": getattr(trace, "output_tokens", 0),
-            "toolCalls": getattr(trace, "tool_calls", 0),
-        },
-        "nodes": nodes,
-    }
     return json.dumps(
-        {"surface": "traces", "action": "waterfall", "result": result},
+        {
+            "surface": "traces",
+            "action": "waterfall",
+            "result": _waterfall_result(entry, trace_id),
+        },
         default=_json_default,
     )
 
@@ -844,6 +862,35 @@ def _trace_row(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _trace_search_needle(service: str, operation: str, query: str) -> str:
+    """One case-folded filter string from the three client-side search filters."""
+    return " ".join(v for v in (service, operation, query) if v).strip().lower()
+
+
+def _trace_row_matches(row: dict[str, Any], needle: str) -> bool:
+    """Whether a normalized trace row contains the case-folded needle anywhere."""
+    return needle in " ".join(str(v) for v in row.values() if v).lower()
+
+
+def _trace_sink_rows() -> list[dict[str, Any]] | None:
+    """Every normalized row from the KG-native trace sink.
+
+    ``None`` when no sink is installed at all (the caller then falls back to the
+    external engine probe); an installed-but-failing sink yields ``[]``.
+    """
+    from agent_utilities.harness.tracing import get_kg_trace_sink
+
+    sink = get_kg_trace_sink()
+    if sink is None or not callable(getattr(sink, "get_traces", None)):
+        return None
+    try:
+        raw_rows = _run_coro(sink.get_traces(""))
+    except Exception as exc:  # noqa: BLE001 — surface as data, never raise
+        logger.debug("graph_traces: KG-native search failed: %s", type(exc).__name__)
+        return []
+    return [_trace_row(r) for r in raw_rows or []]
+
+
 def _trace_native_search(
     service: str, operation: str, query: str, limit: int
 ) -> list[dict[str, Any]] | None:
@@ -857,24 +904,12 @@ def _trace_native_search(
     takes no such filters; an installed-but-empty sink is a real (non-``None``)
     empty result, not a fall-through.
     """
-    from agent_utilities.harness.tracing import get_kg_trace_sink
-
-    sink = get_kg_trace_sink()
-    if sink is None or not callable(getattr(sink, "get_traces", None)):
+    rows = _trace_sink_rows()
+    if rows is None:
         return None
-    try:
-        raw_rows = _run_coro(sink.get_traces(""))
-    except Exception as exc:  # noqa: BLE001 — surface as data, never raise
-        logger.debug("graph_traces: KG-native search failed: %s", type(exc).__name__)
-        return []
-    rows = [_trace_row(r) for r in raw_rows or []]
-    needle = " ".join(v for v in (service, operation, query) if v).strip().lower()
+    needle = _trace_search_needle(service, operation, query)
     if needle:
-        rows = [
-            r
-            for r in rows
-            if needle in " ".join(str(v) for v in r.values() if v).lower()
-        ]
+        rows = [r for r in rows if _trace_row_matches(r, needle)]
     return rows[: max(int(limit), 0)]
 
 
@@ -1632,17 +1667,17 @@ def _memory_crud(action: str, params: dict[str, Any]) -> str:
     )
 
 
-def _pick_warm_fork_sandbox(preferred: str = "") -> Any:
-    """Return the cheapest available warm-fork rung, or ``None`` (CONCEPT:AU-KG.coordination.warm-fork-fanout).
+def _warm_forkable_sandboxes(preferred: str) -> list[Any]:
+    """The registry's warm-fork-capable rungs, cheapest first.
 
-    Reuses the ORCH-1.86 sandbox registry (``default_sandboxes()``, cheapest-first)
-    and selects the first backend whose capabilities advertise ``warm_fork`` and
-    which is available on this host. ``preferred`` pins a rung by name when set.
+    Reuses the ORCH-1.86 sandbox registry (``default_sandboxes()``); ``preferred``
+    pins a rung by name when set (and is ignored when it matches nothing). An
+    unimportable subsystem degrades to an empty list.
     """
     try:
         from agent_utilities.rlm.sandboxes.registry import default_sandboxes
     except Exception:  # noqa: BLE001 — subsystem unimportable ⇒ degrade cleanly
-        return None
+        return []
 
     forkable = [
         sb
@@ -1651,12 +1686,27 @@ def _pick_warm_fork_sandbox(preferred: str = "") -> Any:
     ]
     if preferred:
         forkable = [sb for sb in forkable if sb.name == preferred] or forkable
-    for sb in forkable:
-        try:
-            if sb.is_available():
-                return sb
-        except Exception:  # noqa: BLE001 — an unprobeable rung is simply skipped
-            continue
+    return forkable
+
+
+def _sandbox_available(sb: Any) -> bool:
+    """Whether a rung probes as available; an unprobeable rung is simply skipped."""
+    try:
+        return bool(sb.is_available())
+    except Exception:  # noqa: BLE001 — an unprobeable rung is simply skipped
+        return False
+
+
+def _pick_warm_fork_sandbox(preferred: str = "") -> Any:
+    """Return the cheapest available warm-fork rung, or ``None`` (CONCEPT:AU-KG.coordination.warm-fork-fanout).
+
+    Reuses the ORCH-1.86 sandbox registry (``default_sandboxes()``, cheapest-first)
+    and selects the first backend whose capabilities advertise ``warm_fork`` and
+    which is available on this host. ``preferred`` pins a rung by name when set.
+    """
+    for sb in _warm_forkable_sandboxes(preferred):
+        if _sandbox_available(sb):
+            return sb
     return None
 
 
@@ -1828,21 +1878,18 @@ _DEEP_NODE_TYPE: dict[str, str] = {
 }
 
 
-def _gather_kg_feature_rows(
-    source: dict[str, Any], graph: str
-) -> tuple[list[str], list[list[float]]]:
-    """Gather a feature-row RowSet from the KG for a ``{node_label, fields, limit}`` source spec.
-
-    Runs one read-only Cypher projection through the existing ``graph_query`` tool
-    (compute-near-data — no bespoke second engine client) and returns
-    ``(node_ids, rows)`` so a caller can ship ``rows`` to data-science-mcp and fold
-    the result back onto the SAME ``node_ids`` (CONCEPT:AU-KG.mining.dsm-forecast-delegation).
-    """
+def _feature_node_label(source: dict[str, Any]) -> str:
+    """The validated Cypher-safe node label of a ``{node_label, fields, limit}`` spec."""
     node_label = source.get("node_label")
     if not isinstance(node_label, str) or not CYPHER_IDENTIFIER_RE.fullmatch(
         node_label
     ):
         raise ValueError("source.node_label is required")
+    return node_label
+
+
+def _feature_fields(source: dict[str, Any]) -> list[str]:
+    """The validated, Cypher-safe property names to project (1..64 of them)."""
     fields = source.get("fields") or []
     if (
         not isinstance(fields, list)
@@ -1854,6 +1901,11 @@ def _gather_kg_feature_rows(
         )
     ):
         raise ValueError("source.fields (a list of property names) is required")
+    return fields
+
+
+def _feature_limit(source: dict[str, Any]) -> int:
+    """The validated row cap (1..10000); ``bool`` is rejected, not silently 0/1."""
     raw_limit = source.get("limit", 200)
     if isinstance(raw_limit, bool):
         raise ValueError("source.limit must be between 1 and 10000")
@@ -1863,8 +1915,11 @@ def _gather_kg_feature_rows(
         raise ValueError("source.limit must be between 1 and 10000") from exc
     if not 1 <= limit <= 10_000:
         raise ValueError("source.limit must be between 1 and 10000")
-    projections = ", ".join(f"n.{f} AS f{i}" for i, f in enumerate(fields))
-    cypher = f"MATCH (n:{node_label}) RETURN n.id AS id, {projections} LIMIT {limit}"
+    return limit
+
+
+def _feature_query_rows(cypher: str, graph: str) -> list[Any]:
+    """Run one read-only projection through ``graph_query`` and validate its shape."""
     raw = _run_coro(
         kg_server._execute_tool(
             "graph_query", cypher=cypher, params="{}", scope="local", target=graph or ""
@@ -1877,6 +1932,28 @@ def _gather_kg_feature_rows(
         raise RuntimeError(
             f"unexpected graph_query result shape: {type(payload).__name__}"
         )
+    return payload
+
+
+def _gather_kg_feature_rows(
+    source: dict[str, Any], graph: str
+) -> tuple[list[str], list[list[float]]]:
+    """Gather a feature-row RowSet from the KG for a ``{node_label, fields, limit}`` source spec.
+
+    Runs one read-only Cypher projection through the existing ``graph_query`` tool
+    (compute-near-data — no bespoke second engine client) and returns
+    ``(node_ids, rows)`` so a caller can ship ``rows`` to data-science-mcp and fold
+    the result back onto the SAME ``node_ids`` (CONCEPT:AU-KG.mining.dsm-forecast-delegation).
+
+    The three validations run in their original order — label, then fields, then
+    limit — so a multiply-invalid spec still reports the same first offence.
+    """
+    node_label = _feature_node_label(source)
+    fields = _feature_fields(source)
+    limit = _feature_limit(source)
+    projections = ", ".join(f"n.{f} AS f{i}" for i, f in enumerate(fields))
+    cypher = f"MATCH (n:{node_label}) RETURN n.id AS id, {projections} LIMIT {limit}"
+    payload = _feature_query_rows(cypher, graph)
     node_ids = [str(row.get("id")) for row in payload]
     rows = [
         [float(row.get(f"f{i}") or 0.0) for i in range(len(fields))] for row in payload
@@ -1923,6 +2000,51 @@ def _deep_write_edge(source_id: str, target_id: str, rel_type: str, graph: str) 
         pass
 
 
+def _deep_series_params(
+    params: dict[str, Any], source: Any, graph: str
+) -> tuple[dict[str, Any], list[str]]:
+    """``deep_forecast`` — a 1-D series, gathered from the KG when not given directly."""
+    node_ids: list[str] = []
+    values = params.pop("values", None)
+    if values is None and source:
+        node_ids, rows = _gather_kg_feature_rows(source, graph)
+        values = [row[0] for row in rows]
+    if not values:
+        raise ValueError("provide 'values' (a 1-D series) or a 'source'")
+    return {"values_json": json.dumps(values)}, node_ids
+
+
+def _deep_supervised_params(
+    params: dict[str, Any], source: Any, graph: str
+) -> tuple[dict[str, Any], list[str]]:
+    """``deep_classify``/``xgboost`` — a labelled matrix (+ an optional predict set)."""
+    node_ids: list[str] = []
+    x = params.pop("x", None)
+    y = params.pop("y", None)
+    if x is None and source:
+        node_ids, x = _gather_kg_feature_rows(source, graph)
+    if x is None or y is None:
+        raise ValueError("provide 'x' + 'y', or a 'source' + 'y'")
+    tool_params = {"x_json": json.dumps(x), "y_json": json.dumps(y)}
+    x_predict = params.pop("x_predict", None)
+    if x_predict is not None:
+        tool_params["x_predict_json"] = json.dumps(x_predict)
+    return tool_params, node_ids
+
+
+def _deep_matrix_params(
+    params: dict[str, Any], source: Any, graph: str
+) -> tuple[dict[str, Any], list[str]]:
+    """``autoencoder_anomaly``/``embed`` — an unlabelled feature matrix."""
+    node_ids: list[str] = []
+    x = params.pop("x", None)
+    if x is None and source:
+        node_ids, x = _gather_kg_feature_rows(source, graph)
+    if x is None:
+        raise ValueError("provide 'x' or a 'source'")
+    return {"x_json": json.dumps(x)}, node_ids
+
+
 def _prepare_deep_delegation(
     action: str, params: dict[str, Any], graph: str
 ) -> tuple[dict[str, Any], list[str]]:
@@ -1932,38 +2054,15 @@ def _prepare_deep_delegation(
     directly. Returns ``(tool_params, node_ids)`` — ``node_ids`` is only populated
     when a ``source`` was used (so the caller can fold results back onto them).
     """
-    tool_params: dict[str, Any] = {"algo": _DEEP_ALGO_BY_ACTION[action]}
-    node_ids: list[str] = []
+    algo = _DEEP_ALGO_BY_ACTION[action]
     source = params.pop("source", None)
-
     if action == "deep_forecast":
-        values = params.pop("values", None)
-        if values is None and source:
-            node_ids, rows = _gather_kg_feature_rows(source, graph)
-            values = [row[0] for row in rows]
-        if not values:
-            raise ValueError("provide 'values' (a 1-D series) or a 'source'")
-        tool_params["values_json"] = json.dumps(values)
+        extra, node_ids = _deep_series_params(params, source, graph)
     elif action in ("deep_classify", "xgboost"):
-        x = params.pop("x", None)
-        y = params.pop("y", None)
-        if x is None and source:
-            node_ids, x = _gather_kg_feature_rows(source, graph)
-        if x is None or y is None:
-            raise ValueError("provide 'x' + 'y', or a 'source' + 'y'")
-        tool_params["x_json"] = json.dumps(x)
-        tool_params["y_json"] = json.dumps(y)
-        x_predict = params.pop("x_predict", None)
-        if x_predict is not None:
-            tool_params["x_predict_json"] = json.dumps(x_predict)
+        extra, node_ids = _deep_supervised_params(params, source, graph)
     else:  # autoencoder_anomaly, embed
-        x = params.pop("x", None)
-        if x is None and source:
-            node_ids, x = _gather_kg_feature_rows(source, graph)
-        if x is None:
-            raise ValueError("provide 'x' or a 'source'")
-        tool_params["x_json"] = json.dumps(x)
-
+        extra, node_ids = _deep_matrix_params(params, source, graph)
+    tool_params: dict[str, Any] = {"algo": algo, **extra}
     tool_params["params_json"] = json.dumps(params)
     return tool_params, node_ids
 
@@ -2763,6 +2862,200 @@ def _kv_restore_conversation(
     )
 
 
+def _decode_json_object(
+    raw: str, surface: str, *, action: str = "", field: str = "params_json"
+) -> tuple[Any, str | None]:
+    """Decode a JSON-object tool argument, or return the rejection to send.
+
+    Returns ``(decoded, None)`` on success and ``(None, error_json)`` otherwise —
+    the same two rejections every action-routed tool in this module already
+    produced by hand: an ``invalid_request`` surface error for undecodable text,
+    and a plain ``{surface[, action], error}`` payload for a non-object.
+    """
+    try:
+        decoded = json.loads(raw) if raw else {}
+    except (TypeError, ValueError) as exc:
+        return None, _surface_error(
+            exc, surface=surface, action=action, code="invalid_request"
+        )
+    if isinstance(decoded, dict):
+        return decoded, None
+    rejection: dict[str, Any] = {"surface": surface}
+    if action:
+        rejection["action"] = action
+    rejection["error"] = f"{field} must decode to an object"
+    return None, json.dumps(rejection)
+
+
+def _traces_get_dispatch(trace_id: str) -> tuple[str | None, dict[str, Any], Any]:
+    """``graph_traces action='get'`` — the KG-native sink first, else the engine probe.
+
+    Returns ``(finished_response | None, params, candidates)``.
+    """
+    native = _trace_native_get(trace_id)
+    if native is not None:
+        return (
+            json.dumps(
+                {"surface": "traces", "action": "get", "result": native},
+                default=_json_default,
+            ),
+            {},
+            (),
+        )
+    return None, {"trace_id": trace_id}, _TRACES_GET_CANDIDATES
+
+
+def _traces_search_dispatch(
+    service: str, operation: str, query: str, limit: int
+) -> tuple[str | None, dict[str, Any], Any]:
+    """``graph_traces action='search'`` — the KG-native sink first, else the probe."""
+    native_rows = _trace_native_search(service, operation, query, limit)
+    if native_rows is not None:
+        return (
+            json.dumps(
+                {"surface": "traces", "action": "search", "result": native_rows},
+                default=_json_default,
+            ),
+            {},
+            (),
+        )
+    params = _drop_empty(service=service, operation=operation, query=query)
+    params["limit"] = int(limit)
+    return None, params, _TRACES_SEARCH_CANDIDATES
+
+
+def _deep_action_or_error(action: str) -> tuple[str, str | None]:
+    """Normalize a ``graph_mine_deep`` action and reject an unknown one by name."""
+    normalized = (action or "").strip().replace("-", "_") or "deep_forecast"
+    if normalized not in _DEEP_ALGO_BY_ACTION:
+        return normalized, json.dumps(
+            {
+                "surface": "mining_deep",
+                "action": normalized,
+                "error": f"unknown action {normalized!r}; choose one of "
+                f"{sorted(_DEEP_ALGO_BY_ACTION)}",
+            }
+        )
+    return normalized, None
+
+
+def _deep_unavailable(action: str, error: str) -> str:
+    """The structured 'delegated but unavailable' payload — never a crash."""
+    return json.dumps(
+        {
+            "surface": "mining_deep",
+            "action": action,
+            "provider": _DSM_SERVER_NAME,
+            "delegated": True,
+            "available": False,
+            "error": error,
+        }
+    )
+
+
+def _deep_call_delegate(
+    action: str, tool_params: dict[str, Any]
+) -> tuple[Any, str | None]:
+    """Call data-science-mcp once, synchronously, and normalize its response.
+
+    Returns ``(raw_dict, None)`` or ``(None, error_json)``.
+
+    BUG-7: ``call_tool_once``'s decoder prefers a FastMCP result's structured
+    ``.data`` verbatim (``mcp_package._decode``) — when the delegate's tool itself
+    returns an already-JSON-encoded string (this repo's own tool convention:
+    ``return json.dumps(...)``), ``.data`` IS that raw string, not the parsed
+    object, so ``raw`` arrives here as a ``str`` even though the delegate answered
+    normally. Align the parse here instead of failing on a shape mismatch that
+    isn't a real outage.
+    """
+    try:
+        raw = _run_async(
+            call_tool_once(
+                server=_DSM_SERVER_NAME,
+                tool=_DSM_TOOL_NAME,
+                params=tool_params,
+                params_style="args",
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 — the delegate being unreachable degrades cleanly
+        return None, _surface_error(
+            exc,
+            surface="mining_deep",
+            action=action,
+            code="dependency_unavailable",
+            context={"delegated": True, "available": False},
+        )
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (TypeError, ValueError):
+            pass  # genuinely not JSON — falls through to the shape error below
+    if not isinstance(raw, dict):
+        return None, _deep_unavailable(
+            action,
+            f"unexpected data-science-mcp response shape: {type(raw).__name__}",
+        )
+    if not raw.get("available", True):
+        return None, _deep_unavailable(
+            action,
+            raw.get("error", "data-science-mcp reported the algo unavailable"),
+        )
+    return raw, None
+
+
+def _deep_writeback(
+    action: str,
+    result: dict[str, Any],
+    node_ids: list[str],
+    series_id: str,
+    graph: str,
+) -> list[str]:
+    """Materialize a delegated result as typed KG nodes.
+
+    CONCEPT:AU-KG.mining.foldback-typed-nodes — each row-level node is linked
+    DEEP_RESULT_OF its source node when a ``source`` was used; a forecast is
+    linked FORECAST_OF its ``series_id`` node when one was given.
+    """
+    node_type = _DEEP_NODE_TYPE[action]
+    algo = _DEEP_ALGO_BY_ACTION[action]
+    if action == "deep_forecast":
+        props = {"provider": _DSM_SERVER_NAME, "algo": algo, **result}
+        node_id = _deep_write_node(node_type, props, graph)
+        if series_id:
+            _deep_write_edge(node_id, series_id, "FORECAST_OF", graph)
+        return [node_id]
+    written: list[str] = []
+    for i, row in enumerate(result.get("rows") or []):
+        props = {"provider": _DSM_SERVER_NAME, "algo": algo, **row}
+        node_id = _deep_write_node(node_type, props, graph)
+        if i < len(node_ids):
+            _deep_write_edge(node_id, node_ids[i], "DEEP_RESULT_OF", graph)
+        written.append(node_id)
+    return written
+
+
+def _fork_branches(branches_json: str, code: str, n: int) -> tuple[Any, str | None]:
+    """Resolve ``graph_fork``'s branch list from ``branches_json``, else ``code`` + ``n``."""
+    try:
+        branches = json.loads(branches_json) if branches_json else []
+    except (TypeError, ValueError) as exc:
+        return None, _surface_error(exc, surface="fork", code="invalid_request")
+    if not isinstance(branches, list):
+        return None, json.dumps(
+            {"surface": "fork", "error": "branches_json must decode to a list"}
+        )
+    if branches:
+        return branches, None
+    if code and int(n) > 0:
+        return [code] * int(n), None
+    return None, json.dumps(
+        {
+            "surface": "fork",
+            "error": "provide branches_json (list) or code + n (>0)",
+        }
+    )
+
+
 def register_engine_surface_tools(mcp) -> None:
     """Register the KG-2.310 engine-surface tools + their REST twins.
 
@@ -3276,43 +3569,25 @@ def register_engine_surface_tools(mcp) -> None:
         ),
     ) -> str:
         """Thin wrapper over the engine trace surface (CONCEPT:AU-KG.coordination.engine-message-broker)."""
-        try:
-            extra = json.loads(params_json) if params_json else {}
-        except (TypeError, ValueError) as exc:
-            return _surface_error(exc, surface="traces", code="invalid_request")
-        if not isinstance(extra, dict):
-            return json.dumps(
-                {"surface": "traces", "error": "params_json must decode to an object"}
-            )
+        extra, rejection = _decode_json_object(params_json, "traces")
+        if rejection is not None:
+            return rejection
+        if action in {"waterfall", "get"} and not trace_id:
+            return json.dumps({"surface": "traces", "error": "trace_id required"})
         if action == "waterfall":
-            if not trace_id:
-                return json.dumps({"surface": "traces", "error": "trace_id required"})
             return _trace_waterfall(trace_id)
         if action == "get":
-            if not trace_id:
-                return json.dumps({"surface": "traces", "error": "trace_id required"})
-            native = _trace_native_get(trace_id)
-            if native is not None:
-                return json.dumps(
-                    {"surface": "traces", "action": "get", "result": native},
-                    default=_json_default,
-                )
-            params: dict[str, Any] = {"trace_id": trace_id}
-            candidates = _TRACES_GET_CANDIDATES
+            done, params, candidates = _traces_get_dispatch(trace_id)
         elif action == "search":
-            native_rows = _trace_native_search(service, operation, query, limit)
-            if native_rows is not None:
-                return json.dumps(
-                    {"surface": "traces", "action": "search", "result": native_rows},
-                    default=_json_default,
-                )
-            params = _drop_empty(service=service, operation=operation, query=query)
-            params["limit"] = int(limit)
-            candidates = _TRACES_SEARCH_CANDIDATES
+            done, params, candidates = _traces_search_dispatch(
+                service, operation, query, limit
+            )
         else:
             return json.dumps(
                 {"surface": "traces", "error": f"unknown action {action!r}"}
             )
+        if done is not None:
+            return done
         params.update(extra)
         return _invoke(
             surface="traces",
@@ -3744,14 +4019,9 @@ def register_engine_surface_tools(mcp) -> None:
         """Thin action-router over the engine mining surface (CONCEPT:EG-KG.mining.frequent-itemset-mining)."""
         action = (action or "").strip().replace("-", "_") or "associate"
         action = _MINING_ACTION_ALIASES.get(action, action)
-        try:
-            params = json.loads(params_json) if params_json else {}
-        except (TypeError, ValueError) as exc:
-            return _surface_error(exc, surface="mining", code="invalid_request")
-        if not isinstance(params, dict):
-            return json.dumps(
-                {"surface": "mining", "error": "params_json must decode to an object"}
-            )
+        params, rejection = _decode_json_object(params_json, "mining")
+        if rejection is not None:
+            return rejection
         # CONCEPT:AU-KG.compute.engine-surface-manifest — an action that isn't one of the
         # 18 real MiningClient methods is a NAME error (typo/guess), not "this engine
         # build lacks mining" — report it as such, with the introspected valid-action
@@ -3769,15 +4039,17 @@ def register_engine_surface_tools(mcp) -> None:
                     "actions": sorted(valid_actions),
                 }
             )
-        _process_result = _graph_mine_process_ocel_json(action, params, graph)
-        if _process_result is not None:
-            return _process_result
-        _process_result = _graph_mine_process_conformance(action, params, graph)
-        if _process_result is not None:
-            return _process_result
-        _process_result = _graph_mine_process_events(action, params, graph)
-        if _process_result is not None:
-            return _process_result
+        # The 'process' action's three governed special cases, in their original
+        # order: each returns None when its own guard does not match, falling
+        # through to the generic _invoke dispatch below.
+        for special_case in (
+            _graph_mine_process_ocel_json,
+            _graph_mine_process_conformance,
+            _graph_mine_process_events,
+        ):
+            special_result = special_case(action, params, graph)
+            if special_result is not None:
+                return special_result
         return _invoke(
             surface="mining",
             action=action,
@@ -3859,33 +4131,14 @@ def register_engine_surface_tools(mcp) -> None:
         ),
     ) -> str:
         """Thin delegation adapter: ship features to data-science-mcp, fold predictions back (CONCEPT:AU-KG.mining.dsm-forecast-delegation)."""
-        action = (action or "").strip().replace("-", "_") or "deep_forecast"
-        if action not in _DEEP_ALGO_BY_ACTION:
-            return json.dumps(
-                {
-                    "surface": "mining_deep",
-                    "action": action,
-                    "error": f"unknown action {action!r}; choose one of "
-                    f"{sorted(_DEEP_ALGO_BY_ACTION)}",
-                }
-            )
-        try:
-            params = json.loads(params_json) if params_json else {}
-        except (TypeError, ValueError) as exc:
-            return _surface_error(
-                exc,
-                surface="mining_deep",
-                action=action,
-                code="invalid_request",
-            )
-        if not isinstance(params, dict):
-            return json.dumps(
-                {
-                    "surface": "mining_deep",
-                    "action": action,
-                    "error": "params_json must decode to an object",
-                }
-            )
+        action, rejection = _deep_action_or_error(action)
+        if rejection is not None:
+            return rejection
+        params, rejection = _decode_json_object(
+            params_json, "mining_deep", action=action
+        )
+        if rejection is not None:
+            return rejection
 
         writeback = bool(params.pop("writeback", False))
         series_id = str(params.pop("series_id", "") or "")
@@ -3895,87 +4148,16 @@ def register_engine_surface_tools(mcp) -> None:
         except Exception as exc:  # noqa: BLE001 — bad input / feature-gathering failure is data
             return _surface_error(exc, surface="mining_deep", action=action)
 
-        try:
-            raw = _run_async(
-                call_tool_once(
-                    server=_DSM_SERVER_NAME,
-                    tool=_DSM_TOOL_NAME,
-                    params=tool_params,
-                    params_style="args",
-                )
-            )
-        except Exception as exc:  # noqa: BLE001 — the delegate being unreachable degrades cleanly
-            return _surface_error(
-                exc,
-                surface="mining_deep",
-                action=action,
-                code="dependency_unavailable",
-                context={"delegated": True, "available": False},
-            )
-
-        # BUG-7: ``call_tool_once``'s decoder prefers a FastMCP result's
-        # structured ``.data`` verbatim (``mcp_package._decode``) — when the
-        # delegate's tool itself returns an already-JSON-encoded string (this
-        # repo's own tool convention: ``return json.dumps(...)``), ``.data`` IS
-        # that raw string, not the parsed object, so ``raw`` arrives here as a
-        # ``str`` even though the delegate answered normally. Align the parse
-        # here instead of failing on a shape mismatch that isn't a real outage.
-        if isinstance(raw, str):
-            try:
-                raw = json.loads(raw)
-            except (TypeError, ValueError):
-                pass  # genuinely not JSON — falls through to the shape error below
-        if not isinstance(raw, dict):
-            return json.dumps(
-                {
-                    "surface": "mining_deep",
-                    "action": action,
-                    "provider": _DSM_SERVER_NAME,
-                    "delegated": True,
-                    "available": False,
-                    "error": f"unexpected data-science-mcp response shape: {type(raw).__name__}",
-                }
-            )
-        if not raw.get("available", True):
-            return json.dumps(
-                {
-                    "surface": "mining_deep",
-                    "action": action,
-                    "provider": _DSM_SERVER_NAME,
-                    "delegated": True,
-                    "available": False,
-                    "error": raw.get(
-                        "error", "data-science-mcp reported the algo unavailable"
-                    ),
-                }
-            )
+        raw, delegate_error = _deep_call_delegate(action, tool_params)
+        if delegate_error is not None:
+            return delegate_error
 
         result = raw.get("result") or {}
-        node_type = _DEEP_NODE_TYPE[action]
-        written: list[str] = []
-        if writeback:
-            if action == "deep_forecast":
-                props = {
-                    "provider": _DSM_SERVER_NAME,
-                    "algo": _DEEP_ALGO_BY_ACTION[action],
-                    **result,
-                }
-                node_id = _deep_write_node(node_type, props, graph)
-                if series_id:
-                    _deep_write_edge(node_id, series_id, "FORECAST_OF", graph)
-                written = [node_id]
-            else:
-                for i, row in enumerate(result.get("rows") or []):
-                    props = {
-                        "provider": _DSM_SERVER_NAME,
-                        "algo": _DEEP_ALGO_BY_ACTION[action],
-                        **row,
-                    }
-                    node_id = _deep_write_node(node_type, props, graph)
-                    if i < len(node_ids):
-                        _deep_write_edge(node_id, node_ids[i], "DEEP_RESULT_OF", graph)
-                    written.append(node_id)
-
+        written = (
+            _deep_writeback(action, result, node_ids, series_id, graph)
+            if writeback
+            else []
+        )
         return json.dumps(
             {
                 "surface": "mining_deep",
@@ -4236,32 +4418,12 @@ def register_engine_surface_tools(mcp) -> None:
         ),
     ) -> str:
         """Thin verb over the warm-fork primitive (CONCEPT:AU-KG.coordination.warm-fork-fanout)."""
-        try:
-            branches = json.loads(branches_json) if branches_json else []
-        except (TypeError, ValueError) as exc:
-            return _surface_error(exc, surface="fork", code="invalid_request")
-        if not isinstance(branches, list):
-            return json.dumps(
-                {"surface": "fork", "error": "branches_json must decode to a list"}
-            )
-        if not branches:
-            if code and int(n) > 0:
-                branches = [code] * int(n)
-            else:
-                return json.dumps(
-                    {
-                        "surface": "fork",
-                        "error": "provide branches_json (list) or code + n (>0)",
-                    }
-                )
-        try:
-            seed_vars = json.loads(vars_json) if vars_json else {}
-        except (TypeError, ValueError) as exc:
-            return _surface_error(exc, surface="fork", code="invalid_request")
-        if not isinstance(seed_vars, dict):
-            return json.dumps(
-                {"surface": "fork", "error": "vars_json must decode to an object"}
-            )
+        branches, rejection = _fork_branches(branches_json, code, n)
+        if rejection is not None:
+            return rejection
+        seed_vars, rejection = _decode_json_object(vars_json, "fork", field="vars_json")
+        if rejection is not None:
+            return rejection
         if context_query.strip():
             return _crossmodal_fork_fanout(
                 branches,
