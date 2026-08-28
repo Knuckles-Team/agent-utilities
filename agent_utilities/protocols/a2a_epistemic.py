@@ -1855,6 +1855,49 @@ class EpistemicGraphA2ABroker(Broker):
         )
         return operation_value, binding, tag
 
+    async def _renew_lease(
+        self,
+        control: _DeliveryControl,
+        loop: asyncio.AbstractEventLoop,
+        renew_at: float,
+        renewal_interval: float,
+    ) -> float | None:
+        """Renew the delivery lease if due; return the next deadline, or ``None``
+        if the renewal was refused (the caller must then abort)."""
+
+        if loop.time() < renew_at:
+            return renew_at
+        renewed = await self.runtime.call(
+            "broker",
+            "renew_tag",
+            control.delivery_tag,
+            consumer=control.consumer,
+            now_ms=_now_ms(),
+            lease_ms=self.lease_ms,
+        )
+        if not isinstance(renewed, bool) or not renewed:
+            control.abort("lease_lost")
+            return None
+        return loop.time() + renewal_interval
+
+    async def _check_cancellation(
+        self, control: _DeliveryControl, binding: _ExecutionBinding | None
+    ) -> bool:
+        """Return ``True`` if the delivery was aborted by the current task state."""
+
+        if not (control.monitor_cancellation and binding is not None):
+            return False
+        state = await self.storage.execution_control_state(binding)
+        if state == "canceled":
+            control.abort("task_canceled")
+        elif state == "terminal":
+            control.abort("task_terminal")
+        elif state == "lost":
+            control.abort("lease_lost")
+        else:
+            return False
+        return True
+
     async def _maintain_lease(
         self,
         control: _DeliveryControl,
@@ -1876,30 +1919,14 @@ class EpistemicGraphA2ABroker(Broker):
             except TimeoutError:
                 pass
             try:
-                if loop.time() >= renew_at:
-                    renewed = await self.runtime.call(
-                        "broker",
-                        "renew_tag",
-                        control.delivery_tag,
-                        consumer=control.consumer,
-                        now_ms=_now_ms(),
-                        lease_ms=self.lease_ms,
-                    )
-                    if not isinstance(renewed, bool) or not renewed:
-                        control.abort("lease_lost")
-                        return
-                    renew_at = loop.time() + renewal_interval
-                if control.monitor_cancellation and binding is not None:
-                    state = await self.storage.execution_control_state(binding)
-                    if state == "canceled":
-                        control.abort("task_canceled")
-                        return
-                    if state == "terminal":
-                        control.abort("task_terminal")
-                        return
-                    if state == "lost":
-                        control.abort("lease_lost")
-                        return
+                next_renew_at = await self._renew_lease(
+                    control, loop, renew_at, renewal_interval
+                )
+                if next_renew_at is None:
+                    return
+                renew_at = next_renew_at
+                if await self._check_cancellation(control, binding):
+                    return
             except Exception:
                 control.abort("lease_lost")
                 return
