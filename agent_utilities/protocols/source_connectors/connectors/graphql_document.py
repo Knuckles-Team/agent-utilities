@@ -196,6 +196,35 @@ def _cfg_float(config: Mapping[str, Any], key: str, default: float) -> float:
     return float(config.get(key) or default)
 
 
+def _parse_configured_tls_mapping(
+    configured: Mapping[str, Any],
+) -> tuple[str | None, str | None, Mapping[str, Any] | None]:
+    profile_name = (
+        str(configured.get("profile_name") or configured.get("profile") or "").strip()
+        or None
+    )
+    profile_ref = str(configured.get("profile_ref") or "").strip() or None
+    settings = configured.get("settings")
+    inline: Mapping[str, Any] | None = None
+    if isinstance(settings, Mapping):
+        inline = settings
+    elif not profile_name and not profile_ref:
+        inline = configured
+    return profile_name, profile_ref, inline
+
+
+def _parse_configured_tls(
+    configured: Any,
+) -> tuple[str | None, str | None, Mapping[str, Any] | None]:
+    if isinstance(configured, str):
+        return configured, None, None
+    if isinstance(configured, Mapping):
+        return _parse_configured_tls_mapping(configured)
+    if configured is not None:
+        raise GraphQLDocumentError("GraphQL transport security profile is invalid")
+    return None, None, None
+
+
 def _classification(value: Any) -> DataClassification:
     try:
         return DataClassification(str(value or DataClassification.INTERNAL.value))
@@ -992,26 +1021,7 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
         )
 
         configured = profile.get("transport_security", profile.get("tls"))
-        profile_name: str | None = None
-        profile_ref: str | None = None
-        inline: Mapping[str, Any] | None = None
-        if isinstance(configured, str):
-            profile_name = configured
-        elif isinstance(configured, Mapping):
-            profile_name = (
-                str(
-                    configured.get("profile_name") or configured.get("profile") or ""
-                ).strip()
-                or None
-            )
-            profile_ref = str(configured.get("profile_ref") or "").strip() or None
-            settings = configured.get("settings")
-            if isinstance(settings, Mapping):
-                inline = settings
-            elif not profile_name and not profile_ref:
-                inline = configured
-        elif configured is not None:
-            raise GraphQLDocumentError("GraphQL transport security profile is invalid")
+        profile_name, profile_ref, inline = _parse_configured_tls(configured)
         profile_name = str(profile.get("tls_profile") or "").strip() or profile_name
         profile_ref = str(profile.get("tls_profile_ref") or "").strip() or profile_ref
         try:
