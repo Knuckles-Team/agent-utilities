@@ -62,7 +62,7 @@ import re
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -227,6 +227,17 @@ def chunk_text(text: str, config: ChunkingConfig | None = None) -> list[ChunkSpa
     atoms = _segment(text, cfg)
 
     # 2) Greedily pack atoms into <= chunk_size windows, then add overlap tails.
+    spans = _pack_atoms_into_windows(text, atoms, cfg)
+
+    # 3) Re-index, drop empty/dust trailing fragments (keep ≥ 1 chunk always).
+    return _clean_and_reindex_spans(spans, text, cfg)
+
+
+def _pack_atoms_into_windows(
+    text: str, atoms: list[tuple[str, int, int]], cfg: ChunkingConfig
+) -> list[ChunkSpan]:
+    """Greedily pack atoms into <= ``chunk_size`` windows, with overlap tails."""
+
     spans: list[ChunkSpan] = []
     cur_start = atoms[0][1] if atoms else 0
     cur_end = cur_start
@@ -243,8 +254,14 @@ def chunk_text(text: str, config: ChunkingConfig | None = None) -> list[ChunkSpa
             cur_end = a_end
     if cur_end > cur_start:
         spans.append(_emit(text, cur_start, cur_end, cfg))
+    return spans
 
-    # 3) Re-index, drop empty/dust trailing fragments (keep ≥ 1 chunk always).
+
+def _clean_and_reindex_spans(
+    spans: list[ChunkSpan], text: str, cfg: ChunkingConfig
+) -> list[ChunkSpan]:
+    """Drop empty/dust trailing fragments (keep >= 1 chunk always) and re-index."""
+
     cleaned: list[ChunkSpan] = []
     for sp in spans:
         body = sp.text.strip() if cfg.strip_whitespace else sp.text
@@ -266,13 +283,10 @@ def _emit(text: str, start: int, end: int, cfg: ChunkingConfig) -> ChunkSpan:
     return ChunkSpan(index=0, text=body, char_start=start, char_end=end)
 
 
-def _segment(text: str, cfg: ChunkingConfig) -> list[tuple[str, int, int]]:
-    """Return ``[(atom_text, start, end), …]`` segmented on the best separator.
+def _choose_separator(text: str, cfg: ChunkingConfig) -> str:
+    """Pick the highest-priority separator whose pieces are mostly under
+    ``chunk_size``."""
 
-    Picks the highest-priority separator whose pieces are mostly under
-    ``chunk_size``; if even the finest separator leaves an over-long piece it is
-    hard-cut into ``chunk_size`` windows so no atom ever exceeds the budget.
-    """
     chosen = cfg.separators[-1] if cfg.separators else ""
     for sep in cfg.separators:
         if sep == "":
@@ -285,16 +299,24 @@ def _segment(text: str, cfg: ChunkingConfig) -> list[tuple[str, int, int]]:
         chosen = sep
         if any(len(p) <= cfg.chunk_size for p in pieces):
             break
+    return chosen
+
+
+def _hard_cut_windows(text: str, chunk_size: int) -> list[tuple[str, int, int]]:
+    """Split ``text`` into fixed-size character windows (no separator found)."""
 
     atoms: list[tuple[str, int, int]] = []
-    if chosen == "":
-        # Hard character windows.
-        for i in range(0, len(text), cfg.chunk_size):
-            atoms.append(
-                (text[i : i + cfg.chunk_size], i, min(i + cfg.chunk_size, len(text)))
-            )
-        return atoms
+    for i in range(0, len(text), chunk_size):
+        atoms.append((text[i : i + chunk_size], i, min(i + chunk_size, len(text))))
+    return atoms
 
+
+def _split_on_separator(
+    text: str, chosen: str, cfg: ChunkingConfig
+) -> list[tuple[str, int, int]]:
+    """Split ``text`` on ``chosen``, hard-cutting any oversized piece."""
+
+    atoms: list[tuple[str, int, int]] = []
     pos = 0
     seplen = len(chosen)
     for piece in text.split(chosen):
@@ -310,6 +332,19 @@ def _segment(text: str, cfg: ChunkingConfig) -> list[tuple[str, int, int]]:
             atoms.append((piece, start, end))
         pos = end + seplen
     return atoms
+
+
+def _segment(text: str, cfg: ChunkingConfig) -> list[tuple[str, int, int]]:
+    """Return ``[(atom_text, start, end), …]`` segmented on the best separator.
+
+    Picks the highest-priority separator whose pieces are mostly under
+    ``chunk_size``; if even the finest separator leaves an over-long piece it is
+    hard-cut into ``chunk_size`` windows so no atom ever exceeds the budget.
+    """
+    chosen = _choose_separator(text, cfg)
+    if chosen == "":
+        return _hard_cut_windows(text, cfg.chunk_size)
+    return _split_on_separator(text, chosen, cfg)
 
 
 def _fragment_ids_for_span(start: int, end: int, fragments: Sequence[Any]) -> list[str]:
@@ -535,6 +570,111 @@ class DocumentProcessor:
             DocumentExtractionError: when no text could be extracted and none was
                 supplied.
         """
+        identity = self._resolve_document_identity(
+            document,
+            text=text,
+            source=source,
+            document_id=document_id,
+            title=title,
+            doc_type=doc_type,
+        )
+        access, governance = self._resolve_access_governance(external_access)
+
+        spine = self._build_document_spine(
+            document, text, identity, connector, source_instance
+        )
+
+        contexts, embeddings, embedding_version = self._embed_spans(
+            spine.verbatim, spine.spans, identity.final_title
+        )
+        chunks = self._assemble_chunks(
+            identity.doc_id,
+            spine.spans,
+            embeddings,
+            contexts,
+            embedding_version,
+            spine.fragments,
+        )
+
+        document_node = self._build_document_node(
+            identity.doc_id,
+            title=identity.final_title,
+            doc_type=identity.final_type,
+            source=identity.src_label,
+            content_hash=identity.content_hash,
+            chunk_count=len(chunks),
+            char_count=len(identity.raw_text),
+            extra={**(metadata or {}), **governance},
+        )
+        chunk_nodes = [self._build_chunk_node(c) for c in chunks]
+        for chunk_node in chunk_nodes:
+            chunk_node.update(governance)
+        edges = self._build_edges(identity.doc_id, chunks)
+
+        link_nodes: list[dict[str, Any]] = []
+        if self.extract_links:
+            link_nodes, link_edges = self._build_link_edges(
+                identity.doc_id, identity.raw_text
+            )
+            edges.extend(link_edges)
+        if extra_edges:
+            edges.extend(dict(edge) for edge in extra_edges)
+
+        result = ProcessedDocument(
+            document_node=document_node,
+            chunk_nodes=chunk_nodes,
+            edges=edges,
+            link_nodes=link_nodes,
+            document_id=identity.doc_id,
+            chunk_count=len(chunks),
+            artifact_id=spine.artifact_id,
+            fragments=list(spine.fragments),
+        )
+
+        # CONCEPT:AU-KG.retrieval.section-tree — optionally build the per-document
+        # reasoning tree beside the flat chunks. Off by default so the chunk-only
+        # pipeline is unchanged; the ingestion path / MCP tool turn it on.
+        if section_tree:
+            self._attach_section_tree(
+                identity.raw_text, section_tree, identity.doc_id, result, governance
+            )
+
+        if persist:
+            self._persist_process_result(
+                result,
+                DocumentProcessor._PersistContext(
+                    connector=connector,
+                    source_instance=source_instance,
+                    checkpoint=checkpoint,
+                    access=access,
+                    verbatim=spine.verbatim,
+                    artifact_source_id=spine.artifact_source_id,
+                ),
+            )
+        return result
+
+    class _DocIdentity(NamedTuple):
+        """Resolved id/title/type facts for one ``process()`` call."""
+
+        raw_text: str
+        src_label: str
+        doc_id: str
+        final_title: str
+        final_type: str
+        content_hash: str
+
+    def _resolve_document_identity(
+        self,
+        document: str | bytes | Path,
+        *,
+        text: str | None,
+        source: str,
+        document_id: str | None,
+        title: str | None,
+        doc_type: str | None,
+    ) -> DocumentProcessor._DocIdentity:
+        """Extract text and resolve the document's id/title/type triple."""
+
         raw_text, src_label, detected_type, derived_title = self._resolve_text(
             document, text=text, source=source
         )
@@ -545,11 +685,19 @@ class DocumentProcessor:
                 "(e.g. OCR output) or install a reader for this format "
                 "(pypdf/pdfminer for PDF, python-docx for DOCX)."
             )
-
         content_hash = _sha(raw_text)
         doc_id = document_id or self._document_id(src_label, content_hash)
         final_title = title or derived_title or (src_label or doc_id)
         final_type = doc_type or detected_type or "document"
+        return DocumentProcessor._DocIdentity(
+            raw_text, src_label, doc_id, final_title, final_type, content_hash
+        )
+
+    @staticmethod
+    def _resolve_access_governance(
+        external_access: Any,
+    ) -> tuple[Any, dict[str, Any]]:
+        """Resolve the connector access descriptor and its governance stamp."""
 
         from ...protocols.source_connectors.base import ExternalAccess
 
@@ -563,32 +711,55 @@ class DocumentProcessor:
             "external_access": access.model_dump(),
             "classification": "public" if access.is_public else "internal",
         }
+        return access, governance
 
-        # CONCEPT:AU-KG.ingest.stable-fragment-address (D-ES-1). Computed HERE,
-        # before chunking, so the chunk/embedding pipeline addresses the same
-        # text the evidence spine cites instead of ``raw_text`` —
-        # ``KBDocumentParser``'s whitespace-normalized rendering, which has
-        # already destroyed every heading/table/list boundary by the time
-        # ``chunk_text`` would otherwise see it. For formats whose bytes ARE
-        # the document (.md/.txt/.rst/…, see ``_VERBATIM_SUFFIXES``) this is
-        # the untouched source; for formats that genuinely need extraction
-        # (pdf/docx) it falls back to ``raw_text``, so chunking behavior for
-        # those is unchanged.
-        verbatim = self._verbatim_source_text(document, text=text, fallback=raw_text)
+    class _DocumentSpine(NamedTuple):
+        """Verbatim text, chunk spans, and the evidence-spine fragments."""
 
+        verbatim: str
+        spans: list[ChunkSpan]
+        fragments: tuple[Any, ...]
+        artifact_id: str
+        artifact_source_id: str
+
+    def _build_document_spine(
+        self,
+        document: str | bytes | Path,
+        text: str | None,
+        identity: DocumentProcessor._DocIdentity,
+        connector: str,
+        source_instance: str,
+    ) -> DocumentProcessor._DocumentSpine:
+        """Compute the verbatim source, chunk spans, and evidence fragments.
+
+        CONCEPT:AU-KG.ingest.stable-fragment-address (D-ES-1). The verbatim text is
+        resolved before chunking so the chunk/embedding pipeline addresses the same
+        text the evidence spine cites instead of ``raw_text`` —
+        ``KBDocumentParser``'s whitespace-normalized rendering, which has already
+        destroyed every heading/table/list boundary by the time ``chunk_text``
+        would otherwise see it. For formats whose bytes ARE the document
+        (.md/.txt/.rst/…, see ``_VERBATIM_SUFFIXES``) this is the untouched
+        source; for formats that genuinely need extraction (pdf/docx) it falls
+        back to ``raw_text``, so chunking behavior for those is unchanged.
+
+        CONCEPT:AU-KG.ingest.evidence-spine-artifact — the addressable evidence
+        spine rides the SAME extraction, always on, and is computed BEFORE chunks
+        so each chunk can cite the fragment(s) its span overlaps
+        (CONCEPT:AU-KG.retrieval.fragment-cited-chunk). Chunks are the retrieval
+        unit (fixed-size, overlapping, embedded); fragments are the *citation*
+        unit (structural, stably addressed, hashed). Computed ONCE, here, and
+        reused verbatim for ``result.fragments`` (previously recomputed a second
+        time, keyed to ``doc_id`` here vs ``src_label`` there — two different
+        artifact ids for the SAME document produced two different fragment-id
+        sets, so a chunk's citation, resolved against the first, never matched a
+        real fragment in ``result.fragments``, resolved against the second).
+        """
+
+        verbatim = self._verbatim_source_text(
+            document, text=text, fallback=identity.raw_text
+        )
         spans = chunk_text(verbatim, self.chunking)
 
-        # CONCEPT:AU-KG.ingest.evidence-spine-artifact — the addressable evidence
-        # spine rides the SAME extraction, always on, and is computed BEFORE chunks
-        # so each chunk can cite the fragment(s) its span overlaps (CONCEPT:AU-KG.retrieval.fragment-cited-chunk).
-        # Chunks are the retrieval unit (fixed-size, overlapping, embedded);
-        # fragments are the *citation* unit (structural, stably addressed, hashed).
-        # Computed ONCE, here, and reused verbatim below for ``result.fragments``
-        # (previously recomputed a second time, keyed to ``doc_id`` here vs
-        # ``src_label`` there — two different artifact ids for the SAME
-        # document produced two different fragment-id sets, so a chunk's
-        # citation, resolved against the first, never matched a real fragment
-        # in ``result.fragments``, resolved against the second).
         from ..ingestion.evidence_spine import artifact_id_for, fragment_markdown
 
         # The artifact is the SOURCE OBJECT, so it is keyed to the source label
@@ -596,18 +767,28 @@ class DocumentProcessor:
         # hash and therefore forks a new identity on every edit.  Keying the
         # artifact to the object is what lets HAS_FRAGMENT edges, and the
         # citations that traverse them, survive a revision.
-        artifact_source_id = src_label or doc_id
+        artifact_source_id = identity.src_label or identity.doc_id
         artifact_id = artifact_id_for(connector, source_instance, artifact_source_id)
         # ``verbatim`` is the untouched source for formats whose bytes ARE the
         # document; the spine fragments it so a citation addresses the
         # document the author actually wrote.
         fragments = fragment_markdown(verbatim, artifact_id=artifact_id)
+        return DocumentProcessor._DocumentSpine(
+            verbatim, spans, fragments, artifact_id, artifact_source_id
+        )
 
-        # CONCEPT:AU-KG.enrichment.contextual-retrieval-enrichment — contextual-retrieval enrichment. Situate each chunk
-        # within the whole document and embed ``context + chunk`` (Anthropic
-        # contextual retrieval) so retrieval recall improves; the context is also
-        # stored on the Chunk node for display/lexical match. Computed BEFORE
-        # embedding. Off by default → no behaviour change for existing callers.
+    def _embed_spans(
+        self, verbatim: str, spans: list[ChunkSpan], final_title: str
+    ) -> tuple[list[str], list[list[float] | None], str]:
+        """Enrich contexts, embed, and resolve the active embedding version.
+
+        CONCEPT:AU-KG.enrichment.contextual-retrieval-enrichment — situate each
+        chunk within the whole document and embed ``context + chunk`` (Anthropic
+        contextual retrieval) so retrieval recall improves; the context is also
+        stored on the Chunk node for display/lexical match. Off by default → no
+        behaviour change for existing callers.
+        """
+
         contexts = self._enrich_contexts(
             verbatim, [sp.text for sp in spans], final_title
         )
@@ -616,30 +797,49 @@ class DocumentProcessor:
             for sp, ctx in zip(spans, contexts, strict=False)
         ]
         embeddings = self._embed(embed_inputs)
-        # CONCEPT:AU-KG.retrieval.embedding-version-identity — tag every PRODUCED
-        # vector with the model that produced it, so a later config change (a new
-        # default embedding model) can never be silently compared against these.
-        # Resolved once per document, and only when at least one embedding was
-        # actually produced — the offline/no-embedder degrade path (every entry
-        # ``None``) has no version to claim and must not raise for having none
-        # configured.
-        embedding_version = ""
-        if any(emb is not None for emb in embeddings):
-            from ..retrieval.embedding_versioning import (
-                EmbeddingVersionUnresolvedError,
-                resolve_current_embedding_version,
-            )
+        embedding_version = self._resolve_embedding_version(embeddings)
+        return contexts, embeddings, embedding_version
 
-            try:
-                embedding_version = resolve_current_embedding_version().id
-            except EmbeddingVersionUnresolvedError as exc:
-                logger.warning(
-                    "[KG-2.48] embeddings were produced but the active embedding "
-                    "version could not be resolved — chunks will carry no "
-                    "embedding_version, which disables re-index staleness "
-                    "detection for this document: %s",
-                    exc,
-                )
+    @staticmethod
+    def _resolve_embedding_version(embeddings: list[list[float] | None]) -> str:
+        """Resolve the active embedding version, iff any embedding was produced.
+
+        CONCEPT:AU-KG.retrieval.embedding-version-identity — tag every PRODUCED
+        vector with the model that produced it, so a later config change (a new
+        default embedding model) can never be silently compared against these.
+        The offline/no-embedder degrade path (every entry ``None``) has no
+        version to claim and must not raise for having none configured.
+        """
+
+        if not any(emb is not None for emb in embeddings):
+            return ""
+        from ..retrieval.embedding_versioning import (
+            EmbeddingVersionUnresolvedError,
+            resolve_current_embedding_version,
+        )
+
+        try:
+            return resolve_current_embedding_version().id
+        except EmbeddingVersionUnresolvedError as exc:
+            logger.warning(
+                "[KG-2.48] embeddings were produced but the active embedding "
+                "version could not be resolved — chunks will carry no "
+                "embedding_version, which disables re-index staleness "
+                "detection for this document: %s",
+                exc,
+            )
+            return ""
+
+    @staticmethod
+    def _assemble_chunks(
+        doc_id: str,
+        spans: list[ChunkSpan],
+        embeddings: list[list[float] | None],
+        contexts: list[str],
+        embedding_version: str,
+        fragments: Sequence[Any],
+    ) -> list[DocumentChunk]:
+        """Build the per-span :class:`DocumentChunk` objects."""
 
         chunks: list[DocumentChunk] = []
         for sp, emb, ctx in zip(spans, embeddings, contexts, strict=False):
@@ -663,114 +863,192 @@ class DocumentProcessor:
                     embedding_version=embedding_version if emb is not None else "",
                 )
             )
+        return chunks
 
-        document_node = self._build_document_node(
-            doc_id,
-            title=final_title,
-            doc_type=final_type,
-            source=src_label,
-            content_hash=content_hash,
-            chunk_count=len(chunks),
-            char_count=len(raw_text),
-            extra={**(metadata or {}), **governance},
+    def _attach_section_tree(
+        self,
+        raw_text: str,
+        section_tree: bool | SectionTreeConfig,
+        doc_id: str,
+        result: ProcessedDocument,
+        governance: dict[str, Any],
+    ) -> None:
+        """Build the per-document section tree and attach it to ``result``."""
+
+        cfg = (
+            section_tree
+            if isinstance(section_tree, SectionTreeConfig)
+            else SectionTreeConfig()
         )
-        chunk_nodes = [self._build_chunk_node(c) for c in chunks]
-        for chunk_node in chunk_nodes:
-            chunk_node.update(governance)
-        edges = self._build_edges(doc_id, chunks)
-
-        link_nodes: list[dict[str, Any]] = []
-        if self.extract_links:
-            link_nodes, link_edges = self._build_link_edges(doc_id, raw_text)
-            edges.extend(link_edges)
-        if extra_edges:
-            edges.extend(dict(edge) for edge in extra_edges)
-
-        result = ProcessedDocument(
-            document_node=document_node,
-            chunk_nodes=chunk_nodes,
-            edges=edges,
-            link_nodes=link_nodes,
-            document_id=doc_id,
-            chunk_count=len(chunks),
-            artifact_id=artifact_id,
-            fragments=list(fragments),
-        )
-
-        # CONCEPT:AU-KG.retrieval.section-tree — optionally build the per-document
-        # reasoning tree beside the flat chunks. Off by default so the chunk-only
-        # pipeline is unchanged; the ingestion path / MCP tool turn it on.
-        if section_tree:
-            cfg = (
-                section_tree
-                if isinstance(section_tree, SectionTreeConfig)
-                else SectionTreeConfig()
+        roots = build_section_tree(raw_text, config=cfg)
+        # CONCEPT:AU-KG.ingest.structure-verify — confirm titles are inside
+        # their claimed ranges (and repair drift) before we materialize.
+        report = verify_section_tree(raw_text, roots, fix=True)
+        if report["mismatched"]:
+            logger.warning(
+                "[section-tree] %d section title(s) not found in range for %s",
+                report["mismatched"],
+                doc_id,
             )
-            roots = build_section_tree(raw_text, config=cfg)
-            # CONCEPT:AU-KG.ingest.structure-verify — confirm titles are inside
-            # their claimed ranges (and repair drift) before we materialize.
-            report = verify_section_tree(raw_text, roots, fix=True)
-            if report["mismatched"]:
-                logger.warning(
-                    "[section-tree] %d section title(s) not found in range for %s",
-                    report["mismatched"],
-                    doc_id,
-                )
-            sec_nodes, sec_edges = section_nodes_and_edges(doc_id, roots)
-            result.section_roots = roots
-            result.section_nodes = sec_nodes
-            result.section_edges = sec_edges
-            for section_node in result.section_nodes:
-                section_node.update(governance)
+        sec_nodes, sec_edges = section_nodes_and_edges(doc_id, roots)
+        result.section_roots = roots
+        result.section_nodes = sec_nodes
+        result.section_edges = sec_edges
+        for section_node in result.section_nodes:
+            section_node.update(governance)
 
-        if persist:
-            if self.engine is not None:
-                result.persisted = self._persist_native(
-                    result,
-                    connector=connector,
-                    source_instance=source_instance,
-                    checkpoint=checkpoint,
-                    access=access,
-                    text=verbatim,
-                    source_object_id=artifact_source_id,
-                )
-                result.access_synced = result.persisted
-            else:
-                # No graph configured at all (``self.graph is None``): per this
-                # class's own contract ("the processor runs offline ... but
-                # performs no graph writes"), ``sync_access`` — which WRITES
-                # through ``apply_marking``'s mandatory-marking persistence —
-                # must be skipped the same way ``_persist`` below already
-                # no-ops via ``_resolve_writer() is None``, not attempted and
-                # left to hard-fail the whole chunking pass. Enforcement is
-                # unaffected: whenever a real writer IS configured, this
-                # branch is not taken at all (the ``self.engine is not None``
-                # branch above applies the ACL/markings natively), so no
-                # document that is actually persisted anywhere ever skips its
-                # mandatory marking.
-                access_edges = [
-                    (edge["source"], edge["target"])
-                    for edge in [*edges, *result.section_edges]
-                    if edge.get("relationship")
-                    in {HAS_CHUNK_EDGE, HAS_SECTION_EDGE, HAS_SUBSECTION_EDGE}
-                ]
-                if self._resolve_writer() is not None:
-                    from ...protocols.source_connectors.permission_sync import (
-                        sync_access,
-                    )
+    class _PersistContext(NamedTuple):
+        """Everything ``_persist_process_result``/``_persist_via_engine`` need
+        beyond ``self``/``result``, bundled to stay under the 7-parameter cap."""
 
-                    sync_access(doc_id, access, access_edges)
-                    result.access_synced = True
-                else:
-                    result.access_synced = False
-                result.persisted = self._persist(
-                    document_node, chunk_nodes + link_nodes, edges
-                )
-                if result.section_nodes:
-                    self._persist_sections(result.section_nodes, result.section_edges)
-        return result
+        connector: str
+        source_instance: str
+        checkpoint: str | None
+        access: Any
+        verbatim: str
+        artifact_source_id: str
+
+    def _persist_process_result(
+        self,
+        result: ProcessedDocument,
+        ctx: DocumentProcessor._PersistContext,
+    ) -> None:
+        """Persist ``result`` through the native engine, or the offline writer."""
+
+        if self.engine is not None:
+            self._persist_via_engine(result, ctx)
+        else:
+            # No graph configured at all (``self.graph is None``): per this
+            # class's own contract ("the processor runs offline ... but
+            # performs no graph writes"), ``sync_access`` — which WRITES
+            # through ``apply_marking``'s mandatory-marking persistence —
+            # must be skipped the same way ``_persist`` below already
+            # no-ops via ``_resolve_writer() is None``, not attempted and
+            # left to hard-fail the whole chunking pass. Enforcement is
+            # unaffected: whenever a real writer IS configured, this
+            # branch is not taken at all (the ``self.engine is not None``
+            # branch above applies the ACL/markings natively), so no
+            # document that is actually persisted anywhere ever skips its
+            # mandatory marking.
+            self._persist_offline(result, access=ctx.access)
+
+    def _persist_via_engine(
+        self,
+        result: ProcessedDocument,
+        ctx: DocumentProcessor._PersistContext,
+    ) -> None:
+        result.persisted = self._persist_native(
+            result,
+            connector=ctx.connector,
+            source_instance=ctx.source_instance,
+            checkpoint=ctx.checkpoint,
+            access=ctx.access,
+            text=ctx.verbatim,
+            source_object_id=ctx.artifact_source_id,
+        )
+        result.access_synced = result.persisted
+
+    def _sync_offline_access(
+        self,
+        doc_id: str,
+        access: Any,
+        edges: list[dict[str, Any]],
+        section_edges: list[dict[str, Any]],
+    ) -> bool:
+        access_edges = [
+            (edge["source"], edge["target"])
+            for edge in [*edges, *section_edges]
+            if edge.get("relationship")
+            in {HAS_CHUNK_EDGE, HAS_SECTION_EDGE, HAS_SUBSECTION_EDGE}
+        ]
+        if self._resolve_writer() is None:
+            return False
+        from ...protocols.source_connectors.permission_sync import sync_access
+
+        sync_access(doc_id, access, access_edges)
+        return True
+
+    def _persist_offline(self, result: ProcessedDocument, *, access: Any) -> None:
+        result.access_synced = self._sync_offline_access(
+            result.document_id, access, result.edges, result.section_edges
+        )
+        result.persisted = self._persist(
+            result.document_node, result.chunk_nodes + result.link_nodes, result.edges
+        )
+        if result.section_nodes:
+            self._persist_sections(result.section_nodes, result.section_edges)
 
     # ── text extraction ──────────────────────────────────────────────────
+
+    def _resolve_explicit_text(
+        self, text: str | None, source: str
+    ) -> tuple[str, str, str, str] | None:
+        """1) Explicit pre-extracted text wins (OCR / external extraction)."""
+
+        if text is None:
+            return None
+        from ..enrichment.extractors.document import detect_doc_type
+
+        label = source or "<text>"
+        return text, label, detect_doc_type(label, text), self._first_line(text, label)
+
+    def _resolve_file_text(
+        self, document: str | bytes | Path, source: str
+    ) -> tuple[str, str, str, str] | None:
+        """2) A real file on disk → KB/enrichment reader."""
+
+        if not (isinstance(document, str | Path) and self._looks_like_path(document)):
+            return None
+        path = Path(document)
+        if not (path.exists() and path.is_file()):
+            return None
+        from ..enrichment.extractors.document import detect_doc_type
+
+        label = source or str(path)
+        extracted = self._read_file(path)
+        return (
+            extracted,
+            label,
+            detect_doc_type(str(path), extracted),
+            self._first_line(extracted, path.name),
+        )
+
+    @staticmethod
+    def _resolve_bytes_text(
+        document: str | bytes | Path, source: str
+    ) -> tuple[str, str, str, str] | None:
+        """3) Raw bytes — decode as UTF-8 text (caller pre-extracts binary formats)."""
+
+        if not isinstance(document, bytes):
+            return None
+        from ..enrichment.extractors.document import detect_doc_type
+
+        label = source or "<bytes>"
+        decoded = document.decode("utf-8", errors="replace")
+        return (
+            decoded,
+            label,
+            detect_doc_type(label, decoded),
+            DocumentProcessor._first_line(decoded, label),
+        )
+
+    @staticmethod
+    def _resolve_string_text(
+        document: str | bytes | Path, source: str
+    ) -> tuple[str, str, str, str] | None:
+        """4) Plain string content treated as the document text itself."""
+
+        if not isinstance(document, str):
+            return None
+        from ..enrichment.extractors.document import detect_doc_type
+
+        label = source or "<text>"
+        return (
+            document,
+            label,
+            detect_doc_type(label, document),
+            DocumentProcessor._first_line(document, label),
+        )
 
     def _resolve_text(
         self,
@@ -786,53 +1064,16 @@ class DocumentProcessor:
         surface a clear error (via the empty-text → DocumentExtractionError path
         in :meth:`process`) when no reader is importable.
         """
-        from ..enrichment.extractors.document import (
-            detect_doc_type,
+        resolvers: tuple[Callable[[], tuple[str, str, str, str] | None], ...] = (
+            lambda: self._resolve_explicit_text(text, source),
+            lambda: self._resolve_file_text(document, source),
+            lambda: self._resolve_bytes_text(document, source),
+            lambda: self._resolve_string_text(document, source),
         )
-
-        # 1) Explicit pre-extracted text wins (OCR / external extraction).
-        if text is not None:
-            label = source or "<text>"
-            return (
-                text,
-                label,
-                detect_doc_type(label, text),
-                self._first_line(text, label),
-            )
-
-        # 2) A real file on disk → KB/enrichment reader.
-        if isinstance(document, str | Path) and self._looks_like_path(document):
-            path = Path(document)
-            if path.exists() and path.is_file():
-                label = source or str(path)
-                extracted = self._read_file(path)
-                return (
-                    extracted,
-                    label,
-                    detect_doc_type(str(path), extracted),
-                    (self._first_line(extracted, path.name)),
-                )
-
-        # 3) Raw bytes — decode as UTF-8 text (caller pre-extracts binary formats).
-        if isinstance(document, bytes):
-            label = source or "<bytes>"
-            decoded = document.decode("utf-8", errors="replace")
-            return (
-                decoded,
-                label,
-                detect_doc_type(label, decoded),
-                self._first_line(decoded, label),
-            )
-
-        # 4) Plain string content treated as the document text itself.
-        if isinstance(document, str):
-            label = source or "<text>"
-            return (
-                document,
-                label,
-                detect_doc_type(label, document),
-                self._first_line(document, label),
-            )
+        for resolver in resolvers:
+            resolved = resolver()
+            if resolved is not None:
+                return resolved
 
         # 5) Path-like that didn't resolve → empty (process() raises clearly).
         label = source or str(document)
@@ -1258,6 +1499,82 @@ class DocumentProcessor:
             return store
         return None
 
+    @staticmethod
+    def _try_batched_persist(
+        writer: Any,
+        nodes: list[dict[str, Any]],
+        edges: list[dict[str, Any]],
+        log_prefix: str,
+    ) -> bool | None:
+        """Attempt the batched bulk write path shared by ``_persist`` and
+        ``_persist_sections``.
+
+        When the backend has an engine bulk path, materialize the whole slice
+        (nodes + edges) in batched RPCs instead of one socket round-trip per
+        element (nodes flushed before edges so endpoints exist). Returns True
+        on a successful flush, or ``None`` to signal the caller must fall back
+        to the robust per-item path — either because there is no bulk path, or
+        because the flush itself failed.
+        """
+
+        from agent_utilities.knowledge_graph.enrichment.pipeline import _BatchedBackend
+
+        batched = _BatchedBackend(writer)
+        if not batched.bulk_available:
+            return None
+        for node in nodes:
+            props = {k: v for k, v in node.items() if k not in ("id", "node_type")}
+            batched.add_node(node["id"], label=node["node_type"], **props)
+        for e in edges:
+            props = {
+                k: v
+                for k, v in e.items()
+                if k not in ("source", "target", "relationship")
+            }
+            batched.add_edge(
+                e["source"], e["target"], rel_type=e["relationship"], **props
+            )
+        try:
+            batched.flush()
+            return True
+        except Exception as exc:  # noqa: BLE001 — degrade to per-item below
+            logger.debug("%s batched persist failed (%s); per-item", log_prefix, exc)
+            return None
+
+    @staticmethod
+    def _write_edges_per_item(
+        writer: Any, edges: list[dict[str, Any]], log_prefix: str
+    ) -> bool:
+        """Write ``edges`` one at a time; best-effort, like ``_write_node``.
+
+        Returns True if at least one item persisted — the same documented
+        'ok reflects at least one item persisted' accumulator semantics that
+        ``_persist``/``_persist_sections`` fold their node-write results into;
+        one edge's failure doesn't erase a successful write already counted.
+        """
+
+        ok = False
+        for e in edges:
+            try:
+                props = {
+                    k: v
+                    for k, v in e.items()
+                    if k not in ("source", "target", "relationship")
+                }
+                writer.add_edge(
+                    e["source"], e["target"], rel_type=e["relationship"], **props
+                )
+                ok = True
+            except Exception as exc:  # noqa: BLE001 — see docstring
+                logger.debug(
+                    "%s add_edge failed %s->%s: %s",
+                    log_prefix,
+                    e["source"],
+                    e["target"],
+                    exc,
+                )
+        return ok
+
     def _persist(
         self,
         document_node: dict[str, Any],
@@ -1274,55 +1591,17 @@ class DocumentProcessor:
         if writer is None:
             return False
 
-        # When the backend has an engine bulk path, materialize the whole slice
-        # (document + N chunks + M edges) in batched RPCs instead of one socket
-        # round-trip per element. Reuse the enrichment batcher (nodes flushed
-        # before edges so endpoints exist); fall back to the robust per-item path
-        # — which carries the label-less retry — when there is no bulk path.
-        from agent_utilities.knowledge_graph.enrichment.pipeline import _BatchedBackend
-
-        batched = _BatchedBackend(writer)
-        if batched.bulk_available:
-            for node in (document_node, *chunk_nodes):
-                props = {k: v for k, v in node.items() if k not in ("id", "node_type")}
-                batched.add_node(node["id"], label=node["node_type"], **props)
-            for e in edges:
-                props = {
-                    k: v
-                    for k, v in e.items()
-                    if k not in ("source", "target", "relationship")
-                }
-                batched.add_edge(
-                    e["source"], e["target"], rel_type=e["relationship"], **props
-                )
-            try:
-                batched.flush()
-                return True
-            except Exception as exc:  # noqa: BLE001 — degrade to per-item below
-                logger.debug("[KG-2.48] batched persist failed (%s); per-item", exc)
+        batched_result = self._try_batched_persist(
+            writer, [document_node, *chunk_nodes], edges, "[KG-2.48]"
+        )
+        if batched_result is not None:
+            return batched_result
 
         ok = False
         ok |= self._write_node(writer, document_node)
         for cn in chunk_nodes:
             ok |= self._write_node(writer, cn)
-        for e in edges:
-            try:
-                props = {
-                    k: v
-                    for k, v in e.items()
-                    if k not in ("source", "target", "relationship")
-                }
-                writer.add_edge(
-                    e["source"], e["target"], rel_type=e["relationship"], **props
-                )
-                ok = True
-            except Exception as exc:  # noqa: BLE001 — ok reflects 'at least one item persisted' per this method's documented return semantics ("Returns True if the write path was exercised"); one edge's failure doesn't erase the successful node/edge writes already folded into ok above
-                logger.debug(
-                    "[KG-2.48] add_edge failed %s->%s: %s",
-                    e["source"],
-                    e["target"],
-                    exc,
-                )
+        ok |= self._write_edges_per_item(writer, edges, "[KG-2.48]")
         return ok
 
     def _persist_sections(
@@ -1352,51 +1631,16 @@ class DocumentProcessor:
         if writer is None:
             return False
 
-        from agent_utilities.knowledge_graph.enrichment.pipeline import _BatchedBackend
-
-        batched = _BatchedBackend(writer)
-        if batched.bulk_available:
-            for sn in section_nodes:
-                props = {k: v for k, v in sn.items() if k not in ("id", "node_type")}
-                batched.add_node(sn["id"], label=sn["node_type"], **props)
-            for e in section_edges:
-                props = {
-                    k: v
-                    for k, v in e.items()
-                    if k not in ("source", "target", "relationship")
-                }
-                batched.add_edge(
-                    e["source"], e["target"], rel_type=e["relationship"], **props
-                )
-            try:
-                batched.flush()
-                return True
-            except Exception as exc:  # noqa: BLE001 — degrade to per-item below
-                logger.debug(
-                    "[section-tree] batched persist failed (%s); per-item", exc
-                )
+        batched_result = self._try_batched_persist(
+            writer, section_nodes, section_edges, "[section-tree]"
+        )
+        if batched_result is not None:
+            return batched_result
 
         ok = False
         for sn in section_nodes:
             ok |= self._write_node(writer, sn)
-        for e in section_edges:
-            try:
-                props = {
-                    k: v
-                    for k, v in e.items()
-                    if k not in ("source", "target", "relationship")
-                }
-                writer.add_edge(
-                    e["source"], e["target"], rel_type=e["relationship"], **props
-                )
-                ok = True
-            except Exception as exc:  # noqa: BLE001 — section-tree edge persist — same documented 'at least one write landed' ok-accumulator semantics as _persist above
-                logger.debug(
-                    "[section-tree] add_edge failed %s->%s: %s",
-                    e["source"],
-                    e["target"],
-                    exc,
-                )
+        ok |= self._write_edges_per_item(writer, section_edges, "[section-tree]")
         return ok
 
     @staticmethod
@@ -1600,6 +1844,37 @@ def _annotate_token_counts(flat: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return flat
 
 
+def _collect_thinnable_children(
+    flat: list[dict[str, Any]], i: int, end: int, remove: set[int]
+) -> tuple[list[str], int]:
+    """Gather absorbed-descendant text and the extended ``char_end`` for a
+    thinned section. Mutates ``remove`` in place: marks every absorbed index.
+    """
+
+    child_texts: list[str] = []
+    max_end = int(flat[i]["char_end"])
+    for k in range(i + 1, end):
+        if k in remove:
+            continue
+        child = flat[k]
+        if str(child.get("text", "")).strip():
+            child_texts.append(str(child["text"]))
+        max_end = max(max_end, int(child["char_end"]))
+        remove.add(k)
+    return child_texts, max_end
+
+
+def _merge_section_text(base_text: str, child_texts: list[str]) -> str:
+    """Concatenate absorbed child texts onto a section's own text."""
+
+    merged = base_text
+    for ct in child_texts:
+        if merged and not merged.endswith("\n"):
+            merged += "\n\n"
+        merged += ct
+    return merged
+
+
 def _thin_sections(flat: list[dict[str, Any]], min_tokens: int) -> list[dict[str, Any]]:
     """Collapse sub-``min_tokens`` sections into their parent (PageIndex thinning).
 
@@ -1616,22 +1891,9 @@ def _thin_sections(flat: list[dict[str, Any]], min_tokens: int) -> list[dict[str
         if int(flat[i].get("token_count", 0)) >= min_tokens:
             continue
         end = _descendant_slice(flat, i)
-        child_texts: list[str] = []
-        max_end = int(flat[i]["char_end"])
-        for k in range(i + 1, end):
-            if k in remove:
-                continue
-            child = flat[k]
-            if str(child.get("text", "")).strip():
-                child_texts.append(str(child["text"]))
-            max_end = max(max_end, int(child["char_end"]))
-            remove.add(k)
+        child_texts, max_end = _collect_thinnable_children(flat, i, end, remove)
         if child_texts:
-            merged = str(flat[i].get("text", ""))
-            for ct in child_texts:
-                if merged and not merged.endswith("\n"):
-                    merged += "\n\n"
-                merged += ct
+            merged = _merge_section_text(str(flat[i].get("text", "")), child_texts)
             flat[i]["text"] = merged
             flat[i]["char_end"] = max_end
             flat[i]["token_count"] = estimate_tokens(merged)
@@ -1795,20 +2057,48 @@ def build_section_tree_from_pages(
     if eff_summarizer is None and cfg.summarize:
         eff_summarizer = _default_section_summarizer(cfg.summary_token_threshold)
 
-    fn = llm_fn if llm_fn is not None else DocumentProcessor._contextual_llm_fn()
-    toc: list[dict[str, Any]] = []
-    if fn is not None:
-        toc = _detect_toc(page_list[: cfg.max_pages_for_toc], fn)
-
-    if toc:
-        flat = _flat_from_toc(toc, full_text, page_bounds)
-        if flat:
-            return _build_tree_from_flat(flat, summarizer=eff_summarizer)
+    toc_tree = _toc_section_tree(
+        page_list, full_text, page_bounds, cfg, llm_fn, eff_summarizer
+    )
+    if toc_tree is not None:
+        return toc_tree
 
     # Deterministic fallbacks: markdown headings, else one node per page.
     if _extract_heading_lines(full_text):
         return build_section_tree(full_text, config=cfg, summarizer=eff_summarizer)
-    flat = [
+    return _build_tree_from_flat(
+        _one_section_per_page(page_list, page_bounds), summarizer=eff_summarizer
+    )
+
+
+def _toc_section_tree(
+    page_list: list[str],
+    full_text: str,
+    page_bounds: list[tuple[int, int]],
+    cfg: SectionTreeConfig,
+    llm_fn: Any,
+    eff_summarizer: SectionSummarizer | None,
+) -> list[SectionNode] | None:
+    """Detect a TOC and build the tree from it; ``None`` if none was found."""
+
+    fn = llm_fn if llm_fn is not None else DocumentProcessor._contextual_llm_fn()
+    if fn is None:
+        return None
+    toc = _detect_toc(page_list[: cfg.max_pages_for_toc], fn)
+    if not toc:
+        return None
+    flat = _flat_from_toc(toc, full_text, page_bounds)
+    if not flat:
+        return None
+    return _build_tree_from_flat(flat, summarizer=eff_summarizer)
+
+
+def _one_section_per_page(
+    page_list: list[str], page_bounds: list[tuple[int, int]]
+) -> list[dict[str, Any]]:
+    """Fallback flat structure: one section node per physical page."""
+
+    return [
         {
             "title": f"Page {idx + 1}",
             "level": 1,
@@ -1821,7 +2111,6 @@ def build_section_tree_from_pages(
         }
         for idx, (start, end) in enumerate(page_bounds)
     ]
-    return _build_tree_from_flat(flat, summarizer=eff_summarizer)
 
 
 def _concat_pages(pages: list[str]) -> tuple[str, list[tuple[int, int]]]:
@@ -1849,29 +2138,39 @@ _TOC_PROMPT = (
 )
 
 
-def _detect_toc(pages: list[str], llm_fn: Any) -> list[dict[str, Any]]:
-    """Ask ``llm_fn`` for a normalized ``[{title, level, page}]`` TOC (or [])."""
-    import json as _json
+def _call_toc_llm(pages: list[str], llm_fn: Any) -> str | None:
+    """Prompt ``llm_fn`` with the joined leading pages; ``None`` on any failure."""
 
     joined = "\n\n".join(
         f"[page {i + 1}]\n{p[:4000]}" for i, p in enumerate(pages) if p
     )
     if not joined.strip():
-        return []
+        return None
     try:
-        out = llm_fn(_TOC_PROMPT.format(pages=joined[:_MAX_TOC_CHARS]))
+        return llm_fn(_TOC_PROMPT.format(pages=joined[:_MAX_TOC_CHARS]))
     except Exception as exc:  # noqa: BLE001 — no TOC on LLM failure
         logger.debug("[KG toc-detection] llm_fn failed: %s", exc)
-        return []
-    if not out:
-        return []
+        return None
+
+
+def _parse_toc_json(out: str) -> list[Any]:
+    """Extract and parse the JSON list embedded in a TOC completion."""
+
+    import json as _json
+
     raw = out[out.find("[") : out.rfind("]") + 1] if "[" in out else ""
     try:
         data = _json.loads(raw) if raw else []
     except Exception:  # noqa: BLE001 — malformed → treat as no TOC
         return []
+    return data if isinstance(data, list) else []
+
+
+def _normalize_toc_entries(data: list[Any]) -> list[dict[str, Any]]:
+    """Coerce raw TOC rows into ``{title, level, page}`` entries; skip bad rows."""
+
     entries: list[dict[str, Any]] = []
-    for row in data if isinstance(data, list) else []:
+    for row in data:
         if not isinstance(row, dict) or not row.get("title"):
             continue
         try:
@@ -1885,6 +2184,14 @@ def _detect_toc(pages: list[str], llm_fn: Any) -> list[dict[str, Any]]:
         except (TypeError, ValueError):
             continue
     return entries
+
+
+def _detect_toc(pages: list[str], llm_fn: Any) -> list[dict[str, Any]]:
+    """Ask ``llm_fn`` for a normalized ``[{title, level, page}]`` TOC (or [])."""
+    out = _call_toc_llm(pages, llm_fn)
+    if not out:
+        return []
+    return _normalize_toc_entries(_parse_toc_json(out))
 
 
 _MAX_TOC_CHARS = 16_000
@@ -2056,37 +2363,49 @@ def section_nodes_and_edges(
     return nodes, edges
 
 
-def rebuild_section_tree(section_nodes: Sequence[dict[str, Any]]) -> list[SectionNode]:
-    """Reconstruct the nested tree from flat stored ``Section`` node dicts.
+def _tid(raw: dict[str, Any]) -> str:
+    return str(raw.get("tree_node_id") or raw.get("node_id") or "")
 
-    CONCEPT:AU-KG.retrieval.section-tree — the inverse of
-    :func:`section_nodes_and_edges`, used by the hierarchical retriever after it
-    loads a document's Section nodes from the graph. Ordering is by ``node_id``
-    (the pre-order index) so children attach under their recorded ``parent_id``.
-    """
 
-    def _tid(raw: dict[str, Any]) -> str:
-        return str(raw.get("tree_node_id") or raw.get("node_id") or "")
+def _int_or(value: Any, default: int) -> int:
+    return int(value or default)
 
-    by_id: dict[str, SectionNode] = {}
-    parent_of: dict[str, str] = {}
-    order = sorted(section_nodes, key=_tid)
-    for raw in order:
-        full_id = str(raw.get("id") or _tid(raw))
-        node = SectionNode(
-            node_id=_tid(raw),
-            title=str(raw.get("title") or raw.get("name") or ""),
-            level=int(raw.get("level", 1) or 1),
-            char_start=int(raw.get("char_start", 0) or 0),
-            char_end=int(raw.get("char_end", 0) or 0),
-            line_start=int(raw.get("line_start", 0) or 0),
-            page_start=raw.get("page_start"),
-            page_end=raw.get("page_end"),
-            summary=str(raw.get("summary", "") or ""),
-            text=str(raw.get("content", "") or raw.get("text", "") or ""),
-        )
-        by_id[full_id] = node
-        parent_of[full_id] = str(raw.get("parent_id", "") or "")
+
+def _str_or(*values: Any) -> str:
+    """Return the first truthy value as a string, else ``""`` (the same
+    fallback ``a or b or ""`` chains this replaces)."""
+
+    for v in values:
+        if v:
+            return str(v)
+    return ""
+
+
+def _section_node_from_raw(raw: dict[str, Any]) -> tuple[str, SectionNode, str]:
+    """Build one :class:`SectionNode` (plus its full-id and raw parent-id) from
+    a stored flat ``Section`` node dict."""
+
+    full_id = _str_or(raw.get("id"), _tid(raw))
+    node = SectionNode(
+        node_id=_tid(raw),
+        title=_str_or(raw.get("title"), raw.get("name")),
+        level=_int_or(raw.get("level", 1), 1),
+        char_start=_int_or(raw.get("char_start", 0), 0),
+        char_end=_int_or(raw.get("char_end", 0), 0),
+        line_start=_int_or(raw.get("line_start", 0), 0),
+        page_start=raw.get("page_start"),
+        page_end=raw.get("page_end"),
+        summary=_str_or(raw.get("summary", "")),
+        text=_str_or(raw.get("content", ""), raw.get("text", "")),
+    )
+    parent_id = _str_or(raw.get("parent_id", ""))
+    return full_id, node, parent_id
+
+
+def _attach_section_children(
+    by_id: dict[str, SectionNode], parent_of: dict[str, str]
+) -> list[SectionNode]:
+    """Link each node to its parent's ``children``; unattached nodes are roots."""
 
     roots: list[SectionNode] = []
     for full_id, node in by_id.items():
@@ -2097,6 +2416,25 @@ def rebuild_section_tree(section_nodes: Sequence[dict[str, Any]]) -> list[Sectio
         else:
             roots.append(node)
     return roots
+
+
+def rebuild_section_tree(section_nodes: Sequence[dict[str, Any]]) -> list[SectionNode]:
+    """Reconstruct the nested tree from flat stored ``Section`` node dicts.
+
+    CONCEPT:AU-KG.retrieval.section-tree — the inverse of
+    :func:`section_nodes_and_edges`, used by the hierarchical retriever after it
+    loads a document's Section nodes from the graph. Ordering is by ``node_id``
+    (the pre-order index) so children attach under their recorded ``parent_id``.
+    """
+
+    by_id: dict[str, SectionNode] = {}
+    parent_of: dict[str, str] = {}
+    order = sorted(section_nodes, key=_tid)
+    for raw in order:
+        full_id, node, parent_id = _section_node_from_raw(raw)
+        by_id[full_id] = node
+        parent_of[full_id] = parent_id
+    return _attach_section_children(by_id, parent_of)
 
 
 def process_document(
