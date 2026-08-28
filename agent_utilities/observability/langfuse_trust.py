@@ -312,6 +312,63 @@ def _credential_material_is_sentinel(value: str) -> bool:
     return False
 
 
+def _secret_reference_is_malformed(reference: str) -> bool:
+    """True if a secret reference fails the strict format check: the regex,
+    or a ``..`` path-traversal segment after the scheme."""
+    return _SECRET_REF_RE.fullmatch(reference) is None or ".." in reference.partition(
+        "://"
+    )[2].split("/")
+
+
+def _resolve_secret_reference_material(
+    reference: str,
+    *,
+    environ: MutableMapping[str, str],
+    resolver: Callable[[str], str | None] | None,
+) -> str:
+    """Resolve one secret reference to its concrete string value, or "" on failure."""
+    try:
+        material = _resolve_secret_reference(
+            reference, environ=environ, resolver=resolver
+        )
+        if isinstance(material, bytes):
+            material = material.decode("utf-8")
+        return _concrete_runtime_value(material)
+    except Exception:
+        return ""
+
+
+def _value_has_control_char_or_oversize(value: str, *, max_len: int = 16_384) -> bool:
+    """True if ``value`` exceeds ``max_len`` UTF-8 bytes or contains a control char."""
+    return len(value.encode("utf-8")) > max_len or any(
+        ord(character) < 32 for character in value
+    )
+
+
+def _resolve_one_langfuse_credential(
+    ref_key: str,
+    direct_key: str,
+    target_env: MutableMapping[str, str],
+    agent_config: AgentConfig | None,
+    resolver: Callable[[str], str | None] | None,
+) -> str:
+    """Resolve one Langfuse credential (public or secret key), by ref or direct value."""
+    reference = _concrete_runtime_value(_value(target_env, ref_key, agent_config))
+    if reference:
+        if _secret_reference_is_malformed(reference):
+            raise LangfuseTrustError("langfuse_credentials_missing")
+        value = _resolve_secret_reference_material(
+            reference, environ=target_env, resolver=resolver
+        )
+    else:
+        value = _concrete_runtime_value(_value(target_env, direct_key, agent_config))
+    if not value or _value_has_control_char_or_oversize(value):
+        raise LangfuseTrustError("langfuse_credentials_missing")
+    if _credential_material_is_sentinel(value):
+        raise LangfuseTrustError("langfuse_credentials_invalid")
+    return value
+
+
 def resolve_langfuse_credentials(
     *,
     environ: MutableMapping[str, str] | None = None,
@@ -327,41 +384,15 @@ def resolve_langfuse_credentials(
     standalone agent/MCP server — so one configured variable pair serves both.
     """
     target_env = environ if environ is not None else os.environ
-    resolved: list[str] = []
-    for ref_key, direct_key in (
-        ("LANGFUSE_PUBLIC_KEY_REF", "LANGFUSE_PUBLIC_KEY"),
-        ("LANGFUSE_SECRET_KEY_REF", "LANGFUSE_SECRET_KEY"),
-    ):
-        reference = _concrete_runtime_value(_value(target_env, ref_key, agent_config))
-        if reference:
-            if _SECRET_REF_RE.fullmatch(
-                reference
-            ) is None or ".." in reference.partition("://")[2].split("/"):
-                raise LangfuseTrustError("langfuse_credentials_missing")
-            try:
-                material = _resolve_secret_reference(
-                    reference,
-                    environ=target_env,
-                    resolver=resolver,
-                )
-                if isinstance(material, bytes):
-                    material = material.decode("utf-8")
-                value = _concrete_runtime_value(material)
-            except Exception:
-                value = ""
-        else:
-            value = _concrete_runtime_value(
-                _value(target_env, direct_key, agent_config)
-            )
-        if (
-            not value
-            or len(value.encode("utf-8")) > 16_384
-            or any(ord(character) < 32 for character in value)
-        ):
-            raise LangfuseTrustError("langfuse_credentials_missing")
-        if _credential_material_is_sentinel(value):
-            raise LangfuseTrustError("langfuse_credentials_invalid")
-        resolved.append(value)
+    resolved = [
+        _resolve_one_langfuse_credential(
+            ref_key, direct_key, target_env, agent_config, resolver
+        )
+        for ref_key, direct_key in (
+            ("LANGFUSE_PUBLIC_KEY_REF", "LANGFUSE_PUBLIC_KEY"),
+            ("LANGFUSE_SECRET_KEY_REF", "LANGFUSE_SECRET_KEY"),
+        )
+    ]
     return resolved[0], resolved[1]
 
 
@@ -378,27 +409,13 @@ def resolve_langfuse_persistence_hmac_key(
     )
     if not reference:
         return None
-    if _SECRET_REF_RE.fullmatch(reference) is None or ".." in reference.partition(
-        "://"
-    )[2].split("/"):
+    if _secret_reference_is_malformed(reference):
         raise LangfuseTrustError("langfuse_persistence_hmac_key_invalid")
-    try:
-        material = _resolve_secret_reference(
-            reference,
-            environ=target_env,
-            resolver=resolver,
-        )
-        if isinstance(material, bytes):
-            material = material.decode("utf-8")
-        value = _concrete_runtime_value(material)
-    except Exception:
-        value = ""
+    value = _resolve_secret_reference_material(
+        reference, environ=target_env, resolver=resolver
+    )
     encoded = value.encode("utf-8")
-    if (
-        len(encoded) < 32
-        or len(encoded) > 16_384
-        or any(ord(character) < 32 for character in value)
-    ):
+    if len(encoded) < 32 or _value_has_control_char_or_oversize(value):
         raise LangfuseTrustError("langfuse_persistence_hmac_key_invalid")
     return value
 
@@ -453,86 +470,33 @@ def _signature_is_valid(
     return True
 
 
-def validate_ca_bundle(value: bytes | str | Path) -> LangfuseTrustStatus:
-    """Validate a bounded PEM trust store containing at least one CA.
-
-    Trust stores are sets, not necessarily a single chain. OpenSSL performs
-    connection-time path construction; this check proves only bounded,
-    parseable, currently valid CA material and valid self-signed roots.
-    """
+def _read_ca_bundle_payload(value: bytes | str | Path) -> bytes | None:
+    """Read raw bundle bytes, or None if the source is missing/oversized/unreadable."""
     try:
         if isinstance(value, Path):
             if not value.is_file() or value.stat().st_size > _MAX_BUNDLE_BYTES:
-                return LangfuseTrustStatus(
-                    configured=True,
-                    valid=False,
-                    source="file",
-                    reason="bundle_unavailable",
-                )
-            payload = value.read_bytes()
-        elif isinstance(value, bytes):
-            payload = value
-        else:
-            payload = value.encode("utf-8")
+                return None
+            return value.read_bytes()
+        if isinstance(value, bytes):
+            return value
+        return value.encode("utf-8")
     except Exception:
-        return LangfuseTrustStatus(
-            configured=True,
-            valid=False,
-            source="file",
-            reason="bundle_unavailable",
-        )
+        return None
 
-    if len(payload) > _MAX_BUNDLE_BYTES:
-        return LangfuseTrustStatus(
-            configured=True,
-            valid=False,
-            source="inline",
-            reason="bundle_too_large",
-        )
 
+def _parse_ca_bundle_certificates(payload: bytes) -> list[x509.Certificate]:
+    """Parse PEM certificate blocks; returns [] if the bundle is unparseable."""
     blocks = _PEM_CERT_RE.findall(payload)
-    certificates: list[x509.Certificate] = []
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", CryptographyDeprecationWarning)
-            certificates = [x509.load_pem_x509_certificate(block) for block in blocks]
+            return [x509.load_pem_x509_certificate(block) for block in blocks]
     except Exception:
-        return LangfuseTrustStatus(
-            configured=True,
-            valid=False,
-            source="inline",
-            reason="invalid_pem",
-        )
+        return []
 
-    if not certificates:
-        return LangfuseTrustStatus(
-            configured=True,
-            valid=False,
-            source="inline",
-            reason="invalid_pem",
-        )
 
-    now = datetime.now(UTC)
-    if any(certificate.serial_number <= 0 for certificate in certificates):
-        return LangfuseTrustStatus(
-            configured=True,
-            valid=False,
-            certificate_count=len(certificates),
-            source="inline",
-            reason="invalid_certificate_serial",
-        )
-    if any(
-        cert.not_valid_before_utc > now or cert.not_valid_after_utc <= now
-        for cert in certificates
-    ):
-        return LangfuseTrustStatus(
-            configured=True,
-            valid=False,
-            certificate_count=len(certificates),
-            source="inline",
-            reason="certificate_outside_validity_window",
-        )
-
+def _count_ca_certificates(certificates: list[x509.Certificate]) -> int:
+    """How many certificates in the bundle carry the CA basic-constraint."""
     ca_count = 0
     for certificate in certificates:
         try:
@@ -543,17 +507,61 @@ def validate_ca_bundle(value: bytes | str | Path) -> LangfuseTrustStatus:
                 ca_count += int(bool(basic.ca))
         except x509.ExtensionNotFound:
             continue
+    return ca_count
+
+
+def _ca_bundle_invalid_reason(certificates: list[x509.Certificate]) -> str | None:
+    """Which cert-content check the bundle fails first, or None if it passes all."""
+    now = datetime.now(UTC)
+    if any(certificate.serial_number <= 0 for certificate in certificates):
+        return "invalid_certificate_serial"
+    if any(
+        cert.not_valid_before_utc > now or cert.not_valid_after_utc <= now
+        for cert in certificates
+    ):
+        return "certificate_outside_validity_window"
+    ca_count = _count_ca_certificates(certificates)
     if ca_count < 1 or any(
         certificate.subject == certificate.issuer
         and not _signature_is_valid(certificate, certificate)
         for certificate in certificates
     ):
+        return "invalid_ca_bundle"
+    return None
+
+
+def validate_ca_bundle(value: bytes | str | Path) -> LangfuseTrustStatus:
+    """Validate a bounded PEM trust store containing at least one CA.
+
+    Trust stores are sets, not necessarily a single chain. OpenSSL performs
+    connection-time path construction; this check proves only bounded,
+    parseable, currently valid CA material and valid self-signed roots.
+    """
+    payload = _read_ca_bundle_payload(value)
+    if payload is None:
+        return LangfuseTrustStatus(
+            configured=True, valid=False, source="file", reason="bundle_unavailable"
+        )
+
+    if len(payload) > _MAX_BUNDLE_BYTES:
+        return LangfuseTrustStatus(
+            configured=True, valid=False, source="inline", reason="bundle_too_large"
+        )
+
+    certificates = _parse_ca_bundle_certificates(payload)
+    if not certificates:
+        return LangfuseTrustStatus(
+            configured=True, valid=False, source="inline", reason="invalid_pem"
+        )
+
+    reason = _ca_bundle_invalid_reason(certificates)
+    if reason is not None:
         return LangfuseTrustStatus(
             configured=True,
             valid=False,
             certificate_count=len(certificates),
             source="inline",
-            reason="invalid_ca_bundle",
+            reason=reason,
         )
     return LangfuseTrustStatus(
         configured=True,
@@ -589,6 +597,162 @@ def _validate_platform_trust_store(path: Path) -> LangfuseTrustStatus:
     )
 
 
+_TRUST_RELEVANT_ENV_KEYS: tuple[str, ...] = (
+    "LANGFUSE_TLS_PROFILE",
+    "LANGFUSE_TLS_PROFILE_REF",
+    "TLS_PROFILE",
+    "TLS_PROFILE_REF",
+    "TLS_PROFILES_REF",
+    "TLS_PROFILES",
+    "LANGFUSE_CA_BUNDLE_REF",
+    "LANGFUSE_CA_BUNDLE",
+    "LANGFUSE_CLIENT_CERT_REF",
+    "LANGFUSE_CLIENT_KEY_REF",
+    "LANGFUSE_CLIENT_KEY_PASSWORD_REF",
+    "LANGFUSE_PROXY_URL_REF",
+    "LANGFUSE_PROXY_URL",
+    "LANGFUSE_NO_PROXY",
+    "REQUESTS_CA_BUNDLE",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+)
+
+
+def _build_trust_resolution_env(
+    target_env: MutableMapping[str, str],
+    agent_config: AgentConfig | None,
+    materialized_trust: bool,
+) -> dict[str, str]:
+    """Build the env `resolve_tls_profile` sees for one Langfuse trust resolution.
+
+    ``load_config()`` can project the parent's selector/ref fields back into
+    ``os.environ`` after process start. They are intentionally not valid in
+    the isolated child: only the concrete CA/proxy variables materialized by
+    the parent are. Remove selectors before resolving when trust was already
+    materialized by a parent process; a parent-materialized child env is
+    otherwise authoritative over re-consulting the persisted AgentConfig.
+    """
+    resolution_env = dict(target_env)
+    if materialized_trust:
+        for key in _PARENT_TRUST_SELECTORS:
+            resolution_env.pop(key, None)
+    for key in _TRUST_RELEVANT_ENV_KEYS:
+        if materialized_trust and key in _PARENT_TRUST_SELECTORS:
+            continue
+        configured_value = (
+            target_env.get(key, "")
+            if materialized_trust
+            else _value(target_env, key, agent_config)
+        )
+        value = _concrete_runtime_value(configured_value)
+        if value:
+            resolution_env[key] = value
+    return resolution_env
+
+
+def _resolve_tls_profile_for_trust(
+    resolution_env: dict[str, str],
+    resolver: Callable[[str], str | None] | None,
+    destination_root: Path | None,
+) -> tuple[ResolvedTLSProfile | None, LangfuseTrustStatus | None]:
+    """Call `resolve_tls_profile` and translate a hard failure into a trust status.
+
+    Returns ``(trust, None)`` on success, or ``(None, status)`` on failure.
+    """
+    from agent_utilities.core.transport_security import (
+        TransportSecurityError,
+        resolve_tls_profile,
+    )
+
+    try:
+        trust = resolve_tls_profile(
+            "LANGFUSE",
+            environ=resolution_env,
+            resolver=resolver,
+            destination_root=destination_root,
+        )
+    except TransportSecurityError:
+        return None, LangfuseTrustStatus(
+            configured=True,
+            valid=False,
+            source="profile",
+            reason="trust_profile_invalid",
+        )
+    if not trust.verify_enabled:
+        return None, LangfuseTrustStatus(
+            configured=True,
+            valid=False,
+            source="profile",
+            reason="insecure_transport_unsupported",
+        )
+    return trust, None
+
+
+def _ca_bundle_is_environment_store(resolution_env: dict[str, str]) -> bool:
+    """True when the resolved CA bundle came from the platform trust store
+    rather than an explicit TLS profile or an explicit Langfuse CA bundle."""
+    explicit_profile = any(
+        _concrete_runtime_value(resolution_env.get(key))
+        for key in (
+            "LANGFUSE_TLS_PROFILE",
+            "LANGFUSE_TLS_PROFILE_REF",
+            "TLS_PROFILE",
+            "TLS_PROFILE_REF",
+            "TLS_PROFILES_REF",
+            "TLS_PROFILES",
+        )
+    )
+    explicit_langfuse_bundle = any(
+        _concrete_runtime_value(resolution_env.get(key))
+        for key in ("LANGFUSE_CA_BUNDLE", "LANGFUSE_CA_BUNDLE_REF")
+    )
+    return bool(
+        not explicit_profile
+        and not explicit_langfuse_bundle
+        and any(
+            _concrete_runtime_value(resolution_env.get(key))
+            for key in ("REQUESTS_CA_BUNDLE", "SSL_CERT_FILE")
+        )
+    )
+
+
+def _validate_trust_ca_bundle(
+    trust: ResolvedTLSProfile, resolution_env: dict[str, str], source: str
+) -> tuple[LangfuseTrustStatus | None, int, str]:
+    """Validate `trust.ca_bundle_path` when the resolved profile set one.
+
+    Returns ``(error_status_or_None, certificate_count, possibly-updated source)``.
+    """
+    if trust.ca_bundle_path is None:
+        return None, 0, source
+
+    environment_store = _ca_bundle_is_environment_store(resolution_env)
+    checked = (
+        _validate_platform_trust_store(trust.ca_bundle_path)
+        if environment_store
+        else validate_ca_bundle(trust.ca_bundle_path)
+    )
+    if environment_store and not checked.valid:
+        checked = validate_ca_bundle(trust.ca_bundle_path)
+    if not checked.valid:
+        trust.cleanup()
+        return (
+            LangfuseTrustStatus(
+                configured=True,
+                valid=False,
+                certificate_count=checked.certificate_count,
+                source=source,
+                reason=checked.reason,
+            ),
+            0,
+            source,
+        )
+    updated_source = (
+        checked.source if checked.source == "environment_trust_store" else source
+    )
+    return None, checked.certificate_count, updated_source
+
+
 def _resolve_langfuse_trust(
     *,
     environ: MutableMapping[str, str] | None = None,
@@ -603,83 +767,17 @@ def _resolve_langfuse_trust(
     references and standard trust environment variables are also supported.
     """
     target_env = environ if environ is not None else os.environ
-    resolution_env = dict(target_env)
     materialized_trust = _is_true(target_env.get(_MATERIALIZED_TRUST_FLAG, ""))
-    if materialized_trust:
-        # ``load_config()`` can project the parent's selector/ref fields back
-        # into ``os.environ`` after process start. They are intentionally not
-        # valid in the isolated child: only the concrete CA/proxy variables
-        # materialized by the parent are. Remove selectors before resolving.
-        for key in _PARENT_TRUST_SELECTORS:
-            resolution_env.pop(key, None)
-    relevant_keys = (
-        "LANGFUSE_TLS_PROFILE",
-        "LANGFUSE_TLS_PROFILE_REF",
-        "TLS_PROFILE",
-        "TLS_PROFILE_REF",
-        "TLS_PROFILES_REF",
-        "TLS_PROFILES",
-        "LANGFUSE_CA_BUNDLE_REF",
-        "LANGFUSE_CA_BUNDLE",
-        "LANGFUSE_CLIENT_CERT_REF",
-        "LANGFUSE_CLIENT_KEY_REF",
-        "LANGFUSE_CLIENT_KEY_PASSWORD_REF",
-        "LANGFUSE_PROXY_URL_REF",
-        "LANGFUSE_PROXY_URL",
-        "LANGFUSE_NO_PROXY",
-        "REQUESTS_CA_BUNDLE",
-        "SSL_CERT_FILE",
-        "SSL_CERT_DIR",
-    )
-    for key in relevant_keys:
-        # A parent process may already have resolved a named/ref-backed profile
-        # into private runtime files for this child. In that case the concrete
-        # child environment is authoritative: consulting the child's persisted
-        # AgentConfig again can resurrect a profile name without its secret
-        # catalog and incorrectly reject valid materialized trust.
-        if materialized_trust and key in _PARENT_TRUST_SELECTORS:
-            continue
-        configured_value = (
-            target_env.get(key, "")
-            if materialized_trust
-            else _value(target_env, key, agent_config)
-        )
-        value = _concrete_runtime_value(configured_value)
-        if value:
-            resolution_env[key] = value
-
-    from agent_utilities.core.transport_security import (
-        TransportSecurityError,
-        resolve_tls_profile,
+    resolution_env = _build_trust_resolution_env(
+        target_env, agent_config, materialized_trust
     )
 
-    try:
-        trust = resolve_tls_profile(
-            "LANGFUSE",
-            environ=resolution_env,
-            resolver=resolver,
-            destination_root=destination_root,
-        )
-    except TransportSecurityError:
-        return (
-            LangfuseTrustStatus(
-                configured=True,
-                valid=False,
-                source="profile",
-                reason="trust_profile_invalid",
-            ),
-            None,
-        )
-    if not trust.verify_enabled:
-        return (
-            LangfuseTrustStatus(
-                configured=True,
-                valid=False,
-                source="profile",
-                reason="insecure_transport_unsupported",
-            ),
-            None,
-        )
+    trust, failure = _resolve_tls_profile_for_trust(
+        resolution_env, resolver, destination_root
+    )
+    if failure is not None:
+        return failure, None
+    assert trust is not None
 
     configured = bool(
         trust.configured
@@ -688,57 +786,16 @@ def _resolve_langfuse_trust(
         or trust.client_bundle_path is not None
         or trust.proxy_url
     )
-    count = 0
     source = trust.source
     if _concrete_runtime_value(resolution_env.get("LANGFUSE_CA_BUNDLE_REF")):
         source = "secret_ref"
     reason: str | None = None
-    if trust.ca_bundle_path is not None:
-        explicit_profile = any(
-            _concrete_runtime_value(resolution_env.get(key))
-            for key in (
-                "LANGFUSE_TLS_PROFILE",
-                "LANGFUSE_TLS_PROFILE_REF",
-                "TLS_PROFILE",
-                "TLS_PROFILE_REF",
-                "TLS_PROFILES_REF",
-                "TLS_PROFILES",
-            )
-        )
-        explicit_langfuse_bundle = any(
-            _concrete_runtime_value(resolution_env.get(key))
-            for key in ("LANGFUSE_CA_BUNDLE", "LANGFUSE_CA_BUNDLE_REF")
-        )
-        environment_store = bool(
-            not explicit_profile
-            and not explicit_langfuse_bundle
-            and any(
-                _concrete_runtime_value(resolution_env.get(key))
-                for key in ("REQUESTS_CA_BUNDLE", "SSL_CERT_FILE")
-            )
-        )
-        checked = (
-            _validate_platform_trust_store(trust.ca_bundle_path)
-            if environment_store
-            else validate_ca_bundle(trust.ca_bundle_path)
-        )
-        if environment_store and not checked.valid:
-            checked = validate_ca_bundle(trust.ca_bundle_path)
-        if not checked.valid:
-            trust.cleanup()
-            return (
-                LangfuseTrustStatus(
-                    configured=True,
-                    valid=False,
-                    certificate_count=checked.certificate_count,
-                    source=source,
-                    reason=checked.reason,
-                ),
-                None,
-            )
-        count = checked.certificate_count
-        if checked.source == "environment_trust_store":
-            source = checked.source
+
+    error_status, count, source = _validate_trust_ca_bundle(
+        trust, resolution_env, source
+    )
+    if error_status is not None:
+        return error_status, None
 
     return (
         LangfuseTrustStatus(
@@ -835,22 +892,8 @@ def langfuse_parent_kg_ingestion_enabled(config: dict[str, Any]) -> bool:
     )
 
 
-def prepare_langfuse_mcp_config(
-    config: dict[str, Any],
-    *,
-    environ: MutableMapping[str, str] | None = None,
-    agent_config: AgentConfig | None = None,
-    resolver: Callable[[str], str | None] | None = None,
-    destination_root: Path | None = None,
-) -> dict[str, Any]:
-    """Project canonical Graph-OS settings into a Langfuse MCP child config."""
-    target_env = environ if environ is not None else os.environ
-    prepared = dict(config)
-    if _PARENT_KG_INGESTION_FLAG in prepared:
-        raise LangfuseTrustError("langfuse_configuration_invalid")
-    child_env = {
-        str(key): str(value) for key, value in (prepared.get("env") or {}).items()
-    }
+def _reject_disallowed_child_env(child_env: dict[str, str]) -> None:
+    """Raise if the caller pre-set any value this function must derive itself."""
     if any(
         _concrete_runtime_value(child_env.get(key))
         for key in ("LANGFUSE_BASE_URL", "LANGFUSE_URL")
@@ -869,6 +912,14 @@ def prepare_langfuse_mcp_config(
         )
     ):
         raise LangfuseTrustError("langfuse_persistence_hmac_key_invalid")
+
+
+def _resolve_child_host(
+    child_env: dict[str, str],
+    target_env: MutableMapping[str, str],
+    agent_config: AgentConfig | None,
+) -> str:
+    """Resolve + validate the Langfuse host for the child config."""
     host = next(
         (
             value
@@ -888,7 +939,13 @@ def prepare_langfuse_mcp_config(
         raise LangfuseTrustError("langfuse_host_invalid") from None
     if not host:
         raise LangfuseTrustError("langfuse_host_invalid")
-    child_env["LANGFUSE_HOST"] = host
+    return host
+
+
+def _resolve_child_policies(
+    target_env: MutableMapping[str, str], agent_config: AgentConfig | None
+) -> dict[str, bool]:
+    """Parse the boolean child policy flags; raise on an unrecognized value."""
     policies: dict[str, bool] = {}
     for policy_name in ("LANGFUSE_CAPTURE_CONTENT", "LANGFUSE_KG_AUTO_INGEST"):
         policy_value = (
@@ -900,20 +957,18 @@ def prepare_langfuse_mcp_config(
             policies[policy_name] = False
         else:
             raise LangfuseTrustError("langfuse_configuration_invalid")
-    child_env["LANGFUSE_CAPTURE_CONTENT"] = (
-        "true" if policies["LANGFUSE_CAPTURE_CONTENT"] else "false"
-    )
-    # The child is an API adapter and has no graph authority. Keep graph writes
-    # in the authenticated GraphOS parent, where the request's least-privilege
-    # GraphSession is already active. No bearer, claims, or engine credential is
-    # copied into the child environment.
-    prepared[_PARENT_KG_INGESTION_FLAG] = policies["LANGFUSE_KG_AUTO_INGEST"]
-    child_env["LANGFUSE_KG_AUTO_INGEST"] = "false"
+    return policies
+
+
+def _apply_child_credentials(
+    child_env: dict[str, str],
+    target_env: MutableMapping[str, str],
+    agent_config: AgentConfig | None,
+    resolver: Callable[[str], str | None] | None,
+) -> None:
+    """Resolve + set LANGFUSE_PUBLIC_KEY/SECRET_KEY on the child env, in place."""
     credential_env = dict(target_env)
-    for key in (
-        "LANGFUSE_PUBLIC_KEY_REF",
-        "LANGFUSE_SECRET_KEY_REF",
-    ):
+    for key in ("LANGFUSE_PUBLIC_KEY_REF", "LANGFUSE_SECRET_KEY_REF"):
         value = _concrete_runtime_value(child_env.get(key))
         if value:
             credential_env[key] = value
@@ -926,6 +981,15 @@ def prepare_langfuse_mcp_config(
     child_env["LANGFUSE_SECRET_KEY"] = secret_key
     child_env.pop("LANGFUSE_PUBLIC_KEY_REF", None)
     child_env.pop("LANGFUSE_SECRET_KEY_REF", None)
+
+
+def _apply_child_persistence_key(
+    child_env: dict[str, str],
+    target_env: MutableMapping[str, str],
+    agent_config: AgentConfig | None,
+    resolver: Callable[[str], str | None] | None,
+) -> None:
+    """Resolve + set the optional persistence HMAC key on the child env, in place."""
     persistence_env = dict(target_env)
     persistence_ref = _concrete_runtime_value(
         child_env.get("LANGFUSE_PERSISTENCE_HMAC_KEY_REF")
@@ -942,6 +1006,13 @@ def prepare_langfuse_mcp_config(
         child_env["LANGFUSE_PERSISTENCE_HMAC_KEY"] = persistence_hmac_key
         child_env["LANGFUSE_PERSISTENCE_HMAC_MATERIALIZED"] = "true"
 
+
+def _build_child_trust_env(
+    child_env: dict[str, str],
+    target_env: MutableMapping[str, str],
+    agent_config: AgentConfig | None,
+) -> dict[str, str]:
+    """Build the env used to configure + validate Langfuse transport trust."""
     trust_env = dict(target_env)
     for key in (
         "LANGFUSE_TLS_PROFILE",
@@ -974,6 +1045,18 @@ def prepare_langfuse_mcp_config(
         and not child_env.get("REQUESTS_CA_BUNDLE")
     ):
         trust_env["LANGFUSE_CA_BUNDLE"] = child_env["SSL_CERT_FILE"]
+    return trust_env
+
+
+def _apply_child_trust(
+    child_env: dict[str, str],
+    trust_env: dict[str, str],
+    *,
+    agent_config: AgentConfig | None,
+    resolver: Callable[[str], str | None] | None,
+    destination_root: Path | None,
+) -> None:
+    """Validate transport trust; project the concrete result into child_env, in place."""
     status = configure_langfuse_trust(
         environ=trust_env,
         agent_config=agent_config,
@@ -996,6 +1079,10 @@ def prepare_langfuse_mcp_config(
         if raw_value:
             child_env[key] = raw_value
     child_env[_MATERIALIZED_TRUST_FLAG] = "true"
+
+
+def _strip_child_ref_keys(child_env: dict[str, str]) -> None:
+    """Drop selector/ref keys that must never reach the child process env."""
     child_env.pop("LANGFUSE_CA_BUNDLE_REF", None)
     child_env.pop("LANGFUSE_CA_BUNDLE", None)
     for key in (
@@ -1012,6 +1099,53 @@ def prepare_langfuse_mcp_config(
     ):
         child_env.pop(key, None)
     child_env.pop("UV_NATIVE_TLS", None)
+
+
+def prepare_langfuse_mcp_config(
+    config: dict[str, Any],
+    *,
+    environ: MutableMapping[str, str] | None = None,
+    agent_config: AgentConfig | None = None,
+    resolver: Callable[[str], str | None] | None = None,
+    destination_root: Path | None = None,
+) -> dict[str, Any]:
+    """Project canonical Graph-OS settings into a Langfuse MCP child config."""
+    target_env = environ if environ is not None else os.environ
+    prepared = dict(config)
+    if _PARENT_KG_INGESTION_FLAG in prepared:
+        raise LangfuseTrustError("langfuse_configuration_invalid")
+    child_env = {
+        str(key): str(value) for key, value in (prepared.get("env") or {}).items()
+    }
+    _reject_disallowed_child_env(child_env)
+    child_env["LANGFUSE_HOST"] = _resolve_child_host(
+        child_env, target_env, agent_config
+    )
+
+    policies = _resolve_child_policies(target_env, agent_config)
+    child_env["LANGFUSE_CAPTURE_CONTENT"] = (
+        "true" if policies["LANGFUSE_CAPTURE_CONTENT"] else "false"
+    )
+    # The child is an API adapter and has no graph authority. Keep graph writes
+    # in the authenticated GraphOS parent, where the request's least-privilege
+    # GraphSession is already active. No bearer, claims, or engine credential is
+    # copied into the child environment.
+    prepared[_PARENT_KG_INGESTION_FLAG] = policies["LANGFUSE_KG_AUTO_INGEST"]
+    child_env["LANGFUSE_KG_AUTO_INGEST"] = "false"
+
+    _apply_child_credentials(child_env, target_env, agent_config, resolver)
+    _apply_child_persistence_key(child_env, target_env, agent_config, resolver)
+
+    trust_env = _build_child_trust_env(child_env, target_env, agent_config)
+    _apply_child_trust(
+        child_env,
+        trust_env,
+        agent_config=agent_config,
+        resolver=resolver,
+        destination_root=destination_root,
+    )
+    _strip_child_ref_keys(child_env)
+
     prepared["env"] = child_env
     return prepared
 
