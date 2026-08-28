@@ -562,6 +562,27 @@ class _GraphQLDocumentLimits:
 
 
 @dataclass
+class _HierarchyBatchSetup:
+    """Output of ``_hierarchy_batch_context`` -- one bundled param instead of 7."""
+
+    identity_key: str
+    governance: tuple[
+        ExternalAccess,
+        DataClassification,
+        str | None,
+        bool,
+        str,
+        str,
+        str,
+    ]
+    profile_digest: str
+    governance_digest: str
+    max_entities: int
+    max_documents: int
+    max_depth: int
+
+
+@dataclass
 class _HierarchyPrepContext:
     """Per-``kind`` context shared while preparing hierarchy-batch entities."""
 
@@ -2461,23 +2482,7 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
 
     def _hierarchy_batch_context(
         self, profile: dict[str, Any], operation: dict[str, Any]
-    ) -> tuple[
-        str,
-        tuple[
-            ExternalAccess,
-            DataClassification,
-            str | None,
-            bool,
-            str,
-            str,
-            str,
-        ],
-        str,
-        str,
-        int,
-        int,
-        int,
-    ]:
+    ) -> _HierarchyBatchSetup:
         identity_key = str(profile["identity_hmac_key"])
         governance = self._governance(profile)
         profile_digest = _digest(operation)
@@ -2507,14 +2512,14 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             minimum=1,
             maximum=32,
         )
-        return (
-            identity_key,
-            governance,
-            profile_digest,
-            governance_digest,
-            max_entities,
-            max_documents,
-            max_depth,
+        return _HierarchyBatchSetup(
+            identity_key=identity_key,
+            governance=governance,
+            profile_digest=profile_digest,
+            governance_digest=governance_digest,
+            max_entities=max_entities,
+            max_documents=max_documents,
+            max_depth=max_depth,
         )
 
     def _prepare_one_entity(
@@ -2598,24 +2603,7 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
         return item, 0, redactions, set(detected)
 
     def _prepare_entities(
-        self,
-        roots: list[Any],
-        operation: dict[str, Any],
-        identity_key: str,
-        profile_digest: str,
-        governance_digest: str,
-        governance: tuple[
-            ExternalAccess,
-            DataClassification,
-            str | None,
-            bool,
-            str,
-            str,
-            str,
-        ],
-        max_entities: int,
-        max_documents: int,
-        max_depth: int,
+        self, roots: list[Any], operation: dict[str, Any], setup: _HierarchyBatchSetup
     ) -> tuple[list[dict[str, Any]], set[str], set[str], int, int, int]:
         """Returns (prepared, known_node_ids, privacy_types, privacy_redactions,
         truncated, invalid_records)."""
@@ -2630,9 +2618,9 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             mapping = self._mapping_for(operation, kind)
             if mapping is None:
                 continue
-            remaining = max(0, max_entities - len(prepared))
+            remaining = max(0, setup.max_entities - len(prepared))
             if kind == "document":
-                remaining = min(remaining, max_documents)
+                remaining = min(remaining, setup.max_documents)
             if remaining == 0:
                 truncated += 1
                 continue
@@ -2641,16 +2629,16 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
                 kind=kind,
                 mapping=mapping,
                 limit=remaining,
-                max_depth=max_depth,
+                max_depth=setup.max_depth,
             )
             truncated += mapping_truncated
             ctx = _HierarchyPrepContext(
                 kind=kind,
                 mapping=mapping,
-                identity_key=identity_key,
-                profile_digest=profile_digest,
-                governance_digest=governance_digest,
-                governance=governance,
+                identity_key=setup.identity_key,
+                profile_digest=setup.profile_digest,
+                governance_digest=setup.governance_digest,
+                governance=setup.governance,
             )
             for record, parent_raw, depth in records:
                 item, invalid_delta, redactions_delta, detected = (
@@ -2736,15 +2724,7 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
         fetch_diagnostics: dict[str, int],
         checkpoint: ConnectorCheckpoint | None,
     ) -> GraphQLHierarchyBatch:
-        (
-            identity_key,
-            governance,
-            profile_digest,
-            governance_digest,
-            max_entities,
-            max_documents,
-            max_depth,
-        ) = self._hierarchy_batch_context(profile, operation)
+        setup = self._hierarchy_batch_context(profile, operation)
 
         (
             prepared,
@@ -2753,17 +2733,7 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             privacy_redactions,
             truncated,
             invalid_records,
-        ) = self._prepare_entities(
-            roots,
-            operation,
-            identity_key,
-            profile_digest,
-            governance_digest,
-            governance,
-            max_entities,
-            max_documents,
-            max_depth,
-        )
+        ) = self._prepare_entities(roots, operation, setup)
 
         (
             access,
@@ -2773,11 +2743,11 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             tenant,
             schema,
             mapping_version,
-        ) = governance
+        ) = setup.governance
         envelope_ctx = _EnvelopeContext(
-            identity_key=identity_key,
+            identity_key=setup.identity_key,
             known_node_ids=known_node_ids,
-            profile_digest=profile_digest,
+            profile_digest=setup.profile_digest,
             fetch_diagnostics=fetch_diagnostics,
             tenant=tenant,
             schema=schema,
@@ -2794,7 +2764,7 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             envelopes=envelopes,
             versions=versions,
             checkpoint=checkpoint,
-            profile_digest=profile_digest,
+            profile_digest=setup.profile_digest,
             diagnostics={
                 **fetch_diagnostics,
                 "truncated": truncated,
@@ -2807,7 +2777,7 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
                     if any(item["kind"] == kind for item in prepared)
                 },
             },
-            governance=governance,
+            governance=setup.governance,
             snapshot_authoritative=bool(operation.get("snapshot_authoritative", False)),
             allow_empty_snapshot=bool(operation.get("allow_empty_snapshot", False)),
         )
