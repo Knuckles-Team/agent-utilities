@@ -566,6 +566,37 @@ def _dispatch_result_valid(confirmed: Any, duplicate: Any, delivered: Any) -> bo
     )
 
 
+def _decode_claim_payload(raw: Any, max_payload_bytes: int) -> Any:
+    """Decode+bound a broker claim's hex-encoded JSON payload."""
+
+    if (
+        not isinstance(raw, str)
+        or not raw
+        or len(raw) % 2
+        or len(raw) > max_payload_bytes * 2
+        or not _LOWER_HEX.fullmatch(raw)
+    ):
+        raise ValueError("native A2A broker payload is invalid")
+    try:
+        payload = bytes.fromhex(raw)
+        if not payload or len(payload) > max_payload_bytes:
+            raise ValueError
+        return json.loads(payload)
+    except (RecursionError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+        raise ValueError("native A2A broker payload is invalid") from None
+
+
+def _check_envelope_shape(envelope: Any) -> None:
+    if not isinstance(envelope, dict) or set(envelope) != {
+        "schema_version",
+        "operation",
+        "params",
+    }:
+        raise ValueError("native A2A broker envelope is invalid")
+    if envelope["schema_version"] != _SCHEMA_VERSION:
+        raise ValueError("native A2A broker schema version is unsupported")
+
+
 @dataclass
 class EpistemicGraphA2ARuntime:
     """Shared verified authority for the FastA2A broker and storage adapters."""
@@ -1752,84 +1783,68 @@ class EpistemicGraphA2ABroker(Broker):
                 return
             raise
 
+    async def _decode_run_claim(
+        self, params: dict[str, Any], tag: int
+    ) -> tuple[dict[str, Any], _ExecutionBinding]:
+        validated = cast(
+            dict[str, Any],
+            _validated_json(
+                _TASK_SEND_PARAMS_ADAPTER, params, label="native A2A run parameters"
+            ),
+        )
+        task_id = self.runtime.require_task_id(str(validated["id"]))
+        context_id = self.runtime.context_id(str(validated["context_id"]))
+        record, _task = await self.storage.record_for_execution(task_id, context_id)
+        if record["run_operation"] != validated:
+            raise ValueError("native A2A run operation differs from its task record")
+        binding = _ExecutionBinding(
+            task_id=task_id,
+            context_id=context_id,
+            expected_task_revision=record["revision"],
+            expected_task_payload_ref=record["payload_ref"],
+            expected_context_revision=record["context_revision"],
+            expected_context_payload_ref=record["context_payload_ref"],
+            delivery_tag=tag,
+            consumer=self._consumer,
+        )
+        return validated, binding
+
+    def _decode_cancel_claim(self, params: dict[str, Any]) -> dict[str, Any]:
+        if set(params) != {"id"}:
+            raise ValueError("native A2A cancel parameters are invalid")
+        validated = cast(
+            dict[str, Any],
+            _validated_json(
+                _TASK_ID_PARAMS_ADAPTER, params, label="native A2A cancel parameters"
+            ),
+        )
+        validated["id"] = self.runtime.require_task_id(str(validated["id"]))
+        return validated
+
     async def _decode_claim(
         self, properties: dict[str, Any]
     ) -> tuple[TaskOperation, _ExecutionBinding | None, int]:
         tag = self._delivery_tag(properties)
         if properties.get("owner_consumer") != self._consumer:
             raise RuntimeError("native A2A broker returned another consumer's claim")
-        raw = properties.get("payload")
-        if (
-            not isinstance(raw, str)
-            or not raw
-            or len(raw) % 2
-            or len(raw) > self.max_payload_bytes * 2
-            or not _LOWER_HEX.fullmatch(raw)
-        ):
-            raise ValueError("native A2A broker payload is invalid")
-        try:
-            payload = bytes.fromhex(raw)
-            if not payload or len(payload) > self.max_payload_bytes:
-                raise ValueError
-            envelope = json.loads(payload)
-        except (RecursionError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
-            raise ValueError("native A2A broker payload is invalid") from None
+        envelope = _decode_claim_payload(
+            properties.get("payload"), self.max_payload_bytes
+        )
         _admit_structure(
             envelope,
             maximum=self.max_payload_bytes,
             label="native A2A broker envelope",
         )
-        if not isinstance(envelope, dict) or set(envelope) != {
-            "schema_version",
-            "operation",
-            "params",
-        }:
-            raise ValueError("native A2A broker envelope is invalid")
-        if envelope["schema_version"] != _SCHEMA_VERSION:
-            raise ValueError("native A2A broker schema version is unsupported")
+        _check_envelope_shape(envelope)
         operation = envelope["operation"]
         params = envelope["params"]
         if operation not in {"run", "cancel"} or not isinstance(params, dict):
             raise ValueError("native A2A broker operation is invalid")
         binding: _ExecutionBinding | None = None
         if operation == "run":
-            params = cast(
-                dict[str, Any],
-                _validated_json(
-                    _TASK_SEND_PARAMS_ADAPTER,
-                    params,
-                    label="native A2A run parameters",
-                ),
-            )
-            task_id = self.runtime.require_task_id(str(params["id"]))
-            context_id = self.runtime.context_id(str(params["context_id"]))
-            record, _task = await self.storage.record_for_execution(task_id, context_id)
-            if record["run_operation"] != params:
-                raise ValueError(
-                    "native A2A run operation differs from its task record"
-                )
-            binding = _ExecutionBinding(
-                task_id=task_id,
-                context_id=context_id,
-                expected_task_revision=record["revision"],
-                expected_task_payload_ref=record["payload_ref"],
-                expected_context_revision=record["context_revision"],
-                expected_context_payload_ref=record["context_payload_ref"],
-                delivery_tag=tag,
-                consumer=self._consumer,
-            )
+            params, binding = await self._decode_run_claim(params, tag)
         else:
-            if set(params) != {"id"}:
-                raise ValueError("native A2A cancel parameters are invalid")
-            params = cast(
-                dict[str, Any],
-                _validated_json(
-                    _TASK_ID_PARAMS_ADAPTER,
-                    params,
-                    label="native A2A cancel parameters",
-                ),
-            )
-            params["id"] = self.runtime.require_task_id(str(params["id"]))
+            params = self._decode_cancel_claim(params)
         operation_value: TaskOperation = cast(
             TaskOperation,
             {
