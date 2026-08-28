@@ -546,6 +546,26 @@ def _run_dispatch_message_ok(message: Any, *, task_id: str, context_id: str) -> 
     return bool(_HEX_64.fullmatch(message_id.removeprefix("a2a.message.")))
 
 
+def _dispatch_result_shape_ok(result: Any) -> bool:
+    return isinstance(result, dict) and set(result) == {
+        "confirmed",
+        "duplicate",
+        "delivered",
+    }
+
+
+def _dispatch_result_valid(confirmed: Any, duplicate: Any, delivered: Any) -> bool:
+    return not (
+        not isinstance(confirmed, bool)
+        or not isinstance(duplicate, bool)
+        or not isinstance(delivered, int)
+        or isinstance(delivered, bool)
+        or not confirmed
+        or (duplicate and delivered != 0)
+        or (not duplicate and delivered != 1)
+    )
+
+
 @dataclass
 class EpistemicGraphA2ARuntime:
     """Shared verified authority for the FastA2A broker and storage adapters."""
@@ -1629,25 +1649,13 @@ class EpistemicGraphA2ABroker(Broker):
             producer_id=producer_id,
             seq=sequence,
         )
-        if not isinstance(result, dict) or set(result) != {
-            "confirmed",
-            "duplicate",
-            "delivered",
-        }:
+        if not _dispatch_result_shape_ok(result):
             raise RuntimeError(
                 "native A2A idempotent publish returned an invalid result"
             )
-        confirmed = result["confirmed"]
-        duplicate = result["duplicate"]
-        delivered = result["delivered"]
-        if (
-            not isinstance(confirmed, bool)
-            or not isinstance(duplicate, bool)
-            or not isinstance(delivered, int)
-            or isinstance(delivered, bool)
-            or not confirmed
-            or (duplicate and delivered != 0)
-            or (not duplicate and delivered != 1)
+        result_dict = cast(dict[str, Any], result)
+        if not _dispatch_result_valid(
+            result_dict["confirmed"], result_dict["duplicate"], result_dict["delivered"]
         ):
             raise RuntimeError("native A2A operation was not durably routed once")
         await self.storage.mark_dispatch(task_id, kind, "published")
