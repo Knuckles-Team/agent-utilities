@@ -62,6 +62,52 @@ def _resolve_paths(ide: str) -> list[Path]:
     return resolved
 
 
+def _antigravity_title(messages: list[dict[str, Any]]) -> str:
+    """First user message (len > 5), else first non-tool assistant message, else 'Untitled'."""
+    for msg in messages:
+        if msg["role"] == "user" and len(msg["content"]) > 5:
+            return msg["content"][:100]
+    for msg in messages:
+        if msg["role"] == "assistant" and not msg["content"].startswith("[Tool"):
+            return msg["content"][:100]
+    return "Untitled"
+
+
+def _parse_antigravity_conversation(conv_dir: Path) -> dict[str, Any] | None:
+    """Parse one Antigravity conversation subdirectory, or None if unparseable/empty."""
+    overview_path = conv_dir / ".system_generated" / "logs" / "overview.txt"
+    if not overview_path.exists():
+        # Try direct overview.txt
+        overview_path = conv_dir / "overview.txt"
+    if not overview_path.exists():
+        return None
+
+    content = overview_path.read_text(errors="replace")
+    if not content.strip():
+        return None
+
+    conv_id = conv_dir.name
+    # Extract timestamp from directory name or file mtime
+    try:
+        mtime = overview_path.stat().st_mtime
+        timestamp = datetime.fromtimestamp(mtime).isoformat()
+    except Exception:
+        timestamp = datetime.now().isoformat()
+
+    # Parse messages from overview.txt
+    messages = _parse_overview_messages(content)
+    title = _antigravity_title(messages)
+
+    return {
+        "id": f"antigravity:{conv_id}",
+        "source": "antigravity",
+        "title": title,
+        "timestamp": timestamp,
+        "messages": messages,
+        "path": str(overview_path),
+    }
+
+
 def parse_antigravity_logs(brain_dir: Path) -> list[dict[str, Any]]:
     """Parse Antigravity conversation logs from brain directory.
 
@@ -77,57 +123,73 @@ def parse_antigravity_logs(brain_dir: Path) -> list[dict[str, Any]]:
         if not conv_dir.is_dir():
             continue
 
-        overview_path = conv_dir / ".system_generated" / "logs" / "overview.txt"
-        if not overview_path.exists():
-            # Try direct overview.txt
-            overview_path = conv_dir / "overview.txt"
-        if not overview_path.exists():
-            continue
-
         try:
-            content = overview_path.read_text(errors="replace")
-            if not content.strip():
-                continue
-
-            conv_id = conv_dir.name
-            # Extract timestamp from directory name or file mtime
-            try:
-                mtime = overview_path.stat().st_mtime
-                timestamp = datetime.fromtimestamp(mtime).isoformat()
-            except Exception:
-                timestamp = datetime.now().isoformat()
-
-            # Parse messages from overview.txt
-            messages = _parse_overview_messages(content)
-
-            # Extract title from first user message, fallback to first assistant content
-            title = "Untitled"
-            for msg in messages:
-                if msg["role"] == "user" and len(msg["content"]) > 5:
-                    title = msg["content"][:100]
-                    break
-            if title == "Untitled":
-                for msg in messages:
-                    if msg["role"] == "assistant" and not msg["content"].startswith(
-                        "[Tool"
-                    ):
-                        title = msg["content"][:100]
-                        break
-
-            conversations.append(
-                {
-                    "id": f"antigravity:{conv_id}",
-                    "source": "antigravity",
-                    "title": title,
-                    "timestamp": timestamp,
-                    "messages": messages,
-                    "path": str(overview_path),
-                }
-            )
+            conv = _parse_antigravity_conversation(conv_dir)
+            if conv is not None:
+                conversations.append(conv)
         except Exception as e:
             logger.warning(f"Failed to parse Antigravity log {conv_dir}: {e}")
 
     return conversations
+
+
+def _overview_line_role(source: str) -> str | None:
+    """Map an Antigravity JSONL 'source' field to a chat role, or None if unrecognized."""
+    if source in ("USER", "USER_EXPLICIT", "USER_IMPLICIT"):
+        return "user"
+    if source == "MODEL":
+        return "assistant"
+    if source in ("TOOL", "TOOL_RESULT"):
+        return "tool"
+    return None
+
+
+def _overview_line_content(obj: dict[str, Any]) -> str | None:
+    """Message content for one parsed JSONL entry, or None if there's nothing to show."""
+    msg_content = obj.get("content", "")
+    if not msg_content:
+        # If there are tool calls, summarize them
+        tool_calls = obj.get("tool_calls", [])
+        if tool_calls:
+            tool_names = [tc.get("name", "unknown") for tc in tool_calls]
+            msg_content = f"[Tool calls: {', '.join(tool_names)}]"
+        else:
+            return None
+    return str(msg_content)[:5000]  # Cap message size
+
+
+def _parse_overview_json_line(obj: dict[str, Any]) -> dict[str, Any] | None:
+    """Build a message dict from one decoded Antigravity JSONL object, or None to skip."""
+    role = _overview_line_role(obj.get("source", ""))
+    if role is None:
+        return None
+    content = _overview_line_content(obj)
+    if content is None:
+        return None
+    return {"role": role, "content": content}
+
+
+def _parse_overview_fallback_line(line: str) -> dict[str, Any] | None:
+    """Plain-text role detection used when a line isn't valid JSON."""
+    stripped = line.strip()
+    if stripped.startswith("USER:") or stripped.startswith("Human:"):
+        remainder = stripped.split(":", 1)[1].strip() if ":" in stripped else ""
+        if remainder:
+            return {"role": "user", "content": remainder}
+    elif stripped.startswith("ASSISTANT:") or stripped.startswith("Model:"):
+        remainder = stripped.split(":", 1)[1].strip() if ":" in stripped else ""
+        if remainder:
+            return {"role": "assistant", "content": remainder}
+    return None
+
+
+def _parse_overview_line(line: str) -> dict[str, Any] | None:
+    """Parse one JSONL line from an Antigravity overview.txt into a message, or None to skip."""
+    try:
+        obj = json.loads(line)
+    except json.JSONDecodeError:
+        return _parse_overview_fallback_line(line)
+    return _parse_overview_json_line(obj)
 
 
 def _parse_overview_messages(content: str) -> list[dict[str, Any]]:
@@ -145,48 +207,9 @@ def _parse_overview_messages(content: str) -> list[dict[str, Any]]:
         line = line.strip()
         if not line:
             continue
-        try:
-            obj = json.loads(line)
-            source = obj.get("source", "")
-            msg_content = obj.get("content", "")
-
-            # Map source to chat role
-            if source in ("USER", "USER_EXPLICIT", "USER_IMPLICIT"):
-                role = "user"
-            elif source == "MODEL":
-                role = "assistant"
-            elif source in ("TOOL", "TOOL_RESULT"):
-                role = "tool"
-            else:
-                continue
-
-            # Skip entries with no content
-            if not msg_content:
-                # If there are tool calls, summarize them
-                tool_calls = obj.get("tool_calls", [])
-                if tool_calls:
-                    tool_names = [tc.get("name", "unknown") for tc in tool_calls]
-                    msg_content = f"[Tool calls: {', '.join(tool_names)}]"
-                else:
-                    continue
-
-            messages.append(
-                {
-                    "role": role,
-                    "content": str(msg_content)[:5000],  # Cap message size
-                }
-            )
-        except json.JSONDecodeError:
-            # Fall back to plain text role detection
-            stripped = line.strip()
-            if stripped.startswith("USER:") or stripped.startswith("Human:"):
-                remainder = stripped.split(":", 1)[1].strip() if ":" in stripped else ""
-                if remainder:
-                    messages.append({"role": "user", "content": remainder})
-            elif stripped.startswith("ASSISTANT:") or stripped.startswith("Model:"):
-                remainder = stripped.split(":", 1)[1].strip() if ":" in stripped else ""
-                if remainder:
-                    messages.append({"role": "assistant", "content": remainder})
+        msg = _parse_overview_line(line)
+        if msg is not None:
+            messages.append(msg)
 
     return messages
 
@@ -231,6 +254,41 @@ def parse_windsurf_logs(memories_dir: Path) -> list[dict[str, Any]]:
     return conversations
 
 
+def _parse_claude_file(f: Path) -> dict[str, Any] | None:
+    """Parse one Claude Code JSONL transcript file, or None if it yields no messages."""
+    messages = []
+    for line in f.read_text(errors="replace").splitlines():
+        if not line.strip():
+            continue
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        # Truncate per-message content at parse time so multi-MB
+        # tool_result blocks can't blow up memory/CPU.
+        messages.append(
+            {
+                "role": msg.get("role", "user"),
+                "content": str(msg.get("content", ""))[:_MAX_MSG_CHARS],
+            }
+        )
+        if len(messages) >= _MAX_MSGS_PER_CONV:
+            break
+
+    if not messages:
+        return None
+
+    conv_id = f.stem
+    return {
+        "id": f"claude:{conv_id}",
+        "source": "claude",
+        "title": messages[0]["content"][:100] if messages else "Untitled",
+        "timestamp": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
+        "messages": messages,
+        "path": str(f),
+    }
+
+
 def parse_claude_logs(projects_dir: Path) -> list[dict[str, Any]]:
     """Parse Claude Code conversation logs."""
     conversations: list[dict[str, Any]] = []
@@ -240,45 +298,41 @@ def parse_claude_logs(projects_dir: Path) -> list[dict[str, Any]]:
     # Claude stores conversations as JSONL files
     for f in sorted(projects_dir.glob("**/*.jsonl")):
         try:
-            messages = []
-            for line in f.read_text(errors="replace").splitlines():
-                if not line.strip():
-                    continue
-                try:
-                    msg = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                # Truncate per-message content at parse time so multi-MB
-                # tool_result blocks can't blow up memory/CPU.
-                messages.append(
-                    {
-                        "role": msg.get("role", "user"),
-                        "content": str(msg.get("content", ""))[:_MAX_MSG_CHARS],
-                    }
-                )
-                if len(messages) >= _MAX_MSGS_PER_CONV:
-                    break
-
-            if messages:
-                conv_id = f.stem
-                conversations.append(
-                    {
-                        "id": f"claude:{conv_id}",
-                        "source": "claude",
-                        "title": messages[0]["content"][:100]
-                        if messages
-                        else "Untitled",
-                        "timestamp": datetime.fromtimestamp(
-                            f.stat().st_mtime
-                        ).isoformat(),
-                        "messages": messages,
-                        "path": str(f),
-                    }
-                )
+            conv = _parse_claude_file(f)
+            if conv is not None:
+                conversations.append(conv)
         except Exception as e:  # noqa: BLE001 — one unparseable Claude Code log file is skipped, same as the Windsurf parser above — the function returns whatever conversations parsed cleanly from the rest
             logger.debug(f"Failed to parse Claude log {f}: {e}")
 
     return conversations
+
+
+def _parse_codex_file(f: Path) -> dict[str, Any] | None:
+    """Parse one Codex session JSON file, or None if not a dict / no messages."""
+    data = json.loads(f.read_text(errors="replace"))
+    if not isinstance(data, dict):
+        return None
+
+    messages = []
+    for msg in data.get("messages", None) or data.get("history", None) or []:
+        messages.append(
+            {
+                "role": msg.get("role", "user"),
+                "content": str(msg.get("content", msg.get("text", ""))),
+            }
+        )
+    if not messages:
+        return None
+
+    conv_id = f.stem
+    return {
+        "id": f"codex:{conv_id}",
+        "source": "codex",
+        "title": messages[0]["content"][:100] if messages else "Untitled",
+        "timestamp": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
+        "messages": messages,
+        "path": str(f),
+    }
 
 
 def parse_codex_logs(sessions_dir: Path) -> list[dict[str, Any]]:
@@ -289,34 +343,9 @@ def parse_codex_logs(sessions_dir: Path) -> list[dict[str, Any]]:
 
     for f in sorted(sessions_dir.glob("**/*.json")):
         try:
-            data = json.loads(f.read_text(errors="replace"))
-            if isinstance(data, dict):
-                messages = []
-                for msg in (
-                    data.get("messages", None) or data.get("history", None) or []
-                ):
-                    messages.append(
-                        {
-                            "role": msg.get("role", "user"),
-                            "content": str(msg.get("content", msg.get("text", ""))),
-                        }
-                    )
-                if messages:
-                    conv_id = f.stem
-                    conversations.append(
-                        {
-                            "id": f"codex:{conv_id}",
-                            "source": "codex",
-                            "title": messages[0]["content"][:100]
-                            if messages
-                            else "Untitled",
-                            "timestamp": datetime.fromtimestamp(
-                                f.stat().st_mtime
-                            ).isoformat(),
-                            "messages": messages,
-                            "path": str(f),
-                        }
-                    )
+            conv = _parse_codex_file(f)
+            if conv is not None:
+                conversations.append(conv)
         except Exception as e:  # noqa: BLE001 — one unparseable Codex session file is skipped, same pattern as the Windsurf/Claude parsers above
             logger.debug(f"Failed to parse Codex log {f}: {e}")
 
@@ -414,6 +443,182 @@ def ingest_conversations_to_kg(
         )
 
 
+def _ingest_one_conversation(
+    engine: Any,
+    conv: dict[str, Any],
+    llm_enabled: bool,
+    pending_extractions: list[tuple[str, str, str, str]],
+) -> str | None:
+    """Write one conversation's Thread/Message nodes; queue concept extraction.
+
+    Returns the conversation's ``source`` on success, or ``None`` if skipped
+    (no messages) or the write failed (logged, not raised).
+    """
+    source = conv.get("source", "unknown")
+    conv_id = conv["id"]
+    messages = conv.get("messages", [])
+
+    if not messages:
+        return None
+
+    try:
+        partition = f"partition:{source}"
+
+        # Create Thread node via engine API (backend-safe)
+        engine.add_node(
+            node_id=conv_id,
+            node_type="Thread",
+            properties={
+                "title": conv.get("title", "Untitled"),
+                "source": source,
+                "partition": partition,
+                "timestamp": conv.get("timestamp", datetime.now().isoformat()),
+                "valid_from": conv.get("timestamp", datetime.now().isoformat()),
+                "path": conv.get("path", ""),
+                "message_count": len(messages),
+            },
+        )
+
+        # Create Message nodes (cap at 50 per thread to manage DB size)
+        max_msgs = min(len(messages), 50)
+        for i, msg in enumerate(messages[:max_msgs]):
+            msg_id = f"msg:{conv_id}:{i}"
+            content = msg.get("content", "")
+            # Truncate very long messages
+            if len(content) > 5000:
+                content = content[:2000] + "\n...[truncated]...\n" + content[-2000:]
+
+            engine.add_node(
+                node_id=msg_id,
+                node_type="Message",
+                properties={
+                    "role": msg.get("role", "user"),
+                    "content": content,
+                    "timestamp": conv.get("timestamp", ""),
+                    "source": source,
+                    "partition": partition,
+                },
+            )
+
+            # Link Message to Thread
+            engine.link_nodes(
+                source_id=conv_id,
+                target_id=msg_id,
+                rel_type="CONTAINS",
+                properties={"source": source},
+            )
+
+        # Concept extraction so this thread interweaves with code/docs/prompts.
+        # Defer the (slow, I/O-bound) LLM call: collect its inputs and fan
+        # them out concurrently after the structural pass (see below).
+        if llm_enabled and messages:
+            agg = "\n".join(m.get("content", "") for m in messages[:max_msgs])[:8000]
+            pending_extractions.append((conv_id, agg, conv.get("title", ""), source))
+
+        return source
+
+    except Exception as e:
+        logger.warning(f"Failed to ingest conversation {conv_id}: {e}")
+        return None
+
+
+def _run_chat_concept_extraction(
+    engine: Any,
+    llm: Any,
+    pending_extractions: list[tuple[str, str, str, str]],
+) -> tuple[int, list[Any]]:
+    """Concurrently extract + write Concept/MENTIONS nodes for queued conversations.
+
+    Concurrent extraction across all conversations. LLM calls run in a bounded
+    ThreadPoolExecutor (GIL released during the network wait, vLLM batches the
+    requests); resulting Concept/MENTIONS writes are applied as each call
+    completes. (CONCEPT:EG-KG.storage.nonblocking-checkpoint ingestion throughput)
+
+    Returns ``(concepts_total, all_concepts)``.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    # Auto-sized to THIS host (CPU/mem bounded) rather than an env knob
+    # (config discipline), then capped by the work actually pending.
+    from agent_utilities.knowledge_graph.core.engine_tasks import (
+        compute_ingest_worker_count,
+    )
+    from agent_utilities.knowledge_graph.enrichment.extractors.text import (
+        extract_text_concepts,
+    )
+
+    workers = max(1, min(compute_ingest_worker_count(), len(pending_extractions)))
+
+    def _extract(item: tuple[str, str, str, str]) -> tuple[str, str, list[Any]]:
+        cid, text, title, src = item
+        try:
+            concepts, _edges = extract_text_concepts(
+                text, cid, llm, source_type="chat", title=title
+            )
+            return cid, src, concepts
+        except Exception as e:  # noqa: BLE001 — per-conversation concept extraction inside a ThreadPoolExecutor.map; returns an empty concepts list for this one conversation so the batch loop below simply has nothing to add for it, rather than losing the whole ingest run
+            logger.debug("chat concept extraction failed for %s: %s", cid, e)
+            return cid, src, []
+
+    concepts_total = 0
+    all_concepts: list[Any] = []
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for cid, src, concepts in pool.map(_extract, pending_extractions):
+            for c in concepts:
+                engine.add_node(
+                    node_id=c.id,
+                    node_type="Concept",
+                    properties={
+                        "name": c.name,
+                        "kind": c.kind,
+                        "summary": c.summary,
+                        "source_ids": json.dumps(c.source_ids),
+                    },
+                )
+                engine.link_nodes(
+                    source_id=cid,
+                    target_id=c.id,
+                    rel_type="MENTIONS",
+                    properties={"source": src},
+                )
+                all_concepts.append(c)
+                concepts_total += 1
+
+    return concepts_total, all_concepts
+
+
+def _link_chat_concepts_to_code(engine: Any, all_concepts: list[Any]) -> None:
+    """Cross-link chat concepts → Code/Feature (RELATES_TO/REALIZES) so chats
+    interweave with the codebase, same as docs/prompts. Best-effort + gated by
+    KG_CONCEPT_CODE_LINK. (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
+    """
+    if not all_concepts or setting("KG_CONCEPT_CODE_LINK", "1") == "0":
+        return
+    try:
+        from agent_utilities.knowledge_graph.enrichment.semantic import (
+            link_concepts_to_code,
+            make_embed_fn,
+        )
+
+        backend = getattr(engine, "backend", None)
+        search = getattr(backend, "semantic_search", None)
+        if callable(search):
+            edges = link_concepts_to_code(
+                all_concepts,
+                make_embed_fn(),
+                lambda vec, k: search(vec, k) or [],
+            )
+            for edge in edges:
+                engine.link_nodes(
+                    source_id=edge.source,
+                    target_id=edge.target,
+                    rel_type=edge.rel_type,
+                    properties={"source": "concept_link"},
+                )
+    except Exception as exc:  # noqa: BLE001 — concept-to-code linking is enrichment over conversations already ingested above (ingested/concepts_total are already final by this point); a linking failure only means fewer cross-links, not a lost conversation
+        logger.debug("chat concept→code linking failed: %s", exc)
+
+
 def _ingest_conversations_to_kg(
     engine: Any,
     *,
@@ -449,156 +654,18 @@ def _ingest_conversations_to_kg(
     pending_extractions: list[tuple[str, str, str, str]] = []
 
     for conv in conversations:
-        source = conv.get("source", "unknown")
-        conv_id = conv["id"]
-        messages = conv.get("messages", [])
-
-        if not messages:
-            continue
-
-        try:
-            partition = f"partition:{source}"
-
-            # Create Thread node via engine API (backend-safe)
-            engine.add_node(
-                node_id=conv_id,
-                node_type="Thread",
-                properties={
-                    "title": conv.get("title", "Untitled"),
-                    "source": source,
-                    "partition": partition,
-                    "timestamp": conv.get("timestamp", datetime.now().isoformat()),
-                    "valid_from": conv.get("timestamp", datetime.now().isoformat()),
-                    "path": conv.get("path", ""),
-                    "message_count": len(messages),
-                },
-            )
-
-            # Create Message nodes (cap at 50 per thread to manage DB size)
-            max_msgs = min(len(messages), 50)
-            for i, msg in enumerate(messages[:max_msgs]):
-                msg_id = f"msg:{conv_id}:{i}"
-                content = msg.get("content", "")
-                # Truncate very long messages
-                if len(content) > 5000:
-                    content = content[:2000] + "\n...[truncated]...\n" + content[-2000:]
-
-                engine.add_node(
-                    node_id=msg_id,
-                    node_type="Message",
-                    properties={
-                        "role": msg.get("role", "user"),
-                        "content": content,
-                        "timestamp": conv.get("timestamp", ""),
-                        "source": source,
-                        "partition": partition,
-                    },
-                )
-
-                # Link Message to Thread
-                engine.link_nodes(
-                    source_id=conv_id,
-                    target_id=msg_id,
-                    rel_type="CONTAINS",
-                    properties={"source": source},
-                )
-
-            # Concept extraction so this thread interweaves with code/docs/prompts.
-            # Defer the (slow, I/O-bound) LLM call: collect its inputs and fan
-            # them out concurrently after the structural pass (see below).
-            if _llm is not None and messages:
-                agg = "\n".join(m.get("content", "") for m in messages[:max_msgs])[
-                    :8000
-                ]
-                pending_extractions.append(
-                    (conv_id, agg, conv.get("title", ""), source)
-                )
-
+        source = _ingest_one_conversation(
+            engine, conv, _llm is not None, pending_extractions
+        )
+        if source is not None:
             summary[source] = summary.get(source, 0) + 1
             ingested += 1
 
-        except Exception as e:
-            logger.warning(f"Failed to ingest conversation {conv_id}: {e}")
-
-    # Concurrent concept extraction across all conversations. LLM calls run in a
-    # bounded ThreadPoolExecutor (GIL released during the network wait, vLLM
-    # batches the requests); resulting Concept/MENTIONS writes are applied as
-    # each call completes. (CONCEPT:EG-KG.storage.nonblocking-checkpoint ingestion throughput)
     if _llm is not None and pending_extractions:
-        from concurrent.futures import ThreadPoolExecutor
-
-        # Auto-sized to THIS host (CPU/mem bounded) rather than an env knob
-        # (config discipline), then capped by the work actually pending.
-        from agent_utilities.knowledge_graph.core.engine_tasks import (
-            compute_ingest_worker_count,
+        concepts_total, all_concepts = _run_chat_concept_extraction(
+            engine, _llm, pending_extractions
         )
-        from agent_utilities.knowledge_graph.enrichment.extractors.text import (
-            extract_text_concepts,
-        )
-
-        workers = max(1, min(compute_ingest_worker_count(), len(pending_extractions)))
-
-        def _extract(item: tuple[str, str, str, str]) -> tuple[str, str, list[Any]]:
-            cid, text, title, src = item
-            try:
-                concepts, _edges = extract_text_concepts(
-                    text, cid, _llm, source_type="chat", title=title
-                )
-                return cid, src, concepts
-            except Exception as e:  # noqa: BLE001 — per-conversation concept extraction inside a ThreadPoolExecutor.map; returns an empty concepts list for this one conversation so the batch loop below simply has nothing to add for it, rather than losing the whole ingest run
-                logger.debug("chat concept extraction failed for %s: %s", cid, e)
-                return cid, src, []
-
-        all_concepts: list[Any] = []
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            for cid, src, concepts in pool.map(_extract, pending_extractions):
-                for c in concepts:
-                    engine.add_node(
-                        node_id=c.id,
-                        node_type="Concept",
-                        properties={
-                            "name": c.name,
-                            "kind": c.kind,
-                            "summary": c.summary,
-                            "source_ids": json.dumps(c.source_ids),
-                        },
-                    )
-                    engine.link_nodes(
-                        source_id=cid,
-                        target_id=c.id,
-                        rel_type="MENTIONS",
-                        properties={"source": src},
-                    )
-                    all_concepts.append(c)
-                    concepts_total += 1
-
-        # Cross-link chat concepts → Code/Feature (RELATES_TO/REALIZES) so chats
-        # interweave with the codebase, same as docs/prompts. Best-effort + gated
-        # by KG_CONCEPT_CODE_LINK. (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
-        if all_concepts and setting("KG_CONCEPT_CODE_LINK", "1") != "0":
-            try:
-                from agent_utilities.knowledge_graph.enrichment.semantic import (
-                    link_concepts_to_code,
-                    make_embed_fn,
-                )
-
-                backend = getattr(engine, "backend", None)
-                search = getattr(backend, "semantic_search", None)
-                if callable(search):
-                    edges = link_concepts_to_code(
-                        all_concepts,
-                        make_embed_fn(),
-                        lambda vec, k: search(vec, k) or [],
-                    )
-                    for edge in edges:
-                        engine.link_nodes(
-                            source_id=edge.source,
-                            target_id=edge.target,
-                            rel_type=edge.rel_type,
-                            properties={"source": "concept_link"},
-                        )
-            except Exception as exc:  # noqa: BLE001 — concept-to-code linking is enrichment over conversations already ingested above (ingested/concepts_total are already final by this point); a linking failure only means fewer cross-links, not a lost conversation
-                logger.debug("chat concept→code linking failed: %s", exc)
+        _link_chat_concepts_to_code(engine, all_concepts)
 
     return {
         "total_ingested": ingested,
