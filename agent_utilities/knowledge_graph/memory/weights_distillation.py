@@ -210,6 +210,36 @@ def _dispatch_train_workflow(
     return result if isinstance(result, dict) else {"result": result}
 
 
+def _target_model_adapter_fields(p: dict[str, Any]) -> dict[str, Any]:
+    """The model/adapter half of :meth:`DistillationTargetSpec.from_params`."""
+    env_model = _env_str("AGENT_UTILITIES_DISTILL_BASE_MODEL")
+    return {
+        "base_model": str(p.get("base_model") or env_model or ""),
+        "method": str(p.get("method") or "sft"),
+        "adapter_type": str(p.get("adapter_type") or "lora"),
+        "adapter_rank": int(p.get("adapter_rank") or 16),
+        "adapter_alpha": int(p.get("adapter_alpha") or 32),
+        "adapter_dropout": float(p.get("adapter_dropout") or 0.05),
+    }
+
+
+def _target_scope_window_fields(p: dict[str, Any]) -> dict[str, Any]:
+    """The scope/window/quota half of :meth:`DistillationTargetSpec.from_params`."""
+    window = p.get("time_window_days")
+    return {
+        "scopes": _as_str_list(p.get("scopes")) or list(_DEFAULT_SCOPES),
+        "time_window_days": (
+            int(window) if window is not None and window != "" else None
+        ),
+        "target_entities": _as_str_list(p.get("target_entities")),
+        "min_trust": float(p.get("min_trust") or 0.0),
+        "max_examples": int(
+            p.get("max_examples")
+            or _env_int("AGENT_UTILITIES_DISTILL_MAX_EXAMPLES", 512)
+        ),
+    }
+
+
 @dataclass
 class DistillationTargetSpec:
     """The fine-tune TARGET of a memory→weights distillation (CONCEPT:AU-KG.memory.memory-weights-distillation-export).
@@ -280,26 +310,7 @@ class DistillationTargetSpec:
     def from_params(cls, params: dict[str, Any] | None) -> DistillationTargetSpec:
         """Build a spec from a loose (MCP/REST) params dict, with env defaults."""
         p = dict(params or {})
-        env_model = _env_str("AGENT_UTILITIES_DISTILL_BASE_MODEL")
-        window = p.get("time_window_days")
-        return cls(
-            base_model=str(p.get("base_model") or env_model or ""),
-            method=str(p.get("method") or "sft"),
-            adapter_type=str(p.get("adapter_type") or "lora"),
-            adapter_rank=int(p.get("adapter_rank") or 16),
-            adapter_alpha=int(p.get("adapter_alpha") or 32),
-            adapter_dropout=float(p.get("adapter_dropout") or 0.05),
-            scopes=_as_str_list(p.get("scopes")) or list(_DEFAULT_SCOPES),
-            time_window_days=(
-                int(window) if window is not None and window != "" else None
-            ),
-            target_entities=_as_str_list(p.get("target_entities")),
-            min_trust=float(p.get("min_trust") or 0.0),
-            max_examples=int(
-                p.get("max_examples")
-                or _env_int("AGENT_UTILITIES_DISTILL_MAX_EXAMPLES", 512)
-            ),
-        )
+        return cls(**_target_model_adapter_fields(p), **_target_scope_window_fields(p))
 
 
 @dataclass
@@ -445,32 +456,60 @@ class MemoryWeightsDistiller:
         scopes = {s.lower() for s in self.spec.scopes}
         entities = {e.lower() for e in self.spec.target_entities}
         window = self.spec.time_window_days
-        picked: list[dict[str, Any]] = []
-        for n in nodes:
-            if str(n.get("memory_type", "")).lower() not in scopes:
-                continue
-            if str(n.get("status", "ACTIVE")).upper() in _INACTIVE_STATUSES:
-                continue
-            if self.spec.is_grpo:
-                if n.get("state_ref") is None or n.get("action") is None:
-                    continue
-            elif not self._content(n):
-                continue
-            try:
-                if float(n.get("trust_score", 1.0)) < self.spec.min_trust:
-                    continue
-            except (TypeError, ValueError):
-                pass
-            if window is not None and _age_hours(n, now) > window * 24.0:
-                continue
-            if entities:
-                ent = str(n.get("target_entity") or n.get("category") or "").lower()
-                if ent not in entities:
-                    continue
-            picked.append(n)
-
+        picked = [
+            n
+            for n in nodes
+            if self._node_in_scope(
+                n, scopes=scopes, entities=entities, window=window, now=now
+            )
+        ]
         picked.sort(key=lambda g: str(g.get("id", "")))
         return picked[: max(1, int(self.spec.max_examples))]
+
+    def _node_has_payload(self, n: dict[str, Any]) -> bool:
+        """Whether ``n`` carries a renderable payload for :attr:`spec`'s method."""
+        if self.spec.is_grpo:
+            return n.get("state_ref") is not None and n.get("action") is not None
+        return bool(self._content(n))
+
+    def _node_meets_quality(
+        self, n: dict[str, Any], *, window: int | None, now: datetime
+    ) -> bool:
+        """The trust-floor and time-window checks."""
+        try:
+            if float(n.get("trust_score", 1.0)) < self.spec.min_trust:
+                return False
+        except (TypeError, ValueError):
+            pass
+        return not (window is not None and _age_hours(n, now) > window * 24.0)
+
+    @staticmethod
+    def _node_matches_entities(n: dict[str, Any], entities: set[str]) -> bool:
+        """``True`` when ``entities`` is empty, or ``n``'s entity/category is in it."""
+        if not entities:
+            return True
+        ent = str(n.get("target_entity") or n.get("category") or "").lower()
+        return ent in entities
+
+    def _node_in_scope(
+        self,
+        n: dict[str, Any],
+        *,
+        scopes: set[str],
+        entities: set[str],
+        window: int | None,
+        now: datetime,
+    ) -> bool:
+        """One memory node's eligibility test. Extracted from :meth:`select`."""
+        if str(n.get("memory_type", "")).lower() not in scopes:
+            return False
+        if str(n.get("status", "ACTIVE")).upper() in _INACTIVE_STATUSES:
+            return False
+        if not self._node_has_payload(n):
+            return False
+        if not self._node_meets_quality(n, window=window, now=now):
+            return False
+        return self._node_matches_entities(n, entities)
 
     # ── Rendering ──────────────────────────────────────────────────────────────
     @staticmethod
@@ -524,15 +563,7 @@ class MemoryWeightsDistiller:
                 }
             return None
 
-        # SFT: prefer an explicit response field, else the node content.
-        completion = ""
-        for key in ("response", "completion", "answer"):
-            val = node.get(key)
-            if isinstance(val, str) and val.strip():
-                completion = val.strip()
-                break
-        if not completion:
-            completion = self._content(node)
+        completion = self._sft_completion(node)
         if not completion:
             return None
         return {
@@ -540,6 +571,14 @@ class MemoryWeightsDistiller:
             "completion": completion,
             "source_id": str(node.get("id", "")),
         }
+
+    def _sft_completion(self, node: dict[str, Any]) -> str:
+        """The SFT completion text: an explicit response field, else node content."""
+        for key in ("response", "completion", "answer"):
+            val = node.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+        return self._content(node)
 
     @staticmethod
     def _group_trajectory_steps(
@@ -894,42 +933,49 @@ class MemoryWeightsDistiller:
             return self._submitter(corpus, self.spec)
         return self._default_submit(corpus)
 
-    def poll(self, job_id: str) -> dict[str, Any]:
-        """Poll a submitted job's status, reading train state back (CONCEPT:AU-KG.memory.live-data-science-mcp).
+    @staticmethod
+    def _poll_checkpoint(
+        get_node: Callable[[str], Any], ckpt_ref: Any
+    ) -> dict[str, Any] | None:
+        """KG-2.318: the checkpoint node a train registered back, if reachable."""
+        try:
+            ckpt = get_node(str(ckpt_ref))
+            if isinstance(ckpt, dict) and ckpt:
+                return ckpt
+        except Exception as e:  # noqa: BLE001 — checkpoint optional
+            logger.debug("[KG-2.318] checkpoint lookup failed: %s", e)
+        return None
 
-        Prefers the live ``TrainingJob`` engine node — which data-science-mcp
-        updates as the LoRA/SFT train advances ``running``→``succeeded``/``failed``
-        and links the produced ``register_checkpoint`` node — and surfaces that
-        checkpoint when present, so the poll reflects the REAL remote train state,
-        not just the last state core wrote. Falls back to the on-disk manifest.
-        """
-        # Prefer a live engine job node when available.
+    def _poll_engine_node(self, job_id: str) -> dict[str, Any] | None:
+        """The live engine ``TrainingJob`` poll result, or ``None`` to fall through."""
         get_node = getattr(self.engine, "get_node", None)
-        if callable(get_node):
-            try:
-                node = get_node(job_id)
-                if isinstance(node, dict) and node:
-                    result: dict[str, Any] = {
-                        "job_id": job_id,
-                        "status": node.get("status", "unknown"),
-                        "source": "engine",
-                        "node": node,
-                    }
-                    if node.get("run_id"):
-                        result["run_id"] = node["run_id"]
-                    # KG-2.318: surface the checkpoint the train registered back.
-                    ckpt_ref = node.get("checkpoint_ref") or node.get("checkpoint")
-                    if ckpt_ref:
-                        try:
-                            ckpt = get_node(str(ckpt_ref))
-                            if isinstance(ckpt, dict) and ckpt:
-                                result["checkpoint"] = ckpt
-                        except Exception as e:  # noqa: BLE001 — checkpoint optional
-                            logger.debug("[KG-2.318] checkpoint lookup failed: %s", e)
-                    return result
-            except Exception as e:  # noqa: BLE001 — fall through to the manifest
-                logger.debug("[KG-2.318] job node lookup failed: %s", e)
-        # Fall back to the on-disk manifest.
+        if not callable(get_node):
+            return None
+        try:
+            node = get_node(job_id)
+            if not (isinstance(node, dict) and node):
+                return None
+            result: dict[str, Any] = {
+                "job_id": job_id,
+                "status": node.get("status", "unknown"),
+                "source": "engine",
+                "node": node,
+            }
+            if node.get("run_id"):
+                result["run_id"] = node["run_id"]
+            ckpt_ref = node.get("checkpoint_ref") or node.get("checkpoint")
+            if ckpt_ref:
+                checkpoint = self._poll_checkpoint(get_node, ckpt_ref)
+                if checkpoint is not None:
+                    result["checkpoint"] = checkpoint
+            return result
+        except Exception as e:  # noqa: BLE001 — fall through to the manifest
+            logger.debug("[KG-2.318] job node lookup failed: %s", e)
+            return None
+
+    @staticmethod
+    def _poll_manifest(job_id: str) -> dict[str, Any] | None:
+        """The on-disk manifest poll result, or ``None`` to fall through to not_found."""
         try:
             from .memory_engine import memory_dir
 
@@ -944,6 +990,23 @@ class MemoryWeightsDistiller:
                 }
         except Exception as e:  # noqa: BLE001 — degrade to not_found
             logger.debug("[KG-2.316] manifest poll failed: %s", e)
+        return None
+
+    def poll(self, job_id: str) -> dict[str, Any]:
+        """Poll a submitted job's status, reading train state back (CONCEPT:AU-KG.memory.live-data-science-mcp).
+
+        Prefers the live ``TrainingJob`` engine node — which data-science-mcp
+        updates as the LoRA/SFT train advances ``running``→``succeeded``/``failed``
+        and links the produced ``register_checkpoint`` node — and surfaces that
+        checkpoint when present, so the poll reflects the REAL remote train state,
+        not just the last state core wrote. Falls back to the on-disk manifest.
+        """
+        result = self._poll_engine_node(job_id)
+        if result is not None:
+            return result
+        result = self._poll_manifest(job_id)
+        if result is not None:
+            return result
         return {"job_id": job_id, "status": "not_found"}
 
 
