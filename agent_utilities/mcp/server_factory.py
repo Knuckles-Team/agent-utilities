@@ -61,6 +61,23 @@ _FILTER_VALUE_RE = re.compile(r"^[A-Za-z0-9_.:/-]{1,128}$")
 _NO_HTTP_REQUEST = "No active HTTP request found."
 
 
+class UnsupportedAuthTypeError(ValueError):
+    """``--auth-type``/``AUTH_TYPE`` named a mode this factory cannot configure.
+
+    Fail closed (BUG-CX-023). ``_configure_auth`` used to fall off the end of
+    its dispatch chain and return ``None`` -- which FastMCP reads as "no auth"
+    -- so an unrecognised value silently produced an UNAUTHENTICATED server.
+    ``--auth-type`` carries ``choices=``, but argparse does **not** validate a
+    *default*, and the default is ``setting("AUTH_TYPE", "none")``: a typo'd
+    ``AUTH_TYPE`` environment variable therefore reached the dispatch chain
+    completely unchecked. Refusing is the only safe reading of an auth mode we
+    do not understand.
+
+    Subclasses :class:`ValueError` to match this module's existing idiom for an
+    invalid configuration value (and ``kg_server.UnsupportedToolFieldError``).
+    """
+
+
 def _bounded_filter_values(values: list[str]) -> list[str]:
     """Parse bounded client visibility filters; these may only narrow access."""
     parsed: list[str] = []
@@ -359,12 +376,27 @@ def _component_passes(
 ) -> bool:
     """Whether ONE component survives the resolved name/tag filters.
 
-    A component with neither ``name`` nor ``uri`` always passes -- observed,
-    pinned behaviour (see tests/characterization/test_server_factory_filter_components.py).
+    Fail closed (BUG-CX-022): a component carrying neither ``name`` nor ``uri``
+    is EXCLUDED, not exempted. It used to return ``True`` here, skipping *all*
+    visibility filtering -- name allow/deny lists and tag restrictions alike --
+    so something that should have been hidden was handed to the caller.
+
+    Exclusion (rather than raising) is the right refusal for this shape: the
+    function answers one yes/no visibility question per component, and it is
+    reached from ``DynamicVisibilityTransform._filter_components`` on the
+    ``list_tools``/``list_resources``/``list_resource_templates`` path, where
+    raising would turn one malformed entry into a failed listing for every
+    caller. Every real FastMCP component (Tool, Resource, ResourceTemplate,
+    Prompt) inherits a ``name``, so an object with neither identifier is not a
+    component this server can vouch for exposing in the first place.
     """
     c_name = getattr(component, "name", None) or getattr(component, "uri", None)
     if not c_name:
-        return True
+        logger.warning(
+            "Excluding an MCP component with neither name nor uri: it cannot be "
+            "checked against the configured visibility filters"
+        )
+        return False
     if enabled_names is not None and c_name not in enabled_names:
         return False
     if disabled_names is not None and c_name in disabled_names:
@@ -1346,7 +1378,10 @@ def _configure_remote_oauth_auth(args: argparse.Namespace) -> Any:
 def _configure_auth(args: argparse.Namespace) -> Any:
     """Configure authentication provider based on parsed CLI args.
 
-    Returns the auth provider instance or None.
+    Returns the auth provider instance, or ``None`` only for the explicitly
+    recognised "no authentication" values (``"none"`` / empty). Any other
+    unrecognised ``auth_type`` raises :class:`UnsupportedAuthTypeError` rather
+    than degrading to an unauthenticated server (BUG-CX-023).
     """
     if args.auth_type == "none" or not args.auth_type:
         return None
@@ -1367,7 +1402,13 @@ def _configure_auth(args: argparse.Namespace) -> Any:
         return _configure_oidc_proxy_auth(args, allowed_uris)
     if args.auth_type == "remote-oauth":
         return _configure_remote_oauth_auth(args)
-    return None
+    logger.error(
+        "Refusing to build an MCP server for unsupported auth type %r", args.auth_type
+    )
+    raise UnsupportedAuthTypeError(
+        f"unsupported auth type {args.auth_type!r}; expected one of "
+        "none, static, jwt, oauth-proxy, oidc-proxy, remote-oauth"
+    )
 
 
 def _resolve_jwt_basic_params(

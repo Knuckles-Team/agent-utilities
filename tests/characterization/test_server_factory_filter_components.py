@@ -139,10 +139,14 @@ def test_env_disabled_tags_exclude_on_intersection(clean_env):
 
 
 # ---------------------------------------------------------------------------
-# 6. A component with neither `name` nor `uri` always passes through,
-#    bypassing BOTH name and tag filtering entirely -- pinned as observed.
+# 6. A component with neither `name` nor `uri` is EXCLUDED (BUG-CX-022, fixed
+#    by lane WD2-BUG-SEC). This pin previously recorded the OPPOSITE -- that
+#    such a component bypassed BOTH name and tag filtering -- which was the
+#    security defect itself, not behaviour worth preserving. See
+#    tests/unit/mcp/test_server_factory_fail_closed.py for the full fail-closed
+#    regression set.
 # ---------------------------------------------------------------------------
-def test_unnamed_component_bypasses_all_filtering(clean_env):
+def test_unnamed_component_is_excluded_by_filtering(clean_env):
     clean_env.setenv("MCP_ENABLED_TOOLS", "only-this-one")
     clean_env.setenv("MCP_ENABLED_TAGS", "some-tag")
     transform = _build_transform()
@@ -150,7 +154,7 @@ def test_unnamed_component_bypasses_all_filtering(clean_env):
     named = _Component(name="only-this-one", tags={"some-tag"})
     excluded = _Component(name="excluded", tags={"some-tag"})
     out = transform._filter_components([anon, named, excluded])
-    assert anon in out
+    assert anon not in out
     assert named in out
     assert excluded not in out
 

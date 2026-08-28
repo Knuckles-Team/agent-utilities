@@ -27,6 +27,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from agent_utilities.mcp.server_factory import (
+    UnsupportedAuthTypeError,
     _configure_auth,
     _configure_jwt_auth,
     create_mcp_parser,
@@ -222,10 +223,13 @@ def test_remote_oauth_too_many_auth_servers_exits():
         _configure_auth(args)
 
 
-def test_unknown_auth_type_returns_none():
-    # Falls through the elif chain -- observed, pinned behaviour.
+def test_unknown_auth_type_refuses():
+    # BUG-CX-023, fixed by lane WD2-BUG-SEC: this used to fall through the
+    # dispatch chain and return None ("no auth"), i.e. an UNAUTHENTICATED
+    # server. It now refuses with a typed error naming the bad value.
     args = _base_args(auth_type="not-a-real-type")
-    assert _configure_auth(args) is None
+    with pytest.raises(UnsupportedAuthTypeError, match="not-a-real-type"):
+        _configure_auth(args)
 
 
 # ---------------------------------------------------------------------------
