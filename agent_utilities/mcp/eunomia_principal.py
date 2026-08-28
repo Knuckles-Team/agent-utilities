@@ -15,10 +15,10 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 from eunomia_core import enums, schemas
 from fastmcp.exceptions import ToolError
@@ -109,39 +109,60 @@ def _apply_operator(
     """Apply the operator ordering used by Eunomia's reference evaluator."""
     if expected is None or actual is None:
         return False
-    if operator == enums.ConditionOperator.EQUALS:
-        return expected == actual
-    if operator == enums.ConditionOperator.NOT_EQUALS:
-        return expected != actual
+    if operator in _EQUALITY_OPERATORS:
+        return _EQUALITY_OPERATORS[operator](expected, actual)
     if isinstance(expected, str) and isinstance(actual, str):
-        if operator == enums.ConditionOperator.CONTAINS:
-            return expected in actual
-        if operator == enums.ConditionOperator.NOT_CONTAINS:
-            return expected not in actual
-        if operator == enums.ConditionOperator.STARTS_WITH:
-            return actual.startswith(expected)
-        if operator == enums.ConditionOperator.ENDS_WITH:
-            return actual.endswith(expected)
-    elif (
-        isinstance(expected, int | float)
-        and not isinstance(expected, bool)
-        and isinstance(actual, int | float)
-        and not isinstance(actual, bool)
-    ):
-        if operator == enums.ConditionOperator.GREATER:
-            return expected > actual
-        if operator == enums.ConditionOperator.GREATER_OR_EQUAL:
-            return expected >= actual
-        if operator == enums.ConditionOperator.LESS:
-            return expected < actual
-        if operator == enums.ConditionOperator.LESS_OR_EQUAL:
-            return expected <= actual
-    elif isinstance(expected, list):
-        if operator == enums.ConditionOperator.IN:
-            return actual in expected
-        if operator == enums.ConditionOperator.NOT_IN:
-            return actual not in expected
+        return _STRING_OPERATORS.get(operator, _always_false)(expected, actual)
+    if _is_comparable_number(expected) and _is_comparable_number(actual):
+        return _NUMERIC_OPERATORS.get(operator, _always_false)(expected, actual)
+    if isinstance(expected, list):
+        return _LIST_OPERATORS.get(operator, _always_false)(expected, actual)
     return False
+
+
+def _is_comparable_number(value: Any) -> bool:
+    """True for int/float values eligible for ordering comparisons (not bool)."""
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _always_false(expected: Any, actual: Any) -> bool:
+    """Default handler for an operator that does not apply to this value type."""
+    return False
+
+
+_EQUALITY_OPERATORS: dict[enums.ConditionOperator, Callable[[Any, Any], bool]] = {
+    enums.ConditionOperator.EQUALS: lambda expected, actual: expected == actual,
+    enums.ConditionOperator.NOT_EQUALS: lambda expected, actual: expected != actual,
+}
+
+_STRING_OPERATORS: dict[enums.ConditionOperator, Callable[[str, str], bool]] = {
+    enums.ConditionOperator.CONTAINS: lambda expected, actual: expected in actual,
+    enums.ConditionOperator.NOT_CONTAINS: (
+        lambda expected, actual: expected not in actual
+    ),
+    enums.ConditionOperator.STARTS_WITH: (
+        lambda expected, actual: actual.startswith(expected)
+    ),
+    enums.ConditionOperator.ENDS_WITH: (
+        lambda expected, actual: actual.endswith(expected)
+    ),
+}
+
+_NUMERIC_OPERATORS: dict[enums.ConditionOperator, Callable[[Any, Any], bool]] = {
+    enums.ConditionOperator.GREATER: lambda expected, actual: expected > actual,
+    enums.ConditionOperator.GREATER_OR_EQUAL: (
+        lambda expected, actual: expected >= actual
+    ),
+    enums.ConditionOperator.LESS: lambda expected, actual: expected < actual,
+    enums.ConditionOperator.LESS_OR_EQUAL: (
+        lambda expected, actual: expected <= actual
+    ),
+}
+
+_LIST_OPERATORS: dict[enums.ConditionOperator, Callable[[Any, Any], bool]] = {
+    enums.ConditionOperator.IN: lambda expected, actual: actual in expected,
+    enums.ConditionOperator.NOT_IN: lambda expected, actual: actual not in expected,
+}
 
 
 def _condition_matches(condition: schemas.Condition, obj: Any) -> bool:
@@ -173,18 +194,15 @@ def _evaluate_policies(
     explicit_allow: tuple[str, str] | None = None
     default_deny = False
     for policy in policies:
-        matched = next(
-            (rule for rule in policy.rules if _rule_matches(rule, request)), None
-        )
-        if matched is not None:
-            if matched.effect == enums.PolicyEffect.DENY:
-                return schemas.CheckResponse(
-                    allowed=False,
-                    reason=f"rule {matched.name} denied the action",
-                )
-            if matched.effect == enums.PolicyEffect.ALLOW:
-                explicit_allow = (policy.name, matched.name)
-        elif policy.default_effect == enums.PolicyEffect.DENY:
+        outcome, payload = _policy_outcome(policy, request)
+        if outcome == "deny":
+            return schemas.CheckResponse(
+                allowed=False,
+                reason=f"rule {payload.name} denied the action",
+            )
+        if outcome == "allow":
+            explicit_allow = payload
+        elif outcome == "default_deny":
             default_deny = True
     if explicit_allow is not None:
         return schemas.CheckResponse(
@@ -198,6 +216,32 @@ def _evaluate_policies(
     return schemas.CheckResponse(
         allowed=False, reason="action denied because no policy explicitly allowed it"
     )
+
+
+_PolicyOutcome = tuple[str, Any]
+
+
+def _policy_outcome(
+    policy: schemas.Policy, request: schemas.CheckRequest
+) -> _PolicyOutcome:
+    """Classify one policy's contribution: deny/allow/default_deny/none.
+
+    Mirrors the matched-rule-then-default-effect precedence of the inline
+    loop this replaces, without nesting the effect checks inside the
+    matched-rule check.
+    """
+    matched = next(
+        (rule for rule in policy.rules if _rule_matches(rule, request)), None
+    )
+    if matched is None:
+        if policy.default_effect == enums.PolicyEffect.DENY:
+            return "default_deny", None
+        return "none", None
+    if matched.effect == enums.PolicyEffect.DENY:
+        return "deny", matched
+    if matched.effect == enums.PolicyEffect.ALLOW:
+        return "allow", (policy.name, matched.name)
+    return "none", None
 
 
 def _load_policy(path: str) -> schemas.Policy:
@@ -241,14 +285,7 @@ def _endpoint_url(endpoint: str, path: str) -> str:
     if not isinstance(endpoint, str) or len(endpoint) > 8_192:
         raise ValueError("Eunomia endpoint is invalid")
     parsed = urlsplit(endpoint.strip())
-    if (
-        parsed.scheme not in {"http", "https"}
-        or not parsed.hostname
-        or parsed.username is not None
-        or parsed.password is not None
-        or parsed.query
-        or parsed.fragment
-    ):
+    if _endpoint_components_invalid(parsed):
         raise ValueError("Eunomia endpoint is invalid")
     hostname = str(parsed.hostname).lower().rstrip(".")
     if parsed.scheme == "http" and hostname not in {"localhost", "127.0.0.1", "::1"}:
@@ -256,6 +293,18 @@ def _endpoint_url(endpoint: str, path: str) -> str:
     base_path = parsed.path.rstrip("/")
     return urlunsplit(
         (parsed.scheme, parsed.netloc, f"{base_path}/{path.lstrip('/')}", "", "")
+    )
+
+
+def _endpoint_components_invalid(parsed: SplitResult) -> bool:
+    """True when the parsed endpoint fails Eunomia's structural requirements."""
+    return (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or bool(parsed.query)
+        or bool(parsed.fragment)
     )
 
 
@@ -649,28 +698,17 @@ def create_eunomia_middleware(
     if use_remote_eunomia:
         if policy_file is not None or not eunomia_endpoint:
             raise ValueError("Remote Eunomia requires only a configured endpoint")
-        bridge: Any = _RemotePolicyBridge(
+        bridge: Any = _build_remote_bridge(
             eunomia_endpoint,
-            api_key_ref=api_key_ref or config.eunomia_api_key_ref,
-            allowed_private_hosts=(
-                tuple(allowed_private_hosts)
-                if allowed_private_hosts is not None
-                else tuple(config.eunomia_allowed_private_hosts)
-            ),
-            timeout=timeout or config.eunomia_timeout_seconds,
-            max_response_bytes=(
-                max_response_bytes or config.eunomia_max_response_bytes
-            ),
+            api_key_ref=api_key_ref,
+            allowed_private_hosts=allowed_private_hosts,
+            timeout=timeout,
+            max_response_bytes=max_response_bytes,
             transport=transport,
+            config=config,
         )
     else:
-        bridge = _EmbeddedPolicyBridge(
-            [
-                _load_policy(
-                    policy_file or config.eunomia_policy_file or "mcp_policies.json"
-                )
-            ]
-        )
+        bridge = _build_embedded_bridge(policy_file, config)
     middleware = JwtPrincipalEunomiaMiddleware(
         bridge,
         require_verified_principal=require_verified_principal,
@@ -678,6 +716,40 @@ def create_eunomia_middleware(
     )
     return apply_bulk_check_chunking(
         middleware, max_batch=max_batch or config.eunomia_bulk_check_max
+    )
+
+
+def _build_remote_bridge(
+    endpoint: str,
+    *,
+    api_key_ref: str | None,
+    allowed_private_hosts: Sequence[str] | None,
+    timeout: float | None,
+    max_response_bytes: int | None,
+    transport: Any,
+    config: Any,
+) -> _RemotePolicyBridge:
+    """Build the remote Eunomia bridge, filling omitted controls from config."""
+    return _RemotePolicyBridge(
+        endpoint,
+        api_key_ref=api_key_ref or config.eunomia_api_key_ref,
+        allowed_private_hosts=(
+            tuple(allowed_private_hosts)
+            if allowed_private_hosts is not None
+            else tuple(config.eunomia_allowed_private_hosts)
+        ),
+        timeout=timeout or config.eunomia_timeout_seconds,
+        max_response_bytes=max_response_bytes or config.eunomia_max_response_bytes,
+        transport=transport,
+    )
+
+
+def _build_embedded_bridge(
+    policy_file: str | None, config: Any
+) -> _EmbeddedPolicyBridge:
+    """Build the embedded Eunomia bridge from a single validated policy file."""
+    return _EmbeddedPolicyBridge(
+        [_load_policy(policy_file or config.eunomia_policy_file or "mcp_policies.json")]
     )
 
 
