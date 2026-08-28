@@ -292,6 +292,28 @@ def _paced_claim_call(engine: Any, request: ClaimWorkItemRequest) -> Any:
     return result
 
 
+def _claim_tenant_ref(tenant: str | None, row: dict[str, Any]) -> str:
+    return _work_tenant(tenant if tenant is not None else str(row.get("tenant") or ""))
+
+
+def _claim_resource_class(
+    resource_class: str | None, row: dict[str, Any], item: dict[str, Any] | None
+) -> str | None:
+    if resource_class is not None:
+        return resource_class
+    if item is None:
+        return None
+    return str(row.get("resource_class") or "default")
+
+
+def _claim_fairness_group(
+    fairness_group: str | None, row: dict[str, Any]
+) -> str | None:
+    if fairness_group is not None:
+        return fairness_group
+    return str(row.get("fairness_group") or "") or None
+
+
 def _claim_request(
     item: dict[str, Any] | None,
     *,
@@ -308,27 +330,13 @@ def _claim_request(
     return ClaimWorkItemRequest(
         schema_version="1",
         work_item_id=item_id,
-        tenant_ref=_work_tenant(
-            tenant if tenant is not None else str(row.get("tenant") or "")
-        ),
+        tenant_ref=_claim_tenant_ref(tenant, row),
         # Exact-id claims intentionally leave the queue filter empty. This
         # permits one-time adoption of pre-queue WorkItems without weakening
         # pool selection, where callers always pass the queue explicitly.
         queue_ref=(queue or None),
-        resource_class=(
-            resource_class
-            if resource_class is not None
-            else (
-                str(row.get("resource_class") or "default")
-                if item is not None
-                else None
-            )
-        ),
-        fairness_group=(
-            fairness_group
-            if fairness_group is not None
-            else str(row.get("fairness_group") or "") or None
-        ),
+        resource_class=_claim_resource_class(resource_class, row, item),
+        fairness_group=_claim_fairness_group(fairness_group, row),
         worker_ref=token,
         now_ms=max(0, int(now * 1000)),
         lease_ms=max(1, int(lease_ttl_s * 1000)),
@@ -787,6 +795,118 @@ def find_status_machine_divergences(
 # ── submit ───────────────────────────────────────────────────────────────
 
 
+def _submit_result(
+    item_id: str, created: bool, return_created: bool
+) -> str | tuple[str, bool]:
+    return (item_id, created) if return_created else item_id
+
+
+def _find_idempotent_work_item(
+    engine: Any, tenant: str, idempotency_key: str | None, work_item_id: str | None
+) -> str | None:
+    if not (idempotency_key and not work_item_id):
+        return None
+    return find_work_item_by_idempotency_key(
+        engine, tenant=tenant, idempotency_key=idempotency_key
+    )
+
+
+def _check_tenant_quota(
+    engine: Any, tenant: str, max_tenant_in_flight: int | None
+) -> None:
+    if not (tenant and max_tenant_in_flight is not None):
+        return
+    in_flight = tenant_in_flight_count(engine, tenant)
+    if in_flight >= max_tenant_in_flight:
+        raise TenantQuotaExceeded(
+            f"tenant {tenant!r} has {in_flight} in-flight WorkItems "
+            f">= quota {max_tenant_in_flight}"
+        )
+
+
+def _resolve_work_item_dependencies(
+    engine: Any, depends_on: Sequence[str]
+) -> tuple[list[str], set[str], int]:
+    dep_ids = [d for d in dict.fromkeys(depends_on) if d]
+    resolved_deps: list[str] = []
+    # Which deps resolved to a tracked WorkItem in this single snapshot — reused
+    # by the edge-indexing loop below instead of re-fetching each one, so the
+    # created node's dep_count and its dependency edges derive from one
+    # consistent read (and N get_work_item() round-trips are removed).
+    tracked_dep_ids: set[str] = set()
+    dep_count = 0
+    for dep_id in dep_ids:
+        dep = get_work_item(engine, dep_id)
+        if dep is None:
+            # Dependency isn't (yet) a tracked WorkItem — conservatively block
+            # on it (mirrors fleet_reconciler's conservative "missing dep is
+            # NOT satisfied"); it simply won't be indexed for push-release
+            # until it exists, so a caller must submit parents before/along
+            # with children for the push-release path to fire.
+            dep_count += 1
+            resolved_deps.append(dep_id)
+            continue
+        resolved_deps.append(dep_id)
+        tracked_dep_ids.add(dep_id)
+        if dep.get("status") != "succeeded":
+            dep_count += 1
+    return resolved_deps, tracked_dep_ids, dep_count
+
+
+def _sanitize_work_item_text(
+    description: str, metadata: dict[str, Any] | None
+) -> tuple[str, dict[str, Any]]:
+    from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
+
+    privacy_guard = PersistencePrivacyGuard()
+    clean_description, _privacy_report = privacy_guard.sanitize_text(description)
+    clean_metadata, _metadata_privacy_report = privacy_guard.sanitize(
+        dict(metadata or {})
+    )
+    if not isinstance(clean_metadata, dict):
+        raise WorkItemBackendUnavailable(
+            "WorkItem metadata privacy normalization failed"
+        )
+    return clean_description, clean_metadata
+
+
+def _persist_work_item_node(
+    engine: Any, item_id: str, properties: dict[str, Any], create_if_absent: bool
+) -> tuple[bool, bool]:
+    """Create/add the WorkItem node. Returns ``(created, already_existed)``."""
+    if create_if_absent:
+        # ``WorkItemNode`` projects its enum value as ``work_item`` for model
+        # serialization, while graph authorities persist the canonical class
+        # label ``WorkItem``.  The control-plane adapter applies this stamp on
+        # its ordinary add path; preserve it for the atomic native path too.
+        properties["node_type"] = _NODE_LABEL
+        create = getattr(_authority(engine), "create_node_if_absent", None)
+        if not callable(create):
+            raise WorkItemBackendUnavailable(
+                "atomic WorkItem submission requires engine-native "
+                "create_node_if_absent"
+            )
+        created = bool(create(item_id, properties=properties))
+        return created, not created
+    _authority(engine).add_node(item_id, _NODE_LABEL, properties=properties)
+    return True, False
+
+
+def _index_work_item_dependency_edges(
+    engine: Any,
+    item_id: str,
+    resolved_deps: list[str],
+    tracked_dep_ids: set[str],
+    now: float,
+) -> None:
+    edge_type = _task_depends_on_edge_type()
+    for dep_id in resolved_deps:
+        if dep_id not in tracked_dep_ids:
+            continue  # untracked dep: nothing to index for push-release, still counted above
+        _link(engine, item_id, dep_id, edge_type)
+        _append_downstream(engine, dep_id, item_id, now=now)
+
+
 def _submit_work_item(
     engine: Any,
     *,
@@ -854,65 +974,29 @@ def _submit_work_item(
     """
     from agent_utilities.knowledge_graph.core.engine_tasks import _coerce_prio_bucket
     from agent_utilities.models.knowledge_graph import WorkItemNode
-    from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
 
     now = now if now is not None else _now()
     tenant = _work_tenant(tenant)
 
-    if idempotency_key and not work_item_id:
-        existing_id = find_work_item_by_idempotency_key(
-            engine, tenant=tenant, idempotency_key=idempotency_key
-        )
-        if existing_id is not None:
-            return (existing_id, False) if return_created else existing_id
+    existing_id = _find_idempotent_work_item(
+        engine, tenant, idempotency_key, work_item_id
+    )
+    if existing_id is not None:
+        return _submit_result(existing_id, False, return_created)
 
     item_id = work_item_id or new_work_item_id()
 
     if get_work_item(engine, item_id) is not None:
-        return (item_id, False) if return_created else item_id  # idempotent upsert
+        return _submit_result(item_id, False, return_created)  # idempotent upsert
 
-    if tenant and max_tenant_in_flight is not None:
-        in_flight = tenant_in_flight_count(engine, tenant)
-        if in_flight >= max_tenant_in_flight:
-            raise TenantQuotaExceeded(
-                f"tenant {tenant!r} has {in_flight} in-flight WorkItems "
-                f">= quota {max_tenant_in_flight}"
-            )
+    _check_tenant_quota(engine, tenant, max_tenant_in_flight)
 
-    dep_ids = [d for d in dict.fromkeys(depends_on) if d]
-    resolved_deps: list[str] = []
-    # Which deps resolved to a tracked WorkItem in this single snapshot — reused
-    # by the edge-indexing loop below instead of re-fetching each one, so the
-    # created node's dep_count and its dependency edges derive from one
-    # consistent read (and N get_work_item() round-trips are removed).
-    tracked_dep_ids: set[str] = set()
-    dep_count = 0
-    for dep_id in dep_ids:
-        dep = get_work_item(engine, dep_id)
-        if dep is None:
-            # Dependency isn't (yet) a tracked WorkItem — conservatively block
-            # on it (mirrors fleet_reconciler's conservative "missing dep is
-            # NOT satisfied"); it simply won't be indexed for push-release
-            # until it exists, so a caller must submit parents before/along
-            # with children for the push-release path to fire.
-            dep_count += 1
-            resolved_deps.append(dep_id)
-            continue
-        resolved_deps.append(dep_id)
-        tracked_dep_ids.add(dep_id)
-        if dep.get("status") != "succeeded":
-            dep_count += 1
+    resolved_deps, tracked_dep_ids, dep_count = _resolve_work_item_dependencies(
+        engine, depends_on
+    )
 
     status = "submitted" if dep_count else "ready"
-    privacy_guard = PersistencePrivacyGuard()
-    clean_description, _privacy_report = privacy_guard.sanitize_text(description)
-    clean_metadata, _metadata_privacy_report = privacy_guard.sanitize(
-        dict(metadata or {})
-    )
-    if not isinstance(clean_metadata, dict):
-        raise WorkItemBackendUnavailable(
-            "WorkItem metadata privacy normalization failed"
-        )
+    clean_description, clean_metadata = _sanitize_work_item_text(description, metadata)
 
     node = WorkItemNode(
         id=item_id,
@@ -956,34 +1040,18 @@ def _submit_work_item(
         consent_expires_at=consent_expires_at,
     )
     properties = node.to_graph_properties(exclude={"id"})
-    if create_if_absent:
-        # ``WorkItemNode`` projects its enum value as ``work_item`` for model
-        # serialization, while graph authorities persist the canonical class
-        # label ``WorkItem``.  The control-plane adapter applies this stamp on
-        # its ordinary add path; preserve it for the atomic native path too.
-        properties["node_type"] = _NODE_LABEL
-        create = getattr(_authority(engine), "create_node_if_absent", None)
-        if not callable(create):
-            raise WorkItemBackendUnavailable(
-                "atomic WorkItem submission requires engine-native "
-                "create_node_if_absent"
-            )
-        created = bool(create(item_id, properties=properties))
-        if not created:
-            return (item_id, False) if return_created else item_id
-    else:
-        _authority(engine).add_node(item_id, _NODE_LABEL, properties=properties)
-        created = True
+    created, already_existed = _persist_work_item_node(
+        engine, item_id, properties, create_if_absent
+    )
+    if already_existed:
+        return _submit_result(item_id, False, return_created)
 
-    edge_type = _task_depends_on_edge_type()
-    for dep_id in resolved_deps:
-        if dep_id not in tracked_dep_ids:
-            continue  # untracked dep: nothing to index for push-release, still counted above
-        _link(engine, item_id, dep_id, edge_type)
-        _append_downstream(engine, dep_id, item_id, now=now)
+    _index_work_item_dependency_edges(
+        engine, item_id, resolved_deps, tracked_dep_ids, now
+    )
 
     _reconcile_dependency_readiness(engine, item_id, now=now)
-    return (item_id, created) if return_created else item_id
+    return _submit_result(item_id, created, return_created)
 
 
 def submit_work_item(
@@ -1167,6 +1235,82 @@ def _append_downstream(
     return False
 
 
+def _count_unresolved_dependencies(engine: Any, dependency_ids: list[str]) -> int:
+    unresolved = 0
+    for dependency_id in dependency_ids:
+        dependency = get_work_item(engine, dependency_id)
+        if dependency is None or dependency.get("status") != "succeeded":
+            unresolved += 1
+    return unresolved
+
+
+def _attempt_dependency_readiness_cas(
+    engine: Any,
+    item_id: str,
+    current_count: int,
+    unresolved: int,
+    next_status: str,
+    timestamp: float,
+) -> bool | None:
+    """Try the repair CAS. ``True``=won, ``False``=refused (bounded no-op), ``None``=lost (retry)."""
+    try:
+        won = _cas(
+            engine,
+            item_id,
+            {"status": "submitted", "dep_count": current_count},
+            {
+                "status": next_status,
+                "dep_count": unresolved,
+                "updated_at": timestamp,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 — best-effort repair, see docstring
+        if not _is_native_authority_refusal(exc):
+            raise
+        # The engine's native WorkItem-authority guard (RMDD-29) refuses this
+        # generic ``status`` transition on an already-existing native
+        # WorkItem row (the same categorical refusal :func:`_append_downstream`
+        # hits — see its docstring). There is no native call for THIS
+        # narrow repair window either. Accepted, bounded degradation: the
+        # PRIMARY path (native ``CommitWorkItemResult``'s own atomic
+        # dependency release) is unaffected — only this rare
+        # create-then-index race's repair silently no-ops instead of
+        # crashing the caller; the item stays "submitted" until something
+        # else reconciles it.
+        logger.debug(
+            "work_item: dependency-readiness repair for %s refused by "
+            "native WorkItem authority (bounded degradation): %s",
+            item_id,
+            exc,
+        )
+        return False
+    return True if won else None
+
+
+def _dependency_ids_of(item: dict[str, Any]) -> list[str]:
+    return [str(value) for value in item.get("depends_on") or () if value]
+
+
+def _reconcile_dependency_readiness_once(
+    engine: Any, item_id: str, timestamp: float
+) -> bool | None:
+    """One CAS-loop iteration. ``None`` means the caller should retry."""
+    item = get_work_item(engine, item_id)
+    if item is None or item.get("status") != "submitted":
+        return False
+    dependency_ids = _dependency_ids_of(item)
+    if not dependency_ids:
+        return False
+    unresolved = _count_unresolved_dependencies(engine, dependency_ids)
+    current_count = int(item.get("dep_count") or 0)
+    next_status = "ready" if unresolved == 0 else "submitted"
+    if current_count == unresolved and next_status == item.get("status"):
+        return False
+    return _attempt_dependency_readiness_cas(
+        engine, item_id, current_count, unresolved, next_status, timestamp
+    )
+
+
 def _reconcile_dependency_readiness(
     engine: Any, item_id: str, *, now: float | None = None
 ) -> bool:
@@ -1188,54 +1332,9 @@ def _reconcile_dependency_readiness(
     """
     timestamp = now if now is not None else _now()
     for _ in range(_CAS_LOOP_MAX_RETRIES):
-        item = get_work_item(engine, item_id)
-        if item is None or item.get("status") != "submitted":
-            return False
-        dependency_ids = [str(value) for value in item.get("depends_on") or () if value]
-        if not dependency_ids:
-            return False
-        unresolved = 0
-        for dependency_id in dependency_ids:
-            dependency = get_work_item(engine, dependency_id)
-            if dependency is None or dependency.get("status") != "succeeded":
-                unresolved += 1
-        current_count = int(item.get("dep_count") or 0)
-        next_status = "ready" if unresolved == 0 else "submitted"
-        if current_count == unresolved and next_status == item.get("status"):
-            return False
-        try:
-            won = _cas(
-                engine,
-                item_id,
-                {"status": "submitted", "dep_count": current_count},
-                {
-                    "status": next_status,
-                    "dep_count": unresolved,
-                    "updated_at": timestamp,
-                },
-            )
-        except Exception as exc:  # noqa: BLE001 — best-effort repair, see docstring
-            if not _is_native_authority_refusal(exc):
-                raise
-            # The engine's native WorkItem-authority guard (RMDD-29) refuses this
-            # generic ``status`` transition on an already-existing native
-            # WorkItem row (the same categorical refusal :func:`_append_downstream`
-            # hits — see its docstring). There is no native call for THIS
-            # narrow repair window either. Accepted, bounded degradation: the
-            # PRIMARY path (native ``CommitWorkItemResult``'s own atomic
-            # dependency release) is unaffected — only this rare
-            # create-then-index race's repair silently no-ops instead of
-            # crashing the caller; the item stays "submitted" until something
-            # else reconciles it.
-            logger.debug(
-                "work_item: dependency-readiness repair for %s refused by "
-                "native WorkItem authority (bounded degradation): %s",
-                item_id,
-                exc,
-            )
-            return False
-        if won:
-            return True
+        outcome = _reconcile_dependency_readiness_once(engine, item_id, timestamp)
+        if outcome is not None:
+            return outcome
     logger.warning(
         "work_item: dependency readiness reconciliation for %s lost %d CAS retries",
         item_id,
@@ -1583,6 +1682,41 @@ def reap_expired_leases(
 # ── result commit (idempotent, fenced) + atomic dependency release ─────
 
 
+_COMMIT_RESULT_STATUS_ALIASES: dict[str, str] = {
+    "succeeded": "committed",
+    "failed": "committed",
+    "cancelled": "committed",
+    "deadletter": "dead_letter",
+    "dead-letter": "dead_letter",
+    "requeued": "retry_scheduled",
+    "retry": "retry_scheduled",
+    "already_committed": "noop",
+}
+_COMMIT_RESULT_VALID_STATUSES: frozenset[str] = frozenset(
+    {
+        "committed",
+        "retry_scheduled",
+        "dead_letter",
+        "noop",
+        "fenced",
+        "missing",
+        "conflict",
+    }
+)
+
+
+def _normalize_commit_result_status(native: Any) -> str:
+    if not isinstance(native, dict):
+        return "committed" if native else "conflict"
+    result = str(native.get("status") or native.get("result") or "").lower()
+    result = _COMMIT_RESULT_STATUS_ALIASES.get(result, result)
+    if result not in _COMMIT_RESULT_VALID_STATUSES:
+        raise WorkItemBackendUnavailable(
+            f"native CommitWorkItemResult returned unknown status {result!r}"
+        )
+    return result
+
+
 def commit_result(
     engine: Any,
     item_id: str,
@@ -1633,33 +1767,23 @@ def commit_result(
             ),
         },
     )
+    return _normalize_commit_result_status(native)
+
+
+def _normalize_cancel_status(engine: Any, item_id: str, native: Any) -> bool:
     if not isinstance(native, dict):
-        return "committed" if native else "conflict"
-    result = str(native.get("status") or native.get("result") or "").lower()
-    aliases = {
-        "succeeded": "committed",
-        "failed": "committed",
-        "cancelled": "committed",
-        "deadletter": "dead_letter",
-        "dead-letter": "dead_letter",
-        "requeued": "retry_scheduled",
-        "retry": "retry_scheduled",
-        "already_committed": "noop",
-    }
-    result = aliases.get(result, result)
-    if result not in {
-        "committed",
-        "retry_scheduled",
-        "dead_letter",
-        "noop",
-        "fenced",
-        "missing",
-        "conflict",
-    }:
-        raise WorkItemBackendUnavailable(
-            f"native CommitWorkItemResult returned unknown status {result!r}"
-        )
-    return result
+        return bool(native)
+    status = str(native.get("status") or "").lower()
+    if status == "cancelled":
+        return True
+    if status == "noop":
+        latest = get_work_item(engine, item_id)
+        return bool(latest and latest.get("status") == "cancelled")
+    if status in {"missing", "in_flight", "not_cancellable"}:
+        return False
+    raise WorkItemBackendUnavailable(
+        f"native CancelWorkItem returned unknown status {status!r}"
+    )
 
 
 def cancel_work_item(
@@ -1692,18 +1816,19 @@ def cancel_work_item(
             "now_unix": now,
         },
     )
+    return _normalize_cancel_status(engine, item_id, native)
+
+
+def _normalize_defer_status(native: Any) -> bool:
     if not isinstance(native, dict):
         return bool(native)
     status = str(native.get("status") or "").lower()
-    if status == "cancelled":
+    if status == "deferred":
         return True
-    if status == "noop":
-        latest = get_work_item(engine, item_id)
-        return bool(latest and latest.get("status") == "cancelled")
-    if status in {"missing", "in_flight", "not_cancellable"}:
+    if status in {"missing", "fenced"}:
         return False
     raise WorkItemBackendUnavailable(
-        f"native CancelWorkItem returned unknown status {status!r}"
+        f"native DeferWorkItem returned unknown status {status!r}"
     )
 
 
@@ -1740,16 +1865,7 @@ def defer_work_item(
             "now_unix": now,
         },
     )
-    if not isinstance(native, dict):
-        return bool(native)
-    status = str(native.get("status") or "").lower()
-    if status == "deferred":
-        return True
-    if status in {"missing", "fenced"}:
-        return False
-    raise WorkItemBackendUnavailable(
-        f"native DeferWorkItem returned unknown status {status!r}"
-    )
+    return _normalize_defer_status(native)
 
 
 # ── external input request/response (MCP Tasks `input_required`) ──────
@@ -1948,6 +2064,41 @@ def ensure_agent_task_work_item(
     return item_id
 
 
+def _mirror_agent_task_running_status(engine: Any, task_id: str) -> None:
+    # Opaque lease identifier for the return contract below — NOT a graph
+    # node id. No `:AgentLease` node is written for it (see the module note
+    # above): lease/fencing state lives only in the WorkItem claim
+    # (`claim_specific`/`mark_running` already committed it).
+    try:
+        engine.add_node(task_id, "AgentTask", properties={"status": "running"})
+    except Exception as e:  # noqa: BLE001 — mirror is best-effort
+        logger.warning(
+            "work_item bridge: legacy AgentTask status mirror failed for %s: %s",
+            task_id,
+            e,
+        )
+
+
+def _legacy_agent_task_dag_fields(engine: Any, task_id: str) -> tuple[str, Any]:
+    dag_id = ""
+    checkpoint_id = None
+    try:
+        legacy_rows = engine.query_cypher(
+            "MATCH (t:AgentTask {id: $id}) RETURN t.id AS id, t.dag_id AS dag_id, t.checkpoint_id AS checkpoint_id",
+            {"id": task_id},
+        )
+        if legacy_rows:
+            dag_id = legacy_rows[0].get("dag_id") or ""
+            checkpoint_id = legacy_rows[0].get("checkpoint_id")
+    except Exception as e:  # noqa: BLE001 — the claim/lease above (claim_specific + mark_running) already committed before this read; a failed legacy dag_id/checkpoint_id lookup only leaves those two return fields blank, it does not affect whether the task was actually claimed
+        logger.debug(
+            "work_item bridge: legacy dag_id/checkpoint_id read failed for %s: %s",
+            task_id,
+            e,
+        )
+    return dag_id, checkpoint_id
+
+
 def claim_agent_task_via_work_item(
     engine: Any,
     task_id: str,
@@ -1991,37 +2142,9 @@ def claim_agent_task_via_work_item(
     mark_running(engine, item_id, claim, now=now)
     item = get_work_item(engine, item_id) or {}
 
-    try:
-        engine.add_node(task_id, "AgentTask", properties={"status": "running"})
-    except Exception as e:  # noqa: BLE001 — mirror is best-effort
-        logger.warning(
-            "work_item bridge: legacy AgentTask status mirror failed for %s: %s",
-            task_id,
-            e,
-        )
-
-    # Opaque lease identifier for the return contract below — NOT a graph
-    # node id. No `:AgentLease` node is written for it (see the module note
-    # above): lease/fencing state lives only in the WorkItem claim
-    # (`claim_specific`/`mark_running` above already committed it).
+    _mirror_agent_task_running_status(engine, task_id)
     lease_id = f"lease:{task_id}:{claim['fence_token']}"
-
-    dag_id = ""
-    checkpoint_id = None
-    try:
-        legacy_rows = engine.query_cypher(
-            "MATCH (t:AgentTask {id: $id}) RETURN t.id AS id, t.dag_id AS dag_id, t.checkpoint_id AS checkpoint_id",
-            {"id": task_id},
-        )
-        if legacy_rows:
-            dag_id = legacy_rows[0].get("dag_id") or ""
-            checkpoint_id = legacy_rows[0].get("checkpoint_id")
-    except Exception as e:  # noqa: BLE001 — the claim/lease above (claim_specific + mark_running) already committed before this read; a failed legacy dag_id/checkpoint_id lookup only leaves those two return fields blank, it does not affect whether the task was actually claimed
-        logger.debug(
-            "work_item bridge: legacy dag_id/checkpoint_id read failed for %s: %s",
-            task_id,
-            e,
-        )
+    dag_id, checkpoint_id = _legacy_agent_task_dag_fields(engine, task_id)
 
     return {
         "task_id": task_id,
@@ -2598,6 +2721,116 @@ def claim_loop_work_item(
     return claim
 
 
+def _transition_loop_paused(
+    engine: Any,
+    loop_id: str,
+    item_id: str,
+    claim: dict[str, Any] | None,
+    now: float | None,
+    lease_ttl_s: float,
+) -> bool:
+    if claim is None:
+        claim = claim_loop_work_item(engine, loop_id, now=now, lease_ttl_s=lease_ttl_s)
+    if claim is None:
+        return False
+    deferred = defer_work_item(
+        engine,
+        item_id,
+        claim,
+        next_retry_at=(now if now is not None else _now()) + 60.0,
+        reason_ref="loop_paused",
+        now=now,
+    )
+    if deferred:
+        claims = dict(_loop_claims.get() or {})
+        claims.pop(item_id, None)
+        _loop_claims.set(claims)
+    return deferred
+
+
+def _transition_loop_active(
+    engine: Any,
+    loop_id: str,
+    item_id: str,
+    claim: dict[str, Any] | None,
+    now: float | None,
+    lease_ttl_s: float,
+) -> bool:
+    if claim is None:
+        claim = claim_loop_work_item(engine, loop_id, now=now, lease_ttl_s=lease_ttl_s)
+        return claim is not None
+    return heartbeat(engine, item_id, claim, now=now, lease_ttl_s=lease_ttl_s)
+
+
+def _transition_loop_orphaned(engine: Any, item_id: str) -> bool:
+    item = get_work_item(engine, item_id)
+    return bool(item and item.get("status") in {"submitted", "ready"})
+
+
+_LOOP_STATUS_TO_OUTCOME: dict[str, str] = {
+    "completed": "succeeded",
+    "succeeded": "succeeded",
+    "failed": "failed",
+    "rejected": "failed",
+    "cancelled": "cancelled",
+    "canceled": "cancelled",
+    # Harness-enforced loop-exit terminal statuses (CONCEPT:AU-AHE.harness.
+    # loop-exit-conditions). Each commits the WorkItem terminally; the
+    # precise, diagnosable reason rides the result_ref/error_ref stamped by
+    # ``loops.mark_loop_status`` and is returned verbatim by ``run_loop``.
+    # An awaited external signal firing is a SUCCESS; every other enforced
+    # exit is an abnormal/exhaustion termination -> FAILED.
+    "external_event_satisfied": "succeeded",
+    "max_iterations_exceeded": "failed",
+    "budget_exceeded": "failed",
+    "wall_clock_exceeded": "failed",
+    "stalled": "failed",
+    "error_threshold_exceeded": "failed",
+}
+
+
+def _require_loop_claim(claim: dict[str, Any] | None, loop_id: str) -> dict[str, Any]:
+    if claim is None:
+        raise WorkItemBackendUnavailable(
+            f"Loop {loop_id!r} has no claim in this execution context"
+        )
+    return claim
+
+
+def _resolve_loop_terminal_outcome(status: str, normalized: str) -> str:
+    outcome = _LOOP_STATUS_TO_OUTCOME.get(normalized)
+    if outcome is None:
+        raise ValueError(f"unsupported Loop status transition {status!r}")
+    return outcome
+
+
+def _transition_loop_terminal(
+    engine: Any,
+    item_id: str,
+    claim: dict[str, Any],
+    outcome: str,
+    result_ref: str | None,
+    error_ref: str | None,
+    now: float | None,
+) -> bool:
+    result = commit_result(
+        engine,
+        item_id,
+        claim,
+        outcome=outcome,
+        result_ref=result_ref,
+        error_ref=error_ref,
+        retryable=False,
+        now=now,
+    )
+    if result not in {"committed", "noop", "dead_letter"}:
+        return False
+    claims = dict(_loop_claims.get() or {})
+    claims.pop(item_id, None)
+    _loop_claims.set(claims)
+    return True
+
+
 def transition_loop_work_item(
     engine: Any,
     loop_id: str,
@@ -2620,81 +2853,24 @@ def transition_loop_work_item(
     normalized = status.strip().lower()
     claim = (_loop_claims.get() or {}).get(item_id)
     if normalized == "paused":
-        if claim is None:
-            claim = claim_loop_work_item(
-                engine, loop_id, now=now, lease_ttl_s=lease_ttl_s
-            )
-        if claim is None:
-            return False
-        deferred = defer_work_item(
-            engine,
-            item_id,
-            claim,
-            next_retry_at=(now if now is not None else _now()) + 60.0,
-            reason_ref="loop_paused",
-            now=now,
+        return _transition_loop_paused(
+            engine, loop_id, item_id, claim, now, lease_ttl_s
         )
-        if deferred:
-            claims = dict(_loop_claims.get() or {})
-            claims.pop(item_id, None)
-            _loop_claims.set(claims)
-        return deferred
     if normalized in {"running", "pending", "validating"}:
-        if claim is None:
-            claim = claim_loop_work_item(
-                engine, loop_id, now=now, lease_ttl_s=lease_ttl_s
-            )
-            return claim is not None
-        return heartbeat(engine, item_id, claim, now=now, lease_ttl_s=lease_ttl_s)
+        return _transition_loop_active(
+            engine, loop_id, item_id, claim, now, lease_ttl_s
+        )
     if normalized == "orphaned":
-        item = get_work_item(engine, item_id)
-        return bool(item and item.get("status") in {"submitted", "ready"})
+        return _transition_loop_orphaned(engine, item_id)
     if normalized in {"cancelled", "canceled"} and claim is None:
         return cancel_work_item(
             engine, item_id, reason=error_ref or "cancelled", now=now
         )
-    if claim is None:
-        raise WorkItemBackendUnavailable(
-            f"Loop {loop_id!r} has no claim in this execution context"
-        )
-    outcome = {
-        "completed": "succeeded",
-        "succeeded": "succeeded",
-        "failed": "failed",
-        "rejected": "failed",
-        "cancelled": "cancelled",
-        "canceled": "cancelled",
-        # Harness-enforced loop-exit terminal statuses (CONCEPT:AU-AHE.harness.
-        # loop-exit-conditions). Each commits the WorkItem terminally; the
-        # precise, diagnosable reason rides the result_ref/error_ref stamped by
-        # ``loops.mark_loop_status`` and is returned verbatim by ``run_loop``.
-        # An awaited external signal firing is a SUCCESS; every other enforced
-        # exit is an abnormal/exhaustion termination -> FAILED.
-        "external_event_satisfied": "succeeded",
-        "max_iterations_exceeded": "failed",
-        "budget_exceeded": "failed",
-        "wall_clock_exceeded": "failed",
-        "stalled": "failed",
-        "error_threshold_exceeded": "failed",
-    }.get(normalized)
-    if outcome is None:
-        raise ValueError(f"unsupported Loop status transition {status!r}")
-    result = commit_result(
-        engine,
-        item_id,
-        claim,
-        outcome=outcome,
-        result_ref=result_ref,
-        error_ref=error_ref,
-        retryable=False,
-        now=now,
+    claim = _require_loop_claim(claim, loop_id)
+    outcome = _resolve_loop_terminal_outcome(status, normalized)
+    return _transition_loop_terminal(
+        engine, item_id, claim, outcome, result_ref, error_ref, now
     )
-    if result in {"committed", "noop", "dead_letter"}:
-        claims = dict(_loop_claims.get() or {})
-        claims.pop(item_id, None)
-        _loop_claims.set(claims)
-        return True
-    return False
 
 
 def set_work_item_priority(

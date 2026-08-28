@@ -140,6 +140,69 @@ def _throttled_gc() -> None:
             _LAST_GC_TIME = now
 
 
+# Substring markers used to classify a failed connection attempt's exception
+# message (CONCEPT:AU-KG.backend.mirror-health-repair): "corrupted" self-heals
+# by cleaning WAL/shadow artifacts (and, if persistent, quarantining the main
+# file); "lock" retries with backoff; anything else is a hard failure.
+_CORRUPTION_ERROR_MARKERS: tuple[str, ...] = (
+    "corrupted",
+    "invalid wal record",
+    "read out invalid",
+    "unreachable_code",
+    "shadow",
+    "database id",
+    "cannot open file",
+    "cannot read from file",
+    "no such file or directory",
+    "not a valid lbug",
+    "unable to open database",
+)
+_LOCK_ERROR_MARKERS: tuple[str, ...] = (
+    "lock",
+    "busy",
+    "already exists",
+    "bad_alloc",
+    "io exception",
+    "no such file",
+)
+
+
+def _classify_connection_error(msg: str) -> str:
+    """Classify a lower-cased connection-error message: corrupted/lock/other."""
+    if any(marker in msg for marker in _CORRUPTION_ERROR_MARKERS):
+        return "corrupted"
+    if any(marker in msg for marker in _LOCK_ERROR_MARKERS):
+        return "lock"
+    return "other"
+
+
+# Substring markers for classifying a failed execute() Cypher call, mirroring
+# the connection-error markers above; lock-contention is checked separately
+# (it also matches on exception type, not just message).
+_MIGRATION_ERROR_MARKERS: tuple[str, ...] = (
+    "already has property",
+    "duplicate",
+    "already exists",
+)
+_BINDER_EXPECTED_MARKERS: tuple[str, ...] = (
+    "doesn't have an index with name",
+    "cannot find property",
+)
+
+
+def _classify_execute_error(msg: str) -> str:
+    """Classify a lower-cased execute() error message (lock handled separately)."""
+    if any(marker in msg for marker in _MIGRATION_ERROR_MARKERS):
+        return "migration"
+    if "table" in msg and "does not exist" in msg:
+        return "missing_table"
+    if "binder exception" in msg:
+        if any(marker in msg for marker in _BINDER_EXPECTED_MARKERS):
+            return "binder_expected"
+        return "binder_issue"
+    return "other"
+
+
 class LadybugLockContentionError(ConnectionError):
     """LadybugDB file/lock contention — retryable after connection self-heal."""
 
@@ -311,86 +374,139 @@ class LadybugBackend(GraphBackend):
                     f"LadybugBackend: failed to restore connection in self-healing: {e}"
                 )
 
+    def _open_database_connection(self) -> None:
+        """Resolve db_params, open (or reuse the cached) Database + Connection."""
+        buffer_size = setting("LADYBUG_MAX_DB_SIZE")
+        db_params: dict[str, Any] = {}
+        if self.read_only:
+            db_params["read_only"] = True
+        if buffer_size:
+            try:
+                db_params["max_db_size"] = int(buffer_size)
+            except ValueError:
+                logger.warning(f"Invalid LADYBUG buffer/db size: {buffer_size}")
+
+        # Safely open database
+        abs_db_path = (
+            os.path.abspath(self.db_path) if self.db_path != ":memory:" else ":memory:"
+        )
+        with _ACTIVE_DATABASES_LOCK:
+            if abs_db_path in _ACTIVE_DATABASES:
+                self.db = _ACTIVE_DATABASES[abs_db_path]
+            else:
+                self.db = ladybug.Database(
+                    self.db_path if self.db_path != ":memory:" else None,
+                    **db_params,  # type: ignore[arg-type]
+                )
+                _ACTIVE_DATABASES[abs_db_path] = self.db
+            _ACTIVE_DATABASE_REFCOUNTS[abs_db_path] = (
+                _ACTIVE_DATABASE_REFCOUNTS.get(abs_db_path, 0) + 1
+            )
+            self._db_cache_key = abs_db_path
+        self.conn = ladybug.Connection(self.db)
+
+    def _apply_connection_pragmas(self) -> None:
+        """Apply WAL durability pragmas if supported by this LadybugDB build."""
+        try:
+            self.conn.execute("PRAGMA journal_mode=WAL;")
+            self.conn.execute("PRAGMA synchronous=NORMAL;")
+            self.conn.execute("PRAGMA busy_timeout=10000;")
+        except Exception as e:  # noqa: BLE001 — PRAGMA support varies by LadybugDB build; the connection is already open (self.conn = ladybug.Connection(self.db) above) — WAL/synchronous/busy_timeout are durability tuning, not required for correctness
+            logger.debug(f"WAL pragma not supported or ignored: {e}")
+
+    def _load_vector_extension(self) -> None:
+        """Load the VECTOR extension; downstream paths fall back when absent."""
+        try:
+            self.conn.execute("INSTALL VECTOR;")
+            self.conn.execute("LOAD EXTENSION VECTOR;")
+            logger.debug("LadybugDB VECTOR extension loaded successfully")
+        except Exception as ve:  # noqa: BLE001 — feature-detection: the VECTOR extension may not be present in this LadybugDB build; downstream vector-search paths already fall back when unavailable (not gated on any state advanced here)
+            logger.debug(f"Could not load VECTOR extension: {ve}")
+
+    def _auto_init_schema_if_needed(self) -> None:
+        """Run schema auto-init once per abs_db_path (read-write connections only)."""
+        abs_db_path = (
+            os.path.abspath(self.db_path)
+            if self.db_path != ":memory:"
+            else f":memory:{id(self.db)}"
+        )
+        with _SYNCHRONIZED_DB_PATHS_LOCK:
+            already_synced = abs_db_path in _SYNCHRONIZED_DB_PATHS
+        if already_synced:
+            return
+        try:
+            self._create_schema_unlocked()
+            with _SYNCHRONIZED_DB_PATHS_LOCK:
+                _SYNCHRONIZED_DB_PATHS.add(abs_db_path)
+        except Exception as schema_err:
+            logger.warning(f"Auto-initializing schema failed: {schema_err}")
+
+    def _quarantine_corrupted_db(self) -> None:
+        """Move a persistently-corrupted main DB file aside for full self-healing."""
+        logger.error(
+            f"Persistent database corruption detected in {self.db_path} after WAL cleanup. "
+            f"Moving main database file aside to allow complete self-healing."
+        )
+        try:
+            from pathlib import Path
+
+            p = Path(self.db_path)
+            if p.exists():
+                p.rename(p.with_suffix(".corrupted"))
+        except Exception as rename_err:
+            logger.error(f"Failed to move corrupted database: {rename_err}")
+
+    def _handle_corruption_error(self, attempt: int, retries: int) -> None:
+        logger.warning(
+            f"Detected database corruption or WAL/shadow error in {self.db_path} "
+            f"(attempt {attempt + 1}/{retries}). Self-healing by cleaning up WAL/shadow files."
+        )
+        self._backup_db()
+        self._cleanup_corrupted()
+        if attempt >= 2 and self.db_path != ":memory:":
+            self._quarantine_corrupted_db()
+
+    def _handle_lock_error(self, exc: Exception, attempt: int, retries: int) -> None:
+        if attempt == retries - 1:
+            raise exc
+        import secrets
+        import time
+
+        wait_time = ((2**attempt) * 0.1) + secrets.SystemRandom().random() * 0.2
+        logger.warning(
+            f"Graph DB locked or catalog race (error: {exc}), retrying connection in "
+            f"{wait_time:.2f}s (attempt {attempt + 1}/{retries})..."
+        )
+        time.sleep(wait_time)
+
+    def _handle_connection_error(
+        self, exc: Exception, attempt: int, retries: int
+    ) -> None:
+        """Classify one failed connection attempt and self-heal or re-raise."""
+        kind = _classify_connection_error(str(exc).lower())
+        if kind == "corrupted":
+            self._handle_corruption_error(attempt, retries)
+            return
+        if kind == "lock":
+            self._handle_lock_error(exc, attempt, retries)
+            return
+        raise exc
+
     def _ensure_connection(self, max_retries: int | None = None) -> None:
         """Lazily ensure the Database and Connection are open with robust retry-backoff."""
         if self.conn is not None:
             return
-
-        import time
 
         retries = max_retries if max_retries is not None else self.max_retries
         last_error: Exception = RuntimeError("Max retries exceeded")
 
         for attempt in range(retries):
             try:
-                buffer_size = setting("LADYBUG_MAX_DB_SIZE")
-                from typing import Any
-
-                db_params: dict[str, Any] = {}
-                if self.read_only:
-                    db_params["read_only"] = True
-                if buffer_size:
-                    try:
-                        db_params["max_db_size"] = int(buffer_size)
-                    except ValueError:
-                        logger.warning(f"Invalid LADYBUG buffer/db size: {buffer_size}")
-
-                # Safely open database
-                abs_db_path = (
-                    os.path.abspath(self.db_path)
-                    if self.db_path != ":memory:"
-                    else ":memory:"
-                )
-                with _ACTIVE_DATABASES_LOCK:
-                    if abs_db_path in _ACTIVE_DATABASES:
-                        self.db = _ACTIVE_DATABASES[abs_db_path]
-                    else:
-                        self.db = ladybug.Database(
-                            self.db_path if self.db_path != ":memory:" else None,
-                            **db_params,  # type: ignore[arg-type]
-                        )
-                        _ACTIVE_DATABASES[abs_db_path] = self.db
-                    _ACTIVE_DATABASE_REFCOUNTS[abs_db_path] = (
-                        _ACTIVE_DATABASE_REFCOUNTS.get(abs_db_path, 0) + 1
-                    )
-                    self._db_cache_key = abs_db_path
-                self.conn = ladybug.Connection(self.db)
-
-                # Apply WAL pragmas if supported
-                try:
-                    self.conn.execute("PRAGMA journal_mode=WAL;")
-                    self.conn.execute("PRAGMA synchronous=NORMAL;")
-                    self.conn.execute("PRAGMA busy_timeout=10000;")
-                except Exception as e:  # noqa: BLE001 — PRAGMA support varies by LadybugDB build; the connection is already open (self.conn = ladybug.Connection(self.db) above) — WAL/synchronous/busy_timeout are durability tuning, not required for correctness
-                    logger.debug(f"WAL pragma not supported or ignored: {e}")
-
-                # Load VECTOR extension
-                try:
-                    self.conn.execute("INSTALL VECTOR;")
-                    self.conn.execute("LOAD EXTENSION VECTOR;")
-                    logger.debug("LadybugDB VECTOR extension loaded successfully")
-                except Exception as ve:  # noqa: BLE001 — feature-detection: the VECTOR extension may not be present in this LadybugDB build; downstream vector-search paths already fall back when unavailable (not gated on any state advanced here)
-                    logger.debug(f"Could not load VECTOR extension: {ve}")
-
-                # Auto-initialize schema if not read-only
+                self._open_database_connection()
+                self._apply_connection_pragmas()
+                self._load_vector_extension()
                 if not self.read_only:
-                    abs_db_path = (
-                        os.path.abspath(self.db_path)
-                        if self.db_path != ":memory:"
-                        else f":memory:{id(self.db)}"
-                    )
-                    with _SYNCHRONIZED_DB_PATHS_LOCK:
-                        already_synced = abs_db_path in _SYNCHRONIZED_DB_PATHS
-                    if not already_synced:
-                        try:
-                            self._create_schema_unlocked()
-                            with _SYNCHRONIZED_DB_PATHS_LOCK:
-                                _SYNCHRONIZED_DB_PATHS.add(abs_db_path)
-                        except Exception as schema_err:
-                            logger.warning(
-                                f"Auto-initializing schema failed: {schema_err}"
-                            )
-
+                    self._auto_init_schema_if_needed()
                 # Backup only if we successfully recovered after retries
                 if attempt > 0:
                     self._backup_db()
@@ -399,64 +515,7 @@ class LadybugBackend(GraphBackend):
                 # Always clean up partial state on failure
                 self.close()
                 last_error = e
-                msg = str(e).lower()
-                if (
-                    "corrupted" in msg
-                    or "invalid wal record" in msg
-                    or "read out invalid" in msg
-                    or "unreachable_code" in msg
-                    or "shadow" in msg
-                    or "database id" in msg
-                    or "cannot open file" in msg
-                    or "cannot read from file" in msg
-                    or "no such file or directory" in msg
-                    or "not a valid lbug" in msg
-                    or "unable to open database" in msg
-                ):
-                    logger.warning(
-                        f"Detected database corruption or WAL/shadow error in {self.db_path} "
-                        f"(attempt {attempt + 1}/{retries}). Self-healing by cleaning up WAL/shadow files."
-                    )
-                    self._backup_db()
-                    self._cleanup_corrupted()
-                    if attempt >= 2 and self.db_path != ":memory:":
-                        logger.error(
-                            f"Persistent database corruption detected in {self.db_path} after WAL cleanup. "
-                            f"Moving main database file aside to allow complete self-healing."
-                        )
-                        try:
-                            from pathlib import Path
-
-                            p = Path(self.db_path)
-                            if p.exists():
-                                p.rename(p.with_suffix(".corrupted"))
-                        except Exception as rename_err:
-                            logger.error(
-                                f"Failed to move corrupted database: {rename_err}"
-                            )
-                    continue
-                elif (
-                    "lock" in msg
-                    or "busy" in msg
-                    or "already exists" in msg
-                    or "bad_alloc" in msg
-                    or "io exception" in msg
-                    or "no such file" in msg
-                ):
-                    if attempt == retries - 1:
-                        raise e
-                    import secrets
-
-                    wait_time = (
-                        (2**attempt) * 0.1
-                    ) + secrets.SystemRandom().random() * 0.2
-                    logger.warning(
-                        f"Graph DB locked or catalog race (error: {e}), retrying connection in {wait_time:.2f}s "
-                        f"(attempt {attempt + 1}/{retries})..."
-                    )
-                    time.sleep(wait_time)
-                else:
-                    raise e
+                self._handle_connection_error(e, attempt, retries)
         raise last_error
 
     def _release_cached_db(self, db: typing.Any) -> None:
@@ -542,35 +601,28 @@ class LadybugBackend(GraphBackend):
                 self._release_cached_db(db)
                 _throttled_gc()
 
+    def _teardown_connection_and_db(self) -> None:
+        conn = getattr(self, "conn", None)
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            self.conn = None
+        db = getattr(self, "db", None)
+        if db is not None:
+            self.db = None
+            self._release_cached_db(db)
+
     def __del__(self) -> None:
         """Ensure connection is destroyed before database to avoid C++ Kuzu abort."""
         try:
             lock = getattr(self, "_thread_lock", None)
             if lock is not None:
                 with lock:
-                    conn = getattr(self, "conn", None)
-                    if conn is not None:
-                        try:
-                            conn.close()
-                        except Exception:
-                            pass
-                        self.conn = None
-                    db = getattr(self, "db", None)
-                    if db is not None:
-                        self.db = None
-                        self._release_cached_db(db)
+                    self._teardown_connection_and_db()
             else:
-                conn = getattr(self, "conn", None)
-                if conn is not None:
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
-                    self.conn = None
-                db = getattr(self, "db", None)
-                if db is not None:
-                    self.db = None
-                    self._release_cached_db(db)
+                self._teardown_connection_and_db()
         except Exception:  # nosec B110
             pass
 
@@ -651,6 +703,101 @@ class LadybugBackend(GraphBackend):
             # Don't crash the server if backup fails, just log it
             logger.warning(f"Database backup failed: {e}")
 
+    def _rows_from_result(self, res: Any) -> list[dict[str, Any]]:
+        from typing import cast
+
+        if isinstance(res, list):
+            if not res:
+                return []
+            res = res[0]
+        return cast(list[dict[str, Any]], res.rows_as_dict().get_all())
+
+    def _execute_attempt_body(
+        self, query: str, params: dict[str, Any] | None
+    ) -> list[dict[str, Any]]:
+        with self._get_lock():
+            self._ensure_connection()
+            if self.conn is None:
+                logger.warning(
+                    "LadybugBackend.execute: connection could not be opened."
+                )
+                return []
+            # Learn the node's table (for later edge binding), bind a
+            # label-less edge write to typed Kuzu endpoints, and auto-create
+            # any node table / rel pair the (bound) query needs. (KG-2.74)
+            self._cache_node_label(query, params)
+            q = self._bind_edge_query(query, params)
+            self._ensure_schema_for_query(q)
+            res = self.conn.execute(q, params or {})
+            ret_rows = self._rows_from_result(res)
+            # If transient mode is enabled, immediately close connection inside the lock
+            if self.transient:
+                self.close()
+        return ret_rows
+
+    def _close_after_error(self) -> None:
+        # On error, make sure we close the connection inside the lock
+        try:
+            with self._get_lock():
+                self.close()
+        except Exception:
+            pass
+
+    def _is_lock_contention_error(self, exc: Exception, msg: str) -> bool:
+        from filelock import Timeout as FileLockTimeout
+
+        return (
+            isinstance(exc, FileLockTimeout)
+            or "lock" in msg
+            or "busy" in msg
+            or "database is locked" in msg
+        )
+
+    def _log_execute_error(self, exc: Exception, query: str, kind: str) -> None:
+        if kind == "migration":
+            logger.debug(f"LadybugDB expected migration error: {exc}")
+        elif kind == "missing_table":
+            logger.warning(f"LadybugDB table not found (check schema): {exc}")
+        elif kind == "binder_expected":
+            logger.debug(
+                f"LadybugDB vector index or property missing (expected): {exc}"
+            )
+        elif kind == "binder_issue":
+            logger.error(f"LadybugDB binder issue (invalid property?): {exc}")
+        else:
+            import traceback
+
+            logger.error(
+                f"LadybugDB Cypher execution failed: {exc}\n"
+                f"Traceback: {traceback.format_exc()}\nQuery: {query}"
+            )
+
+    def _handle_execute_error(
+        self, exc: Exception, query: str, max_retries: int
+    ) -> list[dict[str, Any]]:
+        msg = str(exc).lower()
+        if self._is_lock_contention_error(exc, msg):
+            # Trigger self-healing recovery before the policy retries
+            # (exponential backoff with additive jitter, see below).
+            self._recover_connection()
+            logger.warning(
+                f"Database locked or timeout (e={exc}), healed connection. "
+                f"Retrying execute... (max {max_retries} attempts)"
+            )
+            raise LadybugLockContentionError(str(exc)) from exc
+        self._log_execute_error(exc, query, _classify_execute_error(msg))
+        return []
+
+    def _execute_attempt(
+        self, query: str, params: dict[str, Any] | None, max_retries: int
+    ) -> list[dict[str, Any]]:
+        try:
+            return self._execute_attempt_body(query, params)
+        except Exception as e:
+            if self.transient:
+                self._close_after_error()
+            return self._handle_execute_error(e, query, max_retries)
+
     def execute(
         self,
         query: str,
@@ -677,96 +824,6 @@ class LadybugBackend(GraphBackend):
 
         max_retries = self.max_retries
 
-        def _attempt() -> list[dict[str, Any]]:
-            try:
-                with self._get_lock():
-                    self._ensure_connection()
-                    if self.conn is None:
-                        logger.warning(
-                            "LadybugBackend.execute: connection could not be opened."
-                        )
-                        return []
-                    # Learn the node's table (for later edge binding), bind a
-                    # label-less edge write to typed Kuzu endpoints, and auto-create
-                    # any node table / rel pair the (bound) query needs. (KG-2.74)
-                    self._cache_node_label(query, params)
-                    q = self._bind_edge_query(query, params)
-                    self._ensure_schema_for_query(q)
-                    res = self.conn.execute(q, params or {})
-                    if isinstance(res, list):
-                        if not res:
-                            ret_rows = []
-                        else:
-                            res = res[0]
-                            from typing import cast
-
-                            ret_rows = cast(
-                                list[dict[str, Any]], res.rows_as_dict().get_all()
-                            )
-                    else:
-                        from typing import cast
-
-                        ret_rows = cast(
-                            list[dict[str, Any]], res.rows_as_dict().get_all()
-                        )
-
-                    # If transient mode is enabled, immediately close connection inside the lock
-                    if self.transient:
-                        self.close()
-
-                return ret_rows
-            except Exception as e:
-                # On error, make sure we close the connection inside the lock
-                if self.transient:
-                    try:
-                        with self._get_lock():
-                            self.close()
-                    except Exception:
-                        pass
-
-                msg = str(e).lower()
-                from filelock import Timeout as FileLockTimeout
-
-                if (
-                    isinstance(e, FileLockTimeout)
-                    or "lock" in msg
-                    or "busy" in msg
-                    or "database is locked" in msg
-                ):
-                    # Trigger self-healing recovery before the policy retries
-                    # (exponential backoff with additive jitter, see below).
-                    self._recover_connection()
-                    logger.warning(
-                        f"Database locked or timeout (e={e}), healed connection. "
-                        f"Retrying execute... (max {max_retries} attempts)"
-                    )
-                    raise LadybugLockContentionError(str(e)) from e
-                elif (
-                    "already has property" in msg
-                    or "duplicate" in msg
-                    or "already exists" in msg
-                ):
-                    logger.debug(f"LadybugDB expected migration error: {e}")
-                elif "table" in msg and "does not exist" in msg:
-                    logger.warning(f"LadybugDB table not found (check schema): {e}")
-                elif "binder exception" in msg:
-                    if (
-                        "doesn't have an index with name" in msg
-                        or "cannot find property" in msg
-                    ):
-                        logger.debug(
-                            f"LadybugDB vector index or property missing (expected): {e}"
-                        )
-                    else:
-                        logger.error(f"LadybugDB binder issue (invalid property?): {e}")
-                else:
-                    import traceback
-
-                    logger.error(
-                        f"LadybugDB Cypher execution failed: {e}\nTraceback: {traceback.format_exc()}\nQuery: {query}"
-                    )
-                return []
-
         # Lock-contention backoff: (2**n)*0.1 + jitter, capped (CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating).
         policy = ResiliencePolicy(
             max_attempts=max_retries,
@@ -779,7 +836,11 @@ class LadybugBackend(GraphBackend):
             name="ladybug-execute",
         )
         try:
-            return run_with_resilience_sync(_attempt, policy, rng=random.SystemRandom())
+            return run_with_resilience_sync(
+                lambda: self._execute_attempt(query, params, max_retries),
+                policy,
+                rng=random.SystemRandom(),
+            )
         except LadybugLockContentionError as exc:
             logger.error(
                 f"Failed to execute query after {max_retries} retries due to "
@@ -855,14 +916,72 @@ class LadybugBackend(GraphBackend):
         body = re.sub(r"row\.(\w+)", r"$\1", body)
         return body
 
-    def execute_batch(
-        self, query: str, batch: list[dict[str, Any]], chunk_size: int = 500
+    def _execute_batch_row(
+        self, query: str, params: dict[str, Any]
     ) -> list[dict[str, Any]]:
-        """Execute a batch query in chunks to avoid blocking the DB for too long."""
+        # Per row: learn node labels, then bind a label-less
+        # edge write to typed Kuzu endpoints (the (src→dst) pair
+        # can differ per row within one rel-type batch). (KG-2.74)
+        self._cache_node_label(query, params)
+        q = self._bind_edge_query(query, params)
+        if q is not query:
+            self._ensure_schema_for_query(q)
+        res = self.conn.execute(q, params or {})
+        # ladybug return format: list of QueryResult objects
+        if res and hasattr(res, "get_as_df"):
+            df = res.get_as_df()
+            return typing.cast(list[dict[str, Any]], df.to_dict("records"))
+        return []
+
+    def _execute_batch_chunk(
+        self, query: str, chunk: list[dict[str, Any]]
+    ) -> list[dict[str, Any]] | None:
+        """Run one chunk inside the lock; ``None`` means the connection wouldn't open."""
+        results: list[dict[str, Any]] = []
+        with self._get_lock():
+            self._ensure_connection()
+            if self.conn is None:
+                logger.warning(
+                    "LadybugBackend.execute_batch: connection could not be opened."
+                )
+                return None
+            self._ensure_schema_for_query(query)
+            for params in chunk:
+                results.extend(self._execute_batch_row(query, params))
+            # Close connection inside the lock in transient mode
+            if self.transient:
+                self.close()
+        return results
+
+    def _handle_batch_chunk_error(
+        self, exc: Exception, attempt: int, max_retries: int
+    ) -> tuple[int, bool]:
+        """Classify one failed chunk attempt. Returns ``(new_attempt, should_retry)``."""
+        if self.transient:
+            self._close_after_error()
+        msg = str(exc).lower()
+        if not self._is_lock_contention_error(exc, msg):
+            logger.warning(f"Batch execution chunk failed: {exc}")
+            return attempt, False
 
         import secrets
         import time
 
+        attempt += 1
+        # Trigger self-healing recovery before retrying
+        self._recover_connection()
+        wait_time = (2**attempt) * 0.05 + secrets.SystemRandom().random() * 0.1
+        logger.warning(
+            f"Database locked or timeout during batch, healed connection. "
+            f"Retrying chunk in {wait_time:.2f}s... (attempt {attempt}/{max_retries})"
+        )
+        time.sleep(wait_time)
+        return attempt, True
+
+    def execute_batch(
+        self, query: str, batch: list[dict[str, Any]], chunk_size: int = 500
+    ) -> list[dict[str, Any]]:
+        """Execute a batch query in chunks to avoid blocking the DB for too long."""
         # Bulk-writers emit ``UNWIND $batch AS row MERGE (n:L {id: row.id}) SET
         # n.`k` = row.`k` …``. Kuzu has no UNWIND-over-a-param-list here and the
         # per-row ``conn.execute`` below never bound ``$batch`` ("Parameter batch
@@ -879,65 +998,16 @@ class LadybugBackend(GraphBackend):
             attempt = 0
             while attempt < max_retries:
                 try:
-                    with self._get_lock():
-                        self._ensure_connection()
-                        if self.conn is None:
-                            logger.warning(
-                                "LadybugBackend.execute_batch: connection could not be opened."
-                            )
-                            break
-                        self._ensure_schema_for_query(query)
-                        for params in chunk:
-                            # Per row: learn node labels, then bind a label-less
-                            # edge write to typed Kuzu endpoints (the (src→dst) pair
-                            # can differ per row within one rel-type batch). (KG-2.74)
-                            self._cache_node_label(query, params)
-                            q = self._bind_edge_query(query, params)
-                            if q is not query:
-                                self._ensure_schema_for_query(q)
-                            res = self.conn.execute(q, params or {})
-                            # ladybug return format: list of QueryResult objects
-                            if res and hasattr(res, "get_as_df"):
-                                df = res.get_as_df()
-                                results.extend(
-                                    typing.cast(
-                                        list[dict[str, Any]], df.to_dict("records")
-                                    )
-                                )
-                        # Close connection inside the lock in transient mode
-                        if self.transient:
-                            self.close()
-                    break  # Success, move to next chunk
+                    chunk_results = self._execute_batch_chunk(query, chunk)
+                    if chunk_results is not None:
+                        results.extend(chunk_results)
+                    break  # Success (or unopenable connection), move to next chunk
                 except Exception as e:
-                    if self.transient:
-                        try:
-                            with self._get_lock():
-                                self.close()
-                        except Exception:
-                            pass
-                    msg = str(e).lower()
-                    from filelock import Timeout as FileLockTimeout
-
-                    if (
-                        isinstance(e, FileLockTimeout)
-                        or "lock" in msg
-                        or "busy" in msg
-                        or "database is locked" in msg
-                    ):
-                        attempt += 1
-
-                        # Trigger self-healing recovery before retrying
-                        self._recover_connection()
-
-                        wait_time = (
-                            2**attempt
-                        ) * 0.05 + secrets.SystemRandom().random() * 0.1
-                        logger.warning(
-                            f"Database locked or timeout during batch, healed connection. Retrying chunk in {wait_time:.2f}s... (attempt {attempt}/{max_retries})"
-                        )
-                        time.sleep(wait_time)
+                    attempt, should_retry = self._handle_batch_chunk_error(
+                        e, attempt, max_retries
+                    )
+                    if should_retry:
                         continue
-                    logger.warning(f"Batch execution chunk failed: {e}")
                     break
         return results
 
@@ -997,6 +1067,26 @@ class LadybugBackend(GraphBackend):
                 logger.warning("auto-create node table %s failed: %s", label, e)
         self._known_node_tables.add(label)
 
+    def _create_rel_table_fallback(self, rel: str, src: str, dst: str) -> None:
+        try:
+            self.conn.execute(
+                f"CREATE REL TABLE IF NOT EXISTS {rel} "
+                f"(FROM {src} TO {dst}, properties STRING);"
+            )
+        except Exception as e2:  # noqa: BLE001
+            if "exist" not in str(e2).lower():
+                logger.warning("auto-create rel %s failed: %s", rel, e2)
+
+    def _handle_rel_pair_alter_failure(
+        self, exc: Exception, rel: str, src: str, dst: str
+    ) -> None:
+        msg = str(exc).lower()
+        if "does not exist" in msg or "not found" in msg:
+            self._create_rel_table_fallback(rel, src, dst)
+            return
+        if not any(w in msg for w in ("already", "exist", "duplicate")):
+            logger.warning("alter rel %s (%s->%s) failed: %s", rel, src, dst, exc)
+
     def _ensure_rel_pair_unlocked(self, rel: str, src: str, dst: str) -> None:
         """Ensure REL table ``rel`` carries the ``(src)->(dst)`` pair. Kuzu REL
         tables are typed by their FROM/TO node pairs, so an arbitrary edge needs the
@@ -1011,18 +1101,7 @@ class LadybugBackend(GraphBackend):
         try:
             self.conn.execute(f"ALTER TABLE {rel} ADD FROM {src} TO {dst};")
         except Exception as e:  # noqa: BLE001
-            msg = str(e).lower()
-            if "does not exist" in msg or "not found" in msg:
-                try:
-                    self.conn.execute(
-                        f"CREATE REL TABLE IF NOT EXISTS {rel} "
-                        f"(FROM {src} TO {dst}, properties STRING);"
-                    )
-                except Exception as e2:  # noqa: BLE001
-                    if "exist" not in str(e2).lower():
-                        logger.warning("auto-create rel %s failed: %s", rel, e2)
-            elif not any(w in msg for w in ("already", "exist", "duplicate")):
-                logger.warning("alter rel %s (%s->%s) failed: %s", rel, src, dst, e)
+            self._handle_rel_pair_alter_failure(e, rel, src, dst)
         self._known_rel_pairs.add(key)
 
     def _ensure_schema_for_query(self, query: str) -> None:
@@ -1087,6 +1166,48 @@ class LadybugBackend(GraphBackend):
                 return label
         return None
 
+    def _parse_edge_query_endpoints(
+        self, query: str
+    ) -> tuple[str, str, str, str, str] | None:
+        """Parse a label-less two-endpoint edge write; None when not that shape."""
+        up = query.upper()
+        if "->" not in query or ("MERGE" not in up and "CREATE" not in up):
+            return None
+        m = re.search(
+            r"MATCH\s*\(\s*(\w+)\s*\{\s*id\s*:\s*\$(\w+)\s*\}\s*\)\s*"
+            r"MATCH\s*\(\s*(\w+)\s*\{\s*id\s*:\s*\$(\w+)\s*\}\s*\)",
+            query,
+            re.I,
+        )
+        if not m:
+            return None
+        svar, sidp, tvar, tidp = m.groups()
+        rel_m = re.search(r"-\s*\[\s*\w*\s*:\s*`?(\w+)`?[^\]]*\]\s*->", query, re.I)
+        if not rel_m:
+            return None
+        return svar, sidp, tvar, tidp, rel_m.group(1)
+
+    def _resolve_edge_endpoint_labels(
+        self, params: dict[str, Any] | None, sidp: str, tidp: str
+    ) -> tuple[str, str] | None:
+        src_label = self._resolve_node_label((params or {}).get(sidp))
+        dst_label = self._resolve_node_label((params or {}).get(tidp))
+        if not src_label or not dst_label:
+            return None
+        return src_label, dst_label
+
+    def _validate_edge_bind_identifiers(
+        self, svar: str, tvar: str, src_label: str, dst_label: str
+    ) -> tuple[str, str, str, str] | None:
+        try:
+            svar = validate_identifier(svar, kind="variable")
+            tvar = validate_identifier(tvar, kind="variable")
+            src_label = validate_identifier(src_label, kind="label")
+            dst_label = validate_identifier(dst_label, kind="label")
+        except InvalidIdentifierError:
+            return None
+        return svar, tvar, src_label, dst_label
+
     def _bind_edge_query(self, query: str, params: dict[str, Any] | None) -> str:
         """Bind a label-less edge write to typed Kuzu endpoints (CONCEPT:AU-KG.backend.mirror-health-repair).
 
@@ -1098,33 +1219,21 @@ class LadybugBackend(GraphBackend):
         Returns the query unchanged when it is not a label-less two-endpoint edge
         write, or when an endpoint can't be resolved (so the normal path surfaces
         a clear error instead of a silent mis-bind)."""
-        up = query.upper()
-        if "->" not in query or ("MERGE" not in up and "CREATE" not in up):
+        parsed = self._parse_edge_query_endpoints(query)
+        if parsed is None:
             return query
-        m = re.search(
-            r"MATCH\s*\(\s*(\w+)\s*\{\s*id\s*:\s*\$(\w+)\s*\}\s*\)\s*"
-            r"MATCH\s*\(\s*(\w+)\s*\{\s*id\s*:\s*\$(\w+)\s*\}\s*\)",
-            query,
-            re.I,
+        svar, sidp, tvar, tidp, rel_type = parsed
+        labels = self._resolve_edge_endpoint_labels(params, sidp, tidp)
+        if labels is None:
+            return query
+        src_label, dst_label = labels
+        validated = self._validate_edge_bind_identifiers(
+            svar, tvar, src_label, dst_label
         )
-        if not m:
+        if validated is None:
             return query
-        svar, sidp, tvar, tidp = m.groups()
-        rel_m = re.search(r"-\s*\[\s*\w*\s*:\s*`?(\w+)`?[^\]]*\]\s*->", query, re.I)
-        if not rel_m:
-            return query
-        src_label = self._resolve_node_label((params or {}).get(sidp))
-        dst_label = self._resolve_node_label((params or {}).get(tidp))
-        if not src_label or not dst_label:
-            return query
-        try:
-            svar = validate_identifier(svar, kind="variable")
-            tvar = validate_identifier(tvar, kind="variable")
-            src_label = validate_identifier(src_label, kind="label")
-            dst_label = validate_identifier(dst_label, kind="label")
-        except InvalidIdentifierError:
-            return query
-        self._ensure_rel_pair_unlocked(rel_m.group(1), src_label, dst_label)
+        svar, tvar, src_label, dst_label = validated
+        self._ensure_rel_pair_unlocked(rel_type, src_label, dst_label)
         bound = re.sub(
             rf"MATCH\s*\(\s*{svar}\s*\{{",
             f"MATCH ({svar}:{src_label} {{",
@@ -1141,87 +1250,126 @@ class LadybugBackend(GraphBackend):
         )
         return bound
 
-    def _create_schema_unlocked(self) -> None:
-        """Internal method to synchronize schema without acquiring the connection lock."""
-        if self.conn is None:
-            return
+    def _node_table_columns(self, node: Any) -> dict[str, str] | None:
+        """Validated ``{column: dtype}`` for one schema node (+ governance/tenant_id).
 
+        Every node table carries `tenant_id`, mirroring PostgreSQLBackend's
+        `ensure_label_table` (backends/postgresql_backend.py, the RLS_GUC /
+        "app.tenant_id" tenant isolation) — CONCEPT:AU-KG.query.object-graph-mapper.
+        None of ladybug's schema_definition.py TableDefinitions declare it
+        (it's engine-injected, not hand-authored per table), but the mandatory
+        tenant-scoping chokepoint (company_brain.scope_cypher_query,
+        KG-2.6 "the primary boundary") unconditionally injects a
+        `<var>.tenant_id = '<tenant>'` predicate into EVERY Cypher read this
+        backend serves, regardless of label — a table missing the column made
+        that a hard `Binder exception: Cannot find property tenant_id`
+        instead of the intended tenant filter. Returns None on an invalid name.
+        """
+        try:
+            col_names = {
+                validate_identifier(name, kind="column"): dtype
+                for name, dtype in node.columns.items()
+            }
+            for gname, gtype in _GOVERNANCE_COLUMNS.items():
+                col_names.setdefault(validate_identifier(gname, kind="column"), gtype)
+        except InvalidIdentifierError:
+            logger.warning("skipping node table with an invalid schema name")
+            return None
+        col_names.setdefault("tenant_id", "STRING")
+        return col_names
+
+    def _create_node_table(self, node_name: str, col_names: dict[str, str]) -> None:
+        cols = ", ".join(f"`{name}` {dtype}" for name, dtype in col_names.items())
+        stmt = f"CREATE NODE TABLE IF NOT EXISTS {node_name} ({cols});"
+        try:
+            self.conn.execute(stmt)
+        except Exception as e:
+            if "already exists" not in str(e).lower():
+                logger.warning(f"Node table creation issue ({node_name}): {e}")
+
+    def _migrate_node_table_columns(
+        self, node_name: str, col_names: dict[str, str]
+    ) -> None:
+        # Best-effort migration: add any newly-declared columns to a
+        # pre-existing node table (CREATE..IF NOT EXISTS won't alter it). The
+        # PK and embedding can't be added post-hoc; skip them. Mirrors the rel
+        # ``properties`` ALTER below so an existing DB gains new columns (e.g.
+        # the KG-2.9g code-symbol columns) instead of erroring on projection.
+        for cname, ctype in col_names.items():
+            if "PRIMARY KEY" in ctype.upper() or cname == "embedding":
+                continue
+            try:
+                self.conn.execute(f"ALTER TABLE {node_name} ADD `{cname}` {ctype};")
+            except Exception:  # noqa: BLE001 — already present / unsupported → ignore
+                pass
+
+    def _create_node_tables_unlocked(self) -> None:
         # 1. Create Node Tables
         for node in SCHEMA.nodes:
             try:
                 node_name = validate_identifier(node.name, kind="table")
-                col_names = {
-                    validate_identifier(name, kind="column"): dtype
-                    for name, dtype in node.columns.items()
-                }
-                for gname, gtype in _GOVERNANCE_COLUMNS.items():
-                    col_names.setdefault(
-                        validate_identifier(gname, kind="column"), gtype
-                    )
             except InvalidIdentifierError:
                 logger.warning("skipping node table with an invalid schema name")
                 continue
-            # Every node table carries `tenant_id`, mirroring PostgreSQLBackend's
-            # `ensure_label_table` (backends/postgresql_backend.py, the RLS_GUC /
-            # "app.tenant_id" tenant isolation) — CONCEPT:AU-KG.query.object-graph-mapper.
-            # None of ladybug's schema_definition.py TableDefinitions declare it
-            # (it's engine-injected, not hand-authored per table), but the mandatory
-            # tenant-scoping chokepoint (company_brain.scope_cypher_query,
-            # KG-2.6 "the primary boundary") unconditionally injects a
-            # `<var>.tenant_id = '<tenant>'` predicate into EVERY Cypher read this
-            # backend serves, regardless of label — a table missing the column made
-            # that a hard `Binder exception: Cannot find property tenant_id`
-            # instead of the intended tenant filter.
-            col_names.setdefault("tenant_id", "STRING")
-            cols = ", ".join(f"`{name}` {dtype}" for name, dtype in col_names.items())
-            stmt = f"CREATE NODE TABLE IF NOT EXISTS {node_name} ({cols});"
-            try:
-                self.conn.execute(stmt)
-            except Exception as e:
-                if "already exists" not in str(e).lower():
-                    logger.warning(f"Node table creation issue ({node.name}): {e}")
-            # Best-effort migration: add any newly-declared columns to a
-            # pre-existing node table (CREATE..IF NOT EXISTS won't alter it). The
-            # PK and embedding can't be added post-hoc; skip them. Mirrors the rel
-            # ``properties`` ALTER below so an existing DB gains new columns (e.g.
-            # the KG-2.9g code-symbol columns) instead of erroring on projection.
-            for cname, ctype in col_names.items():
-                if "PRIMARY KEY" in ctype.upper() or cname == "embedding":
-                    continue
-                try:
-                    self.conn.execute(f"ALTER TABLE {node_name} ADD `{cname}` {ctype};")
-                except Exception:  # noqa: BLE001 — already present / unsupported → ignore
-                    pass
+            col_names = self._node_table_columns(node)
+            if col_names is None:
+                continue
+            self._create_node_table(node_name, col_names)
+            self._migrate_node_table_columns(node_name, col_names)
 
+    def _rel_table_connections(
+        self, rel: Any
+    ) -> tuple[str, list[tuple[str, str]]] | None:
+        try:
+            rel_type = validate_identifier(rel.type, kind="relationship type")
+            connections = [
+                (
+                    validate_identifier(c["from"], kind="label"),
+                    validate_identifier(c["to"], kind="label"),
+                )
+                for c in rel.connections
+            ]
+        except InvalidIdentifierError:
+            logger.warning("skipping rel table with an invalid schema name")
+            return None
+        return rel_type, connections
+
+    def _create_rel_table(
+        self, rel_type: str, connections: list[tuple[str, str]]
+    ) -> None:
+        conns = ", ".join(f"FROM {frm} TO {to}" for frm, to in connections)
+        stmt = (
+            f"CREATE REL TABLE IF NOT EXISTS {rel_type} ({conns}, properties STRING);"
+        )
+        try:
+            self.conn.execute(stmt)
+        except Exception as e:
+            if "already exists" not in str(e).lower():
+                logger.warning(f"Rel table creation issue ({rel_type}): {e}")
+        # Best-effort migration: add the column to pre-existing rel tables.
+        try:
+            self.conn.execute(f"ALTER TABLE {rel_type} ADD properties STRING;")
+        except Exception:  # noqa: BLE001 — already present / unsupported → ignore
+            pass
+
+    def _create_rel_tables_unlocked(self) -> None:
         # 2. Create Rel Tables. Every rel table carries a single JSON ``properties``
         # column so edges persist their properties (confidence/source/bitemporal
         # stamps/inferred flags) — Kuzu REL tables otherwise drop edge props, which
         # was a data-loss gap vs the schemaless backends (CONCEPT:AU-KG.query.vendor-agnostic-traversal parity).
         for rel in SCHEMA.edges:
-            try:
-                rel_type = validate_identifier(rel.type, kind="relationship type")
-                connections = [
-                    (
-                        validate_identifier(c["from"], kind="label"),
-                        validate_identifier(c["to"], kind="label"),
-                    )
-                    for c in rel.connections
-                ]
-            except InvalidIdentifierError:
-                logger.warning("skipping rel table with an invalid schema name")
+            parsed = self._rel_table_connections(rel)
+            if parsed is None:
                 continue
-            conns = ", ".join(f"FROM {frm} TO {to}" for frm, to in connections)
-            stmt = f"CREATE REL TABLE IF NOT EXISTS {rel_type} ({conns}, properties STRING);"
-            try:
-                self.conn.execute(stmt)
-            except Exception as e:
-                if "already exists" not in str(e).lower():
-                    logger.warning(f"Rel table creation issue ({rel.type}): {e}")
-            # Best-effort migration: add the column to pre-existing rel tables.
-            try:
-                self.conn.execute(f"ALTER TABLE {rel_type} ADD properties STRING;")
-            except Exception:  # noqa: BLE001 — already present / unsupported → ignore
-                pass
+            rel_type, connections = parsed
+            self._create_rel_table(rel_type, connections)
+
+    def _create_schema_unlocked(self) -> None:
+        """Internal method to synchronize schema without acquiring the connection lock."""
+        if self.conn is None:
+            return
+        self._create_node_tables_unlocked()
+        self._create_rel_tables_unlocked()
 
     def create_schema(self) -> None:
         """Create LadybugDB schema from the unified schema definition.
@@ -1241,6 +1389,68 @@ class LadybugBackend(GraphBackend):
             if self.transient:
                 self.close()
 
+    def _embedding_tables(self, tables: list[str] | None) -> list[str]:
+        """Schema node names carrying a FLOAT ``embedding`` column, optionally filtered."""
+        embedding_tables = [
+            node.name
+            for node in SCHEMA.nodes
+            if "embedding" in node.columns
+            and "FLOAT" in node.columns["embedding"].upper()
+        ]
+        if tables:
+            embedding_tables = [t for t in embedding_tables if t in tables]
+        return embedding_tables
+
+    def _try_load_vector_extension_for_indices(self, table_count: int) -> bool:
+        try:
+            self.conn.execute("INSTALL VECTOR;")
+            self.conn.execute("LOAD EXTENSION VECTOR;")
+            return True
+        except Exception as e:  # noqa: BLE001 — feature-detection, see build_vector_indices
+            logger.info(
+                "LadybugDB VECTOR extension unavailable; skipping vector "
+                "index DDL for %d embedding table(s): %s",
+                table_count,
+                e,
+            )
+            return False
+
+    def _create_vector_index_for_table(self, table: str) -> str | None:
+        """Create one table's vector index. Returns a stop reason to end the sweep, else None."""
+        try:
+            table = validate_identifier(table, kind="table")
+        except InvalidIdentifierError as e:
+            logger.warning("skipping invalid embedding table: %s", e)
+            return None
+        idx_name = f"idx_{table.lower()}_embedding"
+        stmt = f"CALL CREATE_VECTOR_INDEX('{table}', '{idx_name}', 'embedding');"
+        try:
+            self.conn.execute(stmt)
+        except Exception as e:
+            msg = str(e)
+            if "already exists" in msg.lower():
+                return None
+            if "FLOAT/DOUBLE ARRAY" in msg:
+                return msg
+            logger.warning(f"Vector index creation issue ({idx_name}): {e}")
+        return None
+
+    def _create_vector_indices_for_tables(self, embedding_tables: list[str]) -> None:
+        skip_reason: str | None = None
+        for table in embedding_tables:
+            stop_reason = self._create_vector_index_for_table(table)
+            if stop_reason is not None:
+                skip_reason = stop_reason
+                break
+        if skip_reason is not None:
+            logger.info(
+                "LadybugDB vector indexes skipped for %d table(s): %s. "
+                "Define embedding columns as FLOAT[N] (fixed size) to "
+                "enable HNSW indexing.",
+                len(embedding_tables),
+                skip_reason,
+            )
+
     def build_vector_indices(self, tables: list[str] | None = None) -> None:
         """Create Vector Indices for any FLOAT column named 'embedding'.
 
@@ -1252,70 +1462,52 @@ class LadybugBackend(GraphBackend):
             tables: Optional list of specific table names to build indexes for.
                 When None, builds for all tables with embedding columns.
         """
-        embedding_tables = [
-            node.name
-            for node in SCHEMA.nodes
-            if "embedding" in node.columns
-            and "FLOAT" in node.columns["embedding"].upper()
-        ]
-        if tables:
-            embedding_tables = [t for t in embedding_tables if t in tables]
-        if embedding_tables:
-            with self._get_lock():
-                self._ensure_connection()
-                if self.conn is None:
-                    logger.warning(
-                        "LadybugBackend.build_vector_indices: connection could not be opened."
-                    )
-                    return
-                try:
-                    self.conn.execute("INSTALL VECTOR;")
-                    self.conn.execute("LOAD EXTENSION VECTOR;")
-                    vector_extension_loaded = True
-                except Exception as e:
-                    logger.info(
-                        "LadybugDB VECTOR extension unavailable; skipping vector "
-                        "index DDL for %d embedding table(s): %s",
-                        len(embedding_tables),
-                        e,
-                    )
-                    vector_extension_loaded = False
+        embedding_tables = self._embedding_tables(tables)
+        if not embedding_tables:
+            return
+        with self._get_lock():
+            self._ensure_connection()
+            if self.conn is None:
+                logger.warning(
+                    "LadybugBackend.build_vector_indices: connection could not be opened."
+                )
+                return
+            if self._try_load_vector_extension_for_indices(len(embedding_tables)):
+                self._create_vector_indices_for_tables(embedding_tables)
+            if self.transient:
+                self.close()
 
-                if vector_extension_loaded:
-                    skip_reason: str | None = None
-                    for table in embedding_tables:
-                        try:
-                            table = validate_identifier(table, kind="table")
-                        except InvalidIdentifierError as e:
-                            logger.warning("skipping invalid embedding table: %s", e)
-                            continue
-                        idx_name = f"idx_{table.lower()}_embedding"
-                        stmt = (
-                            f"CALL CREATE_VECTOR_INDEX('{table}', "
-                            f"'{idx_name}', 'embedding');"
-                        )
-                        try:
-                            self.conn.execute(stmt)
-                        except Exception as e:
-                            msg = str(e)
-                            if "already exists" in msg.lower():
-                                continue
-                            if "FLOAT/DOUBLE ARRAY" in msg:
-                                skip_reason = msg
-                                break
-                            logger.warning(
-                                f"Vector index creation issue ({idx_name}): {e}"
-                            )
-                    if skip_reason is not None:
-                        logger.info(
-                            "LadybugDB vector indexes skipped for %d table(s): %s. "
-                            "Define embedding columns as FLOAT[N] (fixed size) to "
-                            "enable HNSW indexing.",
-                            len(embedding_tables),
-                            skip_reason,
-                        )
-                if self.transient:
-                    self.close()
+    def _drop_vector_index_for_table(
+        self, table: str, failed_tables: list[str]
+    ) -> bool:
+        """Drop one table's vector index; True when actually dropped."""
+        try:
+            table = validate_identifier(table, kind="table")
+        except InvalidIdentifierError as e:  # noqa: BLE001 — narrow typed exception (InvalidIdentifierError, not a broad swallow): an unrecognized/invalid embedding table name is skipped and excluded from the drop attempt entirely, rather than being silently treated as dropped — the D-DSTK fix below (raising when a real DROP_VECTOR_INDEX call fails) only covers tables that reach that call
+            logger.debug("skipping invalid embedding table: %s", e)
+            return False
+        idx_name = f"idx_{table.lower()}_embedding"
+        try:
+            self.conn.execute(f"CALL DROP_VECTOR_INDEX('{table}', '{idx_name}');")
+            return True
+        except Exception as e:  # noqa: BLE001 — per-table detail stays at debug; genuine failures are now aggregated into `failed_tables` and raised below, so the caller no longer mistakes this for success
+            if (
+                "not found" not in str(e).lower()
+                and "does not exist" not in str(e).lower()
+            ):
+                logger.debug(f"Drop vector index issue ({idx_name}): {e}")
+                failed_tables.append(table)
+            return False
+
+    def _drop_vector_indices_for_tables(
+        self, embedding_tables: list[str]
+    ) -> tuple[int, list[str]]:
+        dropped = 0
+        failed_tables: list[str] = []
+        for table in embedding_tables:
+            if self._drop_vector_index_for_table(table, failed_tables):
+                dropped += 1
+        return dropped, failed_tables
 
     def drop_vector_indices(self, tables: list[str] | None = None) -> None:
         """Drop HNSW vector indexes so that embedding SET operations succeed.
@@ -1327,15 +1519,7 @@ class LadybugBackend(GraphBackend):
             tables: Optional list of specific table names to drop indexes for.
                 When None, drops all embedding indexes.
         """
-        embedding_tables = [
-            node.name
-            for node in SCHEMA.nodes
-            if "embedding" in node.columns
-            and "FLOAT" in node.columns["embedding"].upper()
-        ]
-        if tables:
-            embedding_tables = [t for t in embedding_tables if t in tables]
-        dropped = 0
+        embedding_tables = self._embedding_tables(tables)
         # D-DSTK: tables whose DROP_VECTOR_INDEX call failed for a REAL reason (not the
         # benign "not found"/"does not exist" — already gone). engine_tasks.py's
         # submit_task (D-DST-3) only marks a table's index dropped AFTER this method
@@ -1344,7 +1528,6 @@ class LadybugBackend(GraphBackend):
         # internally and never raised, so it always "succeeded" from the caller's view
         # even when every single drop had genuinely failed. Raising here (after best-
         # effort attempting every table) closes that gap.
-        failed_tables: list[str] = []
         with self._get_lock():
             self._ensure_connection()
             if self.conn is None:
@@ -1352,25 +1535,9 @@ class LadybugBackend(GraphBackend):
                     "LadybugBackend.drop_vector_indices: connection could not be opened."
                 )
                 return
-            for table in embedding_tables:
-                try:
-                    table = validate_identifier(table, kind="table")
-                except InvalidIdentifierError as e:  # noqa: BLE001 — narrow typed exception (InvalidIdentifierError, not a broad swallow): an unrecognized/invalid embedding table name is skipped via `continue` and excluded from the drop attempt entirely, rather than being silently treated as dropped — the D-DSTK fix below (raising when a real DROP_VECTOR_INDEX call fails) only covers tables that reach that call
-                    logger.debug("skipping invalid embedding table: %s", e)
-                    continue
-                idx_name = f"idx_{table.lower()}_embedding"
-                try:
-                    self.conn.execute(
-                        f"CALL DROP_VECTOR_INDEX('{table}', '{idx_name}');"
-                    )
-                    dropped += 1
-                except Exception as e:  # noqa: BLE001 — per-table detail stays at debug; genuine failures are now aggregated into `failed_tables` and raised below, so the caller no longer mistakes this for success
-                    if (
-                        "not found" not in str(e).lower()
-                        and "does not exist" not in str(e).lower()
-                    ):
-                        logger.debug(f"Drop vector index issue ({idx_name}): {e}")
-                        failed_tables.append(table)
+            dropped, failed_tables = self._drop_vector_indices_for_tables(
+                embedding_tables
+            )
             if self.transient:
                 self.close()
         if dropped:
