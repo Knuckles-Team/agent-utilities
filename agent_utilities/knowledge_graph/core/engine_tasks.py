@@ -7695,4 +7695,3 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
             logger.debug("WAL checkpoint completed (native).")
         except Exception as e:  # noqa: BLE001 — checkpoint is best-effort
             logger.debug("WAL checkpoint skipped: %s", e)
-
