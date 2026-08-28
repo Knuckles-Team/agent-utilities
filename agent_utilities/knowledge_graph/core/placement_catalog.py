@@ -249,6 +249,42 @@ def _catalog_call(client: Any, tenant: str, sub_key: str, client_epoch: int) -> 
     return placement.route(tenant, sub_key, client_epoch=client_epoch)
 
 
+def _extract_route_core(answer: Any) -> tuple[dict[str, Any], tuple[str, ...]]:
+    """Validate the wire shape and split it into ``(core, endpoints)`` — the
+    schema-locked fields ``PlacementRoute.model_validate`` will consume, plus
+    the ADR-1 ``endpoints`` compatibility extension it deliberately rejects
+    (see :func:`_validate_answer`'s docstring for why)."""
+    if not isinstance(answer, dict):
+        raise PlacementAuthorityError("engine returned an invalid placement route")
+    endpoints_raw = answer.get("endpoints", [])
+    if not isinstance(endpoints_raw, list) or not all(
+        isinstance(e, str) and e for e in endpoints_raw
+    ):
+        raise PlacementAuthorityError("engine returned invalid placement endpoints")
+    core = {key: value for key, value in answer.items() if key != "endpoints"}
+    return core, tuple(endpoints_raw)
+
+
+def _parse_placement_route(core: dict[str, Any]) -> PlacementRoute:
+    try:
+        return PlacementRoute.model_validate(core)
+    except (TypeError, ValueError) as exc:
+        raise PlacementAuthorityError(
+            "engine returned an invalid placement route"
+        ) from exc
+
+
+def _assert_route_matches_partition(
+    route: PlacementRoute, tenant: str, sub_key: str
+) -> None:
+    if route.authoritative is not True:
+        raise PlacementAuthorityError("engine returned a non-authoritative route")
+    if route.tenant_ref != tenant or route.partition_ref != sub_key:
+        raise PlacementAuthorityError("engine returned a route for another partition")
+    if route.fencing_token != route.group or (route.placed and route.epoch == 0):
+        raise PlacementAuthorityError("engine returned an invalid placement fence")
+
+
 def _validate_answer(
     answer: Any, tenant: str, sub_key: str
 ) -> tuple[PlacementRoute, tuple[str, ...]]:
@@ -265,27 +301,10 @@ def _validate_answer(
     and returned separately instead. Live endpoint selection ignores it and
     consumes only ``ClusterMembers`` through :mod:`.cluster_discovery`.
     """
-    if not isinstance(answer, dict):
-        raise PlacementAuthorityError("engine returned an invalid placement route")
-    endpoints_raw = answer.get("endpoints", [])
-    if not isinstance(endpoints_raw, list) or not all(
-        isinstance(e, str) and e for e in endpoints_raw
-    ):
-        raise PlacementAuthorityError("engine returned invalid placement endpoints")
-    core = {key: value for key, value in answer.items() if key != "endpoints"}
-    try:
-        route = PlacementRoute.model_validate(core)
-    except (TypeError, ValueError) as exc:
-        raise PlacementAuthorityError(
-            "engine returned an invalid placement route"
-        ) from exc
-    if route.authoritative is not True:
-        raise PlacementAuthorityError("engine returned a non-authoritative route")
-    if route.tenant_ref != tenant or route.partition_ref != sub_key:
-        raise PlacementAuthorityError("engine returned a route for another partition")
-    if route.fencing_token != route.group or (route.placed and route.epoch == 0):
-        raise PlacementAuthorityError("engine returned an invalid placement fence")
-    return route, tuple(endpoints_raw)
+    core, endpoints = _extract_route_core(answer)
+    route = _parse_placement_route(core)
+    _assert_route_matches_partition(route, tenant, sub_key)
+    return route, endpoints
 
 
 def _map_endpoint(
@@ -409,6 +428,102 @@ def _broker_authority(config: Any) -> tuple[str, dict[str, Any]] | None:
     return resolve_engine_auth(config), broker_session.engine_verified_context()
 
 
+def _connect_route_client(
+    contact: str,
+    client_factory: Callable[[str], Any] | None,
+    auth_secret: str | None,
+    config: Any,
+    verified_context: dict[str, Any] | None,
+) -> Any:
+    if client_factory is not None:
+        return client_factory(contact)
+    assert auth_secret is not None and verified_context is not None
+    return _default_connect(
+        contact,
+        auth_secret,
+        config,
+        verified_context=verified_context,
+    )
+
+
+def _resolve_route_discovery(
+    client: Any,
+    config: Any,
+    route: PlacementRoute,
+    verified_context: dict[str, Any] | None,
+    force_discovery_refresh: bool,
+) -> tuple[ClusterDiscoverySnapshot | None, ClusterDiscoverySnapshot | None]:
+    """``(discovery, prior_discovery)`` for a placed group; ``(None, None)``
+    for an unplaced/group-0 route (untouched — never even queries the
+    discovery authority)."""
+    if not (route.placed and route.group > 0):
+        return None, None
+    try:
+        authority = _discovery_authority(config)
+        discovery_context = verified_context or authority.context_for(client)
+        prior_discovery = None
+        if discovery_context is not None:
+            prior_discovery = authority.last_good_for(
+                verified_context=discovery_context,
+                expected_cluster_id=getattr(config, "graph_cluster_id", None),
+            )
+        discovery = authority.read(
+            client,
+            verified_context=verified_context,
+            expected_cluster_id=getattr(config, "graph_cluster_id", None),
+            min_placement_epoch=route.epoch,
+            force_refresh=force_discovery_refresh,
+        )
+        return discovery, prior_discovery
+    except ClusterDiscoveryError as exc:
+        raise PlacementAuthorityError(
+            "engine placement route lacks a current verified ClusterMembers snapshot"
+        ) from exc
+
+
+def _reconnect_required(
+    prior_discovery: ClusterDiscoverySnapshot | None,
+    discovery: ClusterDiscoverySnapshot | None,
+) -> bool:
+    return bool(
+        discovery is not None
+        and prior_discovery is not None
+        and prior_discovery.cluster_id == discovery.cluster_id
+        and (
+            prior_discovery.membership_epoch != discovery.membership_epoch
+            or prior_discovery.placement_epoch != discovery.placement_epoch
+            or prior_discovery.certificate_epoch != discovery.certificate_epoch
+        )
+    )
+
+
+def _build_placement_result(
+    route: PlacementRoute,
+    contacts: tuple[str, ...],
+    config: Any,
+    discovery: ClusterDiscoverySnapshot | None,
+    prior_discovery: ClusterDiscoverySnapshot | None,
+) -> PlacementResult:
+    return PlacementResult(
+        endpoint=_map_endpoint(route.group, contacts, config, discovery),
+        epoch=route.epoch,
+        group=route.group,
+        fencing_token=route.fencing_token,
+        placed=route.placed,
+        cluster_id=discovery.cluster_id if discovery is not None else None,
+        membership_epoch=(
+            discovery.membership_epoch if discovery is not None else None
+        ),
+        certificate_rotation_epoch=(
+            discovery.certificate_epoch if discovery is not None else None
+        ),
+        discovery_expires_at=(
+            discovery.expires_at_monotonic if discovery is not None else None
+        ),
+        reconnect_required=_reconnect_required(prior_discovery, discovery),
+    )
+
+
 def _attempt_route(
     tenant: str,
     sub_key: str,
@@ -433,71 +548,16 @@ def _attempt_route(
         client = None
         owns_client = client_factory is None
         try:
-            if client_factory is not None:
-                client = client_factory(contact)
-            else:
-                assert auth_secret is not None and verified_context is not None
-                client = _default_connect(
-                    contact,
-                    auth_secret,
-                    config,
-                    verified_context=verified_context,
-                )
+            client = _connect_route_client(
+                contact, client_factory, auth_secret, config, verified_context
+            )
             answer = _catalog_call(client, tenant, sub_key, client_epoch)
             route, _route_endpoints = _validate_answer(answer, tenant, sub_key)
-            discovery: ClusterDiscoverySnapshot | None = None
-            prior_discovery: ClusterDiscoverySnapshot | None = None
-            if route.placed and route.group > 0:
-                try:
-                    authority = _discovery_authority(config)
-                    discovery_context = verified_context or authority.context_for(
-                        client
-                    )
-                    if discovery_context is not None:
-                        prior_discovery = authority.last_good_for(
-                            verified_context=discovery_context,
-                            expected_cluster_id=getattr(
-                                config, "graph_cluster_id", None
-                            ),
-                        )
-                    discovery = authority.read(
-                        client,
-                        verified_context=verified_context,
-                        expected_cluster_id=getattr(config, "graph_cluster_id", None),
-                        min_placement_epoch=route.epoch,
-                        force_refresh=force_discovery_refresh,
-                    )
-                except ClusterDiscoveryError as exc:
-                    raise PlacementAuthorityError(
-                        "engine placement route lacks a current verified ClusterMembers snapshot"
-                    ) from exc
-            return PlacementResult(
-                endpoint=_map_endpoint(route.group, contacts, config, discovery),
-                epoch=route.epoch,
-                group=route.group,
-                fencing_token=route.fencing_token,
-                placed=route.placed,
-                cluster_id=discovery.cluster_id if discovery is not None else None,
-                membership_epoch=(
-                    discovery.membership_epoch if discovery is not None else None
-                ),
-                certificate_rotation_epoch=(
-                    discovery.certificate_epoch if discovery is not None else None
-                ),
-                discovery_expires_at=(
-                    discovery.expires_at_monotonic if discovery is not None else None
-                ),
-                reconnect_required=bool(
-                    discovery is not None
-                    and prior_discovery is not None
-                    and prior_discovery.cluster_id == discovery.cluster_id
-                    and (
-                        prior_discovery.membership_epoch != discovery.membership_epoch
-                        or prior_discovery.placement_epoch != discovery.placement_epoch
-                        or prior_discovery.certificate_epoch
-                        != discovery.certificate_epoch
-                    )
-                ),
+            discovery, prior_discovery = _resolve_route_discovery(
+                client, config, route, verified_context, force_discovery_refresh
+            )
+            return _build_placement_result(
+                route, contacts, config, discovery, prior_discovery
             )
         except PlacementTopologyError:
             raise
@@ -523,6 +583,94 @@ def _attempt_route(
     raise PlacementAuthorityError(
         f"no configured engine returned an authoritative route ({failures} failed)"
     ) from last_error
+
+
+def _resolve_query_identity(
+    config: Any, client_factory: Callable[[str], Any] | None
+) -> tuple[str | None, dict[str, Any] | None]:
+    """``(auth_secret, verified_context)`` for a fresh catalog query.
+
+    When no ``client_factory`` is injected this is the caller's own resolved
+    engine authority. When one IS injected (the single-endpoint production
+    reuse seam, which supplies a client only to avoid opening a second
+    socket), only the verified context is inherited for discovery binding —
+    ``auth_secret`` stays ``None`` (the factory owns the connection's auth),
+    and a hermetic fake without a session fails closed to ``None`` context
+    rather than raising here (``ClusterTopologyAuthority`` enforces it).
+    """
+    if client_factory is None:
+        return _request_authority(config)
+    try:
+        _unused_secret, verified_context = _request_authority(config)
+    except PlacementAuthorityError:
+        verified_context = None
+    return None, verified_context
+
+
+def _should_skip_broker_fallback(client_factory: Callable[[str], Any] | None) -> bool:
+    """True when the admin-capability broker retry must NOT fire.
+
+    A caller-supplied ``client_factory`` is used for two UNRELATED reasons:
+    (a) hermetic-test injection (``AGENT_UTILITIES_TESTING``), where the
+    broker's own real network round-trip must never fire; (b) production
+    connection reuse (``graph_compute.py``'s ``reuse_single_endpoint``),
+    which is not a test at all and must not silently disable the broker
+    fallback. Gate on the actual test signal, not on ``client_factory``'s
+    mere presence.
+    """
+    if client_factory is None:
+        return False
+    from agent_utilities.core.config import setting
+
+    return setting("AGENT_UTILITIES_TESTING", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
+def _retry_via_admin_broker(
+    tenant: str,
+    sub_key: str,
+    contacts: tuple[str, ...],
+    config: Any,
+    *,
+    client_epoch: int,
+    force_discovery_refresh: bool,
+    original_exc: PlacementAuthorityError,
+) -> PlacementResult:
+    """Retry the SAME contact list once under the admin-capability broker's
+    own verified identity (``client_factory=None`` always — a fresh,
+    independently-identified connection, never the caller-supplied factory).
+
+    Re-raises ``original_exc`` (never the broker's own failure) when the
+    broker is unconfigured or its own attempt also fails, so a real user's
+    error still describes their own request, not the broker's.
+    """
+    broker = _broker_authority(config)
+    if broker is None:
+        raise original_exc
+    broker_secret, broker_context = broker
+    try:
+        result = _attempt_route(
+            tenant,
+            sub_key,
+            contacts,
+            config,
+            client_factory=None,
+            client_epoch=client_epoch,
+            auth_secret=broker_secret,
+            verified_context=broker_context,
+            force_discovery_refresh=force_discovery_refresh,
+        )
+    except Exception:
+        raise original_exc from None
+    logger.info(
+        "placement route for tenant=%s resolved via the admin-capability "
+        "broker (caller identity lacked engine-registered admin capability)",
+        tenant,
+    )
+    return result
 
 
 def _query_catalog(
@@ -564,20 +712,7 @@ def _query_catalog(
             "(AGENT_UTILITIES_TESTING); inject client_factory to exercise it"
         )
 
-    auth_secret: str | None = None
-    verified_context: dict[str, Any] | None = None
-    if client_factory is None:
-        auth_secret, verified_context = _request_authority(config)
-    else:
-        # The single-endpoint production reuse seam supplies a client factory
-        # only to avoid opening a second socket. It still inherits the current
-        # verified GraphSession for discovery binding; hermetic fakes without a
-        # session must expose their own verified-context seam or fail closed in
-        # ``ClusterTopologyAuthority``.
-        try:
-            _unused_secret, verified_context = _request_authority(config)
-        except PlacementAuthorityError:
-            verified_context = None
+    auth_secret, verified_context = _resolve_query_identity(config, client_factory)
 
     try:
         return _attempt_route(
@@ -594,53 +729,54 @@ def _query_catalog(
     except PlacementAuthorityError as exc:
         if not _admin_capability_denied(exc):
             raise
-        # A caller-supplied `client_factory` is used for two UNRELATED reasons:
-        # (a) hermetic-test injection (`AGENT_UTILITIES_TESTING`), where the
-        # broker's own real network round-trip must never fire; (b) production
-        # connection reuse (`graph_compute.py`'s `reuse_single_endpoint`, the
-        # single-endpoint fast path), which is not a test at all and must not
-        # silently disable the broker fallback. Gate on the actual test signal,
-        # not on client_factory's mere presence — the broker retry below
-        # always uses `client_factory=None` (a fresh, independently-identified
-        # connection), so it never routes through a caller-supplied factory
-        # either way.
-        if client_factory is not None:
-            from agent_utilities.core.config import setting
-
-            if setting("AGENT_UTILITIES_TESTING", "false").strip().lower() in {
-                "1",
-                "true",
-                "yes",
-            }:
-                raise
-        broker = _broker_authority(config)
-        if broker is None:
+        if _should_skip_broker_fallback(client_factory):
             raise
-        broker_secret, broker_context = broker
-        try:
-            result = _attempt_route(
-                tenant,
-                sub_key,
-                contacts,
-                config,
-                client_factory=None,
-                client_epoch=client_epoch,
-                auth_secret=broker_secret,
-                verified_context=broker_context,
-                force_discovery_refresh=force_discovery_refresh,
-            )
-        except Exception:
-            # The broker fallback failed too (e.g. the broker identity ALSO
-            # lacks admin capability, or the engine is genuinely unreachable) —
-            # surface the ORIGINAL caller-identity denial, not the broker's,
-            # so the error a real user sees still describes their own request.
-            raise exc from None
-        logger.info(
-            "placement route for tenant=%s resolved via the admin-capability "
-            "broker (caller identity lacked engine-registered admin capability)",
+        return _retry_via_admin_broker(
             tenant,
+            sub_key,
+            contacts,
+            config,
+            client_epoch=client_epoch,
+            force_discovery_refresh=force_discovery_refresh,
+            original_exc=exc,
         )
-        return result
+
+
+def _probe_discovery_contact(
+    contact: str,
+    client_factory: Callable[[str], Any] | None,
+    auth_secret: str | None,
+    config: Any,
+    verified_context: dict[str, Any] | None,
+) -> bool:
+    """True iff ``contact`` answers the engine's ``ClusterMembers`` discovery
+    RPC; never raises — a probe result, not an authoritative route."""
+    client = None
+    owns_client = client_factory is None
+    try:
+        client = _connect_route_client(
+            contact, client_factory, auth_secret, config, verified_context
+        )
+        _discovery_authority(config).read(
+            client,
+            verified_context=verified_context,
+            expected_cluster_id=getattr(config, "graph_cluster_id", None),
+            force_refresh=True,
+        )
+        return True
+    except Exception as exc:  # noqa: BLE001 - try the next seed; a probe never raises
+        logger.debug(
+            "cluster-topology discovery probe failed for a configured contact (%s: %s)",
+            type(exc).__name__,
+            str(exc),
+        )
+        return False
+    finally:
+        if client is not None and owns_client:
+            try:
+                client.close()
+            except Exception:  # noqa: BLE001 - best-effort teardown
+                pass
 
 
 def discovery_reachable(
@@ -678,38 +814,12 @@ def discovery_reachable(
         except PlacementAuthorityError:
             return False
 
-    for contact in contacts:
-        client = None
-        owns_client = client_factory is None
-        try:
-            if client_factory is not None:
-                client = client_factory(contact)
-            else:
-                assert auth_secret is not None and verified_context is not None
-                client = _default_connect(
-                    contact, auth_secret, config, verified_context=verified_context
-                )
-            _discovery_authority(config).read(
-                client,
-                verified_context=verified_context,
-                expected_cluster_id=getattr(config, "graph_cluster_id", None),
-                force_refresh=True,
-            )
-            return True
-        except Exception as exc:  # noqa: BLE001 - try the next seed; a probe never raises
-            logger.debug(
-                "cluster-topology discovery probe failed for a configured contact "
-                "(%s: %s)",
-                type(exc).__name__,
-                str(exc),
-            )
-        finally:
-            if client is not None and owns_client:
-                try:
-                    client.close()
-                except Exception:  # noqa: BLE001 - best-effort teardown
-                    pass
-    return False
+    return any(
+        _probe_discovery_contact(
+            contact, client_factory, auth_secret, config, verified_context
+        )
+        for contact in contacts
+    )
 
 
 def resolve_placement(
