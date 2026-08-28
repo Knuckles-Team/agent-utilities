@@ -348,6 +348,60 @@ def _session_bound_tenant(declared: str) -> str:
     return verified
 
 
+def _declared_source_entries(sources_json: str) -> tuple[list[Any], list[str]]:
+    """Split an explicit ``sources_json`` list into (labelled objects, bare refs).
+
+    A bare ref string is left for the :class:`SourceLabelResolver`; a labelled
+    object is taken as given. Anything else is a caller error.
+    """
+    from agent_utilities.kvcache.eligibility import ContributingSource
+
+    labelled: list[Any] = []
+    refs: list[str] = []
+    raw = (sources_json or "").strip()
+    if not raw or raw in {"[]", "{}"}:
+        return labelled, refs
+    declared = json.loads(raw)
+    if not isinstance(declared, list):
+        raise ValueError("sources JSON must be a list")
+    for entry in declared:
+        if isinstance(entry, str):
+            refs.append(entry)
+        elif isinstance(entry, dict):
+            labelled.append(ContributingSource(**entry))
+        else:
+            raise ValueError(
+                "each source must be a ref string or a labelled source object"
+            )
+    return labelled, refs
+
+
+def _citation_refs(citation: Any) -> list[str]:
+    """One citation's ``source_refs``, as strings; ``[]`` for a non-object citation."""
+    if not isinstance(citation, dict):
+        return []
+    return [str(r) for r in (citation.get("source_refs") or [])]
+
+
+def _bundle_citation_refs(context_bundle_json: str) -> list[str]:
+    """Every citation's ``source_refs`` in a context bundle, in order.
+
+    The bundle's citations ARE the sources that actually contributed, so a
+    caller that hands over its context bundle automatically hands over its
+    provenance.
+    """
+    bundle_raw = (context_bundle_json or "").strip()
+    if not bundle_raw or bundle_raw in {"{}", "[]"}:
+        return []
+    bundle = json.loads(bundle_raw)
+    if not isinstance(bundle, dict):
+        return []
+    refs: list[str] = []
+    for citation in bundle.get("citations") or []:
+        refs.extend(_citation_refs(citation))
+    return refs
+
+
 def _contributing_sources(
     sources_json: str, context_bundle_json: str, *, tenant: str
 ) -> tuple[Any, ...]:
@@ -368,37 +422,10 @@ def _contributing_sources(
     (and therefore denies, naming itself). This function never returns fewer entries
     than it was given refs.
     """
-    from agent_utilities.kvcache.eligibility import (
-        ContributingSource,
-        get_source_label_resolver,
-    )
+    from agent_utilities.kvcache.eligibility import get_source_label_resolver
 
-    labelled: list[Any] = []
-    refs: list[str] = []
-
-    raw = (sources_json or "").strip()
-    if raw and raw not in {"[]", "{}"}:
-        declared = json.loads(raw)
-        if not isinstance(declared, list):
-            raise ValueError("sources JSON must be a list")
-        for entry in declared:
-            if isinstance(entry, str):
-                refs.append(entry)
-            elif isinstance(entry, dict):
-                labelled.append(ContributingSource(**entry))
-            else:
-                raise ValueError(
-                    "each source must be a ref string or a labelled source object"
-                )
-
-    bundle_raw = (context_bundle_json or "").strip()
-    if bundle_raw and bundle_raw not in {"{}", "[]"}:
-        bundle = json.loads(bundle_raw)
-        if isinstance(bundle, dict):
-            for citation in bundle.get("citations") or []:
-                if isinstance(citation, dict):
-                    refs.extend(str(r) for r in (citation.get("source_refs") or []))
-
+    labelled, refs = _declared_source_entries(sources_json)
+    refs = [*refs, *_bundle_citation_refs(context_bundle_json)]
     # De-duplicate refs while preserving order; a source contributing twice is still
     # one source, and duplicating it would only duplicate its labels.
     unique_refs = tuple(dict.fromkeys(r for r in refs if r.strip()))
@@ -408,6 +435,223 @@ def _contributing_sources(
         else ()
     )
     return tuple(labelled) + tuple(resolved)
+
+
+def _checkpoint_observation(bundles: dict[str, str]) -> Any:
+    """Build the observation from the explicit fields plus any bundles handed in.
+
+    An agent that has just run ``graph_ask`` / a context compile already holds the
+    exact shapes the grounding, contradiction and novelty scorers want, so it can
+    hand those straight over instead of transcribing four counts by hand. Explicit
+    ``observation_json`` fields always win over anything derived from a bundle —
+    the caller's direct measurement is more authoritative than an inference.
+    """
+    from agent_utilities.kvcache.worthiness import CheckpointObservation
+
+    observation_json = bundles["observation_json"]
+    payload = json.loads(observation_json) if observation_json else {}
+    if not isinstance(payload, dict):
+        raise ValueError("observation_json must be a JSON object")
+    derived: dict[str, Any] = {}
+    evidence_bundle_json = bundles["evidence_bundle_json"]
+    if evidence_bundle_json.strip() not in {"", "{}"}:
+        derived.update(
+            _measured_fields(
+                CheckpointObservation.from_evidence_bundle(
+                    _bundle_object(evidence_bundle_json)
+                )
+            )
+        )
+    context_bundle_json = bundles["context_bundle_json"]
+    if context_bundle_json.strip() not in {"", "{}"}:
+        derived.update(
+            _measured_fields(
+                CheckpointObservation.from_context_bundle(
+                    _bundle_object(context_bundle_json)
+                )
+            )
+        )
+    return CheckpointObservation(**{**derived, **payload})
+
+
+def _kv_ram_stats_response(action: str, manager: Any) -> str:
+    """``action='ram_stats'`` — the RAM tier's occupancy plus what shaped it."""
+    return json.dumps(
+        {
+            "surface": "kv_checkpoint",
+            "action": action,
+            "result": {
+                **manager.ram_store.stats().model_dump(mode="json"),
+                "eligibility_gate": manager.eligibility_gate.name,
+                # Which signals are active in THIS deployment. Without it a score
+                # is uninterpretable — an operator who removed a default scorer or
+                # added their own has no other way to see what produced the number.
+                "scorers": [
+                    {"name": s.name, "weight": s.weight}
+                    for s in manager.advisor.registry.scorers()
+                ],
+                "ram_threshold": manager.advisor.ram_threshold,
+            },
+        }
+    )
+
+
+def _kv_recommend_response(action: str, manager: Any, bundles: dict[str, str]) -> str:
+    """``action='recommend'`` — a scored, advisory-only worthiness verdict."""
+    try:
+        observation = _checkpoint_observation(bundles)
+    except Exception as exc:  # noqa: BLE001 — caller-supplied JSON/shape
+        return _surface_error(
+            exc, surface="kv_checkpoint", action=action, code="invalid_request"
+        )
+    recommendation = manager.recommend(observation)
+    return json.dumps(
+        {
+            "surface": "kv_checkpoint",
+            "action": action,
+            "result": {
+                **recommendation.model_dump(mode="json", exclude={"observation"}),
+                "advisory": recommendation.as_advisory(),
+            },
+        },
+        default=_json_default,
+    )
+
+
+def _kv_explain_response(
+    action: str, manager: Any, checkpoint_id: str, requesting_tenant: str
+) -> str:
+    """``action='explain'`` — why this checkpoint exists and why it is where it is."""
+    from agent_utilities.kvcache.checkpoint import KVCheckpointError
+
+    try:
+        return json.dumps(
+            {
+                "surface": "kv_checkpoint",
+                "action": action,
+                "result": manager.explain(
+                    checkpoint_id,
+                    requesting_tenant=_session_bound_tenant(requesting_tenant),
+                ).model_dump(mode="json"),
+            },
+            default=_json_default,
+        )
+    except ValueError as exc:
+        return _surface_error(
+            exc, surface="kv_checkpoint", action=action, code="invalid_request"
+        )
+    except KVCheckpointError as exc:
+        return _surface_error(
+            exc,
+            surface="kv_checkpoint",
+            action=action,
+            code=_checkpoint_error_code(exc),
+        )
+
+
+def _kv_promote_response(
+    action: str,
+    manager: Any,
+    checkpoint_id: str,
+    requesting_tenant: str,
+    trigger: str,
+) -> str:
+    """``action='promote'`` — the gated RAM→disk promotion."""
+    from agent_utilities.kvcache.checkpoint import KVCheckpointError
+
+    try:
+        outcome = manager.promote(
+            checkpoint_id,
+            requesting_tenant=_session_bound_tenant(requesting_tenant),
+            trigger=trigger,  # type: ignore[arg-type]
+        )
+    except ValueError as exc:
+        return _surface_error(
+            exc, surface="kv_checkpoint", action=action, code="invalid_request"
+        )
+    except KVCheckpointError as exc:
+        return _surface_error(
+            exc,
+            surface="kv_checkpoint",
+            action=action,
+            code=_checkpoint_error_code(exc),
+        )
+    return json.dumps(
+        {
+            "surface": "kv_checkpoint",
+            "action": action,
+            "result": outcome.model_dump(mode="json", exclude={"recommendation"}),
+        },
+        default=_json_default,
+    )
+
+
+def _kv_checkpoint_now(
+    action: str, manager: Any, bundles: dict[str, str], req: dict[str, Any]
+) -> str:
+    """``action='checkpoint_now'`` — store to the RAM tier, optionally persist.
+
+    Durable persistence always passes the authority-derived eligibility gate; the
+    tenant it is authorized under comes from the verified session, never the payload.
+    """
+    from agent_utilities.kvcache.checkpoint import KVCheckpointError, KVCheckpointKey
+
+    try:
+        data = base64.b64decode(req["data_b64"]) if req["data_b64"] else b""
+        bound_tenant = _session_bound_tenant(req["tenant"])
+        key = KVCheckpointKey(
+            model_identity=req["model_identity"],
+            quantization=req["quantization"],
+            serving_engine=req["serving_engine"],
+            engine_version=req["engine_version"],
+            prefix_digest=req["prefix_digest"],
+            tenant=bound_tenant,
+            policy_version=req["policy_version"],
+        )
+        sources = _contributing_sources(
+            req["sources_json"],
+            bundles["context_bundle_json"],
+            tenant=bound_tenant,
+        )
+        supplied = (
+            bundles["observation_json"].strip() not in {"", "{}"}
+            or bundles["evidence_bundle_json"].strip() not in {"", "{}"}
+            or bundles["context_bundle_json"].strip() not in {"", "{}"}
+        )
+        observation = _checkpoint_observation(bundles) if supplied else None
+    except Exception as exc:  # noqa: BLE001 — bad payload/key/observation
+        return _surface_error(
+            exc, surface="kv_checkpoint", action=action, code="invalid_request"
+        )
+    try:
+        outcome = manager.checkpoint_now(
+            data,
+            key=key,
+            run_id=req["run_id"],
+            point=req["point"],
+            trigger=req["trigger"],
+            persist=req["persist"],
+            observation=observation,
+            sources=sources,
+        )
+    except KVCheckpointError as exc:
+        return _surface_error(
+            exc,
+            surface="kv_checkpoint",
+            action=action,
+            code=_checkpoint_error_code(exc),
+        )
+    return json.dumps(
+        {
+            "surface": "kv_checkpoint",
+            "action": action,
+            "result": outcome.model_dump(mode="json", exclude={"recommendation"}),
+            "advisory": (
+                outcome.recommendation.as_advisory() if outcome.recommendation else ""
+            ),
+        },
+        default=_json_default,
+    )
 
 
 def _kv_checkpoint_intelligence(
@@ -447,9 +691,6 @@ def _kv_checkpoint_intelligence(
     authority comes from :func:`derive_caller_authority` over the ambient
     ``GraphSession``.
     """
-    from agent_utilities.kvcache.checkpoint import KVCheckpointError, KVCheckpointKey
-    from agent_utilities.kvcache.worthiness import CheckpointObservation
-
     # Validate the trigger AT THE BOUNDARY. It is a Literal on PersistenceRequest /
     # RAMCheckpointRecord, so an unrecognized value would surface deep inside as a raw
     # pydantic ValidationError that the KVCheckpointError handlers below never catch.
@@ -462,184 +703,41 @@ def _kv_checkpoint_intelligence(
         )
 
     manager = _checkpoint_manager(graph)
-
-    def _observation() -> Any:
-        """Build the observation from the explicit fields plus any bundles handed in.
-
-        An agent that has just run ``graph_ask`` / a context compile already holds the
-        exact shapes the grounding, contradiction and novelty scorers want, so it can
-        hand those straight over instead of transcribing four counts by hand. Explicit
-        ``observation_json`` fields always win over anything derived from a bundle —
-        the caller's direct measurement is more authoritative than an inference.
-        """
-        payload = json.loads(observation_json) if observation_json else {}
-        if not isinstance(payload, dict):
-            raise ValueError("observation_json must be a JSON object")
-        derived: dict[str, Any] = {}
-        if evidence_bundle_json.strip() not in {"", "{}"}:
-            derived.update(
-                _measured_fields(
-                    CheckpointObservation.from_evidence_bundle(
-                        _bundle_object(evidence_bundle_json)
-                    )
-                )
-            )
-        if context_bundle_json.strip() not in {"", "{}"}:
-            derived.update(
-                _measured_fields(
-                    CheckpointObservation.from_context_bundle(
-                        _bundle_object(context_bundle_json)
-                    )
-                )
-            )
-        return CheckpointObservation(**{**derived, **payload})
-
+    bundles = {
+        "observation_json": observation_json,
+        "evidence_bundle_json": evidence_bundle_json,
+        "context_bundle_json": context_bundle_json,
+    }
     if action == "ram_stats":
-        return json.dumps(
-            {
-                "surface": "kv_checkpoint",
-                "action": action,
-                "result": {
-                    **manager.ram_store.stats().model_dump(mode="json"),
-                    "eligibility_gate": manager.eligibility_gate.name,
-                    # Which signals are active in THIS deployment. Without it a score
-                    # is uninterpretable — an operator who removed a default scorer or
-                    # added their own has no other way to see what produced the number.
-                    "scorers": [
-                        {"name": s.name, "weight": s.weight}
-                        for s in manager.advisor.registry.scorers()
-                    ],
-                    "ram_threshold": manager.advisor.ram_threshold,
-                },
-            }
-        )
-
+        return _kv_ram_stats_response(action, manager)
     if action == "recommend":
-        try:
-            observation = _observation()
-        except Exception as exc:  # noqa: BLE001 — caller-supplied JSON/shape
-            return _surface_error(
-                exc, surface="kv_checkpoint", action=action, code="invalid_request"
-            )
-        recommendation = manager.recommend(observation)
-        return json.dumps(
-            {
-                "surface": "kv_checkpoint",
-                "action": action,
-                "result": {
-                    **recommendation.model_dump(mode="json", exclude={"observation"}),
-                    "advisory": recommendation.as_advisory(),
-                },
-            },
-            default=_json_default,
-        )
-
+        return _kv_recommend_response(action, manager, bundles)
     if action == "explain":
-        try:
-            return json.dumps(
-                {
-                    "surface": "kv_checkpoint",
-                    "action": action,
-                    "result": manager.explain(
-                        checkpoint_id,
-                        requesting_tenant=_session_bound_tenant(requesting_tenant),
-                    ).model_dump(mode="json"),
-                },
-                default=_json_default,
-            )
-        except ValueError as exc:
-            return _surface_error(
-                exc, surface="kv_checkpoint", action=action, code="invalid_request"
-            )
-        except KVCheckpointError as exc:
-            return _surface_error(
-                exc,
-                surface="kv_checkpoint",
-                action=action,
-                code=_checkpoint_error_code(exc),
-            )
-
+        return _kv_explain_response(action, manager, checkpoint_id, requesting_tenant)
     if action == "promote":
-        try:
-            outcome = manager.promote(
-                checkpoint_id,
-                requesting_tenant=_session_bound_tenant(requesting_tenant),
-                trigger=trigger,  # type: ignore[arg-type]
-            )
-        except ValueError as exc:
-            return _surface_error(
-                exc, surface="kv_checkpoint", action=action, code="invalid_request"
-            )
-        except KVCheckpointError as exc:
-            return _surface_error(
-                exc,
-                surface="kv_checkpoint",
-                action=action,
-                code=_checkpoint_error_code(exc),
-            )
-        return json.dumps(
-            {
-                "surface": "kv_checkpoint",
-                "action": action,
-                "result": outcome.model_dump(mode="json", exclude={"recommendation"}),
-            },
-            default=_json_default,
+        return _kv_promote_response(
+            action, manager, checkpoint_id, requesting_tenant, trigger
         )
-
     # action == "checkpoint_now"
-    try:
-        data = base64.b64decode(data_b64) if data_b64 else b""
-        bound_tenant = _session_bound_tenant(tenant)
-        key = KVCheckpointKey(
-            model_identity=model_identity,
-            quantization=quantization,
-            serving_engine=serving_engine,
-            engine_version=engine_version,
-            prefix_digest=prefix_digest,
-            tenant=bound_tenant,
-            policy_version=policy_version,
-        )
-        sources = _contributing_sources(
-            sources_json, context_bundle_json, tenant=bound_tenant
-        )
-        supplied = (
-            observation_json.strip() not in {"", "{}"}
-            or evidence_bundle_json.strip() not in {"", "{}"}
-            or context_bundle_json.strip() not in {"", "{}"}
-        )
-        observation = _observation() if supplied else None
-    except Exception as exc:  # noqa: BLE001 — bad payload/key/observation
-        return _surface_error(
-            exc, surface="kv_checkpoint", action=action, code="invalid_request"
-        )
-    try:
-        outcome = manager.checkpoint_now(
-            data,
-            key=key,
-            run_id=run_id,
-            point=point,
-            trigger=trigger,  # type: ignore[arg-type]
-            persist=persist,
-            observation=observation,
-            sources=sources,
-        )
-    except KVCheckpointError as exc:
-        return _surface_error(
-            exc,
-            surface="kv_checkpoint",
-            action=action,
-            code=_checkpoint_error_code(exc),
-        )
-    return json.dumps(
+    return _kv_checkpoint_now(
+        action,
+        manager,
+        bundles,
         {
-            "surface": "kv_checkpoint",
-            "action": action,
-            "result": outcome.model_dump(mode="json", exclude={"recommendation"}),
-            "advisory": (
-                outcome.recommendation.as_advisory() if outcome.recommendation else ""
-            ),
+            "data_b64": data_b64,
+            "model_identity": model_identity,
+            "quantization": quantization,
+            "serving_engine": serving_engine,
+            "engine_version": engine_version,
+            "prefix_digest": prefix_digest,
+            "tenant": tenant,
+            "policy_version": policy_version,
+            "run_id": run_id,
+            "point": point,
+            "trigger": trigger,
+            "persist": persist,
+            "sources_json": sources_json,
         },
-        default=_json_default,
     )
 
 
@@ -2468,6 +2566,203 @@ def _graph_mine_process_events(action: str, params: dict, graph: str) -> str | N
     return json.dumps(response, default=_json_default)
 
 
+def _kvcache_get(backend: Any, action: str, key: str) -> str:
+    """``graph_kvcache`` ``get`` — the block bytes, base64'd, or an explicit miss."""
+    blob = backend.get(key)
+    return json.dumps(
+        {
+            "surface": "kvcache",
+            "action": action,
+            "hit": blob is not None,
+            "value_b64": (
+                base64.b64encode(blob).decode("ascii") if blob is not None else None
+            ),
+        }
+    )
+
+
+def _kvcache_put(backend: Any, action: str, key: str, value_b64: str) -> str:
+    """``graph_kvcache`` ``put`` — store base64-decoded block bytes under ``key``."""
+    try:
+        raw = base64.b64decode(value_b64) if value_b64 else b""
+    except (ValueError, TypeError) as exc:
+        return _surface_error(exc, surface="kvcache", code="invalid_request")
+    return json.dumps(
+        {
+            "surface": "kvcache",
+            "action": action,
+            "stored": bool(backend.put(key, raw)),
+        }
+    )
+
+
+def _kvcache_probe(backend: Any, action: str, key: str) -> str:
+    """``graph_kvcache`` ``contains``/``exists`` — presence only, never the bytes."""
+    probe = backend.exists if action == "exists" else backend.contains
+    return json.dumps(
+        {"surface": "kvcache", "action": action, "present": bool(probe(key))}
+    )
+
+
+def _kvcache_stats(backend: Any, action: str) -> str:
+    """``graph_kvcache`` ``stats`` — occupancy + dedup counters."""
+    stats = backend.stats()
+    data = stats.model_dump() if hasattr(stats, "model_dump") else dict(stats)
+    return json.dumps(
+        {"surface": "kvcache", "action": action, "result": data},
+        default=_json_default,
+    )
+
+
+def _kvcache_dispatch(backend: Any, action: str, key: str, value_b64: str) -> str:
+    """Route one ``graph_kvcache`` action onto the KG-2.306 connector.
+
+    The key-required guard covers exactly the four key-addressed actions, so an
+    unknown action still reports itself as unknown rather than as a missing key.
+    """
+    if action == "stats":
+        return _kvcache_stats(backend, action)
+    if action not in {"get", "put", "contains", "exists"}:
+        return json.dumps({"surface": "kvcache", "error": f"unknown action {action!r}"})
+    if not key:
+        return json.dumps({"surface": "kvcache", "error": "key required"})
+    if action == "get":
+        return _kvcache_get(backend, action, key)
+    if action == "put":
+        return _kvcache_put(backend, action, key, value_b64)
+    return _kvcache_probe(backend, action, key)
+
+
+def _kvcache_close(backend: Any) -> None:
+    """Best-effort connector cleanup — never raises."""
+    close = getattr(backend, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:  # noqa: BLE001 — best-effort cleanup
+            pass
+
+
+def _kv_create_checkpoint(action: str, store: Any, req: dict[str, Any]) -> str:
+    """``graph_kv_checkpoint`` ``create`` — the full key plus the blob bytes."""
+    from agent_utilities.kvcache import KVCheckpointKey
+
+    try:
+        data = base64.b64decode(req["data_b64"]) if req["data_b64"] else b""
+        provenance = (
+            json.loads(req["provenance_json"]) if req["provenance_json"] else {}
+        )
+    except (ValueError, TypeError) as exc:
+        return _surface_error(
+            exc, surface="kv_checkpoint", action=action, code="invalid_request"
+        )
+    try:
+        key = KVCheckpointKey(
+            model_identity=req["model_identity"],
+            quantization=req["quantization"],
+            serving_engine=req["serving_engine"],
+            engine_version=req["engine_version"],
+            prefix_digest=req["prefix_digest"],
+            tenant=req["tenant"],
+            policy_version=req["policy_version"],
+        )
+    except Exception as exc:  # noqa: BLE001 — bad/missing key component
+        return _surface_error(
+            exc, surface="kv_checkpoint", action=action, code="invalid_request"
+        )
+    try:
+        record = store.create_checkpoint(
+            data,
+            key=key,
+            run_id=req["run_id"],
+            point=req["point"],
+            provenance=provenance if isinstance(provenance, dict) else {},
+        )
+    except Exception as exc:  # noqa: BLE001 — surface engine errors as data
+        return _surface_error(exc, surface="kv_checkpoint", action=action)
+    if record is None:
+        return json.dumps(
+            {
+                "surface": "kv_checkpoint",
+                "action": action,
+                "error": "checkpoint creation failed (empty payload or engine write failure)",
+            }
+        )
+    return json.dumps(
+        {"surface": "kv_checkpoint", "action": action, "result": record.model_dump()},
+        default=_json_default,
+    )
+
+
+def _kv_instantiate_agent(
+    action: str,
+    store: Any,
+    checkpoint_id: str,
+    requesting_tenant: str,
+    new_run_id: str,
+    current_policy_version: str,
+) -> str:
+    """``graph_kv_checkpoint`` ``instantiate_agent`` — fail-closed load + lineage."""
+    from agent_utilities.kvcache import KVCheckpointError
+
+    try:
+        record = store.instantiate_agent(
+            checkpoint_id,
+            requesting_tenant=requesting_tenant,
+            new_run_id=new_run_id,
+            current_policy_version=current_policy_version or None,
+        )
+    except KVCheckpointError as exc:
+        return _surface_error(
+            exc,
+            surface="kv_checkpoint",
+            action=action,
+            code=_checkpoint_error_code(exc),
+        )
+    return json.dumps(
+        {"surface": "kv_checkpoint", "action": action, "result": record.model_dump()},
+        default=_json_default,
+    )
+
+
+def _kv_restore_conversation(
+    action: str,
+    store: Any,
+    checkpoint_id: str,
+    conversation_id: str,
+    requesting_tenant: str,
+    current_policy_version: str,
+    allow_cold_start: bool,
+) -> str:
+    """``graph_kv_checkpoint`` ``restore_conversation`` — fail-closed load + lineage."""
+    from agent_utilities.kvcache import KVCheckpointError
+
+    try:
+        res = store.restore_conversation(
+            checkpoint_id,
+            conversation_id=conversation_id,
+            requesting_tenant=requesting_tenant,
+            current_policy_version=current_policy_version or None,
+            allow_cold_start=allow_cold_start,
+        )
+    except KVCheckpointError as exc:
+        return _surface_error(
+            exc,
+            surface="kv_checkpoint",
+            action=action,
+            code=_checkpoint_error_code(exc),
+        )
+    # Never inline the heavy blob bytes over the JSON tool surface — only
+    # provenance; a caller that needs the bytes fetches them directly from
+    # the engine's own blob store by digest (CONCEPT:AU-KG.memory.kv-checkpoint-resource).
+    payload = res.model_dump(exclude={"data"})
+    payload["size_bytes"] = len(res.data) if res.data is not None else 0
+    return json.dumps(
+        {"surface": "kv_checkpoint", "action": action, "result": payload},
+        default=_json_default,
+    )
+
+
 def register_engine_surface_tools(mcp) -> None:
     """Register the KG-2.310 engine-surface tools + their REST twins.
 
@@ -2583,68 +2878,9 @@ def register_engine_surface_tools(mcp) -> None:
                 code="dependency_unavailable",
             )
         try:
-            if action == "get":
-                if not key:
-                    return json.dumps({"surface": "kvcache", "error": "key required"})
-                blob = backend.get(key)
-                return json.dumps(
-                    {
-                        "surface": "kvcache",
-                        "action": action,
-                        "hit": blob is not None,
-                        "value_b64": (
-                            base64.b64encode(blob).decode("ascii")
-                            if blob is not None
-                            else None
-                        ),
-                    }
-                )
-            if action == "put":
-                if not key:
-                    return json.dumps({"surface": "kvcache", "error": "key required"})
-                try:
-                    raw = base64.b64decode(value_b64) if value_b64 else b""
-                except (ValueError, TypeError) as exc:
-                    return _surface_error(
-                        exc, surface="kvcache", code="invalid_request"
-                    )
-                return json.dumps(
-                    {
-                        "surface": "kvcache",
-                        "action": action,
-                        "stored": bool(backend.put(key, raw)),
-                    }
-                )
-            if action in ("contains", "exists"):
-                if not key:
-                    return json.dumps({"surface": "kvcache", "error": "key required"})
-                probe = backend.exists if action == "exists" else backend.contains
-                return json.dumps(
-                    {
-                        "surface": "kvcache",
-                        "action": action,
-                        "present": bool(probe(key)),
-                    }
-                )
-            if action == "stats":
-                stats = backend.stats()
-                data = (
-                    stats.model_dump() if hasattr(stats, "model_dump") else dict(stats)
-                )
-                return json.dumps(
-                    {"surface": "kvcache", "action": action, "result": data},
-                    default=_json_default,
-                )
-            return json.dumps(
-                {"surface": "kvcache", "error": f"unknown action {action!r}"}
-            )
+            return _kvcache_dispatch(backend, action, key, value_b64)
         finally:
-            close = getattr(backend, "close", None)
-            if callable(close):
-                try:
-                    close()
-                except Exception:  # noqa: BLE001 — best-effort cleanup
-                    pass
+            _kvcache_close(backend)
 
     kg_server.REGISTERED_TOOLS["graph_kvcache"] = graph_kvcache
 
@@ -2796,8 +3032,6 @@ def register_engine_surface_tools(mcp) -> None:
         """Thin verb over :class:`~agent_utilities.kvcache.KVCheckpointStore` (CONCEPT:AU-KG.memory.kv-checkpoint-resource)
         and :class:`~agent_utilities.kvcache.TieredCheckpointManager`
         (CONCEPT:AU-KG.memory.checkpoint-worthiness-scoring)."""
-        from agent_utilities.kvcache import KVCheckpointError, KVCheckpointKey
-
         # ── the intelligence actions: worthiness, tiering, eligibility ──────
         # These route through TieredCheckpointManager (shared RAM tier) rather than
         # the durable store directly, because the RAM tier is the DEFAULT and disk is
@@ -2843,104 +3077,42 @@ def register_engine_surface_tools(mcp) -> None:
             )
 
         if action == "create":
-            try:
-                data = base64.b64decode(data_b64) if data_b64 else b""
-                provenance = json.loads(provenance_json) if provenance_json else {}
-            except (ValueError, TypeError) as exc:
-                return _surface_error(
-                    exc, surface="kv_checkpoint", action=action, code="invalid_request"
-                )
-            try:
-                key = KVCheckpointKey(
-                    model_identity=model_identity,
-                    quantization=quantization,
-                    serving_engine=serving_engine,
-                    engine_version=engine_version,
-                    prefix_digest=prefix_digest,
-                    tenant=tenant,
-                    policy_version=policy_version,
-                )
-            except Exception as exc:  # noqa: BLE001 — bad/missing key component
-                return _surface_error(
-                    exc, surface="kv_checkpoint", action=action, code="invalid_request"
-                )
-            try:
-                record = store.create_checkpoint(
-                    data,
-                    key=key,
-                    run_id=run_id,
-                    point=point,
-                    provenance=provenance if isinstance(provenance, dict) else {},
-                )
-            except Exception as exc:  # noqa: BLE001 — surface engine errors as data
-                return _surface_error(exc, surface="kv_checkpoint", action=action)
-            if record is None:
-                return json.dumps(
-                    {
-                        "surface": "kv_checkpoint",
-                        "action": action,
-                        "error": "checkpoint creation failed (empty payload or engine write failure)",
-                    }
-                )
-            return json.dumps(
+            return _kv_create_checkpoint(
+                action,
+                store,
                 {
-                    "surface": "kv_checkpoint",
-                    "action": action,
-                    "result": record.model_dump(),
+                    "data_b64": data_b64,
+                    "provenance_json": provenance_json,
+                    "model_identity": model_identity,
+                    "quantization": quantization,
+                    "serving_engine": serving_engine,
+                    "engine_version": engine_version,
+                    "prefix_digest": prefix_digest,
+                    "tenant": tenant,
+                    "policy_version": policy_version,
+                    "run_id": run_id,
+                    "point": point,
                 },
-                default=_json_default,
             )
-
         if action == "instantiate_agent":
-            try:
-                record = store.instantiate_agent(
-                    checkpoint_id,
-                    requesting_tenant=requesting_tenant,
-                    new_run_id=new_run_id,
-                    current_policy_version=current_policy_version or None,
-                )
-            except KVCheckpointError as exc:
-                return _surface_error(
-                    exc,
-                    surface="kv_checkpoint",
-                    action=action,
-                    code=_checkpoint_error_code(exc),
-                )
-            return json.dumps(
-                {
-                    "surface": "kv_checkpoint",
-                    "action": action,
-                    "result": record.model_dump(),
-                },
-                default=_json_default,
+            return _kv_instantiate_agent(
+                action,
+                store,
+                checkpoint_id,
+                requesting_tenant,
+                new_run_id,
+                current_policy_version,
             )
-
         if action == "restore_conversation":
-            try:
-                res = store.restore_conversation(
-                    checkpoint_id,
-                    conversation_id=conversation_id,
-                    requesting_tenant=requesting_tenant,
-                    current_policy_version=current_policy_version or None,
-                    allow_cold_start=allow_cold_start,
-                )
-            except KVCheckpointError as exc:
-                return _surface_error(
-                    exc,
-                    surface="kv_checkpoint",
-                    action=action,
-                    code=_checkpoint_error_code(exc),
-                )
-            # Never inline the heavy blob bytes over the JSON tool surface — only
-            # provenance; a caller that needs the bytes fetches them directly from
-            # the engine's own blob store by digest (CONCEPT:AU-KG.memory.kv-checkpoint-resource).
-            payload = res.model_dump(exclude={"data"})
-            payload["size_bytes"] = len(res.data) if res.data is not None else 0
-            return json.dumps(
-                {"surface": "kv_checkpoint", "action": action, "result": payload},
-                default=_json_default,
+            return _kv_restore_conversation(
+                action,
+                store,
+                checkpoint_id,
+                conversation_id,
+                requesting_tenant,
+                current_policy_version,
+                allow_cold_start,
             )
-
         return json.dumps(
             {"surface": "kv_checkpoint", "error": f"unknown action {action!r}"}
         )
