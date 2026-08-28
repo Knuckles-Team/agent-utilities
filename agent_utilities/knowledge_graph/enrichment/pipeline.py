@@ -537,11 +537,7 @@ class EnrichmentPipeline:
         all_code = [c for r in results for c in r.code]
         all_tests = [t for r in results for t in r.tests]
 
-        # L0/structural: design-pattern tags (deterministic, no LLM).
-        for c in all_code:
-            c.patterns = detect_patterns(c)
-            if c.patterns:
-                summary.patterns_tagged += 1
+        self._tag_code_patterns(all_code, summary)
 
         # Resolve the code→code CALLS edges ONCE: community detection clusters on
         # them and the write section below persists the same set. The resolver path
@@ -559,15 +555,7 @@ class EnrichmentPipeline:
                 call_edges=call_edges,
             )
 
-        # L2 semantic: capability cards (LLM, cached by ast_hash).
-        cards_by_id: dict[str, CapabilityCard] = {}
-        if self.llm_fn is not None:
-            calls_by_id = {c.id: c.calls for c in all_code}
-            for card in generate_symbol_cards(
-                all_code, self.llm_fn, self.card_cache, calls_by_id
-            ):
-                cards_by_id[card.id] = card
-                summary.cards_generated += 1
+        cards_by_id = self._generate_capability_cards(all_code, summary)
 
         self._enrich_write_all(
             all_code,
@@ -583,6 +571,59 @@ class EnrichmentPipeline:
         )
 
         return summary
+
+    def _tag_code_patterns(
+        self, all_code: list[Any], summary: EnrichmentSummary
+    ) -> None:
+        """L0/structural: design-pattern tags (deterministic, no LLM).
+
+        Extracted verbatim from ``enrich_files`` (pure extract-method, no
+        behaviour change).
+        """
+        for c in all_code:
+            c.patterns = detect_patterns(c)
+            if c.patterns:
+                summary.patterns_tagged += 1
+
+    def _generate_capability_cards(
+        self, all_code: list[Any], summary: EnrichmentSummary
+    ) -> dict[str, CapabilityCard]:
+        """L2 semantic: capability cards (LLM, cached by ast_hash).
+
+        Extracted verbatim from ``enrich_files`` (pure extract-method, no
+        behaviour change).
+        """
+        cards_by_id: dict[str, CapabilityCard] = {}
+        if self.llm_fn is None:
+            return cards_by_id
+        calls_by_id = {c.id: c.calls for c in all_code}
+        for card in generate_symbol_cards(
+            all_code, self.llm_fn, self.card_cache, calls_by_id
+        ):
+            cards_by_id[card.id] = card
+            summary.cards_generated += 1
+        return cards_by_id
+
+    def _resolve_prehash_identity(self, fp: str | Path, root_real: Path | None) -> str:
+        """Resolve one file's persisted identity for ``_enrich_prehash_filter``.
+
+        Extracted verbatim from that method's loop body (pure extract-method,
+        no behaviour change). Raises :class:`IncompleteParse` if ``root_real``
+        is set and the file's real path escapes it.
+        """
+        p = Path(fp)
+        try:
+            real = p.resolve(strict=False)
+        except OSError:
+            real = p
+        if root_real is not None:
+            if real != root_real and root_real not in real.parents:
+                raise IncompleteParse(f"file escapes source root {root_real}: {fp}")
+            return logical_file_identity(real, root_real)
+        # Legacy identity (deprecated — see enrich_files' docstring): the
+        # resolved absolute path. Always starts with "/", so it can never be
+        # mistaken for a logical (always-relative) identity.
+        return str(real)
 
     def _enrich_prehash_filter(
         self,
@@ -608,19 +649,7 @@ class EnrichmentPipeline:
         for fp in files:
             summary.files_seen += 1
             p = Path(fp)
-            try:
-                real = p.resolve(strict=False)
-            except OSError:
-                real = p
-            if root_real is not None:
-                if real != root_real and root_real not in real.parents:
-                    raise IncompleteParse(f"file escapes source root {root_real}: {fp}")
-                identity = logical_file_identity(real, root_real)
-            else:
-                # Legacy identity (deprecated — see docstring): the resolved
-                # absolute path. Always starts with "/", so it can never be
-                # mistaken for a logical (always-relative) identity.
-                identity = str(real)
+            identity = self._resolve_prehash_identity(fp, root_real)
             try:
                 source = p.read_text(encoding="utf-8", errors="surrogatepass")
             except (OSError, UnicodeDecodeError):
@@ -649,6 +678,64 @@ class EnrichmentPipeline:
             )
         return pending, pending_hashes
 
+    def _index_repository_results(
+        self,
+        pending: list[tuple[str, str]],
+        pending_hashes: dict[str, str],
+    ) -> tuple[
+        list[ExtractionResult], list[EnrichmentEdge], list[EnrichmentEdge] | None
+    ]:
+        """PRIMARY path of ``_enrich_parse_and_resolve``
+        (CONCEPT:EG-KG.compute.type-scope-resolved-call): one
+        ``index_repository`` round-trip both parses every file and resolves
+        cross-file calls type/scope-aware in Rust, yielding the symbols AND
+        the already-bound CALLS/INHERITS/REALIZES edges.
+
+        Extracted verbatim from ``_enrich_parse_and_resolve`` (pure
+        extract-method, no behaviour change). Returns empty results (with
+        empty edges) if ``index_fn`` is unset, there is nothing pending, or
+        the RPC itself failed — the caller falls back to per-file parsing in
+        every one of those cases.
+        """
+        struct_edges: list[EnrichmentEdge] = []
+        call_edges: list[EnrichmentEdge] | None = None
+        results: list[ExtractionResult] = []
+        if self.index_fn is None or not pending:
+            return results, struct_edges, call_edges
+        try:
+            raw = [(fp, src.encode("utf-8", "surrogatepass")) for fp, src in pending]
+            index = self.index_fn(raw)
+        except Exception as exc:  # noqa: BLE001 — the RPC itself failed or is
+            # unsupported by this engine build: degrade to the per-file parse
+            # path, which independently re-verifies every file rather than
+            # trusting anything from the failed call.
+            logger.debug("index_repository call failed (%s); parse fallback", exc)
+            return [], struct_edges, call_edges
+        # A response WAS received: exact acknowledgement validation
+        # (entities_from_index_result) is authoritative from here.
+        # IncompleteParse — partial/unknown-identity/miscounted — MUST
+        # propagate rather than be silently smoothed over by the parse
+        # fallback below: a native response that answered but cannot be
+        # trusted is a defect to surface, not mask.
+        results, resolved = entities_from_index_result(index, pending_hashes)
+        call_edges = [e for e in resolved if e.rel_type == "CALLS"]
+        struct_edges = [e for e in resolved if e.rel_type != "CALLS"]
+        return results, struct_edges, call_edges
+
+    def _fallback_parse_results(
+        self, pending: list[tuple[str, str]]
+    ) -> list[ExtractionResult]:
+        """Per-file parse FALLBACK path of ``_enrich_parse_and_resolve``
+        (engine without the resolver): per-file parse + Python name-only
+        call resolution.
+
+        Extracted verbatim from ``_enrich_parse_and_resolve`` (pure
+        extract-method, no behaviour change).
+        """
+        if self.batch_parse_fn is not None and pending:
+            return extract_source_files(pending, self.batch_parse_fn)
+        return [extract_source(fp, source, self.parse_fn) for fp, source in pending]
+
     def _enrich_parse_and_resolve(
         self,
         pending: list[tuple[str, str]],
@@ -667,67 +754,29 @@ class EnrichmentPipeline:
         fallback further down. Mutates ``self._hash_seen`` and
         ``summary.files_parsed`` exactly as before.
         """
-        # Phase 2 — parse + resolve the changed files. PRIMARY path (CONCEPT:EG-KG.compute.type-scope-resolved-call):
-        # one ``index_repository`` round-trip both parses every file and resolves
-        # cross-file calls type/scope-aware in Rust, yielding the symbols AND the
-        # already-bound CALLS/INHERITS/REALIZES edges. Fallback (engine without the
-        # resolver): per-file parse + Python name-only call resolution.
-        struct_edges: list[EnrichmentEdge] = []
-        call_edges: list[EnrichmentEdge] | None = None
-        results: list[ExtractionResult] = []
-        if self.index_fn is not None and pending:
-            try:
-                raw = [
-                    (fp, src.encode("utf-8", "surrogatepass")) for fp, src in pending
-                ]
-                index = self.index_fn(raw)
-            except Exception as exc:  # noqa: BLE001 — the RPC itself failed or is
-                # unsupported by this engine build: degrade to the per-file parse
-                # path, which independently re-verifies every file rather than
-                # trusting anything from the failed call.
-                logger.debug("index_repository call failed (%s); parse fallback", exc)
-                results = []
-            else:
-                # A response WAS received: exact acknowledgement validation
-                # (entities_from_index_result) is authoritative from here.
-                # IncompleteParse — partial/unknown-identity/miscounted — MUST
-                # propagate rather than be silently smoothed over by the parse
-                # fallback below: a native response that answered but cannot be
-                # trusted is a defect to surface, not mask.
-                results, resolved = entities_from_index_result(index, pending_hashes)
-                call_edges = [e for e in resolved if e.rel_type == "CALLS"]
-                struct_edges = [e for e in resolved if e.rel_type != "CALLS"]
+        results, struct_edges, call_edges = self._index_repository_results(
+            pending, pending_hashes
+        )
         if not results:
-            if self.batch_parse_fn is not None and pending:
-                results = extract_source_files(pending, self.batch_parse_fn)
-            else:
-                results = [
-                    extract_source(fp, source, self.parse_fn) for fp, source in pending
-                ]
+            results = self._fallback_parse_results(pending)
         for res in results:
             self._hash_seen[res.file_path] = res.content_hash
             summary.files_parsed += 1
         return results, struct_edges, call_edges
 
-    def _enrich_write_routes_iac_capabilities(
-        self,
-        all_code: list[Any],
-        features: list[Any],
-        service_hint: str,
-        iac_files: list[tuple[str, str]] | None,
-        summary: EnrichmentSummary,
-    ) -> None:
-        """Route/IaC/capability write phase, called from inside ``_enrich_write_all``'s
-        batched-backend try block (``self.backend`` is still the ``_BatchedBackend``
-        at this point).
+    def _write_routes(
+        self, all_code: list[Any], service_hint: str, summary: EnrichmentSummary
+    ) -> str:
+        """Route-write section of ``_enrich_write_routes_iac_capabilities``.
 
-        Extracted verbatim from ``_enrich_write_all`` (pure extract-method, no
-        behaviour change).
+        CONCEPT:AU-KG.enrichment.http-route-extraction — HTTP routes from handler decorators: Route nodes +
+        SERVES (handler→route), and the code↔ecosystem SERVED_BY link to the
+        deployed Service (best-effort name match), so OWL reasoning can chain
+        Code –serves→ Route –servedBy→ Service –deployedOn→ Node.
+
+        Extracted verbatim (pure extract-method, no behaviour change). Returns
+        the resolved ``service_id`` for the IaC/capability sections to reuse.
         """
-        # CONCEPT:AU-KG.enrichment.http-route-extraction — HTTP routes from handler decorators: Route nodes +
-        # SERVES (handler→route), and the code↔ecosystem SERVED_BY link to the
-        # deployed Service (best-effort name match), so OWL reasoning can chain
-        # Code –serves→ Route –servedBy→ Service –deployedOn→ Node.
         route_nodes, serves_edges = extract_routes(all_code)
         for rn in route_nodes:
             self.backend.add_node(rn.id, label="Route", **rn.props)
@@ -744,46 +793,146 @@ class EnrichmentPipeline:
             for e in link_routes_to_service(route_nodes, service_id):
                 self._write_edge(e.source, e.target, e.rel_type)
                 summary.served_by_edges += 1
+        return service_id
 
-        # CONCEPT:AU-KG.enrichment.read-them-here-so — IaC Resources (Dockerfile/K8s/Terraform) + the
-        # PROVISIONS link to the deployed Service, spanning code → infra.
-        if iac_files:
-            resource_nodes, _ = extract_iac(iac_files)
-            for rn in resource_nodes:
-                self.backend.add_node(rn.id, label="Resource", **rn.props)
-                summary.resources += 1
-            if service_id:
-                for e in link_resources_to_service(resource_nodes, service_id):
-                    self._write_edge(e.source, e.target, e.rel_type)
-                    summary.provisions_edges += 1
+    def _write_iac_resources(
+        self,
+        iac_files: list[tuple[str, str]] | None,
+        service_id: str,
+        summary: EnrichmentSummary,
+    ) -> None:
+        """IaC-write section of ``_enrich_write_routes_iac_capabilities``.
 
-        # Code → capability: match features to BusinessCapability nodes
-        # (LeanIX/Archi), mint provisional ones bottom-up, emit REALIZES edges,
-        # and optionally push the minted capabilities back to EA tools (KG-2.8).
-        if features and (
-            self.capability_provider is not None
-            or self.capability_registry is not None
-            or self.mint_capabilities
-        ):
-            capabilities = (
-                self.capability_provider() if self.capability_provider else []
-            )
-            minted, realizes_edges = resolve_realizes(
-                features,
-                capabilities,
-                registry=self.capability_registry,
-                mint_missing=self.mint_capabilities,
-                embed_fn=self.realizes_embed_fn,
-            )
-            for cap in minted:
-                self._write_capability(cap)
-                summary.capabilities_minted += 1
-            for e in realizes_edges:
+        CONCEPT:AU-KG.enrichment.read-them-here-so — IaC Resources (Dockerfile/K8s/Terraform) + the
+        PROVISIONS link to the deployed Service, spanning code → infra.
+
+        Extracted verbatim (pure extract-method, no behaviour change).
+        """
+        if not iac_files:
+            return
+        resource_nodes, _ = extract_iac(iac_files)
+        for rn in resource_nodes:
+            self.backend.add_node(rn.id, label="Resource", **rn.props)
+            summary.resources += 1
+        if service_id:
+            for e in link_resources_to_service(resource_nodes, service_id):
                 self._write_edge(e.source, e.target, e.rel_type)
-                summary.realizes_edges += 1
-            if minted and self.writeback_fn is not None:
-                result = self.writeback_fn(minted)
-                summary.capabilities_pushed = _writeback_count(result)
+                summary.provisions_edges += 1
+
+    def _write_capabilities(
+        self, features: list[Any], summary: EnrichmentSummary
+    ) -> None:
+        """Capability-write section of ``_enrich_write_routes_iac_capabilities``:
+        match features to BusinessCapability nodes (LeanIX/Archi), mint
+        provisional ones bottom-up, emit REALIZES edges, and optionally push
+        the minted capabilities back to EA tools (KG-2.8).
+
+        Extracted verbatim (pure extract-method, no behaviour change).
+        """
+        if not (
+            features
+            and (
+                self.capability_provider is not None
+                or self.capability_registry is not None
+                or self.mint_capabilities
+            )
+        ):
+            return
+        capabilities = self.capability_provider() if self.capability_provider else []
+        minted, realizes_edges = resolve_realizes(
+            features,
+            capabilities,
+            registry=self.capability_registry,
+            mint_missing=self.mint_capabilities,
+            embed_fn=self.realizes_embed_fn,
+        )
+        for cap in minted:
+            self._write_capability(cap)
+            summary.capabilities_minted += 1
+        for e in realizes_edges:
+            self._write_edge(e.source, e.target, e.rel_type)
+            summary.realizes_edges += 1
+        if minted and self.writeback_fn is not None:
+            result = self.writeback_fn(minted)
+            summary.capabilities_pushed = _writeback_count(result)
+
+    def _enrich_write_routes_iac_capabilities(
+        self,
+        all_code: list[Any],
+        features: list[Any],
+        service_hint: str,
+        iac_files: list[tuple[str, str]] | None,
+        summary: EnrichmentSummary,
+    ) -> None:
+        """Route/IaC/capability write phase, called from inside ``_enrich_write_all``'s
+        batched-backend try block (``self.backend`` is still the ``_BatchedBackend``
+        at this point).
+
+        Extracted verbatim from ``_enrich_write_all`` (pure extract-method, no
+        behaviour change).
+        """
+        service_id = self._write_routes(all_code, service_hint, summary)
+        self._write_iac_resources(iac_files, service_id, summary)
+        self._write_capabilities(features, summary)
+
+    def _write_code_and_tests(
+        self,
+        all_code: list[Any],
+        all_tests: list[Any],
+        cards_by_id: dict[str, CapabilityCard],
+        summary: EnrichmentSummary,
+    ) -> None:
+        """Code + test node writes, from ``_enrich_write_all``.
+
+        Extracted verbatim (pure extract-method, no behaviour change).
+        """
+        for c in all_code:
+            self._write_code(c, cards_by_id.get(c.id))
+            summary.code += 1
+        for t in all_tests:
+            if self._write_test(t):
+                summary.tests_needing_work += 1
+            summary.tests += 1
+
+    def _write_resolved_edges(
+        self,
+        results: list[ExtractionResult],
+        call_edges: list[EnrichmentEdge],
+        struct_edges: list[EnrichmentEdge],
+        summary: EnrichmentSummary,
+    ) -> None:
+        """Covers/calls/structural edge writes, from ``_enrich_write_all``.
+
+        Structural + similarity edges (INHERITS/REALIZES/SIMILAR_TO) come from
+        the Rust resolver (CONCEPT:EG-KG.compute.type-scope-resolved-call/2.101).
+
+        Extracted verbatim (pure extract-method, no behaviour change).
+        """
+        for e in resolve_covers(results):
+            self._write_edge(e.source, e.target, e.rel_type)
+            summary.covers_edges += 1
+        for e in call_edges:
+            self._write_edge(e.source, e.target, e.rel_type, e.props)
+            summary.calls_edges += 1
+        for e in struct_edges:
+            self._write_edge(e.source, e.target, e.rel_type, e.props)
+            if e.rel_type == "INHERITS":
+                summary.inherits_edges += 1
+            elif e.rel_type == "REALIZES":
+                summary.realizes_struct_edges += 1
+            elif e.rel_type == "SIMILAR_TO":
+                summary.similar_edges += 1
+
+    def _write_features(self, features: list[Any], summary: EnrichmentSummary) -> None:
+        """Feature node + PART_OF_FEATURE edge writes, from ``_enrich_write_all``.
+
+        Extracted verbatim (pure extract-method, no behaviour change).
+        """
+        for f in features:
+            self._write_feature(f)
+            for mid in f.member_ids:
+                self._write_edge(mid, f.id, "PART_OF_FEATURE")
+            summary.features += 1
 
     def _enrich_write_all(
         self,
@@ -812,37 +961,9 @@ class EnrichmentPipeline:
         real_backend = self.backend
         self.backend = _BatchedBackend(real_backend, source_system=self.source_system)
         try:
-            for c in all_code:
-                self._write_code(c, cards_by_id.get(c.id))
-                summary.code += 1
-            for t in all_tests:
-                if self._write_test(t):
-                    summary.tests_needing_work += 1
-                summary.tests += 1
-
-            for e in resolve_covers(results):
-                self._write_edge(e.source, e.target, e.rel_type)
-                summary.covers_edges += 1
-            for e in call_edges:
-                self._write_edge(e.source, e.target, e.rel_type, e.props)
-                summary.calls_edges += 1
-            # Structural + similarity edges (INHERITS/REALIZES/SIMILAR_TO) from the
-            # Rust resolver (CONCEPT:EG-KG.compute.type-scope-resolved-call/2.101).
-            for e in struct_edges:
-                self._write_edge(e.source, e.target, e.rel_type, e.props)
-                if e.rel_type == "INHERITS":
-                    summary.inherits_edges += 1
-                elif e.rel_type == "REALIZES":
-                    summary.realizes_struct_edges += 1
-                elif e.rel_type == "SIMILAR_TO":
-                    summary.similar_edges += 1
-
-            for f in features:
-                self._write_feature(f)
-                for mid in f.member_ids:
-                    self._write_edge(mid, f.id, "PART_OF_FEATURE")
-                summary.features += 1
-
+            self._write_code_and_tests(all_code, all_tests, cards_by_id, summary)
+            self._write_resolved_edges(results, call_edges, struct_edges, summary)
+            self._write_features(features, summary)
             self._enrich_write_routes_iac_capabilities(
                 all_code, features, service_hint, iac_files, summary
             )
@@ -868,6 +989,97 @@ class EnrichmentPipeline:
             responsibilities=(json.dumps(card.responsibilities) if card else "[]"),
         )
 
+    def _distil_intelligence(
+        self,
+        p: str,
+        text: str,
+        doc: Any,
+        llm_fn: LLMFn,
+        all_edges: list[EnrichmentEdge],
+        summary: EnrichmentSummary,
+    ) -> None:
+        """Distil reusable operating intelligence (CONCEPT:EG-KG.storage.nonblocking-checkpoint):
+        turn the document/call into Insight/Fact/Framework/Playbook nodes.
+
+        Extracted verbatim from ``enrich_documents``'s per-path loop body
+        (pure extract-method, no behaviour change). ``llm_fn`` is threaded in
+        explicitly (rather than read from ``self.llm_fn`` again) so the
+        caller's ``if self.llm_fn is None`` narrowing survives this method
+        boundary instead of degrading back to ``LLMFn | None`` here.
+        """
+        try:
+            intel_nodes, intel_edges = extract_intelligence(
+                text,
+                doc.id,
+                llm_fn,
+                source_type=doc.doc_type,
+                title=doc.title,
+            )
+            for node in intel_nodes:
+                self._write_intelligence(node)
+                summary.intelligence_nodes += 1
+            all_edges.extend(intel_edges)
+        except Exception as exc:  # pragma: no cover - enrichment best-effort  # noqa: BLE001 — the Document node itself was already committed via self.backend.add_node above; a failed intelligence-extraction pass just means fewer Insight/Fact/Framework/Playbook nodes for this document, not a lost or falsely-marked-processed document
+            logger.debug("intelligence extraction skipped for %s: %s", p, exc)
+
+    def _merge_concepts(
+        self, concepts: list[Concept], all_concepts: dict[str, Concept]
+    ) -> None:
+        """Concepts are canonical by id; merge source_ids across docs.
+
+        Extracted verbatim from ``enrich_documents``'s per-path loop body
+        (pure extract-method, no behaviour change).
+        """
+        for c in concepts:
+            existing = all_concepts.get(c.id)
+            if existing:
+                existing.source_ids = sorted(
+                    set(existing.source_ids) | set(c.source_ids)
+                )
+            else:
+                all_concepts[c.id] = c
+
+    def _process_document(
+        self,
+        p: str,
+        llm_fn: LLMFn,
+        all_concepts: dict[str, Concept],
+        all_edges: list[EnrichmentEdge],
+        summary: EnrichmentSummary,
+    ) -> None:
+        """Process one document path for ``enrich_documents``: parse,
+        hash-skip, write the Document node, distil intelligence, and merge
+        concepts. Mutates ``all_concepts``/``all_edges``/``summary`` in place.
+
+        Extracted verbatim from ``enrich_documents``'s main loop body (pure
+        extract-method, no behaviour change). ``llm_fn`` is threaded in
+        explicitly for the same type-narrowing reason as
+        ``_distil_intelligence``.
+        """
+        summary.files_seen += 1
+        text = read_document_text(p)
+        if not text.strip():
+            return
+        doc, concepts, edges = extract_document(p, text, llm_fn)
+        if self._hash_seen.get(p) == doc.content_hash:
+            summary.files_skipped_unchanged += 1
+            return
+        self._hash_seen[p] = doc.content_hash
+        summary.files_parsed += 1
+        self.backend.add_node(
+            doc.id,
+            label="Document",
+            name=doc.title,
+            doc_type=doc.doc_type,
+            file_path=doc.file_path,
+            ast_hash=doc.content_hash,
+            metadata=json.dumps(doc.metadata)[:4000],
+        )
+        summary.documents += 1
+        self._distil_intelligence(p, text, doc, llm_fn, all_edges, summary)
+        self._merge_concepts(concepts, all_concepts)
+        all_edges.extend(edges)
+
     def enrich_documents(
         self, paths: Iterable[Path | str]
     ) -> tuple[list[Concept], list[EnrichmentEdge], EnrichmentSummary]:
@@ -892,58 +1104,13 @@ class EnrichmentPipeline:
         if self.llm_fn is None:
             logger.warning("enrich_documents needs llm_fn; skipping concept extraction")
             return [], [], summary
+        llm_fn = self.llm_fn
 
         real_backend = self.backend
         self.backend = _BatchedBackend(real_backend, source_system=self.source_system)
         try:
             for p in paths:
-                p = str(p)
-                summary.files_seen += 1
-                text = read_document_text(p)
-                if not text.strip():
-                    continue
-                doc, concepts, edges = extract_document(p, text, self.llm_fn)
-                if self._hash_seen.get(p) == doc.content_hash:
-                    summary.files_skipped_unchanged += 1
-                    continue
-                self._hash_seen[p] = doc.content_hash
-                summary.files_parsed += 1
-                self.backend.add_node(
-                    doc.id,
-                    label="Document",
-                    name=doc.title,
-                    doc_type=doc.doc_type,
-                    file_path=doc.file_path,
-                    ast_hash=doc.content_hash,
-                    metadata=json.dumps(doc.metadata)[:4000],
-                )
-                summary.documents += 1
-                # Distil reusable operating intelligence (CONCEPT:EG-KG.storage.nonblocking-checkpoint): turn the
-                # document/call into Insight/Fact/Framework/Playbook nodes.
-                try:
-                    intel_nodes, intel_edges = extract_intelligence(
-                        text,
-                        doc.id,
-                        self.llm_fn,
-                        source_type=doc.doc_type,
-                        title=doc.title,
-                    )
-                    for node in intel_nodes:
-                        self._write_intelligence(node)
-                        summary.intelligence_nodes += 1
-                    all_edges.extend(intel_edges)
-                except Exception as exc:  # pragma: no cover - enrichment best-effort  # noqa: BLE001 — the Document node itself was already committed via self.backend.add_node above; a failed intelligence-extraction pass just means fewer Insight/Fact/Framework/Playbook nodes for this document, not a lost or falsely-marked-processed document
-                    logger.debug("intelligence extraction skipped for %s: %s", p, exc)
-                for c in concepts:
-                    # Concepts are canonical by id; merge source_ids across docs.
-                    existing = all_concepts.get(c.id)
-                    if existing:
-                        existing.source_ids = sorted(
-                            set(existing.source_ids) | set(c.source_ids)
-                        )
-                    else:
-                        all_concepts[c.id] = c
-                all_edges.extend(edges)
+                self._process_document(str(p), llm_fn, all_concepts, all_edges, summary)
 
             for c in all_concepts.values():
                 self.backend.add_node(
