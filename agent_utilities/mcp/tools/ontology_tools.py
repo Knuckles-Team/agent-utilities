@@ -1594,6 +1594,91 @@ def _graph_share_private(node_id: str) -> str:
     return json.dumps({"node_id": node_id, "shared_scope": "private"})
 
 
+def _object_set_path(source_id: str, target_id: str) -> str:
+    from agent_utilities.knowledge_graph.ontology.object_path import find_object_path
+
+    if not source_id or not target_id:
+        return json.dumps({"error": "action='path' requires source_id and target_id"})
+    engine = kg_server._get_engine()
+    return json.dumps(find_object_path(engine, source_id, target_id), default=str)
+
+
+def _object_set_base(
+    ont: Any, action: str, type_or_interface: str, ids_json: str
+) -> Any:
+    if action == "from_ids" or action in ("union", "intersect", "subtract"):
+        return ont.object_set(json.loads(ids_json) if ids_json else [])
+    return ont.object_set_of_type(type_or_interface)
+
+
+def _object_set_effective_limit(limit: int) -> int:
+    # BUG-1: clamp to a safe, non-zero, hard-capped limit for the actions
+    # that used to materialize an UNBOUNDED id list (of_type/from_ids/union/
+    # intersect/subtract) — a DYNAMIC ``ObjectSet`` (of_type) scans every
+    # node in the graph and would otherwise return every match with no cap,
+    # which OOM-crashed the live pod. ``search`` already had its own bound;
+    # leave it as-is.
+    return max(1, min(int(limit) if limit else 50, _OBJECT_SET_HARD_CAP))
+
+
+def _object_set_ids_result(base: Any, effective_limit: int) -> str:
+    ids = base.ids(limit=effective_limit)
+    return json.dumps(
+        {"ids": ids, "count": len(ids), "limited": len(ids) >= effective_limit}
+    )
+
+
+def _object_set_search(base: Any, query: str, limit: int) -> str:
+    res = base.search(query, limit=limit)
+    return json.dumps({"ids": res.ids(), "count": res.count()})
+
+
+def _object_set_search_around(
+    base: Any, link_type: str, hops: int, direction: str
+) -> str:
+    res = base.search_around(link_type or None, hops=hops, direction=direction)
+    return json.dumps({"ids": res.ids(), "count": res.count()})
+
+
+def _object_set_pivot(base: Any, link_type: str, group_by: str, direction: str) -> str:
+    piv = base.pivot(link_type or None, group_by, direction=direction)
+    return json.dumps(
+        {"link_type": piv.link_type, "group_by": piv.group_by, "groups": piv.groups},
+        default=str,
+    )
+
+
+def _object_set_aggregate(base: Any, metric: str, field: str, group_by: str) -> str:
+    agg = base.aggregate(metric, field=field or None, group_by=group_by or None)
+    return json.dumps(
+        {
+            "metric": agg.metric,
+            "field": agg.field,
+            "group_by": agg.group_by,
+            "groups": {str(k): v for k, v in agg.groups.items()},
+            "total_objects": agg.total_objects,
+        },
+        default=str,
+    )
+
+
+def _object_set_algebra(
+    ont: Any, base: Any, action: str, type_or_interface: str, effective_limit: int
+) -> str:
+    other = (
+        ont.object_set_of_type(type_or_interface)
+        if type_or_interface
+        else ont.object_set([])
+    )
+    # BUG-1: bound both operands AND the combined result — ``other`` can
+    # itself be an unbounded of_type() DYNAMIC set.
+    combined = getattr(base, action)(other, limit=effective_limit)
+    ids = combined.ids(limit=effective_limit)
+    return json.dumps(
+        {"ids": ids, "count": len(ids), "limited": len(ids) >= effective_limit}
+    )
+
+
 def register_ontology_tools(mcp):
     """Register the ontology_tools group on the given FastMCP server."""
 
@@ -3225,91 +3310,24 @@ def register_ontology_tools(mcp):
         """Compute over a Foundry-style object set: search/filter/traverse/pivot/aggregate/algebra/path."""
         try:
             if action == "path":
-                from agent_utilities.knowledge_graph.ontology.object_path import (
-                    find_object_path,
-                )
-
-                if not source_id or not target_id:
-                    return json.dumps(
-                        {"error": "action='path' requires source_id and target_id"}
-                    )
-                engine = kg_server._get_engine()
-                return json.dumps(
-                    find_object_path(engine, source_id, target_id), default=str
-                )
+                return _object_set_path(source_id, target_id)
             ont = kg_server._ontology_system()
-            if action == "from_ids" or action in ("union", "intersect", "subtract"):
-                base = ont.object_set(json.loads(ids_json) if ids_json else [])
-            else:
-                base = ont.object_set_of_type(type_or_interface)
-
-            # BUG-1: clamp to a safe, non-zero, hard-capped limit for the
-            # actions that used to materialize an UNBOUNDED id list
-            # (of_type/from_ids/union/intersect/subtract) — a DYNAMIC
-            # ``ObjectSet`` (of_type) scans every node in the graph and would
-            # otherwise return every match with no cap, which OOM-crashed the
-            # live pod. ``search`` already had its own bound; leave it as-is.
-            effective_limit = max(
-                1, min(int(limit) if limit else 50, _OBJECT_SET_HARD_CAP)
-            )
+            base = _object_set_base(ont, action, type_or_interface, ids_json)
+            effective_limit = _object_set_effective_limit(limit)
 
             if action in ("of_type", "from_ids"):
-                ids = base.ids(limit=effective_limit)
-                return json.dumps(
-                    {
-                        "ids": ids,
-                        "count": len(ids),
-                        "limited": len(ids) >= effective_limit,
-                    }
-                )
+                return _object_set_ids_result(base, effective_limit)
             if action == "search":
-                res = base.search(query, limit=limit)
-                return json.dumps({"ids": res.ids(), "count": res.count()})
+                return _object_set_search(base, query, limit)
             if action == "search_around":
-                res = base.search_around(
-                    link_type or None, hops=hops, direction=direction
-                )
-                return json.dumps({"ids": res.ids(), "count": res.count()})
+                return _object_set_search_around(base, link_type, hops, direction)
             if action == "pivot":
-                piv = base.pivot(link_type or None, group_by, direction=direction)
-                return json.dumps(
-                    {
-                        "link_type": piv.link_type,
-                        "group_by": piv.group_by,
-                        "groups": piv.groups,
-                    },
-                    default=str,
-                )
+                return _object_set_pivot(base, link_type, group_by, direction)
             if action == "aggregate":
-                agg = base.aggregate(
-                    metric, field=field or None, group_by=group_by or None
-                )
-                return json.dumps(
-                    {
-                        "metric": agg.metric,
-                        "field": agg.field,
-                        "group_by": agg.group_by,
-                        "groups": {str(k): v for k, v in agg.groups.items()},
-                        "total_objects": agg.total_objects,
-                    },
-                    default=str,
-                )
+                return _object_set_aggregate(base, metric, field, group_by)
             if action in ("union", "intersect", "subtract"):
-                other = (
-                    ont.object_set_of_type(type_or_interface)
-                    if type_or_interface
-                    else ont.object_set([])
-                )
-                # BUG-1: bound both operands AND the combined result — ``other``
-                # can itself be an unbounded of_type() DYNAMIC set.
-                combined = getattr(base, action)(other, limit=effective_limit)
-                ids = combined.ids(limit=effective_limit)
-                return json.dumps(
-                    {
-                        "ids": ids,
-                        "count": len(ids),
-                        "limited": len(ids) >= effective_limit,
-                    }
+                return _object_set_algebra(
+                    ont, base, action, type_or_interface, effective_limit
                 )
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
