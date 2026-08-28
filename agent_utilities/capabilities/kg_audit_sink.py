@@ -196,6 +196,44 @@ def tool_call_rows_by_trace_node_id(
     )
 
 
+def _row_str(row: dict[str, Any], key: str) -> str:
+    """``str()`` a row field, substituting ``""`` for a missing/falsy value."""
+    return str(row.get(key) or "")
+
+
+def _row_opt(row: dict[str, Any], key: str) -> Any | None:
+    """A row field, or ``None`` when missing/falsy."""
+    return row.get(key) or None
+
+
+def _tool_call_record_from_row(
+    row: dict[str, Any], *, run_id: str
+) -> ToolCallRecord | None:
+    """Map one raw ``:ToolCall`` row to a :class:`ToolCallRecord`, or ``None`` if malformed.
+
+    Extracted from :func:`tool_call_records_from_rows` so the per-row mapping (and its
+    ``result``-vs-``error`` exclusivity rule) is a single reviewable unit.
+    """
+    if not isinstance(row, dict):
+        return None
+    error = _row_opt(row, "audit_error")
+    ts = parse_timestamp(row.get("timestamp"))
+    result = _row_opt(row, "audit_result") if error is None else None
+    return ToolCallRecord(
+        run_id=run_id,
+        tool_call_id=_row_str(row, "tool_call_id"),
+        tool_name=_row_str(row, "tool_name"),
+        arguments=_row_str(row, "audit_arguments"),
+        result=result,
+        error=error,
+        started_at=ts,
+        ended_at=ts,
+        conversation_id=_row_opt(row, "conversation_id"),
+        parent_run_id=_row_opt(row, "parent_run_id"),
+        agent_name=_row_opt(row, "agent_name"),
+    )
+
+
 def tool_call_records_from_rows(
     rows: list[dict[str, Any]], *, run_id: str
 ) -> list[ToolCallRecord]:
@@ -206,28 +244,11 @@ def tool_call_records_from_rows(
     since the raw identifier is never recoverable from the graph (CONCEPT:AU-KG opacity —
     ``trace_id``'s docstring: "run identifiers are always opaque refs").
     """
-    records: list[ToolCallRecord] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        error = row.get("audit_error") or None
-        ts = parse_timestamp(row.get("timestamp"))
-        records.append(
-            ToolCallRecord(
-                run_id=run_id,
-                tool_call_id=str(row.get("tool_call_id") or ""),
-                tool_name=str(row.get("tool_name") or ""),
-                arguments=str(row.get("audit_arguments") or ""),
-                result=(row.get("audit_result") or None) if error is None else None,
-                error=error,
-                started_at=ts,
-                ended_at=ts,
-                conversation_id=row.get("conversation_id") or None,
-                parent_run_id=row.get("parent_run_id") or None,
-                agent_name=row.get("agent_name") or None,
-            )
-        )
-    return records
+    return [
+        record
+        for row in rows
+        if (record := _tool_call_record_from_row(row, run_id=run_id)) is not None
+    ]
 
 
 class KgAuditSink:
@@ -256,23 +277,17 @@ class KgAuditSink:
             self._sequence[run_id] = seq + 1
             return seq
 
-    async def record_tool_call(self, record: ToolCallRecord) -> None:
-        """Write one ``:ToolCall`` node linked to its run's ``:RunTrace``."""
-        if self._engine is None:
-            return
-        from agent_utilities.observability.trace_ontology import (
-            TOOL_CALL_NODE_LABEL,
-            TRACE_USED_TOOL_EDGE,
-            tool_call_properties,
-        )
-        from agent_utilities.observability.trace_ontology import (
-            trace_id as canonical_trace_id,
-        )
+    def _tool_call_properties(
+        self, record: ToolCallRecord, *, sequence: int, timestamp: str
+    ) -> dict[str, Any]:
+        """Build the ``:ToolCall`` node's property dict for ``record``.
 
-        trace_node_id = canonical_trace_id(record.run_id)
-        sequence = self._next_sequence(record.run_id)
-        tc_id = f"toolcall:{trace_node_id.removeprefix('trace:')}:{sequence}"
-        ts = (record.ended_at or _utcnow()).strftime("%Y-%m-%dT%H:%M:%SZ")
+        Extracted from :meth:`record_tool_call` so the canonical-field build (via
+        ``tool_call_properties``) and the optional audit-field stamping are a single
+        reviewable unit, separate from the write/link side effects.
+        """
+        from agent_utilities.observability.trace_ontology import tool_call_properties
+
         props = tool_call_properties(
             run_id=record.run_id,
             tool_name=record.tool_name,
@@ -281,7 +296,7 @@ class KgAuditSink:
             error=record.error or "",
             status="ok" if record.error is None else "error",
             sequence=sequence,
-            timestamp=ts,
+            timestamp=timestamp,
         )
         props["tool_call_id"] = record.tool_call_id
         props["audit_arguments"] = _safe_str(
@@ -301,6 +316,25 @@ class KgAuditSink:
             props["duration_ms"] = max(
                 0.0, (record.ended_at - record.started_at).total_seconds() * 1000
             )
+        return props
+
+    async def record_tool_call(self, record: ToolCallRecord) -> None:
+        """Write one ``:ToolCall`` node linked to its run's ``:RunTrace``."""
+        if self._engine is None:
+            return
+        from agent_utilities.observability.trace_ontology import (
+            TOOL_CALL_NODE_LABEL,
+            TRACE_USED_TOOL_EDGE,
+        )
+        from agent_utilities.observability.trace_ontology import (
+            trace_id as canonical_trace_id,
+        )
+
+        trace_node_id = canonical_trace_id(record.run_id)
+        sequence = self._next_sequence(record.run_id)
+        tc_id = f"toolcall:{trace_node_id.removeprefix('trace:')}:{sequence}"
+        ts = (record.ended_at or _utcnow()).strftime("%Y-%m-%dT%H:%M:%SZ")
+        props = self._tool_call_properties(record, sequence=sequence, timestamp=ts)
         try:
             self._engine.add_node(tc_id, TOOL_CALL_NODE_LABEL, properties=props)
             self._engine.link_nodes(trace_node_id, tc_id, TRACE_USED_TOOL_EDGE)
@@ -312,22 +346,17 @@ class KgAuditSink:
                 exc_info=True,
             )
 
-    async def record_run(self, record: RunAuditRecord) -> None:
-        """Write one ``:RunTrace`` node for the run's terminal outcome."""
-        if self._engine is None:
-            return
-        from agent_utilities.observability.trace_ontology import (
-            TRACE_NODE_LABEL,
-            trace_properties,
-        )
-        from agent_utilities.observability.trace_ontology import (
-            trace_id as canonical_trace_id,
-        )
+    def _run_properties(
+        self, record: RunAuditRecord, *, duration_ms: float
+    ) -> dict[str, Any]:
+        """Build the ``:RunTrace`` node's property dict for ``record``.
 
-        trace_node_id = canonical_trace_id(record.run_id)
-        duration_ms = max(
-            0.0, (record.ended_at - record.started_at).total_seconds() * 1000
-        )
+        Extracted from :meth:`record_run` so the canonical-field build (via
+        ``trace_properties``) and the optional audit-field stamping are a single
+        reviewable unit, separate from the write side effect.
+        """
+        from agent_utilities.observability.trace_ontology import trace_properties
+
         props = trace_properties(
             run_id=record.run_id,
             agent_name=record.agent_name or "",
@@ -351,6 +380,22 @@ class KgAuditSink:
             props["output_tokens"] = int(record.output_tokens)
         if record.total_tokens is not None:
             props["total_tokens"] = int(record.total_tokens)
+        return props
+
+    async def record_run(self, record: RunAuditRecord) -> None:
+        """Write one ``:RunTrace`` node for the run's terminal outcome."""
+        if self._engine is None:
+            return
+        from agent_utilities.observability.trace_ontology import TRACE_NODE_LABEL
+        from agent_utilities.observability.trace_ontology import (
+            trace_id as canonical_trace_id,
+        )
+
+        trace_node_id = canonical_trace_id(record.run_id)
+        duration_ms = max(
+            0.0, (record.ended_at - record.started_at).total_seconds() * 1000
+        )
+        props = self._run_properties(record, duration_ms=duration_ms)
         try:
             self._engine.add_node(trace_node_id, TRACE_NODE_LABEL, properties=props)
         except Exception:  # noqa: BLE001 — a provenance write must never fail the run
