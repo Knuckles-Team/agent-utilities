@@ -335,7 +335,7 @@ def _record_wave_results(
             satisfied.add(sid)
 
 
-def _gate_decision(edata: dict[str, Any]) -> str:
+def _decision(edata: dict[str, Any]) -> str:
     return (
         "rejected"
         if str(edata.get("decision") or "").lower() == "rejected"
@@ -359,7 +359,7 @@ def _gate_via_compute_graph(graph: Any, step_id: str) -> str | None:
     try:
         for _src, _tgt, edata in graph.out_edges(step_id, data=True):
             if _edge_relationship_label(edata or {}) == "satisfiedBy":
-                return _gate_decision(edata or {})
+                return _decision(edata or {})
     except Exception as exc:  # noqa: BLE001 — read is best-effort
         logger.debug("[ORCH.gate] compute-graph gate check failed: %s", exc)
     return None
@@ -373,7 +373,7 @@ def _gate_via_backend(backend: Any, step_id: str) -> str | None:
             {"sid": step_id},
         )
         if rows:
-            return _gate_decision({"decision": rows[0].get("decision")})
+            return _decision({"decision": rows[0].get("decision")})
     except Exception as exc:  # noqa: BLE001 — read is best-effort
         logger.debug("[ORCH.gate] backend gate check failed: %s", exc)
     return None
