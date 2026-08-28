@@ -1256,6 +1256,207 @@ def _stamp_ambient_valid_until(row: dict[str, Any], envelope: ChangeEnvelope) ->
     )
 
 
+def _verified_live_ids(
+    envelope: ChangeEnvelope, current_rows: list[tuple[str, dict[str, Any]]]
+) -> set[str]:
+    """Live-id set for a snapshot reconcile — FAIL CLOSED on a degraded read.
+
+    An EMPTY live-id set is honoured (i.e. allowed to tombstone everything the
+    connector omitted) only when the connector both reported a successful fetch
+    AND is approved to declare an authoritative empty source. Otherwise every
+    currently-stored id is treated as still live, so the verified snapshot
+    decision is committed WITHOUT tombstoning: a failed live-id fetch must
+    never be read as "the source is genuinely empty".
+    """
+    live_ids = set(envelope.live_ids)
+    if live_ids:
+        return live_ids
+    from ..core.source_sync import _reconcile_allowed_empty_sources
+
+    fetch_ok = bool(envelope.provenance.get("fetch_ok", True))
+    allowed = (
+        envelope.provenance.get("authoritative_empty_approved") is True
+        or envelope.connector.lower() in _reconcile_allowed_empty_sources()
+    )
+    if fetch_ok and allowed:
+        return live_ids
+    # Commit the verified snapshot decision without tombstoning.
+    return {
+        str(properties.get("externalToolId"))
+        for _, properties in current_rows
+        if properties.get("externalToolId")
+    }
+
+
+def _archived_snapshot_row(
+    properties: dict[str, Any], envelope: ChangeEnvelope
+) -> dict[str, Any]:
+    """Archive one row a verified snapshot omitted."""
+    updated = dict(properties)
+    updated["archived"] = True
+    updated["current"] = False
+    updated["deprecated"] = True
+    updated["lifecycle_state"] = "archived"
+    # Retrieval's legacy default gate keys on ``status``.  Keep
+    # the explicit lifecycle fields above while making a verified
+    # snapshot omission impossible to rank as current.
+    updated["status"] = "archived"
+    updated["archivedReason"] = f"absent-from-{envelope.connector}"
+    _stamp_ambient_valid_until(updated, envelope)
+    return updated
+
+
+def _snapshot_complete_rows(
+    client: Any, envelope: ChangeEnvelope
+) -> tuple[str, list[tuple[str, dict[str, Any]]]]:
+    """The snapshot marker row plus every row this snapshot archives."""
+    fetch_ok = bool(envelope.provenance.get("fetch_ok", True))
+    current_rows = _snapshot_rows(client, envelope.connector, envelope.source_instance)
+    live_ids = _verified_live_ids(envelope, current_rows)
+    stale: list[tuple[str, dict[str, Any]]] = []
+    for existing_id, properties in current_rows:
+        external_id = str(properties.get("externalToolId") or "")
+        if external_id and external_id not in live_ids:
+            stale.append((existing_id, _archived_snapshot_row(properties, envelope)))
+    marker_digest = _digest(
+        {
+            "connector": envelope.connector,
+            "source_instance": envelope.source_instance,
+        }
+    )
+    node_id = f"snapshot:{marker_digest}"
+    marker = {
+        "id": node_id,
+        "node_type": "SourceSnapshot",
+        "domain": envelope.connector,
+        "source_system": envelope.connector,
+        "source_instance": envelope.source_instance,
+        "live_count": len(live_ids),
+        "fetch_verified": fetch_ok,
+        "content_digest": marker_digest,
+    }
+    return node_id, [(node_id, marker), *stale]
+
+
+def _tombstone_row(
+    client: Any, envelope: ChangeEnvelope, node_id: str
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Merge the delete tombstone onto the current row; return it and its evidence."""
+    current = _node_properties(client, node_id)
+    provenance_evidence = envelope.provenance.get("evidence")
+    evidence = (
+        [item for item in provenance_evidence if isinstance(item, dict)]
+        if isinstance(provenance_evidence, list)
+        else []
+    )
+    current.update(
+        {
+            "id": node_id,
+            "archived": True,
+            "current": False,
+            "deprecated": True,
+            "lifecycle_state": "tombstoned",
+            # Retrieval's default query excludes archived rows; callers
+            # must opt into temporal/history state to see this tombstone.
+            "status": "archived",
+            "archivedReason": f"tombstoned-by-{envelope.connector}",
+        }
+    )
+    _stamp_ambient_valid_until(current, envelope)
+    return current, evidence
+
+
+def _blob_backed_row(envelope: ChangeEnvelope, node_id: str) -> dict[str, Any]:
+    """Default row for an upsert whose material is a blob, not a typed payload."""
+    row: dict[str, Any] = {
+        "id": node_id,
+        "node_type": envelope.payload_type or "Artifact",
+        "blob_ref": envelope.blob_ref,
+        "classification": envelope.classification.value,
+        "tenant": envelope.tenant,
+        "source_instance": envelope.source_instance,
+        "retention": envelope.retention,
+        "legal_hold": envelope.legal_hold,
+    }
+    if envelope.blob_digest is not None:
+        row.update(
+            {
+                "blob_digest": envelope.blob_digest,
+                "blob_length": envelope.blob_length,
+                "blob_media_type": envelope.blob_media_type,
+            }
+        )
+    return row
+
+
+def _pop_sidecar_list(row: dict[str, Any], key: str) -> list[dict[str, Any]]:
+    """Pop a ``_links``/``_features``/``_evidence`` sidecar, keeping dict entries."""
+    value = row.pop(key, None)
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _auxiliary_node_rows(
+    client: Any, envelope: ChangeEnvelope, auxiliary_value: Any, seen_ids: set[str]
+) -> list[tuple[str, dict[str, Any]]]:
+    """Hydrate and stamp the envelope's ``_nodes`` auxiliary rows."""
+    from ..enrichment.provenance import stamp_source
+
+    rows: list[tuple[str, dict[str, Any]]] = []
+    if not isinstance(auxiliary_value, list):
+        return rows
+    for raw_auxiliary in auxiliary_value:
+        if not isinstance(raw_auxiliary, dict):
+            continue
+        auxiliary = dict(raw_auxiliary)
+        auxiliary_id = str(auxiliary.pop("id", "") or "")
+        if not auxiliary_id or auxiliary_id in seen_ids:
+            raise ValueError(
+                "ChangeEnvelope auxiliary node ids must be unique and non-empty"
+            )
+        seen_ids.add(auxiliary_id)
+        stamp_source(auxiliary, envelope.connector)
+        # Deliberately NOT ``_stamp_ambient_valid_time`` here: an auxiliary
+        # node is a distinct entity (e.g. "this image's repo") whose own
+        # validity start is unknown to this envelope — the primary row's
+        # event_time is not evidence about when the auxiliary became true,
+        # so stamping it would be a fabrication, not an inference.
+        existing = _node_properties(client, auxiliary_id)
+        existing.update(auxiliary)
+        existing["id"] = auxiliary_id
+        rows.append((auxiliary_id, existing))
+    return rows
+
+
+def _upsert_node_rows(
+    client: Any, envelope: ChangeEnvelope, node_id: str, row: dict[str, Any] | None
+) -> tuple[
+    list[tuple[str, dict[str, Any]]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+]:
+    """Merged primary/auxiliary rows plus the envelope's sidecar material."""
+    from ..enrichment.provenance import stamp_source
+
+    row = _blob_backed_row(envelope, node_id) if row is None else dict(row)
+    links = _pop_sidecar_list(row, "_links")
+    features = _pop_sidecar_list(row, "_features")
+    evidence = _pop_sidecar_list(row, "_evidence")
+    auxiliary_value = row.pop("_nodes", None)
+
+    stamp_source(row, envelope.connector)
+    _stamp_ambient_valid_time(row, envelope)
+    current = _node_properties(client, node_id)
+    current.update(row)
+    current["id"] = node_id
+    node_rows = [(node_id, current)]
+    node_rows.extend(_auxiliary_node_rows(client, envelope, auxiliary_value, {node_id}))
+    _project_relations_into(client, node_rows, links)
+    return node_rows, links, features, evidence
+
+
 def _prepare_node_rows(
     client: Any, envelope: ChangeEnvelope
 ) -> tuple[
@@ -1268,150 +1469,72 @@ def _prepare_node_rows(
     """Resolve merge/tombstone/snapshot rows from one OCC-fenced read."""
     node_id, row = _resolve_identity(envelope)
     node_id = str(node_id or "")
-    links: list[dict[str, Any]] = []
-    features: list[dict[str, Any]] = []
-    evidence: list[dict[str, Any]] = []
 
     if envelope.operation == "snapshot_complete":
-        fetch_ok = bool(envelope.provenance.get("fetch_ok", True))
-        live_ids = set(envelope.live_ids)
-        current_rows = _snapshot_rows(
-            client, envelope.connector, envelope.source_instance
-        )
-        if not live_ids:
-            from ..core.source_sync import _reconcile_allowed_empty_sources
-
-            allowed = (
-                envelope.provenance.get("authoritative_empty_approved") is True
-                or envelope.connector.lower() in _reconcile_allowed_empty_sources()
-            )
-            if not fetch_ok or not allowed:
-                # Commit the verified snapshot decision without tombstoning.
-                live_ids = {
-                    str(properties.get("externalToolId"))
-                    for _, properties in current_rows
-                    if properties.get("externalToolId")
-                }
-        stale: list[tuple[str, dict[str, Any]]] = []
-        for existing_id, properties in current_rows:
-            external_id = str(properties.get("externalToolId") or "")
-            if external_id and external_id not in live_ids:
-                updated = dict(properties)
-                updated["archived"] = True
-                updated["current"] = False
-                updated["deprecated"] = True
-                updated["lifecycle_state"] = "archived"
-                # Retrieval's legacy default gate keys on ``status``.  Keep
-                # the explicit lifecycle fields above while making a verified
-                # snapshot omission impossible to rank as current.
-                updated["status"] = "archived"
-                updated["archivedReason"] = f"absent-from-{envelope.connector}"
-                _stamp_ambient_valid_until(updated, envelope)
-                stale.append((existing_id, updated))
-        marker_digest = _digest(
-            {
-                "connector": envelope.connector,
-                "source_instance": envelope.source_instance,
-            }
-        )
-        node_id = f"snapshot:{marker_digest}"
-        marker = {
-            "id": node_id,
-            "node_type": "SourceSnapshot",
-            "domain": envelope.connector,
-            "source_system": envelope.connector,
-            "source_instance": envelope.source_instance,
-            "live_count": len(live_ids),
-            "fetch_verified": fetch_ok,
-            "content_digest": marker_digest,
-        }
-        return node_id, [(node_id, marker), *stale], links, features, evidence
+        marker_id, node_rows = _snapshot_complete_rows(client, envelope)
+        return marker_id, node_rows, [], [], []
 
     if envelope.operation == "delete":
-        current = _node_properties(client, node_id)
-        provenance_evidence = envelope.provenance.get("evidence")
-        if isinstance(provenance_evidence, list):
-            evidence = [item for item in provenance_evidence if isinstance(item, dict)]
-        current.update(
-            {
-                "id": node_id,
-                "archived": True,
-                "current": False,
-                "deprecated": True,
-                "lifecycle_state": "tombstoned",
-                # Retrieval's default query excludes archived rows; callers
-                # must opt into temporal/history state to see this tombstone.
-                "status": "archived",
-                "archivedReason": f"tombstoned-by-{envelope.connector}",
-            }
-        )
-        _stamp_ambient_valid_until(current, envelope)
-        return node_id, [(node_id, current)], links, features, evidence
+        tombstone, evidence = _tombstone_row(client, envelope, node_id)
+        return node_id, [(node_id, tombstone)], [], [], evidence
 
-    if row is None:
-        row = {
-            "id": node_id,
-            "node_type": envelope.payload_type or "Artifact",
-            "blob_ref": envelope.blob_ref,
-            "classification": envelope.classification.value,
-            "tenant": envelope.tenant,
-            "source_instance": envelope.source_instance,
-            "retention": envelope.retention,
-            "legal_hold": envelope.legal_hold,
-        }
-        if envelope.blob_digest is not None:
-            row.update(
-                {
-                    "blob_digest": envelope.blob_digest,
-                    "blob_length": envelope.blob_length,
-                    "blob_media_type": envelope.blob_media_type,
-                }
-            )
-    else:
-        row = dict(row)
-    links_value = row.pop("_links", None)
-    if isinstance(links_value, list):
-        links = [item for item in links_value if isinstance(item, dict)]
-    features_value = row.pop("_features", None)
-    if isinstance(features_value, list):
-        features = [item for item in features_value if isinstance(item, dict)]
-    evidence_value = row.pop("_evidence", None)
-    if isinstance(evidence_value, list):
-        evidence = [item for item in evidence_value if isinstance(item, dict)]
-    auxiliary_value = row.pop("_nodes", None)
-
-    from ..enrichment.provenance import stamp_source
-
-    stamp_source(row, envelope.connector)
-    _stamp_ambient_valid_time(row, envelope)
-    current = _node_properties(client, node_id)
-    current.update(row)
-    current["id"] = node_id
-    node_rows = [(node_id, current)]
-    seen_ids = {node_id}
-    if isinstance(auxiliary_value, list):
-        for raw_auxiliary in auxiliary_value:
-            if not isinstance(raw_auxiliary, dict):
-                continue
-            auxiliary = dict(raw_auxiliary)
-            auxiliary_id = str(auxiliary.pop("id", "") or "")
-            if not auxiliary_id or auxiliary_id in seen_ids:
-                raise ValueError(
-                    "ChangeEnvelope auxiliary node ids must be unique and non-empty"
-                )
-            seen_ids.add(auxiliary_id)
-            stamp_source(auxiliary, envelope.connector)
-            # Deliberately NOT ``_stamp_ambient_valid_time`` here: an auxiliary
-            # node is a distinct entity (e.g. "this image's repo") whose own
-            # validity start is unknown to this envelope — the primary row's
-            # event_time is not evidence about when the auxiliary became true,
-            # so stamping it would be a fabrication, not an inference.
-            existing = _node_properties(client, auxiliary_id)
-            existing.update(auxiliary)
-            existing["id"] = auxiliary_id
-            node_rows.append((auxiliary_id, existing))
-    _project_relations_into(client, node_rows, links)
+    node_rows, links, features, evidence = _upsert_node_rows(
+        client, envelope, node_id, row
+    )
     return node_id, node_rows, links, features, evidence
+
+
+def _collect_projected_relations(
+    node_rows: list[tuple[str, dict[str, Any]]],
+) -> tuple[
+    list[tuple[str, dict[str, Any]]],
+    list[tuple[str, str, str]],
+    list[tuple[str, str, str]],
+    set[str],
+]:
+    """Run the shared relation projection over ``node_rows``.
+
+    Returns ``(derived_nodes, edges, candidate_edges, known_ids)``. A candidate
+    edge is one whose target this projection did not itself write, so it still
+    needs an existence probe before it may be committed.
+    """
+    from ..enrichment.relation_projection import project_relations, projects_anything
+
+    derived: list[tuple[str, dict[str, Any]]] = []
+    edges: list[tuple[str, str, str]] = []
+    candidates: list[tuple[str, str, str]] = []
+    known = {identifier for identifier, _ in node_rows}
+    for node_id, properties in list(node_rows):
+        if not projects_anything(properties.get("node_type")):
+            continue
+        projected = project_relations(node_id, properties)
+        for identifier, row in projected.nodes:
+            if identifier in known:
+                continue
+            known.add(identifier)
+            derived.append((identifier, row))
+        edges.extend(projected.edges)
+        candidates.extend(projected.candidate_edges)
+    return derived, edges, candidates, known
+
+
+def _resolvable_candidate_edges(
+    client: Any, candidates: list[tuple[str, str, str]], known: set[str]
+) -> list[tuple[str, str, str]]:
+    """Keep only candidate edges whose target is known-present.
+
+    Fail closed: when the batched existence probe itself fails, ``present``
+    stays EMPTY and every unverified candidate is DROPPED, never committed —
+    the engine refuses an envelope whose edge endpoints do not exist, so a
+    failed probe must not be read as "the target is there".
+    """
+    targets = sorted({target for _, target, _ in candidates} - known)
+    present: dict[str, bool] = {}
+    try:
+        present = dict(client.nodes.has_batch(targets)) if targets else {}
+    except Exception as exc:  # noqa: BLE001 — an unverifiable reference is dropped, never a failed envelope
+        logger.debug("relation projection: endpoint check failed: %s", exc)
+    return [edge for edge in candidates if edge[1] in known or present.get(edge[1])]
 
 
 def _project_relations_into(
@@ -1435,34 +1558,9 @@ def _project_relations_into(
     write needs one batched existence probe, because the engine refuses an
     envelope whose edge endpoints do not exist.
     """
-    from ..enrichment.relation_projection import project_relations, projects_anything
-
-    derived: list[tuple[str, dict[str, Any]]] = []
-    edges: list[tuple[str, str, str]] = []
-    candidates: list[tuple[str, str, str]] = []
-    known = {identifier for identifier, _ in node_rows}
-    for node_id, properties in list(node_rows):
-        if not projects_anything(properties.get("node_type")):
-            continue
-        projected = project_relations(node_id, properties)
-        for identifier, row in projected.nodes:
-            if identifier in known:
-                continue
-            known.add(identifier)
-            derived.append((identifier, row))
-        edges.extend(projected.edges)
-        candidates.extend(projected.candidate_edges)
-
+    derived, edges, candidates, known = _collect_projected_relations(node_rows)
     if candidates:
-        targets = sorted({target for _, target, _ in candidates} - known)
-        present: dict[str, bool] = {}
-        try:
-            present = dict(client.nodes.has_batch(targets)) if targets else {}
-        except Exception as exc:  # noqa: BLE001 — an unverifiable reference is dropped, never a failed envelope
-            logger.debug("relation projection: endpoint check failed: %s", exc)
-        edges.extend(
-            edge for edge in candidates if edge[1] in known or present.get(edge[1])
-        )
+        edges.extend(_resolvable_candidate_edges(client, candidates, known))
 
     node_rows.extend(derived)
     links.extend(
@@ -1829,6 +1927,82 @@ def _native_material(
     return native, counts, sorted(governed_ids), cursor_advanced
 
 
+def _unpacked_properties(packed: Any) -> dict[str, Any] | None:
+    """Unpack a wire ``properties_msgpack`` blob, or ``None`` when it is not a dict."""
+    import msgpack
+
+    properties = msgpack.unpackb(packed, raw=False)
+    return properties if isinstance(properties, dict) else None
+
+
+def _mirror_node_operation(params: dict[str, Any]) -> dict[str, Any] | None:
+    """Rebuild one ``upsert_node`` mirror op, or ``None`` if it cannot be replayed."""
+    node_id = str(params.get("node_id") or "").strip()
+    packed = params.get("properties_msgpack")
+    if not node_id or not packed:
+        return None
+    properties = _unpacked_properties(packed)
+    if properties is None:
+        return None
+    # ``ChangeEnvelope.to_entity_dict()``/auxiliary ``_nodes`` rows carry
+    # the connector's own ``type`` key verbatim (never renamed) — only
+    # ``ingest_graph_slice``'s stricter external contract commits the
+    # canonical ``node_type`` key. Accept either, matching the AddEdge
+    # ``type``/``relationship`` normalization below: the mirror op
+    # must resolve the SAME label the authority just committed.
+    node_type = str(properties.get("node_type") or properties.get("type") or "").strip()
+    if not node_type:
+        # An untyped node cannot be replayed through the typed mirror
+        # seam; reconcile() is the backstop for it.
+        return None
+    return {
+        "op": "upsert_node",
+        "id": node_id,
+        "properties": {**properties, "node_type": node_type},
+    }
+
+
+def _mirror_edge_operation(params: dict[str, Any]) -> dict[str, Any] | None:
+    """Rebuild one ``upsert_edge`` mirror op, or ``None`` if it cannot be replayed."""
+    source_id = str(params.get("source_id") or "").strip()
+    target_id = str(params.get("target_id") or "").strip()
+    packed = params.get("properties_msgpack")
+    if not source_id or not target_id or not packed:
+        return None
+    properties = _unpacked_properties(packed)
+    if properties is None:
+        return None
+    # A ChangeEnvelope ``_links`` item's edge-type key is caller-shaped:
+    # ``ingest_graph_slice`` requires the canonical ``relationship`` key,
+    # but a raw ``_links`` entry (as most connectors emit it) commits
+    # ``type`` straight onto the wire the same way ``AddNode`` commits
+    # ``node_type`` — neither is renamed before packing. Accept either so
+    # the mirror op always resolves the SAME edge label the authority
+    # just committed, never a second independently-guessed one.
+    relationship = str(
+        properties.get("relationship") or properties.get("type") or ""
+    ).strip()
+    if not relationship:
+        return None
+    return {
+        "op": "upsert_edge",
+        "source": source_id,
+        "target": target_id,
+        "properties": {**properties, "relationship": relationship},
+    }
+
+
+#: Committed wire method -> mirror-op builder. A method with no builder is not
+#: replayable through the typed mirror seam and is skipped, exactly as the
+#: previous ``if/elif`` chain's absent ``else`` did.
+_MIRROR_REPLAY_BUILDERS: dict[
+    str, Callable[[dict[str, Any]], dict[str, Any] | None]
+] = {
+    "AddNode": _mirror_node_operation,
+    "AddEdge": _mirror_edge_operation,
+}
+
+
 def _mirror_replay_operations(native: dict[str, Any]) -> list[dict[str, Any]]:
     """Rebuild fan-out typed-batch mirror ops from an already-committed native DTO.
 
@@ -1842,73 +2016,18 @@ def _mirror_replay_operations(native: dict[str, Any]) -> list[dict[str, Any]]:
     state — guarantees the mirror replay is the SAME material the authority
     accepted, not a second independently-computed mutation.
     """
-    import msgpack
-
     operations = ((native.get("mutation") or {}).get("operations")) or []
     replay: list[dict[str, Any]] = []
     for operation in operations:
         if not isinstance(operation, dict):
             continue
         method = operation.get("method") or {}
-        name = method.get("method")
-        params = method.get("params") or {}
-        if name == "AddNode":
-            node_id = str(params.get("node_id") or "").strip()
-            packed = params.get("properties_msgpack")
-            if not node_id or not packed:
-                continue
-            properties = msgpack.unpackb(packed, raw=False)
-            if not isinstance(properties, dict):
-                continue
-            # ``ChangeEnvelope.to_entity_dict()``/auxiliary ``_nodes`` rows carry
-            # the connector's own ``type`` key verbatim (never renamed) — only
-            # ``ingest_graph_slice``'s stricter external contract commits the
-            # canonical ``node_type`` key. Accept either, matching the AddEdge
-            # ``type``/``relationship`` normalization just above: the mirror op
-            # must resolve the SAME label the authority just committed.
-            node_type = str(
-                properties.get("node_type") or properties.get("type") or ""
-            ).strip()
-            if not node_type:
-                # An untyped node cannot be replayed through the typed mirror
-                # seam; reconcile() is the backstop for it.
-                continue
-            replay.append(
-                {
-                    "op": "upsert_node",
-                    "id": node_id,
-                    "properties": {**properties, "node_type": node_type},
-                }
-            )
-        elif name == "AddEdge":
-            source_id = str(params.get("source_id") or "").strip()
-            target_id = str(params.get("target_id") or "").strip()
-            packed = params.get("properties_msgpack")
-            if not source_id or not target_id or not packed:
-                continue
-            properties = msgpack.unpackb(packed, raw=False)
-            if not isinstance(properties, dict):
-                continue
-            # A ChangeEnvelope ``_links`` item's edge-type key is caller-shaped:
-            # ``ingest_graph_slice`` requires the canonical ``relationship`` key,
-            # but a raw ``_links`` entry (as most connectors emit it) commits
-            # ``type`` straight onto the wire the same way ``AddNode`` commits
-            # ``node_type`` — neither is renamed before packing. Accept either so
-            # the mirror op always resolves the SAME edge label the authority
-            # just committed, never a second independently-guessed one.
-            relationship = str(
-                properties.get("relationship") or properties.get("type") or ""
-            ).strip()
-            if not relationship:
-                continue
-            replay.append(
-                {
-                    "op": "upsert_edge",
-                    "source": source_id,
-                    "target": target_id,
-                    "properties": {**properties, "relationship": relationship},
-                }
-            )
+        builder = _MIRROR_REPLAY_BUILDERS.get(str(method.get("method") or ""))
+        if builder is None:
+            continue
+        mirrored = builder(method.get("params") or {})
+        if mirrored is not None:
+            replay.append(mirrored)
     return replay
 
 
