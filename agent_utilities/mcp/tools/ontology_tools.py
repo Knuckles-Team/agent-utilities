@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic import Field
@@ -510,6 +512,1173 @@ def _graph_ontology_proposal(
     return _graph_ontology_rollback_proposal(engine, tenant, proposal_id=proposal_id)
 
 
+def _ontology_interface_list(reg: Any, registry: str) -> str:
+    return json.dumps(
+        {"registry": registry, "interfaces": [i.name for i in reg.list_interfaces()]}
+    )
+
+
+def _ontology_interface_implementers(reg: Any, name: str) -> str:
+    from agent_utilities.knowledge_graph.ontology.interfaces import (
+        DEFAULT_INTERFACE_REGISTRY,
+        target_object_types,
+    )
+
+    impls = (
+        reg.resolve_target(name)
+        if reg is not DEFAULT_INTERFACE_REGISTRY
+        else target_object_types(name)
+    )
+    return json.dumps({"target": name, "implementers": impls})
+
+
+def _ontology_interface_conforms(reg: Any, name: str, object_json: str) -> str:
+    obj = json.loads(object_json) if object_json else {}
+    return json.dumps({"interface": name, "conforms": reg.conforms(obj, name)})
+
+
+def _ontology_interface_owl(reg: Any) -> str:
+    return json.dumps({"owl": reg.to_owl()})
+
+
+def _ontology_interface_schema(reg: Any, registry: str, action: str) -> str:
+    from agent_utilities.knowledge_graph.ontology.links import DEFAULT_LINK_REGISTRY
+    from agent_utilities.knowledge_graph.ontology.schema_graph import (
+        build_schema_graph,
+        render_schema_markdown,
+    )
+
+    schema = build_schema_graph(reg, DEFAULT_LINK_REGISTRY)
+    if action == "graph":
+        return json.dumps({"registry": registry, **schema}, default=str)
+    title = f"{registry.title()} Ontology Schema"
+    return json.dumps(
+        {
+            "registry": registry,
+            "markdown": render_schema_markdown(schema, title=title),
+        }
+    )
+
+
+def _ontology_interface_lint(reg: Any, registry: str) -> str:
+    from agent_utilities.knowledge_graph.ontology.style_lint import lint_interfaces
+
+    issues = lint_interfaces(reg)
+    return json.dumps(
+        {
+            "registry": registry,
+            "issues": [i.as_dict() for i in issues],
+            "count": len(issues),
+        }
+    )
+
+
+def _ontology_interface_explain_routing(
+    entity_id: str, required_capability_type: str, tenant: str, policy_tags: str
+) -> str:
+    from agent_utilities.graph.routing.enrichers.capability_routing import (
+        explain_routing_eligibility,
+    )
+
+    if not entity_id or not required_capability_type:
+        return json.dumps(
+            {
+                "error": "explain_routing_eligibility requires entity_id and "
+                "required_capability_type"
+            }
+        )
+    engine = kg_server._get_engine()
+    tags = (
+        [t.strip() for t in policy_tags.split(",") if t.strip()]
+        if policy_tags
+        else None
+    )
+    report = explain_routing_eligibility(
+        engine,
+        entity_id,
+        required_capability_type=required_capability_type,
+        tenant=tenant or None,
+        policy_tags=tags,
+    )
+    return json.dumps(
+        {
+            "action": "explain_routing_eligibility",
+            "entity_id": entity_id,
+            "required_capability_type": required_capability_type,
+            **report,
+        },
+        default=str,
+    )
+
+
+def _ontology_sampling_profile_list(registry: Any) -> str:
+    from agent_utilities.models.model_registry import _DEFAULT_TASK_PROFILES
+
+    effective = {**_DEFAULT_TASK_PROFILES, **registry.task_class_profiles}
+    return json.dumps(
+        {"profiles": {k: v.model_dump() for k, v in effective.items()}}, default=str
+    )
+
+
+def _ontology_sampling_profile_describe(registry: Any, task_class: str) -> str:
+    return json.dumps(
+        registry.pick_profile_for_task(task_class).model_dump(), default=str
+    )
+
+
+def _ontology_sampling_profile_resolve(task_text: str, role: str) -> str:
+    from agent_utilities.agent.sampling_profile import resolve_sampling_profile
+
+    prof = resolve_sampling_profile(task_text or None, role=role or None)
+    return json.dumps(prof.model_dump(), default=str)
+
+
+def _ontology_sampling_profile_set(
+    registry: Any, profile_json: str, task_class: str
+) -> str:
+    from agent_utilities.agent.sampling_profile import SamplingProfile
+    from agent_utilities.knowledge_graph.ontology.value_types import (
+        sampling_profile_violations,
+    )
+
+    data = json.loads(profile_json) if profile_json else {}
+    if task_class:
+        data.setdefault("task_class", task_class)
+    profile = SamplingProfile.model_validate(data)
+    violations = sampling_profile_violations(profile.model_dump())
+    if violations:
+        return json.dumps({"error": "SHACL bound violation", "violations": violations})
+    registry.set_task_profile(profile)
+    return json.dumps({"set": profile.model_dump()}, default=str)
+
+
+def _ontology_sampling_profile_evolve(registry: Any, task_class: str) -> str:
+    from agent_utilities.agent.sampling_profile import SamplingProfile
+    from agent_utilities.harness.variant_pool import VariantPool
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+
+    engine = IntelligenceGraphEngine.get_active()
+    kg = getattr(engine, "kg", None) or getattr(engine, "_kg", None)
+    ci = kg.retrieval if kg is not None else None
+    if ci is None:
+        return json.dumps({"error": "no capability index available to score"})
+    vp = VariantPool.__new__(VariantPool)
+
+    # Live eval: reward = mean capability-index reward already recorded for
+    # this profile's prior outcomes; absent history, neutral 0.5 keeps the
+    # incumbent. The daemon/evolve loop feeds real outcomes over time.
+    def _evaluator(p: SamplingProfile) -> float:
+        return ci.reward_of(vp._profile_id(task_class, p))
+
+    promoted = vp.evolve_profile(registry, task_class, ci, _evaluator)
+    return json.dumps({"promoted": promoted.model_dump()}, default=str)
+
+
+def _ontology_sampling_profile_owl(registry: Any) -> str:
+    from agent_utilities.models.model_registry import inference_owl_ttl
+
+    return json.dumps({"owl": inference_owl_ttl(registry)})
+
+
+@dataclass
+class _WritebackCtx:
+    """Bundled writeback destination + engine handles shared across
+    `graph_writeback`'s action/flag branches."""
+
+    target: str
+    backend: Any
+    engine: Any
+    dry_run: bool
+
+
+def _graph_writeback_proposals() -> str:
+    from agent_utilities.knowledge_graph.enrichment.writeback import ProposalQueue
+
+    return json.dumps({"proposals": ProposalQueue().list(status="pending")})
+
+
+def _graph_writeback_approve(proposal_id: str, ctx: _WritebackCtx) -> str:
+    from agent_utilities.knowledge_graph.enrichment.writeback import approve_proposal
+
+    return json.dumps(
+        approve_proposal(str(proposal_id), backend=ctx.backend, engine=ctx.engine)
+    )
+
+
+def _graph_writeback_asset_mirror(ctx: _WritebackCtx) -> str:
+    from agent_utilities.knowledge_graph.enrichment.writeback import run_asset_mirror
+
+    return json.dumps(
+        run_asset_mirror(backend=ctx.backend, engine=ctx.engine, dry_run=ctx.dry_run)
+    )
+
+
+def _graph_writeback_inventory(ctx: _WritebackCtx) -> str:
+    from agent_utilities.knowledge_graph.enrichment.writeback import push_inventory
+
+    return json.dumps(
+        push_inventory(
+            str(ctx.target), backend=ctx.backend, engine=ctx.engine, dry_run=ctx.dry_run
+        )
+    )
+
+
+def _graph_writeback_findings(ctx: _WritebackCtx, creations_json: str) -> str:
+    from agent_utilities.knowledge_graph.enrichment.writeback import push_findings
+
+    project = (
+        json.loads(creations_json)[0]
+        if creations_json and creations_json != "[]"
+        else None
+    )
+    return json.dumps(
+        push_findings(
+            str(ctx.target),
+            backend=ctx.backend,
+            engine=ctx.engine,
+            project=project,
+            dry_run=ctx.dry_run,
+        )
+    )
+
+
+def _graph_writeback_default(
+    ctx: _WritebackCtx,
+    inferences_json: str,
+    enrichments_json: str,
+    creations_json: str,
+    retirements_json: str,
+    process_ids_json: str,
+) -> str:
+    from agent_utilities.knowledge_graph.enrichment.writeback import run_writeback
+
+    ops = {
+        "inferences": json.loads(inferences_json) if inferences_json else [],
+        "enrichments": json.loads(enrichments_json) if enrichments_json else [],
+        "creations": json.loads(creations_json) if creations_json else [],
+        "retirements": json.loads(retirements_json) if retirements_json else [],
+        "process_ids": json.loads(process_ids_json) if process_ids_json else None,
+    }
+    return json.dumps(
+        run_writeback(
+            str(ctx.target),
+            backend=ctx.backend,
+            engine=ctx.engine,
+            dry_run=ctx.dry_run,
+            **ops,
+        )
+    )
+
+
+@dataclass
+class _SpecTicketCtx:
+    """Bundled writeback destination + engine handles shared across
+    `spec_ticket`'s link/pull branches."""
+
+    target: str
+    backend: Any
+    dry_run: bool
+
+
+def _spec_ticket_pull(target: str, user: str, project_id: str) -> str:
+    from agent_utilities.knowledge_graph.enrichment.writeback import pull_assigned
+
+    return json.dumps(
+        pull_assigned(str(target), user=user or None, project_id=project_id or None)
+    )
+
+
+def _spec_ticket_link(
+    ctx: _SpecTicketCtx,
+    spec_json: str,
+    issue_id: str,
+    project_id: str,
+    assignee: str,
+    agent: str,
+    comment: str,
+) -> str:
+    from agent_utilities.knowledge_graph.enrichment.writeback import link_spec
+
+    spec = json.loads(spec_json) if spec_json else {}
+    return json.dumps(
+        link_spec(
+            spec,
+            target=ctx.target,
+            issue_id=str(issue_id),
+            project_id=project_id or None,
+            assignee=assignee or None,
+            agent=agent or None,
+            comment=comment or None,
+            backend=ctx.backend,
+            dry_run=ctx.dry_run,
+        )
+    )
+
+
+def _concept_registry_list(repo_root: Any, status: str) -> str:
+    from agent_utilities.governance import concept_allocator as ca
+
+    return json.dumps(
+        {
+            "reservations": ca.list_reservations(
+                repo_root=repo_root, status=status or None
+            )
+        }
+    )
+
+
+def _concept_registry_reconcile(repo_root: Any) -> str:
+    from agent_utilities.governance import concept_allocator as ca
+
+    return json.dumps(ca.reconcile(repo_root=repo_root))
+
+
+def _concept_registry_release(repo_root: Any, concept_id: str) -> str:
+    from agent_utilities.governance import concept_allocator as ca
+
+    if not concept_id:
+        return json.dumps({"error": "release requires concept_id"})
+    return json.dumps(
+        {"released": ca.release_concept_id(concept_id, repo_root=repo_root)}
+    )
+
+
+def _concept_registry_reserve(
+    repo_root: Any,
+    concept_id: str,
+    session_id: str,
+    design_doc: str,
+    ttl_seconds: int,
+) -> str:
+    import uuid
+
+    from agent_utilities.governance import concept_allocator as ca
+
+    if not concept_id:
+        return json.dumps({"error": "reserve requires concept_id"})
+    sid = session_id or f"session-{uuid.uuid4().hex}"
+    record = ca.reserve_concept_id(
+        concept_id,
+        session_id=sid,
+        design_doc=design_doc or None,
+        ttl_seconds=int(ttl_seconds),
+        repo_root=repo_root,
+    )
+    # Compatibility projection through this already-authenticated
+    # GraphOS execution context. The local ledger is authoritative
+    # for this legacy path only; it is not a separate-host authority.
+    try:
+        _run_coro(
+            kg_server._execute_tool(
+                "graph_write",
+                action="add_node",
+                node_id=record["id"],
+                node_type="ConceptReservation",
+                properties=json.dumps(record),
+            )
+        )
+        record["kg_projected"] = True
+    except Exception:  # noqa: BLE001 - projection is advisory
+        record["kg_projected"] = False
+    return json.dumps(record)
+
+
+def _source_sync_resolve_engine(connection: str, graph: str) -> tuple[Any, str | None]:
+    """Resolve the target engine for `source_sync` per the graph/connection
+    selection rules (U-37/GOC-67): an explicit graph never defaults, never fans
+    out, and an unknown/unauthorized graph fails closed with no partial sync
+    started. Returns ``(engine, error_json)`` — ``error_json`` is ``None`` on
+    success."""
+    if graph or connection:
+        try:
+            entries, errors, fanout = kg_server._resolve_target_engines(connection)
+            entries = kg_server.resolve_explicit_graph(entries, graph, fanout=fanout)
+        except kg_server.GraphNotFoundError as e:
+            return None, public_error_json(e, code="graph_not_found")
+        except kg_server.GraphSelectionConflictError as e:
+            return None, public_error_json(e, code="graph_selection_conflict")
+        except Exception as e:  # noqa: BLE001
+            return None, public_error_json(e)
+        if fanout or len(entries) != 1:
+            return None, public_error_json(
+                kg_server.GraphSelectionConflictError(
+                    "source_sync targets exactly one backend; "
+                    "'connection=all'/a list is not supported "
+                    "(use source='all' to fan out across connectors "
+                    "instead)"
+                ),
+                code="graph_selection_conflict",
+            )
+        _sync_conn_name, engine = entries[0]
+        return engine, None
+    try:
+        engine = kg_server._get_engine()
+    except Exception:  # noqa: BLE001
+        engine = None
+    return engine, None
+
+
+def _source_sync_run(
+    engine: Any, source: str, mode: str, ids: list[Any], graph: str, connection: str
+) -> dict[str, Any]:
+    from agent_utilities.knowledge_graph.core.source_sync import sync_source
+
+    with kg_server.bound_to_graph(graph):
+        result = sync_source(engine, str(source), mode=str(mode), ids=ids or None)
+    if graph or connection:
+        result = dict(result)
+        result.setdefault("connection", connection or "default")
+        result.setdefault("graph", graph)
+    return result
+
+
+def _graph_etl_list() -> str:
+    from agent_utilities.knowledge_graph.enrichment.registry import (
+        discover_extractors,
+        list_sources,
+    )
+    from agent_utilities.knowledge_graph.enrichment.writeback.core import list_sinks
+
+    discover_extractors()
+    names = sorted({s.category for s in list_sources()})
+    reg = kg_server.get_connection_registry()
+    backends = sorted(
+        set(reg.names()) | {"stardog", "neo4j", "falkordb", "age", "jena_fuseki"}
+    )
+    return json.dumps({"sources": names, "sinks": list_sinks(), "backends": backends})
+
+
+def _graph_etl_lineage(engine: Any, source: str, sink: str, limit: int) -> str:
+    from agent_utilities.knowledge_graph.etl import query_lineage
+
+    return json.dumps(
+        {
+            "runs": query_lineage(
+                engine, source=source or None, sink=sink or None, limit=int(limit)
+            )
+        },
+        default=str,
+    )
+
+
+def _graph_etl_resolve_sink_backend(sink: str) -> Any:
+    # Write-back sinks + the native SQL-table sink need none — run_etl routes
+    # sink='table' itself (KG-2.266).
+    from agent_utilities.knowledge_graph.enrichment.writeback.core import get_sink
+
+    if not sink or sink == "table" or get_sink(sink) is not None:
+        return None
+    reg = kg_server.get_connection_registry()
+    if sink in reg.names():
+        be = getattr(reg.get_engine(sink), "backend", None)
+        return getattr(be, "_authority", be)
+    from agent_utilities.knowledge_graph.backends import create_backend
+
+    return create_backend(backend_type=sink)
+
+
+@dataclass
+class _EtlRunArgs:
+    """Bundled `graph_etl` action='run' parameters (kept under the 7-parameter
+    cap as a single dataclass rather than 8 positional args)."""
+
+    engine: Any
+    source: str
+    sink: str
+    mode: str
+    sources_json: str
+    ids_json: str
+    ops_json: str
+    dry_run: bool
+
+
+def _graph_etl_run(args: _EtlRunArgs) -> str:
+    from agent_utilities.knowledge_graph.etl import run_etl
+
+    ids = json.loads(args.ids_json) if args.ids_json else []
+    srcs = json.loads(args.sources_json) if args.sources_json else []
+    ops = json.loads(args.ops_json) if args.ops_json else {}
+    sink_backend = _graph_etl_resolve_sink_backend(args.sink)
+    return json.dumps(
+        run_etl(
+            args.engine,
+            source=args.source or None,
+            mode=str(args.mode),
+            ids=ids or None,
+            sink=args.sink or None,
+            sink_backend=sink_backend,
+            sources=srcs or None,
+            dry_run=bool(args.dry_run),
+            ops=ops or None,
+        ),
+        default=str,
+    )
+
+
+def _classification_claim_from_json(raw: str) -> Any:
+    from agent_utilities.knowledge_graph.ontology.classification_claims import (
+        ClassificationClaim,
+    )
+
+    data = dict(json.loads(raw))
+    data["evidence_refs"] = tuple(data.get("evidence_refs") or ())
+    return ClassificationClaim(**data)
+
+
+def _classification_claim_dict(claim: Any) -> dict[str, Any]:
+    import dataclasses
+
+    row = dataclasses.asdict(claim)
+    row["evidence_refs"] = list(row["evidence_refs"])
+    return row
+
+
+@dataclass
+class _ClassificationClaimsCtx:
+    """Bundled `ontology_classification_claims` parameters, passed as one
+    object to every action handler so each stays at a single parameter
+    regardless of how many of the tool's 17 fields it actually needs."""
+
+    engine: Any
+    subject_id: str
+    category: str
+    status: str
+    claim_json: str
+    new_claim_json: str
+    source_snapshot: str
+    policy_approved: bool
+    reviewer: str
+    reason: str
+    viewer_clearance: str
+    claim_id: str
+    artifact_a_id: str
+    artifact_b_id: str
+    evidence_refs_json: str
+    extractor_ref: str
+    confidence: float
+    tenant: str
+
+
+def _classification_claims_record(ctx: _ClassificationClaimsCtx) -> str:
+    from agent_utilities.knowledge_graph.ontology.classification_claims import (
+        claim_from_raw,
+        record_claim,
+    )
+
+    claim = claim_from_raw(
+        json.loads(ctx.claim_json) if ctx.claim_json else {},
+        source_snapshot=ctx.source_snapshot,
+        policy_approved=bool(ctx.policy_approved),
+    )
+    if claim is None:
+        return json.dumps(
+            {"status": "error", "error": "claim_json is malformed or rejected"}
+        )
+    record_claim(ctx.engine, claim)
+    return json.dumps({"status": "success", "claim": _classification_claim_dict(claim)})
+
+
+def _classification_claims_query(ctx: _ClassificationClaimsCtx) -> str:
+    from agent_utilities.knowledge_graph.ontology.classification_claims import (
+        query_claims,
+    )
+
+    claims = query_claims(
+        ctx.engine,
+        ctx.subject_id,
+        status=ctx.status or None,
+        category=ctx.category or None,
+    )
+    return json.dumps({"claims": [_classification_claim_dict(c) for c in claims]})
+
+
+def _classification_claims_categories(ctx: _ClassificationClaimsCtx) -> str:
+    from agent_utilities.knowledge_graph.ontology.classification_claims import (
+        query_categories,
+    )
+
+    return json.dumps(
+        {"categories": sorted(query_categories(ctx.engine, ctx.subject_id))}
+    )
+
+
+def _classification_claims_history(ctx: _ClassificationClaimsCtx) -> str:
+    from agent_utilities.knowledge_graph.ontology.classification_claims import (
+        query_claim_history,
+    )
+
+    claims = query_claim_history(ctx.engine, ctx.subject_id, ctx.category)
+    return json.dumps({"claims": [_classification_claim_dict(c) for c in claims]})
+
+
+def _classification_claims_resolve_evidence(ctx: _ClassificationClaimsCtx) -> str:
+    from agent_utilities.knowledge_graph.ontology.classification_claims import (
+        resolve_claim_evidence,
+    )
+
+    claim = _classification_claim_from_json(ctx.claim_json)
+    evidence = resolve_claim_evidence(
+        ctx.engine, claim, viewer_clearance=ctx.viewer_clearance or "internal"
+    )
+    return json.dumps({"evidence": evidence})
+
+
+def _classification_claims_review(ctx: _ClassificationClaimsCtx) -> str:
+    from agent_utilities.knowledge_graph.ontology.classification_claims import (
+        ClassificationPromotionLedger,
+    )
+
+    ledger = ClassificationPromotionLedger(ctx.engine)
+    updated = ledger.review(
+        _classification_claim_from_json(ctx.claim_json),
+        reason=ctx.reason or "under review",
+    )
+    return json.dumps(
+        {"status": "success", "claim": _classification_claim_dict(updated)}
+    )
+
+
+def _classification_claims_promote(ctx: _ClassificationClaimsCtx) -> str:
+    from agent_utilities.knowledge_graph.ontology.classification_claims import (
+        ClassificationPromotionLedger,
+    )
+
+    ledger = ClassificationPromotionLedger(ctx.engine)
+    updated = ledger.promote(
+        _classification_claim_from_json(ctx.claim_json),
+        reviewer=ctx.reviewer,
+        reason=ctx.reason or "promoted after review",
+    )
+    return json.dumps(
+        {"status": "success", "claim": _classification_claim_dict(updated)}
+    )
+
+
+def _classification_claims_reject(ctx: _ClassificationClaimsCtx) -> str:
+    from agent_utilities.knowledge_graph.ontology.classification_claims import (
+        ClassificationPromotionLedger,
+    )
+
+    ledger = ClassificationPromotionLedger(ctx.engine)
+    updated = ledger.reject(
+        _classification_claim_from_json(ctx.claim_json),
+        reviewer=ctx.reviewer,
+        reason=ctx.reason,
+    )
+    return json.dumps(
+        {"status": "success", "claim": _classification_claim_dict(updated)}
+    )
+
+
+def _classification_claims_supersede(ctx: _ClassificationClaimsCtx) -> str:
+    from agent_utilities.knowledge_graph.ontology.classification_claims import (
+        ClassificationPromotionLedger,
+    )
+
+    ledger = ClassificationPromotionLedger(ctx.engine)
+    old_updated, new_claim = ledger.supersede(
+        _classification_claim_from_json(ctx.claim_json),
+        _classification_claim_from_json(ctx.new_claim_json),
+        reason=ctx.reason or "superseded by a newer extraction",
+    )
+    return json.dumps(
+        {
+            "status": "success",
+            "old_claim": _classification_claim_dict(old_updated),
+            "new_claim": _classification_claim_dict(new_claim),
+        }
+    )
+
+
+def _classification_claims_lifecycle_history(ctx: _ClassificationClaimsCtx) -> str:
+    from agent_utilities.knowledge_graph.ontology.classification_claims import (
+        ClassificationPromotionLedger,
+    )
+
+    ledger = ClassificationPromotionLedger(ctx.engine)
+    return json.dumps({"events": ledger.history(ctx.claim_id)})
+
+
+def _classification_claims_propose_identity(ctx: _ClassificationClaimsCtx) -> str:
+    from agent_utilities.knowledge_graph.ontology.classification_claims import (
+        propose_cross_source_identity,
+        record_claim,
+    )
+
+    claim = propose_cross_source_identity(
+        artifact_a_id=ctx.artifact_a_id,
+        artifact_b_id=ctx.artifact_b_id,
+        evidence_refs=json.loads(ctx.evidence_refs_json or "[]"),
+        source_snapshot=ctx.source_snapshot,
+        extractor_ref=ctx.extractor_ref,
+        confidence=None if ctx.confidence < 0 else ctx.confidence,
+        tenant=ctx.tenant,
+    )
+    record_claim(ctx.engine, claim)
+    return json.dumps({"status": "success", "claim": _classification_claim_dict(claim)})
+
+
+_CLASSIFICATION_CLAIMS_ACTIONS: dict[str, Callable[[_ClassificationClaimsCtx], str]] = {
+    "record": _classification_claims_record,
+    "query": _classification_claims_query,
+    "categories": _classification_claims_categories,
+    "history": _classification_claims_history,
+    "resolve_evidence": _classification_claims_resolve_evidence,
+    "review": _classification_claims_review,
+    "promote": _classification_claims_promote,
+    "reject": _classification_claims_reject,
+    "supersede": _classification_claims_supersede,
+    "lifecycle_history": _classification_claims_lifecycle_history,
+    "propose_identity": _classification_claims_propose_identity,
+}
+
+
+def _repo_provenance_snapshot(
+    repo_id: str, commit_sha: str, ref: str
+) -> tuple[Any, str, str | None]:
+    from agent_utilities.knowledge_graph.ontology.repository_provenance import (
+        RepositorySnapshot,
+    )
+
+    if not commit_sha:
+        return (
+            None,
+            "",
+            json.dumps(
+                {
+                    "status": "error",
+                    "error": "commit_sha is required for action='snapshot'",
+                }
+            ),
+        )
+    obj = RepositorySnapshot(repo_id=repo_id, commit_sha=commit_sha, ref=ref)
+    return obj, obj.snapshot_id, None
+
+
+def _repo_provenance_branch(
+    repo_id: str, name: str, commit_sha: str
+) -> tuple[Any, str, str | None]:
+    from agent_utilities.knowledge_graph.ontology.repository_provenance import Branch
+
+    if not name or not commit_sha:
+        return (
+            None,
+            "",
+            json.dumps(
+                {
+                    "status": "error",
+                    "error": "name and commit_sha are required for action='branch'",
+                }
+            ),
+        )
+    obj = Branch(repo_id=repo_id, name=name, head_commit_sha=commit_sha)
+    return obj, obj.branch_node_id, None
+
+
+def _repo_provenance_tag(
+    repo_id: str, name: str, commit_sha: str, annotation: str
+) -> tuple[Any, str, str | None]:
+    from agent_utilities.knowledge_graph.ontology.repository_provenance import Tag
+
+    if not name or not commit_sha:
+        return (
+            None,
+            "",
+            json.dumps(
+                {
+                    "status": "error",
+                    "error": "name and commit_sha are required for action='tag'",
+                }
+            ),
+        )
+    obj = Tag(repo_id=repo_id, name=name, commit_sha=commit_sha, annotation=annotation)
+    return obj, obj.tag_node_id, None
+
+
+def _repo_provenance_change_event(
+    repo_id: str, commit_sha: str, kind: str, occurred_at: str, subject_id: str
+) -> tuple[Any, str, str | None]:
+    from datetime import UTC, datetime
+
+    from agent_utilities.knowledge_graph.ontology.repository_provenance import (
+        ChangeEvent,
+    )
+
+    if not commit_sha or not kind:
+        return (
+            None,
+            "",
+            json.dumps(
+                {
+                    "status": "error",
+                    "error": "commit_sha and kind are required for action='change_event'",
+                }
+            ),
+        )
+    obj = ChangeEvent(
+        repo_id=repo_id,
+        commit_sha=commit_sha,
+        kind=kind,
+        occurred_at=occurred_at or datetime.now(UTC).isoformat(),
+        subject_id=subject_id,
+    )
+    return obj, obj.event_id, None
+
+
+def _repo_provenance_ingest(engine: Any, obj: Any, node_id: str, repo_id: str) -> str:
+    from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
+        ingest_graph_slice,
+    )
+
+    entities, relationships = obj.to_graph_slice()
+    result = ingest_graph_slice(
+        engine,
+        "repository_provenance",
+        entities,
+        relationships,
+        source_instance=repo_id,
+    )
+    return json.dumps(
+        {"status": "success", "id": node_id, "result": result}, default=str
+    )
+
+
+def _ontology_derive_discover_extensions(sample_text: str, object_type: str) -> str:
+    # Ontology-aware schema discovery (KG-2.259): propose .ttl extensions
+    # from a text sample, diffed against the live ontology. Human/SHACL-
+    # gated — returns a proposal, never auto-merges.
+    from agent_utilities.knowledge_graph.enrichment.cards import make_lite_llm_fn
+    from agent_utilities.knowledge_graph.extraction.schema_discovery import (
+        discover_schema_extensions,
+        discovery_report,
+    )
+
+    texts = [sample_text] if sample_text else []
+    discovered = discover_schema_extensions(
+        texts, object_type or "document", make_lite_llm_fn()
+    )
+    return json.dumps(discovery_report(discovered), default=str)
+
+
+def _ontology_derive_generate(sample_text: str, object_type: str) -> str:
+    # From-scratch ontology generator (Ontology-Playground coverage row #13):
+    # the SAME schema-discovery LLM path as 'discover_extensions', run against
+    # an EMPTY base — a complete standalone Interface/LinkType proposal,
+    # never a diff vs the live ontology. Never auto-applied/merged (respects
+    # the platform's gated-.ttl governance, same as 'discover_extensions').
+    from agent_utilities.knowledge_graph.enrichment.cards import make_lite_llm_fn
+    from agent_utilities.knowledge_graph.extraction.schema_discovery import (
+        generate_standalone_ontology,
+        ontology_generation_report,
+    )
+
+    texts = [sample_text] if sample_text else []
+    discovered = generate_standalone_ontology(texts, object_type, make_lite_llm_fn())
+    return json.dumps(
+        ontology_generation_report(discovered, domain_hint=object_type), default=str
+    )
+
+
+def _ontology_derive_list() -> str:
+    from agent_utilities.knowledge_graph.ontology.derived_properties import (
+        DEFAULT_DERIVED_REGISTRY,
+    )
+
+    return json.dumps(
+        [
+            {
+                "name": d.name,
+                "object_type": d.object_type,
+                "backing": str(d.backing),
+                "output_type": str(d.output_type),
+                "description": d.description,
+            }
+            for d in DEFAULT_DERIVED_REGISTRY.list_all()
+        ],
+        default=str,
+    )
+
+
+def _ontology_derive_compute(object_json: str, name: str, object_type: str) -> str:
+    ont = kg_server._ontology_system()
+    obj = json.loads(object_json) if object_json else {}
+    res = ont.derive(obj, name, object_type=object_type or None)
+    return json.dumps(res.model_dump(), default=str)
+
+
+def _ontology_derive_compute_all(object_json: str, object_type: str) -> str:
+    ont = kg_server._ontology_system()
+    obj = json.loads(object_json) if object_json else {}
+    return json.dumps(ont.derive_all(obj, object_type=object_type or None), default=str)
+
+
+def _object_edits_as_dict(v: Any) -> dict:
+    # Omitted dict params arrive as the unresolved FastMCP ``FieldInfo``
+    # (default_factory is not resolved by the internal/REST dispatcher);
+    # coerce anything non-dict — and a JSON-string some clients send.
+    if isinstance(v, dict):
+        return v
+    if isinstance(v, str) and v.strip():
+        try:
+            parsed = json.loads(v)
+            return parsed if isinstance(parsed, dict) else {}
+        except (ValueError, TypeError):
+            return {}
+    return {}
+
+
+@dataclass
+class _ObjectEditsRecordArgs:
+    """Bundled `object_edits` action='record' parameters (kept under the
+    7-parameter cap as a dataclass rather than positional args)."""
+
+    edit_type: str
+    object_id: str
+    properties_json: str
+    link_target: str
+    link_label: str
+    actor: str
+    expect: dict
+
+
+def _object_edits_compare_and_set(
+    ledger: Any, object_id: str, conditions: dict, props: dict, actor: str, etype: Any
+) -> str:
+    # CONCEPT:AU-KG.ontology.optimistic-concurrency-object-property — atomic
+    # optimistic-concurrency property set. The object id IS the node id (the
+    # ledger persists the edit's target as MERGE (t {id: object_id})), so we
+    # condition on the SAME node the edit targets. Apply the set ONLY if the
+    # node still matches ``expect`` (missing field ≡ null), under the engine
+    # write lock. If we lose the race we record NOTHING and surface
+    # applied=false — never a misleading audit edit.
+    from agent_utilities.knowledge_graph.ontology.edits import Edit
+
+    engine = kg_server._get_engine()
+    backend = getattr(engine, "backend", None)
+    if backend is None:
+        return json.dumps(
+            {
+                "action": "compare_and_set",
+                "object_id": object_id,
+                "applied": False,
+                "error": "no engine backend for conditional set",
+            }
+        )
+    applied = bool(
+        backend.compare_and_set_node_fields(object_id, conditions, dict(props))
+    )
+    if not applied:
+        return json.dumps(
+            {"action": "compare_and_set", "object_id": object_id, "applied": False}
+        )
+    edit = Edit(actor=actor, edit_type=etype, object_id=object_id, after=dict(props))
+    recorded = ledger.record(edit)
+    payload = recorded.model_dump()
+    payload["applied"] = True
+    return json.dumps(payload, default=str)
+
+
+def _object_edits_record(ledger: Any, args: _ObjectEditsRecordArgs) -> str:
+    from agent_utilities.knowledge_graph.ontology.edits import Edit, EditType
+
+    etype = EditType(args.edit_type)
+    if etype in (EditType.LINK_ADD, EditType.LINK_REMOVE):
+        edit = Edit(
+            actor=args.actor,
+            edit_type=etype,
+            object_id=args.object_id,
+            link_source=args.object_id,
+            link_label=args.link_label,
+            link_target=args.link_target,
+        )
+        recorded = ledger.record(edit)
+        return json.dumps(recorded.model_dump(), default=str)
+
+    props = json.loads(args.properties_json) if args.properties_json else {}
+    conditions = _object_edits_as_dict(args.expect)
+    if etype == EditType.PROPERTY_SET and conditions:
+        return _object_edits_compare_and_set(
+            ledger, args.object_id, conditions, props, args.actor, etype
+        )
+    edit = Edit(
+        actor=args.actor, edit_type=etype, object_id=args.object_id, after=dict(props)
+    )
+    recorded = ledger.record(edit)
+    return json.dumps(recorded.model_dump(), default=str)
+
+
+def _object_edits_revert(ledger: Any, edit_id: str, actor: str) -> str:
+    from agent_utilities.knowledge_graph.ontology.edits import revert_edit
+
+    comp = revert_edit(ledger, edit_id, actor=actor)
+    return json.dumps(comp.model_dump(), default=str)
+
+
+def _object_edits_history(ledger: Any, object_id: str) -> str:
+    return json.dumps(
+        {
+            "object_id": object_id,
+            "history": [e.model_dump() for e in ledger.history(object_id)],
+        },
+        default=str,
+    )
+
+
+def _object_edits_as_of(ledger: Any, object_id: str, ts: float) -> str:
+    return json.dumps(
+        {"object_id": object_id, "snapshot": ledger.as_of(object_id, ts)}, default=str
+    )
+
+
+def _graph_share_hierarchy(action: str, tenant_id: str, parent_tenant_id: str) -> str:
+    import dataclasses
+
+    from agent_utilities.knowledge_graph.core import tenant_registry as _tr
+
+    try:
+        if action == "set_parent":
+            return json.dumps(
+                dataclasses.asdict(_tr.set_parent(tenant_id, parent_tenant_id))
+            )
+        if action == "clear_parent":
+            return json.dumps(dataclasses.asdict(_tr.clear_parent(tenant_id)))
+        from agent_utilities.security.brain_context import current_actor
+
+        target = tenant_id or getattr(current_actor(), "tenant_id", "")
+        return json.dumps(
+            {
+                "tenant_id": target,
+                "parent_tenant_id": _tr.parent_of(target) or "",
+                "ancestors": _tr.ancestor_chain(target),
+                "max_depth": _tr.MAX_TENANT_DEPTH,
+            }
+        )
+    except Exception as e:  # noqa: BLE001
+        return public_error_json(e)
+
+
+def _graph_share_org(node_id: str) -> str:
+    from agent_utilities.knowledge_graph.core import tenant_sharing as _ts
+
+    # BUG-6: share_with_org now returns False (no-op) for an id that
+    # doesn't resolve to a real node, instead of silently "succeeding".
+    if not _ts.share_with_org(node_id):
+        return json.dumps({"error": f"node not found: {node_id!r}", "node_id": node_id})
+    return json.dumps({"node_id": node_id, "shared_scope": "org"})
+
+
+def _graph_share_commons(node_id: str) -> str:
+    from agent_utilities.knowledge_graph.core import tenant_sharing as _ts
+
+    ok = _ts.promote_to_commons(node_id)
+    if not ok:
+        return json.dumps({"error": f"node not found: {node_id!r}", "node_id": node_id})
+    return json.dumps({"node_id": node_id, "shared_scope": "commons", "promoted": ok})
+
+
+def _graph_share_mark(node_id: str, marking: str) -> str:
+    from agent_utilities.knowledge_graph.core import tenant_sharing as _ts
+
+    if not marking:
+        return json.dumps({"error": "marking is required for action='mark'"})
+    _ts.share(node_id, marking)
+    return json.dumps({"node_id": node_id, "marking": marking})
+
+
+def _graph_share_private(node_id: str) -> str:
+    from agent_utilities.knowledge_graph.core import tenant_sharing as _ts
+
+    # BUG-6: same existence guard as 'org' — no silent success.
+    if not _ts.make_private(node_id):
+        return json.dumps({"error": f"node not found: {node_id!r}", "node_id": node_id})
+    return json.dumps({"node_id": node_id, "shared_scope": "private"})
+
+
+def _object_set_path(source_id: str, target_id: str) -> str:
+    from agent_utilities.knowledge_graph.ontology.object_path import find_object_path
+
+    if not source_id or not target_id:
+        return json.dumps({"error": "action='path' requires source_id and target_id"})
+    engine = kg_server._get_engine()
+    return json.dumps(find_object_path(engine, source_id, target_id), default=str)
+
+
+def _object_set_base(
+    ont: Any, action: str, type_or_interface: str, ids_json: str
+) -> Any:
+    if action == "from_ids" or action in ("union", "intersect", "subtract"):
+        return ont.object_set(json.loads(ids_json) if ids_json else [])
+    return ont.object_set_of_type(type_or_interface)
+
+
+def _object_set_effective_limit(limit: int) -> int:
+    # BUG-1: clamp to a safe, non-zero, hard-capped limit for the actions
+    # that used to materialize an UNBOUNDED id list (of_type/from_ids/union/
+    # intersect/subtract) — a DYNAMIC ``ObjectSet`` (of_type) scans every
+    # node in the graph and would otherwise return every match with no cap,
+    # which OOM-crashed the live pod. ``search`` already had its own bound;
+    # leave it as-is.
+    return max(1, min(int(limit) if limit else 50, _OBJECT_SET_HARD_CAP))
+
+
+def _object_set_ids_result(base: Any, effective_limit: int) -> str:
+    ids = base.ids(limit=effective_limit)
+    return json.dumps(
+        {"ids": ids, "count": len(ids), "limited": len(ids) >= effective_limit}
+    )
+
+
+def _object_set_search(base: Any, query: str, limit: int) -> str:
+    res = base.search(query, limit=limit)
+    return json.dumps({"ids": res.ids(), "count": res.count()})
+
+
+def _object_set_search_around(
+    base: Any, link_type: str, hops: int, direction: str
+) -> str:
+    res = base.search_around(link_type or None, hops=hops, direction=direction)
+    return json.dumps({"ids": res.ids(), "count": res.count()})
+
+
+def _object_set_pivot(base: Any, link_type: str, group_by: str, direction: str) -> str:
+    piv = base.pivot(link_type or None, group_by, direction=direction)
+    return json.dumps(
+        {"link_type": piv.link_type, "group_by": piv.group_by, "groups": piv.groups},
+        default=str,
+    )
+
+
+def _object_set_aggregate(base: Any, metric: str, field: str, group_by: str) -> str:
+    agg = base.aggregate(metric, field=field or None, group_by=group_by or None)
+    return json.dumps(
+        {
+            "metric": agg.metric,
+            "field": agg.field,
+            "group_by": agg.group_by,
+            "groups": {str(k): v for k, v in agg.groups.items()},
+            "total_objects": agg.total_objects,
+        },
+        default=str,
+    )
+
+
+def _object_set_algebra(
+    ont: Any, base: Any, action: str, type_or_interface: str, effective_limit: int
+) -> str:
+    other = (
+        ont.object_set_of_type(type_or_interface)
+        if type_or_interface
+        else ont.object_set([])
+    )
+    # BUG-1: bound both operands AND the combined result — ``other`` can
+    # itself be an unbounded of_type() DYNAMIC set.
+    combined = getattr(base, action)(other, limit=effective_limit)
+    ids = combined.ids(limit=effective_limit)
+    return json.dumps(
+        {"ids": ids, "count": len(ids), "limited": len(ids) >= effective_limit}
+    )
+
+
 def register_ontology_tools(mcp):
     """Register the ontology_tools group on the given FastMCP server."""
 
@@ -674,7 +1843,6 @@ def register_ontology_tools(mcp):
         WHY a candidate is routing-eligible (X-4)."""
         from agent_utilities.knowledge_graph.ontology.interfaces import (
             DEFAULT_INTERFACE_REGISTRY,
-            target_object_types,
         )
         from agent_utilities.knowledge_graph.standardization.standards import (
             ENTERPRISE_STANDARD_REGISTRY,
@@ -687,91 +1855,20 @@ def register_ontology_tools(mcp):
         )
         try:
             if action == "list":
-                return json.dumps(
-                    {
-                        "registry": registry,
-                        "interfaces": [i.name for i in reg.list_interfaces()],
-                    }
-                )
+                return _ontology_interface_list(reg, registry)
             if action == "implementers":
-                impls = (
-                    reg.resolve_target(name)
-                    if reg is not DEFAULT_INTERFACE_REGISTRY
-                    else target_object_types(name)
-                )
-                return json.dumps({"target": name, "implementers": impls})
+                return _ontology_interface_implementers(reg, name)
             if action == "conforms":
-                obj = json.loads(object_json) if object_json else {}
-                return json.dumps(
-                    {"interface": name, "conforms": reg.conforms(obj, name)}
-                )
+                return _ontology_interface_conforms(reg, name, object_json)
             if action == "owl":
-                return json.dumps({"owl": reg.to_owl()})
+                return _ontology_interface_owl(reg)
             if action in ("graph", "summary"):
-                from agent_utilities.knowledge_graph.ontology.links import (
-                    DEFAULT_LINK_REGISTRY,
-                )
-                from agent_utilities.knowledge_graph.ontology.schema_graph import (
-                    build_schema_graph,
-                    render_schema_markdown,
-                )
-
-                schema = build_schema_graph(reg, DEFAULT_LINK_REGISTRY)
-                if action == "graph":
-                    return json.dumps({"registry": registry, **schema}, default=str)
-                title = f"{registry.title()} Ontology Schema"
-                return json.dumps(
-                    {
-                        "registry": registry,
-                        "markdown": render_schema_markdown(schema, title=title),
-                    }
-                )
+                return _ontology_interface_schema(reg, registry, action)
             if action == "lint":
-                from agent_utilities.knowledge_graph.ontology.style_lint import (
-                    lint_interfaces,
-                )
-
-                issues = lint_interfaces(reg)
-                return json.dumps(
-                    {
-                        "registry": registry,
-                        "issues": [i.as_dict() for i in issues],
-                        "count": len(issues),
-                    }
-                )
+                return _ontology_interface_lint(reg, registry)
             if action == "explain_routing_eligibility":
-                from agent_utilities.graph.routing.enrichers.capability_routing import (
-                    explain_routing_eligibility,
-                )
-
-                if not entity_id or not required_capability_type:
-                    return json.dumps(
-                        {
-                            "error": "explain_routing_eligibility requires entity_id and "
-                            "required_capability_type"
-                        }
-                    )
-                engine = kg_server._get_engine()
-                tags = (
-                    [t.strip() for t in policy_tags.split(",") if t.strip()]
-                    if policy_tags
-                    else None
-                )
-                report = explain_routing_eligibility(
-                    engine,
-                    entity_id,
-                    required_capability_type=required_capability_type,
-                    tenant=tenant or None,
-                    policy_tags=tags,
-                )
-                return json.dumps(
-                    {
-                        "action": "explain_routing_eligibility",
-                        "entity_id": entity_id,
-                        "required_capability_type": required_capability_type,
-                        **report,
-                    },
-                    default=str,
+                return _ontology_interface_explain_routing(
+                    entity_id, required_capability_type, tenant, policy_tags
                 )
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
@@ -807,71 +1904,24 @@ def register_ontology_tools(mcp):
         ),
     ) -> str:
         """List/describe/resolve/set/evolve sampling profiles, or emit their OWL."""
-        from agent_utilities.agent.sampling_profile import (
-            SamplingProfile,
-            resolve_sampling_profile,
-        )
-        from agent_utilities.knowledge_graph.ontology.value_types import (
-            sampling_profile_violations,
-        )
-        from agent_utilities.models.model_registry import (
-            _DEFAULT_TASK_PROFILES,
-            inference_owl_ttl,
-            load_active_registry,
-        )
+        from agent_utilities.models.model_registry import load_active_registry
 
         try:
             registry = load_active_registry()
             if action == "list":
-                effective = {**_DEFAULT_TASK_PROFILES, **registry.task_class_profiles}
-                return json.dumps(
-                    {"profiles": {k: v.model_dump() for k, v in effective.items()}},
-                    default=str,
-                )
+                return _ontology_sampling_profile_list(registry)
             if action == "describe":
-                return json.dumps(
-                    registry.pick_profile_for_task(task_class).model_dump(), default=str
-                )
+                return _ontology_sampling_profile_describe(registry, task_class)
             if action == "resolve":
-                prof = resolve_sampling_profile(task_text or None, role=role or None)
-                return json.dumps(prof.model_dump(), default=str)
+                return _ontology_sampling_profile_resolve(task_text, role)
             if action == "set":
-                data = json.loads(profile_json) if profile_json else {}
-                if task_class:
-                    data.setdefault("task_class", task_class)
-                profile = SamplingProfile.model_validate(data)
-                violations = sampling_profile_violations(profile.model_dump())
-                if violations:
-                    return json.dumps(
-                        {"error": "SHACL bound violation", "violations": violations}
-                    )
-                registry.set_task_profile(profile)
-                return json.dumps({"set": profile.model_dump()}, default=str)
-            if action == "evolve":
-                from agent_utilities.harness.variant_pool import VariantPool
-                from agent_utilities.knowledge_graph.core.engine import (
-                    IntelligenceGraphEngine,
+                return _ontology_sampling_profile_set(
+                    registry, profile_json, task_class
                 )
-
-                engine = IntelligenceGraphEngine.get_active()
-                kg = getattr(engine, "kg", None) or getattr(engine, "_kg", None)
-                ci = kg.retrieval if kg is not None else None
-                if ci is None:
-                    return json.dumps(
-                        {"error": "no capability index available to score"}
-                    )
-                vp = VariantPool.__new__(VariantPool)
-
-                # Live eval: reward = mean capability-index reward already recorded for
-                # this profile's prior outcomes; absent history, neutral 0.5 keeps the
-                # incumbent. The daemon/evolve loop feeds real outcomes over time.
-                def _evaluator(p: SamplingProfile) -> float:
-                    return ci.reward_of(vp._profile_id(task_class, p))
-
-                promoted = vp.evolve_profile(registry, task_class, ci, _evaluator)
-                return json.dumps({"promoted": promoted.model_dump()}, default=str)
+            if action == "evolve":
+                return _ontology_sampling_profile_evolve(registry, task_class)
             if action == "owl":
-                return json.dumps({"owl": inference_owl_ttl(registry)})
+                return _ontology_sampling_profile_owl(registry)
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
@@ -1243,76 +2293,35 @@ def register_ontology_tools(mcp):
         ),
     ) -> str:
         """Unified fail-closed write-back to any target system (dry-run-first)."""
-        from agent_utilities.knowledge_graph.enrichment.writeback import (
-            ProposalQueue,
-            approve_proposal,
-            push_findings,
-            push_inventory,
-            run_asset_mirror,
-            run_writeback,
-        )
-
         try:
             try:
                 engine = kg_server._get_engine()
             except Exception:  # noqa: BLE001 - offline → no backend resolver
                 engine = None
             backend = getattr(engine, "backend", None) if engine is not None else None
+            ctx = _WritebackCtx(
+                target=str(target),
+                backend=backend,
+                engine=engine,
+                dry_run=bool(dry_run),
+            )
             if str(action) == "proposals":
-                return json.dumps({"proposals": ProposalQueue().list(status="pending")})
+                return _graph_writeback_proposals()
             if str(action) == "approve":
-                return json.dumps(
-                    approve_proposal(str(proposal_id), backend=backend, engine=engine)
-                )
+                return _graph_writeback_approve(proposal_id, ctx)
             if bool(asset_mirror):
-                return json.dumps(
-                    run_asset_mirror(
-                        backend=backend,
-                        engine=engine,
-                        dry_run=bool(dry_run),
-                    )
-                )
+                return _graph_writeback_asset_mirror(ctx)
             if bool(inventory):
-                return json.dumps(
-                    push_inventory(
-                        str(target),
-                        backend=backend,
-                        engine=engine,
-                        dry_run=bool(dry_run),
-                    )
-                )
+                return _graph_writeback_inventory(ctx)
             if bool(findings):
-                project = (
-                    json.loads(creations_json)[0]
-                    if creations_json and creations_json != "[]"
-                    else None
-                )
-                return json.dumps(
-                    push_findings(
-                        str(target),
-                        backend=backend,
-                        engine=engine,
-                        project=project,
-                        dry_run=bool(dry_run),
-                    )
-                )
-            ops = {
-                "inferences": json.loads(inferences_json) if inferences_json else [],
-                "enrichments": json.loads(enrichments_json) if enrichments_json else [],
-                "creations": json.loads(creations_json) if creations_json else [],
-                "retirements": json.loads(retirements_json) if retirements_json else [],
-                "process_ids": json.loads(process_ids_json)
-                if process_ids_json
-                else None,
-            }
-            return json.dumps(
-                run_writeback(
-                    str(target),
-                    backend=backend,
-                    engine=engine,
-                    dry_run=bool(dry_run),
-                    **ops,
-                )
+                return _graph_writeback_findings(ctx, creations_json)
+            return _graph_writeback_default(
+                ctx,
+                inferences_json,
+                enrichments_json,
+                creations_json,
+                retirements_json,
+                process_ids_json,
             )
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
@@ -1350,11 +2359,6 @@ def register_ontology_tools(mcp):
         ),
     ) -> str:
         """Spec↔ticket↔agent linking + assignment + assigned-items read."""
-        from agent_utilities.knowledge_graph.enrichment.writeback import (
-            link_spec,
-            pull_assigned,
-        )
-
         try:
             try:
                 engine = kg_server._get_engine()
@@ -1362,24 +2366,12 @@ def register_ontology_tools(mcp):
                 engine = None
             backend = getattr(engine, "backend", None) if engine is not None else None
             if str(action) == "pull":
-                return json.dumps(
-                    pull_assigned(
-                        str(target), user=user or None, project_id=project_id or None
-                    )
-                )
-            spec = json.loads(spec_json) if spec_json else {}
-            return json.dumps(
-                link_spec(
-                    spec,
-                    target=str(target),
-                    issue_id=str(issue_id),
-                    project_id=project_id or None,
-                    assignee=assignee or None,
-                    agent=agent or None,
-                    comment=comment or None,
-                    backend=backend,
-                    dry_run=bool(dry_run),
-                )
+                return _spec_ticket_pull(target, user, project_id)
+            ctx = _SpecTicketCtx(
+                target=str(target), backend=backend, dry_run=bool(dry_run)
+            )
+            return _spec_ticket_link(
+                ctx, spec_json, issue_id, project_id, assignee, agent, comment
             )
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
@@ -1428,57 +2420,20 @@ def register_ontology_tools(mcp):
         ),
     ) -> str:
         """Concept-ID reservation ledger operations (see docs/concept_coordination.md)."""
-        import uuid
         from pathlib import Path
-
-        from agent_utilities.governance import concept_allocator as ca
 
         try:
             repo_root = Path(repo).expanduser().resolve() if repo else None
             if str(action) == "list":
-                return json.dumps(
-                    {
-                        "reservations": ca.list_reservations(
-                            repo_root=repo_root, status=status or None
-                        )
-                    }
-                )
+                return _concept_registry_list(repo_root, status)
             if str(action) == "reconcile":
-                return json.dumps(ca.reconcile(repo_root=repo_root))
+                return _concept_registry_reconcile(repo_root)
             if str(action) == "release":
-                if not concept_id:
-                    return json.dumps({"error": "release requires concept_id"})
-                return json.dumps(
-                    {"released": ca.release_concept_id(concept_id, repo_root=repo_root)}
-                )
+                return _concept_registry_release(repo_root, concept_id)
             if str(action) == "reserve":
-                if not concept_id:
-                    return json.dumps({"error": "reserve requires concept_id"})
-                sid = session_id or f"session-{uuid.uuid4().hex}"
-                record = ca.reserve_concept_id(
-                    concept_id,
-                    session_id=sid,
-                    design_doc=design_doc or None,
-                    ttl_seconds=int(ttl_seconds),
-                    repo_root=repo_root,
+                return _concept_registry_reserve(
+                    repo_root, concept_id, session_id, design_doc, ttl_seconds
                 )
-                # Compatibility projection through this already-authenticated
-                # GraphOS execution context. The local ledger is authoritative
-                # for this legacy path only; it is not a separate-host authority.
-                try:
-                    _run_coro(
-                        kg_server._execute_tool(
-                            "graph_write",
-                            action="add_node",
-                            node_id=record["id"],
-                            node_type="ConceptReservation",
-                            properties=json.dumps(record),
-                        )
-                    )
-                    record["kg_projected"] = True
-                except Exception:  # noqa: BLE001 - projection is advisory
-                    record["kg_projected"] = False
-                return json.dumps(record)
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
@@ -1532,8 +2487,6 @@ def register_ontology_tools(mcp):
         ),
     ) -> str:
         """Run a delta/full/reconcile sync for any registered source against the live engine."""
-        from agent_utilities.knowledge_graph.core.source_sync import sync_source
-
         # A direct call bypassing FastMCP's own Field-default resolution binds
         # an omitted `graph`/`connection` to a raw `FieldInfo` rather than
         # `""` — normalize once here, mirroring `query_tools._run_graph_query`'s
@@ -1546,51 +2499,15 @@ def register_ontology_tools(mcp):
 
             # U-37/GOC-67: resolve `connection`/`graph` BEFORE touching the
             # engine or reading any watermark — exactly like `graph_query`/
-            # `graph_write`/`graph_ingest`: an explicit graph never defaults,
-            # never fans out, and an unknown/unauthorized graph fails closed
-            # with no partial sync started.
-            if graph or connection:
-                try:
-                    entries, errors, fanout = kg_server._resolve_target_engines(
-                        connection
-                    )
-                    entries = kg_server.resolve_explicit_graph(
-                        entries, graph, fanout=fanout
-                    )
-                except kg_server.GraphNotFoundError as e:
-                    return public_error_json(e, code="graph_not_found")
-                except kg_server.GraphSelectionConflictError as e:
-                    return public_error_json(e, code="graph_selection_conflict")
-                except Exception as e:
-                    return public_error_json(e)
-                if fanout or len(entries) != 1:
-                    return public_error_json(
-                        kg_server.GraphSelectionConflictError(
-                            "source_sync targets exactly one backend; "
-                            "'connection=all'/a list is not supported "
-                            "(use source='all' to fan out across connectors "
-                            "instead)"
-                        ),
-                        code="graph_selection_conflict",
-                    )
-                _sync_conn_name, engine = entries[0]
-            else:
-                try:
-                    engine = kg_server._get_engine()
-                except Exception:  # noqa: BLE001
-                    engine = None
+            # `graph_write`/`graph_ingest`.
+            engine, resolve_error = _source_sync_resolve_engine(connection, graph)
+            if resolve_error is not None:
+                return resolve_error
             if engine is None:
                 return json.dumps(
                     {"status": "error", "error": "active engine required"}
                 )
-            with kg_server.bound_to_graph(graph):
-                result = sync_source(
-                    engine, str(source), mode=str(mode), ids=ids or None
-                )
-            if graph or connection:
-                result = dict(result)
-                result.setdefault("connection", connection or "default")
-                result.setdefault("graph", graph)
+            result = _source_sync_run(engine, source, mode, ids, graph, connection)
             return json.dumps(result)
         except PermissionError as e:
             return public_error_json(
@@ -1694,15 +2611,6 @@ def register_ontology_tools(mcp):
         limit: int = Field(default=200, description="Max rows for action='lineage'."),
     ) -> str:
         """Run / inspect a unified ETL flow over the canonical KG hub."""
-        from agent_utilities.knowledge_graph.enrichment.registry import (
-            discover_extractors,
-            list_sources,
-        )
-        from agent_utilities.knowledge_graph.enrichment.writeback.core import (
-            get_sink,
-            list_sinks,
-        )
-
         try:
             engine = kg_server._get_engine()
         except Exception:  # noqa: BLE001
@@ -1710,16 +2618,7 @@ def register_ontology_tools(mcp):
 
         try:
             if action == "list":
-                discover_extractors()
-                names = sorted({s.category for s in list_sources()})
-                reg = kg_server.get_connection_registry()
-                backends = sorted(
-                    set(reg.names())
-                    | {"stardog", "neo4j", "falkordb", "age", "jena_fuseki"}
-                )
-                return json.dumps(
-                    {"sources": names, "sinks": list_sinks(), "backends": backends}
-                )
+                return _graph_etl_list()
 
             if engine is None:
                 return json.dumps(
@@ -1727,54 +2626,20 @@ def register_ontology_tools(mcp):
                 )
 
             if action == "lineage":
-                from agent_utilities.knowledge_graph.etl import query_lineage
-
-                return json.dumps(
-                    {
-                        "runs": query_lineage(
-                            engine,
-                            source=source or None,
-                            sink=sink or None,
-                            limit=int(limit),
-                        )
-                    },
-                    default=str,
-                )
+                return _graph_etl_lineage(engine, source, sink, limit)
 
             # action == "run"
-            from agent_utilities.knowledge_graph.etl import run_etl
-
-            ids = json.loads(ids_json) if ids_json else []
-            srcs = json.loads(sources_json) if sources_json else []
-            ops = json.loads(ops_json) if ops_json else {}
-
-            # Resolve a graph-store sink backend (write-back sinks + the native
-            # SQL-table sink need none — run_etl routes sink='table' itself, KG-2.266).
-            sink_backend = None
-            if sink and sink != "table" and get_sink(sink) is None:
-                reg = kg_server.get_connection_registry()
-                if sink in reg.names():
-                    be = getattr(reg.get_engine(sink), "backend", None)
-                    sink_backend = getattr(be, "_authority", be)
-                else:
-                    from agent_utilities.knowledge_graph.backends import create_backend
-
-                    sink_backend = create_backend(backend_type=sink)
-
-            return json.dumps(
-                run_etl(
-                    engine,
-                    source=source or None,
-                    mode=str(mode),
-                    ids=ids or None,
-                    sink=sink or None,
-                    sink_backend=sink_backend,
-                    sources=srcs or None,
-                    dry_run=bool(dry_run),
-                    ops=ops or None,
-                ),
-                default=str,
+            args = _EtlRunArgs(
+                engine=engine,
+                source=source,
+                sink=sink,
+                mode=mode,
+                sources_json=sources_json,
+                ids_json=ids_json,
+                ops_json=ops_json,
+                dry_run=dry_run,
             )
+            return _graph_etl_run(args)
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
 
@@ -1864,30 +2729,6 @@ def register_ontology_tools(mcp):
         tenant: str = Field(default="", description="For record/propose_identity."),
     ) -> str:
         """Record / query / promote classification claims through the governed lifecycle."""
-        import dataclasses
-
-        from agent_utilities.knowledge_graph.ontology.classification_claims import (
-            ClassificationClaim,
-            ClassificationPromotionLedger,
-            claim_from_raw,
-            propose_cross_source_identity,
-            query_categories,
-            query_claim_history,
-            query_claims,
-            record_claim,
-            resolve_claim_evidence,
-        )
-
-        def _claim_from_json(raw: str) -> ClassificationClaim:
-            data = dict(json.loads(raw))
-            data["evidence_refs"] = tuple(data.get("evidence_refs") or ())
-            return ClassificationClaim(**data)
-
-        def _claim_dict(claim: ClassificationClaim) -> dict[str, Any]:
-            row = dataclasses.asdict(claim)
-            row["evidence_refs"] = list(row["evidence_refs"])
-            return row
-
         try:
             engine = kg_server._get_engine()
         except Exception:  # noqa: BLE001
@@ -1896,97 +2737,32 @@ def register_ontology_tools(mcp):
             return json.dumps({"status": "error", "error": "active engine required"})
 
         try:
-            if action == "record":
-                claim = claim_from_raw(
-                    json.loads(claim_json) if claim_json else {},
-                    source_snapshot=source_snapshot,
-                    policy_approved=bool(policy_approved),
-                )
-                if claim is None:
-                    return json.dumps(
-                        {
-                            "status": "error",
-                            "error": "claim_json is malformed or rejected",
-                        }
-                    )
-                record_claim(engine, claim)
-                return json.dumps({"status": "success", "claim": _claim_dict(claim)})
-
-            if action == "query":
-                claims = query_claims(
-                    engine,
-                    subject_id,
-                    status=status or None,
-                    category=category or None,
-                )
-                return json.dumps({"claims": [_claim_dict(c) for c in claims]})
-
-            if action == "categories":
+            handler = _CLASSIFICATION_CLAIMS_ACTIONS.get(action)
+            if handler is None:
                 return json.dumps(
-                    {"categories": sorted(query_categories(engine, subject_id))}
+                    {"status": "error", "error": f"unknown action {action!r}"}
                 )
-
-            if action == "history":
-                claims = query_claim_history(engine, subject_id, category)
-                return json.dumps({"claims": [_claim_dict(c) for c in claims]})
-
-            if action == "resolve_evidence":
-                claim = _claim_from_json(claim_json)
-                evidence = resolve_claim_evidence(
-                    engine, claim, viewer_clearance=viewer_clearance or "internal"
-                )
-                return json.dumps({"evidence": evidence})
-
-            ledger = ClassificationPromotionLedger(engine)
-            if action == "review":
-                updated = ledger.review(
-                    _claim_from_json(claim_json), reason=reason or "under review"
-                )
-                return json.dumps({"status": "success", "claim": _claim_dict(updated)})
-            if action == "promote":
-                updated = ledger.promote(
-                    _claim_from_json(claim_json),
-                    reviewer=reviewer,
-                    reason=reason or "promoted after review",
-                )
-                return json.dumps({"status": "success", "claim": _claim_dict(updated)})
-            if action == "reject":
-                updated = ledger.reject(
-                    _claim_from_json(claim_json), reviewer=reviewer, reason=reason
-                )
-                return json.dumps({"status": "success", "claim": _claim_dict(updated)})
-            if action == "supersede":
-                old_updated, new_claim = ledger.supersede(
-                    _claim_from_json(claim_json),
-                    _claim_from_json(new_claim_json),
-                    reason=reason or "superseded by a newer extraction",
-                )
-                return json.dumps(
-                    {
-                        "status": "success",
-                        "old_claim": _claim_dict(old_updated),
-                        "new_claim": _claim_dict(new_claim),
-                    }
-                )
-            if action == "lifecycle_history":
-                return json.dumps({"events": ledger.history(claim_id)})
-
-            if action == "propose_identity":
-                claim = propose_cross_source_identity(
-                    artifact_a_id=artifact_a_id,
-                    artifact_b_id=artifact_b_id,
-                    evidence_refs=json.loads(evidence_refs_json or "[]"),
-                    source_snapshot=source_snapshot,
-                    extractor_ref=extractor_ref,
-                    confidence=None if confidence < 0 else confidence,
-                    tenant=tenant,
-                )
-                record_claim(engine, claim)
-                return json.dumps({"status": "success", "claim": _claim_dict(claim)})
-
-            return json.dumps(
-                {"status": "error", "error": f"unknown action {action!r}"}
+            ctx = _ClassificationClaimsCtx(
+                engine=engine,
+                subject_id=subject_id,
+                category=category,
+                status=status,
+                claim_json=claim_json,
+                new_claim_json=new_claim_json,
+                source_snapshot=source_snapshot,
+                policy_approved=policy_approved,
+                reviewer=reviewer,
+                reason=reason,
+                viewer_clearance=viewer_clearance,
+                claim_id=claim_id,
+                artifact_a_id=artifact_a_id,
+                artifact_b_id=artifact_b_id,
+                evidence_refs_json=evidence_refs_json,
+                extractor_ref=extractor_ref,
+                confidence=confidence,
+                tenant=tenant,
             )
+            return handler(ctx)
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
 
@@ -2045,18 +2821,6 @@ def register_ontology_tools(mcp):
         ),
     ) -> str:
         """Record repository provenance (RepositorySnapshot/Branch/Tag/ChangeEvent) into the KG."""
-        from datetime import UTC, datetime
-
-        from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
-            ingest_graph_slice,
-        )
-        from agent_utilities.knowledge_graph.ontology.repository_provenance import (
-            Branch,
-            ChangeEvent,
-            RepositorySnapshot,
-            Tag,
-        )
-
         try:
             engine = kg_server._get_engine()
         except Exception:  # noqa: BLE001
@@ -2068,74 +2832,24 @@ def register_ontology_tools(mcp):
 
         try:
             if action == "snapshot":
-                if not commit_sha:
-                    return json.dumps(
-                        {
-                            "status": "error",
-                            "error": "commit_sha is required for action='snapshot'",
-                        }
-                    )
-                obj: Any = RepositorySnapshot(
-                    repo_id=repo_id, commit_sha=commit_sha, ref=ref
-                )
-                node_id = obj.snapshot_id
+                obj, node_id, err = _repo_provenance_snapshot(repo_id, commit_sha, ref)
             elif action == "branch":
-                if not name or not commit_sha:
-                    return json.dumps(
-                        {
-                            "status": "error",
-                            "error": "name and commit_sha are required for action='branch'",
-                        }
-                    )
-                obj = Branch(repo_id=repo_id, name=name, head_commit_sha=commit_sha)
-                node_id = obj.branch_node_id
+                obj, node_id, err = _repo_provenance_branch(repo_id, name, commit_sha)
             elif action == "tag":
-                if not name or not commit_sha:
-                    return json.dumps(
-                        {
-                            "status": "error",
-                            "error": "name and commit_sha are required for action='tag'",
-                        }
-                    )
-                obj = Tag(
-                    repo_id=repo_id,
-                    name=name,
-                    commit_sha=commit_sha,
-                    annotation=annotation,
+                obj, node_id, err = _repo_provenance_tag(
+                    repo_id, name, commit_sha, annotation
                 )
-                node_id = obj.tag_node_id
             elif action == "change_event":
-                if not commit_sha or not kind:
-                    return json.dumps(
-                        {
-                            "status": "error",
-                            "error": "commit_sha and kind are required for action='change_event'",
-                        }
-                    )
-                obj = ChangeEvent(
-                    repo_id=repo_id,
-                    commit_sha=commit_sha,
-                    kind=kind,
-                    occurred_at=occurred_at or datetime.now(UTC).isoformat(),
-                    subject_id=subject_id,
+                obj, node_id, err = _repo_provenance_change_event(
+                    repo_id, commit_sha, kind, occurred_at, subject_id
                 )
-                node_id = obj.event_id
             else:
                 return json.dumps(
                     {"status": "error", "error": f"unknown action {action!r}"}
                 )
-
-            entities, relationships = obj.to_graph_slice()
-            result = ingest_graph_slice(
-                engine,
-                "repository_provenance",
-                entities,
-                relationships,
-                source_instance=repo_id,
-            )
-            return json.dumps(
-                {"status": "success", "id": node_id, "result": result}, default=str
-            )
+            if err is not None:
+                return err
+            return _repo_provenance_ingest(engine, obj, node_id, repo_id)
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
 
@@ -2233,73 +2947,17 @@ def register_ontology_tools(mcp):
         ),
     ) -> str:
         """Compute derived properties / discover or generate ontology extensions."""
-        from agent_utilities.knowledge_graph.ontology.derived_properties import (
-            DEFAULT_DERIVED_REGISTRY,
-        )
-
         try:
             if action == "discover_extensions":
-                # Ontology-aware schema discovery (KG-2.259): propose .ttl extensions
-                # from a text sample, diffed against the live ontology. Human/SHACL-
-                # gated — returns a proposal, never auto-merges.
-                from agent_utilities.knowledge_graph.enrichment.cards import (
-                    make_lite_llm_fn,
-                )
-                from agent_utilities.knowledge_graph.extraction.schema_discovery import (
-                    discover_schema_extensions,
-                    discovery_report,
-                )
-
-                texts = [sample_text] if sample_text else []
-                discovered = discover_schema_extensions(
-                    texts, object_type or "document", make_lite_llm_fn()
-                )
-                return json.dumps(discovery_report(discovered), default=str)
+                return _ontology_derive_discover_extensions(sample_text, object_type)
             if action == "generate":
-                # From-scratch ontology generator (Ontology-Playground coverage
-                # row #13): the SAME schema-discovery LLM path as
-                # 'discover_extensions', run against an EMPTY base — a complete
-                # standalone Interface/LinkType proposal, never a diff vs the
-                # live ontology. Never auto-applied/merged (respects the
-                # platform's gated-.ttl governance, same as 'discover_extensions').
-                from agent_utilities.knowledge_graph.enrichment.cards import (
-                    make_lite_llm_fn,
-                )
-                from agent_utilities.knowledge_graph.extraction.schema_discovery import (
-                    generate_standalone_ontology,
-                    ontology_generation_report,
-                )
-
-                texts = [sample_text] if sample_text else []
-                discovered = generate_standalone_ontology(
-                    texts, object_type, make_lite_llm_fn()
-                )
-                return json.dumps(
-                    ontology_generation_report(discovered, domain_hint=object_type),
-                    default=str,
-                )
+                return _ontology_derive_generate(sample_text, object_type)
             if action == "list":
-                return json.dumps(
-                    [
-                        {
-                            "name": d.name,
-                            "object_type": d.object_type,
-                            "backing": str(d.backing),
-                            "output_type": str(d.output_type),
-                            "description": d.description,
-                        }
-                        for d in DEFAULT_DERIVED_REGISTRY.list_all()
-                    ],
-                    default=str,
-                )
-            ont = kg_server._ontology_system()
-            obj = json.loads(object_json) if object_json else {}
-            otype = object_type or None
+                return _ontology_derive_list()
             if action == "compute":
-                res = ont.derive(obj, name, object_type=otype)
-                return json.dumps(res.model_dump(), default=str)
+                return _ontology_derive_compute(object_json, name, object_type)
             if action == "compute_all":
-                return json.dumps(ont.derive_all(obj, object_type=otype), default=str)
+                return _ontology_derive_compute_all(object_json, object_type)
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
@@ -2443,109 +3101,26 @@ def register_ontology_tools(mcp):
         ledger edit is recorded **only if the precondition still holds** — use it
         when concurrent agents shape the same object so one never clobbers another.
         """
-        from agent_utilities.knowledge_graph.ontology.edits import (
-            Edit,
-            EditType,
-            revert_edit,
-        )
-
-        def _as_dict(v: Any) -> dict:
-            # Omitted dict params arrive as the unresolved FastMCP ``FieldInfo``
-            # (default_factory is not resolved by the internal/REST dispatcher);
-            # coerce anything non-dict — and a JSON-string some clients send.
-            if isinstance(v, dict):
-                return v
-            if isinstance(v, str) and v.strip():
-                try:
-                    parsed = json.loads(v)
-                    return parsed if isinstance(parsed, dict) else {}
-                except (ValueError, TypeError):
-                    return {}
-            return {}
-
         try:
             ont = kg_server._ontology_system()
             ledger = ont.edits
             if action == "record":
-                etype = EditType(edit_type)
-                if etype in (EditType.LINK_ADD, EditType.LINK_REMOVE):
-                    edit = Edit(
-                        actor=actor,
-                        edit_type=etype,
-                        object_id=object_id,
-                        link_source=object_id,
-                        link_label=link_label,
-                        link_target=link_target,
-                    )
-                else:
-                    props = json.loads(properties_json) if properties_json else {}
-                    conditions = _as_dict(expect)
-                    if etype == EditType.PROPERTY_SET and conditions:
-                        # CONCEPT:AU-KG.ontology.optimistic-concurrency-object-property — atomic optimistic-concurrency property
-                        # set. The object id IS the node id (the ledger persists the
-                        # edit's target as MERGE (t {id: object_id})), so we condition
-                        # on the SAME node the edit targets. Apply the set ONLY if the
-                        # node still matches ``expect`` (missing field ≡ null), under
-                        # the engine write lock. If we lose the race we record NOTHING
-                        # and surface applied=false — never a misleading audit edit.
-                        engine = kg_server._get_engine()
-                        backend = getattr(engine, "backend", None)
-                        if backend is None:
-                            return json.dumps(
-                                {
-                                    "action": "compare_and_set",
-                                    "object_id": object_id,
-                                    "applied": False,
-                                    "error": "no engine backend for conditional set",
-                                }
-                            )
-                        applied = bool(
-                            backend.compare_and_set_node_fields(
-                                object_id, conditions, dict(props)
-                            )
-                        )
-                        if not applied:
-                            return json.dumps(
-                                {
-                                    "action": "compare_and_set",
-                                    "object_id": object_id,
-                                    "applied": False,
-                                }
-                            )
-                        edit = Edit(
-                            actor=actor,
-                            edit_type=etype,
-                            object_id=object_id,
-                            after=dict(props),
-                        )
-                        recorded = ledger.record(edit)
-                        payload = recorded.model_dump()
-                        payload["applied"] = True
-                        return json.dumps(payload, default=str)
-                    edit = Edit(
-                        actor=actor,
-                        edit_type=etype,
-                        object_id=object_id,
-                        after=dict(props),
-                    )
-                recorded = ledger.record(edit)
-                return json.dumps(recorded.model_dump(), default=str)
+                args = _ObjectEditsRecordArgs(
+                    edit_type=edit_type,
+                    object_id=object_id,
+                    properties_json=properties_json,
+                    link_target=link_target,
+                    link_label=link_label,
+                    actor=actor,
+                    expect=expect,
+                )
+                return _object_edits_record(ledger, args)
             if action == "revert":
-                comp = revert_edit(ledger, edit_id, actor=actor)
-                return json.dumps(comp.model_dump(), default=str)
+                return _object_edits_revert(ledger, edit_id, actor)
             if action == "history":
-                return json.dumps(
-                    {
-                        "object_id": object_id,
-                        "history": [e.model_dump() for e in ledger.history(object_id)],
-                    },
-                    default=str,
-                )
+                return _object_edits_history(ledger, object_id)
             if action == "as_of":
-                return json.dumps(
-                    {"object_id": object_id, "snapshot": ledger.as_of(object_id, ts)},
-                    default=str,
-                )
+                return _object_edits_as_of(ledger, object_id, ts)
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
@@ -2670,67 +3245,20 @@ def register_ontology_tools(mcp):
         :func:`~agent_utilities.knowledge_graph.core.tenant_sharing.accessible_graphs`
         reads on every request to build its precedence chain.
         """
-        import dataclasses
-
-        from agent_utilities.knowledge_graph.core import tenant_registry as _tr
-        from agent_utilities.knowledge_graph.core import tenant_sharing as _ts
-
         if action in ("set_parent", "clear_parent", "hierarchy"):
-            try:
-                if action == "set_parent":
-                    return json.dumps(
-                        dataclasses.asdict(_tr.set_parent(tenant_id, parent_tenant_id))
-                    )
-                if action == "clear_parent":
-                    return json.dumps(dataclasses.asdict(_tr.clear_parent(tenant_id)))
-                from agent_utilities.security.brain_context import current_actor
-
-                target = tenant_id or getattr(current_actor(), "tenant_id", "")
-                return json.dumps(
-                    {
-                        "tenant_id": target,
-                        "parent_tenant_id": _tr.parent_of(target) or "",
-                        "ancestors": _tr.ancestor_chain(target),
-                        "max_depth": _tr.MAX_TENANT_DEPTH,
-                    }
-                )
-            except Exception as e:  # noqa: BLE001
-                return public_error_json(e)
+            return _graph_share_hierarchy(action, tenant_id, parent_tenant_id)
 
         if not node_id:
             return json.dumps({"error": "node_id is required"})
         try:
             if action == "org":
-                # BUG-6: share_with_org now returns False (no-op) for an id that
-                # doesn't resolve to a real node, instead of silently "succeeding".
-                if not _ts.share_with_org(node_id):
-                    return json.dumps(
-                        {"error": f"node not found: {node_id!r}", "node_id": node_id}
-                    )
-                return json.dumps({"node_id": node_id, "shared_scope": "org"})
+                return _graph_share_org(node_id)
             if action == "commons":
-                ok = _ts.promote_to_commons(node_id)
-                if not ok:
-                    return json.dumps(
-                        {"error": f"node not found: {node_id!r}", "node_id": node_id}
-                    )
-                return json.dumps(
-                    {"node_id": node_id, "shared_scope": "commons", "promoted": ok}
-                )
+                return _graph_share_commons(node_id)
             if action == "mark":
-                if not marking:
-                    return json.dumps(
-                        {"error": "marking is required for action='mark'"}
-                    )
-                _ts.share(node_id, marking)
-                return json.dumps({"node_id": node_id, "marking": marking})
+                return _graph_share_mark(node_id, marking)
             if action == "private":
-                # BUG-6: same existence guard as 'org' — no silent success.
-                if not _ts.make_private(node_id):
-                    return json.dumps(
-                        {"error": f"node not found: {node_id!r}", "node_id": node_id}
-                    )
-                return json.dumps({"node_id": node_id, "shared_scope": "private"})
+                return _graph_share_private(node_id)
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
@@ -2782,91 +3310,24 @@ def register_ontology_tools(mcp):
         """Compute over a Foundry-style object set: search/filter/traverse/pivot/aggregate/algebra/path."""
         try:
             if action == "path":
-                from agent_utilities.knowledge_graph.ontology.object_path import (
-                    find_object_path,
-                )
-
-                if not source_id or not target_id:
-                    return json.dumps(
-                        {"error": "action='path' requires source_id and target_id"}
-                    )
-                engine = kg_server._get_engine()
-                return json.dumps(
-                    find_object_path(engine, source_id, target_id), default=str
-                )
+                return _object_set_path(source_id, target_id)
             ont = kg_server._ontology_system()
-            if action == "from_ids" or action in ("union", "intersect", "subtract"):
-                base = ont.object_set(json.loads(ids_json) if ids_json else [])
-            else:
-                base = ont.object_set_of_type(type_or_interface)
-
-            # BUG-1: clamp to a safe, non-zero, hard-capped limit for the
-            # actions that used to materialize an UNBOUNDED id list
-            # (of_type/from_ids/union/intersect/subtract) — a DYNAMIC
-            # ``ObjectSet`` (of_type) scans every node in the graph and would
-            # otherwise return every match with no cap, which OOM-crashed the
-            # live pod. ``search`` already had its own bound; leave it as-is.
-            effective_limit = max(
-                1, min(int(limit) if limit else 50, _OBJECT_SET_HARD_CAP)
-            )
+            base = _object_set_base(ont, action, type_or_interface, ids_json)
+            effective_limit = _object_set_effective_limit(limit)
 
             if action in ("of_type", "from_ids"):
-                ids = base.ids(limit=effective_limit)
-                return json.dumps(
-                    {
-                        "ids": ids,
-                        "count": len(ids),
-                        "limited": len(ids) >= effective_limit,
-                    }
-                )
+                return _object_set_ids_result(base, effective_limit)
             if action == "search":
-                res = base.search(query, limit=limit)
-                return json.dumps({"ids": res.ids(), "count": res.count()})
+                return _object_set_search(base, query, limit)
             if action == "search_around":
-                res = base.search_around(
-                    link_type or None, hops=hops, direction=direction
-                )
-                return json.dumps({"ids": res.ids(), "count": res.count()})
+                return _object_set_search_around(base, link_type, hops, direction)
             if action == "pivot":
-                piv = base.pivot(link_type or None, group_by, direction=direction)
-                return json.dumps(
-                    {
-                        "link_type": piv.link_type,
-                        "group_by": piv.group_by,
-                        "groups": piv.groups,
-                    },
-                    default=str,
-                )
+                return _object_set_pivot(base, link_type, group_by, direction)
             if action == "aggregate":
-                agg = base.aggregate(
-                    metric, field=field or None, group_by=group_by or None
-                )
-                return json.dumps(
-                    {
-                        "metric": agg.metric,
-                        "field": agg.field,
-                        "group_by": agg.group_by,
-                        "groups": {str(k): v for k, v in agg.groups.items()},
-                        "total_objects": agg.total_objects,
-                    },
-                    default=str,
-                )
+                return _object_set_aggregate(base, metric, field, group_by)
             if action in ("union", "intersect", "subtract"):
-                other = (
-                    ont.object_set_of_type(type_or_interface)
-                    if type_or_interface
-                    else ont.object_set([])
-                )
-                # BUG-1: bound both operands AND the combined result — ``other``
-                # can itself be an unbounded of_type() DYNAMIC set.
-                combined = getattr(base, action)(other, limit=effective_limit)
-                ids = combined.ids(limit=effective_limit)
-                return json.dumps(
-                    {
-                        "ids": ids,
-                        "count": len(ids),
-                        "limited": len(ids) >= effective_limit,
-                    }
+                return _object_set_algebra(
+                    ont, base, action, type_or_interface, effective_limit
                 )
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
