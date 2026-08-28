@@ -13,6 +13,7 @@ import hashlib
 import json
 import logging
 from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import Any
 
 from ..core import WritebackContext, WritebackResult, register_sink
@@ -40,30 +41,32 @@ def _name(props: Any, fallback: str = "") -> str:
     return fallback
 
 
-def gather_intelligence(reader: Any, process_id: str) -> dict[str, Any]:
-    """Assemble the ``kg_intelligence`` payload for one process node."""
+def _capabilities_from_in_edges(
+    reader: Any, in_edges: list[tuple[str, Any]]
+) -> list[str]:
     capabilities: list[str] = []
+    for src, props in in_edges:
+        if _rel(props) != "REALIZES":
+            continue
+        wf_name = _name(reader.node_props(src) or {}, src)
+        orchestrated = [
+            _name(reader.node_props(tgt) or {}, tgt)
+            for tgt, ep in (reader.out_edges(src) or [])
+            if _rel(ep) == "ORCHESTRATES"
+        ]
+        capabilities.append(
+            f"{wf_name} ({', '.join(orchestrated)})" if orchestrated else wf_name
+        )
+    return capabilities
+
+
+def _alignment_and_governance(
+    reader: Any,
+    out_edges: list[tuple[str, Any]],
+    in_edges: list[tuple[str, Any]],
+) -> tuple[list[str], list[str]]:
     aligned_with: list[str] = []
     governance: list[str] = []
-    incidents: list[str] = []
-    glossary_terms: list[str] = []
-    data_objects: list[str] = []
-
-    out_edges = list(reader.out_edges(process_id) or [])
-    in_edges = list(reader.in_edges(process_id) or [])
-
-    for src, props in in_edges:
-        if _rel(props) == "REALIZES":
-            wf_name = _name(reader.node_props(src) or {}, src)
-            orchestrated = [
-                _name(reader.node_props(tgt) or {}, tgt)
-                for tgt, ep in (reader.out_edges(src) or [])
-                if _rel(ep) == "ORCHESTRATES"
-            ]
-            capabilities.append(
-                f"{wf_name} ({', '.join(orchestrated)})" if orchestrated else wf_name
-            )
-
     for tgt, props in out_edges:
         rel = _rel(props)
         if rel == "ALIGNED_WITH":
@@ -73,17 +76,31 @@ def gather_intelligence(reader: Any, process_id: str) -> dict[str, Any]:
     for src, props in in_edges:
         if _rel(props) == "ALIGNED_WITH":
             aligned_with.append(str(src))
+    return aligned_with, governance
 
+
+def _incidents_from_in_edges(reader: Any, in_edges: list[tuple[str, Any]]) -> list[str]:
+    incidents: list[str] = []
     for src, props in in_edges:
         if _rel(props) == "AFFECTS":
             incidents.append(_name(reader.node_props(src) or {}, str(src)))
+    return incidents
 
-    task_ids = [
+
+def _task_ids_from_in_edges(reader: Any, in_edges: list[tuple[str, Any]]) -> list[str]:
+    return [
         src
         for src, props in in_edges
         if _rel(props) == "PART_OF"
         and "task" in _node_type(reader.node_props(src) or {}).lower()
     ]
+
+
+def _data_objects_and_glossary(
+    reader: Any, task_ids: list[str]
+) -> tuple[list[str], list[str]]:
+    data_objects: list[str] = []
+    glossary_terms: list[str] = []
     for task_id in task_ids:
         for tgt, ep in reader.out_edges(task_id) or []:
             tprops = reader.node_props(tgt) or {}
@@ -97,6 +114,19 @@ def gather_intelligence(reader: Any, process_id: str) -> dict[str, Any]:
                 data_objects.append(_name(tprops, str(tgt)))
             elif "concept" in ttype and rel in ("MENTIONS", "RELATES_TO"):
                 glossary_terms.append(_name(tprops, str(tgt)))
+    return data_objects, glossary_terms
+
+
+def gather_intelligence(reader: Any, process_id: str) -> dict[str, Any]:
+    """Assemble the ``kg_intelligence`` payload for one process node."""
+    out_edges = list(reader.out_edges(process_id) or [])
+    in_edges = list(reader.in_edges(process_id) or [])
+
+    capabilities = _capabilities_from_in_edges(reader, in_edges)
+    aligned_with, governance = _alignment_and_governance(reader, out_edges, in_edges)
+    incidents = _incidents_from_in_edges(reader, in_edges)
+    task_ids = _task_ids_from_in_edges(reader, in_edges)
+    data_objects, glossary_terms = _data_objects_and_glossary(reader, task_ids)
 
     return {
         "capabilities": sorted(set(capabilities)),
@@ -136,13 +166,9 @@ def _existing_hash_camunda(client: Any, instance_id: str) -> str | None:
     return None
 
 
-def _push_camunda(
-    client: Any, process_key: str, payload: dict[str, Any], result: WritebackResult
-) -> None:
-    list_instances = getattr(client, "list_process_instances", None)
-    modify = getattr(client, "modify_process_instance_variables", None)
-    if not callable(list_instances) or not callable(modify):
-        return
+def _fetch_camunda_instances(
+    list_instances: Any, process_key: str, result: WritebackResult
+) -> list[Any] | None:
     try:
         instances = list_instances({"processDefinitionKey": process_key}) or []
     except Exception as exc:  # noqa: BLE001 — result.errors is incremented and the function returns early; the caller's WritebackResult already reflects this as a failed push for this process_key, no state elsewhere is marked done
@@ -150,32 +176,68 @@ def _push_camunda(
             "camunda list_process_instances failed for %s: %s", process_key, exc
         )
         result.errors += 1
-        return
+        return None
     if isinstance(instances, dict):
         instances = instances.get("items") or instances.get("results") or []
+    return instances
+
+
+def _push_one_camunda_instance(
+    client: Any,
+    modify: Any,
+    inst: Any,
+    hashed: dict[str, Any],
+    value: str,
+    result: WritebackResult,
+) -> None:
+    instance_id = (
+        inst.get("id") if isinstance(inst, dict) else getattr(inst, "id", None)
+    )
+    if not instance_id:
+        return
+    if _existing_hash_camunda(client, instance_id) == hashed["_hash"]:
+        result.skipped += 1
+        return
+    try:
+        modify(
+            instance_id,
+            {"modifications": {INTELLIGENCE_KEY: {"value": value, "type": "Json"}}},
+        )
+        result.enriched += 1
+    except Exception as exc:  # noqa: BLE001 — per-instance Camunda variable modification inside the per-instance loop; result.errors is incremented for this one instance while the loop continues to the rest
+        logger.debug("camunda modify vars failed for %s: %s", instance_id, exc)
+        result.errors += 1
+
+
+def _push_camunda(
+    client: Any, process_key: str, payload: dict[str, Any], result: WritebackResult
+) -> None:
+    list_instances = getattr(client, "list_process_instances", None)
+    modify = getattr(client, "modify_process_instance_variables", None)
+    if not callable(list_instances) or not callable(modify):
+        return
+    instances = _fetch_camunda_instances(list_instances, process_key, result)
+    if instances is None:
+        return
     if not instances:
         result.skipped += 1
         return
     hashed = _hashed(payload)
     value = json.dumps(hashed, default=str)
     for inst in instances:
-        instance_id = (
-            inst.get("id") if isinstance(inst, dict) else getattr(inst, "id", None)
-        )
-        if not instance_id:
-            continue
-        if _existing_hash_camunda(client, instance_id) == hashed["_hash"]:
-            result.skipped += 1
-            continue
-        try:
-            modify(
-                instance_id,
-                {"modifications": {INTELLIGENCE_KEY: {"value": value, "type": "Json"}}},
-            )
-            result.enriched += 1
-        except Exception as exc:  # noqa: BLE001 — per-instance Camunda variable modification inside the per-instance loop; result.errors is incremented for this one instance while the loop continues to the rest
-            logger.debug("camunda modify vars failed for %s: %s", instance_id, exc)
-            result.errors += 1
+        _push_one_camunda_instance(client, modify, inst, hashed, value, result)
+
+
+def _aris_hash_matches(getter: Any, model_id: str, hashed: dict[str, Any]) -> bool:
+    if not callable(getter):
+        return False
+    try:
+        attrs = getter(model_id) or {}
+        current = attrs.get(INTELLIGENCE_KEY) if isinstance(attrs, dict) else None
+        parsed = json.loads(current) if isinstance(current, str) else current
+        return isinstance(parsed, dict) and parsed.get("_hash") == hashed["_hash"]
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _push_aris(
@@ -188,16 +250,9 @@ def _push_aris(
     getter = getattr(client, "list_model_attributes", None) or getattr(
         client, "get_model", None
     )
-    if callable(getter):
-        try:
-            attrs = getter(model_id) or {}
-            current = attrs.get(INTELLIGENCE_KEY) if isinstance(attrs, dict) else None
-            parsed = json.loads(current) if isinstance(current, str) else current
-            if isinstance(parsed, dict) and parsed.get("_hash") == hashed["_hash"]:
-                result.skipped += 1
-                return
-        except Exception:  # noqa: BLE001
-            pass
+    if _aris_hash_matches(getter, model_id, hashed):
+        result.skipped += 1
+        return
     try:
         setter(model_id, {INTELLIGENCE_KEY: json.dumps(hashed, default=str)})
         result.enriched += 1
@@ -215,6 +270,67 @@ def _process_targets(
     return list(discover() or []) if callable(discover) else []
 
 
+@dataclass
+class _ProcessTargets:
+    """Which writeback systems a process_id addresses, and their clients."""
+
+    is_camunda: bool
+    is_aris: bool
+    camunda_client: Any | None
+    aris_client: Any | None
+
+
+def _record_dry_run_proposal(
+    process_id: str, targets: _ProcessTargets, result: WritebackResult
+) -> None:
+    if (targets.is_camunda and targets.camunda_client is not None) or (
+        targets.is_aris and targets.aris_client is not None
+    ):
+        result.proposals.append(
+            {"op": "write_intelligence", "process": str(process_id)}
+        )
+
+
+def _dispatch_live_push(
+    process_id: str,
+    props: dict[str, Any],
+    targets: _ProcessTargets,
+    payload: dict[str, Any],
+    result: WritebackResult,
+) -> None:
+    if targets.camunda_client is not None and targets.is_camunda:
+        key = str(props.get("key") or str(process_id).split(":", 1)[-1])
+        _push_camunda(targets.camunda_client, key, payload, result)
+    elif targets.aris_client is not None and targets.is_aris:
+        _push_aris(
+            targets.aris_client, str(process_id).split(":", 1)[-1], payload, result
+        )
+
+
+def _handle_one_process(
+    reader: Any,
+    process_id: str,
+    props: dict[str, Any],
+    camunda_client: Any | None,
+    aris_client: Any | None,
+    dry_run: bool,
+    result: WritebackResult,
+) -> None:
+    payload = gather_intelligence(reader, process_id)
+    if _is_empty(payload):
+        return
+    targets = _ProcessTargets(
+        is_camunda=str(process_id).startswith("bpmn_process:"),
+        is_aris=str(process_id).startswith("aris_model:"),
+        camunda_client=camunda_client,
+        aris_client=aris_client,
+    )
+    if dry_run:
+        _record_dry_run_proposal(process_id, targets, result)
+        return
+    _dispatch_live_push(process_id, props, targets, payload, result)
+
+
 def push_process_intelligence(
     reader: Any,
     *,
@@ -229,24 +345,9 @@ def push_process_intelligence(
     if camunda_client is None and aris_client is None:
         return result
     for process_id, props in _process_targets(reader, process_ids):
-        payload = gather_intelligence(reader, process_id)
-        if _is_empty(payload):
-            continue
-        is_camunda = str(process_id).startswith("bpmn_process:")
-        is_aris = str(process_id).startswith("aris_model:")
-        if dry_run:
-            if (is_camunda and camunda_client is not None) or (
-                is_aris and aris_client is not None
-            ):
-                result.proposals.append(
-                    {"op": "write_intelligence", "process": str(process_id)}
-                )
-            continue
-        if camunda_client is not None and is_camunda:
-            key = str(props.get("key") or str(process_id).split(":", 1)[-1])
-            _push_camunda(camunda_client, key, payload, result)
-        elif aris_client is not None and is_aris:
-            _push_aris(aris_client, str(process_id).split(":", 1)[-1], payload, result)
+        _handle_one_process(
+            reader, process_id, props, camunda_client, aris_client, dry_run, result
+        )
     return result
 
 
