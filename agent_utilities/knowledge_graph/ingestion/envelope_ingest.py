@@ -363,6 +363,17 @@ def validate_rows_against_shacl(
     _shacl_validate_rows(client, rows)
 
 
+def _shacl_violation_detail(item: Any) -> str:
+    """Render one SHACL result row, or ``""`` when it carries no usable detail."""
+    if not isinstance(item, dict):
+        return ""
+    return " ".join(
+        str(item[key])
+        for key in ("focusNode", "resultPath", "sourceShape", "resultMessage")
+        if item.get(key)
+    )
+
+
 def _shacl_violation_summary(report: dict[str, Any], *, limit: int = 5) -> str:
     """Summarize a non-conforming SHACL report as a short, bounded string."""
     results = report.get("results")
@@ -370,13 +381,7 @@ def _shacl_violation_summary(report: dict[str, Any], *, limit: int = 5) -> str:
         return str(report.get("message") or "no violation detail reported")
     seen: list[str] = []
     for item in results:
-        if not isinstance(item, dict):
-            continue
-        detail = " ".join(
-            str(item[key])
-            for key in ("focusNode", "resultPath", "sourceShape", "resultMessage")
-            if item.get(key)
-        )
+        detail = _shacl_violation_detail(item)
         if detail and detail not in seen:
             seen.append(detail)
         if len(seen) >= limit:
@@ -835,6 +840,23 @@ def _typed_position(value: str | None, *, content: bool) -> dict[str, Any]:
         }
 
 
+def _numeric_position_advances(left: Any, right: Any) -> bool:
+    """Strictly-greater comparison for a sequence/timestamp position."""
+    if left is None or right is None:
+        return False
+    try:
+        return int(left) > int(right)
+    except (TypeError, ValueError):
+        return False
+
+
+def _opaque_position_advances(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    """A connector-opaque position advances only within the same cursor type."""
+    left_type = left.get("cursor_type", left.get("version_type"))
+    right_type = right.get("cursor_type", right.get("version_type"))
+    return left_type == right_type and bool(left.get("value")) and left != right
+
+
 def _position_advances(next_value: dict[str, Any], prior: dict[str, Any]) -> bool:
     if next_value.get("kind") != prior.get("kind"):
         return False
@@ -842,16 +864,9 @@ def _position_advances(next_value: dict[str, Any], prior: dict[str, Any]) -> boo
     left = next_value.get("value")
     right = prior.get("value")
     if kind in {"sequence", "timestamp_millis"}:
-        if left is None or right is None:
-            return False
-        try:
-            return int(left) > int(right)
-        except (TypeError, ValueError):
-            return False
+        return _numeric_position_advances(left, right)
     if kind == "opaque" and isinstance(left, dict) and isinstance(right, dict):
-        left_type = left.get("cursor_type", left.get("version_type"))
-        right_type = right.get("cursor_type", right.get("version_type"))
-        return left_type == right_type and bool(left.get("value")) and left != right
+        return _opaque_position_advances(left, right)
     return False
 
 
@@ -863,29 +878,71 @@ def _cursor_partition(source_instance: str) -> str:
     )
 
 
+def _checkpoint_from_sequence(value: Any) -> str | None:
+    if value is None:
+        return None
+    try:
+        return str(int(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _checkpoint_from_timestamp_millis(value: Any) -> str | None:
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromtimestamp(int(value) / 1000, tz=UTC)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return parsed.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _checkpoint_from_opaque(value: Any) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    raw = value.get("value")
+    return str(raw) if raw not in (None, "") else None
+
+
+#: Typed-position ``kind`` -> reader. A kind with no reader (or a reader that
+#: cannot decode its value) yields ``None``, exactly as the previous if-chain's
+#: terminal ``return None`` did: an undecodable position is never a checkpoint.
+_CHECKPOINT_READERS: dict[str, Callable[[Any], str | None]] = {
+    "sequence": _checkpoint_from_sequence,
+    "timestamp_millis": _checkpoint_from_timestamp_millis,
+    "opaque": _checkpoint_from_opaque,
+}
+
+
 def _checkpoint_from_position(position: Any) -> str | None:
     if not isinstance(position, dict):
         return None
-    kind = position.get("kind")
-    value = position.get("value")
-    if kind == "sequence":
-        if value is None:
-            return None
+    reader = _CHECKPOINT_READERS.get(str(position.get("kind") or ""))
+    return reader(position.get("value")) if reader is not None else None
+
+
+def _advanced_content_position(
+    prior: dict[str, Any], material_digest: str
+) -> dict[str, Any] | None:
+    """Advance a prior typed content position, or ``None`` if it cannot be read.
+
+    ``None`` means "no advancing position derivable from the prior value" and
+    the caller falls back to the digest-derived position — the SAME outcome the
+    previous inline chain reached by falling through its ``except``/``if`` arms.
+    """
+    kind = prior.get("kind")
+    value = prior.get("value")
+    if kind in {"sequence", "timestamp_millis"} and value is not None:
         try:
-            return str(int(value))
+            return {"kind": kind, "value": int(value) + 1}
         except (TypeError, ValueError):
             return None
-    if kind == "timestamp_millis":
-        if value is None:
-            return None
-        try:
-            parsed = datetime.fromtimestamp(int(value) / 1000, tz=UTC)
-        except (TypeError, ValueError, OverflowError):
-            return None
-        return parsed.isoformat(timespec="milliseconds").replace("+00:00", "Z")
     if kind == "opaque" and isinstance(value, dict):
-        raw = value.get("value")
-        return str(raw) if raw not in (None, "") else None
+        version_type = str(value.get("version_type") or "connector_opaque_v1")
+        return {
+            "kind": "opaque",
+            "value": {"version_type": version_type, "value": material_digest},
+        }
     return None
 
 
@@ -903,19 +960,9 @@ def _content_position(
         else None
     )
     if isinstance(prior, dict):
-        kind = prior.get("kind")
-        value = prior.get("value")
-        if kind in {"sequence", "timestamp_millis"} and value is not None:
-            try:
-                return {"kind": kind, "value": int(value) + 1}
-            except (TypeError, ValueError):
-                pass
-        if kind == "opaque" and isinstance(value, dict):
-            version_type = str(value.get("version_type") or "connector_opaque_v1")
-            return {
-                "kind": "opaque",
-                "value": {"version_type": version_type, "value": material_digest},
-            }
+        advanced = _advanced_content_position(prior, material_digest)
+        if advanced is not None:
+            return advanced
     return _typed_position(material_digest, content=True)
 
 
@@ -951,6 +998,35 @@ def _node_properties_verified(client: Any, node_id: str) -> dict[str, Any]:
     raise RuntimeError("node property hydration returned an invalid payload")
 
 
+def _node_properties_point_reads(
+    client: Any, node_ids: list[str]
+) -> dict[str, dict[str, Any]]:
+    """Fail-closed compatibility fallback: verified point read per requested id."""
+    return {node_id: _node_properties_verified(client, node_id) for node_id in node_ids}
+
+
+def _decode_batch_properties(properties: Any) -> dict[str, Any] | None:
+    """Decode one batch entry.
+
+    ``{}`` means "the engine reported this node has no properties"; ``None``
+    means "this entry is malformed/ambiguous" and the caller MUST re-read the
+    node individually rather than treat it as absent — an ambiguous entry that
+    silently became ``{}`` would make a partial upsert look like a new entity
+    and clear a healthy vector.
+    """
+    if isinstance(properties, dict):
+        return _json_value(properties)
+    if isinstance(properties, str):
+        try:
+            decoded = json.loads(properties)
+        except (TypeError, ValueError):
+            return None
+        return decoded if isinstance(decoded, dict) else None
+    if properties is None:
+        return {}
+    return None
+
+
 def _node_properties_batch(
     client: Any, node_ids: list[str]
 ) -> dict[str, dict[str, Any]]:
@@ -959,31 +1035,19 @@ def _node_properties_batch(
         return {}
     properties_batch = getattr(client.nodes, "properties_batch", None)
     if not callable(properties_batch):
-        return {
-            node_id: _node_properties_verified(client, node_id) for node_id in node_ids
-        }
+        return _node_properties_point_reads(client, node_ids)
     raw = properties_batch(node_ids)
     if not isinstance(raw, dict):
         # A malformed/degraded batch response is not evidence that every node is
         # absent.  Falling through as ``{}`` makes a partial non-text upsert look
         # like a new entity and clears a healthy vector.  Bound the compatibility
         # fallback to exactly the requested IDs and fail closed via point reads.
-        return {
-            node_id: _node_properties_verified(client, node_id) for node_id in node_ids
-        }
+        return _node_properties_point_reads(client, node_ids)
     result: dict[str, dict[str, Any]] = {}
     for node_id, properties in raw.items():
-        if isinstance(properties, dict):
-            result[str(node_id)] = _json_value(properties)
-        elif isinstance(properties, str):
-            try:
-                decoded = json.loads(properties)
-            except (TypeError, ValueError):
-                decoded = None
-            if isinstance(decoded, dict):
-                result[str(node_id)] = decoded
-        elif properties is None:
-            result[str(node_id)] = {}
+        decoded = _decode_batch_properties(properties)
+        if decoded is not None:
+            result[str(node_id)] = decoded
     # A partial batch response is equally ambiguous: hydrate omitted requested
     # IDs individually instead of treating them as non-existent nodes.
     for node_id in node_ids:
