@@ -6,20 +6,38 @@ tests, documentation, deployment assets, and repository guidance so a deleted
 environment switch, alias, or raw graph endpoint cannot survive on a secondary
 surface after its implementation is removed.
 
-D-MQR-11: a handful of RETIRED_PATHS/RETIRED_IDENTIFIERS entries are not gaps
-in this gate's coverage but *documented, cross-repo-blocked, deliberately
-carried* debt (BUG-032/GOC-59 shape) -- the module docstrings right below say
-so in terms ("do not delete the file or this entry to silence it"). Before
-this fix the gate could not tell that population apart from a genuine new
-regression: both exited 1, both printed as "violations", so a reader (human
-or the merge queue) saw one undifferentiated pile and had no way to trust
-"zero" was ever reachable or that a change actually introduced something new.
-``ACCEPTED_RESIDUALS`` (below) makes that split real: an accepted residual is
-reported as carried, non-blocking INFO with its rationale and owner; anything
-not on that list still fails loudly, exactly as before. The list is typed
-data with required ``reason``/``owner`` fields (``AcceptedResidual.__post_init__``
-rejects a blank one) specifically so an entry cannot be added -- or a real
-violation silenced -- without a documented reason.
+WD10-R-RESIDZERO: the ``ACCEPTED_RESIDUALS`` allowlist mechanism this gate
+used to carry (D-MQR-11, BUG-032/GOC-59 shape: a typed registry of specific
+``relative``/``needle`` pairs, each exempted from failing and printed instead
+as carried, non-blocking INFO) is retired. It was an enumeration -- a list of
+paths and needles that happened to be failing on the day each entry was
+added, with no rule that told a reader what else belonged in it. Measured on
+merged main, every remaining entry pointed at ONE file:
+``docs/operations/phase10-cutover-runbook.md``, a dated, point-in-time
+incident runbook that intentionally names retired configuration keys as
+evidence of what was found live and as the exact detection command for their
+reappearance. Deleting those names from the runbook would destroy its audit
+value without changing anything the gate actually protects against, but a
+path-keyed allowlist entry is still a ratchet: silent, unbounded, and blind
+to *why* an exemption exists.
+
+The replacement is a category, not a list: ``_is_dated_historical_record``
+below exempts a file from retired-surface IDENTIFIER scanning only when BOTH
+(a) it lives under ``docs/`` -- this gate's purpose is live configuration and
+runtime-surface drift, and documentation is categorically not that -- AND
+(b) it carries ``DATED_HISTORICAL_RECORD_MARKER`` as an intrinsic,
+machine-readable, human-visible declaration near its own top. The marker
+lives in the document itself, so a reviewer sees it in the same diff that
+adds a retired name, and a renamed or copied copy of the document keeps the
+exemption; a path enumerated in this script instead would silently stop
+covering it. The exemption is narrow on purpose: it skips identifier/text
+matching only, never ``RETIRED_PATHS`` (a retired path actually reappearing
+still fails) or ``PATH_REQUIRED_IDENTIFIERS`` (a required current surface
+going missing still fails) -- both of those test something a documentation
+marker cannot legitimately excuse. There is no "carried, non-blocking INFO"
+population anymore: a file either matches the category and is out of scope,
+or it does not and a match fails loudly, exactly like every other retired
+surface.
 """
 
 from __future__ import annotations
@@ -29,7 +47,6 @@ import re
 import subprocess
 import sys
 from collections.abc import Iterable
-from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
 
@@ -316,80 +333,17 @@ RETIRED_PATHS: tuple[str, ...] = (
 )
 
 
-@dataclass(frozen=True)
-class AcceptedResidual:
-    """One deliberately-carried retired-surface finding (BUG-032/GOC-59 shape).
-
-    ``relative`` + ``needle`` identify exactly the finding this record covers
-    -- ``needle=None`` matches a whole ``RETIRED_PATHS`` "retired path exists"
-    finding; a string ``needle`` matches a "retired surface" text match at
-    that path (any line -- line numbers drift as unrelated content nearby
-    changes, so this does not pin one). ``reason`` and ``owner`` are
-    mandatory and validated non-blank: a record cannot be constructed without
-    them, so an entry cannot be added -- or a real violation silenced -- by
-    dropping the explanation.
-    """
-
-    relative: str
-    needle: str | None
-    owner: str
-    reason: str
-
-    def __post_init__(self) -> None:
-        if not self.relative.strip():
-            raise ValueError("AcceptedResidual.relative must not be blank")
-        if not self.owner.strip():
-            raise ValueError("AcceptedResidual.owner must not be blank")
-        if not self.reason.strip():
-            raise ValueError("AcceptedResidual.reason must not be blank")
-
-    def matches(self, relative: str, needle: str | None) -> bool:
-        return self.relative == relative and self.needle == needle
-
-    def describe(self, message: str) -> str:
-        return f"{message} -- ACCEPTED RESIDUAL: {self.reason} [owner: {self.owner}]"
-
-
-# Every entry below already carries a documented rationale + owner at its
-# RETIRED_PATHS definition above (or, for phase10-cutover-runbook.md, in that
-# file's own 2026-08-09 accepted-residual banner) -- this registry formalizes
-# that existing documentation into typed, machine-checked data rather than
-# inventing a new judgment call. Nothing else in RETIRED_PATHS/
-# RETIRED_IDENTIFIERS is listed here: an undocumented retired surface still
-# fails the gate exactly as before (see check_report()/main()).
-ACCEPTED_RESIDUALS: tuple[AcceptedResidual, ...] = (
-    AcceptedResidual(
-        relative="docs/operations/phase10-cutover-runbook.md",
-        needle="GRAPH_" + "BACKEND",
-        owner="GOC-59",
-        reason=(
-            "Dated, point-in-time runbook intentionally names this retired "
-            "key as evidence of what was found live and as the exact "
-            "guard-rail command to detect its reappearance (see the file's "
-            "own 2026-08-09 accepted-residual banner)."
-        ),
-    ),
-    AcceptedResidual(
-        relative="docs/operations/phase10-cutover-runbook.md",
-        needle="ENGINE_" + "MODE",
-        owner="GOC-59",
-        reason=(
-            "Same runbook, documenting a retired key confirmed present on "
-            "the graph-os-host drifted twin so the cutover can detect and "
-            "strip it; see the file's own 2026-08-09 accepted-residual banner."
-        ),
-    ),
-    AcceptedResidual(
-        relative="docs/operations/phase10-cutover-runbook.md",
-        needle="ENGINE_" + "ENDPOINT",
-        owner="GOC-59",
-        reason=(
-            "Same runbook, same drifted-twin evidence as the retired engine-"
-            "mode key above; see the file's own 2026-08-09 accepted-residual "
-            "banner."
-        ),
-    ),
-)
+# A dated historical record (an incident runbook, a postmortem, or similar
+# point-in-time document) that legitimately names retired configuration
+# surface as evidence of what was found live -- and as the exact detection
+# command for its reappearance -- declares that fact about itself with this
+# exact marker, near its own top. This is the category rule in code: any
+# ``docs/`` file carrying it, present or future, whatever its filename, is
+# exempt from retired-surface IDENTIFIER scanning (see
+# ``_is_dated_historical_record`` below). It is deliberately NOT a path or a
+# needle -- a rename or a copy of the document keeps the marker and stays
+# covered, unlike an entry in a list here.
+DATED_HISTORICAL_RECORD_MARKER = "CURRENT-ONLY-CONTRACT: DATED-HISTORICAL-RECORD"
 PATH_RETIRED_IDENTIFIERS: tuple[tuple[str, str], ...] = (
     (
         "agent_utilities/base_utilities.py",
@@ -598,17 +552,30 @@ def _iter_files() -> list[Path]:
 
 
 class ContractReport(NamedTuple):
-    """The two populations D-MQR-11 requires be kept visibly separate."""
+    """Kept as a NamedTuple (rather than a bare list) so the shape is stable
+    for callers that unpack it, even though there is now only one
+    population: every retired-surface match this gate finds is a violation.
+    There is no second, carried/non-blocking bucket any more -- that was the
+    ``ACCEPTED_RESIDUALS`` mechanism, removed by WD10-R-RESIDZERO (see the
+    module docstring)."""
 
     new: list[str]
-    accepted: list[str]
 
 
-def _accepted(relative: str, needle: str | None) -> AcceptedResidual | None:
-    for residual in ACCEPTED_RESIDUALS:
-        if residual.matches(relative, needle):
-            return residual
-    return None
+def _is_dated_historical_record(relative: str, lines: list[str]) -> bool:
+    """Category rule, not an enumeration: a ``docs/`` file that declares
+    itself a dated historical record, via ``DATED_HISTORICAL_RECORD_MARKER``
+    near its own top, is a point-in-time incident/runbook document that may
+    legitimately name retired configuration surface as evidence -- not live
+    configuration this gate exists to police. Only ``docs/`` files qualify
+    (this gate's purpose is runtime/config surface, and a marker inside
+    runtime code should never be able to buy an exemption); only the marker
+    -- not the path, not the filename -- decides, so this covers any current
+    or future file of the same kind without naming one."""
+
+    if not relative.startswith("docs/"):
+        return False
+    return any(DATED_HISTORICAL_RECORD_MARKER in line for line in lines[:10])
 
 
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_]+$")
@@ -650,17 +617,15 @@ def check_report(
     root: Path = ROOT, *, paths: Iterable[Path] | None = None
 ) -> ContractReport:
     new: list[str] = []
-    accepted: list[str] = []
     needles = RETIRED_IDENTIFIERS + RAW_ROUTE_FRAGMENTS
     inspected = _iter_files() if paths is None else sorted(set(paths))
     for path in inspected:
         relative = path.relative_to(root).as_posix()
         if relative in RETIRED_PATHS:
-            message = f"{relative}: retired path exists"
-            residual = _accepted(relative, None)
-            (accepted if residual is not None else new).append(
-                residual.describe(message) if residual is not None else message
-            )
+            # The dated-historical-record exemption never applies here: a
+            # retired PATH actually reappearing on disk is a fact about the
+            # tree, not a documentation choice, so no marker can excuse it.
+            new.append(f"{relative}: retired path exists")
             continue
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
@@ -669,27 +634,21 @@ def check_report(
                 f"{path.relative_to(root)}: could not inspect ({type(exc).__name__})"
             )
             continue
+        if _is_dated_historical_record(relative, lines):
+            continue
         for line_number, line in enumerate(lines, start=1):
             for needle in needles:
                 if _needle_matches(needle, line):
                     if path == ROOT / "README.md" and line == _README_RETIRED_KEY_LINE:
                         continue
-                    message = (
+                    new.append(
                         f"{path.relative_to(root)}:{line_number}: "
                         f"retired surface {needle!r}"
                     )
-                    residual = _accepted(relative, needle)
-                    (accepted if residual is not None else new).append(
-                        residual.describe(message) if residual is not None else message
-                    )
             for retired_path, path_needle in PATH_RETIRED_IDENTIFIERS:
                 if relative == retired_path and path_needle in line:
-                    message = (
+                    new.append(
                         f"{relative}:{line_number}: retired surface {path_needle!r}"
-                    )
-                    residual = _accepted(relative, path_needle)
-                    (accepted if residual is not None else new).append(
-                        residual.describe(message) if residual is not None else message
                     )
     if root == ROOT:
         # Scoped to the real repository root only (not a tmp_path fixture,
@@ -704,14 +663,12 @@ def check_report(
                 new.append(
                     f"{relative}: required current surface {needle!r} is missing"
                 )
-    return ContractReport(new=new, accepted=accepted)
+    return ContractReport(new=new)
 
 
 def check(root: Path = ROOT, *, paths: Iterable[Path] | None = None) -> list[str]:
-    """Backward-compatible surface: genuinely NEW (non-accepted) violations
-    only -- this is what drives ``main()``'s exit code. An accepted residual
-    (see ``ACCEPTED_RESIDUALS``) never appears here; use ``check_report()``
-    to see both populations."""
+    """Every violation this gate finds -- this is what drives ``main()``'s
+    exit code."""
     return check_report(root, paths=paths).new
 
 
@@ -721,36 +678,21 @@ def main(argv: list[str] | None = None) -> int:
         "--new-only",
         action="store_true",
         help=(
-            "Emit ONLY blocking (new) violations. Suppresses the accepted-residual "
-            "listing and the summary line entirely. This is the machine-readable "
-            "mode the merge queue's differential contract gate consumes: that gate "
-            "diffs the check's COMBINED output between the base ref and the "
-            "candidate, so any carried-residual text -- even though it is "
-            "non-blocking and goes to stderr -- makes a candidate that legitimately "
-            "regenerates a file (e.g. docs/concepts.yaml) look like it introduced a "
-            "NEW violation. Humans running the gate directly still see everything."
+            "Emit ONLY the violation listing, no summary line. Kept for the merge "
+            "queue's differential contract gate, which diffs the check's COMBINED "
+            "output between the base ref and the candidate -- the summary line's "
+            "count would otherwise itself look like a diff. Humans running the gate "
+            "directly still see the summary."
         ),
     )
     args = parser.parse_args(argv)
     report = check_report()
-    if not args.new_only:
-        if report.accepted:
-            print(
-                f"Current-only contract: {len(report.accepted)} accepted residual(s) "
-                "carried (documented rationale + owner; non-blocking):",
-                file=sys.stderr,
-            )
-            for item in report.accepted:
-                print(f"  - {item}", file=sys.stderr)
     if report.new:
         print("Current-only contract violations:", file=sys.stderr)
         for violation in report.new:
             print(f"  - {violation}", file=sys.stderr)
     if not args.new_only:
-        print(
-            f"Current-only contract: {len(report.accepted)} accepted residual(s) "
-            f"carried; {len(report.new)} new violation(s)"
-        )
+        print(f"Current-only contract: {len(report.new)} violation(s)")
     if report.new:
         return 1
     return 0
