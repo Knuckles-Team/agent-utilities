@@ -2557,6 +2557,143 @@ def _require_plan_matches_request(plan: CleanPlan, request: PrepRequest) -> None
         raise DataPrepToolError("model digest must be pinned in the immutable plan")
 
 
+def _resolve_operation(action: str) -> DataPrepAction:
+    try:
+        return DataPrepAction(action.strip().lower())
+    except (AttributeError, ValueError) as exc:
+        raise DataPrepToolError("unknown data-prep action") from exc
+
+
+def _require_approvals_match_receipt(
+    request: PrepRequest, receipt: PreparedReceipt, approvals: tuple[Any, Any, Any, Any]
+) -> None:
+    if not all(value is not None for value in approvals):
+        return
+    if (
+        request.expected_output_schema_ref != receipt.output_schema_ref
+        or request.expected_output_schema_digest != receipt.output_schema_digest
+        or request.expected_output_shape_ref != receipt.output_shape_ref
+        or request.expected_output_shape_digest != receipt.output_shape_digest
+    ):
+        raise DataPrepToolError("prepared output schema or shape is not approved")
+
+
+def _check_approvals(
+    request: PrepRequest, receipt: PreparedReceipt
+) -> tuple[Any, Any, Any, Any]:
+    """Validate the caller's output schema/shape approvals, if any are given.
+
+    Returns the four-tuple so the caller can require it complete for commit.
+    """
+
+    approvals = (
+        request.expected_output_schema_ref,
+        request.expected_output_schema_digest,
+        request.expected_output_shape_ref,
+        request.expected_output_shape_digest,
+    )
+    if any(value is not None for value in approvals) and not all(
+        value is not None for value in approvals
+    ):
+        raise DataPrepToolError("output schema and shape approvals must be complete")
+    _require_approvals_match_receipt(request, receipt, approvals)
+    return approvals
+    return approvals
+
+
+@dataclass(slots=True)
+class _PipelineOutput:
+    """Everything ``execute`` needs from one CleanPipeline.run + governance call."""
+
+    result: Any  # data_prep.CleanResult
+    output_governance: ResolvedArtifact
+    output_schema_ref: str
+    output_schema_digest: str
+    output_shape_ref: str
+    output_shape_digest: str
+    output_content_digest: str
+
+
+@dataclass(slots=True)
+class _CommitContext:
+    """Everything the commit_prepared path needs, bundled to stay under the
+    clippy/param-count cap on the functions it is threaded through."""
+
+    operation: DataPrepAction
+    plan: CleanPlan
+    prep: _PipelineOutput
+    receipt: PreparedReceipt
+    prepared_ref: str
+    request: PrepRequest
+    session: GraphSession
+
+
+def _build_change_envelope(
+    ctx: _CommitContext, *, stored_digest: str, output_bytes: bytes
+) -> ChangeEnvelope:
+    """Build the native ChangeEnvelope for a governed commit_prepared write."""
+
+    result = ctx.prep.result
+    output_governance = ctx.prep.output_governance
+    receipt = ctx.receipt
+    plan = ctx.plan
+    request = ctx.request
+    session = ctx.session
+    evidence_payload, evidence_digest = _evidence_payload(result.evidence)
+    object_id = f"prepared:{receipt.output_content_digest.removeprefix('sha256:')}"
+    return ChangeEnvelope(
+        connector="data-prep",
+        operation="upsert",
+        tenant=session.tenant,
+        source_instance="data-prep",
+        source_object_id=object_id,
+        source_version=receipt.output_content_digest,
+        payload_type="AssetOccurrence",
+        blob_ref=stored_digest,
+        blob_digest=stored_digest,
+        blob_length=len(output_bytes),
+        blob_media_type="application/vnd.apache.arrow.stream",
+        source_acl=ExternalAccess(
+            is_public=output_governance.acl.is_public,
+            user_emails=list(output_governance.acl.principal_emails),
+            group_ids=list(output_governance.acl.group_ids),
+            read_roles=list(output_governance.acl.roles),
+            markings=list(output_governance.acl.markings),
+        ),
+        classification=output_governance.classification,
+        retention=output_governance.retention,
+        legal_hold=output_governance.legal_hold,
+        provenance={
+            "plan_ref": plan.plan_ref,
+            "plan_digest": result.evidence.plan_digest,
+            "model_ref": plan.model_ref,
+            "model_digest": result.evidence.model_digest,
+            "input_schema_ref": request.schema_ref,
+            "input_schema_digest": request.schema_digest,
+            "input_shape_ref": request.shape_ref,
+            "input_shape_digest": request.shape_digest,
+            "output_schema_ref": receipt.output_schema_ref,
+            "output_schema_digest": receipt.output_schema_digest,
+            "output_shape_ref": receipt.output_shape_ref,
+            "output_shape_digest": receipt.output_shape_digest,
+            "output_content_digest": receipt.output_content_digest,
+            "output_media_type": "application/vnd.apache.arrow.stream",
+            "input_content_digest": receipt.input_content_digest,
+            "policy_version": output_governance.policy_version,
+            "acl_principal_ids": list(output_governance.acl.principal_ids),
+            "acl_principal_emails": list(output_governance.acl.principal_emails),
+            "acl_group_ids": list(output_governance.acl.group_ids),
+            "acl_read_roles": list(output_governance.acl.roles),
+            "acl_markings": list(output_governance.acl.markings),
+            "prepared_receipt_digest": _sha256_bytes(ctx.prepared_ref.encode("utf-8")),
+            "prep_evidence": evidence_payload,
+            "prep_evidence_digest": evidence_digest,
+        },
+        structured_evidence=evidence_payload,
+        trace_context=session.trace_context,
+    )
+
+
 class DataPrepService:
     """Thin governed adapter that delegates all data work to NE-108."""
 
@@ -2658,39 +2795,33 @@ class DataPrepService:
         payload, digest = _evidence_payload(evidence)
         return {**payload, "evidence_digest": digest}
 
-    def execute(
+    def _execute_profile(
         self,
-        action: str,
-        payload: Mapping[str, Any],
-        *,
-        session: GraphSession,
+        operation: DataPrepAction,
+        pipeline: CleanPipeline,
+        artifact: ResolvedArtifact,
+        deadline: float,
     ) -> dict[str, Any]:
-        try:
-            operation = DataPrepAction(action.strip().lower())
-        except (AttributeError, ValueError) as exc:
-            raise DataPrepToolError("unknown data-prep action") from exc
-        session.require_scope(
-            "kg:write" if operation is DataPrepAction.COMMIT else "kg:read"
-        )
-        request = self._request(payload)
-        deadline = time.monotonic() + request.budget.max_wall_time_ms / 1000
-        artifact, plan, registry = self._input(
-            request,
-            session=session,
-            deadline=deadline,
-        )
-        pipeline = CleanPipeline(plan, model_registry=registry)
+        profile: ProfileResult = pipeline.profile(artifact.table)
+        _check_cancel(deadline)
+        return {
+            "surface": "data_prep",
+            "action": operation.value,
+            "artifact": self._public_artifact(artifact),
+            "profile": profile.model_dump(mode="json"),
+            "side_effects": [],
+        }
 
-        if operation is DataPrepAction.PROFILE:
-            profile: ProfileResult = pipeline.profile(artifact.table)
-            _check_cancel(deadline)
-            return {
-                "surface": "data_prep",
-                "action": operation.value,
-                "artifact": self._public_artifact(artifact),
-                "profile": profile.model_dump(mode="json"),
-                "side_effects": [],
-            }
+    def _run_pipeline(
+        self,
+        pipeline: CleanPipeline,
+        artifact: ResolvedArtifact,
+        *,
+        request: PrepRequest,
+        session: GraphSession,
+        deadline: float,
+    ) -> _PipelineOutput:
+        """Run the clean pipeline and resolve+verify its output governance."""
 
         result = pipeline.run(artifact.table)
         _require_table_bounds(result.table, budget=request.budget)
@@ -2738,6 +2869,26 @@ class DataPrepService:
                 "output governance does not bind the deterministic content"
             )
         _require_governance_not_weaker(artifact, output_governance)
+        return _PipelineOutput(
+            result=result,
+            output_governance=output_governance,
+            output_schema_ref=output_schema_ref,
+            output_schema_digest=output_schema_digest,
+            output_shape_ref=output_shape_ref,
+            output_shape_digest=output_shape_digest,
+            output_content_digest=output_content_digest,
+        )
+
+    def _resolve_receipt(
+        self,
+        operation: DataPrepAction,
+        artifact: ResolvedArtifact,
+        prep: _PipelineOutput,
+        request: PrepRequest,
+        *,
+        session: GraphSession,
+    ) -> tuple[PreparedReceipt, str]:
+        result = prep.result
         if operation is DataPrepAction.CLEAN:
             receipt = self._authority.preview_ref(
                 artifact,
@@ -2776,75 +2927,62 @@ class DataPrepService:
             raise DataPrepToolError(
                 "prepared receipt exceeds the bounded reference size"
             )
-        if operation is DataPrepAction.CLEAN:
-            output_shape_ref = receipt.output_shape_ref
-            output_shape_digest = receipt.output_shape_digest
-            return {
-                "surface": "data_prep",
-                "action": operation.value,
-                "input_artifact": self._public_artifact(artifact),
-                "prepared_artifact_ref": prepared_ref,
-                "output_schema_ref": receipt.output_schema_ref,
-                "output_schema_digest": receipt.output_schema_digest,
-                "output_shape_ref": output_shape_ref,
-                "output_shape_digest": output_shape_digest,
-                "output_content_digest": receipt.output_content_digest,
-                "evidence": self._public_evidence(result.evidence),
-                "side_effects": [],
-            }
+        return receipt, prepared_ref
 
-        approvals = (
-            request.expected_output_schema_ref,
-            request.expected_output_schema_digest,
-            request.expected_output_shape_ref,
-            request.expected_output_shape_digest,
-        )
-        if any(value is not None for value in approvals) and not all(
-            value is not None for value in approvals
-        ):
-            raise DataPrepToolError(
-                "output schema and shape approvals must be complete"
-            )
-        if all(value is not None for value in approvals):
-            if (
-                request.expected_output_schema_ref != receipt.output_schema_ref
-                or request.expected_output_schema_digest != receipt.output_schema_digest
-                or request.expected_output_shape_ref != receipt.output_shape_ref
-                or request.expected_output_shape_digest != receipt.output_shape_digest
-            ):
-                raise DataPrepToolError(
-                    "prepared output schema or shape is not approved"
-                )
+    def _clean_response(
+        self,
+        operation: DataPrepAction,
+        artifact: ResolvedArtifact,
+        prepared_ref: str,
+        receipt: PreparedReceipt,
+        prep: _PipelineOutput,
+    ) -> dict[str, Any]:
+        return {
+            "surface": "data_prep",
+            "action": operation.value,
+            "input_artifact": self._public_artifact(artifact),
+            "prepared_artifact_ref": prepared_ref,
+            "output_schema_ref": receipt.output_schema_ref,
+            "output_schema_digest": receipt.output_schema_digest,
+            "output_shape_ref": receipt.output_shape_ref,
+            "output_shape_digest": receipt.output_shape_digest,
+            "output_content_digest": receipt.output_content_digest,
+            "evidence": self._public_evidence(prep.result.evidence),
+            "side_effects": [],
+        }
 
-        if operation is DataPrepAction.VALIDATE:
-            return {
-                "surface": "data_prep",
-                "action": operation.value,
-                "prepared_artifact_ref": prepared_ref,
-                "output_schema_ref": receipt.output_schema_ref,
-                "output_schema_digest": receipt.output_schema_digest,
-                "output_shape_ref": receipt.output_shape_ref,
-                "output_shape_digest": receipt.output_shape_digest,
-                "output_content_digest": receipt.output_content_digest,
-                "valid": result.evidence.checkpoint_eligible,
-                "evidence": self._public_evidence(result.evidence),
-                "side_effects": [],
-            }
+    def _validate_response(
+        self,
+        operation: DataPrepAction,
+        prepared_ref: str,
+        receipt: PreparedReceipt,
+        prep: _PipelineOutput,
+    ) -> dict[str, Any]:
+        return {
+            "surface": "data_prep",
+            "action": operation.value,
+            "prepared_artifact_ref": prepared_ref,
+            "output_schema_ref": receipt.output_schema_ref,
+            "output_schema_digest": receipt.output_schema_digest,
+            "output_shape_ref": receipt.output_shape_ref,
+            "output_shape_digest": receipt.output_shape_digest,
+            "output_content_digest": receipt.output_content_digest,
+            "valid": prep.result.evidence.checkpoint_eligible,
+            "evidence": self._public_evidence(prep.result.evidence),
+            "side_effects": [],
+        }
 
-        if not result.evidence.checkpoint_eligible:
-            raise DataPrepToolError("quarantined preparation cannot be committed")
-        if not all(value is not None for value in approvals):
-            raise DataPrepToolError(
-                "approved output schema and shape refs/digests are required for commit"
-            )
-        _check_cancel(deadline)
+    def _require_commit_capability(self, *, session: GraphSession) -> None:
         if not self._authority.native_atomic_available(session=session):
             raise NativeCommitUnavailable(
                 "native atomic commit capability is unavailable"
             )
         if not self._authority.icv_policy_available(session=session):
             raise NativeCommitUnavailable("required ICV policy is unavailable")
-        output_bytes = _canonical_arrow_bytes(result.table)
+
+    def _store_output_blob(
+        self, output_bytes: bytes, *, expected_digest: str, session: GraphSession
+    ) -> str:
         stored_digest = self._authority.store_blob(
             output_bytes,
             media_type="application/vnd.apache.arrow.stream",
@@ -2854,14 +2992,16 @@ class DataPrepService:
             raise NativeCommitUnavailable(
                 "native blob store returned no opaque content reference"
             )
-        if stored_digest != output_content_digest:
+        if stored_digest != expected_digest:
             raise NativeCommitUnavailable(
                 "native blob store returned a digest different from the output"
             )
-        ref_acquired = False
+        return stored_digest
+
+    def _acquire_blob_ref(self, stored_digest: str, *, session: GraphSession) -> bool:
         try:
             self._authority.incref_blob(stored_digest, session=session)
-            ref_acquired = True
+            return True
         except Exception as exc:  # noqa: BLE001 - compensate any partial ref
             try:
                 self._authority.unref_blob(stored_digest, session=session)
@@ -2878,59 +3018,16 @@ class DataPrepService:
             raise NativeCommitUnavailable(
                 "native blob reference was not admitted"
             ) from exc
-        evidence_payload, evidence_digest = _evidence_payload(result.evidence)
-        object_id = f"prepared:{receipt.output_content_digest.removeprefix('sha256:')}"
-        envelope = ChangeEnvelope(
-            connector="data-prep",
-            operation="upsert",
-            tenant=session.tenant,
-            source_instance="data-prep",
-            source_object_id=object_id,
-            source_version=receipt.output_content_digest,
-            payload_type="AssetOccurrence",
-            blob_ref=stored_digest,
-            blob_digest=stored_digest,
-            blob_length=len(output_bytes),
-            blob_media_type="application/vnd.apache.arrow.stream",
-            source_acl=ExternalAccess(
-                is_public=output_governance.acl.is_public,
-                user_emails=list(output_governance.acl.principal_emails),
-                group_ids=list(output_governance.acl.group_ids),
-                read_roles=list(output_governance.acl.roles),
-                markings=list(output_governance.acl.markings),
-            ),
-            classification=output_governance.classification,
-            retention=output_governance.retention,
-            legal_hold=output_governance.legal_hold,
-            provenance={
-                "plan_ref": plan.plan_ref,
-                "plan_digest": result.evidence.plan_digest,
-                "model_ref": plan.model_ref,
-                "model_digest": result.evidence.model_digest,
-                "input_schema_ref": request.schema_ref,
-                "input_schema_digest": request.schema_digest,
-                "input_shape_ref": request.shape_ref,
-                "input_shape_digest": request.shape_digest,
-                "output_schema_ref": receipt.output_schema_ref,
-                "output_schema_digest": receipt.output_schema_digest,
-                "output_shape_ref": receipt.output_shape_ref,
-                "output_shape_digest": receipt.output_shape_digest,
-                "output_content_digest": receipt.output_content_digest,
-                "output_media_type": "application/vnd.apache.arrow.stream",
-                "input_content_digest": receipt.input_content_digest,
-                "policy_version": output_governance.policy_version,
-                "acl_principal_ids": list(output_governance.acl.principal_ids),
-                "acl_principal_emails": list(output_governance.acl.principal_emails),
-                "acl_group_ids": list(output_governance.acl.group_ids),
-                "acl_read_roles": list(output_governance.acl.roles),
-                "acl_markings": list(output_governance.acl.markings),
-                "prepared_receipt_digest": _sha256_bytes(prepared_ref.encode("utf-8")),
-                "prep_evidence": evidence_payload,
-                "prep_evidence_digest": evidence_digest,
-            },
-            structured_evidence=evidence_payload,
-            trace_context=session.trace_context,
-        )
+
+    def _ingest_commit(
+        self,
+        envelope: ChangeEnvelope,
+        *,
+        session: GraphSession,
+        deadline: float,
+        stored_digest: str,
+        ref_acquired: bool,
+    ) -> dict[str, Any]:
         try:
             _check_cancel(deadline)
             from agent_utilities.knowledge_graph.core.session import use_session
@@ -2972,6 +3069,15 @@ class DataPrepService:
             raise NativeCommitUnavailable(
                 "native ChangeEnvelope commit failed"
             ) from exc
+        return commit
+
+    def _commit_response(
+        self,
+        operation: DataPrepAction,
+        prepared_ref: str,
+        commit: dict[str, Any],
+        evidence: PrepEvidence,
+    ) -> dict[str, Any]:
         return {
             "surface": "data_prep",
             "action": operation.value,
@@ -2982,9 +3088,89 @@ class DataPrepService:
                 "idempotency_key": commit.get("idempotency_key"),
                 "native_atomic": commit.get("native_atomic"),
             },
-            "evidence": self._public_evidence(result.evidence),
+            "evidence": self._public_evidence(evidence),
             "side_effects": ["native_change_envelope"],
         }
+
+    def _commit(self, ctx: _CommitContext, *, deadline: float) -> dict[str, Any]:
+        self._require_commit_capability(session=ctx.session)
+        output_bytes = _canonical_arrow_bytes(ctx.prep.result.table)
+        stored_digest = self._store_output_blob(
+            output_bytes,
+            expected_digest=ctx.prep.output_content_digest,
+            session=ctx.session,
+        )
+        ref_acquired = self._acquire_blob_ref(stored_digest, session=ctx.session)
+        envelope = _build_change_envelope(
+            ctx, stored_digest=stored_digest, output_bytes=output_bytes
+        )
+        commit = self._ingest_commit(
+            envelope,
+            session=ctx.session,
+            deadline=deadline,
+            stored_digest=stored_digest,
+            ref_acquired=ref_acquired,
+        )
+        return self._commit_response(
+            ctx.operation, ctx.prepared_ref, commit, ctx.prep.result.evidence
+        )
+
+    def execute(
+        self,
+        action: str,
+        payload: Mapping[str, Any],
+        *,
+        session: GraphSession,
+    ) -> dict[str, Any]:
+        operation = _resolve_operation(action)
+        session.require_scope(
+            "kg:write" if operation is DataPrepAction.COMMIT else "kg:read"
+        )
+        request = self._request(payload)
+        deadline = time.monotonic() + request.budget.max_wall_time_ms / 1000
+        artifact, plan, registry = self._input(
+            request,
+            session=session,
+            deadline=deadline,
+        )
+        pipeline = CleanPipeline(plan, model_registry=registry)
+
+        if operation is DataPrepAction.PROFILE:
+            return self._execute_profile(operation, pipeline, artifact, deadline)
+
+        prep = self._run_pipeline(
+            pipeline, artifact, request=request, session=session, deadline=deadline
+        )
+        receipt, prepared_ref = self._resolve_receipt(
+            operation, artifact, prep, request, session=session
+        )
+
+        if operation is DataPrepAction.CLEAN:
+            return self._clean_response(
+                operation, artifact, prepared_ref, receipt, prep
+            )
+
+        approvals = _check_approvals(request, receipt)
+
+        if operation is DataPrepAction.VALIDATE:
+            return self._validate_response(operation, prepared_ref, receipt, prep)
+
+        if not prep.result.evidence.checkpoint_eligible:
+            raise DataPrepToolError("quarantined preparation cannot be committed")
+        if not all(value is not None for value in approvals):
+            raise DataPrepToolError(
+                "approved output schema and shape refs/digests are required for commit"
+            )
+        ctx = _CommitContext(
+            operation=operation,
+            plan=plan,
+            prep=prep,
+            receipt=receipt,
+            prepared_ref=prepared_ref,
+            request=request,
+            session=session,
+        )
+        return self._commit(ctx, deadline=deadline)
 
 
 def _decode_json_payload(raw: Any) -> dict[str, Any]:
