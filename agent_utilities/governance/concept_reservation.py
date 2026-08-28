@@ -1899,6 +1899,65 @@ class ProjectionReconciliation:
         }
 
 
+_PROJECTION_STATUS_BY_STATE: dict[ConceptReservationState, set[str]] = {
+    ConceptReservationState.RESERVED: {"reserved", "materialized"},
+    ConceptReservationState.MATERIALIZED: {"materialized", "reserved"},
+    ConceptReservationState.LANDED: {"landed"},
+    ConceptReservationState.TOMBSTONED: {"tombstoned", "landed"},
+    ConceptReservationState.RELEASED: {"released", "expired"},
+    ConceptReservationState.EXPIRED: {"expired"},
+}
+
+
+def _read_all_reservations(
+    authority: ConceptReservationAuthority, tenant_ref: str, max_records: int
+) -> list[ConceptReservationRecord]:
+    rows: list[ConceptReservationRecord] = []
+    cursor: str | None = None
+    seen_cursors: set[str] = set()
+    while True:
+        page_limit = min(_MAX_LIST_LIMIT, max_records - len(rows))
+        if page_limit <= 0:
+            raise AuthorityUnavailable("concept reconciliation exceeded max_records")
+        page, cursor = authority.list(
+            tenant_ref=tenant_ref, limit=page_limit, cursor=cursor
+        )
+        rows.extend(page)
+        if len(rows) > max_records:
+            raise AuthorityUnavailable("concept reconciliation exceeded max_records")
+        if cursor is None:
+            return rows
+        if cursor in seen_cursors:
+            raise AuthorityUnavailable("concept reconciliation cursor did not advance")
+        seen_cursors.add(cursor)
+
+
+def _classify_concept(
+    concept_id: str,
+    row: ConceptReservationRecord,
+    local: Mapping[str, Any],
+    code: set[str],
+) -> str:
+    """Classify one authority record against its local projection/source
+    usage; returns "missing_projection", "state_mismatch", or "matches"."""
+
+    projection = local.get(concept_id)
+    if projection is None:
+        return "missing_projection"
+    expected = _PROJECTION_STATUS_BY_STATE[row.state]
+    if projection.get("status") not in expected:
+        return "state_mismatch"
+    if concept_id in code and row.state not in {
+        ConceptReservationState.LANDED,
+        ConceptReservationState.TOMBSTONED,
+    }:
+        # Source visibility has advanced beyond the authority's lifecycle;
+        # report it for a fenced transition rather than silently landing a
+        # claim during this read-only comparison.
+        return "state_mismatch"
+    return "matches"
+
+
 def reconcile_projection(
     authority: ConceptReservationAuthority,
     *,
@@ -1918,24 +1977,7 @@ def reconcile_projection(
 
     from agent_utilities.governance import concept_allocator as allocator
 
-    rows: list[ConceptReservationRecord] = []
-    cursor: str | None = None
-    seen_cursors: set[str] = set()
-    while True:
-        page_limit = min(_MAX_LIST_LIMIT, max_records - len(rows))
-        if page_limit <= 0:
-            raise AuthorityUnavailable("concept reconciliation exceeded max_records")
-        page, cursor = authority.list(
-            tenant_ref=tenant_ref, limit=page_limit, cursor=cursor
-        )
-        rows.extend(page)
-        if len(rows) > max_records:
-            raise AuthorityUnavailable("concept reconciliation exceeded max_records")
-        if cursor is None:
-            break
-        if cursor in seen_cursors:
-            raise AuthorityUnavailable("concept reconciliation cursor did not advance")
-        seen_cursors.add(cursor)
+    rows = _read_all_reservations(authority, tenant_ref, max_records)
     central = {row.concept_id: row for row in rows}
     local_rows = allocator.read_ledger(repo_root)
     local = {str(row["id"]): row for row in local_rows}
@@ -1943,31 +1985,13 @@ def reconcile_projection(
     matches: list[str] = []
     missing: list[str] = []
     mismatch: list[str] = []
+    outcomes = {
+        "matches": matches,
+        "missing_projection": missing,
+        "state_mismatch": mismatch,
+    }
     for concept_id, row in central.items():
-        projection = local.get(concept_id)
-        if projection is None:
-            missing.append(concept_id)
-            continue
-        expected = {
-            ConceptReservationState.RESERVED: {"reserved", "materialized"},
-            ConceptReservationState.MATERIALIZED: {"materialized", "reserved"},
-            ConceptReservationState.LANDED: {"landed"},
-            ConceptReservationState.TOMBSTONED: {"tombstoned", "landed"},
-            ConceptReservationState.RELEASED: {"released", "expired"},
-            ConceptReservationState.EXPIRED: {"expired"},
-        }[row.state]
-        if projection.get("status") not in expected:
-            mismatch.append(concept_id)
-        elif concept_id in code and row.state not in {
-            ConceptReservationState.LANDED,
-            ConceptReservationState.TOMBSTONED,
-        }:
-            # Source visibility has advanced beyond the authority's lifecycle;
-            # report it for a fenced transition rather than silently landing a
-            # claim during this read-only comparison.
-            mismatch.append(concept_id)
-        else:
-            matches.append(concept_id)
+        outcomes[_classify_concept(concept_id, row, local, code)].append(concept_id)
     orphan = sorted(set(local) - set(central))
     marker_without_claim = sorted(code - set(central))
     return ProjectionReconciliation(
