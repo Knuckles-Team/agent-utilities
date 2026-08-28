@@ -428,6 +428,73 @@ class InMemoryResourceLeaseAuthority:
             and record.lease.expires_at_ms > now_ms
         )
 
+    def _idempotent_replay_locked(
+        self, idem: tuple[str, str, str], request: ResourceLeaseRequest, now: int
+    ) -> ResourceLease | None:
+        """Return the prior lease for ``idem`` if one exists, else ``None``.
+
+        Extracted from :meth:`acquire`: the idempotency-replay branch (digest
+        check + liveness assertion) is a single reviewable unit, separate from
+        capacity admission.
+        """
+        prior_id = self._idempotency.get(idem)
+        if prior_id is None:
+            return None
+        prior = self._leases[prior_id].lease
+        if prior.request.digest != request.digest:
+            raise LeaseIdempotencyConflict("idempotency key changed request scope")
+        prior.assert_live(now_ms=now)
+        return prior
+
+    def _tenant_active_amount_locked(
+        self, logical_key: str, tenant_ref: str, now_ms: int
+    ) -> int:
+        return sum(
+            record.lease.request.amount
+            for record in self._leases.values()
+            if record.lease.request.cell_logical_key == logical_key
+            and record.lease.request.tenant_ref == tenant_ref
+            and record.lease.state in _ACTIVE_STATES
+            and record.lease.expires_at_ms > now_ms
+        )
+
+    def _assert_within_quota_locked(
+        self, cell: ResourceCell, request: ResourceLeaseRequest, now: int
+    ) -> None:
+        quota = cell.quota_for(request.tenant_ref)
+        if quota is None:
+            return
+        tenant_active = self._tenant_active_amount_locked(
+            request.cell_logical_key, request.tenant_ref, now
+        )
+        if tenant_active + request.amount > quota:
+            raise LeaseDenied("tenant resource quota exhausted")
+
+    @staticmethod
+    def _capacity_ceiling(cell: ResourceCell, request: ResourceLeaseRequest) -> int:
+        ceiling = cell.capacity
+        if request.priority_class in {"background", "best_effort"}:
+            ceiling = max(0, ceiling - cell.reserved_floor)
+        return ceiling
+
+    def _issue_lease_locked(
+        self, request: ResourceLeaseRequest, *, now: int
+    ) -> ResourceLease:
+        lease_id = f"{request.resource_kind}:{request.resource_id}:{self._next_fence}"
+        fence = self._next_fence
+        self._next_fence += 1
+        self._revision += 1
+        lease = ResourceLease(
+            lease_id=lease_id,
+            request=request,
+            fence_token=fence,
+            issued_at_ms=now,
+            expires_at_ms=now + request.ttl_ms,
+            authority_revision=self._revision,
+        )
+        self._leases[lease_id] = _MemoryRecord(lease)
+        return lease
+
     def acquire(
         self, request: ResourceLeaseRequest, *, now_ms: int | None = None
     ) -> ResourceLease:
@@ -440,51 +507,19 @@ class InMemoryResourceLeaseAuthority:
                 request.tenant_ref,
                 request.idempotency_key,
             )
-            prior_id = self._idempotency.get(idem)
-            if prior_id is not None:
-                prior = self._leases[prior_id].lease
-                if prior.request.digest != request.digest:
-                    raise LeaseIdempotencyConflict(
-                        "idempotency key changed request scope"
-                    )
-                prior.assert_live(now_ms=now)
-                return prior
+            replay = self._idempotent_replay_locked(idem, request, now)
+            if replay is not None:
+                return replay
             active = self._active_amount_locked(request.cell_logical_key, now)
-            quota = cell.quota_for(request.tenant_ref)
-            tenant_active = sum(
-                record.lease.request.amount
-                for record in self._leases.values()
-                if record.lease.request.cell_logical_key == request.cell_logical_key
-                and record.lease.request.tenant_ref == request.tenant_ref
-                and record.lease.state in _ACTIVE_STATES
-                and record.lease.expires_at_ms > now
-            )
-            if quota is not None and tenant_active + request.amount > quota:
-                raise LeaseDenied("tenant resource quota exhausted")
-            ceiling = cell.capacity
-            if request.priority_class in {"background", "best_effort"}:
-                ceiling = max(0, ceiling - cell.reserved_floor)
+            self._assert_within_quota_locked(cell, request, now)
+            ceiling = self._capacity_ceiling(cell, request)
             available = ceiling - active
             if available < request.amount:
                 raise LeaseDenied(
                     f"shared resource capacity exhausted ({available} available)"
                 )
-            lease_id = (
-                f"{request.resource_kind}:{request.resource_id}:{self._next_fence}"
-            )
-            fence = self._next_fence
-            self._next_fence += 1
-            self._revision += 1
-            lease = ResourceLease(
-                lease_id=lease_id,
-                request=request,
-                fence_token=fence,
-                issued_at_ms=now,
-                expires_at_ms=now + request.ttl_ms,
-                authority_revision=self._revision,
-            )
-            self._leases[lease_id] = _MemoryRecord(lease)
-            self._idempotency[idem] = lease_id
+            lease = self._issue_lease_locked(request, now=now)
+            self._idempotency[idem] = lease.lease_id
             return lease
 
     def _owner_locked(
@@ -839,6 +874,108 @@ class SQLiteResourceLeaseAuthority:
             (now_ms,),
         )
 
+    @staticmethod
+    def _validate_cell_scope(cell: ResourceCell, request: ResourceLeaseRequest) -> None:
+        if cell.device_id != request.device_id:
+            raise LeaseScopeMismatch("resource device/MIG identity changed")
+        if cell.epoch != request.lease_epoch:
+            raise StaleLeaseEpoch("resource authority epoch is stale")
+        if cell.policy_digest != request.policy_digest:
+            raise LeaseScopeMismatch("resource policy digest does not match")
+
+    def _idempotent_replay_sql(
+        self, conn: sqlite3.Connection, request: ResourceLeaseRequest, now: int
+    ) -> ResourceLease | None:
+        """Return the prior lease for ``request``'s idempotency key, or ``None``.
+
+        Extracted from :meth:`acquire`: does not commit — the caller commits once
+        it decides between the replay and the fresh-issue path, matching the
+        original single commit point.
+        """
+        idem = conn.execute(
+            "SELECT * FROM resource_leases WHERE logical_key = ? AND tenant_ref = ? AND principal_ref = ? AND idempotency_key = ?",
+            (
+                request.cell_logical_key,
+                request.tenant_ref,
+                request.principal_ref,
+                request.idempotency_key,
+            ),
+        ).fetchone()
+        if idem is None:
+            return None
+        prior = self._lease(idem)
+        if prior.request.digest != request.digest:
+            raise LeaseIdempotencyConflict("idempotency key changed request scope")
+        prior.assert_live(now_ms=now)
+        return prior
+
+    @staticmethod
+    def _assert_capacity_sql(
+        conn: sqlite3.Connection,
+        cell: ResourceCell,
+        request: ResourceLeaseRequest,
+        now: int,
+    ) -> None:
+        active = conn.execute(
+            "SELECT COALESCE(SUM(amount), 0) FROM resource_leases WHERE logical_key = ? AND state IN ('active','renewed') AND expires_at_ms > ?",
+            (request.cell_logical_key, now),
+        ).fetchone()[0]
+        tenant_active = conn.execute(
+            "SELECT COALESCE(SUM(amount), 0) FROM resource_leases WHERE logical_key = ? AND tenant_ref = ? AND state IN ('active','renewed') AND expires_at_ms > ?",
+            (request.cell_logical_key, request.tenant_ref, now),
+        ).fetchone()[0]
+        quota = cell.quota_for(request.tenant_ref)
+        if quota is not None and int(tenant_active) + request.amount > quota:
+            raise LeaseDenied("tenant resource quota exhausted")
+        ceiling = (
+            cell.capacity
+            if request.priority_class in {"interactive", "foreground"}
+            else max(0, cell.capacity - cell.reserved_floor)
+        )
+        available = ceiling - int(active)
+        if available < request.amount:
+            raise LeaseDenied(
+                f"shared resource capacity exhausted ({available} available)"
+            )
+
+    def _insert_lease_sql(
+        self, conn: sqlite3.Connection, request: ResourceLeaseRequest, now: int
+    ) -> ResourceLease:
+        fence = self._next(conn, "fence")
+        revision = self._next(conn, "revision")
+        lease_id = f"{request.resource_kind}:{request.resource_id}:{fence}"
+        conn.execute(
+            """INSERT INTO resource_leases(lease_id, logical_key, resource_kind, resource_id, node_id,
+               device_id, tenant_ref, principal_ref, amount, idempotency_key, lease_epoch, ttl_ms,
+               priority_class, policy_digest, request_digest, fence_token, issued_at_ms, expires_at_ms,
+               state, authority_revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)""",
+            (
+                lease_id,
+                request.cell_logical_key,
+                request.resource_kind,
+                request.resource_id,
+                request.node_id,
+                request.device_id,
+                request.tenant_ref,
+                request.principal_ref,
+                request.amount,
+                request.idempotency_key,
+                request.lease_epoch,
+                request.ttl_ms,
+                request.priority_class,
+                request.policy_digest,
+                request.digest,
+                fence,
+                now,
+                now + request.ttl_ms,
+                revision,
+            ),
+        )
+        row = conn.execute(
+            "SELECT * FROM resource_leases WHERE lease_id = ?", (lease_id,)
+        ).fetchone()
+        return self._lease(row)
+
     def acquire(
         self, request: ResourceLeaseRequest, *, now_ms: int | None = None
     ) -> ResourceLease:
@@ -853,91 +990,62 @@ class SQLiteResourceLeaseAuthority:
             if row is None:
                 raise LeaseDenied("unknown shared resource cell")
             cell = self._cell(row)
-            if cell.device_id != request.device_id:
-                raise LeaseScopeMismatch("resource device/MIG identity changed")
-            if cell.epoch != request.lease_epoch:
-                raise StaleLeaseEpoch("resource authority epoch is stale")
-            if cell.policy_digest != request.policy_digest:
-                raise LeaseScopeMismatch("resource policy digest does not match")
-            idem = conn.execute(
-                "SELECT * FROM resource_leases WHERE logical_key = ? AND tenant_ref = ? AND principal_ref = ? AND idempotency_key = ?",
-                (
-                    request.cell_logical_key,
-                    request.tenant_ref,
-                    request.principal_ref,
-                    request.idempotency_key,
-                ),
-            ).fetchone()
-            if idem is not None:
-                prior = self._lease(idem)
-                if prior.request.digest != request.digest:
-                    raise LeaseIdempotencyConflict(
-                        "idempotency key changed request scope"
-                    )
-                prior.assert_live(now_ms=now)
+            self._validate_cell_scope(cell, request)
+            prior = self._idempotent_replay_sql(conn, request, now)
+            if prior is not None:
                 conn.commit()
                 return prior
-            active = conn.execute(
-                "SELECT COALESCE(SUM(amount), 0) FROM resource_leases WHERE logical_key = ? AND state IN ('active','renewed') AND expires_at_ms > ?",
-                (request.cell_logical_key, now),
-            ).fetchone()[0]
-            tenant_active = conn.execute(
-                "SELECT COALESCE(SUM(amount), 0) FROM resource_leases WHERE logical_key = ? AND tenant_ref = ? AND state IN ('active','renewed') AND expires_at_ms > ?",
-                (request.cell_logical_key, request.tenant_ref, now),
-            ).fetchone()[0]
-            quota = cell.quota_for(request.tenant_ref)
-            if quota is not None and int(tenant_active) + request.amount > quota:
-                raise LeaseDenied("tenant resource quota exhausted")
-            ceiling = (
-                cell.capacity
-                if request.priority_class in {"interactive", "foreground"}
-                else max(0, cell.capacity - cell.reserved_floor)
-            )
-            available = ceiling - int(active)
-            if available < request.amount:
-                raise LeaseDenied(
-                    f"shared resource capacity exhausted ({available} available)"
-                )
-            fence = self._next(conn, "fence")
-            revision = self._next(conn, "revision")
-            lease_id = f"{request.resource_kind}:{request.resource_id}:{fence}"
-            conn.execute(
-                """INSERT INTO resource_leases(lease_id, logical_key, resource_kind, resource_id, node_id,
-                   device_id, tenant_ref, principal_ref, amount, idempotency_key, lease_epoch, ttl_ms,
-                   priority_class, policy_digest, request_digest, fence_token, issued_at_ms, expires_at_ms,
-                   state, authority_revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)""",
-                (
-                    lease_id,
-                    request.cell_logical_key,
-                    request.resource_kind,
-                    request.resource_id,
-                    request.node_id,
-                    request.device_id,
-                    request.tenant_ref,
-                    request.principal_ref,
-                    request.amount,
-                    request.idempotency_key,
-                    request.lease_epoch,
-                    request.ttl_ms,
-                    request.priority_class,
-                    request.policy_digest,
-                    request.digest,
-                    fence,
-                    now,
-                    now + request.ttl_ms,
-                    revision,
-                ),
-            )
-            row = conn.execute(
-                "SELECT * FROM resource_leases WHERE lease_id = ?", (lease_id,)
-            ).fetchone()
+            self._assert_capacity_sql(conn, cell, request, now)
+            lease = self._insert_lease_sql(conn, request, now)
             conn.commit()
-            return self._lease(row)
+            return lease
         except Exception:
             conn.rollback()
             raise
         finally:
             conn.close()
+
+    @staticmethod
+    def _assert_owner_identity(
+        row: sqlite3.Row | tuple[Any, ...], *, tenant_ref: str, principal_ref: str
+    ) -> None:
+        if row[6] != tenant_ref or row[7] != principal_ref:
+            raise LeaseScopeMismatch("lease owner identity does not match")
+
+    @staticmethod
+    def _assert_owner_fence(
+        row: sqlite3.Row | tuple[Any, ...], *, lease_epoch: int, fence_token: int
+    ) -> None:
+        if int(row[10]) != lease_epoch:
+            raise StaleLeaseEpoch("lease epoch is stale")
+        if int(row[15]) != fence_token:
+            raise StaleLeaseFence("lease fence token does not match")
+
+    @staticmethod
+    def _assert_owner_cell_scope(
+        conn: sqlite3.Connection,
+        row: sqlite3.Row | tuple[Any, ...],
+        lease_epoch: int,
+    ) -> None:
+        cell = conn.execute(
+            "SELECT * FROM resource_cells WHERE logical_key = ?", (row[1],)
+        ).fetchone()
+        if cell is None or cell[4] != row[5] or int(cell[6]) != lease_epoch:
+            raise StaleLeaseEpoch("resource device or epoch is stale")
+
+    @staticmethod
+    def _expire_if_stale(
+        conn: sqlite3.Connection,
+        lease_id: str,
+        row: sqlite3.Row | tuple[Any, ...],
+        now_ms: int,
+    ) -> None:
+        if row[18] not in _ACTIVE_STATES or int(row[17]) <= now_ms:
+            conn.execute(
+                "UPDATE resource_leases SET state = 'expired' WHERE lease_id = ?",
+                (lease_id,),
+            )
+            raise LeaseExpired(lease_id)
 
     def _owner_row(
         self,
@@ -955,23 +1063,12 @@ class SQLiteResourceLeaseAuthority:
         ).fetchone()
         if row is None:
             raise LeaseNotFound(lease_id)
-        if row[6] != tenant_ref or row[7] != principal_ref:
-            raise LeaseScopeMismatch("lease owner identity does not match")
-        if int(row[10]) != lease_epoch:
-            raise StaleLeaseEpoch("lease epoch is stale")
-        if int(row[15]) != fence_token:
-            raise StaleLeaseFence("lease fence token does not match")
-        cell = conn.execute(
-            "SELECT * FROM resource_cells WHERE logical_key = ?", (row[1],)
-        ).fetchone()
-        if cell is None or cell[4] != row[5] or int(cell[6]) != lease_epoch:
-            raise StaleLeaseEpoch("resource device or epoch is stale")
-        if row[18] not in _ACTIVE_STATES or int(row[17]) <= now_ms:
-            conn.execute(
-                "UPDATE resource_leases SET state = 'expired' WHERE lease_id = ?",
-                (lease_id,),
-            )
-            raise LeaseExpired(lease_id)
+        self._assert_owner_identity(
+            row, tenant_ref=tenant_ref, principal_ref=principal_ref
+        )
+        self._assert_owner_fence(row, lease_epoch=lease_epoch, fence_token=fence_token)
+        self._assert_owner_cell_scope(conn, row, lease_epoch)
+        self._expire_if_stale(conn, lease_id, row, now_ms)
         return row
 
     def renew(
