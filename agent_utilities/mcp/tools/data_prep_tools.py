@@ -985,6 +985,25 @@ def _node_properties_via_client(engine: Any, artifact_ref: str) -> Mapping[str, 
     return props
 
 
+def _resolve_graph_view(engine: Any, compute: Any, target: str) -> Any:
+    """Resolve and call the process-owned ``for_graph`` view factory."""
+
+    view_factory = getattr(engine, "for_graph", None)
+    if not callable(view_factory):
+        view_factory = getattr(compute, "for_graph", None)
+    if not callable(view_factory):
+        raise ArtifactAuthorityUnavailable(
+            "native graph view is unavailable for the verified session"
+        )
+    try:
+        view = view_factory(target)
+    except Exception as exc:  # noqa: BLE001 - graph routing details stay private
+        raise PermissionError("artifact access is denied") from exc
+    if view is None:
+        raise PermissionError("artifact access is denied")
+    return view
+
+
 class _GraphNativeDataPrepProvider:
     """Concrete provider over the authoritative graph node/blob substrate.
 
@@ -1200,20 +1219,7 @@ class _GraphNativeDataPrepProvider:
         ).strip()
         if not target or (current and target == current):
             return self._engine
-        view_factory = getattr(self._engine, "for_graph", None)
-        if not callable(view_factory):
-            view_factory = getattr(compute, "for_graph", None)
-        if not callable(view_factory):
-            raise ArtifactAuthorityUnavailable(
-                "native graph view is unavailable for the verified session"
-            )
-        try:
-            view = view_factory(target)
-        except Exception as exc:  # noqa: BLE001 - graph routing details stay private
-            raise PermissionError("artifact access is denied") from exc
-        if view is None:
-            raise PermissionError("artifact access is denied")
-        return view
+        return _resolve_graph_view(self._engine, compute, target)
 
     @staticmethod
     def _node_properties(artifact_ref: str, *, engine: Any) -> Mapping[str, Any]:
