@@ -2034,33 +2034,80 @@ def equivalence_classes(graph: rx.PyDiGraph) -> list[set[str]]:
     return list(groups.values())
 
 
-def transitive_closure(graph: rx.PyDiGraph) -> rx.PyDiGraph:
-    """Compute the transitive closure of a relation."""
-    _rx_node_map(graph)
-    tc = rx.PyDiGraph()
+def _copy_pydigraph_nodes(graph: rx.PyDiGraph) -> tuple[rx.PyDiGraph, dict[int, int]]:
+    """Helper: copy a PyDiGraph's nodes (no edges) into a fresh graph.
+
+    Returns (new_graph, old_index -> new_index map). Shared by
+    `transitive_closure` and `hasse_diagram`.
+    """
+    new_graph = rx.PyDiGraph()
     idx_map: dict[int, int] = {}
     for old_idx in graph.node_indices():
-        new_idx = tc.add_node(graph[old_idx])
-        idx_map[old_idx] = new_idx
+        idx_map[old_idx] = new_graph.add_node(graph[old_idx])
+    return new_graph, idx_map
+
+
+def _bfs_reachable(graph: rx.PyDiGraph, src_idx: int) -> set[int]:
+    """Helper: node indices reachable from src_idx via successor edges (BFS)."""
+    visited: set[int] = {src_idx}
+    queue = collections.deque([src_idx])
+    while queue:
+        cur = queue.popleft()
+        for succ in graph.successor_indices(cur):
+            if succ not in visited:
+                visited.add(succ)
+                queue.append(succ)
+    return visited
+
+
+def transitive_closure(graph: rx.PyDiGraph) -> rx.PyDiGraph:
+    """Compute the transitive closure of a relation."""
+    tc, idx_map = _copy_pydigraph_nodes(graph)
     # For each node, BFS to find all reachable nodes
     for src_idx in graph.node_indices():
-        visited: set[int] = set()
-        queue = collections.deque([src_idx])
-        visited.add(src_idx)
-        while queue:
-            cur = queue.popleft()
-            for succ in graph.successor_indices(cur):
-                if succ not in visited:
-                    visited.add(succ)
-                    queue.append(succ)
+        reachable = _bfs_reachable(graph, src_idx)
         # Add edges from src to all reachable (except self unless already exists)
-        for reachable in visited:
-            if reachable != src_idx or graph.has_edge(src_idx, src_idx):
+        for r in reachable:
+            if r != src_idx or graph.has_edge(src_idx, src_idx):
                 new_src = idx_map[src_idx]
-                new_tgt = idx_map[reachable]
+                new_tgt = idx_map[r]
                 if not tc.has_edge(new_src, new_tgt):
                     tc.add_edge(new_src, new_tgt, None)
     return tc
+
+
+def _hasse_has_alt_path(graph: rx.PyDiGraph, src_idx: int, succ: int) -> bool:
+    """Helper for `hasse_diagram`: is there a src->succ path of length > 1
+
+    (an alternative to the direct edge)? BFS from src, seeding the frontier
+    with src's other successors so the direct src->succ edge itself is
+    never treated as the "alternative" path.
+    """
+    visited: set[int] = {src_idx}
+    queue: collections.deque[int] = collections.deque()
+    for s in graph.successor_indices(src_idx):
+        if s != succ:
+            visited.add(s)
+            queue.append(s)
+    while queue:
+        cur = queue.popleft()
+        if cur == succ:
+            return True
+        for ns in graph.successor_indices(cur):
+            if ns not in visited:
+                visited.add(ns)
+                queue.append(ns)
+    return False
+
+
+def _hasse_edges_to_keep(graph: rx.PyDiGraph) -> set[tuple[int, int]]:
+    """Helper for `hasse_diagram`: the transitively-irreducible edge set."""
+    edges_to_keep: set[tuple[int, int]] = set()
+    for src_idx in graph.node_indices():
+        for succ in graph.successor_indices(src_idx):
+            if not _hasse_has_alt_path(graph, src_idx, succ):
+                edges_to_keep.add((src_idx, succ))
+    return edges_to_keep
 
 
 def hasse_diagram(graph: rx.PyDiGraph) -> rx.PyDiGraph:
@@ -2073,36 +2120,8 @@ def hasse_diagram(graph: rx.PyDiGraph) -> rx.PyDiGraph:
     except Exception as exc:
         raise ValueError("Graph is not a DAG. Cannot compute Hasse diagram.") from exc
 
-    _rx_node_map(graph)
-    edges_to_keep: set[tuple[int, int]] = set()
-    for src_idx in graph.node_indices():
-        for succ in graph.successor_indices(src_idx):
-            # Check if there's an alternative path from src to succ of length > 1
-            # BFS from src, ignoring the direct src->succ edge
-            visited: set[int] = {src_idx}
-            queue: collections.deque[int] = collections.deque()
-            for s in graph.successor_indices(src_idx):
-                if s != succ:
-                    visited.add(s)
-                    queue.append(s)
-            found_alt = False
-            while queue:
-                cur = queue.popleft()
-                if cur == succ:
-                    found_alt = True
-                    break
-                for ns in graph.successor_indices(cur):
-                    if ns not in visited:
-                        visited.add(ns)
-                        queue.append(ns)
-            if not found_alt:
-                edges_to_keep.add((src_idx, succ))
-
-    result = rx.PyDiGraph()
-    idx_map: dict[int, int] = {}
-    for old_idx in graph.node_indices():
-        new_idx = result.add_node(graph[old_idx])
-        idx_map[old_idx] = new_idx
+    edges_to_keep = _hasse_edges_to_keep(graph)
+    result, idx_map = _copy_pydigraph_nodes(graph)
     for src, tgt in edges_to_keep:
         result.add_edge(idx_map[src], idx_map[tgt], None)
     return result
