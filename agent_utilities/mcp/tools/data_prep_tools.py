@@ -333,71 +333,8 @@ class PreparedReceipt:
 
     @classmethod
     def decode(cls, value: str) -> PreparedReceipt:
-        if not isinstance(value, str) or not value.startswith("prep:v1:"):
-            raise DataPrepToolError("prepared receipt is malformed")
-        try:
-            encoded, token_encoded = value.removeprefix("prep:v1:").split(".", 1)
-            body = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
-            if len(body) > _MAX_PARAMS_BYTES:
-                raise DataPrepToolError("prepared receipt exceeds the bounded size")
-            if base64.urlsafe_b64encode(body).decode("ascii").rstrip("=") != encoded:
-                raise DataPrepToolError("prepared receipt encoding is non-canonical")
-            payload = json.loads(body)
-            token = base64.urlsafe_b64decode(
-                token_encoded + "=" * (-len(token_encoded) % 4)
-            ).decode("utf-8")
-            if (
-                base64.urlsafe_b64encode(token.encode("utf-8"))
-                .decode("ascii")
-                .rstrip("=")
-                != token_encoded
-            ):
-                raise DataPrepToolError("prepared receipt encoding is non-canonical")
-            from agent_utilities.security.run_token import validate_token
-
-            run_token = validate_token(
-                token,
-                endpoint=_RECEIPT_ENDPOINT,
-                operation="commit_prepared",
-            )
-        except Exception as exc:  # noqa: BLE001 - privacy-safe receipt boundary
-            if isinstance(exc, DataPrepToolError):
-                raise
-            raise DataPrepToolError("prepared receipt is malformed") from exc
-        if (
-            not isinstance(payload, dict)
-            or payload.get("receipt_version") != _RECEIPT_VERSION
-        ):
-            raise DataPrepToolError("prepared receipt version is unsupported")
-        payload = dict(payload)
-        payload.pop("receipt_version", None)
-        allowed = {
-            "tenant_id",
-            "artifact_ref",
-            "input_content_digest",
-            "input_schema_ref",
-            "input_schema_digest",
-            "input_shape_ref",
-            "input_shape_digest",
-            "plan_ref",
-            "plan_digest",
-            "model_ref",
-            "model_digest",
-            "output_content_digest",
-            "output_schema_ref",
-            "output_schema_digest",
-            "output_shape_ref",
-            "output_shape_digest",
-            "evidence_digest",
-            "policy_version",
-            "native_atomic",
-            "issued_at_ms",
-            "actor_id",
-            "endpoint",
-            "expires_at_ms",
-        }
-        if set(payload) != allowed:
-            raise DataPrepToolError("prepared receipt fields are invalid")
+        payload, run_token, token = _decode_receipt_envelope(value)
+        payload = _receipt_payload_fields(payload)
         try:
             receipt = cls(**payload)
         except (TypeError, ValueError) as exc:
@@ -410,29 +347,114 @@ class PreparedReceipt:
             or receipt.endpoint != _RECEIPT_ENDPOINT
         ):
             raise DataPrepToolError("prepared receipt authority is incomplete")
-        body_digest = _sha256_bytes(_canonical_json(receipt._body())).removeprefix(
-            "sha256:"
-        )
-        if run_token.run_id != body_digest:
-            raise DataPrepToolError("prepared receipt token binding is invalid")
-        if (
-            run_token.actor_id != receipt.actor_id
-            or run_token.tenant_id != receipt.tenant_id
-            or run_token.project != _RECEIPT_VERSION
-        ):
-            raise DataPrepToolError("prepared receipt identity binding is invalid")
-        if abs(int(run_token.expires_at * 1000) - receipt.expires_at_ms) > 1:
-            raise DataPrepToolError("prepared receipt expiry binding is invalid")
-        if (
-            receipt.expires_at_ms <= receipt.issued_at_ms
-            or receipt.expires_at_ms - receipt.issued_at_ms > _RECEIPT_TTL_MS
-        ):
-            raise DataPrepToolError("prepared receipt expiry is invalid")
-        if receipt.native_atomic is not True:
-            raise NativeCommitUnavailable(
-                "prepared receipt does not prove native atomic admission"
-            )
+        _verify_receipt_token_binding(receipt, run_token)
         return replace(receipt, token=token)
+
+
+def _decode_receipt_envelope(value: str) -> tuple[dict[str, Any], Any, str]:
+    """Decode+verify the encoded receipt body and its bound RunToken.
+
+    Returns the raw JSON payload dict (still carrying ``receipt_version``),
+    the validated ``RunToken``, and the raw token string.
+    """
+
+    if not isinstance(value, str) or not value.startswith("prep:v1:"):
+        raise DataPrepToolError("prepared receipt is malformed")
+    try:
+        encoded, token_encoded = value.removeprefix("prep:v1:").split(".", 1)
+        body = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+        if len(body) > _MAX_PARAMS_BYTES:
+            raise DataPrepToolError("prepared receipt exceeds the bounded size")
+        if base64.urlsafe_b64encode(body).decode("ascii").rstrip("=") != encoded:
+            raise DataPrepToolError("prepared receipt encoding is non-canonical")
+        payload = json.loads(body)
+        token = base64.urlsafe_b64decode(
+            token_encoded + "=" * (-len(token_encoded) % 4)
+        ).decode("utf-8")
+        if (
+            base64.urlsafe_b64encode(token.encode("utf-8")).decode("ascii").rstrip("=")
+            != token_encoded
+        ):
+            raise DataPrepToolError("prepared receipt encoding is non-canonical")
+        from agent_utilities.security.run_token import validate_token
+
+        run_token = validate_token(
+            token,
+            endpoint=_RECEIPT_ENDPOINT,
+            operation="commit_prepared",
+        )
+    except Exception as exc:  # noqa: BLE001 - privacy-safe receipt boundary
+        if isinstance(exc, DataPrepToolError):
+            raise
+        raise DataPrepToolError("prepared receipt is malformed") from exc
+    return payload, run_token, token
+
+
+def _receipt_payload_fields(payload: Any) -> dict[str, Any]:
+    """Validate the decoded body's version/shape; strip the version marker."""
+
+    if (
+        not isinstance(payload, dict)
+        or payload.get("receipt_version") != _RECEIPT_VERSION
+    ):
+        raise DataPrepToolError("prepared receipt version is unsupported")
+    payload = dict(payload)
+    payload.pop("receipt_version", None)
+    allowed = {
+        "tenant_id",
+        "artifact_ref",
+        "input_content_digest",
+        "input_schema_ref",
+        "input_schema_digest",
+        "input_shape_ref",
+        "input_shape_digest",
+        "plan_ref",
+        "plan_digest",
+        "model_ref",
+        "model_digest",
+        "output_content_digest",
+        "output_schema_ref",
+        "output_schema_digest",
+        "output_shape_ref",
+        "output_shape_digest",
+        "evidence_digest",
+        "policy_version",
+        "native_atomic",
+        "issued_at_ms",
+        "actor_id",
+        "endpoint",
+        "expires_at_ms",
+    }
+    if set(payload) != allowed:
+        raise DataPrepToolError("prepared receipt fields are invalid")
+    return payload
+
+
+def _verify_receipt_token_binding(receipt: PreparedReceipt, run_token: Any) -> None:
+    """Bind a decoded receipt to the RunToken that authenticated it."""
+
+    body_digest = _sha256_bytes(_canonical_json(receipt._body())).removeprefix(
+        "sha256:"
+    )
+    if run_token.run_id != body_digest:
+        raise DataPrepToolError("prepared receipt token binding is invalid")
+    if (
+        run_token.actor_id != receipt.actor_id
+        or run_token.tenant_id != receipt.tenant_id
+        or run_token.project != _RECEIPT_VERSION
+    ):
+        raise DataPrepToolError("prepared receipt identity binding is invalid")
+    if abs(int(run_token.expires_at * 1000) - receipt.expires_at_ms) > 1:
+        raise DataPrepToolError("prepared receipt expiry binding is invalid")
+    if (
+        receipt.expires_at_ms <= receipt.issued_at_ms
+        or receipt.expires_at_ms - receipt.issued_at_ms > _RECEIPT_TTL_MS
+    ):
+        raise DataPrepToolError("prepared receipt expiry is invalid")
+    if receipt.native_atomic is not True:
+        raise NativeCommitUnavailable(
+            "prepared receipt does not prove native atomic admission"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -456,27 +478,10 @@ class ArtifactACL:
     def from_value(cls, value: Any) -> ArtifactACL:
         if not isinstance(value, Mapping):
             raise DataPrepToolError("artifact ACL proof is unavailable")
-        is_public = value.get("is_public")
-        principal_ids = value.get(
-            "principal_ids", value.get("user_ids", value.get("principals", ()))
+        is_public, principal_ids, principal_emails, group_ids, roles, markings = (
+            _acl_raw_fields(value)
         )
-        principal_emails = value.get("principal_emails", value.get("user_emails", ()))
-        group_ids = value.get("group_ids", ())
-        roles = value.get("roles", value.get("read_roles", ()))
-        markings = value.get("markings", ())
-        if not isinstance(is_public, bool):
-            raise DataPrepToolError("artifact ACL proof is unavailable")
-        fields = (principal_ids, principal_emails, group_ids, roles, markings)
-        if not all(
-            isinstance(items, (list, tuple))
-            and all(isinstance(item, str) and item.strip() for item in items)
-            for items in fields
-        ):
-            raise DataPrepToolError("artifact ACL proof is unavailable")
-        if any("@" in item for item in principal_ids):
-            raise DataPrepToolError("principal IDs must not be supplied as emails")
-        if any("@" not in item for item in principal_emails):
-            raise DataPrepToolError("artifact user email ACL proof is unavailable")
+        _check_acl_principal_shape(principal_ids, principal_emails)
         return cls(
             is_public=is_public,
             principal_ids=tuple(sorted(set(principal_ids))),
@@ -485,6 +490,49 @@ class ArtifactACL:
             roles=tuple(sorted(set(roles))),
             markings=tuple(sorted(set(markings))),
         )
+
+
+def _acl_raw_fields(
+    value: Mapping[str, Any],
+) -> tuple[
+    Any,
+    tuple[Any, ...],
+    tuple[Any, ...],
+    tuple[Any, ...],
+    tuple[Any, ...],
+    tuple[Any, ...],
+]:
+    """Extract and shape-validate the raw ACL fields from a value mapping."""
+
+    is_public = value.get("is_public")
+    principal_ids = value.get(
+        "principal_ids", value.get("user_ids", value.get("principals", ()))
+    )
+    principal_emails = value.get("principal_emails", value.get("user_emails", ()))
+    group_ids = value.get("group_ids", ())
+    roles = value.get("roles", value.get("read_roles", ()))
+    markings = value.get("markings", ())
+    if not isinstance(is_public, bool):
+        raise DataPrepToolError("artifact ACL proof is unavailable")
+    fields = (principal_ids, principal_emails, group_ids, roles, markings)
+    if not all(
+        isinstance(items, (list, tuple))
+        and all(isinstance(item, str) and item.strip() for item in items)
+        for items in fields
+    ):
+        raise DataPrepToolError("artifact ACL proof is unavailable")
+    return is_public, principal_ids, principal_emails, group_ids, roles, markings
+
+
+def _check_acl_principal_shape(
+    principal_ids: tuple[Any, ...], principal_emails: tuple[Any, ...]
+) -> None:
+    """Principal IDs must not look like emails, and vice versa."""
+
+    if any("@" in item for item in principal_ids):
+        raise DataPrepToolError("principal IDs must not be supplied as emails")
+    if any("@" not in item for item in principal_emails):
+        raise DataPrepToolError("artifact user email ACL proof is unavailable")
 
 
 @dataclass(frozen=True, slots=True)
@@ -876,6 +924,373 @@ def _native_acl(props: Mapping[str, Any], *, owner_id: str) -> ArtifactACL:
     return ArtifactACL.from_value(generated)
 
 
+def _node_properties_via_reader(
+    point_reader: Any, artifact_ref: str
+) -> Mapping[str, Any]:
+    """Read metadata through the typed native point-read seam."""
+
+    try:
+        props = point_reader(artifact_ref)
+    except Exception as exc:  # noqa: BLE001 - absent and denied are one public outcome
+        raise PermissionError("artifact access is denied") from exc
+    if not isinstance(props, Mapping):
+        raise PermissionError("artifact access is denied")
+    return props
+
+
+def _node_properties_via_cypher(
+    execute_read: Any, artifact_ref: str
+) -> Mapping[str, Any]:
+    """Read metadata through the lightweight test/deployment Cypher fallback."""
+
+    try:
+        rows = execute_read(
+            "MATCH (n) WHERE n.id = $artifact_ref RETURN n LIMIT 1",
+            {"artifact_ref": artifact_ref},
+        )
+    except Exception as exc:  # noqa: BLE001 - absent and denied are one public outcome
+        raise PermissionError("artifact access is denied") from exc
+    if not isinstance(rows, list) or not rows:
+        raise PermissionError("artifact access is denied")
+    row = rows[0]
+    props = row.get("n") if isinstance(row, Mapping) else None
+    if not isinstance(props, Mapping):
+        props = row.get("node") if isinstance(row, Mapping) else None
+    if not isinstance(props, Mapping):
+        raise PermissionError("artifact access is denied")
+    return props
+
+
+def _node_properties_via_client(engine: Any, artifact_ref: str) -> Mapping[str, Any]:
+    """Read metadata through the raw client fallback, scoped to this engine view."""
+
+    compute = getattr(engine, "graph_compute", None) or getattr(engine, "graph", None)
+    client = (
+        getattr(compute, "client", None)
+        or getattr(compute, "_client", None)
+        or getattr(engine, "client", None)
+    )
+    nodes = getattr(client, "nodes", None)
+    properties = getattr(nodes, "properties", None)
+    if not callable(properties):
+        raise ArtifactAuthorityUnavailable(
+            "native graph point-read authority is unavailable"
+        )
+    try:
+        props = properties(artifact_ref)
+    except Exception as exc:  # noqa: BLE001 - hide graph existence details
+        raise PermissionError("artifact access is denied") from exc
+    if not isinstance(props, Mapping):
+        raise PermissionError("artifact access is denied")
+    return props
+
+
+def _resolve_graph_view(engine: Any, compute: Any, target: str) -> Any:
+    """Resolve and call the process-owned ``for_graph`` view factory."""
+
+    view_factory = getattr(engine, "for_graph", None)
+    if not callable(view_factory):
+        view_factory = getattr(compute, "for_graph", None)
+    if not callable(view_factory):
+        raise ArtifactAuthorityUnavailable(
+            "native graph view is unavailable for the verified session"
+        )
+    try:
+        view = view_factory(target)
+    except Exception as exc:  # noqa: BLE001 - graph routing details stay private
+        raise PermissionError("artifact access is denied") from exc
+    if view is None:
+        raise PermissionError("artifact access is denied")
+    return view
+
+
+def _fetch_blob_via_client(compute: Any, engine: Any, digest: str) -> bytes | None:
+    """Fetch bytes through the raw blob client fallback (no MediaStore)."""
+
+    client = (
+        getattr(compute, "client", None)
+        or getattr(compute, "_client", None)
+        or getattr(engine, "client", None)
+    )
+    blob = getattr(client, "blob", None)
+    fetch = getattr(blob, "fetch", None)
+    if not callable(fetch):
+        raise ArtifactAuthorityUnavailable(
+            "native artifact blob authority is unavailable"
+        )
+    return fetch(digest)
+
+
+def _metadata_node_type(props: Mapping[str, Any]) -> str:
+    """Validate and return the node's governed artifact type."""
+
+    node_type_raw = props.get("node_type")
+    if node_type_raw is None:
+        node_type_raw = props.get("type")
+    if not isinstance(node_type_raw, str):
+        raise DataPrepToolError("native artifact type authority is unavailable")
+    if node_type_raw not in {"AssetOccurrence", "Artifact"}:
+        raise DataPrepToolError("artifact reference is not a governed tabular artifact")
+    return node_type_raw
+
+
+def _metadata_tenant_policy(
+    props: Mapping[str, Any], *, session: GraphSession
+) -> tuple[str, str]:
+    """Validate tenant/policy authority facts and bind them to the session."""
+
+    tenant_raw = props.get("tenant_id")
+    if tenant_raw is None:
+        tenant_raw = props.get("tenant")
+    policy_raw = props.get("policy_version")
+    if not isinstance(tenant_raw, str) or not isinstance(policy_raw, str):
+        raise ArtifactAuthorityUnavailable(
+            "native artifact tenant or policy authority is unavailable"
+        )
+    if not tenant_raw or not policy_raw:
+        raise ArtifactAuthorityUnavailable(
+            "native artifact tenant or policy authority is unavailable"
+        )
+    if tenant_raw != session.tenant:
+        raise PermissionError("artifact access is denied")
+    if policy_raw != str(session.policy_version or ""):
+        raise PermissionError("artifact access is denied")
+    return tenant_raw, policy_raw
+
+
+def _metadata_expiry_ok(props: Mapping[str, Any]) -> None:
+    """Validate the expiry field's shape and that it has not passed.
+
+    The value itself is re-read directly from ``props`` by the caller that
+    builds the returned ``ResolvedArtifact`` -- this is a validate-only gate.
+    """
+
+    expires_raw = props.get("expires_at_ms", 0)
+    if isinstance(expires_raw, bool) or not isinstance(expires_raw, int):
+        raise DataPrepToolError("native artifact expiry is invalid")
+    if expires_raw and int(time.time() * 1000) >= expires_raw:
+        raise PermissionError("artifact access is denied")
+
+
+def _metadata_legal_hold_ok(props: Mapping[str, Any]) -> None:
+    """Validate-only: the legal-hold field's shape.
+
+    The value itself is re-read directly from ``props`` by the caller that
+    builds the returned ``ResolvedArtifact``.
+    """
+
+    legal_hold = props.get("legal_hold", False)
+    if not isinstance(legal_hold, bool):
+        raise DataPrepToolError("native artifact legal-hold policy is invalid")
+
+
+def _metadata_owner(props: Mapping[str, Any]) -> str:
+    """Validate and return the owner id, defaulting to the empty string."""
+
+    owner_raw = props.get("_owner_id")
+    if owner_raw is None:
+        owner_raw = props.get("owner")
+    if owner_raw is not None and not isinstance(owner_raw, str):
+        raise DataPrepToolError("native artifact owner authority is invalid")
+    return owner_raw or ""
+
+
+def _metadata_classification(props: Mapping[str, Any]) -> DataClassification:
+    """Validate and return the artifact's data classification."""
+
+    classification_raw = props.get("classification")
+    try:
+        if isinstance(classification_raw, DataClassification):
+            return classification_raw
+        if isinstance(classification_raw, str):
+            return DataClassification(classification_raw)
+        raise TypeError(
+            "native artifact classification must be str or DataClassification"
+        )
+    except (TypeError, ValueError) as exc:
+        raise DataPrepToolError(
+            "native artifact classification authority is unavailable"
+        ) from exc
+
+
+def _metadata_retention_ok(props: Mapping[str, Any]) -> None:
+    """Validate-only: the retention field's shape."""
+
+    if props.get("retention") is not None and not isinstance(props["retention"], str):
+        raise DataPrepToolError("native artifact retention policy is invalid")
+
+
+def _metadata_acl(
+    props: Mapping[str, Any], *, owner_id: str, classification: DataClassification
+) -> ArtifactACL:
+    """Resolve the ACL and check it is consistent with the classification."""
+
+    acl = _native_acl(props, owner_id=owner_id)
+    if classification is DataClassification.PUBLIC and not acl.is_public:
+        raise DataPrepToolError("public classification lacks a public ACL proof")
+    if acl.is_public and classification is not DataClassification.PUBLIC:
+        raise DataPrepToolError("public ACL lacks a matching public classification")
+    return acl
+
+
+def _session_actor_identity(session: GraphSession) -> tuple[str, set[str], set[str]]:
+    """Resolve the session actor's id, roles and groups as plain sets."""
+
+    actor_id = str(getattr(session.actor, "actor_id", "") or "")
+    roles = {str(role) for role in getattr(session.actor, "roles", ()) or ()}
+    groups = {str(group) for group in getattr(session.actor, "groups", ()) or ()}
+    return actor_id, roles, groups
+
+
+def _acl_grants_access(
+    acl: ArtifactACL,
+    *,
+    actor_id: str,
+    roles: set[str],
+    groups: set[str],
+    owner_id: str,
+) -> bool:
+    """True if the actor is proven authorized by the ACL, without a raise."""
+
+    return (
+        acl.is_public
+        or actor_id == owner_id
+        or actor_id in acl.principal_ids
+        or bool(groups.intersection(acl.group_ids))
+        or bool(roles.intersection(acl.roles))
+    )
+
+
+def _metadata_access_check(
+    session: GraphSession, *, acl: ArtifactACL, owner_id: str
+) -> None:
+    """Deny access unless the session's actor is proven by the ACL."""
+
+    actor_id, roles, groups = _session_actor_identity(session)
+    if not _acl_grants_access(
+        acl, actor_id=actor_id, roles=roles, groups=groups, owner_id=owner_id
+    ):
+        raise PermissionError("artifact access is denied")
+
+
+def _metadata_content_digest_present(props: Mapping[str, Any]) -> None:
+    """Validate-only: the content digest is present and well-formed.
+
+    The digest itself is recomputed by the caller from the same ``props``
+    fields for the actual blob fetch.
+    """
+
+    _native_digest(
+        props.get("content_digest")
+        or props.get("content_hash")
+        or props.get("digest")
+        or props.get("blob_digest")
+    )
+
+
+def _metadata_media_type_ok(props: Mapping[str, Any]) -> None:
+    """Validate-only: the media type is an approved Arrow type.
+
+    The value itself is re-read directly from ``props`` by the caller.
+    """
+
+    media_type_raw = props.get("media_type")
+    if media_type_raw is None:
+        media_type_raw = props.get("mime_type")
+    if not isinstance(media_type_raw, str):
+        raise DataPrepToolError("native artifact media type is invalid")
+    if media_type_raw not in {
+        "application/vnd.apache.arrow.stream",
+        "application/vnd.apache.arrow.file",
+    }:
+        raise DataPrepToolError("artifact media type is not an approved Arrow type")
+
+
+def _metadata_budget_limits(props: Mapping[str, Any], *, budget: PrepBudget) -> None:
+    """Validate every optional bounded-int metadata field against the budget."""
+
+    for key, limit, label in (
+        ("compressed_bytes", budget.max_compressed_bytes, "compressed size"),
+        ("file_size_bytes", budget.max_compressed_bytes, "compressed size"),
+        ("decoded_bytes", budget.max_decoded_bytes, "decoded size"),
+        ("rows", budget.max_rows, "row count"),
+        ("columns", budget.max_columns, "column count"),
+        ("nesting_depth", budget.max_depth, "nesting depth"),
+    ):
+        value = props.get(key)
+        if value is not None and (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value < 0
+            or value > limit
+        ):
+            raise DataPrepToolError(f"artifact {label} exceeds the request budget")
+
+
+def _metadata_digest_refs(props: Mapping[str, Any]) -> None:
+    """Validate-only: any present schema/shape digests and refs are well-formed."""
+
+    if props.get("schema_digest") is not None:
+        _native_digest(props["schema_digest"])
+    if props.get("shape_digest") is not None:
+        _native_digest(props["shape_digest"])
+    if props.get("schema_ref") is not None:
+        _native_ref(props["schema_ref"], fallback="schema:unused")
+    if props.get("shape_ref") is not None:
+        _native_ref(props["shape_ref"], fallback="shape:unused")
+
+
+def _inline_records_table(
+    records: list[dict[str, Any]], *, budget: PrepBudget
+) -> tuple[Any, bytes]:
+    """Convert inline records to Arrow and enforce every inline size budget."""
+
+    try:
+        import pyarrow as pa
+
+        table = pa.Table.from_pylist(records)
+    except Exception as exc:  # noqa: BLE001 - normalize Arrow dependency errors
+        raise DataPrepToolError("inline records cannot be converted to Arrow") from exc
+    if table.num_rows > budget.max_rows or table.num_columns > budget.max_columns:
+        raise DataPrepToolError("inline records exceed the request budget")
+    output_bytes = _canonical_arrow_bytes(table)
+    if len(output_bytes) > budget.max_compressed_bytes:
+        raise DataPrepToolError("inline records exceed the compressed byte budget")
+    if table.nbytes > budget.max_decoded_bytes:
+        raise DataPrepToolError("inline records exceed the decoded byte budget")
+    return table, output_bytes
+
+
+def _inline_policy_identity(
+    policy: Mapping[str, Any], *, session: GraphSession
+) -> tuple[str, str]:
+    """Resolve tenant/policy identity from the inline policy, bound to the session."""
+
+    tenant_id = str(policy.get("tenant_id") or "")
+    policy_version = str(policy.get("policy_version") or "")
+    if tenant_id != session.tenant or policy_version != str(
+        session.policy_version or ""
+    ):
+        raise PermissionError("inline records policy is not bound to the session")
+    return tenant_id, policy_version
+
+
+def _inline_policy_governance(
+    policy: Mapping[str, Any],
+) -> tuple[DataClassification, ArtifactACL]:
+    """Resolve the classification and ACL the server-owned policy asserts."""
+
+    classification_raw = policy.get("classification")
+    try:
+        classification = DataClassification(str(classification_raw))
+        acl = ArtifactACL.from_value(policy.get("acl"))
+    except (DataPrepToolError, ValueError) as exc:
+        raise ArtifactAuthorityUnavailable(
+            "server-owned inline records governance policy is invalid"
+        ) from exc
+    return classification, acl
+
+
 class _GraphNativeDataPrepProvider:
     """Concrete provider over the authoritative graph node/blob substrate.
 
@@ -945,76 +1360,17 @@ class _GraphNativeDataPrepProvider:
             raise DataPrepToolError(
                 "artifact reference is not an approved opaque graph ref"
             )
-        # Native point reads and blob calls must inherit the same verified
-        # GraphSession.  In particular, a caller-supplied session may never
-        # cause a root-graph client to read another tenant's metadata before
-        # the provider's own immutable governance checks run.
-        with self._verified_session_scope(session):
-            scoped_engine = self._scoped_engine(session)
-            props = self._node_properties(artifact_ref, engine=scoped_engine)
-            if not isinstance(props, Mapping):
-                raise ArtifactAuthorityUnavailable(
-                    "native artifact metadata is invalid"
-                )
-            node_type, tenant_id, policy_version, owner_id, classification, acl = (
-                self._authorize_metadata(props, session=session, budget=budget)
-            )
-            digest = _native_digest(
-                props.get("content_digest")
-                or props.get("content_hash")
-                or props.get("digest")
-                or props.get("blob_digest")
-            )
-            payload = self._fetch_blob(
-                digest.removeprefix("sha256:"), engine=scoped_engine
-            )
-            if not isinstance(payload, bytes):
-                raise ArtifactAuthorityUnavailable("native artifact bytes are invalid")
-        if len(payload) > budget.max_compressed_bytes:
-            raise DataPrepToolError(
-                "artifact compressed size exceeds the request budget"
-            )
-        media_type = str(props.get("media_type") or props.get("mime_type") or "")
-        if media_type not in {
-            "application/vnd.apache.arrow.stream",
-            "application/vnd.apache.arrow.file",
-        }:
-            raise DataPrepToolError("artifact media type is not an approved Arrow type")
-        table = self._decode_arrow(payload, media_type=media_type, budget=budget)
-        actual_digest = _sha256_bytes(payload)
-        if actual_digest != digest:
-            raise ArtifactAuthorityUnavailable(
-                "native artifact content fingerprint is invalid"
-            )
-        actual_schema = schema_digest(table)
-        stored_schema = props.get("schema_digest")
-        schema_value = _native_digest(stored_schema) if stored_schema else actual_schema
-        if schema_value != actual_schema:
-            raise DataPrepToolError(
-                "artifact schema fingerprint does not match its content"
-            )
-        actual_shape = _shape_digest(table)
-        stored_shape = props.get("shape_digest")
-        shape_value = _native_digest(stored_shape) if stored_shape else actual_shape
-        if shape_value != actual_shape:
-            raise DataPrepToolError(
-                "artifact shape fingerprint does not match its content"
-            )
-        compressed_bytes = self._metadata_int(
-            props, "compressed_bytes", len(payload), "compressed size"
+        props, metadata, digest, payload = self._fetch_verified_artifact(
+            artifact_ref, session=session, budget=budget
         )
-        compressed_bytes = self._metadata_int(
-            props, "file_size_bytes", compressed_bytes, "compressed size"
+        # node_type is unpacked but unused here, pre-existing (also true of
+        # the original inline unpack) -- see _authorize_metadata's docstring.
+        _node_type, tenant_id, policy_version, owner_id, classification, acl = metadata
+        table, media_type, schema_value, shape_value = self._decode_verified_table(
+            payload, props, digest=digest, budget=budget
         )
-        decoded_bytes = self._metadata_int(
-            props, "decoded_bytes", int(table.nbytes), "decoded size"
-        )
-        rows = self._metadata_int(props, "rows", int(table.num_rows), "row count")
-        columns = self._metadata_int(
-            props, "columns", int(table.num_columns), "column count"
-        )
-        depth = self._metadata_int(
-            props, "nesting_depth", _table_depth(table), "nesting depth"
+        compressed_bytes, decoded_bytes, rows, columns, depth = (
+            self._resolved_dimensions(props, payload, table)
         )
         expires_raw = props.get("expires_at_ms", 0)
         legal_hold = props.get("legal_hold", False)
@@ -1048,6 +1404,108 @@ class _GraphNativeDataPrepProvider:
             nesting_depth=depth,
             table=table,
         )
+
+    def _fetch_verified_artifact(
+        self, artifact_ref: str, *, session: GraphSession, budget: PrepBudget
+    ) -> tuple[
+        Mapping[str, Any],
+        tuple[str, str, str, str, DataClassification, ArtifactACL],
+        str,
+        bytes,
+    ]:
+        """Read+authorize the node, then fetch its blob -- one verified scope.
+
+        Native point reads and blob calls must inherit the same verified
+        GraphSession.  In particular, a caller-supplied session may never
+        cause a root-graph client to read another tenant's metadata before
+        the provider's own immutable governance checks run.
+        """
+
+        with self._verified_session_scope(session):
+            scoped_engine = self._scoped_engine(session)
+            props = self._node_properties(artifact_ref, engine=scoped_engine)
+            if not isinstance(props, Mapping):
+                raise ArtifactAuthorityUnavailable(
+                    "native artifact metadata is invalid"
+                )
+            metadata = self._authorize_metadata(props, session=session, budget=budget)
+            digest = _native_digest(
+                props.get("content_digest")
+                or props.get("content_hash")
+                or props.get("digest")
+                or props.get("blob_digest")
+            )
+            payload = self._fetch_blob(
+                digest.removeprefix("sha256:"), engine=scoped_engine
+            )
+            if not isinstance(payload, bytes):
+                raise ArtifactAuthorityUnavailable("native artifact bytes are invalid")
+        return props, metadata, digest, payload
+
+    def _decode_verified_table(
+        self,
+        payload: bytes,
+        props: Mapping[str, Any],
+        *,
+        digest: str,
+        budget: PrepBudget,
+    ) -> tuple[Any, str, str, str]:
+        """Decode the Arrow payload and verify its content/schema/shape digests."""
+
+        if len(payload) > budget.max_compressed_bytes:
+            raise DataPrepToolError(
+                "artifact compressed size exceeds the request budget"
+            )
+        media_type = str(props.get("media_type") or props.get("mime_type") or "")
+        if media_type not in {
+            "application/vnd.apache.arrow.stream",
+            "application/vnd.apache.arrow.file",
+        }:
+            raise DataPrepToolError("artifact media type is not an approved Arrow type")
+        table = self._decode_arrow(payload, media_type=media_type, budget=budget)
+        actual_digest = _sha256_bytes(payload)
+        if actual_digest != digest:
+            raise ArtifactAuthorityUnavailable(
+                "native artifact content fingerprint is invalid"
+            )
+        actual_schema = schema_digest(table)
+        stored_schema = props.get("schema_digest")
+        schema_value = _native_digest(stored_schema) if stored_schema else actual_schema
+        if schema_value != actual_schema:
+            raise DataPrepToolError(
+                "artifact schema fingerprint does not match its content"
+            )
+        actual_shape = _shape_digest(table)
+        stored_shape = props.get("shape_digest")
+        shape_value = _native_digest(stored_shape) if stored_shape else actual_shape
+        if shape_value != actual_shape:
+            raise DataPrepToolError(
+                "artifact shape fingerprint does not match its content"
+            )
+        return table, media_type, schema_value, shape_value
+
+    def _resolved_dimensions(
+        self, props: Mapping[str, Any], payload: bytes, table: Any
+    ) -> tuple[int, int, int, int, int]:
+        """Resolve declared vs. actual size/shape metadata, content wins ties."""
+
+        compressed_bytes = self._metadata_int(
+            props, "compressed_bytes", len(payload), "compressed size"
+        )
+        compressed_bytes = self._metadata_int(
+            props, "file_size_bytes", compressed_bytes, "compressed size"
+        )
+        decoded_bytes = self._metadata_int(
+            props, "decoded_bytes", int(table.nbytes), "decoded size"
+        )
+        rows = self._metadata_int(props, "rows", int(table.num_rows), "row count")
+        columns = self._metadata_int(
+            props, "columns", int(table.num_columns), "column count"
+        )
+        depth = self._metadata_int(
+            props, "nesting_depth", _table_depth(table), "nesting depth"
+        )
+        return compressed_bytes, decoded_bytes, rows, columns, depth
 
     @contextmanager
     def _verified_session_scope(self, session: GraphSession):
@@ -1091,20 +1549,7 @@ class _GraphNativeDataPrepProvider:
         ).strip()
         if not target or (current and target == current):
             return self._engine
-        view_factory = getattr(self._engine, "for_graph", None)
-        if not callable(view_factory):
-            view_factory = getattr(compute, "for_graph", None)
-        if not callable(view_factory):
-            raise ArtifactAuthorityUnavailable(
-                "native graph view is unavailable for the verified session"
-            )
-        try:
-            view = view_factory(target)
-        except Exception as exc:  # noqa: BLE001 - graph routing details stay private
-            raise PermissionError("artifact access is denied") from exc
-        if view is None:
-            raise PermissionError("artifact access is denied")
-        return view
+        return _resolve_graph_view(self._engine, compute, target)
 
     @staticmethod
     def _node_properties(artifact_ref: str, *, engine: Any) -> Mapping[str, Any]:
@@ -1121,53 +1566,27 @@ class _GraphNativeDataPrepProvider:
         backend = getattr(engine, "backend", None)
         point_reader = getattr(backend, "get_node_properties", None)
         if callable(point_reader):
-            try:
-                props = point_reader(artifact_ref)
-            except Exception as exc:  # noqa: BLE001 - absent and denied are one public outcome
-                raise PermissionError("artifact access is denied") from exc
-            if not isinstance(props, Mapping):
-                raise PermissionError("artifact access is denied")
-            return props
-
+            return _node_properties_via_reader(point_reader, artifact_ref)
         execute_read = getattr(backend, "execute_read", None)
         if callable(execute_read):
+            return _node_properties_via_cypher(execute_read, artifact_ref)
+        return _node_properties_via_client(engine, artifact_ref)
+
+    def _resolve_media_store(self, engine: Any, compute: Any) -> Any:
+        """Return the process-owned MediaStore for this engine view, if any."""
+
+        if engine is self._engine and self._media_store is not None:
+            return self._media_store
+        if getattr(compute, "_client", None) is not None:
             try:
-                rows = execute_read(
-                    "MATCH (n) WHERE n.id = $artifact_ref RETURN n LIMIT 1",
-                    {"artifact_ref": artifact_ref},
+                from agent_utilities.knowledge_graph.memory.media_store import (
+                    MediaStore,
                 )
-            except Exception as exc:  # noqa: BLE001 - absent and denied are one public outcome
-                raise PermissionError("artifact access is denied") from exc
-            if not isinstance(rows, list) or not rows:
-                raise PermissionError("artifact access is denied")
-            row = rows[0]
-            props = row.get("n") if isinstance(row, Mapping) else None
-            if not isinstance(props, Mapping):
-                props = row.get("node") if isinstance(row, Mapping) else None
-            if not isinstance(props, Mapping):
-                raise PermissionError("artifact access is denied")
-            return props
-        compute = getattr(engine, "graph_compute", None) or getattr(
-            engine, "graph", None
-        )
-        client = (
-            getattr(compute, "client", None)
-            or getattr(compute, "_client", None)
-            or getattr(engine, "client", None)
-        )
-        nodes = getattr(client, "nodes", None)
-        properties = getattr(nodes, "properties", None)
-        if not callable(properties):
-            raise ArtifactAuthorityUnavailable(
-                "native graph point-read authority is unavailable"
-            )
-        try:
-            props = properties(artifact_ref)
-        except Exception as exc:  # noqa: BLE001 - hide graph existence details
-            raise PermissionError("artifact access is denied") from exc
-        if not isinstance(props, Mapping):
-            raise PermissionError("artifact access is denied")
-        return props
+
+                return MediaStore(compute)
+            except Exception:  # pragma: no cover - diagnosed as unavailable below
+                return None
+        return None
 
     def _fetch_blob(self, digest: str, *, engine: Any) -> bytes | None:
         """Fetch bytes through the scoped native content-addressed authority."""
@@ -1175,33 +1594,11 @@ class _GraphNativeDataPrepProvider:
         compute = getattr(engine, "graph_compute", None) or getattr(
             engine, "graph", None
         )
-        media_store = None
-        if engine is self._engine and self._media_store is not None:
-            media_store = self._media_store
-        elif getattr(compute, "_client", None) is not None:
-            try:
-                from agent_utilities.knowledge_graph.memory.media_store import (
-                    MediaStore,
-                )
-
-                media_store = MediaStore(compute)
-            except Exception:  # pragma: no cover - diagnosed as unavailable below
-                media_store = None
+        media_store = self._resolve_media_store(engine, compute)
         try:
             if media_store is not None:
                 return media_store.fetch_bytes(digest)
-            client = (
-                getattr(compute, "client", None)
-                or getattr(compute, "_client", None)
-                or getattr(engine, "client", None)
-            )
-            blob = getattr(client, "blob", None)
-            fetch = getattr(blob, "fetch", None)
-            if not callable(fetch):
-                raise ArtifactAuthorityUnavailable(
-                    "native artifact blob authority is unavailable"
-                )
-            return fetch(digest)
+            return _fetch_blob_via_client(compute, engine, digest)
         except ArtifactAuthorityUnavailable:
             raise
         except Exception as exc:  # noqa: BLE001 - native dependency details stay private
@@ -1218,123 +1615,19 @@ class _GraphNativeDataPrepProvider:
     ) -> tuple[str, str, str, str, DataClassification, ArtifactACL]:
         """Validate every access fact before touching native blob bytes."""
 
-        node_type_raw = props.get("node_type")
-        if node_type_raw is None:
-            node_type_raw = props.get("type")
-        if not isinstance(node_type_raw, str):
-            raise DataPrepToolError("native artifact type authority is unavailable")
-        node_type = node_type_raw
-        if node_type not in {"AssetOccurrence", "Artifact"}:
-            raise DataPrepToolError(
-                "artifact reference is not a governed tabular artifact"
-            )
-        tenant_raw = props.get("tenant_id")
-        if tenant_raw is None:
-            tenant_raw = props.get("tenant")
-        policy_raw = props.get("policy_version")
-        if not isinstance(tenant_raw, str) or not isinstance(policy_raw, str):
-            raise ArtifactAuthorityUnavailable(
-                "native artifact tenant or policy authority is unavailable"
-            )
-        tenant_id = tenant_raw
-        policy_version = policy_raw
-        if not tenant_id or not policy_version:
-            raise ArtifactAuthorityUnavailable(
-                "native artifact tenant or policy authority is unavailable"
-            )
-        if tenant_id != session.tenant:
-            raise PermissionError("artifact access is denied")
-        if policy_version != str(session.policy_version or ""):
-            raise PermissionError("artifact access is denied")
-        expires_raw = props.get("expires_at_ms", 0)
-        if isinstance(expires_raw, bool) or not isinstance(expires_raw, int):
-            raise DataPrepToolError("native artifact expiry is invalid")
-        if expires_raw and int(time.time() * 1000) >= expires_raw:
-            raise PermissionError("artifact access is denied")
-        legal_hold = props.get("legal_hold", False)
-        if not isinstance(legal_hold, bool):
-            raise DataPrepToolError("native artifact legal-hold policy is invalid")
-        owner_raw = props.get("_owner_id")
-        if owner_raw is None:
-            owner_raw = props.get("owner")
-        if owner_raw is not None and not isinstance(owner_raw, str):
-            raise DataPrepToolError("native artifact owner authority is invalid")
-        owner_id = owner_raw or ""
-        classification_raw = props.get("classification")
-        try:
-            if isinstance(classification_raw, DataClassification):
-                classification = classification_raw
-            elif isinstance(classification_raw, str):
-                classification = DataClassification(classification_raw)
-            else:
-                raise TypeError(
-                    "native artifact classification must be str or DataClassification"
-                )
-        except (TypeError, ValueError) as exc:
-            raise DataPrepToolError(
-                "native artifact classification authority is unavailable"
-            ) from exc
-        if props.get("retention") is not None and not isinstance(
-            props["retention"], str
-        ):
-            raise DataPrepToolError("native artifact retention policy is invalid")
-        acl = _native_acl(props, owner_id=owner_id)
-        if classification is DataClassification.PUBLIC and not acl.is_public:
-            raise DataPrepToolError("public classification lacks a public ACL proof")
-        if acl.is_public and classification is not DataClassification.PUBLIC:
-            raise DataPrepToolError("public ACL lacks a matching public classification")
-        actor_id = str(getattr(session.actor, "actor_id", "") or "")
-        roles = {str(role) for role in getattr(session.actor, "roles", ()) or ()}
-        groups = {str(group) for group in getattr(session.actor, "groups", ()) or ()}
-        if not (
-            acl.is_public
-            or actor_id == owner_id
-            or actor_id in acl.principal_ids
-            or groups.intersection(acl.group_ids)
-            or roles.intersection(acl.roles)
-        ):
-            raise PermissionError("artifact access is denied")
-        _native_digest(
-            props.get("content_digest")
-            or props.get("content_hash")
-            or props.get("digest")
-            or props.get("blob_digest")
-        )
-        media_type_raw = props.get("media_type")
-        if media_type_raw is None:
-            media_type_raw = props.get("mime_type")
-        if not isinstance(media_type_raw, str):
-            raise DataPrepToolError("native artifact media type is invalid")
-        media_type = media_type_raw
-        if media_type not in {
-            "application/vnd.apache.arrow.stream",
-            "application/vnd.apache.arrow.file",
-        }:
-            raise DataPrepToolError("artifact media type is not an approved Arrow type")
-        for key, limit, label in (
-            ("compressed_bytes", budget.max_compressed_bytes, "compressed size"),
-            ("file_size_bytes", budget.max_compressed_bytes, "compressed size"),
-            ("decoded_bytes", budget.max_decoded_bytes, "decoded size"),
-            ("rows", budget.max_rows, "row count"),
-            ("columns", budget.max_columns, "column count"),
-            ("nesting_depth", budget.max_depth, "nesting depth"),
-        ):
-            value = props.get(key)
-            if value is not None and (
-                isinstance(value, bool)
-                or not isinstance(value, int)
-                or value < 0
-                or value > limit
-            ):
-                raise DataPrepToolError(f"artifact {label} exceeds the request budget")
-        if props.get("schema_digest") is not None:
-            _native_digest(props["schema_digest"])
-        if props.get("shape_digest") is not None:
-            _native_digest(props["shape_digest"])
-        if props.get("schema_ref") is not None:
-            _native_ref(props["schema_ref"], fallback="schema:unused")
-        if props.get("shape_ref") is not None:
-            _native_ref(props["shape_ref"], fallback="shape:unused")
+        node_type = _metadata_node_type(props)
+        tenant_id, policy_version = _metadata_tenant_policy(props, session=session)
+        _metadata_expiry_ok(props)
+        _metadata_legal_hold_ok(props)
+        owner_id = _metadata_owner(props)
+        classification = _metadata_classification(props)
+        _metadata_retention_ok(props)
+        acl = _metadata_acl(props, owner_id=owner_id, classification=classification)
+        _metadata_access_check(session, acl=acl, owner_id=owner_id)
+        _metadata_content_digest_present(props)
+        _metadata_media_type_ok(props)
+        _metadata_budget_limits(props, budget=budget)
+        _metadata_digest_refs(props)
         return node_type, tenant_id, policy_version, owner_id, classification, acl
 
     @staticmethod
@@ -1388,35 +1681,9 @@ class _GraphNativeDataPrepProvider:
             raise ArtifactAuthorityUnavailable(
                 "server-owned inline records governance policy is unavailable"
             )
-        try:
-            import pyarrow as pa
-
-            table = pa.Table.from_pylist(records)
-        except Exception as exc:  # noqa: BLE001 - normalize Arrow dependency errors
-            raise DataPrepToolError(
-                "inline records cannot be converted to Arrow"
-            ) from exc
-        if table.num_rows > budget.max_rows or table.num_columns > budget.max_columns:
-            raise DataPrepToolError("inline records exceed the request budget")
-        output_bytes = _canonical_arrow_bytes(table)
-        if len(output_bytes) > budget.max_compressed_bytes:
-            raise DataPrepToolError("inline records exceed the compressed byte budget")
-        if table.nbytes > budget.max_decoded_bytes:
-            raise DataPrepToolError("inline records exceed the decoded byte budget")
-        tenant_id = str(policy.get("tenant_id") or "")
-        policy_version = str(policy.get("policy_version") or "")
-        if tenant_id != session.tenant or policy_version != str(
-            session.policy_version or ""
-        ):
-            raise PermissionError("inline records policy is not bound to the session")
-        classification_raw = policy.get("classification")
-        try:
-            classification = DataClassification(str(classification_raw))
-            acl = ArtifactACL.from_value(policy.get("acl"))
-        except (DataPrepToolError, ValueError) as exc:
-            raise ArtifactAuthorityUnavailable(
-                "server-owned inline records governance policy is invalid"
-            ) from exc
+        table, output_bytes = _inline_records_table(records, budget=budget)
+        tenant_id, policy_version = _inline_policy_identity(policy, session=session)
+        classification, acl = _inline_policy_governance(policy)
         output_digest = _sha256_bytes(output_bytes)
         schema_value = schema_digest(table)
         shape_value = _shape_digest(table)
@@ -1610,28 +1877,38 @@ def register_data_prep_authority(
     _AUTHORITY_FACTORY = factory or _process_authority_factory
 
 
+def _validate_inline_field(key: Any, value: Any) -> None:
+    """Validate one inline record field's name/value shape."""
+
+    if not isinstance(key, str) or not key or len(key) > 128:
+        raise ValueError("inline record field names are invalid")
+    if value is not None and not isinstance(value, (bool, int, float, str)):
+        raise ValueError("inline records accept scalar values only")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError("inline records require finite numeric values")
+    if isinstance(value, str) and len(value.encode("utf-8")) > _MAX_INLINE_CELL_BYTES:
+        raise ValueError("inline record cell exceeds the bounded size")
+
+
+def _validate_inline_row(row_index: int, row: Any) -> set[str]:
+    """Validate one inline record row's shape/fields; return its field names."""
+
+    if not isinstance(row, Mapping):
+        raise ValueError(f"inline record {row_index} is not an object")
+    if len(row) > _MAX_INLINE_COLUMNS:
+        raise ValueError("inline records exceed the bounded column limit")
+    names = {str(key) for key in row}
+    for key, value in row.items():
+        _validate_inline_field(key, value)
+    return names
+
+
 def _validate_inline_records(records: Sequence[Mapping[str, Any]]) -> None:
     if len(records) > _MAX_INLINE_ROWS:
         raise ValueError("inline records exceed the bounded row limit")
     names: set[str] = set()
     for row_index, row in enumerate(records):
-        if not isinstance(row, Mapping):
-            raise ValueError(f"inline record {row_index} is not an object")
-        if len(row) > _MAX_INLINE_COLUMNS:
-            raise ValueError("inline records exceed the bounded column limit")
-        names.update(str(key) for key in row)
-        for key, value in row.items():
-            if not isinstance(key, str) or not key or len(key) > 128:
-                raise ValueError("inline record field names are invalid")
-            if value is not None and not isinstance(value, (bool, int, float, str)):
-                raise ValueError("inline records accept scalar values only")
-            if isinstance(value, float) and not math.isfinite(value):
-                raise ValueError("inline records require finite numeric values")
-            if (
-                isinstance(value, str)
-                and len(value.encode("utf-8")) > _MAX_INLINE_CELL_BYTES
-            ):
-                raise ValueError("inline record cell exceeds the bounded size")
+        names.update(_validate_inline_row(row_index, row))
     if len(names) > _MAX_INLINE_COLUMNS:
         raise ValueError("inline records exceed the bounded column limit")
     try:
@@ -1696,29 +1973,38 @@ _CLASSIFICATION_RANK = {
 }
 
 
-def _require_governance_not_weaker(
+def _require_classification_not_weaker(
     source: ResolvedArtifact, output: ResolvedArtifact
 ) -> None:
-    """Ensure a prepared artifact cannot broaden or shorten source authority."""
-
     if (
         _CLASSIFICATION_RANK[output.classification]
         < _CLASSIFICATION_RANK[source.classification]
     ):
         raise DataPrepToolError("prepared classification would downgrade source policy")
+
+
+def _require_acl_not_broader(
+    source: ResolvedArtifact, output: ResolvedArtifact
+) -> None:
     if not source.acl.is_public and output.acl.is_public:
         raise DataPrepToolError("prepared ACL would broaden source visibility")
-    if not source.acl.is_public:
-        if not set(output.acl.principal_ids).issubset(source.acl.principal_ids):
-            raise DataPrepToolError("prepared principal ACL is broader than source")
-        if not set(output.acl.principal_emails).issubset(source.acl.principal_emails):
-            raise DataPrepToolError("prepared email ACL is broader than source")
-        if not set(output.acl.group_ids).issubset(source.acl.group_ids):
-            raise DataPrepToolError("prepared group ACL is broader than source")
-        if not set(output.acl.roles).issubset(source.acl.roles):
-            raise DataPrepToolError("prepared role ACL is broader than source")
-        if not set(output.acl.markings).issubset(source.acl.markings):
-            raise DataPrepToolError("prepared markings ACL is broader than source")
+    if source.acl.is_public:
+        return
+    if not set(output.acl.principal_ids).issubset(source.acl.principal_ids):
+        raise DataPrepToolError("prepared principal ACL is broader than source")
+    if not set(output.acl.principal_emails).issubset(source.acl.principal_emails):
+        raise DataPrepToolError("prepared email ACL is broader than source")
+    if not set(output.acl.group_ids).issubset(source.acl.group_ids):
+        raise DataPrepToolError("prepared group ACL is broader than source")
+    if not set(output.acl.roles).issubset(source.acl.roles):
+        raise DataPrepToolError("prepared role ACL is broader than source")
+    if not set(output.acl.markings).issubset(source.acl.markings):
+        raise DataPrepToolError("prepared markings ACL is broader than source")
+
+
+def _require_retention_not_weaker(
+    source: ResolvedArtifact, output: ResolvedArtifact
+) -> None:
     if source.expires_at_ms and (
         not output.expires_at_ms or output.expires_at_ms > source.expires_at_ms
     ):
@@ -1727,21 +2013,29 @@ def _require_governance_not_weaker(
         raise DataPrepToolError("prepared retention policy is not preserved")
     if source.legal_hold and not output.legal_hold:
         raise DataPrepToolError("prepared legal hold cannot be cleared")
+
+
+def _require_policy_version_preserved(
+    source: ResolvedArtifact, output: ResolvedArtifact
+) -> None:
     if not output.policy_version:
         raise DataPrepToolError("prepared policy version is missing")
     if output.policy_version != source.policy_version:
         raise DataPrepToolError("prepared policy version is not preserved")
 
 
-def _require_artifact_access(
-    artifact: ResolvedArtifact,
-    *,
-    request: PrepRequest,
-    session: GraphSession,
-    now_ms: int,
-    match_input_shape: bool = True,
+def _require_governance_not_weaker(
+    source: ResolvedArtifact, output: ResolvedArtifact
 ) -> None:
-    actor = session.actor
+    """Ensure a prepared artifact cannot broaden or shorten source authority."""
+
+    _require_classification_not_weaker(source, output)
+    _require_acl_not_broader(source, output)
+    _require_retention_not_weaker(source, output)
+    _require_policy_version_preserved(source, output)
+
+
+def _require_classification_shape(artifact: ResolvedArtifact) -> None:
     if not isinstance(artifact.classification, DataClassification):
         raise DataPrepToolError("artifact classification proof is unavailable")
     if not artifact.policy_version:
@@ -1756,35 +2050,54 @@ def _require_artifact_access(
         and artifact.classification is not DataClassification.PUBLIC
     ):
         raise DataPrepToolError("public ACL lacks a matching public classification")
+
+
+def _require_content_digest_shape(artifact: ResolvedArtifact) -> None:
     if (
         not isinstance(artifact.content_digest, str)
         or not artifact.content_digest.startswith("sha256:")
         or len(artifact.content_digest) != len("sha256:") + 64
     ):
         raise DataPrepToolError("artifact content fingerprint proof is unavailable")
+
+
+def _require_artifact_acl_principal_shape(artifact: ResolvedArtifact) -> None:
     if any("@" in item for item in artifact.acl.principal_ids):
         raise DataPrepToolError("principal IDs must not be treated as email ACLs")
     if any("@" not in item for item in artifact.acl.principal_emails):
         raise DataPrepToolError("artifact user email ACL proof is unavailable")
+
+
+def _require_tenant_and_expiry(
+    artifact: ResolvedArtifact, *, session: GraphSession, now_ms: int
+) -> None:
     if artifact.tenant_id != session.tenant:
         raise PermissionError("artifact tenant authority does not match the session")
     if artifact.expires_at_ms < 0 or (
         artifact.expires_at_ms and now_ms >= artifact.expires_at_ms
     ):
         raise PermissionError("artifact access has expired")
-    actor_id = str(getattr(actor, "actor_id", "") or "")
-    roles = {str(role) for role in getattr(actor, "roles", ()) or ()}
-    groups = {str(group) for group in getattr(actor, "groups", ()) or ()}
-    if not (
-        artifact.acl.is_public
-        or actor_id == artifact.owner_id
-        or actor_id in artifact.acl.principal_ids
-        or groups.intersection(artifact.acl.group_ids)
-        or roles.intersection(artifact.acl.roles)
+
+
+def _require_artifact_acl_grants_access(
+    artifact: ResolvedArtifact, *, session: GraphSession
+) -> None:
+    actor_id, roles, groups = _session_actor_identity(session)
+    if not _acl_grants_access(
+        artifact.acl,
+        actor_id=actor_id,
+        roles=roles,
+        groups=groups,
+        owner_id=artifact.owner_id,
     ):
         raise PermissionError(
             "artifact ACL does not grant the current principal access"
         )
+
+
+def _require_shape_matches_request(
+    artifact: ResolvedArtifact, request: PrepRequest, *, match_input_shape: bool
+) -> None:
     if match_input_shape and (
         artifact.schema_ref != request.schema_ref
         or artifact.schema_digest != request.schema_digest
@@ -1795,13 +2108,20 @@ def _require_artifact_access(
         or artifact.shape_digest != request.shape_digest
     ):
         raise DataPrepToolError("artifact shape is not the approved immutable shape")
+
+
+def _require_artifact_absolute_bounds(artifact: ResolvedArtifact) -> None:
     if artifact.compressed_bytes < 0 or artifact.compressed_bytes > _MAX_ARTIFACT_BYTES:
         raise DataPrepToolError(
             "artifact compressed size is outside the governed bound"
         )
     if artifact.decoded_bytes < 0 or artifact.decoded_bytes > _MAX_ARTIFACT_BYTES:
         raise DataPrepToolError("artifact decoded size is outside the governed bound")
-    budget = request.budget
+
+
+def _require_artifact_budget_bounds(
+    artifact: ResolvedArtifact, *, budget: PrepBudget
+) -> None:
     if artifact.compressed_bytes > budget.max_compressed_bytes:
         raise DataPrepToolError("artifact compressed size exceeds the request budget")
     if artifact.decoded_bytes > budget.max_decoded_bytes:
@@ -1812,11 +2132,26 @@ def _require_artifact_access(
         raise DataPrepToolError("artifact column count exceeds the request budget")
     if artifact.nesting_depth < 0 or artifact.nesting_depth > budget.max_depth:
         raise DataPrepToolError("artifact nesting depth exceeds the request budget")
+
+
+def _require_artifact_size_bounds(
+    artifact: ResolvedArtifact, *, budget: PrepBudget
+) -> None:
+    _require_artifact_absolute_bounds(artifact)
+    _require_artifact_budget_bounds(artifact, budget=budget)
+
+
+def _require_artifact_media_type_ok(artifact: ResolvedArtifact) -> None:
     if artifact.media_type not in {
         "application/vnd.apache.arrow.stream",
         "application/vnd.apache.arrow.file",
     }:
         raise DataPrepToolError("artifact media type is not an approved Arrow type")
+
+
+def _require_content_matches_metadata(
+    artifact: ResolvedArtifact, *, budget: PrepBudget
+) -> None:
     ArrowAdapter.as_table(
         artifact.table,
         profile=LocalProfile(
@@ -1845,6 +2180,28 @@ def _require_artifact_access(
         raise DataPrepToolError(
             "artifact content nesting depth exceeds the request budget"
         )
+
+
+def _require_artifact_access(
+    artifact: ResolvedArtifact,
+    *,
+    request: PrepRequest,
+    session: GraphSession,
+    now_ms: int,
+    match_input_shape: bool = True,
+) -> None:
+    _require_classification_shape(artifact)
+    _require_content_digest_shape(artifact)
+    _require_artifact_acl_principal_shape(artifact)
+    _require_tenant_and_expiry(artifact, session=session, now_ms=now_ms)
+    _require_artifact_acl_grants_access(artifact, session=session)
+    _require_shape_matches_request(
+        artifact, request, match_input_shape=match_input_shape
+    )
+    budget = request.budget
+    _require_artifact_size_bounds(artifact, budget=budget)
+    _require_artifact_media_type_ok(artifact)
+    _require_content_matches_metadata(artifact, budget=budget)
 
 
 def _require_table_bounds(table: Any, *, budget: PrepBudget) -> None:
@@ -2170,6 +2527,173 @@ class _NativeDataPrepAuthority:
             raise NativeCommitUnavailable("native blob compensation failed") from exc
 
 
+def _validate_plan_shape(payload: Mapping[str, Any]) -> tuple[PrepRequest, CleanPlan]:
+    """Typed-validate the request payload and its embedded plan."""
+
+    try:
+        request = PrepRequest.model_validate(payload)
+        if len(_canonical_json(request.plan)) > _MAX_PLAN_BYTES:
+            raise DataPrepToolError("plan exceeds the bounded request size")
+        plan = CleanPlan.model_validate(request.plan)
+    except (ValidationError, ValueError, TypeError) as exc:
+        raise DataPrepToolError("data-prep request failed its typed plan gate") from exc
+    return request, plan
+
+
+def _require_plan_matches_request(plan: CleanPlan, request: PrepRequest) -> None:
+    """Bind the immutable plan's own refs/digests to the approved request."""
+
+    if plan.plan_ref != request.plan_ref or plan.model_ref != request.model_ref:
+        raise DataPrepToolError("plan references do not match the approved request")
+    if plan.artifact_ref is not None and plan.artifact_ref != request.artifact_ref:
+        raise DataPrepToolError("plan artifact reference is not approved")
+    if plan.source_ref is not None and plan.source_ref != request.artifact_ref:
+        raise DataPrepToolError("plan source reference is not approved")
+    from agent_utilities.data_prep import plan_digest
+
+    if plan_digest(plan) != request.plan_digest:
+        raise DataPrepToolError("plan digest does not match the immutable plan")
+    if plan.model_digest != request.model_digest:
+        raise DataPrepToolError("model digest must be pinned in the immutable plan")
+
+
+def _resolve_operation(action: str) -> DataPrepAction:
+    try:
+        return DataPrepAction(action.strip().lower())
+    except (AttributeError, ValueError) as exc:
+        raise DataPrepToolError("unknown data-prep action") from exc
+
+
+def _require_approvals_match_receipt(
+    request: PrepRequest, receipt: PreparedReceipt, approvals: tuple[Any, Any, Any, Any]
+) -> None:
+    if not all(value is not None for value in approvals):
+        return
+    if (
+        request.expected_output_schema_ref != receipt.output_schema_ref
+        or request.expected_output_schema_digest != receipt.output_schema_digest
+        or request.expected_output_shape_ref != receipt.output_shape_ref
+        or request.expected_output_shape_digest != receipt.output_shape_digest
+    ):
+        raise DataPrepToolError("prepared output schema or shape is not approved")
+
+
+def _check_approvals(
+    request: PrepRequest, receipt: PreparedReceipt
+) -> tuple[Any, Any, Any, Any]:
+    """Validate the caller's output schema/shape approvals, if any are given.
+
+    Returns the four-tuple so the caller can require it complete for commit.
+    """
+
+    approvals = (
+        request.expected_output_schema_ref,
+        request.expected_output_schema_digest,
+        request.expected_output_shape_ref,
+        request.expected_output_shape_digest,
+    )
+    if any(value is not None for value in approvals) and not all(
+        value is not None for value in approvals
+    ):
+        raise DataPrepToolError("output schema and shape approvals must be complete")
+    _require_approvals_match_receipt(request, receipt, approvals)
+    return approvals
+    return approvals
+
+
+@dataclass(slots=True)
+class _PipelineOutput:
+    """Everything ``execute`` needs from one CleanPipeline.run + governance call."""
+
+    result: Any  # data_prep.CleanResult
+    output_governance: ResolvedArtifact
+    output_schema_ref: str
+    output_schema_digest: str
+    output_shape_ref: str
+    output_shape_digest: str
+    output_content_digest: str
+
+
+@dataclass(slots=True)
+class _CommitContext:
+    """Everything the commit_prepared path needs, bundled to stay under the
+    clippy/param-count cap on the functions it is threaded through."""
+
+    operation: DataPrepAction
+    plan: CleanPlan
+    prep: _PipelineOutput
+    receipt: PreparedReceipt
+    prepared_ref: str
+    request: PrepRequest
+    session: GraphSession
+
+
+def _build_change_envelope(
+    ctx: _CommitContext, *, stored_digest: str, output_bytes: bytes
+) -> ChangeEnvelope:
+    """Build the native ChangeEnvelope for a governed commit_prepared write."""
+
+    result = ctx.prep.result
+    output_governance = ctx.prep.output_governance
+    receipt = ctx.receipt
+    plan = ctx.plan
+    request = ctx.request
+    session = ctx.session
+    evidence_payload, evidence_digest = _evidence_payload(result.evidence)
+    object_id = f"prepared:{receipt.output_content_digest.removeprefix('sha256:')}"
+    return ChangeEnvelope(
+        connector="data-prep",
+        operation="upsert",
+        tenant=session.tenant,
+        source_instance="data-prep",
+        source_object_id=object_id,
+        source_version=receipt.output_content_digest,
+        payload_type="AssetOccurrence",
+        blob_ref=stored_digest,
+        blob_digest=stored_digest,
+        blob_length=len(output_bytes),
+        blob_media_type="application/vnd.apache.arrow.stream",
+        source_acl=ExternalAccess(
+            is_public=output_governance.acl.is_public,
+            user_emails=list(output_governance.acl.principal_emails),
+            group_ids=list(output_governance.acl.group_ids),
+            read_roles=list(output_governance.acl.roles),
+            markings=list(output_governance.acl.markings),
+        ),
+        classification=output_governance.classification,
+        retention=output_governance.retention,
+        legal_hold=output_governance.legal_hold,
+        provenance={
+            "plan_ref": plan.plan_ref,
+            "plan_digest": result.evidence.plan_digest,
+            "model_ref": plan.model_ref,
+            "model_digest": result.evidence.model_digest,
+            "input_schema_ref": request.schema_ref,
+            "input_schema_digest": request.schema_digest,
+            "input_shape_ref": request.shape_ref,
+            "input_shape_digest": request.shape_digest,
+            "output_schema_ref": receipt.output_schema_ref,
+            "output_schema_digest": receipt.output_schema_digest,
+            "output_shape_ref": receipt.output_shape_ref,
+            "output_shape_digest": receipt.output_shape_digest,
+            "output_content_digest": receipt.output_content_digest,
+            "output_media_type": "application/vnd.apache.arrow.stream",
+            "input_content_digest": receipt.input_content_digest,
+            "policy_version": output_governance.policy_version,
+            "acl_principal_ids": list(output_governance.acl.principal_ids),
+            "acl_principal_emails": list(output_governance.acl.principal_emails),
+            "acl_group_ids": list(output_governance.acl.group_ids),
+            "acl_read_roles": list(output_governance.acl.roles),
+            "acl_markings": list(output_governance.acl.markings),
+            "prepared_receipt_digest": _sha256_bytes(ctx.prepared_ref.encode("utf-8")),
+            "prep_evidence": evidence_payload,
+            "prep_evidence_digest": evidence_digest,
+        },
+        structured_evidence=evidence_payload,
+        trace_context=session.trace_context,
+    )
+
+
 class DataPrepService:
     """Thin governed adapter that delegates all data work to NE-108."""
 
@@ -2183,27 +2707,8 @@ class DataPrepService:
         self._clock_ms = clock_ms or (lambda: int(time.time() * 1000))
 
     def _request(self, payload: Mapping[str, Any]) -> PrepRequest:
-        try:
-            request = PrepRequest.model_validate(payload)
-            if len(_canonical_json(request.plan)) > _MAX_PLAN_BYTES:
-                raise DataPrepToolError("plan exceeds the bounded request size")
-            plan = CleanPlan.model_validate(request.plan)
-        except (ValidationError, ValueError, TypeError) as exc:
-            raise DataPrepToolError(
-                "data-prep request failed its typed plan gate"
-            ) from exc
-        if plan.plan_ref != request.plan_ref or plan.model_ref != request.model_ref:
-            raise DataPrepToolError("plan references do not match the approved request")
-        if plan.artifact_ref is not None and plan.artifact_ref != request.artifact_ref:
-            raise DataPrepToolError("plan artifact reference is not approved")
-        if plan.source_ref is not None and plan.source_ref != request.artifact_ref:
-            raise DataPrepToolError("plan source reference is not approved")
-        from agent_utilities.data_prep import plan_digest
-
-        if plan_digest(plan) != request.plan_digest:
-            raise DataPrepToolError("plan digest does not match the immutable plan")
-        if plan.model_digest != request.model_digest:
-            raise DataPrepToolError("model digest must be pinned in the immutable plan")
+        request, plan = _validate_plan_shape(payload)
+        _require_plan_matches_request(plan, request)
         return request
 
     def _input(
@@ -2290,39 +2795,33 @@ class DataPrepService:
         payload, digest = _evidence_payload(evidence)
         return {**payload, "evidence_digest": digest}
 
-    def execute(
+    def _execute_profile(
         self,
-        action: str,
-        payload: Mapping[str, Any],
-        *,
-        session: GraphSession,
+        operation: DataPrepAction,
+        pipeline: CleanPipeline,
+        artifact: ResolvedArtifact,
+        deadline: float,
     ) -> dict[str, Any]:
-        try:
-            operation = DataPrepAction(action.strip().lower())
-        except (AttributeError, ValueError) as exc:
-            raise DataPrepToolError("unknown data-prep action") from exc
-        session.require_scope(
-            "kg:write" if operation is DataPrepAction.COMMIT else "kg:read"
-        )
-        request = self._request(payload)
-        deadline = time.monotonic() + request.budget.max_wall_time_ms / 1000
-        artifact, plan, registry = self._input(
-            request,
-            session=session,
-            deadline=deadline,
-        )
-        pipeline = CleanPipeline(plan, model_registry=registry)
+        profile: ProfileResult = pipeline.profile(artifact.table)
+        _check_cancel(deadline)
+        return {
+            "surface": "data_prep",
+            "action": operation.value,
+            "artifact": self._public_artifact(artifact),
+            "profile": profile.model_dump(mode="json"),
+            "side_effects": [],
+        }
 
-        if operation is DataPrepAction.PROFILE:
-            profile: ProfileResult = pipeline.profile(artifact.table)
-            _check_cancel(deadline)
-            return {
-                "surface": "data_prep",
-                "action": operation.value,
-                "artifact": self._public_artifact(artifact),
-                "profile": profile.model_dump(mode="json"),
-                "side_effects": [],
-            }
+    def _run_pipeline(
+        self,
+        pipeline: CleanPipeline,
+        artifact: ResolvedArtifact,
+        *,
+        request: PrepRequest,
+        session: GraphSession,
+        deadline: float,
+    ) -> _PipelineOutput:
+        """Run the clean pipeline and resolve+verify its output governance."""
 
         result = pipeline.run(artifact.table)
         _require_table_bounds(result.table, budget=request.budget)
@@ -2370,6 +2869,26 @@ class DataPrepService:
                 "output governance does not bind the deterministic content"
             )
         _require_governance_not_weaker(artifact, output_governance)
+        return _PipelineOutput(
+            result=result,
+            output_governance=output_governance,
+            output_schema_ref=output_schema_ref,
+            output_schema_digest=output_schema_digest,
+            output_shape_ref=output_shape_ref,
+            output_shape_digest=output_shape_digest,
+            output_content_digest=output_content_digest,
+        )
+
+    def _resolve_receipt(
+        self,
+        operation: DataPrepAction,
+        artifact: ResolvedArtifact,
+        prep: _PipelineOutput,
+        request: PrepRequest,
+        *,
+        session: GraphSession,
+    ) -> tuple[PreparedReceipt, str]:
+        result = prep.result
         if operation is DataPrepAction.CLEAN:
             receipt = self._authority.preview_ref(
                 artifact,
@@ -2408,75 +2927,62 @@ class DataPrepService:
             raise DataPrepToolError(
                 "prepared receipt exceeds the bounded reference size"
             )
-        if operation is DataPrepAction.CLEAN:
-            output_shape_ref = receipt.output_shape_ref
-            output_shape_digest = receipt.output_shape_digest
-            return {
-                "surface": "data_prep",
-                "action": operation.value,
-                "input_artifact": self._public_artifact(artifact),
-                "prepared_artifact_ref": prepared_ref,
-                "output_schema_ref": receipt.output_schema_ref,
-                "output_schema_digest": receipt.output_schema_digest,
-                "output_shape_ref": output_shape_ref,
-                "output_shape_digest": output_shape_digest,
-                "output_content_digest": receipt.output_content_digest,
-                "evidence": self._public_evidence(result.evidence),
-                "side_effects": [],
-            }
+        return receipt, prepared_ref
 
-        approvals = (
-            request.expected_output_schema_ref,
-            request.expected_output_schema_digest,
-            request.expected_output_shape_ref,
-            request.expected_output_shape_digest,
-        )
-        if any(value is not None for value in approvals) and not all(
-            value is not None for value in approvals
-        ):
-            raise DataPrepToolError(
-                "output schema and shape approvals must be complete"
-            )
-        if all(value is not None for value in approvals):
-            if (
-                request.expected_output_schema_ref != receipt.output_schema_ref
-                or request.expected_output_schema_digest != receipt.output_schema_digest
-                or request.expected_output_shape_ref != receipt.output_shape_ref
-                or request.expected_output_shape_digest != receipt.output_shape_digest
-            ):
-                raise DataPrepToolError(
-                    "prepared output schema or shape is not approved"
-                )
+    def _clean_response(
+        self,
+        operation: DataPrepAction,
+        artifact: ResolvedArtifact,
+        prepared_ref: str,
+        receipt: PreparedReceipt,
+        prep: _PipelineOutput,
+    ) -> dict[str, Any]:
+        return {
+            "surface": "data_prep",
+            "action": operation.value,
+            "input_artifact": self._public_artifact(artifact),
+            "prepared_artifact_ref": prepared_ref,
+            "output_schema_ref": receipt.output_schema_ref,
+            "output_schema_digest": receipt.output_schema_digest,
+            "output_shape_ref": receipt.output_shape_ref,
+            "output_shape_digest": receipt.output_shape_digest,
+            "output_content_digest": receipt.output_content_digest,
+            "evidence": self._public_evidence(prep.result.evidence),
+            "side_effects": [],
+        }
 
-        if operation is DataPrepAction.VALIDATE:
-            return {
-                "surface": "data_prep",
-                "action": operation.value,
-                "prepared_artifact_ref": prepared_ref,
-                "output_schema_ref": receipt.output_schema_ref,
-                "output_schema_digest": receipt.output_schema_digest,
-                "output_shape_ref": receipt.output_shape_ref,
-                "output_shape_digest": receipt.output_shape_digest,
-                "output_content_digest": receipt.output_content_digest,
-                "valid": result.evidence.checkpoint_eligible,
-                "evidence": self._public_evidence(result.evidence),
-                "side_effects": [],
-            }
+    def _validate_response(
+        self,
+        operation: DataPrepAction,
+        prepared_ref: str,
+        receipt: PreparedReceipt,
+        prep: _PipelineOutput,
+    ) -> dict[str, Any]:
+        return {
+            "surface": "data_prep",
+            "action": operation.value,
+            "prepared_artifact_ref": prepared_ref,
+            "output_schema_ref": receipt.output_schema_ref,
+            "output_schema_digest": receipt.output_schema_digest,
+            "output_shape_ref": receipt.output_shape_ref,
+            "output_shape_digest": receipt.output_shape_digest,
+            "output_content_digest": receipt.output_content_digest,
+            "valid": prep.result.evidence.checkpoint_eligible,
+            "evidence": self._public_evidence(prep.result.evidence),
+            "side_effects": [],
+        }
 
-        if not result.evidence.checkpoint_eligible:
-            raise DataPrepToolError("quarantined preparation cannot be committed")
-        if not all(value is not None for value in approvals):
-            raise DataPrepToolError(
-                "approved output schema and shape refs/digests are required for commit"
-            )
-        _check_cancel(deadline)
+    def _require_commit_capability(self, *, session: GraphSession) -> None:
         if not self._authority.native_atomic_available(session=session):
             raise NativeCommitUnavailable(
                 "native atomic commit capability is unavailable"
             )
         if not self._authority.icv_policy_available(session=session):
             raise NativeCommitUnavailable("required ICV policy is unavailable")
-        output_bytes = _canonical_arrow_bytes(result.table)
+
+    def _store_output_blob(
+        self, output_bytes: bytes, *, expected_digest: str, session: GraphSession
+    ) -> str:
         stored_digest = self._authority.store_blob(
             output_bytes,
             media_type="application/vnd.apache.arrow.stream",
@@ -2486,14 +2992,16 @@ class DataPrepService:
             raise NativeCommitUnavailable(
                 "native blob store returned no opaque content reference"
             )
-        if stored_digest != output_content_digest:
+        if stored_digest != expected_digest:
             raise NativeCommitUnavailable(
                 "native blob store returned a digest different from the output"
             )
-        ref_acquired = False
+        return stored_digest
+
+    def _acquire_blob_ref(self, stored_digest: str, *, session: GraphSession) -> bool:
         try:
             self._authority.incref_blob(stored_digest, session=session)
-            ref_acquired = True
+            return True
         except Exception as exc:  # noqa: BLE001 - compensate any partial ref
             try:
                 self._authority.unref_blob(stored_digest, session=session)
@@ -2510,59 +3018,16 @@ class DataPrepService:
             raise NativeCommitUnavailable(
                 "native blob reference was not admitted"
             ) from exc
-        evidence_payload, evidence_digest = _evidence_payload(result.evidence)
-        object_id = f"prepared:{receipt.output_content_digest.removeprefix('sha256:')}"
-        envelope = ChangeEnvelope(
-            connector="data-prep",
-            operation="upsert",
-            tenant=session.tenant,
-            source_instance="data-prep",
-            source_object_id=object_id,
-            source_version=receipt.output_content_digest,
-            payload_type="AssetOccurrence",
-            blob_ref=stored_digest,
-            blob_digest=stored_digest,
-            blob_length=len(output_bytes),
-            blob_media_type="application/vnd.apache.arrow.stream",
-            source_acl=ExternalAccess(
-                is_public=output_governance.acl.is_public,
-                user_emails=list(output_governance.acl.principal_emails),
-                group_ids=list(output_governance.acl.group_ids),
-                read_roles=list(output_governance.acl.roles),
-                markings=list(output_governance.acl.markings),
-            ),
-            classification=output_governance.classification,
-            retention=output_governance.retention,
-            legal_hold=output_governance.legal_hold,
-            provenance={
-                "plan_ref": plan.plan_ref,
-                "plan_digest": result.evidence.plan_digest,
-                "model_ref": plan.model_ref,
-                "model_digest": result.evidence.model_digest,
-                "input_schema_ref": request.schema_ref,
-                "input_schema_digest": request.schema_digest,
-                "input_shape_ref": request.shape_ref,
-                "input_shape_digest": request.shape_digest,
-                "output_schema_ref": receipt.output_schema_ref,
-                "output_schema_digest": receipt.output_schema_digest,
-                "output_shape_ref": receipt.output_shape_ref,
-                "output_shape_digest": receipt.output_shape_digest,
-                "output_content_digest": receipt.output_content_digest,
-                "output_media_type": "application/vnd.apache.arrow.stream",
-                "input_content_digest": receipt.input_content_digest,
-                "policy_version": output_governance.policy_version,
-                "acl_principal_ids": list(output_governance.acl.principal_ids),
-                "acl_principal_emails": list(output_governance.acl.principal_emails),
-                "acl_group_ids": list(output_governance.acl.group_ids),
-                "acl_read_roles": list(output_governance.acl.roles),
-                "acl_markings": list(output_governance.acl.markings),
-                "prepared_receipt_digest": _sha256_bytes(prepared_ref.encode("utf-8")),
-                "prep_evidence": evidence_payload,
-                "prep_evidence_digest": evidence_digest,
-            },
-            structured_evidence=evidence_payload,
-            trace_context=session.trace_context,
-        )
+
+    def _ingest_commit(
+        self,
+        envelope: ChangeEnvelope,
+        *,
+        session: GraphSession,
+        deadline: float,
+        stored_digest: str,
+        ref_acquired: bool,
+    ) -> dict[str, Any]:
         try:
             _check_cancel(deadline)
             from agent_utilities.knowledge_graph.core.session import use_session
@@ -2604,6 +3069,15 @@ class DataPrepService:
             raise NativeCommitUnavailable(
                 "native ChangeEnvelope commit failed"
             ) from exc
+        return commit
+
+    def _commit_response(
+        self,
+        operation: DataPrepAction,
+        prepared_ref: str,
+        commit: dict[str, Any],
+        evidence: PrepEvidence,
+    ) -> dict[str, Any]:
         return {
             "surface": "data_prep",
             "action": operation.value,
@@ -2614,12 +3088,94 @@ class DataPrepService:
                 "idempotency_key": commit.get("idempotency_key"),
                 "native_atomic": commit.get("native_atomic"),
             },
-            "evidence": self._public_evidence(result.evidence),
+            "evidence": self._public_evidence(evidence),
             "side_effects": ["native_change_envelope"],
         }
 
+    def _commit(self, ctx: _CommitContext, *, deadline: float) -> dict[str, Any]:
+        self._require_commit_capability(session=ctx.session)
+        output_bytes = _canonical_arrow_bytes(ctx.prep.result.table)
+        stored_digest = self._store_output_blob(
+            output_bytes,
+            expected_digest=ctx.prep.output_content_digest,
+            session=ctx.session,
+        )
+        ref_acquired = self._acquire_blob_ref(stored_digest, session=ctx.session)
+        envelope = _build_change_envelope(
+            ctx, stored_digest=stored_digest, output_bytes=output_bytes
+        )
+        commit = self._ingest_commit(
+            envelope,
+            session=ctx.session,
+            deadline=deadline,
+            stored_digest=stored_digest,
+            ref_acquired=ref_acquired,
+        )
+        return self._commit_response(
+            ctx.operation, ctx.prepared_ref, commit, ctx.prep.result.evidence
+        )
 
-def _json_payload(raw: Any) -> Mapping[str, Any]:
+    def execute(
+        self,
+        action: str,
+        payload: Mapping[str, Any],
+        *,
+        session: GraphSession,
+    ) -> dict[str, Any]:
+        operation = _resolve_operation(action)
+        session.require_scope(
+            "kg:write" if operation is DataPrepAction.COMMIT else "kg:read"
+        )
+        request = self._request(payload)
+        deadline = time.monotonic() + request.budget.max_wall_time_ms / 1000
+        artifact, plan, registry = self._input(
+            request,
+            session=session,
+            deadline=deadline,
+        )
+        pipeline = CleanPipeline(plan, model_registry=registry)
+
+        if operation is DataPrepAction.PROFILE:
+            return self._execute_profile(operation, pipeline, artifact, deadline)
+
+        prep = self._run_pipeline(
+            pipeline, artifact, request=request, session=session, deadline=deadline
+        )
+        receipt, prepared_ref = self._resolve_receipt(
+            operation, artifact, prep, request, session=session
+        )
+
+        if operation is DataPrepAction.CLEAN:
+            return self._clean_response(
+                operation, artifact, prepared_ref, receipt, prep
+            )
+
+        approvals = _check_approvals(request, receipt)
+
+        if operation is DataPrepAction.VALIDATE:
+            return self._validate_response(operation, prepared_ref, receipt, prep)
+
+        if not prep.result.evidence.checkpoint_eligible:
+            raise DataPrepToolError("quarantined preparation cannot be committed")
+        if not all(value is not None for value in approvals):
+            raise DataPrepToolError(
+                "approved output schema and shape refs/digests are required for commit"
+            )
+        ctx = _CommitContext(
+            operation=operation,
+            plan=plan,
+            prep=prep,
+            receipt=receipt,
+            prepared_ref=prepared_ref,
+            request=request,
+            session=session,
+        )
+        return self._commit(ctx, deadline=deadline)
+
+
+def _decode_json_payload(raw: Any) -> dict[str, Any]:
+    """Decode+shape-check the raw ``params_json`` string into a plain dict."""
+
     if not isinstance(raw, str):
         raise DataPrepToolError("params_json must be a JSON object")
     if len(raw.encode("utf-8")) > _MAX_PARAMS_BYTES:
@@ -2630,6 +3186,12 @@ def _json_payload(raw: Any) -> Mapping[str, Any]:
         raise DataPrepToolError("params_json must be valid JSON") from exc
     if not isinstance(value, dict):
         raise DataPrepToolError("params_json must decode to a JSON object")
+    return value
+
+
+def _check_forbidden_fields(value: Mapping[str, Any]) -> None:
+    """Reject inline bytes/paths/executable-code/checkpoint fields."""
+
     forbidden = {
         "arrow_ipc",
         "bytes",
@@ -2646,6 +3208,11 @@ def _json_payload(raw: Any) -> Mapping[str, Any]:
         raise DataPrepToolError(
             "inline bytes, paths, executable code and checkpoints are forbidden"
         )
+
+
+def _normalize_plan_field(value: dict[str, Any]) -> None:
+    """Decode a string-encoded ``plan`` field in place; bound its size."""
+
     plan = value.get("plan")
     if isinstance(plan, str):
         try:
@@ -2660,6 +3227,12 @@ def _json_payload(raw: Any) -> Mapping[str, Any]:
         raise
     except (TypeError, ValueError) as exc:
         raise DataPrepToolError("plan must be a JSON object") from exc
+
+
+def _json_payload(raw: Any) -> Mapping[str, Any]:
+    value = _decode_json_payload(raw)
+    _check_forbidden_fields(value)
+    _normalize_plan_field(value)
     return value
 
 
