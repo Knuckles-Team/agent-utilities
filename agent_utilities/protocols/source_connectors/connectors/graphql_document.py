@@ -121,6 +121,19 @@ def _dig(value: Any, path: str, default: Any = None) -> Any:
     return current
 
 
+def _is_invalid_next_cursor(next_cursor_text: str, seen_cursors: set[str]) -> bool:
+    return (
+        not next_cursor_text
+        or next_cursor_text != next_cursor_text.strip()
+        or len(next_cursor_text.encode("utf-8")) > 4_096
+        or any(
+            ord(character) < 32 or ord(character) == 127
+            for character in next_cursor_text
+        )
+        or next_cursor_text in seen_cursors
+    )
+
+
 def _dig_resolve_segment(current: list[Any], part: str) -> list[Any]:
     """Resolve one dotted-path segment across all in-flight items."""
     resolved: list[Any] = []
@@ -1246,6 +1259,55 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             raise GraphQLDocumentError("GraphQL response has no data object")
         return data, response_size, fallback_count, partial_count
 
+    def _page_variables(
+        self,
+        pagination: Any,
+        read_bound: Any,
+        page_size: int,
+        cursor: str | None,
+    ) -> dict[str, Any]:
+        variables = dict(self.variables)
+        if isinstance(pagination, dict):
+            variables[str(pagination["page_size_variable"])] = page_size
+            variables[str(pagination["cursor_variable"])] = cursor
+        elif isinstance(read_bound, dict):
+            variables[str(read_bound["variable"])] = min(
+                page_size, int(read_bound["maximum"])
+            )
+        return variables
+
+    def _next_page_cursor(
+        self,
+        data: Any,
+        pagination: dict[str, Any],
+        seen_cursors: set[str],
+        page_index: int,
+        max_pages: int,
+    ) -> str | None:
+        has_more = _dig(data, str(pagination["has_more_path"]), False)
+        if not isinstance(has_more, bool):
+            raise GraphQLDocumentError(
+                "GraphQL pagination continuation flag is not boolean"
+            )
+        if not has_more:
+            return None
+        next_cursor = _dig(data, str(pagination["next_cursor_path"]))
+        if not isinstance(next_cursor, str):
+            raise GraphQLDocumentError(
+                "GraphQL pagination returned an invalid continuation"
+            )
+        next_cursor_text = next_cursor
+        if _is_invalid_next_cursor(next_cursor_text, seen_cursors):
+            raise GraphQLDocumentError(
+                "GraphQL pagination returned an invalid continuation"
+            )
+        if page_index + 1 >= max_pages:
+            raise GraphQLDocumentError(
+                "GraphQL pagination exceeds the configured page bound"
+            )
+        seen_cursors.add(next_cursor_text)
+        return next_cursor_text
+
     def _fetch_roots(
         self, profile: dict[str, Any], operation: dict[str, Any]
     ) -> tuple[list[Any], dict[str, int]]:
@@ -1273,14 +1335,7 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
         partial_errors = 0
 
         for page_index in range(max_pages):
-            variables = dict(self.variables)
-            if isinstance(pagination, dict):
-                variables[str(pagination["page_size_variable"])] = page_size
-                variables[str(pagination["cursor_variable"])] = cursor
-            elif isinstance(read_bound, dict):
-                variables[str(read_bound["variable"])] = min(
-                    page_size, int(read_bound["maximum"])
-                )
+            variables = self._page_variables(pagination, read_bound, page_size, cursor)
             data, response_size, page_fallbacks, page_partial = self._page_data(
                 profile=profile,
                 operation=operation,
@@ -1297,38 +1352,11 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
 
             if not isinstance(pagination, dict):
                 break
-            has_more = _dig(data, str(pagination["has_more_path"]), False)
-            if not isinstance(has_more, bool):
-                raise GraphQLDocumentError(
-                    "GraphQL pagination continuation flag is not boolean"
-                )
-            if not has_more:
+            cursor = self._next_page_cursor(
+                data, pagination, seen_cursors, page_index, max_pages
+            )
+            if cursor is None:
                 break
-            next_cursor = _dig(data, str(pagination["next_cursor_path"]))
-            if not isinstance(next_cursor, str):
-                raise GraphQLDocumentError(
-                    "GraphQL pagination returned an invalid continuation"
-                )
-            next_cursor_text = next_cursor
-            if (
-                not next_cursor_text
-                or next_cursor_text != next_cursor_text.strip()
-                or len(next_cursor_text.encode("utf-8")) > 4_096
-                or any(
-                    ord(character) < 32 or ord(character) == 127
-                    for character in next_cursor_text
-                )
-                or next_cursor_text in seen_cursors
-            ):
-                raise GraphQLDocumentError(
-                    "GraphQL pagination returned an invalid continuation"
-                )
-            if page_index + 1 >= max_pages:
-                raise GraphQLDocumentError(
-                    "GraphQL pagination exceeds the configured page bound"
-                )
-            seen_cursors.add(next_cursor_text)
-            cursor = next_cursor_text
 
         return roots, {
             "pages": len(roots),
