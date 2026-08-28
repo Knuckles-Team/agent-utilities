@@ -329,6 +329,16 @@ RELEVANCE_PROFILES: dict[str, dict[str, dict[str, Any]]] = {
 }
 
 
+def _domain_hit_score(text: str, info: dict[str, Any]) -> tuple[float, int]:
+    """Score one taxonomy domain against ``text``. Returns ``(weighted_score, hit_count)``."""
+    keywords = info["keywords"] if isinstance(info["keywords"], list) else []
+    weight = (
+        info.get("weight", 1.0) if isinstance(info.get("weight"), int | float) else 1.0
+    )
+    domain_hits = sum(1 for kw in keywords if kw.lower() in text)
+    return domain_hits * weight, domain_hits
+
+
 def score_text(
     title: str,
     abstract: str,
@@ -347,15 +357,9 @@ def score_text(
     matched_domains: list[str] = []
 
     for domain, info in taxonomy.items():
-        keywords = info["keywords"] if isinstance(info["keywords"], list) else []
-        weight = (
-            info.get("weight", 1.0)
-            if isinstance(info.get("weight"), int | float)
-            else 1.0
-        )
-        domain_hits = sum(1 for kw in keywords if kw.lower() in text)
+        weighted, domain_hits = _domain_hit_score(text, info)
         if domain_hits > 0:
-            total_score += domain_hits * weight
+            total_score += weighted
             matched_domains.append(domain)
 
     if extra_keywords:
@@ -364,6 +368,39 @@ def score_text(
                 total_score += 0.5
 
     return total_score, matched_domains
+
+
+def _resolve_novelty_index(engine: Any, holder: Any) -> Any:
+    """Resolve (and cache on ``holder``) the concept index used by :func:`concept_novelty`."""
+    from agent_utilities.knowledge_graph.assimilation.concept_matcher import (
+        _build_concept_index,
+    )
+    from agent_utilities.knowledge_graph.assimilation.gap_analysis import (
+        _CONCEPT_TYPES,
+        _collect_rich,
+    )
+
+    idx = getattr(holder, "_novelty_index", None) if holder is not None else None
+    if idx is None:
+        concepts = _collect_rich(engine, _CONCEPT_TYPES)
+        idx = _build_concept_index(concepts) if concepts else ()
+        if holder is not None:
+            holder._novelty_index = idx  # cache for the run
+    return idx
+
+
+def _resolve_novelty_embed_fn(holder: Any) -> Any:
+    """Resolve (and cache on ``holder``) the embed fn used by :func:`concept_novelty`."""
+    embed_fn = (
+        getattr(holder, "_novelty_embed_fn", None) if holder is not None else None
+    )
+    if embed_fn is None:
+        from agent_utilities.knowledge_graph.enrichment.semantic import make_embed_fn
+
+        embed_fn = make_embed_fn()
+        if holder is not None:
+            holder._novelty_embed_fn = embed_fn
+    return embed_fn
 
 
 def concept_novelty(engine: Any, text: str, *, holder: Any = None) -> float | None:
@@ -379,35 +416,15 @@ def concept_novelty(engine: Any, text: str, *, holder: Any = None) -> float | No
     try:
         from agent_utilities.knowledge_graph.assimilation.concept_matcher import (
             ConceptMatcher,
-            _build_concept_index,
-        )
-        from agent_utilities.knowledge_graph.assimilation.gap_analysis import (
-            _CONCEPT_TYPES,
-            _collect_rich,
         )
 
         if engine is None:
             return None
-        idx = getattr(holder, "_novelty_index", None) if holder is not None else None
-        if idx is None:
-            concepts = _collect_rich(engine, _CONCEPT_TYPES)
-            idx = _build_concept_index(concepts) if concepts else ()
-            if holder is not None:
-                holder._novelty_index = idx  # cache for the run
+        idx = _resolve_novelty_index(engine, holder)
         if not idx or not idx[1]:  # no concept vectors
             return None
         concept_by_key, concept_vecs, concept_text = idx
-        embed_fn = (
-            getattr(holder, "_novelty_embed_fn", None) if holder is not None else None
-        )
-        if embed_fn is None:
-            from agent_utilities.knowledge_graph.enrichment.semantic import (
-                make_embed_fn,
-            )
-
-            embed_fn = make_embed_fn()
-            if holder is not None:
-                holder._novelty_embed_fn = embed_fn
+        embed_fn = _resolve_novelty_embed_fn(holder)
         vec = embed_fn([text])[0]
         if not vec or len(vec) < 2:
             return None
@@ -503,6 +520,122 @@ class PipelineReport(BaseModel):
     duration_seconds: float = 0.0
 
 
+def _pseudonymize_authors(authors: list[str]) -> tuple[list[str], list[str]]:
+    """Hash the first 10 authors into stable, non-reversible refs.
+
+    Returns ``(author_refs, author_terms)`` — the refs for graph persistence and the raw
+    display-name terms fed to ``PersistencePrivacyGuard`` as deny-terms.
+    """
+    from ..security.persistence_privacy import persistence_reference
+
+    author_refs: list[str] = []
+    author_terms: list[str] = []
+    for raw_author in authors[:10]:
+        author = str(raw_author or "").strip()
+        if not author:
+            continue
+        author_terms.append(author)
+        ref = persistence_reference("research_author", author, namespace="scholarx")
+        if ref and ref not in author_refs:
+            author_refs.append(ref)
+    return author_refs, author_terms
+
+
+@dataclass(frozen=True)
+class _PaperEntityInputs:
+    """Bundled inputs for building one paper's Article/Source graph entities.
+
+    Bundled (rather than 11 loose parameters) to stay under the 7-parameter cap.
+    """
+
+    article_id: str
+    source_id: str
+    safe_title: str
+    safe_abstract: str
+    source_url: str
+    tier: str
+    importance: float
+    source_importance: float
+    domains: list[str] | None
+    relevance_score: float
+    author_refs: list[str]
+
+
+def _build_article_entity(inputs: _PaperEntityInputs) -> dict[str, Any]:
+    """Build the ``ArticleNode`` entity payload for one paper."""
+    from ..models.knowledge_graph import ArticleNode
+
+    article = ArticleNode(
+        id=inputs.article_id,
+        name=inputs.safe_title,
+        description=inputs.safe_abstract[:500],
+        summary=inputs.safe_abstract[:500],
+        content=inputs.safe_abstract,
+        importance_score=inputs.importance,
+        tags=inputs.domains or [],
+        metadata={
+            "ingestion_tier": inputs.tier,
+            "relevance_score": float(inputs.relevance_score),
+        },
+    ).model_dump(mode="json")
+    article["node_type"] = article.pop("type")
+    return article
+
+
+def _build_source_entity(inputs: _PaperEntityInputs) -> dict[str, Any]:
+    """Build the ``SourceNode`` entity payload for one paper."""
+    from ..models.knowledge_graph import SourceNode
+
+    source = SourceNode(
+        id=inputs.source_id,
+        source_id=inputs.source_id,
+        name=f"Source: {inputs.safe_title[:60]}",
+        url=inputs.source_url,
+        description=f"Research paper source ({inputs.tier}): {inputs.safe_title}",
+        authors=inputs.author_refs,
+        importance_score=inputs.source_importance,
+        metadata={"author_count": len(inputs.author_refs)},
+    ).model_dump(mode="json")
+    source["node_type"] = source.pop("type")
+    return source
+
+
+def _build_article_and_source_entities(
+    inputs: _PaperEntityInputs,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Build the ``ArticleNode`` + ``SourceNode`` entity payloads for one paper."""
+    return _build_article_entity(inputs), _build_source_entity(inputs)
+
+
+def _build_author_person_entities(
+    article_id: str, author_refs: list[str]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Build pseudonymous ``:Person`` entities + ``AUTHORED`` relationships for one article."""
+    from ..models.knowledge_graph import PersonNode, RegistryEdgeType
+
+    entities: list[dict[str, Any]] = []
+    relationships: list[dict[str, Any]] = []
+    for author_ref in author_refs:
+        person = PersonNode(
+            id=author_ref,
+            person_id=author_ref,
+            name="[REDACTED_PERSON]",
+            description="Pseudonymous research author reference",
+            importance_score=0.4,
+            metadata={"identity_storage": "non_reversible_reference"},
+        ).model_dump(mode="json")
+        person["node_type"] = person.pop("type")
+        entities.append(person)
+        relationships.append(
+            {
+                "source": article_id,
+                "target": author_ref,
+                "relationship": RegistryEdgeType.AUTHORED.value,
+            }
+        )
+    return entities, relationships
+
+
 def _commit_research_paper_slice(
     engine: Any,
     *,
@@ -523,16 +656,8 @@ def _commit_research_paper_slice(
     retaining personal identifiers.
     """
     from ..knowledge_graph.ingestion.envelope_ingest import ingest_graph_slice
-    from ..models.knowledge_graph import (
-        ArticleNode,
-        PersonNode,
-        RegistryEdgeType,
-        SourceNode,
-    )
-    from ..security.persistence_privacy import (
-        PersistencePrivacyGuard,
-        persistence_reference,
-    )
+    from ..models.knowledge_graph import RegistryEdgeType
+    from ..security.persistence_privacy import PersistencePrivacyGuard
 
     safe_id = _durable_paper_key(paper_id)
     article_id = f"article:scholarx:{safe_id}"
@@ -540,47 +665,27 @@ def _commit_research_paper_slice(
     importance = 0.8 if tier == "full" else 0.5
     source_importance = 0.5 if tier == "full" else 0.3
 
-    author_refs: list[str] = []
-    author_terms: list[str] = []
-    for raw_author in authors[:10]:
-        author = str(raw_author or "").strip()
-        if not author:
-            continue
-        author_terms.append(author)
-        ref = persistence_reference("research_author", author, namespace="scholarx")
-        if ref and ref not in author_refs:
-            author_refs.append(ref)
+    author_refs, author_terms = _pseudonymize_authors(authors)
 
     privacy = PersistencePrivacyGuard(deny_terms=author_terms)
     safe_title, _ = privacy.sanitize_text(title)
     safe_abstract, _ = privacy.sanitize_text(abstract)
 
-    article = ArticleNode(
-        id=article_id,
-        name=safe_title,
-        description=safe_abstract[:500],
-        summary=safe_abstract[:500],
-        content=safe_abstract,
-        importance_score=importance,
-        tags=domains or [],
-        metadata={
-            "ingestion_tier": tier,
-            "relevance_score": float(relevance_score),
-        },
-    ).model_dump(mode="json")
-    source = SourceNode(
-        id=source_id,
-        source_id=source_id,
-        name=f"Source: {safe_title[:60]}",
-        url=source_url,
-        description=f"Research paper source ({tier}): {safe_title}",
-        authors=author_refs,
-        importance_score=source_importance,
-        metadata={"author_count": len(author_refs)},
-    ).model_dump(mode="json")
-
-    for entity in (article, source):
-        entity["node_type"] = entity.pop("type")
+    article, source = _build_article_and_source_entities(
+        _PaperEntityInputs(
+            article_id=article_id,
+            source_id=source_id,
+            safe_title=safe_title,
+            safe_abstract=safe_abstract,
+            source_url=source_url,
+            tier=tier,
+            importance=importance,
+            source_importance=source_importance,
+            domains=domains,
+            relevance_score=relevance_score,
+            author_refs=author_refs,
+        )
+    )
     entities = [article, source]
     relationships: list[dict[str, Any]] = [
         {
@@ -589,24 +694,11 @@ def _commit_research_paper_slice(
             "relationship": RegistryEdgeType.CITES.value,
         }
     ]
-    for author_ref in author_refs:
-        person = PersonNode(
-            id=author_ref,
-            person_id=author_ref,
-            name="[REDACTED_PERSON]",
-            description="Pseudonymous research author reference",
-            importance_score=0.4,
-            metadata={"identity_storage": "non_reversible_reference"},
-        ).model_dump(mode="json")
-        person["node_type"] = person.pop("type")
-        entities.append(person)
-        relationships.append(
-            {
-                "source": article_id,
-                "target": author_ref,
-                "relationship": RegistryEdgeType.AUTHORED.value,
-            }
-        )
+    person_entities, person_relationships = _build_author_person_entities(
+        article_id, author_refs
+    )
+    entities.extend(person_entities)
+    relationships.extend(person_relationships)
 
     applied = ingest_graph_slice(
         engine,
@@ -621,6 +713,23 @@ def _commit_research_paper_slice(
             f"{applied.get('error') or applied.get('status')}"
         )
     return article_id
+
+
+@dataclass(frozen=True)
+class _PaperDocumentInputs:
+    """Bundled inputs for the post-commit PDF Document/Chunk projection.
+
+    Bundled (rather than 8 loose parameters) to stay under the 7-parameter cap.
+    """
+
+    paper_id: str
+    title: str
+    pdf_path: str
+    extracted_text: str | None
+    authors: list[str]
+    article_id: str
+    relevance_score: float
+    domains: list[str] | None
 
 
 def _persist_paper_document(
@@ -778,6 +887,62 @@ class ResearchPipelineRunner:
             return bool(has_node(article_id))
         return article_id in graph.nodes
 
+    @staticmethod
+    def _fill_title_abstract_from_pdf(
+        pdf_path: str, title: str, abstract: str, paper_id: str
+    ) -> tuple[str, str, str | None]:
+        """When only an id + a PDF are given, extract title/abstract text from the PDF.
+
+        A research-cohort ingest (CONCEPT:AU-KG.research.so-cohort) so the Article node
+        carries real TEXT — ConceptMatcher builds its match text from name/abstract/
+        content and embeds it on-the-fly; an empty node has no text to recall against
+        and is scored as spuriously "novel". Best-effort: returns the inputs unchanged
+        (and ``extracted_text=None``) on failure.
+        """
+        extracted_text: str | None = None
+        try:
+            from ..knowledge_graph.extraction.readers import read_any
+
+            extracted_text = (read_any(str(pdf_path)) or "").strip()
+            if extracted_text:
+                if not title.strip():
+                    first = next(
+                        (
+                            ln.strip()
+                            for ln in extracted_text.splitlines()
+                            if ln.strip()
+                        ),
+                        "",
+                    )
+                    title = first[:300] or paper_id
+                if not abstract.strip():
+                    abstract = extracted_text[:6000]
+        except Exception as e:  # noqa: BLE001 — best-effort; fall back to id-only
+            logger.warning(f"cohort PDF text extraction failed for {paper_id}: {e}")
+        return title, abstract, extracted_text
+
+    def _persist_paper_document_safe(self, inputs: _PaperDocumentInputs) -> None:
+        """PDF Document/Chunk projection, best-effort.
+
+        A projection failure cannot turn a committed paper into an uncommitted one.
+        """
+        try:
+            _persist_paper_document(
+                self.engine,
+                paper_id=inputs.paper_id,
+                title=inputs.title,
+                pdf_path=inputs.pdf_path,
+                extracted_text=inputs.extracted_text,
+                authors=inputs.authors,
+                article_id=inputs.article_id,
+                relevance_score=inputs.relevance_score,
+                domains=inputs.domains,
+            )
+        except Exception as e:  # noqa: BLE001 — post-commit projection
+            logger.warning(
+                "native document projection failed for %s: %s", inputs.paper_id, e
+            )
+
     async def ingest_paper_full(
         self,
         paper_id: str,
@@ -810,29 +975,11 @@ class ResearchPipelineRunner:
 
         # When invoked with only an id + a PDF (a research cohort, CONCEPT:AU-KG.research.so-cohort),
         # title/abstract arrive empty — extract them from the PDF so the Article node
-        # carries real TEXT. ConceptMatcher builds its match text from name/abstract/
-        # content and embeds it on-the-fly; an empty node has no text to recall against
-        # and is scored as spuriously "novel". So fill content from the PDF here.
+        # carries real TEXT.
         if pdf_path and not (title.strip() or abstract.strip()):
-            try:
-                from ..knowledge_graph.extraction.readers import read_any
-
-                extracted_text = (read_any(str(pdf_path)) or "").strip()
-                if extracted_text:
-                    if not title.strip():
-                        first = next(
-                            (
-                                ln.strip()
-                                for ln in extracted_text.splitlines()
-                                if ln.strip()
-                            ),
-                            "",
-                        )
-                        title = first[:300] or paper_id
-                    if not abstract.strip():
-                        abstract = extracted_text[:6000]
-            except Exception as e:  # noqa: BLE001 — best-effort; fall back to id-only
-                logger.warning(f"cohort PDF text extraction failed for {paper_id}: {e}")
+            title, abstract, extracted_text = self._fill_title_abstract_from_pdf(
+                pdf_path, title, abstract, paper_id
+            )
 
         # One native graph authority for the paper/source/author topology. The
         # historical ScholarX bridge and direct graph/_upsert fallbacks are not
@@ -855,9 +1002,8 @@ class ResearchPipelineRunner:
         # natively. Never persist the local path or hand graph authority to the
         # legacy KB/ScholarX bridge.
         if pdf_path and Path(pdf_path).is_file():
-            try:
-                _persist_paper_document(
-                    self.engine,
+            self._persist_paper_document_safe(
+                _PaperDocumentInputs(
                     paper_id=paper_id,
                     title=title,
                     pdf_path=pdf_path,
@@ -867,10 +1013,7 @@ class ResearchPipelineRunner:
                     relevance_score=relevance_score,
                     domains=domains,
                 )
-            except Exception as e:  # noqa: BLE001 — post-commit projection
-                logger.warning(
-                    "native document projection failed for %s: %s", paper_id, e
-                )
+            )
 
         logger.info(
             "[CONCEPT:AU-KG.research.research-pipeline-runner] Fully ingested: %s",
@@ -1059,6 +1202,100 @@ class ResearchPipelineRunner:
             logger.debug(f"OWL enrichment skipped: {e}")
             return 0
 
+    async def _process_one_paper(
+        self,
+        paper_data: dict[str, Any],
+        extra_keywords: list[str],
+        sem: Any,
+    ) -> IngestedPaperRecord:
+        """Score + ingest a single paper (pure — returns its record, mutates no shared state).
+
+        Extracted from ``run_daily_pipeline`` so every paper can fan out under a bounded
+        semaphore (CONCEPT:AU-KG.ingest.generalized-cross-lane-parallelization).
+        """
+        paper_id = paper_data.get("id", "")
+        title = paper_data.get("title", "")
+        abstract = paper_data.get("abstract", "")
+        authors = paper_data.get("authors", [])
+        url = paper_data.get("url", "")
+        record = IngestedPaperRecord(paper_id=paper_id, title=title)
+
+        # Dedup check
+        if self._is_paper_known(paper_id):
+            record.status = "already_known"
+            record.tier = "skipped"
+            return record
+
+        # Score relevance (cheap keyword prefilter) then let the ConceptMatcher
+        # drive the tier by NOVELTY: a paper we already have (low novelty) is
+        # demoted from a full PDF ingest to memory-only. (CONCEPT:AU-KG.ingest.world-model-gate)
+        score, domains = self.score_paper(title, abstract, extra_keywords)
+        novelty = self._paper_novelty(title, abstract)
+        record.relevance_score = score
+        record.domains_matched = domains
+        if novelty is not None:
+            record.novelty = novelty
+            if novelty < 0.25 and score >= self.config.relevant_threshold:
+                score = self.config.marginal_threshold  # already-built → memory
+
+        try:
+            if score >= self.config.relevant_threshold:
+                async with sem:  # bound the heavy full-PDF + LLM ingest
+                    article_id = await self.ingest_paper_full(
+                        paper_id=paper_id,
+                        title=title,
+                        abstract=abstract,
+                        authors=authors,
+                        source_url=url,
+                        relevance_score=score,
+                        domains=domains,
+                    )
+                record.tier = "relevant"
+                record.article_id = article_id
+                record.status = "ingested_full"
+            elif score >= self.config.marginal_threshold:
+                async with sem:
+                    article_id = await self.ingest_paper_marginal(
+                        paper_id=paper_id,
+                        title=title,
+                        abstract=abstract,
+                        authors=authors,
+                        source_url=url,
+                        relevance_score=score,
+                        domains=domains,
+                    )
+                record.tier = "marginal"
+                record.article_id = article_id
+                record.status = "ingested_abstract"
+            else:
+                record.tier = "skipped"
+                record.status = "below_threshold"
+        except Exception as e:
+            record.status = f"error: {e}"
+            logger.error(
+                f"[CONCEPT:AU-KG.research.research-pipeline-runner] Ingestion error for {paper_id}: {e}"
+            )
+        return record
+
+    @staticmethod
+    def _tally_pipeline_records(
+        report: PipelineReport, records: list[IngestedPaperRecord]
+    ) -> None:
+        """Tally counters race-free from the returned per-paper records (mutates ``report``)."""
+        for record in records:
+            report.records.append(record)
+            status = record.status
+            if status == "already_known":
+                report.papers_already_known += 1
+            elif status == "ingested_full":
+                report.papers_relevant += 1
+            elif status == "ingested_abstract":
+                report.papers_marginal += 1
+            elif status == "below_threshold":
+                report.papers_skipped += 1
+            elif status.startswith("error: "):
+                report.errors.append(f"{record.paper_id}: {status[len('error: ') :]}")
+
     async def run_daily_pipeline(
         self,
         papers: list[dict[str, Any]] | None = None,
@@ -1093,98 +1330,21 @@ class ResearchPipelineRunner:
         # cross-lane parallelization). Each paper's full/abstract ingest (the heavy
         # PDF + LLM work) is independent, so they fan out under a bounded semaphore
         # sized to the ingest worker count; vLLM batches server-side, turning an
-        # N-paper run from N sequential ingests into ~N/concurrency. The per-paper
-        # helper is pure (returns its record, mutates no shared state), so counters
-        # are tallied race-free after the gather.
+        # N-paper run from N sequential ingests into ~N/concurrency.
         import asyncio
 
         from ..knowledge_graph.core.engine_tasks import compute_ingest_worker_count
 
         sem = asyncio.Semaphore(max(1, compute_ingest_worker_count()))
 
-        async def _process_one(paper_data: dict[str, Any]) -> IngestedPaperRecord:
-            paper_id = paper_data.get("id", "")
-            title = paper_data.get("title", "")
-            abstract = paper_data.get("abstract", "")
-            authors = paper_data.get("authors", [])
-            url = paper_data.get("url", "")
-            record = IngestedPaperRecord(paper_id=paper_id, title=title)
-
-            # Dedup check
-            if self._is_paper_known(paper_id):
-                record.status = "already_known"
-                record.tier = "skipped"
-                return record
-
-            # Score relevance (cheap keyword prefilter) then let the ConceptMatcher
-            # drive the tier by NOVELTY: a paper we already have (low novelty) is
-            # demoted from a full PDF ingest to memory-only. (CONCEPT:AU-KG.ingest.world-model-gate)
-            score, domains = self.score_paper(title, abstract, extra_keywords)
-            novelty = self._paper_novelty(title, abstract)
-            record.relevance_score = score
-            record.domains_matched = domains
-            if novelty is not None:
-                record.novelty = novelty
-                if novelty < 0.25 and score >= self.config.relevant_threshold:
-                    score = self.config.marginal_threshold  # already-built → memory
-
-            try:
-                if score >= self.config.relevant_threshold:
-                    async with sem:  # bound the heavy full-PDF + LLM ingest
-                        article_id = await self.ingest_paper_full(
-                            paper_id=paper_id,
-                            title=title,
-                            abstract=abstract,
-                            authors=authors,
-                            source_url=url,
-                            relevance_score=score,
-                            domains=domains,
-                        )
-                    record.tier = "relevant"
-                    record.article_id = article_id
-                    record.status = "ingested_full"
-                elif score >= self.config.marginal_threshold:
-                    async with sem:
-                        article_id = await self.ingest_paper_marginal(
-                            paper_id=paper_id,
-                            title=title,
-                            abstract=abstract,
-                            authors=authors,
-                            source_url=url,
-                            relevance_score=score,
-                            domains=domains,
-                        )
-                    record.tier = "marginal"
-                    record.article_id = article_id
-                    record.status = "ingested_abstract"
-                else:
-                    record.tier = "skipped"
-                    record.status = "below_threshold"
-            except Exception as e:
-                record.status = f"error: {e}"
-                logger.error(
-                    f"[CONCEPT:AU-KG.research.research-pipeline-runner] Ingestion error for {paper_id}: {e}"
-                )
-            return record
-
         records = await asyncio.gather(
-            *(_process_one(p) for p in papers[: self.config.max_papers_per_run])
+            *(
+                self._process_one_paper(p, extra_keywords, sem)
+                for p in papers[: self.config.max_papers_per_run]
+            )
         )
 
-        # Tally counters race-free from the returned records (the helper is pure).
-        for record in records:
-            report.records.append(record)
-            status = record.status
-            if status == "already_known":
-                report.papers_already_known += 1
-            elif status == "ingested_full":
-                report.papers_relevant += 1
-            elif status == "ingested_abstract":
-                report.papers_marginal += 1
-            elif status == "below_threshold":
-                report.papers_skipped += 1
-            elif status.startswith("error: "):
-                report.errors.append(f"{record.paper_id}: {status[len('error: ') :]}")
+        self._tally_pipeline_records(report, records)
 
         # Run OWL reasoning
         if report.papers_relevant > 0 or report.papers_marginal > 0:
@@ -1237,16 +1397,10 @@ class ResearchPipelineRunner:
             logger.warning(f"Paper discovery failed: {e}")
             return []
 
-    def generate_digest(self, report: PipelineReport) -> str:
-        """Generate a markdown digest from a pipeline report.
-
-        Args:
-            report: The completed pipeline report.
-
-        Returns:
-            Markdown-formatted digest string.
-        """
-        lines = [
+    @staticmethod
+    def _digest_header_lines(report: PipelineReport) -> list[str]:
+        """The summary header block of the markdown digest."""
+        return [
             f"# Research Digest — {report.timestamp}",
             "",
             f"**Run ID**: `{report.run_id}`",
@@ -1260,31 +1414,54 @@ class ResearchPipelineRunner:
             "",
         ]
 
-        relevant = [r for r in report.records if r.tier == "relevant"]
-        if relevant:
-            lines.append("## Fully Ingested (Relevant)")
-            lines.append("")
-            for r in relevant:
-                domains = (
-                    ", ".join(r.domains_matched) if r.domains_matched else "general"
-                )
-                lines.append(
-                    f"- **{r.title}** (score: {r.relevance_score:.1f}, domains: {domains})"
-                )
-            lines.append("")
+    @staticmethod
+    def _digest_relevant_section(records: list[IngestedPaperRecord]) -> list[str]:
+        """The "Fully Ingested (Relevant)" section, or ``[]`` if there are none."""
+        relevant = [r for r in records if r.tier == "relevant"]
+        if not relevant:
+            return []
+        lines = ["## Fully Ingested (Relevant)", ""]
+        for r in relevant:
+            domains = ", ".join(r.domains_matched) if r.domains_matched else "general"
+            lines.append(
+                f"- **{r.title}** (score: {r.relevance_score:.1f}, domains: {domains})"
+            )
+        lines.append("")
+        return lines
 
-        marginal = [r for r in report.records if r.tier == "marginal"]
-        if marginal:
-            lines.append("## Abstract-Only (Marginal)")
-            lines.append("")
-            for r in marginal:
-                lines.append(f"- {r.title} (score: {r.relevance_score:.1f})")
-            lines.append("")
+    @staticmethod
+    def _digest_marginal_section(records: list[IngestedPaperRecord]) -> list[str]:
+        """The "Abstract-Only (Marginal)" section, or ``[]`` if there are none."""
+        marginal = [r for r in records if r.tier == "marginal"]
+        if not marginal:
+            return []
+        lines = ["## Abstract-Only (Marginal)", ""]
+        for r in marginal:
+            lines.append(f"- {r.title} (score: {r.relevance_score:.1f})")
+        lines.append("")
+        return lines
 
-        if report.errors:
-            lines.append("## Errors")
-            lines.append("")
-            for err in report.errors:
-                lines.append(f"- {err}")
+    @staticmethod
+    def _digest_errors_section(errors: list[str]) -> list[str]:
+        """The "Errors" section, or ``[]`` if there are none."""
+        if not errors:
+            return []
+        lines = ["## Errors", ""]
+        for err in errors:
+            lines.append(f"- {err}")
+        return lines
 
+    def generate_digest(self, report: PipelineReport) -> str:
+        """Generate a markdown digest from a pipeline report.
+
+        Args:
+            report: The completed pipeline report.
+
+        Returns:
+            Markdown-formatted digest string.
+        """
+        lines = self._digest_header_lines(report)
+        lines.extend(self._digest_relevant_section(report.records))
+        lines.extend(self._digest_marginal_section(report.records))
+        lines.extend(self._digest_errors_section(report.errors))
         return "\n".join(lines)

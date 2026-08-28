@@ -53,6 +53,7 @@ import logging
 import math
 import os
 import re
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlparse
 
@@ -230,6 +231,87 @@ def _is_langfuse_otel_endpoint(endpoint: str, host: str) -> bool:
     return normalized == f"{host.rstrip('/')}/api/public/otel"
 
 
+@dataclass(frozen=True)
+class _OtelHeaderRefs:
+    """The three configured OTLP auth secret-reference settings."""
+
+    header_ref: str
+    public_ref: str
+    secret_ref: str
+
+
+def _load_otel_header_refs() -> _OtelHeaderRefs:
+    """Read the configured OTLP auth secret references (durable config, refs only)."""
+    return _OtelHeaderRefs(
+        header_ref=str(setting("OTEL_EXPORTER_OTLP_HEADERS_REF", "") or "").strip(),
+        public_ref=str(setting("OTEL_EXPORTER_OTLP_PUBLIC_KEY_REF", "") or "").strip(),
+        secret_ref=str(setting("OTEL_EXPORTER_OTLP_SECRET_KEY_REF", "") or "").strip(),
+    )
+
+
+def _validate_otel_header_source(
+    refs: _OtelHeaderRefs,
+    *,
+    headers: str | None,
+    public_key: str | None,
+    secret_key: str | None,
+) -> tuple[bool, bool]:
+    """Validate the OTLP auth source is unambiguous. Returns ``(explicit_pair, configured_pair)``."""
+    explicit_pair = bool(public_key) or bool(secret_key)
+    configured_pair = bool(refs.public_ref) or bool(refs.secret_ref)
+    if bool(public_key) != bool(secret_key) or bool(refs.public_ref) != bool(
+        refs.secret_ref
+    ):
+        raise ValueError("OTLP credential pair is incomplete")
+    if refs.header_ref and (explicit_pair or configured_pair):
+        raise ValueError("OTLP authentication source is ambiguous")
+    if headers and explicit_pair:
+        raise ValueError("OTLP authentication source is ambiguous")
+    return explicit_pair, configured_pair
+
+
+def _resolve_otel_auth_value(
+    refs: _OtelHeaderRefs,
+    *,
+    headers: str | None,
+    explicit_pair: bool,
+    configured_pair: bool,
+    public_key: str | None,
+    secret_key: str | None,
+) -> str:
+    """Resolve the auth header value from the (validated) explicit sources, in priority order."""
+    from agent_utilities.security.cli_secrets import resolve_runtime_secret_reference
+
+    resolved = str(headers or "")
+    if not resolved and refs.header_ref:
+        resolved = resolve_runtime_secret_reference(refs.header_ref)
+    if not resolved and explicit_pair:
+        resolved = _generate_otlp_auth_header(str(public_key), str(secret_key))
+    if not resolved and configured_pair:
+        resolved = _generate_otlp_auth_header(
+            resolve_runtime_secret_reference(refs.public_ref),
+            resolve_runtime_secret_reference(refs.secret_ref),
+        )
+    return resolved
+
+
+def _resolve_otel_langfuse_reuse(endpoint: str) -> tuple[str, bool]:
+    """Fall back to the configured Langfuse credential pair when the origins match."""
+    from agent_utilities.observability.langfuse_trust import (
+        langfuse_credentials_configured,
+        resolve_langfuse_credentials,
+        resolve_langfuse_host,
+    )
+
+    if not langfuse_credentials_configured():
+        return "", False
+    langfuse_host = resolve_langfuse_host()
+    if not _same_origin(endpoint, langfuse_host):
+        return "", False
+    langfuse_public, langfuse_secret = resolve_langfuse_credentials()
+    return _generate_otlp_auth_header(langfuse_public, langfuse_secret), True
+
+
 def _resolve_otel_headers(
     *,
     endpoint: str,
@@ -244,46 +326,24 @@ def _resolve_otel_headers(
     reference-only CLI).  When the endpoint shares the configured Langfuse origin,
     its canonical credential-reference pair is reused automatically.
     """
-
-    from agent_utilities.observability.langfuse_trust import (
-        langfuse_credentials_configured,
-        resolve_langfuse_credentials,
-        resolve_langfuse_host,
-    )
-    from agent_utilities.security.cli_secrets import (
-        resolve_runtime_secret_reference,
+    refs = _load_otel_header_refs()
+    explicit_pair, configured_pair = _validate_otel_header_source(
+        refs, headers=headers, public_key=public_key, secret_key=secret_key
     )
 
-    header_ref = str(setting("OTEL_EXPORTER_OTLP_HEADERS_REF", "") or "").strip()
-    public_ref = str(setting("OTEL_EXPORTER_OTLP_PUBLIC_KEY_REF", "") or "").strip()
-    secret_ref = str(setting("OTEL_EXPORTER_OTLP_SECRET_KEY_REF", "") or "").strip()
-    explicit_pair = bool(public_key) or bool(secret_key)
-    configured_pair = bool(public_ref) or bool(secret_ref)
-    if bool(public_key) != bool(secret_key) or bool(public_ref) != bool(secret_ref):
-        raise ValueError("OTLP credential pair is incomplete")
-    if header_ref and (explicit_pair or configured_pair):
-        raise ValueError("OTLP authentication source is ambiguous")
-    if headers and explicit_pair:
-        raise ValueError("OTLP authentication source is ambiguous")
-
-    resolved = str(headers or "")
-    if not resolved and header_ref:
-        resolved = resolve_runtime_secret_reference(header_ref)
-    if not resolved and explicit_pair:
-        resolved = _generate_otlp_auth_header(str(public_key), str(secret_key))
-    if not resolved and configured_pair:
-        resolved = _generate_otlp_auth_header(
-            resolve_runtime_secret_reference(public_ref),
-            resolve_runtime_secret_reference(secret_ref),
-        )
+    resolved = _resolve_otel_auth_value(
+        refs,
+        headers=headers,
+        explicit_pair=explicit_pair,
+        configured_pair=configured_pair,
+        public_key=public_key,
+        secret_key=secret_key,
+    )
 
     reused_langfuse = False
-    if not resolved and langfuse_credentials_configured():
-        langfuse_host = resolve_langfuse_host()
-        if _same_origin(endpoint, langfuse_host):
-            langfuse_public, langfuse_secret = resolve_langfuse_credentials()
-            resolved = _generate_otlp_auth_header(langfuse_public, langfuse_secret)
-            reused_langfuse = True
+    if not resolved:
+        resolved, reused_langfuse = _resolve_otel_langfuse_reuse(endpoint)
+
     if resolved:
         parse_otlp_headers(resolved)
     return resolved, reused_langfuse
@@ -311,6 +371,30 @@ def _resolve_otel_transport(endpoint: str) -> Any:
     )
 
 
+def _validate_otlp_headers_shape(headers: str) -> None:
+    """Guard against an oversized or control-character-bearing OTLP header string."""
+    if len(headers) > 65_536 or any(character in headers for character in "\r\n\x00"):
+        raise ValueError("invalid OTLP headers")
+
+
+def _parse_one_otlp_header(part: str, existing: dict[str, str]) -> tuple[str, str]:
+    """Parse + validate one ``key=value`` OTLP header part against already-parsed keys."""
+    part = part.strip()
+    if "=" not in part:
+        raise ValueError("invalid OTLP header")
+    raw_key, raw_value = part.split("=", 1)
+    key = raw_key.strip()
+    value = raw_value.strip()
+    normalized = key.casefold()
+    if (
+        not _HEADER_NAME_RE.fullmatch(key)
+        or normalized in {k.casefold() for k in existing}
+        or len(value) > 16_384
+    ):
+        raise ValueError("invalid OTLP header")
+    return key, value
+
+
 def parse_otlp_headers(headers: str) -> dict[str, str]:
     """Parse an OTLP headers string (``"key=value,key2=value2"``) into a dict.
 
@@ -322,27 +406,14 @@ def parse_otlp_headers(headers: str) -> dict[str, str]:
     ``OTEL_EXPORTER_OTLP_HEADERS``-style string identically instead of each
     reimplementing the same split/strip logic.
     """
-    if len(headers) > 65_536 or any(character in headers for character in "\r\n\x00"):
-        raise ValueError("invalid OTLP headers")
+    _validate_otlp_headers_shape(headers)
     header_dict: dict[str, str] = {}
     if headers:
         parts = headers.split(",")
         if len(parts) > 32:
             raise ValueError("too many OTLP headers")
         for part in parts:
-            part = part.strip()
-            if "=" not in part:
-                raise ValueError("invalid OTLP header")
-            raw_key, raw_value = part.split("=", 1)
-            key = raw_key.strip()
-            value = raw_value.strip()
-            normalized = key.casefold()
-            if (
-                not _HEADER_NAME_RE.fullmatch(key)
-                or normalized in {existing.casefold() for existing in header_dict}
-                or len(value) > 16_384
-            ):
-                raise ValueError("invalid OTLP header")
+            key, value = _parse_one_otlp_header(part, header_dict)
             header_dict[key] = value
     return header_dict
 
@@ -382,6 +453,14 @@ def _service_topology_label(value: Any) -> str:
     return _TOPOLOGY_LABEL_RE.sub("_", text)[:256]
 
 
+def _safe_attribute_list_value(
+    key: str, value: list[Any] | tuple[Any, ...]
+) -> list[Any]:
+    """The ``list``/``tuple`` branch of :func:`_safe_attribute_value`."""
+    cleaned = [_safe_attribute_value(key, item) for item in value[:64]]
+    return [item for item in cleaned if item is not None]
+
+
 def _safe_attribute_value(key: str, value: Any) -> Any | None:
     if isinstance(value, bool):
         return value
@@ -395,9 +474,28 @@ def _safe_attribute_value(key: str, value: Any) -> Any | None:
             return normalized
         return _opaque_label(f"attribute_{key[:64]}", value)
     if isinstance(value, list | tuple):
-        cleaned = [_safe_attribute_value(key, item) for item in value[:64]]
-        return [item for item in cleaned if item is not None]
+        return _safe_attribute_list_value(key, value)
     return None
+
+
+def _sanitize_attribute_key(raw_key: Any) -> str:
+    """Opaque-reference a missing/oversized/control-character attribute key."""
+    key = str(raw_key)
+    if not key or len(key) > 256 or any(ord(character) < 32 for character in key):
+        key = f"attribute.{_opaque_label('attribute_key', key)}"
+    return key
+
+
+def _process_one_attribute(raw_key: Any, value: Any) -> tuple[str, Any] | None:
+    """Sanitize one attribute key/value pair; ``None`` if it's sensitive or unsafe."""
+    key = _sanitize_attribute_key(raw_key)
+    key_terms = {term for term in re.split(r"[^a-z0-9]+", key.casefold()) if term}
+    if key_terms.intersection(_SENSITIVE_ATTRIBUTE_TERMS):
+        return None
+    safe = _safe_attribute_value(key, value)
+    if safe is None:
+        return None
+    return key, safe
 
 
 def _metadata_only_attributes(attributes: Any) -> dict[str, Any]:
@@ -407,14 +505,9 @@ def _metadata_only_attributes(attributes: Any) -> dict[str, Any]:
     for index, (raw_key, value) in enumerate(attributes.items()):
         if index >= 128:
             break
-        key = str(raw_key)
-        if not key or len(key) > 256 or any(ord(character) < 32 for character in key):
-            key = f"attribute.{_opaque_label('attribute_key', key)}"
-        key_terms = {term for term in re.split(r"[^a-z0-9]+", key.casefold()) if term}
-        if key_terms.intersection(_SENSITIVE_ATTRIBUTE_TERMS):
-            continue
-        safe = _safe_attribute_value(key, value)
-        if safe is not None:
+        processed = _process_one_attribute(raw_key, value)
+        if processed is not None:
+            key, safe = processed
             output[key] = safe
     return output
 
@@ -559,6 +652,201 @@ def _create_otlp_span_processor(
         return None
 
 
+@dataclass
+class _SetupOtelContext:
+    """Resolved, validated inputs :func:`setup_otel` needs before touching global state."""
+
+    target_endpoint: str
+    resolved_headers: str
+    target_protocol: str
+    target_service_name: str
+
+
+def _resolve_setup_otel_context(
+    *,
+    endpoint: str | None,
+    headers: str | None,
+    public_key: str | None,
+    secret_key: str | None,
+    protocol: str | None,
+    service_name: str | None,
+) -> _SetupOtelContext | None:
+    """Resolve + validate ``setup_otel``'s Steps 1-2. ``None`` means "skip setup" (already logged)."""
+    try:
+        target_endpoint = _resolve_otel_endpoint(
+            endpoint,
+            public_key=public_key,
+            secret_key=secret_key,
+        )
+    except Exception as exc:
+        logger.warning(
+            "OTLP setup skipped: endpoint configuration is invalid (%s)",
+            type(exc).__name__,
+        )
+        return None
+    if not target_endpoint:
+        logger.debug("OTLP setup skipped: no runtime endpoint configured")
+        return None
+
+    if not HAS_LOGFIRE:
+        logger.warning(
+            "OpenTelemetry is enabled but logfire is not installed. "
+            "Trace logging is disabled. Install with: pip install pydantic-ai-slim[logfire]"
+        )
+        return None
+
+    # Step 1: Resolve OTLP auth headers
+    try:
+        resolved_headers, _ = _resolve_otel_headers(
+            endpoint=target_endpoint,
+            headers=headers,
+            public_key=public_key,
+            secret_key=secret_key,
+        )
+    except Exception as exc:
+        logger.warning(
+            "OTLP setup skipped: credential references are invalid (%s)",
+            type(exc).__name__,
+        )
+        return None
+
+    if not resolved_headers:
+        logger.warning(
+            "No OTLP headers or Langfuse keys configured — traces will not authenticate. "
+            "Set langfuse_public_key_ref + langfuse_secret_key_ref in config.json."
+        )
+
+    # Step 2: Resolve endpoint and protocol
+    target_protocol = str(
+        protocol or setting("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+    ).strip()
+    if target_protocol != "http/protobuf":
+        logger.warning("OTLP setup skipped: unsupported protocol")
+        return None
+    target_service_name = _service_topology_label(
+        service_name or retrieve_package_name() or "agent-utilities"
+    )
+    return _SetupOtelContext(
+        target_endpoint=target_endpoint,
+        resolved_headers=resolved_headers,
+        target_protocol=target_protocol,
+        target_service_name=target_service_name,
+    )
+
+
+def _set_otel_env_vars(ctx: _SetupOtelContext) -> None:
+    """Step 3: set environment variables for downstream OTel SDK consumers."""
+    if ctx.target_endpoint:
+        os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = ctx.target_endpoint
+    if ctx.resolved_headers:
+        os.environ["OTEL_EXPORTER_OTLP_HEADERS"] = ctx.resolved_headers
+    if ctx.target_protocol:
+        os.environ["OTEL_EXPORTER_OTLP_PROTOCOL"] = ctx.target_protocol
+    if ctx.target_service_name:
+        os.environ["OTEL_SERVICE_NAME"] = ctx.target_service_name
+
+
+def _build_otel_span_processors(ctx: _SetupOtelContext) -> list[Any] | None:
+    """Step 4: resolve runtime-only trust and create the OTLP span processor.
+
+    ``None`` (having already logged why) means the caller must abort setup.
+    """
+    try:
+        transport_security = _resolve_otel_transport(ctx.target_endpoint)
+        os.environ.update(transport_security.child_env())
+    except Exception as exc:
+        logger.warning(
+            "OTLP setup skipped: transport security profile is invalid (%s)",
+            type(exc).__name__,
+        )
+        return None
+    span_processors: list[Any] = []
+    if ctx.target_endpoint and ctx.resolved_headers:
+        processor = _create_otlp_span_processor(
+            endpoint=ctx.target_endpoint,
+            headers=ctx.resolved_headers,
+            protocol=ctx.target_protocol or "http/protobuf",
+            transport_security=transport_security,
+            service_ref=ctx.target_service_name,
+        )
+        if processor:
+            span_processors.append(processor)
+            logger.info("Metadata-only OTLP exporter configured")
+    else:
+        logger.warning(
+            "OTLP export disabled — missing endpoint (%s) or headers (%s). "
+            "Traces will be collected locally only.",
+            "set" if ctx.target_endpoint else "missing",
+            "set" if ctx.resolved_headers else "missing",
+        )
+    return span_processors
+
+
+def _configure_logfire_pipeline(
+    ctx: _SetupOtelContext,
+    *,
+    service_version: str | None,
+    environment: str | None,
+    span_processors: list[Any],
+) -> None:
+    """Step 5: configure Logfire with the OTLP span processor."""
+    configure_kwargs: dict[str, Any] = {
+        "send_to_logfire": False,
+        "service_name": ctx.target_service_name,
+        "distributed_tracing": True,
+    }
+
+    if service_version:
+        configure_kwargs["service_version"] = _opaque_label(
+            "service_version", service_version
+        )
+    if environment:
+        configure_kwargs["environment"] = _opaque_label("environment", environment)
+
+    if span_processors:
+        configure_kwargs["additional_span_processors"] = span_processors
+
+    logfire.configure(**configure_kwargs)
+
+
+def _instrument_metadata_only_agents() -> bool:
+    """Step 6: instrument pydantic-ai agents with the metadata-only content policy.
+
+    PydanticAI defaults to including prompts, outputs, tool arguments, tool results, and
+    binary content. Passes explicit false settings through both integration entry points
+    and verifies the installed API accepted them. Returns whether it was installed.
+    """
+    try:
+        from pydantic_ai import InstrumentationSettings
+
+        settings = InstrumentationSettings(
+            include_content=False,
+            include_binary_content=False,
+            version=5,
+        )
+        logfire.instrument_pydantic_ai(
+            include_content=False,
+            include_binary_content=False,
+            version=5,
+        )
+        installed = instrument_context_agents(settings)
+        if (
+            getattr(installed, "include_content", None) is not False
+            or getattr(installed, "include_binary_content", None) is not False
+        ):
+            raise RuntimeError("instrumentation content policy was not installed")
+        return True
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            disable_context_agent_instrumentation()
+        logger.warning(
+            "PydanticAI tracing disabled: metadata-only policy unavailable "
+            "(exception_type=%s)",
+            type(exc).__name__,
+        )
+        return False
+
+
 def setup_otel(
     service_name: str | None = None,
     endpoint: str | None = None,
@@ -612,159 +900,36 @@ def setup_otel(
     """
     global _agent_instrumented_metadata_only, _otel_initialized
 
-    try:
-        target_endpoint = _resolve_otel_endpoint(
-            endpoint,
-            public_key=public_key,
-            secret_key=secret_key,
-        )
-    except Exception as exc:
-        logger.warning(
-            "OTLP setup skipped: endpoint configuration is invalid (%s)",
-            type(exc).__name__,
-        )
-        return
-    if not target_endpoint:
-        logger.debug("OTLP setup skipped: no runtime endpoint configured")
-        return
-
-    if not HAS_LOGFIRE:
-        logger.warning(
-            "OpenTelemetry is enabled but logfire is not installed. "
-            "Trace logging is disabled. Install with: pip install pydantic-ai-slim[logfire]"
-        )
-        return
-
-    # Step 1: Resolve OTLP auth headers
-    try:
-        resolved_headers, _ = _resolve_otel_headers(
-            endpoint=target_endpoint,
-            headers=headers,
-            public_key=public_key,
-            secret_key=secret_key,
-        )
-    except Exception as exc:
-        logger.warning(
-            "OTLP setup skipped: credential references are invalid (%s)",
-            type(exc).__name__,
-        )
-        return
-
-    if not resolved_headers:
-        logger.warning(
-            "No OTLP headers or Langfuse keys configured — traces will not authenticate. "
-            "Set langfuse_public_key_ref + langfuse_secret_key_ref in config.json."
-        )
-
-    # Step 2: Resolve endpoint and protocol
-    target_protocol = str(
-        protocol or setting("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
-    ).strip()
-    if target_protocol != "http/protobuf":
-        logger.warning("OTLP setup skipped: unsupported protocol")
-        return
-    target_service_name = _service_topology_label(
-        service_name or retrieve_package_name() or "agent-utilities"
+    ctx = _resolve_setup_otel_context(
+        endpoint=endpoint,
+        headers=headers,
+        public_key=public_key,
+        secret_key=secret_key,
+        protocol=protocol,
+        service_name=service_name,
     )
+    if ctx is None:
+        return
 
-    # Step 3: Set environment variables for downstream OTel SDK consumers
-    if target_endpoint:
-        os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = target_endpoint
-    if resolved_headers:
-        os.environ["OTEL_EXPORTER_OTLP_HEADERS"] = resolved_headers
-    if target_protocol:
-        os.environ["OTEL_EXPORTER_OTLP_PROTOCOL"] = target_protocol
-    if target_service_name:
-        os.environ["OTEL_SERVICE_NAME"] = target_service_name
+    _set_otel_env_vars(ctx)
 
     logger.debug("OTel metadata-only configuration resolved")
 
     if _otel_initialized:
         logger.debug("Re-configuring metadata-only OTel")
 
-    # Step 4: Resolve runtime-only trust and create the OTLP span processor.
-    try:
-        transport_security = _resolve_otel_transport(
-            target_endpoint,
-        )
-        os.environ.update(transport_security.child_env())
-    except Exception as exc:
-        logger.warning(
-            "OTLP setup skipped: transport security profile is invalid (%s)",
-            type(exc).__name__,
-        )
+    span_processors = _build_otel_span_processors(ctx)
+    if span_processors is None:
         return
-    span_processors = []
-    if target_endpoint and resolved_headers:
-        processor = _create_otlp_span_processor(
-            endpoint=target_endpoint,
-            headers=resolved_headers,
-            protocol=target_protocol or "http/protobuf",
-            transport_security=transport_security,
-            service_ref=target_service_name,
-        )
-        if processor:
-            span_processors.append(processor)
-            logger.info("Metadata-only OTLP exporter configured")
-    else:
-        logger.warning(
-            "OTLP export disabled — missing endpoint (%s) or headers (%s). "
-            "Traces will be collected locally only.",
-            "set" if target_endpoint else "missing",
-            "set" if resolved_headers else "missing",
-        )
 
-    # Step 5: Configure Logfire with the OTLP span processor
-    configure_kwargs: dict[str, Any] = {
-        "send_to_logfire": False,
-        "service_name": target_service_name,
-        "distributed_tracing": True,
-    }
+    _configure_logfire_pipeline(
+        ctx,
+        service_version=service_version,
+        environment=environment,
+        span_processors=span_processors,
+    )
 
-    if service_version:
-        configure_kwargs["service_version"] = _opaque_label(
-            "service_version", service_version
-        )
-    if environment:
-        configure_kwargs["environment"] = _opaque_label("environment", environment)
-
-    if span_processors:
-        configure_kwargs["additional_span_processors"] = span_processors
-
-    logfire.configure(**configure_kwargs)
-
-    # Step 6: PydanticAI defaults to including prompts, outputs, tool arguments,
-    # tool results, and binary content. Pass explicit false settings through
-    # both integration entry points and verify the installed API accepted them.
-    try:
-        from pydantic_ai import InstrumentationSettings
-
-        settings = InstrumentationSettings(
-            include_content=False,
-            include_binary_content=False,
-            version=5,
-        )
-        logfire.instrument_pydantic_ai(
-            include_content=False,
-            include_binary_content=False,
-            version=5,
-        )
-        installed = instrument_context_agents(settings)
-        if (
-            getattr(installed, "include_content", None) is not False
-            or getattr(installed, "include_binary_content", None) is not False
-        ):
-            raise RuntimeError("instrumentation content policy was not installed")
-        _agent_instrumented_metadata_only = True
-    except Exception as exc:
-        with contextlib.suppress(Exception):
-            disable_context_agent_instrumentation()
-        _agent_instrumented_metadata_only = False
-        logger.warning(
-            "PydanticAI tracing disabled: metadata-only policy unavailable "
-            "(exception_type=%s)",
-            type(exc).__name__,
-        )
+    _agent_instrumented_metadata_only = _instrument_metadata_only_agents()
 
     # FastAPI/Starlette instrumentation requires a concrete application and
     # otherwise records URL/route/user-agent/request attributes. setup_otel has
@@ -778,21 +943,13 @@ def setup_otel(
     )
 
 
-def verify_otel_pipeline() -> dict[str, Any]:
-    """Verify the OTel → Langfuse pipeline is operational.
+def _resolve_verify_otel_state() -> tuple[str, str, str | None]:
+    """Resolve the endpoint + auth headers used by :func:`verify_otel_pipeline`.
 
-    CONCEPT:AU-OS.config.secrets-authentication — Pipeline Health Check
-
-    Tests connectivity to the Langfuse OTLP endpoint and returns
-    a diagnostic report.
-
-    Returns:
-        Dict with keys: ``initialized``, ``endpoint_configured``, ``headers_set``,
-        ``logfire_available``, ``exporter_ok``, ``agent_instrumented``.
+    Returns ``(endpoint, resolved_headers, resolution_error_name)``.
     """
     endpoint = ""
     resolved_headers = ""
-    resolution_error: str | None = None
     try:
         endpoint = _resolve_otel_endpoint(None)
         if endpoint:
@@ -806,9 +963,13 @@ def verify_otel_pipeline() -> dict[str, Any]:
                 secret_key=None,
             )
     except Exception as exc:
-        resolution_error = type(exc).__name__
+        return endpoint, resolved_headers, type(exc).__name__
+    return endpoint, resolved_headers, None
 
-    report: dict[str, Any] = {
+
+def _build_verify_report_base(endpoint: str, resolved_headers: str) -> dict[str, Any]:
+    """The static/config-derived fields of the ``verify_otel_pipeline`` report."""
+    return {
         "initialized": _otel_initialized,
         "logfire_available": HAS_LOGFIRE,
         "endpoint_configured": bool(endpoint),
@@ -825,53 +986,78 @@ def verify_otel_pipeline() -> dict[str, Any]:
         "content_capture": False,
         "web_instrumented": _web_instrumentation_enabled,
     }
+
+
+def _probe_langfuse_otel_health(endpoint: str, resolved_headers: str) -> dict[str, Any]:
+    """Probe the Langfuse OTLP sink's authenticated health endpoint.
+
+    A Langfuse API read is the authenticated health contract for its OTLP sink.
+    Generic collectors do not expose one portable read endpoint, so they remain
+    unproven instead of treating an arbitrary 4xx response as success. Returns
+    the report field updates (including ``endpoint_error`` on any failure).
+    """
+    from agent_utilities.core.http_client import create_http_client
+
+    langfuse_host = resolve_langfuse_host()
+    if not _is_langfuse_otel_endpoint(endpoint, langfuse_host):
+        return {"endpoint_error": "authenticated_health_unsupported"}
+    if not resolved_headers:
+        return {"endpoint_error": "authentication_missing"}
+    trust = _resolve_otel_transport(endpoint)
+    probe_endpoint = f"{langfuse_host.rstrip('/')}/api/public/traces"
+    try:
+        with create_http_client(
+            timeout=5.0,
+            follow_redirects=False,
+            **trust.httpx_kwargs(),
+        ) as client:
+            resp = client.get(
+                probe_endpoint,
+                params={"limit": 1},
+                headers=parse_otlp_headers(resolved_headers),
+            )
+    finally:
+        trust.cleanup()
+    updates: dict[str, Any] = {"endpoint_status": resp.status_code}
+    if not 200 <= resp.status_code < 300:
+        updates["endpoint_error"] = (
+            "authentication_failed"
+            if resp.status_code in {401, 403}
+            else "api_probe_failed"
+        )
+        return updates
+    payload = resp.json()
+    exporter_ok = bool(
+        isinstance(payload, dict) and isinstance(payload.get("data"), list)
+    )
+    updates["exporter_ok"] = exporter_ok
+    if not exporter_ok:
+        updates["endpoint_error"] = "api_response_invalid"
+    return updates
+
+
+def verify_otel_pipeline() -> dict[str, Any]:
+    """Verify the OTel → Langfuse pipeline is operational.
+
+    CONCEPT:AU-OS.config.secrets-authentication — Pipeline Health Check
+
+    Tests connectivity to the Langfuse OTLP endpoint and returns
+    a diagnostic report.
+
+    Returns:
+        Dict with keys: ``initialized``, ``endpoint_configured``, ``headers_set``,
+        ``logfire_available``, ``exporter_ok``, ``agent_instrumented``.
+    """
+    endpoint, resolved_headers, resolution_error = _resolve_verify_otel_state()
+
+    report = _build_verify_report_base(endpoint, resolved_headers)
     if resolution_error:
         report["endpoint_error"] = resolution_error
         return report
 
-    # A Langfuse API read is the authenticated health contract for its OTLP sink.
-    # Generic collectors do not expose one portable read endpoint, so they remain
-    # unproven instead of treating an arbitrary 4xx response as success.
     if endpoint:
         try:
-            from agent_utilities.core.http_client import create_http_client
-
-            langfuse_host = resolve_langfuse_host()
-            if not _is_langfuse_otel_endpoint(endpoint, langfuse_host):
-                report["endpoint_error"] = "authenticated_health_unsupported"
-                return report
-            if not resolved_headers:
-                report["endpoint_error"] = "authentication_missing"
-                return report
-            trust = _resolve_otel_transport(endpoint)
-            probe_endpoint = f"{langfuse_host.rstrip('/')}/api/public/traces"
-            try:
-                with create_http_client(
-                    timeout=5.0,
-                    follow_redirects=False,
-                    **trust.httpx_kwargs(),
-                ) as client:
-                    resp = client.get(
-                        probe_endpoint,
-                        params={"limit": 1},
-                        headers=parse_otlp_headers(resolved_headers),
-                    )
-            finally:
-                trust.cleanup()
-            report["endpoint_status"] = resp.status_code
-            if not 200 <= resp.status_code < 300:
-                report["endpoint_error"] = (
-                    "authentication_failed"
-                    if resp.status_code in {401, 403}
-                    else "api_probe_failed"
-                )
-                return report
-            payload = resp.json()
-            report["exporter_ok"] = bool(
-                isinstance(payload, dict) and isinstance(payload.get("data"), list)
-            )
-            if not report["exporter_ok"]:
-                report["endpoint_error"] = "api_response_invalid"
+            report.update(_probe_langfuse_otel_health(endpoint, resolved_headers))
         except Exception as exc:
             report["exporter_ok"] = False
             report["endpoint_error"] = type(exc).__name__

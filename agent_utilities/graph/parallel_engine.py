@@ -56,6 +56,7 @@ from ..models.execution_manifest import (
 from .coordination import CoordinationLayer
 
 if TYPE_CHECKING:
+    from ..capabilities.checkpointing import CheckpointStore
     from ..knowledge_graph.core.engine import IntelligenceGraphEngine
     from .state import GraphDeps
 
@@ -125,6 +126,31 @@ class AgentTypeCircuitBreaker(CircuitBreaker):
 # ── Swarm helpers — CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm KG-Governed Agent Swarm
 
 
+def _strip_json_fence(output: str) -> str:
+    """Strip an optional ```json fenced block from a sub-agent output (pure helper)."""
+    text = output.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        text = text[4:] if text[:4].lower() == "json" else text
+        text = text.strip()
+    return text
+
+
+def _required_keys_from_schema(schema: str) -> list[str]:
+    """Best-effort required-key extraction from a JSON-object or comma-list schema string."""
+    try:
+        sj = json.loads(schema)
+        if isinstance(sj, dict):
+            return list(sj.get("required") or sj.keys())
+        return []
+    except (json.JSONDecodeError, ValueError):
+        return [
+            k.strip()
+            for k in schema.replace("{", "").replace("}", "").split(",")
+            if k.strip()
+        ]
+
+
 def enforce_structured_output(output: str, schema: str | None) -> tuple[bool, str]:
     """SWARM-4: validate a sub-agent output against an expected JSON shape (pure, testable).
 
@@ -135,27 +161,13 @@ def enforce_structured_output(output: str, schema: str | None) -> tuple[bool, st
     """
     if not schema:
         return True, "no schema"
-    text = output.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        text = text[4:] if text[:4].lower() == "json" else text
-        text = text.strip()
+    text = _strip_json_fence(output)
     try:
         parsed = json.loads(text)
     except (json.JSONDecodeError, ValueError) as e:
         return False, f"not valid JSON: {e}"
     # best-effort: if the schema names required keys (JSON object or comma list), check presence
-    required: list[str] = []
-    try:
-        sj = json.loads(schema)
-        if isinstance(sj, dict):
-            required = list(sj.get("required") or sj.keys())
-    except (json.JSONDecodeError, ValueError):
-        required = [
-            k.strip()
-            for k in schema.replace("{", "").replace("}", "").split(",")
-            if k.strip()
-        ]
+    required = _required_keys_from_schema(schema)
     if isinstance(parsed, dict) and required:
         missing = [k for k in required if k not in parsed]
         if missing:
@@ -230,6 +242,161 @@ class ParallelEngine:
 
     # ── Public API ──────────────────────────────────────────────────
 
+    @staticmethod
+    def _generate_mermaid_diagram(
+        resolved: ExecutionManifest, waves: list[list[AgentSpec]]
+    ) -> str | None:
+        """Generate the Mermaid diagram for the execution topography (non-fatal)."""
+        try:
+            from agent_utilities.workflows.visualizer import WorkflowVisualizer
+
+            mermaid_code = WorkflowVisualizer.generate(resolved, waves)
+            logger.info(
+                "\n" + "=" * 80 + "\n"
+                "[VISUALIZER] Deterministically Generated Mermaid Topography:\n\n"
+                f"```mermaid\n{mermaid_code}\n```\n" + "=" * 80 + "\n"
+            )
+            return mermaid_code
+        except Exception as vis_err:
+            logger.warning("Failed to generate workflow Mermaid diagram: %s", vis_err)
+            return None
+
+    async def _run_all_waves(
+        self,
+        waves: list[list[AgentSpec]],
+        scheduler: Any,
+        resolved: ExecutionManifest,
+        graph_deps: GraphDeps | None,
+    ) -> list[WaveResult]:
+        """Execute every wave in order, accumulating ``WaveResult``s for dependency context."""
+        wave_results: list[WaveResult] = []
+        for wave_idx, wave_agents in enumerate(waves):
+            logger.info(
+                "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] Wave %d/%d — %d agents",
+                wave_idx + 1,
+                len(waves),
+                len(wave_agents),
+            )
+
+            wave_result = await self._execute_wave(
+                wave_agents, wave_idx, scheduler, resolved, graph_deps, wave_results
+            )
+            wave_results.append(wave_result)
+
+            logger.info(
+                "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] Wave %d complete — success_rate=%.1f%%, "
+                "duration=%.0fms",
+                wave_idx + 1,
+                wave_result.success_rate * 100,
+                wave_result.duration_ms,
+            )
+        return wave_results
+
+    async def _run_adversarial_verification(
+        self,
+        resolved: ExecutionManifest,
+        graph_deps: GraphDeps | None,
+        synthesis_output: str,
+    ) -> None:
+        """Run the final adversarial verification pass, if enabled (non-fatal).
+
+        Mutates ``resolved.metadata["adversarial_findings"]`` when vulnerabilities are found.
+        """
+        from ..capabilities.adversarial_verifier import ADVERSARIAL_ENABLED
+
+        if not ADVERSARIAL_ENABLED:
+            return
+        try:
+            from ..capabilities.adversarial_verifier import run_adversarial_pass
+
+            # Mock GraphState/Deps if missing
+            class MockGraphState:
+                def __init__(self, q):
+                    self.query = q
+                    self.mode = "execute"
+                    self.signal_board = {}
+
+            class MockGraphDeps:
+                def __init__(self, model, eq=None):
+                    self.agent_model = model
+                    self.verifier_timeout = 120.0
+                    self.event_queue = eq
+
+            from typing import cast
+
+            from ..graph.state import GraphDeps, GraphState
+
+            m_state = cast(GraphState, MockGraphState(resolved.query))
+            model_id = resolved.synthesis.model_id or (
+                str(graph_deps.agent_model) if graph_deps else "openai:gpt-4o-mini"
+            )
+            m_deps = cast(
+                GraphDeps,
+                MockGraphDeps(model_id, graph_deps.event_queue if graph_deps else None),
+            )
+
+            logger.info(
+                "[CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort] Running final adversarial verification pass..."
+            )
+            adv_res = await run_adversarial_pass(m_state, m_deps, synthesis_output)
+            if adv_res and adv_res.vulnerabilities_found:
+                logger.warning(
+                    "[CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort] Adversarial pass found vulnerabilities: %s",
+                    adv_res.findings,
+                )
+                # Attach findings to resolved metadata or final execution log
+                resolved.metadata["adversarial_findings"] = adv_res.findings
+        except Exception as adv_err:
+            logger.warning("Adversarial pass failed (non-fatal): %s", adv_err)
+
+    def _critical_path_and_parallelism(
+        self, wave_results: list[WaveResult]
+    ) -> tuple[int, float]:
+        """SWARM-3: critical-path length + parallelism ratio from the last schedule pass."""
+        critical_path = int(
+            self._schedule_meta.get("critical_path_length", len(wave_results))
+        )
+        parallelism = float(self._schedule_meta.get("parallelism_ratio", 1.0))
+        return critical_path, parallelism
+
+    def _build_execution_telemetry(
+        self,
+        resolved: ExecutionManifest,
+        wave_results: list[WaveResult],
+        social_health: Any,
+        concurrency: int,
+        critical_path: int,
+        parallelism: float,
+    ) -> dict[str, Any]:
+        """SWARM-3 + SWARM-7: assemble the critical-path + per-wave telemetry dict."""
+        telemetry: dict[str, Any] = {
+            "waves": [
+                {
+                    "index": w.wave_index,
+                    "agents": len(w.results),
+                    "duration_ms": round(w.duration_ms, 1),
+                    "success_rate": round(w.success_rate, 3),
+                }
+                for w in wave_results
+            ],
+            "critical_path_length": critical_path,
+            "parallelism_ratio": parallelism,
+            "total_agents": resolved.agent_count,
+            "wave_count": len(wave_results),
+            "max_concurrency": int(concurrency),
+        }
+        # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — surface GWT loop health (write/read counters +
+        # suspected engine-instance mismatch) for observability.
+        try:
+            from .workspace_attention import workspace_attention_telemetry
+
+            telemetry["workspace_attention"] = workspace_attention_telemetry()
+        except Exception:  # pragma: no cover - telemetry is best-effort
+            pass
+        if social_health:
+            telemetry["social_system"] = social_health
+        return telemetry
+
     async def execute(
         self,
         manifest: ExecutionManifest,
@@ -265,18 +432,7 @@ class ParallelEngine:
         waves = self._schedule_waves(resolved)
 
         # Generate Mermaid diagram representing the execution topography
-        mermaid_code = None
-        try:
-            from agent_utilities.workflows.visualizer import WorkflowVisualizer
-
-            mermaid_code = WorkflowVisualizer.generate(resolved, waves)
-            logger.info(
-                "\n" + "=" * 80 + "\n"
-                "[VISUALIZER] Deterministically Generated Mermaid Topography:\n\n"
-                f"```mermaid\n{mermaid_code}\n```\n" + "=" * 80 + "\n"
-            )
-        except Exception as vis_err:
-            logger.warning("Failed to generate workflow Mermaid diagram: %s", vis_err)
+        mermaid_code = self._generate_mermaid_diagram(resolved, waves)
 
         # 3. Select and apply coordination protocol
         # Historical protocol selection and trace persistence both perform
@@ -296,28 +452,7 @@ class ParallelEngine:
             max_concurrent=int(concurrency), engine=self.engine
         )
 
-        wave_results: list[WaveResult] = []
-
-        for wave_idx, wave_agents in enumerate(waves):
-            logger.info(
-                "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] Wave %d/%d — %d agents",
-                wave_idx + 1,
-                len(waves),
-                len(wave_agents),
-            )
-
-            wave_result = await self._execute_wave(
-                wave_agents, wave_idx, scheduler, resolved, graph_deps, wave_results
-            )
-            wave_results.append(wave_result)
-
-            logger.info(
-                "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] Wave %d complete — success_rate=%.1f%%, "
-                "duration=%.0fms",
-                wave_idx + 1,
-                wave_result.success_rate * 100,
-                wave_result.duration_ms,
-            )
+        wave_results = await self._run_all_waves(waves, scheduler, resolved, graph_deps)
 
         # 4b. SWARM-2: verify leaves against success_criteria + bounded re-dispatch (the
         # planner→execute→verify loop). Gated by metadata["verify"]; only agents declaring
@@ -358,53 +493,7 @@ class ParallelEngine:
         )
 
         # Adversarial verification on final run synthesized output
-        from ..capabilities.adversarial_verifier import ADVERSARIAL_ENABLED
-
-        if ADVERSARIAL_ENABLED:
-            try:
-                from ..capabilities.adversarial_verifier import run_adversarial_pass
-
-                # Mock GraphState/Deps if missing
-                class MockGraphState:
-                    def __init__(self, q):
-                        self.query = q
-                        self.mode = "execute"
-                        self.signal_board = {}
-
-                class MockGraphDeps:
-                    def __init__(self, model, eq=None):
-                        self.agent_model = model
-                        self.verifier_timeout = 120.0
-                        self.event_queue = eq
-
-                from typing import cast
-
-                from ..graph.state import GraphDeps, GraphState
-
-                m_state = cast(GraphState, MockGraphState(resolved.query))
-                model_id = resolved.synthesis.model_id or (
-                    str(graph_deps.agent_model) if graph_deps else "openai:gpt-4o-mini"
-                )
-                m_deps = cast(
-                    GraphDeps,
-                    MockGraphDeps(
-                        model_id, graph_deps.event_queue if graph_deps else None
-                    ),
-                )
-
-                logger.info(
-                    "[CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort] Running final adversarial verification pass..."
-                )
-                adv_res = await run_adversarial_pass(m_state, m_deps, synthesis_output)
-                if adv_res and adv_res.vulnerabilities_found:
-                    logger.warning(
-                        "[CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort] Adversarial pass found vulnerabilities: %s",
-                        adv_res.findings,
-                    )
-                    # Attach findings to resolved metadata or final execution log
-                    resolved.metadata["adversarial_findings"] = adv_res.findings
-            except Exception as adv_err:
-                logger.warning("Adversarial pass failed (non-fatal): %s", adv_err)
+        await self._run_adversarial_verification(resolved, graph_deps, synthesis_output)
 
         total_duration = (time.monotonic() - start_time) * 1000
 
@@ -413,37 +502,15 @@ class ParallelEngine:
             self._persist_execution, resolved, wave_results, synthesis_output
         )
 
-        # SWARM-3 + SWARM-7: critical-path + per-wave telemetry
-        critical_path = int(
-            self._schedule_meta.get("critical_path_length", len(wave_results))
+        critical_path, parallelism = self._critical_path_and_parallelism(wave_results)
+        telemetry = self._build_execution_telemetry(
+            resolved,
+            wave_results,
+            social_health,
+            concurrency,
+            critical_path,
+            parallelism,
         )
-        parallelism = float(self._schedule_meta.get("parallelism_ratio", 1.0))
-        telemetry = {
-            "waves": [
-                {
-                    "index": w.wave_index,
-                    "agents": len(w.results),
-                    "duration_ms": round(w.duration_ms, 1),
-                    "success_rate": round(w.success_rate, 3),
-                }
-                for w in wave_results
-            ],
-            "critical_path_length": critical_path,
-            "parallelism_ratio": parallelism,
-            "total_agents": resolved.agent_count,
-            "wave_count": len(wave_results),
-            "max_concurrency": int(concurrency),
-        }
-        # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — surface GWT loop health (write/read counters +
-        # suspected engine-instance mismatch) for observability.
-        try:
-            from .workspace_attention import workspace_attention_telemetry
-
-            telemetry["workspace_attention"] = workspace_attention_telemetry()
-        except Exception:  # pragma: no cover - telemetry is best-effort
-            pass
-        if social_health:
-            telemetry["social_system"] = social_health
 
         result = ExecutionResult(
             manifest_id=resolved.manifest_id,
@@ -525,49 +592,46 @@ class ParallelEngine:
 
     # ── DAG Scheduling ──────────────────────────────────────────────
 
-    def _schedule_waves(self, manifest: ExecutionManifest) -> list[list[AgentSpec]]:
-        """Build a dependency DAG and schedule agents into execution waves.
+    def _schedule_waves_sequential(
+        self, manifest: ExecutionManifest
+    ) -> list[list[AgentSpec]]:
+        """Each agent is its own wave — critical path == agent count."""
+        seq = [[a] for a in self._expand_partitions(manifest)]
+        self._schedule_meta = {
+            "critical_path_length": len(seq),
+            "parallelism_ratio": 1.0,
+        }
+        return seq
 
-        CONCEPT:AU-ORCH.execution.parallel-engine-visualizer — Parallel Engine
+    @staticmethod
+    def _batch_size_for(manifest: ExecutionManifest) -> int:
+        b_size = manifest.batch_size
+        if b_size is None:
+            b_size = getattr(config, "parallel_batch_size", 25) or 25
+        return int(b_size)
 
-        Uses topological sort on the dependency graph to determine
-        execution order, then groups agents by topological level
-        into parallel waves.
+    def _schedule_waves_independent(
+        self, manifest: ExecutionManifest, expanded: list[AgentSpec]
+    ) -> list[list[AgentSpec]]:
+        """No DAG — all agents are independent; critical path == 1 (one logical level).
 
-        Args:
-            manifest: Resolved execution manifest.
-
-        Returns:
-            List of waves, each containing agents that can run concurrently.
+        Wave count may be >1 only because of batch_size, not dependency depth.
         """
-        if manifest.execution_mode == "sequential":
-            # Each agent is its own wave — critical path == agent count
-            seq = [[a] for a in self._expand_partitions(manifest)]
-            self._schedule_meta = {
-                "critical_path_length": len(seq),
-                "parallelism_ratio": 1.0,
-            }
-            return seq
+        batch_size = self._batch_size_for(manifest)
+        waves = []
+        for i in range(0, len(expanded), batch_size):
+            waves.append(expanded[i : i + batch_size])
+        self._schedule_meta = {
+            "critical_path_length": 1,
+            "parallelism_ratio": float(len(expanded)),
+        }
+        return waves
 
-        expanded = self._expand_partitions(manifest)
-
-        if not manifest.has_dependencies:
-            # No DAG — all agents are independent; critical path == 1 (one logical level).
-            # Wave count may be >1 only because of batch_size, not dependency depth.
-            b_size = manifest.batch_size
-            if b_size is None:
-                b_size = getattr(config, "parallel_batch_size", 25) or 25
-            batch_size = int(b_size)
-            waves = []
-            for i in range(0, len(expanded), batch_size):
-                waves.append(expanded[i : i + batch_size])
-            self._schedule_meta = {
-                "critical_path_length": 1,
-                "parallelism_ratio": float(len(expanded)),
-            }
-            return waves
-
-        # Build DAG from depends_on edges using graph primitives
+    @staticmethod
+    def _build_dependency_dag(
+        expanded: list[AgentSpec],
+    ) -> tuple[Any, dict[str, AgentSpec]]:
+        """Build the dependency DAG from ``depends_on`` edges using graph primitives."""
         dag = rx.PyDiGraph()
         agent_map: dict[str, AgentSpec] = {}
         node_indices: dict[str, int] = {}
@@ -582,6 +646,13 @@ class ParallelEngine:
             for dep in agent.depends_on:
                 if dep in valid_ids:
                     dag.add_edge(node_indices[dep], node_indices[agent.agent_id], None)
+        return dag, agent_map
+
+    def _schedule_waves_dag(
+        self, manifest: ExecutionManifest, expanded: list[AgentSpec]
+    ) -> list[list[AgentSpec]]:
+        """Topological-generation scheduling for a manifest with real dependencies."""
+        dag, agent_map = self._build_dependency_dag(expanded)
 
         # Group by topological generation (parallel levels)
         try:
@@ -605,12 +676,8 @@ class ParallelEngine:
             "parallelism_ratio": round(len(expanded) / max(1, n_gen), 2),
         }
 
+        batch_size = self._batch_size_for(manifest)
         topological_waves: list[list[AgentSpec]] = []
-        b_size = manifest.batch_size
-        if b_size is None:
-            b_size = getattr(config, "parallel_batch_size", 25) or 25
-        batch_size = int(b_size)
-
         for generation in generations:
             gen_agents = [
                 agent_map[dag[nidx]] for nidx in generation if dag[nidx] in agent_map
@@ -620,6 +687,31 @@ class ParallelEngine:
                 topological_waves.append(gen_agents[i : i + batch_size])
 
         return topological_waves
+
+    def _schedule_waves(self, manifest: ExecutionManifest) -> list[list[AgentSpec]]:
+        """Build a dependency DAG and schedule agents into execution waves.
+
+        CONCEPT:AU-ORCH.execution.parallel-engine-visualizer — Parallel Engine
+
+        Uses topological sort on the dependency graph to determine
+        execution order, then groups agents by topological level
+        into parallel waves.
+
+        Args:
+            manifest: Resolved execution manifest.
+
+        Returns:
+            List of waves, each containing agents that can run concurrently.
+        """
+        if manifest.execution_mode == "sequential":
+            return self._schedule_waves_sequential(manifest)
+
+        expanded = self._expand_partitions(manifest)
+
+        if not manifest.has_dependencies:
+            return self._schedule_waves_independent(manifest, expanded)
+
+        return self._schedule_waves_dag(manifest, expanded)
 
     def _expand_partitions(self, manifest: ExecutionManifest) -> list[AgentSpec]:
         """Expand fan-out partitions into individual agent specs.
@@ -764,6 +856,237 @@ class ParallelEngine:
             duration_ms=duration_ms,
         )
 
+    @staticmethod
+    def _matching_dependency_results(
+        dep_id: str, wave_results: list[WaveResult]
+    ) -> list[AgentExecutionResult]:
+        """All successful results across waves whose id matches ``dep_id`` (exact or partitioned)."""
+        matches: list[AgentExecutionResult] = []
+        for wave_res in wave_results:
+            for agent_res in wave_res.results:
+                if not agent_res.success:
+                    continue
+                if agent_res.agent_id == dep_id or agent_res.agent_id.startswith(
+                    f"{dep_id}:"
+                ):
+                    matches.append(agent_res)
+        return matches
+
+    @staticmethod
+    def _format_dependency_context(agent_res: AgentExecutionResult) -> str:
+        """Render one dependency-output entry for the ``## DEPENDENCY OUTPUTS`` block."""
+        role_str = f"Role: {agent_res.role}" if agent_res.role else ""
+        part_str = f", Partition: {agent_res.partition}" if agent_res.partition else ""
+        return (
+            f"### Output from dependent agent '{agent_res.agent_id}' ({role_str}{part_str}):\n"
+            f"{agent_res.output}"
+        )
+
+    @classmethod
+    def _dependency_context_block(
+        cls, agent: AgentSpec, wave_results: list[WaveResult]
+    ) -> str:
+        """Render the ``## DEPENDENCY OUTPUTS`` block for ``agent`` (or ``""``).
+
+        Extracted from ``_execute_agent`` (CONCEPT:AU-ORCH.execution.parallel-engine-visualizer).
+        Ingests dependency outputs (Fan-In / Fan-Out topological context flow).
+        """
+        if not agent.depends_on:
+            return ""
+        dependency_contexts: list[str] = []
+        for dep_id in agent.depends_on:
+            matches = cls._matching_dependency_results(dep_id, wave_results)
+            dependency_contexts.extend(
+                cls._format_dependency_context(r) for r in matches
+            )
+        if not dependency_contexts:
+            return ""
+        dep_text = "\n\n".join(dependency_contexts)
+        return (
+            f"\n\n## DEPENDENCY OUTPUTS\n"
+            f"The following dependent upstream steps have completed successfully. "
+            f"Use their outputs to complete your task:\n\n"
+            f"{dep_text}"
+        )
+
+    async def _paged_checkpoint_block(self, proc: Any) -> str:
+        """Render the ``## RESUMED CONTEXT`` block paged from a governed checkpoint (or ``""``).
+
+        CONCEPT:AU-OS.scaling.epistemic-dynamic-priority-quota Context Paging.
+        """
+        if not (proc and hasattr(proc, "checkpoint_id") and proc.checkpoint_id):
+            return ""
+        logger.info("Paging agent context from governed checkpoint")
+        try:
+            from ..capabilities.checkpointing import GraphCheckpointStore
+
+            store = GraphCheckpointStore(engine=self.engine)
+            ckpt_data = store.get(proc.checkpoint_id)
+            if ckpt_data:
+                return f"\n\n## RESUMED CONTEXT (Paged from KG)\n{ckpt_data}"
+        except Exception as e:
+            logger.warning("Failed to page agent context (%s)", type(e).__name__)
+        return ""
+
+    @staticmethod
+    def _resolve_agent_model_id(agent: AgentSpec, graph_deps: GraphDeps | None) -> str:
+        """Resolve the model id for ``agent`` (SWARM-6 heterogeneous swarm / Claw Groups).
+
+        Per-agent ``model_role`` resolves before the manifest/default fallback so e.g. a
+        "reasoning" agent can run on a frontier model while bulk agents run on a cheaper tier.
+        """
+        model_id = agent.model_id
+        if not model_id and agent.model_role:
+            model_id = resolve_model_role(agent.model_role)
+        if not model_id and graph_deps:
+            model_id = str(graph_deps.agent_model)
+        if not model_id:
+            model_id = "openai:gpt-4o-mini"  # Fallback
+        return model_id
+
+    @staticmethod
+    def _build_agent_system_prompt(agent: AgentSpec) -> str:
+        """Build the system prompt for ``agent``, with the SWARM-4 structured-output contract."""
+        system_prompt = agent.system_prompt or (
+            f"You are a {agent.role or agent.agent_id} specialist agent. "
+            f"Provide your best analysis and response."
+        )
+        # SWARM-4: structured-output contract — instruct the sub-agent to return only valid JSON
+        # matching the schema (prose from intermediates breaks downstream synthesis).
+        if agent.output_schema:
+            system_prompt += (
+                "\n\nSTRUCTURED OUTPUT CONTRACT: Return ONLY valid JSON matching this shape "
+                f"(no prose, no markdown fences):\n{agent.output_schema}"
+            )
+        return system_prompt
+
+    def _resolve_checkpoint_store(
+        self, metadata: dict[str, Any]
+    ) -> CheckpointStore | None:
+        """Resolve the checkpoint store named by ``metadata['checkpoint_store']`` (or ``None``)."""
+        if metadata.get("checkpoint_store") == "file":
+            from ..capabilities.checkpointing import FileCheckpointStore
+
+            return FileCheckpointStore(
+                directory=metadata.get("checkpoint_dir", "./checkpoints")
+            )
+        if metadata.get("checkpoint_store") == "graph":
+            from ..capabilities.checkpointing import GraphCheckpointStore
+
+            return GraphCheckpointStore(engine=self.engine)
+        return None
+
+    def _create_agent_for_spec(
+        self,
+        agent: AgentSpec,
+        model_id: str,
+        system_prompt: str,
+        metadata: dict[str, Any],
+    ) -> Any:
+        """Wire up all 8 capabilities natively using the agent factory for one ``AgentSpec``."""
+        from ..agent.factory import create_agent
+
+        provider = "openai"
+        prov_model = model_id
+        if ":" in model_id:
+            provider, prov_model = model_id.split(":", 1)
+
+        checkpoint_store = self._resolve_checkpoint_store(metadata)
+
+        # CONCEPT:AU-ECO.toolkit.workflow-gap-fill — gap-fill the workflow's declared tools against what's
+        # available (substitute by capability, or surface a precise gap). Defensive:
+        # falls back to agent.tools unchanged when availability is undeterminable.
+        from .tool_resolver import resolve_agent_tools
+
+        _tool_res = resolve_agent_tools(self.engine, agent.tools)
+        if _tool_res.filled or _tool_res.missing:
+            logger.info(
+                "[CONCEPT:AU-ECO.toolkit.workflow-gap-fill] tool gap-fill "
+                "filled_count=%d missing_count=%d",
+                len(_tool_res.filled),
+                len(_tool_res.missing),
+            )
+
+        llm_agent, _ = create_agent(
+            provider=provider,
+            model_id=prov_model,
+            system_prompt=system_prompt,
+            name=agent.agent_id,
+            enable_skills=True,
+            enable_universal_tools=True,
+            mcp_config=metadata.get("mcp_config"),
+            tool_tags=_tool_res.resolved or agent.tools,
+            stuck_loop_detection=metadata.get("stuck_loop_detection", True),
+            stuck_loop_max_repeated=metadata.get("stuck_loop_max_repeated", 3),
+            context_warnings=metadata.get("context_warnings", True),
+            max_context_tokens=metadata.get("max_context_tokens"),
+            output_eviction=metadata.get("output_eviction", True),
+            eviction_threshold_chars=metadata.get("eviction_threshold_chars", 80_000),
+            include_checkpoints=metadata.get("include_checkpoints", False),
+            checkpoint_store=checkpoint_store,
+            checkpoint_frequency=metadata.get("checkpoint_frequency", "every_tool"),
+            include_teams=metadata.get("include_teams", False),
+        )
+        return llm_agent
+
+    def _agent_timeout_result(
+        self, agent: AgentSpec, model_id: str, duration_ms: float
+    ) -> AgentExecutionResult:
+        """Build the ``AgentExecutionResult`` for a timed-out agent invocation."""
+        logger.warning(
+            "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] "
+            "Agent timed out after %.0fms",
+            duration_ms,
+        )
+        return AgentExecutionResult(
+            agent_id=agent.agent_id,
+            role=agent.role,
+            success=False,
+            error=f"Timeout after {duration_ms:.0f}ms",
+            duration_ms=duration_ms,
+            model_id=model_id,
+        )
+
+    def _agent_failure_result(
+        self, agent: AgentSpec, model_id: str, duration_ms: float, error: Exception
+    ) -> AgentExecutionResult:
+        """Build the ``AgentExecutionResult`` for a failed agent invocation.
+
+        Also threshold-counts the failure into the ``failure_gap`` remediation chain.
+        """
+        logger.warning(
+            "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] Agent failed (%s)",
+            type(error).__name__,
+        )
+        try:
+            self._escalate_repeated_failure(agent.agent_id, str(error))
+        except Exception as ah_err:
+            logger.debug("Failure escalation skipped (%s)", type(ah_err).__name__)
+
+        return AgentExecutionResult(
+            agent_id=agent.agent_id,
+            role=agent.role,
+            success=False,
+            error=str(error),
+            duration_ms=duration_ms,
+            model_id=model_id,
+        )
+
+    async def _build_agent_task(
+        self,
+        agent: AgentSpec,
+        manifest: ExecutionManifest,
+        wave_results: list[WaveResult],
+        proc: Any,
+    ) -> str:
+        """Assemble the full task prompt: base task + dependency + manifest + checkpoint context."""
+        task = agent.task_template or manifest.query
+        task += self._dependency_context_block(agent, wave_results)
+        if manifest.context:
+            task = f"{task}\n\nContext:\n{manifest.context}"
+        task += await self._paged_checkpoint_block(proc)
+        return task
+
     async def _execute_agent(
         self,
         agent: AgentSpec,
@@ -788,142 +1111,14 @@ class ParallelEngine:
         start_time = time.monotonic()
         timeout = agent.timeout or getattr(config, "agent_execution_timeout", 120.0)
 
-        # Build the task prompt
-        task = agent.task_template or manifest.query
-
-        # Ingest dependency outputs (Fan-In / Fan-Out topological context flow)
-        dependency_contexts = []
-        if agent.depends_on:
-            for dep_id in agent.depends_on:
-                for wave_res in wave_results:
-                    for agent_res in wave_res.results:
-                        if (
-                            agent_res.agent_id == dep_id
-                            or agent_res.agent_id.startswith(f"{dep_id}:")
-                        ) and agent_res.success:
-                            role_str = (
-                                f"Role: {agent_res.role}" if agent_res.role else ""
-                            )
-                            part_str = (
-                                f", Partition: {agent_res.partition}"
-                                if agent_res.partition
-                                else ""
-                            )
-                            dependency_contexts.append(
-                                f"### Output from dependent agent '{agent_res.agent_id}' ({role_str}{part_str}):\n"
-                                f"{agent_res.output}"
-                            )
-
-        if dependency_contexts:
-            dep_text = "\n\n".join(dependency_contexts)
-            task = (
-                f"{task}\n\n"
-                f"## DEPENDENCY OUTPUTS\n"
-                f"The following dependent upstream steps have completed successfully. "
-                f"Use their outputs to complete your task:\n\n"
-                f"{dep_text}"
-            )
-
-        if manifest.context:
-            task = f"{task}\n\nContext:\n{manifest.context}"
-
-        # CONCEPT:AU-OS.scaling.epistemic-dynamic-priority-quota Context Paging
-        if proc and hasattr(proc, "checkpoint_id") and proc.checkpoint_id:
-            logger.info("Paging agent context from governed checkpoint")
-            try:
-                from ..capabilities.checkpointing import GraphCheckpointStore
-
-                store = GraphCheckpointStore(engine=self.engine)
-                ckpt_data = store.get(proc.checkpoint_id)
-                if ckpt_data:
-                    task = f"{task}\n\n## RESUMED CONTEXT (Paged from KG)\n{ckpt_data}"
-            except Exception as e:
-                logger.warning("Failed to page agent context (%s)", type(e).__name__)
-
-        # Determine model — SWARM-6: per-agent model_role (heterogeneous swarm / Claw Groups)
-        # resolves before the manifest/default fallback so e.g. a "reasoning" agent can run on a
-        # frontier model while bulk agents run on a cheaper tier.
-        model_id = agent.model_id
-        if not model_id and agent.model_role:
-            model_id = resolve_model_role(agent.model_role)
-        if not model_id and graph_deps:
-            model_id = str(graph_deps.agent_model)
-        if not model_id:
-            model_id = "openai:gpt-4o-mini"  # Fallback
-
-        system_prompt = agent.system_prompt or (
-            f"You are a {agent.role or agent.agent_id} specialist agent. "
-            f"Provide your best analysis and response."
-        )
-        # SWARM-4: structured-output contract — instruct the sub-agent to return only valid JSON
-        # matching the schema (prose from intermediates breaks downstream synthesis).
-        if agent.output_schema:
-            system_prompt += (
-                "\n\nSTRUCTURED OUTPUT CONTRACT: Return ONLY valid JSON matching this shape "
-                f"(no prose, no markdown fences):\n{agent.output_schema}"
-            )
+        task = await self._build_agent_task(agent, manifest, wave_results, proc)
+        model_id = self._resolve_agent_model_id(agent, graph_deps)
+        system_prompt = self._build_agent_system_prompt(agent)
 
         try:
-            from ..agent.factory import create_agent
-
-            # Setup provider & model override
-            provider = "openai"
-            prov_model = model_id
-            if ":" in model_id:
-                provider, prov_model = model_id.split(":", 1)
-
-            # Map manifest settings / metadata
             metadata = manifest.metadata or {}
-            from ..capabilities.checkpointing import CheckpointStore
-
-            checkpoint_store: CheckpointStore | None = None
-            if metadata.get("checkpoint_store") == "file":
-                from ..capabilities.checkpointing import FileCheckpointStore
-
-                checkpoint_store = FileCheckpointStore(
-                    directory=metadata.get("checkpoint_dir", "./checkpoints")
-                )
-            elif metadata.get("checkpoint_store") == "graph":
-                from ..capabilities.checkpointing import GraphCheckpointStore
-
-                checkpoint_store = GraphCheckpointStore(engine=self.engine)
-
-            # CONCEPT:AU-ECO.toolkit.workflow-gap-fill — gap-fill the workflow's declared tools against what's
-            # available (substitute by capability, or surface a precise gap). Defensive:
-            # falls back to agent.tools unchanged when availability is undeterminable.
-            from .tool_resolver import resolve_agent_tools
-
-            _tool_res = resolve_agent_tools(self.engine, agent.tools)
-            if _tool_res.filled or _tool_res.missing:
-                logger.info(
-                    "[CONCEPT:AU-ECO.toolkit.workflow-gap-fill] tool gap-fill "
-                    "filled_count=%d missing_count=%d",
-                    len(_tool_res.filled),
-                    len(_tool_res.missing),
-                )
-
-            # Wire up all 8 capabilities natively using factory
-            llm_agent, _ = create_agent(
-                provider=provider,
-                model_id=prov_model,
-                system_prompt=system_prompt,
-                name=agent.agent_id,
-                enable_skills=True,
-                enable_universal_tools=True,
-                mcp_config=metadata.get("mcp_config"),
-                tool_tags=_tool_res.resolved or agent.tools,
-                stuck_loop_detection=metadata.get("stuck_loop_detection", True),
-                stuck_loop_max_repeated=metadata.get("stuck_loop_max_repeated", 3),
-                context_warnings=metadata.get("context_warnings", True),
-                max_context_tokens=metadata.get("max_context_tokens"),
-                output_eviction=metadata.get("output_eviction", True),
-                eviction_threshold_chars=metadata.get(
-                    "eviction_threshold_chars", 80_000
-                ),
-                include_checkpoints=metadata.get("include_checkpoints", False),
-                checkpoint_store=checkpoint_store,
-                checkpoint_frequency=metadata.get("checkpoint_frequency", "every_tool"),
-                include_teams=metadata.get("include_teams", False),
+            llm_agent = self._create_agent_for_spec(
+                agent, model_id, system_prompt, metadata
             )
 
             result = await asyncio.wait_for(
@@ -960,41 +1155,11 @@ class ParallelEngine:
 
         except TimeoutError:
             duration_ms = (time.monotonic() - start_time) * 1000
-            logger.warning(
-                "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] "
-                "Agent timed out after %.0fms",
-                duration_ms,
-            )
-            return AgentExecutionResult(
-                agent_id=agent.agent_id,
-                role=agent.role,
-                success=False,
-                error=f"Timeout after {duration_ms:.0f}ms",
-                duration_ms=duration_ms,
-                model_id=model_id,
-            )
+            return self._agent_timeout_result(agent, model_id, duration_ms)
 
         except Exception as e:
             duration_ms = (time.monotonic() - start_time) * 1000
-            logger.warning(
-                "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] "
-                "Agent failed (%s)",
-                type(e).__name__,
-            )
-            # Threshold-counted escalation into the failure_gap remediation chain
-            try:
-                self._escalate_repeated_failure(agent.agent_id, str(e))
-            except Exception as ah_err:
-                logger.debug("Failure escalation skipped (%s)", type(ah_err).__name__)
-
-            return AgentExecutionResult(
-                agent_id=agent.agent_id,
-                role=agent.role,
-                success=False,
-                error=str(e),
-                duration_ms=duration_ms,
-                model_id=model_id,
-            )
+            return self._agent_failure_result(agent, model_id, duration_ms, e)
 
     _FAILURE_ESCALATION_THRESHOLD = 3
 
@@ -1074,6 +1239,45 @@ class ParallelEngine:
             feedback = text.split("FEEDBACK:", 1)[1].strip()
         return passed, feedback
 
+    async def _verify_and_redispatch_leaf(
+        self,
+        wave: WaveResult,
+        res: AgentExecutionResult,
+        spec: AgentSpec,
+        resolved: ExecutionManifest,
+        wave_results: list[WaveResult],
+        graph_deps: GraphDeps | None,
+    ) -> tuple[bool, bool]:
+        """Verify one leaf against ``success_criteria``; re-dispatch once on failure.
+
+        Returns ``(passed, was_redispatched)``.
+        """
+        ok, feedback = await self._judge_against_criteria(
+            res.output, spec.success_criteria, resolved.query, graph_deps
+        )
+        if ok:
+            return True, False
+
+        # one bounded re-dispatch with the judge's feedback appended
+        retry_spec = spec.model_copy(deep=True)
+        retry_spec.task_template = (
+            f"{spec.task_template or resolved.query}\n\n"
+            f"## PRIOR ATTEMPT FAILED VERIFICATION\nFix exactly this and satisfy the "
+            f"success criteria ({spec.success_criteria}):\n{feedback}"
+        )
+        new_res = await self._execute_agent(
+            retry_spec, resolved, graph_deps, wave_results
+        )
+        # replace the leaf in place
+        passed = False
+        for i, r in enumerate(wave.results):
+            if r.agent_id == res.agent_id:
+                new_res.metadata["reverified"] = True
+                wave.results[i] = new_res
+                passed = new_res.success
+                break
+        return passed, True
+
     async def _verify_and_redispatch(
         self,
         resolved: ExecutionManifest,
@@ -1096,31 +1300,13 @@ class ParallelEngine:
                 if not spec or not spec.success_criteria or not res.success:
                     continue
                 checked += 1
-                ok, feedback = await self._judge_against_criteria(
-                    res.output, spec.success_criteria, resolved.query, graph_deps
+                leaf_passed, was_redispatched = await self._verify_and_redispatch_leaf(
+                    wave, res, spec, resolved, wave_results, graph_deps
                 )
-                if ok:
+                if leaf_passed:
                     passed += 1
-                    continue
-                # one bounded re-dispatch with the judge's feedback appended
-                redispatched += 1
-                retry_spec = spec.model_copy(deep=True)
-                retry_spec.task_template = (
-                    f"{spec.task_template or resolved.query}\n\n"
-                    f"## PRIOR ATTEMPT FAILED VERIFICATION\nFix exactly this and satisfy the "
-                    f"success criteria ({spec.success_criteria}):\n{feedback}"
-                )
-                new_res = await self._execute_agent(
-                    retry_spec, resolved, graph_deps, wave_results
-                )
-                # replace the leaf in place
-                for i, r in enumerate(wave.results):
-                    if r.agent_id == res.agent_id:
-                        new_res.metadata["reverified"] = True
-                        wave.results[i] = new_res
-                        if new_res.success:
-                            passed += 1
-                        break
+                if was_redispatched:
+                    redispatched += 1
         return {
             "checked": checked,
             "passed": passed,
@@ -1487,6 +1673,44 @@ class ParallelEngine:
         except Exception as e:  # pragma: no cover - non-fatal  # noqa: BLE001 — docstring: "Best-effort"; winners were already selected and returned to the caller before this call, so a memory-store failure only loses INSIGHT-bank reinforcement, not the round's winner list
             logger.debug("EvolvingMemoryStore winner recording skipped: %s", e)
 
+    @staticmethod
+    def _add_social_agents(
+        mass: Any, all_results: list[AgentExecutionResult], manifest: ExecutionManifest
+    ) -> None:
+        """Register each result as a MASS agent (archetype = role, latent state = output size)."""
+        roles = {a.agent_id: (a.role or "worker") for a in manifest.agents}
+        for r in all_results:
+            # Latent state: output magnitude, zeroed on failure.
+            state = float(len(r.output)) if r.success else 0.0
+            mass.add_agent(
+                r.agent_id,
+                archetype=roles.get(r.agent_id, r.role or "worker"),
+                latent_state=state,
+            )
+
+    @staticmethod
+    def _add_social_edges(
+        mass: Any, manifest: ExecutionManifest, present: set[str]
+    ) -> None:
+        """Wire MASS interaction edges from the manifest's ``depends_on`` DAG (present agents only)."""
+        for a in manifest.agents:
+            for dep in getattr(a, "depends_on", []) or []:
+                if a.agent_id in present and dep in present:
+                    mass.add_edge(a.agent_id, dep)
+
+    @classmethod
+    def _build_social_system(
+        cls, all_results: list[AgentExecutionResult], manifest: ExecutionManifest
+    ) -> Any:
+        """Build the ``MultiAgentSocialSystem`` (archetypes, latent states, interaction edges)."""
+        from .social_system import MultiAgentSocialSystem
+
+        mass = MultiAgentSocialSystem()
+        cls._add_social_agents(mass, all_results, manifest)
+        present = {r.agent_id for r in all_results}
+        cls._add_social_edges(mass, manifest, present)
+        return mass
+
     def _social_swarm_health(
         self, all_results: list[AgentExecutionResult], manifest: ExecutionManifest
     ) -> dict:
@@ -1501,23 +1725,7 @@ class ParallelEngine:
         if len(all_results) < 2:
             return {}
         try:
-            from .social_system import MultiAgentSocialSystem
-
-            roles = {a.agent_id: (a.role or "worker") for a in manifest.agents}
-            mass = MultiAgentSocialSystem()
-            for r in all_results:
-                # Latent state: output magnitude, zeroed on failure.
-                state = float(len(r.output)) if r.success else 0.0
-                mass.add_agent(
-                    r.agent_id,
-                    archetype=roles.get(r.agent_id, r.role or "worker"),
-                    latent_state=state,
-                )
-            present = {r.agent_id for r in all_results}
-            for a in manifest.agents:
-                for dep in getattr(a, "depends_on", []) or []:
-                    if a.agent_id in present and dep in present:
-                        mass.add_edge(a.agent_id, dep)
+            mass = self._build_social_system(all_results, manifest)
             health = mass.swarm_health(prev_states=self._prev_social_states or None)
             self._prev_social_states = [
                 float(len(r.output)) if r.success else 0.0 for r in all_results
@@ -1526,6 +1734,82 @@ class ParallelEngine:
         except Exception as e:  # pragma: no cover - non-fatal telemetry  # noqa: BLE001 — returns {} on failure, and the caller only merges it when truthy; a snapshot failure just omits the P1-P4 block from that wave's telemetry
             logger.debug("Social-system health snapshot skipped: %s", e)
             return {}
+
+    @staticmethod
+    def _build_execution_node_data(
+        manifest: ExecutionManifest,
+        execution_id: str,
+        all_results: list[AgentExecutionResult],
+        wave_results: list[WaveResult],
+        synthesis_output: str,
+    ) -> dict[str, Any]:
+        """Build the ``ParallelExecution`` node payload for KG persistence."""
+        total_duration = sum(w.duration_ms for w in wave_results)
+        success_count = sum(1 for r in all_results if r.success)
+        return {
+            "id": execution_id,
+            "type": "ParallelExecution",
+            "name": f"PE: {manifest.name or manifest.manifest_id}",
+            "manifest_id": manifest.manifest_id,
+            "agent_count": manifest.agent_count,
+            "wave_count": len(wave_results),
+            "success_count": success_count,
+            "failure_count": len(all_results) - success_count,
+            "total_duration_ms": total_duration,
+            "synthesis_strategy": manifest.synthesis.strategy,
+            "execution_mode": manifest.execution_mode,
+            "source": manifest.source,
+            "synthesis_preview": synthesis_output[:500],
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "importance_score": 0.7,
+        }
+
+    @staticmethod
+    def _persist_agent_result_nodes(
+        engine: IntelligenceGraphEngine,
+        execution_id: str,
+        all_results: list[AgentExecutionResult],
+    ) -> dict[str, str]:
+        """Persist per-agent ``AgentExecutionResult`` nodes + ``PART_OF_EXECUTION`` edges.
+
+        Returns the ``agent_id -> kg node id`` map used to wire dependency edges. Takes
+        ``engine`` explicitly (rather than reading ``self.engine``) so the caller's
+        ``self.engine is not None`` narrowing survives the method boundary.
+        """
+        kg_node_map: dict[str, str] = {}
+        for result in all_results:
+            node_uuid = f"agent_exec_res:{uuid.uuid4().hex}"
+            res_data = {
+                "id": node_uuid,
+                "type": "AgentExecutionResult",
+                "agent_id": result.agent_id,
+                "role": result.role,
+                "partition": result.partition,
+                "success": result.success,
+                "error": result.error,
+                "duration_ms": result.duration_ms,
+                "model_id": result.model_id,
+                "output_preview": result.output[:500] if result.output else "",
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            }
+            engine.graph.add_node(node_uuid, **res_data)
+            engine.graph.add_edge(execution_id, node_uuid, type="PART_OF_EXECUTION")
+            kg_node_map[result.agent_id] = node_uuid
+        return kg_node_map
+
+    @staticmethod
+    def _persist_dependency_edges(
+        engine: IntelligenceGraphEngine,
+        manifest: ExecutionManifest,
+        kg_node_map: dict[str, str],
+    ) -> None:
+        """Reconstruct and persist dependency topology edges (``DEPENDS_ON``) inside the KG."""
+        for agent_spec in manifest.agents:
+            for dep in agent_spec.depends_on:
+                source_kg = kg_node_map.get(dep)
+                target_kg = kg_node_map.get(agent_spec.agent_id)
+                if source_kg and target_kg:
+                    engine.graph.add_edge(source_kg, target_kg, type="DEPENDS_ON")
 
     def _persist_execution(
         self,
@@ -1551,66 +1835,21 @@ class ParallelEngine:
         """
         execution_id = f"pe:{uuid.uuid4().hex}"
 
-        if self.engine is None:
+        engine = self.engine
+        if engine is None:
             return execution_id
 
         try:
             all_results = [r for w in wave_results for r in w.results]
-            total_duration = sum(w.duration_ms for w in wave_results)
-            success_count = sum(1 for r in all_results if r.success)
+            node_data = self._build_execution_node_data(
+                manifest, execution_id, all_results, wave_results, synthesis_output
+            )
+            engine.graph.add_node(execution_id, **node_data)
 
-            node_data = {
-                "id": execution_id,
-                "type": "ParallelExecution",
-                "name": f"PE: {manifest.name or manifest.manifest_id}",
-                "manifest_id": manifest.manifest_id,
-                "agent_count": manifest.agent_count,
-                "wave_count": len(wave_results),
-                "success_count": success_count,
-                "failure_count": len(all_results) - success_count,
-                "total_duration_ms": total_duration,
-                "synthesis_strategy": manifest.synthesis.strategy,
-                "execution_mode": manifest.execution_mode,
-                "source": manifest.source,
-                "synthesis_preview": synthesis_output[:500],
-                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "importance_score": 0.7,
-            }
-
-            self.engine.graph.add_node(execution_id, **node_data)
-
-            # Persist individual AgentExecutionResult nodes and connect them
-            kg_node_map = {}
-            for result in all_results:
-                node_uuid = f"agent_exec_res:{uuid.uuid4().hex}"
-                res_data = {
-                    "id": node_uuid,
-                    "type": "AgentExecutionResult",
-                    "agent_id": result.agent_id,
-                    "role": result.role,
-                    "partition": result.partition,
-                    "success": result.success,
-                    "error": result.error,
-                    "duration_ms": result.duration_ms,
-                    "model_id": result.model_id,
-                    "output_preview": result.output[:500] if result.output else "",
-                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                }
-                self.engine.graph.add_node(node_uuid, **res_data)
-                self.engine.graph.add_edge(
-                    execution_id, node_uuid, type="PART_OF_EXECUTION"
-                )
-                kg_node_map[result.agent_id] = node_uuid
-
-            # Reconstruct and persist dependency topology edges inside KG
-            for agent_spec in manifest.agents:
-                for dep in agent_spec.depends_on:
-                    source_kg = kg_node_map.get(dep)
-                    target_kg = kg_node_map.get(agent_spec.agent_id)
-                    if source_kg and target_kg:
-                        self.engine.graph.add_edge(
-                            source_kg, target_kg, type="DEPENDS_ON"
-                        )
+            kg_node_map = self._persist_agent_result_nodes(
+                engine, execution_id, all_results
+            )
+            self._persist_dependency_edges(engine, manifest, kg_node_map)
 
             logger.info(
                 "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] Persisted execution hierarchy %s to KG "

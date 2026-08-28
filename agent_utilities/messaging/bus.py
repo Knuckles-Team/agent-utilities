@@ -48,6 +48,7 @@ import json
 import logging
 import time
 import uuid
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from agent_utilities.messaging.bus_privacy import (
@@ -80,6 +81,22 @@ _SUB_PREFIX = "bussub:"
 # A registered agent is "online" if it heartbeat within this many seconds; the roster
 # computes presence lazily from ``last_seen`` so no reaper process is needed for liveness.
 DEFAULT_STALE_AFTER_S = 90.0
+
+
+@dataclass(frozen=True)
+class _FederatedSendContext:
+    """Fields common to both ``AgentBus`` federated-delivery branches.
+
+    Bundled to stay under the 7-parameter cap — see ``AgentBus._deliver_federated_topic``
+    / ``AgentBus._deliver_federated_direct``.
+    """
+
+    group: str
+    sender: str
+    payload: str
+    meta_json: str
+    tenant: str
+    now: float
 
 
 class AgentBus:
@@ -123,18 +140,23 @@ class AgentBus:
         return self._log_backend_cache
 
     @staticmethod
+    def _depth_from_dict(value: dict) -> int:
+        """The dict-shaped branch of ``_depth_from_stats`` (split out to shed nesting)."""
+        queues = value.get("queues")
+        if isinstance(queues, dict):
+            return sum(AgentBus._sum_numeric(item) for item in queues.values())
+        values = [
+            AgentBus._depth_from_stats(item)
+            for key, item in value.items()
+            if key.lower() in {"depth", "queue_depth", "ready", "messages", "lag"}
+            or isinstance(item, dict | list | tuple)
+        ]
+        return max(values, default=0)
+
+    @staticmethod
     def _depth_from_stats(value: Any) -> int:
         if isinstance(value, dict):
-            queues = value.get("queues")
-            if isinstance(queues, dict):
-                return sum(AgentBus._sum_numeric(item) for item in queues.values())
-            values = [
-                AgentBus._depth_from_stats(item)
-                for key, item in value.items()
-                if key.lower() in {"depth", "queue_depth", "ready", "messages", "lag"}
-                or isinstance(item, dict | list | tuple)
-            ]
-            return max(values, default=0)
+            return AgentBus._depth_from_dict(value)
         if isinstance(value, list | tuple):
             return max((AgentBus._depth_from_stats(item) for item in value), default=0)
         try:
@@ -273,6 +295,28 @@ class AgentBus:
         return {}
 
     # ── Identity & presence (:Agent, CONCEPT:AU-KG.compute.user-override-prompt-library) ───────────────
+    @staticmethod
+    def _decode_registered_profile(
+        provider: str, kind: str, capabilities: Iterable[str] | None
+    ) -> tuple[dict[str, Any], list[str]]:
+        """Sanitize + decode a registration profile; returns ``(profile, sorted capabilities)``."""
+        _unused, profile_json, _profile_report = sanitize_bus_content(
+            "",
+            {
+                "provider": provider,
+                "kind": kind,
+                "capabilities": list(capabilities or []),
+            },
+        )
+        # ``sanitize_bus_content`` intentionally returns only serialized clean
+        # metadata. Decode it locally; raw profile inputs are never persisted.
+        try:
+            profile = json.loads(profile_json)
+        except (TypeError, ValueError):
+            profile = {}
+        caps = sorted({str(c) for c in profile.get("capabilities", []) if c})
+        return profile, caps
+
     def register(
         self,
         agent_id: str,
@@ -299,21 +343,7 @@ class AgentBus:
         host_ref = bus_reference("host", host, tenant=tenant)
         session_ref = bus_reference("session", session_id, tenant=tenant)
         actor_ref = bus_reference("actor", actor_id or agent_id, tenant=tenant)
-        _unused, profile_json, _profile_report = sanitize_bus_content(
-            "",
-            {
-                "provider": provider,
-                "kind": kind,
-                "capabilities": list(capabilities or []),
-            },
-        )
-        # ``sanitize_bus_content`` intentionally returns only serialized clean
-        # metadata. Decode it locally; raw profile inputs are never persisted.
-        try:
-            profile = json.loads(profile_json)
-        except (TypeError, ValueError):
-            profile = {}
-        caps = sorted({str(c) for c in profile.get("capabilities", []) if c})
+        profile, caps = self._decode_registered_profile(provider, kind, capabilities)
         now = time.time()
         node_id = f"{_AGENT_PREFIX}{agent_id}"
         ok = self._add_node(
@@ -412,6 +442,62 @@ class AgentBus:
         props.pop("id", None)
         return self._add_node(f"{_AGENT_PREFIX}{agent_id}", _AGENT_LABEL, props)
 
+    @staticmethod
+    def _roster_row_matches(
+        p: dict[str, Any],
+        caps: list[str],
+        present: str,
+        *,
+        provider: str,
+        capability: str,
+        online_only: bool,
+    ) -> bool:
+        """Whether one already-shaped roster row passes the ``roster()`` filters."""
+        if provider and p.get("provider") != provider:
+            return False
+        if capability and capability not in caps:
+            return False
+        if online_only and present != "online":
+            return False
+        return True
+
+    def _roster_entry(
+        self,
+        row: Any,
+        now: float,
+        *,
+        provider: str,
+        capability: str,
+        online_only: bool,
+        stale_after_s: float,
+    ) -> dict[str, Any] | None:
+        """Shape one roster row, or ``None`` if it lacks an ``agent_id`` or fails a filter."""
+        p = self._props(row, "a")
+        aid = p.get("agent_id")
+        if not aid:
+            return None
+        caps = [c for c in str(p.get("capabilities", "")).split(",") if c]
+        fresh = (now - float(p.get("last_seen", 0) or 0)) <= stale_after_s
+        present = "online" if (fresh and p.get("status") != "offline") else "offline"
+        if not self._roster_row_matches(
+            p,
+            caps,
+            present,
+            provider=provider,
+            capability=capability,
+            online_only=online_only,
+        ):
+            return None
+        return {
+            "agent_id": aid,
+            "provider": p.get("provider", ""),
+            "host_ref": p.get("host_ref", ""),
+            "kind": p.get("kind", "agent"),
+            "capabilities": caps,
+            "presence": present,
+            "last_seen": float(p.get("last_seen", 0) or 0),
+        }
+
     def roster(
         self,
         *,
@@ -429,32 +515,16 @@ class AgentBus:
         now = time.time()
         out: list[dict[str, Any]] = []
         for row in rows:
-            p = self._props(row, "a")
-            aid = p.get("agent_id")
-            if not aid:
-                continue
-            caps = [c for c in str(p.get("capabilities", "")).split(",") if c]
-            fresh = (now - float(p.get("last_seen", 0) or 0)) <= stale_after_s
-            present = (
-                "online" if (fresh and p.get("status") != "offline") else "offline"
+            entry = self._roster_entry(
+                row,
+                now,
+                provider=provider,
+                capability=capability,
+                online_only=online_only,
+                stale_after_s=stale_after_s,
             )
-            if provider and p.get("provider") != provider:
-                continue
-            if capability and capability not in caps:
-                continue
-            if online_only and present != "online":
-                continue
-            out.append(
-                {
-                    "agent_id": aid,
-                    "provider": p.get("provider", ""),
-                    "host_ref": p.get("host_ref", ""),
-                    "kind": p.get("kind", "agent"),
-                    "capabilities": caps,
-                    "presence": present,
-                    "last_seen": float(p.get("last_seen", 0) or 0),
-                }
-            )
+            if entry is not None:
+                out.append(entry)
         out.sort(key=lambda a: a["agent_id"])
         return out
 
@@ -578,6 +648,37 @@ class AgentBus:
         )
 
     # ── Messaging ─────────────────────────────────────────────────────
+    @staticmethod
+    def _validate_send_args(sender: str, payload: str, to: str, topic: str) -> str:
+        """Return an error string if ``send()``'s arguments are invalid, else ``""``."""
+        if not sender or not payload:
+            return "sender and payload required"
+        if not to and not topic:
+            return "send requires 'to' or 'topic'"
+        return ""
+
+    def _confirm_outbox_publish(
+        self, wire_message: dict[str, Any], tenant: str, out: dict[str, Any]
+    ) -> None:
+        """Mark the outbox published on a successful send, else flag it for replay."""
+        from agent_utilities.messaging.bus_inbox import mark_message_outbox_published
+
+        if out.get("ok"):
+            out["published"] = True
+            try:
+                mark_message_outbox_published(
+                    self._resolve_engine(), wire_message, tenant=tenant
+                )
+            except Exception as exc:  # noqa: BLE001 - pending outbox is replayable
+                logger.warning(
+                    "AgentBus published but outbox confirmation is pending (%s)",
+                    type(exc).__name__,
+                )
+        else:
+            out["published"] = False
+            out["durable"] = True
+            out["queued_for_replay"] = True
+
     def send(
         self,
         *,
@@ -594,10 +695,9 @@ class AgentBus:
         message BODY rides the required partitioned-log delivery plane after a
         transactional send-outbox record is durable.
         """
-        if not sender or not payload:
-            return {"ok": False, "error": "sender and payload required"}
-        if not to and not topic:
-            return {"ok": False, "error": "send requires 'to' or 'topic'"}
+        arg_error = self._validate_send_args(sender, payload, to, topic)
+        if arg_error:
+            return {"ok": False, "error": arg_error}
 
         from agent_utilities.messaging.bus_log import current_bus_tenant
 
@@ -634,10 +734,7 @@ class AgentBus:
             "meta": meta_json,
             "created": now,
         }
-        from agent_utilities.messaging.bus_inbox import (
-            commit_message_outbox,
-            mark_message_outbox_published,
-        )
+        from agent_utilities.messaging.bus_inbox import commit_message_outbox
 
         outbox = commit_message_outbox(
             self._resolve_engine(), wire_message, tenant=tenant, now=now
@@ -654,21 +751,7 @@ class AgentBus:
             now=now,
         )
         out["outbox_id"] = outbox.outbox_id
-        if out.get("ok"):
-            out["published"] = True
-            try:
-                mark_message_outbox_published(
-                    self._resolve_engine(), wire_message, tenant=tenant
-                )
-            except Exception as exc:  # noqa: BLE001 - pending outbox is replayable
-                logger.warning(
-                    "AgentBus published but outbox confirmation is pending (%s)",
-                    type(exc).__name__,
-                )
-        else:
-            out["published"] = False
-            out["durable"] = True
-            out["queued_for_replay"] = True
+        self._confirm_outbox_publish(wire_message, tenant, out)
         _metrics.BUS_SEND_DURATION.observe(time.time() - start)
         return out
 
@@ -763,6 +846,76 @@ class AgentBus:
         self._materialize_deliveries(pending, tenant=tenant, backend=backend)
         return self._read_committed_inbox(agent_id, since=since)
 
+    @staticmethod
+    def _outbox_message_from_props(props: dict[str, Any]) -> dict[str, Any]:
+        """Rebuild the wire-message shape from a persisted ``:BusOutbox`` node's properties."""
+        return {
+            "id": f"busmsg:{props.get('group_ref', '')}",
+            "msg_group": str(props.get("group_ref") or ""),
+            "sender": str(props.get("sender_ref") or ""),
+            "recipient": str(props.get("recipient_ref") or ""),
+            "topic": str(props.get("topic_ref") or ""),
+            "payload": str(props.get("payload") or ""),
+            "meta": str(props.get("metadata") or "{}"),
+            "created": float(props.get("created_at") or time.time()),
+        }
+
+    @staticmethod
+    def _publish_outbox_message(
+        backend: Any, tenant: str, message: dict[str, Any]
+    ) -> bool:
+        """Republish one pending outbox message via topic or direct delivery.
+
+        ``False`` when neither ``topic`` nor ``recipient`` is set, or the backend declines.
+        """
+        if message["topic"]:
+            return bool(
+                backend.publish_topic(
+                    tenant=tenant,
+                    group=message["msg_group"],
+                    sender=message["sender"],
+                    topic=message["topic"],
+                    payload=message["payload"],
+                    meta_json=message["meta"],
+                    created=message["created"],
+                )
+            )
+        if message["recipient"]:
+            return bool(
+                backend.publish_direct(
+                    tenant=tenant,
+                    group=message["msg_group"],
+                    sender=message["sender"],
+                    to=message["recipient"],
+                    payload=message["payload"],
+                    meta_json=message["meta"],
+                    created=message["created"],
+                )
+            )
+        return False
+
+    def _replay_one_outbox_row(
+        self, row: Any, backend: Any, engine: Any, tenant: str
+    ) -> bool:
+        """Replay one pending ``:BusOutbox`` row. Returns whether it was confirmed replayed."""
+        from agent_utilities.messaging.bus_inbox import mark_message_outbox_published
+
+        props = self._props(row, "o")
+        message = self._outbox_message_from_props(props)
+        if not message["msg_group"]:
+            return False
+        if not self._publish_outbox_message(backend, tenant, message):
+            return False
+        try:
+            mark_message_outbox_published(engine, message, tenant=tenant)
+            return True
+        except Exception as exc:  # noqa: BLE001 - retry remains pending
+            logger.warning(
+                "AgentBus replay publish confirmation remains pending (%s)",
+                type(exc).__name__,
+            )
+            return False
+
     def _replay_pending_outbox(
         self, backend: Any, *, tenant: str, limit: int = 100
     ) -> int:
@@ -775,59 +928,145 @@ class AgentBus:
         )
         if not rows:
             return 0
-        from agent_utilities.messaging.bus_inbox import (
-            mark_message_outbox_published,
-        )
-
-        replayed = 0
         engine = self._resolve_engine()
+        replayed = 0
         for row in rows:
-            props = self._props(row, "o")
-            message = {
-                "id": f"busmsg:{props.get('group_ref', '')}",
-                "msg_group": str(props.get("group_ref") or ""),
-                "sender": str(props.get("sender_ref") or ""),
-                "recipient": str(props.get("recipient_ref") or ""),
-                "topic": str(props.get("topic_ref") or ""),
-                "payload": str(props.get("payload") or ""),
-                "meta": str(props.get("metadata") or "{}"),
-                "created": float(props.get("created_at") or time.time()),
-            }
-            if not message["msg_group"]:
-                continue
-            if message["topic"]:
-                published = backend.publish_topic(
-                    tenant=tenant,
-                    group=message["msg_group"],
-                    sender=message["sender"],
-                    topic=message["topic"],
-                    payload=message["payload"],
-                    meta_json=message["meta"],
-                    created=message["created"],
-                )
-            elif message["recipient"]:
-                published = backend.publish_direct(
-                    tenant=tenant,
-                    group=message["msg_group"],
-                    sender=message["sender"],
-                    to=message["recipient"],
-                    payload=message["payload"],
-                    meta_json=message["meta"],
-                    created=message["created"],
-                )
-            else:
-                continue
-            if not published:
-                continue
-            try:
-                mark_message_outbox_published(engine, message, tenant=tenant)
+            if self._replay_one_outbox_row(row, backend, engine, tenant):
                 replayed += 1
-            except Exception as exc:  # noqa: BLE001 - retry remains pending
-                logger.warning(
-                    "AgentBus replay publish confirmation remains pending (%s)",
-                    type(exc).__name__,
-                )
         return replayed
+
+    def _resolve_delivery_recipients(
+        self, message: dict[str, Any], topic: str, sender: str
+    ) -> list[str] | None:
+        """Resolve recipients for one message. ``None`` signals a resolution failure (retry)."""
+        try:
+            recipients = (
+                [
+                    recipient
+                    for recipient in self._subscribers_at(
+                        topic, float(message.get("created") or 0)
+                    )
+                    if recipient != sender
+                ]
+                if topic
+                else [str(message.get("recipient") or "")]
+            )
+        except Exception as exc:  # noqa: BLE001 - registry authority failed
+            logger.warning(
+                "AgentBus subscription resolution failed; delivery retained (%s)",
+                type(exc).__name__,
+            )
+            return None
+        return [recipient for recipient in recipients if recipient]
+
+    @staticmethod
+    def _commit_delivery_to_recipients(
+        engine: Any,
+        message: dict[str, Any],
+        tenant: str,
+        recipients: list[str],
+        audit_sink: bool,
+        backend: Any,
+    ) -> bool:
+        """Commit ``message`` to every recipient's inbox. Returns False (and nacks) on failure."""
+        from agent_utilities.messaging.bus_inbox import commit_message_to_work_item
+
+        try:
+            for recipient in recipients:
+                commit_message_to_work_item(
+                    engine,
+                    {**message, "_audit_sink": audit_sink},
+                    tenant=tenant,
+                    recipient=recipient,
+                )
+            return True
+        except Exception as exc:  # noqa: BLE001 - leave delivery unacked
+            logger.warning(
+                "AgentBus inbox transaction failed; delivery will be retried (%s)",
+                type(exc).__name__,
+            )
+            try:
+                backend.nack(message, requeue=True)
+            except Exception:
+                logger.exception("AgentBus could not nack failed delivery")
+            return False
+
+    @staticmethod
+    def _ack_and_mark_delivered(
+        engine: Any, message: dict[str, Any], tenant: str, backend: Any
+    ) -> None:
+        """Ack the broker receipt and mark the outbox delivered; both steps are best-effort."""
+        from agent_utilities.messaging.bus_inbox import mark_message_outbox_delivered
+
+        try:
+            acknowledged = bool(backend.ack(message))
+        except Exception as exc:  # noqa: BLE001 - durable replay is safe
+            acknowledged = False
+            logger.warning(
+                "AgentBus broker ack failed after durable inbox commit (%s)",
+                type(exc).__name__,
+            )
+        if not acknowledged:
+            logger.warning(
+                "AgentBus receipt remains pending after durable commit; replay is idempotent"
+            )
+            return
+        try:
+            mark_message_outbox_delivered(engine, message, tenant=tenant)
+        except Exception as exc:  # noqa: BLE001 - safe false-positive depth
+            logger.warning(
+                "AgentBus delivery committed but outbox completion is pending (%s)",
+                type(exc).__name__,
+            )
+
+    def _materialize_one_delivery(
+        self,
+        message: dict[str, Any],
+        *,
+        tenant: str,
+        tenant_ref: str,
+        backend: Any,
+        engine: Any,
+    ) -> tuple[int, bool]:
+        """Materialize one delivery. Returns ``(committed_count, stop_processing)``.
+
+        ``stop_processing`` mirrors the original loop's ``break`` — a failure class that
+        must halt the whole batch (order-preserving retry), rather than skip just this message.
+        """
+        if message.get("tenant") != tenant_ref:
+            backend.nack(message, requeue=False)
+            return 0, False
+
+        topic = str(message.get("topic") or "")
+        sender = str(message.get("sender") or "")
+        recipients = self._resolve_delivery_recipients(message, topic, sender)
+        if recipients is None:
+            backend.nack(message, requeue=True)
+            return 0, True
+
+        audit_sink = not recipients
+        if not recipients:
+            if not topic:
+                backend.nack(message, requeue=False)
+                return 0, False
+            recipients = [bus_reference("topic_sink", topic, tenant=tenant)]
+
+        from agent_utilities.core.config import config
+
+        if len(recipients) > int(config.agent_bus_max_topic_subscribers):
+            logger.warning(
+                "AgentBus topic delivery exceeds the configured subscriber bound"
+            )
+            backend.nack(message, requeue=True)
+            return 0, True
+
+        if not self._commit_delivery_to_recipients(
+            engine, message, tenant, recipients, audit_sink, backend
+        ):
+            return 0, True
+
+        self._ack_and_mark_delivered(engine, message, tenant, backend)
+        return len(recipients), False
 
     def _materialize_deliveries(
         self,
@@ -843,95 +1082,20 @@ class AgentBus:
         failed delivery.  A failed commit is nacked/requeued and omitted from
         the caller-visible result; no success is fabricated.
         """
-
-        from agent_utilities.messaging.bus_inbox import (
-            commit_message_to_work_item,
-            mark_message_outbox_delivered,
-        )
-
         engine = self._resolve_engine()
         committed = 0
         tenant_ref = bus_reference("tenant", tenant)
         for message in messages:
-            if message.get("tenant") != tenant_ref:
-                backend.nack(message, requeue=False)
-                continue
-            topic = str(message.get("topic") or "")
-            sender = str(message.get("sender") or "")
-            try:
-                recipients = (
-                    [
-                        recipient
-                        for recipient in self._subscribers_at(
-                            topic, float(message.get("created") or 0)
-                        )
-                        if recipient != sender
-                    ]
-                    if topic
-                    else [str(message.get("recipient") or "")]
-                )
-            except Exception as exc:  # noqa: BLE001 - registry authority failed
-                logger.warning(
-                    "AgentBus subscription resolution failed; delivery retained (%s)",
-                    type(exc).__name__,
-                )
-                backend.nack(message, requeue=True)
+            delta, stop = self._materialize_one_delivery(
+                message,
+                tenant=tenant,
+                tenant_ref=tenant_ref,
+                backend=backend,
+                engine=engine,
+            )
+            committed += delta
+            if stop:
                 break
-            recipients = [recipient for recipient in recipients if recipient]
-            audit_sink = not recipients
-            if not recipients:
-                if not topic:
-                    backend.nack(message, requeue=False)
-                    continue
-                recipients = [bus_reference("topic_sink", topic, tenant=tenant)]
-            from agent_utilities.core.config import config
-
-            if len(recipients) > int(config.agent_bus_max_topic_subscribers):
-                logger.warning(
-                    "AgentBus topic delivery exceeds the configured subscriber bound"
-                )
-                backend.nack(message, requeue=True)
-                break
-            try:
-                for recipient in recipients:
-                    commit_message_to_work_item(
-                        engine,
-                        {**message, "_audit_sink": audit_sink},
-                        tenant=tenant,
-                        recipient=recipient,
-                    )
-            except Exception as exc:  # noqa: BLE001 - leave delivery unacked
-                logger.warning(
-                    "AgentBus inbox transaction failed; delivery will be retried (%s)",
-                    type(exc).__name__,
-                )
-                try:
-                    backend.nack(message, requeue=True)
-                except Exception:
-                    logger.exception("AgentBus could not nack failed delivery")
-                break
-
-            try:
-                acknowledged = bool(backend.ack(message))
-            except Exception as exc:  # noqa: BLE001 - durable replay is safe
-                acknowledged = False
-                logger.warning(
-                    "AgentBus broker ack failed after durable inbox commit (%s)",
-                    type(exc).__name__,
-                )
-            if not acknowledged:
-                logger.warning(
-                    "AgentBus receipt remains pending after durable commit; replay is idempotent"
-                )
-            else:
-                try:
-                    mark_message_outbox_delivered(engine, message, tenant=tenant)
-                except Exception as exc:  # noqa: BLE001 - safe false-positive depth
-                    logger.warning(
-                        "AgentBus delivery committed but outbox completion is pending (%s)",
-                        type(exc).__name__,
-                    )
-            committed += len(recipients)
         return committed
 
     def _read_committed_inbox(self, agent_id: str, *, since: int) -> dict[str, Any]:
@@ -997,6 +1161,108 @@ class AgentBus:
         """Has this hub already seen ``group`` (cross-hub delivery dedup)?"""
         return bool(self.group_messages(group))
 
+    def _commit_federated_outbox_only(
+        self,
+        wire_message: dict[str, Any],
+        recipients: list[str],
+        topic: str,
+        tenant: str,
+        now: float,
+    ) -> None:
+        """No log backend configured: still commit durable outbox entries for later replay.
+
+        ``resolve_bus_log_backend()``'s documented "valid degraded state, not an error"
+        (D-OTD-1) — don't crash calling ``backend.publish_*`` against ``None``.
+        """
+        from agent_utilities.messaging.bus_inbox import commit_message_outbox
+
+        if topic:
+            commit_message_outbox(
+                self._resolve_engine(), wire_message, tenant=tenant, now=now
+            )
+            return
+        for recipient in recipients:
+            if not recipient:
+                continue
+            commit_message_outbox(
+                self._resolve_engine(),
+                {**wire_message, "recipient": recipient},
+                tenant=tenant,
+                now=now,
+            )
+
+    def _deliver_federated_topic(
+        self,
+        backend: Any,
+        wire_message: dict[str, Any],
+        ctx: _FederatedSendContext,
+        *,
+        topic: str,
+    ) -> list[str]:
+        """Federated topic delivery: one durable outbox commit + one log publish."""
+        from agent_utilities.messaging.bus_inbox import (
+            commit_message_outbox,
+            mark_message_outbox_published,
+        )
+
+        commit_message_outbox(
+            self._resolve_engine(), wire_message, tenant=ctx.tenant, now=ctx.now
+        )
+        if not backend.publish_topic(
+            tenant=ctx.tenant,
+            group=ctx.group,
+            sender=ctx.sender,
+            topic=topic,
+            payload=ctx.payload,
+            meta_json=ctx.meta_json,
+            created=ctx.now,
+        ):
+            return []
+        delivered = [agent for agent in self._subscribers(topic) if agent != ctx.sender]
+        mark_message_outbox_published(
+            self._resolve_engine(), wire_message, tenant=ctx.tenant
+        )
+        return delivered
+
+    def _deliver_federated_direct(
+        self,
+        backend: Any,
+        wire_message: dict[str, Any],
+        recipients: list[str],
+        ctx: _FederatedSendContext,
+    ) -> list[str]:
+        """Federated direct delivery: one durable outbox commit + one log publish per recipient."""
+        from agent_utilities.messaging.bus_inbox import (
+            commit_message_outbox,
+            mark_message_outbox_published,
+        )
+
+        delivered: list[str] = []
+        for recipient in recipients:
+            if not recipient:
+                continue
+            recipient_message = {**wire_message, "recipient": recipient}
+            commit_message_outbox(
+                self._resolve_engine(),
+                recipient_message,
+                tenant=ctx.tenant,
+                now=ctx.now,
+            )
+            if backend.publish_direct(
+                tenant=ctx.tenant,
+                group=ctx.group,
+                sender=ctx.sender,
+                to=recipient,
+                payload=ctx.payload,
+                meta_json=ctx.meta_json,
+                created=ctx.now,
+            ):
+                delivered.append(recipient)
+                mark_message_outbox_published(
+                    self._resolve_engine(), recipient_message, tenant=ctx.tenant
+                )
+        return delivered
+
     def deliver_federated(
         self,
         *,
@@ -1032,75 +1298,26 @@ class AgentBus:
             "meta": meta_json,
             "created": now,
         }
-        from agent_utilities.messaging.bus_inbox import (
-            commit_message_outbox,
-            mark_message_outbox_published,
+        ctx = _FederatedSendContext(
+            group=group,
+            sender=sender,
+            payload=payload,
+            meta_json=meta_json,
+            tenant=tenant,
+            now=now,
         )
 
         backend = self._log_backend()
-        delivered: list[str] = []
         if backend is None:
-            # No log backend configured -- ``resolve_bus_log_backend()``'s
-            # documented "valid degraded state, not an error" (D-OTD-1). Still
-            # commit the durable outbox entries so they're replayed once a
-            # backend becomes available, but don't crash calling
-            # ``backend.publish_*`` against ``None``.
-            if topic:
-                commit_message_outbox(
-                    self._resolve_engine(), wire_message, tenant=tenant, now=now
-                )
-            else:
-                for recipient in recipients:
-                    if not recipient:
-                        continue
-                    commit_message_outbox(
-                        self._resolve_engine(),
-                        {**wire_message, "recipient": recipient},
-                        tenant=tenant,
-                        now=now,
-                    )
-            return delivered
-        if topic:
-            commit_message_outbox(
-                self._resolve_engine(), wire_message, tenant=tenant, now=now
+            self._commit_federated_outbox_only(
+                wire_message, recipients, topic, tenant, now
             )
-            if backend.publish_topic(
-                tenant=tenant,
-                group=group,
-                sender=sender,
-                topic=topic,
-                payload=payload,
-                meta_json=meta_json,
-                created=now,
-            ):
-                delivered = [
-                    agent for agent in self._subscribers(topic) if agent != sender
-                ]
-                mark_message_outbox_published(
-                    self._resolve_engine(), wire_message, tenant=tenant
-                )
-        else:
-            for recipient in recipients:
-                if not recipient:
-                    continue
-                recipient_message = {**wire_message, "recipient": recipient}
-                commit_message_outbox(
-                    self._resolve_engine(), recipient_message, tenant=tenant, now=now
-                )
-                if backend.publish_direct(
-                    tenant=tenant,
-                    group=group,
-                    sender=sender,
-                    to=recipient,
-                    payload=payload,
-                    meta_json=meta_json,
-                    created=now,
-                ):
-                    delivered.append(recipient)
-                    mark_message_outbox_published(
-                        self._resolve_engine(), recipient_message, tenant=tenant
-                    )
-        return delivered
+            return []
+        if topic:
+            return self._deliver_federated_topic(
+                backend, wire_message, ctx, topic=topic
+            )
+        return self._deliver_federated_direct(backend, wire_message, recipients, ctx)
 
     # ── Dispatch: message → fleet work (CONCEPT:AU-ORCH.routing.resolve-body-single-canonical) ───────────
     def dispatch(

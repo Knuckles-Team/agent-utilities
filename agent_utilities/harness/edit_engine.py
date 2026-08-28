@@ -150,6 +150,79 @@ def _strip_filename(line: str) -> str | None:
     return fn or None
 
 
+def _find_filename_above(
+    lines: list[str], i: int, current_file: str | None
+) -> str | None:
+    """Scan backward from just above index ``i`` for the SEARCH block's filename line."""
+    fname = current_file
+    j = i - 1
+    while j >= 0:
+        cand = lines[j].rstrip("\n")
+        if not cand.strip() or _FENCE.match(cand):
+            j -= 1
+            continue
+        got = _strip_filename(cand)
+        if got:
+            fname = got
+        break
+    return fname
+
+
+def _consume_search_block(
+    lines: list[str], i: int, n: int, fname: str
+) -> tuple[list[str], int]:
+    """Consume SEARCH-block lines starting at ``i`` (just after the HEAD fence)."""
+    search_lines: list[str] = []
+    while i < n and not _DIVIDER.match(lines[i].rstrip("\n")):
+        if _HEAD.match(lines[i].rstrip("\n")) or _UPDATED.match(lines[i].rstrip("\n")):
+            raise ValueError(f"Expected `=======` divider in SEARCH block for {fname}.")
+        search_lines.append(lines[i])
+        i += 1
+    if i >= n:
+        raise ValueError(f"Unterminated SEARCH block for {fname}: missing `=======`.")
+    return search_lines, i + 1  # consume divider
+
+
+def _consume_replace_block(
+    lines: list[str], i: int, n: int, fname: str
+) -> tuple[list[str], int]:
+    """Consume REPLACE-block lines starting at ``i`` (just after the divider)."""
+    replace_lines: list[str] = []
+    while i < n and not _UPDATED.match(lines[i].rstrip("\n")):
+        if _DIVIDER.match(lines[i].rstrip("\n")) or _HEAD.match(lines[i].rstrip("\n")):
+            raise ValueError(f"Expected `>>>>>>> REPLACE` to close block for {fname}.")
+        replace_lines.append(lines[i])
+        i += 1
+    if i >= n:
+        raise ValueError(
+            f"Unterminated REPLACE block for {fname}: missing `>>>>>>> REPLACE`."
+        )
+    return replace_lines, i + 1  # consume REPLACE marker
+
+
+def _parse_one_head_block(
+    lines: list[str], i: int, n: int, current_file: str | None
+) -> tuple[Edit, int, str]:
+    """Parse one SEARCH/REPLACE block starting at the HEAD fence index ``i``.
+
+    Returns ``(edit, new_index, new_current_file)``.
+    """
+    fname = _find_filename_above(lines, i, current_file)
+    if not fname:
+        raise ValueError(
+            "SEARCH block is missing a filename on the line above the "
+            "opening `<<<<<<< SEARCH` fence."
+        )
+    search_lines, i = _consume_search_block(lines, i + 1, n, fname)
+    replace_lines, i = _consume_replace_block(lines, i, n, fname)
+    edit = Edit(
+        path=fname,
+        search="".join(search_lines),
+        replace="".join(replace_lines),
+    )
+    return edit, i, fname
+
+
 def _parse_search_replace(text: str) -> list[Edit]:
     lines = text.splitlines(keepends=True)
     edits: list[Edit] = []
@@ -160,65 +233,42 @@ def _parse_search_replace(text: str) -> list[Edit]:
         line = lines[i]
         if _HEAD.match(line.rstrip("\n")):
             # The filename is the most recent non-blank, non-fence line above.
-            fname = current_file
-            j = i - 1
-            while j >= 0:
-                cand = lines[j].rstrip("\n")
-                if not cand.strip() or _FENCE.match(cand):
-                    j -= 1
-                    continue
-                got = _strip_filename(cand)
-                if got:
-                    fname = got
-                break
-            if not fname:
-                raise ValueError(
-                    "SEARCH block is missing a filename on the line above the "
-                    "opening `<<<<<<< SEARCH` fence."
-                )
-            current_file = fname
-            search_lines: list[str] = []
-            i += 1
-            while i < n and not _DIVIDER.match(lines[i].rstrip("\n")):
-                if _HEAD.match(lines[i].rstrip("\n")) or _UPDATED.match(
-                    lines[i].rstrip("\n")
-                ):
-                    raise ValueError(
-                        f"Expected `=======` divider in SEARCH block for {fname}."
-                    )
-                search_lines.append(lines[i])
-                i += 1
-            if i >= n:
-                raise ValueError(
-                    f"Unterminated SEARCH block for {fname}: missing `=======`."
-                )
-            i += 1  # consume divider
-            replace_lines: list[str] = []
-            while i < n and not _UPDATED.match(lines[i].rstrip("\n")):
-                if _DIVIDER.match(lines[i].rstrip("\n")) or _HEAD.match(
-                    lines[i].rstrip("\n")
-                ):
-                    raise ValueError(
-                        f"Expected `>>>>>>> REPLACE` to close block for {fname}."
-                    )
-                replace_lines.append(lines[i])
-                i += 1
-            if i >= n:
-                raise ValueError(
-                    f"Unterminated REPLACE block for {fname}: missing "
-                    "`>>>>>>> REPLACE`."
-                )
-            i += 1  # consume REPLACE marker
-            edits.append(
-                Edit(
-                    path=fname,
-                    search="".join(search_lines),
-                    replace="".join(replace_lines),
-                )
-            )
+            edit, i, current_file = _parse_one_head_block(lines, i, n, current_file)
+            edits.append(edit)
         else:
             i += 1
     return edits
+
+
+def _consume_diff_hunk(
+    lines: list[str], i: int, n: int
+) -> tuple[list[str], list[str], int]:
+    """Consume one ``@@`` hunk's body lines starting at ``i`` (just after the ``@@`` line).
+
+    Returns ``(search_lines, replace_lines, new_index)``.
+    """
+    search_lines: list[str] = []
+    replace_lines: list[str] = []
+    while i < n:
+        hl = lines[i]
+        tag = hl[:1]
+        if hl.rstrip("\n").startswith("@@") or hl.startswith("--- "):
+            break
+        body = hl[1:]
+        if tag == " ":
+            search_lines.append(body)
+            replace_lines.append(body)
+        elif tag == "-":
+            search_lines.append(body)
+        elif tag == "+":
+            replace_lines.append(body)
+        elif hl.strip() == "":
+            search_lines.append("\n")
+            replace_lines.append("\n")
+        else:
+            break
+        i += 1
+    return search_lines, replace_lines, i
 
 
 def _parse_unified_diff(text: str) -> list[Edit]:
@@ -238,28 +288,7 @@ def _parse_unified_diff(text: str) -> list[Edit]:
                 i += 2
                 continue
         if raw.startswith("@@"):
-            search_lines: list[str] = []
-            replace_lines: list[str] = []
-            i += 1
-            while i < n:
-                hl = lines[i]
-                tag = hl[:1]
-                if hl.rstrip("\n").startswith("@@") or hl.startswith("--- "):
-                    break
-                body = hl[1:]
-                if tag == " ":
-                    search_lines.append(body)
-                    replace_lines.append(body)
-                elif tag == "-":
-                    search_lines.append(body)
-                elif tag == "+":
-                    replace_lines.append(body)
-                elif hl.strip() == "":
-                    search_lines.append("\n")
-                    replace_lines.append("\n")
-                else:
-                    break
-                i += 1
+            search_lines, replace_lines, i = _consume_diff_hunk(lines, i + 1, n)
             if cur_path is None:
                 raise ValueError("Unified diff hunk found before any `+++` filename.")
             edits.append(
@@ -305,16 +334,26 @@ def _match_but_for_leading_ws(whole: list[str], part: list[str]) -> str | None:
     return add.pop()
 
 
-def _replace_flexible_ws(
-    whole: list[str], part: list[str], rep: list[str]
-) -> str | None:
+def _min_leading_whitespace(part: list[str], rep: list[str]) -> int:
+    """The minimum leading-whitespace width across ``part`` and ``rep``'s non-blank lines."""
     leading = [len(p) - len(p.lstrip()) for p in part if p.strip()] + [
         len(p) - len(p.lstrip()) for p in rep if p.strip()
     ]
-    cut = min(leading, default=0)
+    return min(leading, default=0)
+
+
+def _strip_leading_whitespace(lines: list[str], cut: int) -> list[str]:
+    """Strip ``cut`` leading whitespace characters from each non-blank line."""
+    return [p[cut:] if p.strip() else p for p in lines]
+
+
+def _replace_flexible_ws(
+    whole: list[str], part: list[str], rep: list[str]
+) -> str | None:
+    cut = _min_leading_whitespace(part, rep)
     if cut:
-        part = [p[cut:] if p.strip() else p for p in part]
-        rep = [p[cut:] if p.strip() else p for p in rep]
+        part = _strip_leading_whitespace(part, cut)
+        rep = _strip_leading_whitespace(rep, cut)
     plen = len(part)
     for i in range(len(whole) - plen + 1):
         add = _match_but_for_leading_ws(whole[i : i + plen], part)
@@ -344,6 +383,21 @@ def _replace_closest(
     return "".join(whole[:bi] + rep + whole[bj:])
 
 
+def _apply_trim_blank_variants(
+    whole: list[str], part: list[str], rep: list[str]
+) -> tuple[str | None, str]:
+    """Retry exact/flexible-ws matching after dropping a spurious leading blank line."""
+    if not (len(part) > 2 and not part[0].strip()):
+        return None, ""
+    res = _perfect_replace(whole, part[1:], rep)
+    if res is not None:
+        return res, "exact-trim-blank"
+    res = _replace_flexible_ws(whole, part[1:], rep)
+    if res is not None:
+        return res, "leading-whitespace-trim-blank"
+    return None, ""
+
+
 def _apply_one(content: str, search: str, replace: str) -> tuple[str | None, str]:
     """Apply a single search→replace to ``content``.
 
@@ -365,13 +419,9 @@ def _apply_one(content: str, search: str, replace: str) -> tuple[str | None, str
     if res is not None:
         return res, "leading-whitespace"
     # Drop a spurious leading blank line the model sometimes adds.
-    if len(part) > 2 and not part[0].strip():
-        res = _perfect_replace(whole, part[1:], rep)
-        if res is not None:
-            return res, "exact-trim-blank"
-        res = _replace_flexible_ws(whole, part[1:], rep)
-        if res is not None:
-            return res, "leading-whitespace-trim-blank"
+    res, strategy = _apply_trim_blank_variants(whole, part, rep)
+    if res is not None:
+        return res, strategy
     res = _replace_closest(whole, part_text, part, rep)
     if res is not None:
         return res, "closest-window"
@@ -485,6 +535,55 @@ def render_failures_for_reflection(result: EditResult) -> str:
     return "\n".join(parts)
 
 
+def _parse_edits_safe(text: str, fmt: str) -> tuple[list[Edit] | None, str | None]:
+    """Parse edits from ``text``. Returns ``(edits, None)`` or ``(None, error_message)``."""
+    try:
+        return parse_edits(text, fmt=fmt), None
+    except ValueError as exc:
+        return None, str(exc)
+
+
+def _malformed_edit_reprompt(error: str) -> str:
+    """The re-prompt message sent back to the model for a malformed edit block."""
+    return f"The edit block was malformed: {error}\nResend valid SEARCH/REPLACE blocks."
+
+
+def _verification_failed_reprompt(verdict: str) -> str:
+    """The re-prompt message sent back to the model when post-apply ``verify`` fails."""
+    return (
+        "The edits applied but verification failed:\n"
+        f"{verdict}\nSend follow-up SEARCH/REPLACE edits to fix it."
+    )
+
+
+async def _apply_and_verify_round(
+    edits: list[Edit],
+    root: str | Path,
+    verify: Callable[[EditResult], Awaitable[str | None]] | None,
+    reprompt: Callable[[str], Awaitable[str]],
+    attempt: int,
+    max_reflections: int,
+) -> tuple[EditResult, str | None]:
+    """Apply one round of edits and optionally verify.
+
+    Returns ``(result, next_text)``: ``next_text`` is the model's re-prompted response
+    when this round should be retried; ``None`` means the caller returns ``result`` final.
+    """
+    result = apply_edits(edits, root=root)
+
+    if result.failures and attempt < max_reflections:
+        next_text = await reprompt(render_failures_for_reflection(result))
+        return result, next_text
+
+    if result.ok and verify is not None:
+        verdict = await verify(result)
+        if verdict and attempt < max_reflections:
+            next_text = await reprompt(_verification_failed_reprompt(verdict))
+            return result, next_text
+
+    return result, None
+
+
 async def apply_with_reflection(
     initial_text: str,
     reprompt: Callable[[str], Awaitable[str]],
@@ -518,37 +617,25 @@ async def apply_with_reflection(
     text = initial_text
     last_result = EditResult()
     for attempt in range(max_reflections + 1):
-        try:
-            edits = parse_edits(text, fmt=fmt)
-        except ValueError as exc:
+        edits, parse_error = _parse_edits_safe(text, fmt)
+        if parse_error is not None:
             if attempt >= max_reflections:
                 last_result.outcomes.append(
-                    EditOutcome(path="", applied=False, reason=str(exc))
+                    EditOutcome(path="", applied=False, reason=parse_error)
                 )
                 return last_result
-            text = await reprompt(
-                f"The edit block was malformed: {exc}\nResend valid "
-                "SEARCH/REPLACE blocks."
-            )
+            text = await reprompt(_malformed_edit_reprompt(parse_error))
             continue
 
         if not edits:
             return last_result
 
-        last_result = apply_edits(edits, root=root)
-
-        if last_result.failures and attempt < max_reflections:
-            text = await reprompt(render_failures_for_reflection(last_result))
+        last_result, next_text = await _apply_and_verify_round(
+            edits, root, verify, reprompt, attempt, max_reflections
+        )
+        if next_text is not None:
+            text = next_text
             continue
-
-        if last_result.ok and verify is not None:
-            verdict = await verify(last_result)
-            if verdict and attempt < max_reflections:
-                text = await reprompt(
-                    "The edits applied but verification failed:\n"
-                    f"{verdict}\nSend follow-up SEARCH/REPLACE edits to fix it."
-                )
-                continue
 
         return last_result
 
