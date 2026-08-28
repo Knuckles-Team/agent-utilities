@@ -35,7 +35,7 @@ from dataclasses import (
 )
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, NoReturn, TypeGuard
 
 import yaml
 from fastmcp.exceptions import ToolError
@@ -1829,6 +1829,50 @@ def _report_payload(content: str) -> bytes:
     return payload
 
 
+def _raise_report_directory_error(
+    part: str, directory_fd: int, exc: OSError
+) -> NoReturn:
+    """Classify a failed component open without ever following the component."""
+
+    try:
+        metadata = os.stat(part, dir_fd=directory_fd, follow_symlinks=False)
+    except OSError:
+        raise RuntimeError("report_directory_invalid") from None
+    code = (
+        "report_directory_symlink"
+        if stat.S_ISLNK(metadata.st_mode)
+        else "report_directory_invalid"
+    )
+    raise RuntimeError(code) from exc
+
+
+def _create_report_component(directory_fd: int, part: str, flags: int) -> int:
+    """Create one missing component 0700 and reopen it no-follow."""
+
+    try:
+        os.mkdir(part, mode=0o700, dir_fd=directory_fd)
+        _fsync_report_directory(directory_fd)
+    except FileExistsError:
+        pass
+    try:
+        return os.open(part, flags, dir_fd=directory_fd)
+    except OSError as exc:
+        _raise_report_directory_error(part, directory_fd, exc)
+
+
+def _open_report_component(directory_fd: int, part: str, flags: int) -> int:
+    """Open one path component no-follow, creating it when it is absent."""
+
+    if part in {"", ".", ".."}:
+        raise RuntimeError("report_directory_invalid")
+    try:
+        return os.open(part, flags, dir_fd=directory_fd)
+    except FileNotFoundError:
+        return _create_report_component(directory_fd, part, flags)
+    except OSError as exc:
+        _raise_report_directory_error(part, directory_fd, exc)
+
+
 def _open_report_directory(path: Path) -> int:
     """Open or create a POSIX directory by traversing every component no-follow."""
 
@@ -1842,48 +1886,7 @@ def _open_report_directory(path: Path) -> int:
     current_fd = os.open(absolute.anchor, directory_flags)
     try:
         for part in absolute.parts[1:]:
-            if part in {"", ".", ".."}:
-                raise RuntimeError("report_directory_invalid")
-            try:
-                next_fd = os.open(part, directory_flags, dir_fd=current_fd)
-            except FileNotFoundError:
-                try:
-                    os.mkdir(part, mode=0o700, dir_fd=current_fd)
-                    _fsync_report_directory(current_fd)
-                except FileExistsError:
-                    pass
-                try:
-                    next_fd = os.open(part, directory_flags, dir_fd=current_fd)
-                except OSError as exc:
-                    try:
-                        metadata = os.stat(
-                            part,
-                            dir_fd=current_fd,
-                            follow_symlinks=False,
-                        )
-                    except OSError:
-                        raise RuntimeError("report_directory_invalid") from None
-                    code = (
-                        "report_directory_symlink"
-                        if stat.S_ISLNK(metadata.st_mode)
-                        else "report_directory_invalid"
-                    )
-                    raise RuntimeError(code) from exc
-            except OSError as exc:
-                try:
-                    metadata = os.stat(
-                        part,
-                        dir_fd=current_fd,
-                        follow_symlinks=False,
-                    )
-                except OSError:
-                    raise RuntimeError("report_directory_invalid") from None
-                code = (
-                    "report_directory_symlink"
-                    if stat.S_ISLNK(metadata.st_mode)
-                    else "report_directory_invalid"
-                )
-                raise RuntimeError(code) from exc
+            next_fd = _open_report_component(current_fd, part, directory_flags)
             os.close(current_fd)
             current_fd = next_fd
         return current_fd
@@ -2001,6 +2004,12 @@ def _validate_result_set(results: list[CaseResult], *, mode: str) -> None:
         for result in results
     ):
         raise RuntimeError("runtime_case_contract_invalid")
+    _require_unique_evidence_references(results)
+
+
+def _require_unique_evidence_references(results: list[CaseResult]) -> None:
+    """Reject any two cases claiming the same run or trace reference."""
+
     for attribute in ("run_ref", "trace_ref"):
         references = [
             str(getattr(result, attribute))
@@ -2011,13 +2020,30 @@ def _validate_result_set(results: list[CaseResult], *, mode: str) -> None:
             raise RuntimeError("runtime_evidence_reference_collision")
 
 
-def render_report(results: list[CaseResult], *, generated_at: str) -> str:
-    """Render only controlled fields and opaque references."""
+# Column order of the per-skill table; changing either tuple changes the report.
+_DIRECT_REPORT_CHECKS = (
+    "structural",
+    "model_selection",
+    "skill_binding",
+    "semantic",
+    "trace",
+    "parent_ingestion",
+)
+_DELEGATED_REPORT_CHECKS = (
+    "structural",
+    "model_selection",
+    "skill_binding",
+    "semantic",
+    "delegation",
+    "trace",
+    "parent_ingestion",
+)
 
-    by_skill: dict[str, dict[str, CaseResult]] = {}
-    for result in results:
-        by_skill.setdefault(result.skill, {})[result.mode] = result
-    lines = [
+
+def _report_header_lines(generated_at: str) -> list[str]:
+    """Return the report preamble and the per-skill table header."""
+
+    return [
         "# Agent Utilities consolidated skill validation matrix",
         "",
         f"Generated: {generated_at}",
@@ -2032,33 +2058,78 @@ def render_report(results: list[CaseResult], *, generated_at: str) -> str:
         "| Skill | Direct static | Direct model selection | Direct skill binding | Direct semantic | Direct trace | Direct KG ingest | Delegated static | Delegated model selection | Delegated skill binding | Delegated semantic | Graph-OS delegation | Delegated trace | Delegated KG ingest | Paired result |",
         "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
-    for skill in sorted(by_skill):
-        direct = by_skill[skill].get("direct")
-        delegated = by_skill[skill].get("delegated")
-        pair_passed = bool(direct and delegated and direct.passed and delegated.passed)
-        lines.append(
-            "| "
-            + " | ".join(
-                [
-                    f"`{skill}`",
-                    direct.structural if direct else "not-run",
-                    direct.model_selection if direct else "not-run",
-                    direct.skill_binding if direct else "not-run",
-                    direct.semantic if direct else "not-run",
-                    direct.trace if direct else "not-run",
-                    direct.parent_ingestion if direct else "not-run",
-                    delegated.structural if delegated else "not-run",
-                    delegated.model_selection if delegated else "not-run",
-                    delegated.skill_binding if delegated else "not-run",
-                    delegated.semantic if delegated else "not-run",
-                    delegated.delegation if delegated else "not-run",
-                    delegated.trace if delegated else "not-run",
-                    delegated.parent_ingestion if delegated else "not-run",
-                    _PASS if pair_passed else _FAIL,
-                ]
-            )
-            + " |"
-        )
+
+
+def _report_check_cells(
+    result: CaseResult | None, checks: tuple[str, ...]
+) -> list[str]:
+    """Render one mode's check columns, or `not-run` when the case is absent."""
+
+    if result is None:
+        return ["not-run"] * len(checks)
+    return [str(getattr(result, name)) for name in checks]
+
+
+def _skill_matrix_row(skill: str, pair: dict[str, CaseResult]) -> str:
+    """Render one skill's direct/delegated row of the per-skill table."""
+
+    direct = pair.get("direct")
+    delegated = pair.get("delegated")
+    pair_passed = bool(direct and delegated and direct.passed and delegated.passed)
+    cells = [
+        f"`{skill}`",
+        *_report_check_cells(direct, _DIRECT_REPORT_CHECKS),
+        *_report_check_cells(delegated, _DELEGATED_REPORT_CHECKS),
+        _PASS if pair_passed else _FAIL,
+    ]
+    return "| " + " | ".join(cells) + " |"
+
+
+def _evidence_report_row(result: CaseResult) -> str:
+    """Render one case's row of the privacy-safe evidence table."""
+
+    routes = ", ".join(f"`{route}`" for route in result.selected_routes) or "none"
+    errors = ", ".join(f"`{code}`" for code in result.error_codes) or "none"
+    return (
+        f"| `{result.case_id}` | {routes} | `{result.model_ref or 'none'}` | "
+        f"`{result.skill_ref or 'none'}` | `{result.skill_body_ref or 'none'}` | "
+        f"`{result.run_ref or 'none'}` | `{result.trace_ref or 'none'}` | "
+        f"{result.trace_linkage} | {errors} |"
+    )
+
+
+def _report_aggregate_lines(
+    results: list[CaseResult], by_skill: dict[str, dict[str, CaseResult]]
+) -> list[str]:
+    """Render the aggregate section and its linkage/ingestion method notes."""
+
+    passed = sum(result.passed for result in results)
+    fully_passed = sum(
+        all(item.passed for item in pair.values()) and len(pair) == 2
+        for pair in by_skill.values()
+    )
+    return [
+        "",
+        "## Aggregate",
+        "",
+        f"- Cases passed: {passed}/{len(results)}",
+        f"- Skills fully passed: {fully_passed}/{len(by_skill)}",
+        "- Trace linkage method: one exact-name `graph_run` trace whose metadata binds the case run, configured model, model class, skill, and skill body, queried through the Langfuse MCP tool mounted by Graph-OS.",
+        "- Parent-ingestion proof: each exact trace resolves to exactly one `Trace` node written by Graph-OS parent mediation under verified `kg:write` authority.",
+        "",
+    ]
+
+
+def render_report(results: list[CaseResult], *, generated_at: str) -> str:
+    """Render only controlled fields and opaque references."""
+
+    by_skill: dict[str, dict[str, CaseResult]] = {}
+    for result in results:
+        by_skill.setdefault(result.skill, {})[result.mode] = result
+    lines = _report_header_lines(generated_at)
+    lines.extend(
+        _skill_matrix_row(skill, by_skill[skill]) for skill in sorted(by_skill)
+    )
     lines.extend(
         [
             "",
@@ -2068,28 +2139,11 @@ def render_report(results: list[CaseResult], *, generated_at: str) -> str:
             "|---|---|---|---|---|---|---|---|---|",
         ]
     )
-    for result in sorted(results, key=lambda item: item.case_id):
-        routes = ", ".join(f"`{route}`" for route in result.selected_routes) or "none"
-        errors = ", ".join(f"`{code}`" for code in result.error_codes) or "none"
-        lines.append(
-            f"| `{result.case_id}` | {routes} | `{result.model_ref or 'none'}` | "
-            f"`{result.skill_ref or 'none'}` | `{result.skill_body_ref or 'none'}` | "
-            f"`{result.run_ref or 'none'}` | `{result.trace_ref or 'none'}` | "
-            f"{result.trace_linkage} | {errors} |"
-        )
-    passed = sum(result.passed for result in results)
     lines.extend(
-        [
-            "",
-            "## Aggregate",
-            "",
-            f"- Cases passed: {passed}/{len(results)}",
-            f"- Skills fully passed: {sum(all(item.passed for item in pair.values()) and len(pair) == 2 for pair in by_skill.values())}/{len(by_skill)}",
-            "- Trace linkage method: one exact-name `graph_run` trace whose metadata binds the case run, configured model, model class, skill, and skill body, queried through the Langfuse MCP tool mounted by Graph-OS.",
-            "- Parent-ingestion proof: each exact trace resolves to exactly one `Trace` node written by Graph-OS parent mediation under verified `kg:write` authority.",
-            "",
-        ]
+        _evidence_report_row(result)
+        for result in sorted(results, key=lambda item: item.case_id)
     )
+    lines.extend(_report_aggregate_lines(results, by_skill))
     rendered = "\n".join(lines)
     _clean, privacy = PersistencePrivacyGuard().sanitize_text(rendered)
     if privacy.changed:
@@ -2097,26 +2151,31 @@ def render_report(results: list[CaseResult], *, generated_at: str) -> str:
     return rendered
 
 
-def _validate_external_command_argv(argv: object) -> list[str]:
-    """Resolve one bounded, non-shell external command without executing it."""
+def _valid_command_word(item: object) -> bool:
+    """Accept only a bounded, NUL-free, non-empty argv word."""
 
-    if (
-        not isinstance(argv, list)
-        or not 1 <= len(argv) <= 32
-        or not all(
-            isinstance(item, str) and 0 < len(item) <= 4_096 and "\x00" not in item
-            for item in argv
-        )
-    ):
-        raise RuntimeError("evidence_command_reference_invalid")
-    executable = Path(argv[0])
-    try:
-        original = executable.lstat()
-        canonical = executable.resolve(strict=True)
-        metadata = canonical.lstat()
-    except OSError as exc:
-        raise RuntimeError("evidence_command_reference_invalid") from exc
-    if (
+    return isinstance(item, str) and 0 < len(item) <= 4_096 and "\x00" not in item
+
+
+def _valid_command_argv(argv: object) -> TypeGuard[list[str]]:
+    """Accept only a bounded list of valid argv words."""
+
+    return (
+        isinstance(argv, list)
+        and 1 <= len(argv) <= 32
+        and all(_valid_command_word(item) for item in argv)
+    )
+
+
+def _external_executable_unsafe(
+    executable: Path,
+    original: os.stat_result,
+    canonical: Path,
+    metadata: os.stat_result,
+) -> bool:
+    """Reject a relative, symlinked, swapped, shell, or non-executable target."""
+
+    return (
         not executable.is_absolute()
         or stat.S_ISLNK(original.st_mode)
         or not stat.S_ISREG(original.st_mode)
@@ -2125,7 +2184,22 @@ def _validate_external_command_argv(argv: object) -> list[str]:
         or canonical.is_symlink()
         or not stat.S_ISREG(metadata.st_mode)
         or not os.access(canonical, os.X_OK)
-    ):
+    )
+
+
+def _validate_external_command_argv(argv: object) -> list[str]:
+    """Resolve one bounded, non-shell external command without executing it."""
+
+    if not _valid_command_argv(argv):
+        raise RuntimeError("evidence_command_reference_invalid")
+    executable = Path(argv[0])
+    try:
+        original = executable.lstat()
+        canonical = executable.resolve(strict=True)
+        metadata = canonical.lstat()
+    except OSError as exc:
+        raise RuntimeError("evidence_command_reference_invalid") from exc
+    if _external_executable_unsafe(executable, original, canonical, metadata):
         raise RuntimeError("evidence_command_reference_invalid")
     return [str(canonical), *argv[1:]]
 
@@ -2238,6 +2312,99 @@ def verify_signed_evidence(
     return unsigned
 
 
+def _controlled_ref(value: str) -> str | None:
+    """Retain an opaque reference only when it matches the exact ref pattern."""
+
+    return value if re.fullmatch(r"pref_[a-z_]+_[a-f0-9]{64}", value or "") else None
+
+
+def _controlled_trace_name(value: str) -> str | None:
+    """Retain a trace name only when it matches the exact opaque run pattern."""
+
+    return (
+        value if re.fullmatch(r"graph_run:pref_run_[a-f0-9]{64}", value or "") else None
+    )
+
+
+def _require_exact_case_set(
+    results: list[CaseResult],
+    result_by_id: dict[str, CaseResult],
+    cases: list[ValidationCase],
+) -> None:
+    """Require exactly one result per catalog case, with no duplicate ids."""
+
+    if (
+        len(results) != _CASE_COUNT
+        or len(result_by_id) != _CASE_COUNT
+        or set(result_by_id) != {case.case_id for case in cases}
+    ):
+        raise RuntimeError("runtime_case_set_not_exact")
+
+
+def _evidence_case_entry(
+    case: ValidationCase, result: CaseResult, case_digest: str
+) -> dict[str, Any]:
+    """Build the closed, content-free evidence subject for one case."""
+
+    return {
+        "caseId": case.case_id,
+        "caseDigest": case_digest,
+        "skill": case.skill,
+        "mode": case.mode,
+        "modelClass": result.model_class,
+        "status": _PASS if result.passed else _FAIL,
+        "checks": {
+            "structural": result.structural,
+            "modelSelection": result.model_selection,
+            "skillBinding": result.skill_binding,
+            "semantic": result.semantic,
+            "delegation": result.delegation,
+            "trace": result.trace,
+            "parentKnowledgeGraph": result.parent_ingestion,
+        },
+        "skillRef": _controlled_ref(result.skill_ref),
+        "skillBodyRef": _controlled_ref(result.skill_body_ref),
+        "runRef": _controlled_ref(result.run_ref),
+        "traceRef": _controlled_ref(result.trace_ref),
+        "langfuse": {
+            "lookupMethod": "exact-name",
+            "metadataOnly": True,
+            "traceName": _controlled_trace_name(result.trace_name),
+            "matchCount": result.langfuse_match_count,
+            "linkage": result.trace_linkage,
+        },
+        "parentKnowledgeGraph": {
+            "readbackMethod": "exact-trace-name",
+            "matchCount": result.parent_kg_readback_count,
+        },
+        "errorCodes": sorted(result.error_codes),
+    }
+
+
+def _fully_passed_skill_count(results: list[CaseResult]) -> int:
+    """Count skills whose direct and delegated cases are both present and passed."""
+
+    skills = {result.skill for result in results}
+    return sum(
+        len(items) == 2 and all(item.passed for item in items)
+        for skill in skills
+        for items in [[item for item in results if item.skill == skill]]
+    )
+
+
+def _evidence_result_block(passed: int, fully_passed: int) -> dict[str, Any]:
+    """Build the aggregate result block of the evidence subject."""
+
+    exact = passed == _CASE_COUNT and fully_passed == _SKILL_COUNT
+    return {
+        "status": _PASS if exact else _FAIL,
+        "passedCases": passed,
+        "totalCases": _CASE_COUNT,
+        "fullyPassedSkills": fully_passed,
+        "totalSkills": _SKILL_COUNT,
+    }
+
+
 def build_evidence(
     results: list[CaseResult],
     *,
@@ -2265,73 +2432,17 @@ def build_evidence(
     _defaults, cases = load_matrix()
     catalog = _test_catalog_evidence(cases)
     result_by_id = {result.case_id: result for result in results}
-    expected_ids = {case.case_id for case in cases}
-    if (
-        len(results) != _CASE_COUNT
-        or len(result_by_id) != _CASE_COUNT
-        or set(result_by_id) != expected_ids
-    ):
-        raise RuntimeError("runtime_case_set_not_exact")
-
-    evidence_cases: list[dict[str, Any]] = []
-
-    def controlled_ref(value: str) -> str | None:
-        return (
-            value if re.fullmatch(r"pref_[a-z_]+_[a-f0-9]{64}", value or "") else None
+    _require_exact_case_set(results, result_by_id, cases)
+    evidence_cases = [
+        _evidence_case_entry(
+            case,
+            result_by_id[case.case_id],
+            catalog["caseDigests"][case.case_id],
         )
-
-    def controlled_trace_name(value: str) -> str | None:
-        return (
-            value
-            if re.fullmatch(r"graph_run:pref_run_[a-f0-9]{64}", value or "")
-            else None
-        )
-
-    for case in sorted(cases, key=lambda item: item.case_id):
-        result = result_by_id[case.case_id]
-        evidence_cases.append(
-            {
-                "caseId": case.case_id,
-                "caseDigest": catalog["caseDigests"][case.case_id],
-                "skill": case.skill,
-                "mode": case.mode,
-                "modelClass": result.model_class,
-                "status": _PASS if result.passed else _FAIL,
-                "checks": {
-                    "structural": result.structural,
-                    "modelSelection": result.model_selection,
-                    "skillBinding": result.skill_binding,
-                    "semantic": result.semantic,
-                    "delegation": result.delegation,
-                    "trace": result.trace,
-                    "parentKnowledgeGraph": result.parent_ingestion,
-                },
-                "skillRef": controlled_ref(result.skill_ref),
-                "skillBodyRef": controlled_ref(result.skill_body_ref),
-                "runRef": controlled_ref(result.run_ref),
-                "traceRef": controlled_ref(result.trace_ref),
-                "langfuse": {
-                    "lookupMethod": "exact-name",
-                    "metadataOnly": True,
-                    "traceName": controlled_trace_name(result.trace_name),
-                    "matchCount": result.langfuse_match_count,
-                    "linkage": result.trace_linkage,
-                },
-                "parentKnowledgeGraph": {
-                    "readbackMethod": "exact-trace-name",
-                    "matchCount": result.parent_kg_readback_count,
-                },
-                "errorCodes": sorted(result.error_codes),
-            }
-        )
-
+        for case in sorted(cases, key=lambda item: item.case_id)
+    ]
     passed = sum(result.passed for result in results)
-    skills = {result.skill for result in results}
-    fully_passed = sum(
-        len(items) == 2 and all(item.passed for item in items)
-        for skill in skills
-        for items in [[item for item in results if item.skill == skill]]
-    )
+    fully_passed = _fully_passed_skill_count(results)
     evidence = {
         "apiVersion": "graphos.io/v2",
         "kind": "PrebundledSkillValidationEvidence",
@@ -2359,17 +2470,7 @@ def build_evidence(
             "caseCatalogDigest": catalog["caseCatalogDigest"],
         },
         "cases": evidence_cases,
-        "result": {
-            "status": (
-                _PASS
-                if passed == _CASE_COUNT and fully_passed == _SKILL_COUNT
-                else _FAIL
-            ),
-            "passedCases": passed,
-            "totalCases": _CASE_COUNT,
-            "fullyPassedSkills": fully_passed,
-            "totalSkills": _SKILL_COUNT,
-        },
+        "result": _evidence_result_block(passed, fully_passed),
         "privacy": {
             "containsPrompts": False,
             "containsModelOutput": False,
@@ -2485,7 +2586,9 @@ async def run(args: argparse.Namespace) -> list[CaseResult]:
     return results
 
 
-def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
+def _build_argument_parser() -> argparse.ArgumentParser:
+    """Declare the full command-line surface of the validation harness."""
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("direct", "delegated", "all"), default="all")
     parser.add_argument(
@@ -2529,10 +2632,13 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
         default=_VERIFIER_COMMAND_REFERENCE,
         help="Environment variable containing the external verifier JSON argv.",
     )
-    args = parser.parse_args(argv)
-    if not 1.0 <= args.case_timeout <= 600.0:
-        parser.error("--case-timeout must be between 1 and 600 seconds")
-    release_values = (
+    return parser
+
+
+def _release_argument_values(args: argparse.Namespace) -> tuple[str, ...]:
+    """Return the exact-release argument values in their declared order."""
+
+    return (
         args.release_id,
         args.release_specification_digest,
         args.promotion_evidence_digest,
@@ -2542,38 +2648,65 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
         args.runtime_profile_digest,
         args.model_registry_digest,
     )
+
+
+def _validate_release_destinations(
+    parser: argparse.ArgumentParser, args: argparse.Namespace
+) -> None:
+    """Require both publication destinations, colocated and correctly suffixed."""
+
+    if (
+        args.report is None
+        or args.evidence is None
+        or not all(_release_argument_values(args))
+    ):
+        parser.error(
+            "--mode all requires --report, --evidence, --release-id, "
+            "--release-specification-digest, --promotion-evidence-digest, "
+            "--graph-os-digest, --engine-digest, --runtime-config-digest, "
+            "--runtime-profile-digest, and --model-registry-digest"
+        )
+    if args.report.parent.absolute() != args.evidence.parent.absolute():
+        parser.error("--report and --evidence must be published alongside")
+    if args.report.suffix.casefold() != ".md" or args.evidence.suffix != ".json":
+        parser.error("--report must be Markdown and --evidence must be JSON")
+
+
+def _validate_release_references(
+    parser: argparse.ArgumentParser, args: argparse.Namespace
+) -> None:
+    """Require an exact release id, real digests, and signer/verifier refs."""
+
+    if _RELEASE_ID.fullmatch(args.release_id) is None:
+        parser.error("--release-id is invalid")
+    for option, value in (
+        ("--release-specification-digest", args.release_specification_digest),
+        ("--promotion-evidence-digest", args.promotion_evidence_digest),
+        ("--graph-os-digest", args.graph_os_digest),
+        ("--engine-digest", args.engine_digest),
+        ("--runtime-config-digest", args.runtime_config_digest),
+        ("--runtime-profile-digest", args.runtime_profile_digest),
+        ("--model-registry-digest", args.model_registry_digest),
+    ):
+        if _DIGEST.fullmatch(value) is None:
+            parser.error(f"{option} must be a non-sentinel sha256 digest")
+    for option, value in (
+        ("--signer-command-ref", args.signer_command_ref),
+        ("--verifier-command-ref", args.verifier_command_ref),
+    ):
+        if _COMMAND_REFERENCE.fullmatch(value) is None:
+            parser.error(f"{option} must be an environment reference")
+
+
+def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = _build_argument_parser()
+    args = parser.parse_args(argv)
+    if not 1.0 <= args.case_timeout <= 600.0:
+        parser.error("--case-timeout must be between 1 and 600 seconds")
     if args.mode == "all":
-        if args.report is None or args.evidence is None or not all(release_values):
-            parser.error(
-                "--mode all requires --report, --evidence, --release-id, "
-                "--release-specification-digest, --promotion-evidence-digest, "
-                "--graph-os-digest, --engine-digest, --runtime-config-digest, "
-                "--runtime-profile-digest, and --model-registry-digest"
-            )
-        if args.report.parent.absolute() != args.evidence.parent.absolute():
-            parser.error("--report and --evidence must be published alongside")
-        if args.report.suffix.casefold() != ".md" or args.evidence.suffix != ".json":
-            parser.error("--report must be Markdown and --evidence must be JSON")
-        if _RELEASE_ID.fullmatch(args.release_id) is None:
-            parser.error("--release-id is invalid")
-        for option, value in (
-            ("--release-specification-digest", args.release_specification_digest),
-            ("--promotion-evidence-digest", args.promotion_evidence_digest),
-            ("--graph-os-digest", args.graph_os_digest),
-            ("--engine-digest", args.engine_digest),
-            ("--runtime-config-digest", args.runtime_config_digest),
-            ("--runtime-profile-digest", args.runtime_profile_digest),
-            ("--model-registry-digest", args.model_registry_digest),
-        ):
-            if _DIGEST.fullmatch(value) is None:
-                parser.error(f"{option} must be a non-sentinel sha256 digest")
-        for option, value in (
-            ("--signer-command-ref", args.signer_command_ref),
-            ("--verifier-command-ref", args.verifier_command_ref),
-        ):
-            if _COMMAND_REFERENCE.fullmatch(value) is None:
-                parser.error(f"{option} must be an environment reference")
-    elif args.evidence is not None or any(release_values):
+        _validate_release_destinations(parser, args)
+        _validate_release_references(parser, args)
+    elif args.evidence is not None or any(_release_argument_values(args)):
         parser.error("exact release evidence is emitted only by --mode all")
     return args
 
