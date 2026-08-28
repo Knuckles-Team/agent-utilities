@@ -1309,76 +1309,17 @@ class _GraphNativeDataPrepProvider:
             raise DataPrepToolError(
                 "artifact reference is not an approved opaque graph ref"
             )
-        # Native point reads and blob calls must inherit the same verified
-        # GraphSession.  In particular, a caller-supplied session may never
-        # cause a root-graph client to read another tenant's metadata before
-        # the provider's own immutable governance checks run.
-        with self._verified_session_scope(session):
-            scoped_engine = self._scoped_engine(session)
-            props = self._node_properties(artifact_ref, engine=scoped_engine)
-            if not isinstance(props, Mapping):
-                raise ArtifactAuthorityUnavailable(
-                    "native artifact metadata is invalid"
-                )
-            node_type, tenant_id, policy_version, owner_id, classification, acl = (
-                self._authorize_metadata(props, session=session, budget=budget)
-            )
-            digest = _native_digest(
-                props.get("content_digest")
-                or props.get("content_hash")
-                or props.get("digest")
-                or props.get("blob_digest")
-            )
-            payload = self._fetch_blob(
-                digest.removeprefix("sha256:"), engine=scoped_engine
-            )
-            if not isinstance(payload, bytes):
-                raise ArtifactAuthorityUnavailable("native artifact bytes are invalid")
-        if len(payload) > budget.max_compressed_bytes:
-            raise DataPrepToolError(
-                "artifact compressed size exceeds the request budget"
-            )
-        media_type = str(props.get("media_type") or props.get("mime_type") or "")
-        if media_type not in {
-            "application/vnd.apache.arrow.stream",
-            "application/vnd.apache.arrow.file",
-        }:
-            raise DataPrepToolError("artifact media type is not an approved Arrow type")
-        table = self._decode_arrow(payload, media_type=media_type, budget=budget)
-        actual_digest = _sha256_bytes(payload)
-        if actual_digest != digest:
-            raise ArtifactAuthorityUnavailable(
-                "native artifact content fingerprint is invalid"
-            )
-        actual_schema = schema_digest(table)
-        stored_schema = props.get("schema_digest")
-        schema_value = _native_digest(stored_schema) if stored_schema else actual_schema
-        if schema_value != actual_schema:
-            raise DataPrepToolError(
-                "artifact schema fingerprint does not match its content"
-            )
-        actual_shape = _shape_digest(table)
-        stored_shape = props.get("shape_digest")
-        shape_value = _native_digest(stored_shape) if stored_shape else actual_shape
-        if shape_value != actual_shape:
-            raise DataPrepToolError(
-                "artifact shape fingerprint does not match its content"
-            )
-        compressed_bytes = self._metadata_int(
-            props, "compressed_bytes", len(payload), "compressed size"
+        props, metadata, digest, payload = self._fetch_verified_artifact(
+            artifact_ref, session=session, budget=budget
         )
-        compressed_bytes = self._metadata_int(
-            props, "file_size_bytes", compressed_bytes, "compressed size"
+        # node_type is unpacked but unused here, pre-existing (also true of
+        # the original inline unpack) -- see _authorize_metadata's docstring.
+        _node_type, tenant_id, policy_version, owner_id, classification, acl = metadata
+        table, media_type, schema_value, shape_value = self._decode_verified_table(
+            payload, props, digest=digest, budget=budget
         )
-        decoded_bytes = self._metadata_int(
-            props, "decoded_bytes", int(table.nbytes), "decoded size"
-        )
-        rows = self._metadata_int(props, "rows", int(table.num_rows), "row count")
-        columns = self._metadata_int(
-            props, "columns", int(table.num_columns), "column count"
-        )
-        depth = self._metadata_int(
-            props, "nesting_depth", _table_depth(table), "nesting depth"
+        compressed_bytes, decoded_bytes, rows, columns, depth = (
+            self._resolved_dimensions(props, payload, table)
         )
         expires_raw = props.get("expires_at_ms", 0)
         legal_hold = props.get("legal_hold", False)
@@ -1412,6 +1353,108 @@ class _GraphNativeDataPrepProvider:
             nesting_depth=depth,
             table=table,
         )
+
+    def _fetch_verified_artifact(
+        self, artifact_ref: str, *, session: GraphSession, budget: PrepBudget
+    ) -> tuple[
+        Mapping[str, Any],
+        tuple[str, str, str, str, DataClassification, ArtifactACL],
+        str,
+        bytes,
+    ]:
+        """Read+authorize the node, then fetch its blob -- one verified scope.
+
+        Native point reads and blob calls must inherit the same verified
+        GraphSession.  In particular, a caller-supplied session may never
+        cause a root-graph client to read another tenant's metadata before
+        the provider's own immutable governance checks run.
+        """
+
+        with self._verified_session_scope(session):
+            scoped_engine = self._scoped_engine(session)
+            props = self._node_properties(artifact_ref, engine=scoped_engine)
+            if not isinstance(props, Mapping):
+                raise ArtifactAuthorityUnavailable(
+                    "native artifact metadata is invalid"
+                )
+            metadata = self._authorize_metadata(props, session=session, budget=budget)
+            digest = _native_digest(
+                props.get("content_digest")
+                or props.get("content_hash")
+                or props.get("digest")
+                or props.get("blob_digest")
+            )
+            payload = self._fetch_blob(
+                digest.removeprefix("sha256:"), engine=scoped_engine
+            )
+            if not isinstance(payload, bytes):
+                raise ArtifactAuthorityUnavailable("native artifact bytes are invalid")
+        return props, metadata, digest, payload
+
+    def _decode_verified_table(
+        self,
+        payload: bytes,
+        props: Mapping[str, Any],
+        *,
+        digest: str,
+        budget: PrepBudget,
+    ) -> tuple[Any, str, str, str]:
+        """Decode the Arrow payload and verify its content/schema/shape digests."""
+
+        if len(payload) > budget.max_compressed_bytes:
+            raise DataPrepToolError(
+                "artifact compressed size exceeds the request budget"
+            )
+        media_type = str(props.get("media_type") or props.get("mime_type") or "")
+        if media_type not in {
+            "application/vnd.apache.arrow.stream",
+            "application/vnd.apache.arrow.file",
+        }:
+            raise DataPrepToolError("artifact media type is not an approved Arrow type")
+        table = self._decode_arrow(payload, media_type=media_type, budget=budget)
+        actual_digest = _sha256_bytes(payload)
+        if actual_digest != digest:
+            raise ArtifactAuthorityUnavailable(
+                "native artifact content fingerprint is invalid"
+            )
+        actual_schema = schema_digest(table)
+        stored_schema = props.get("schema_digest")
+        schema_value = _native_digest(stored_schema) if stored_schema else actual_schema
+        if schema_value != actual_schema:
+            raise DataPrepToolError(
+                "artifact schema fingerprint does not match its content"
+            )
+        actual_shape = _shape_digest(table)
+        stored_shape = props.get("shape_digest")
+        shape_value = _native_digest(stored_shape) if stored_shape else actual_shape
+        if shape_value != actual_shape:
+            raise DataPrepToolError(
+                "artifact shape fingerprint does not match its content"
+            )
+        return table, media_type, schema_value, shape_value
+
+    def _resolved_dimensions(
+        self, props: Mapping[str, Any], payload: bytes, table: Any
+    ) -> tuple[int, int, int, int, int]:
+        """Resolve declared vs. actual size/shape metadata, content wins ties."""
+
+        compressed_bytes = self._metadata_int(
+            props, "compressed_bytes", len(payload), "compressed size"
+        )
+        compressed_bytes = self._metadata_int(
+            props, "file_size_bytes", compressed_bytes, "compressed size"
+        )
+        decoded_bytes = self._metadata_int(
+            props, "decoded_bytes", int(table.nbytes), "decoded size"
+        )
+        rows = self._metadata_int(props, "rows", int(table.num_rows), "row count")
+        columns = self._metadata_int(
+            props, "columns", int(table.num_columns), "column count"
+        )
+        depth = self._metadata_int(
+            props, "nesting_depth", _table_depth(table), "nesting depth"
+        )
+        return compressed_bytes, decoded_bytes, rows, columns, depth
 
     @contextmanager
     def _verified_session_scope(self, session: GraphSession):
