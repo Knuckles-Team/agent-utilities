@@ -3986,20 +3986,25 @@ def _bundled_skill_contract() -> tuple[Path, dict[str, str]]:
     return root, expected
 
 
-def _ready_bundled_skill_names(
+def _query_bundled_skill_rows(
     engine: Any, expected_digests: dict[str, str]
-) -> frozenset[str]:
-    """Return exact packaged skills already ready for delegated execution."""
-    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
-        runnable_skill_digest,
-        skill_reference,
-    )
+) -> list[dict[str, Any]] | None:
+    """Run the bundled-skill readiness probe query.
 
+    Returns ``None`` (never raises) when the probe cannot run at all, or on
+    a graph that does not exist yet — a first boot, or the first boot after
+    a tenant claim starts scoping this process to a new tenant graph, where
+    the engine answers "Graph '<name>' not found" rather than an empty
+    result. That is the correct answer to "nothing is ready", not a
+    failure, and treating it as fatal makes the server unable to perform
+    the very ingestion that would create the graph. A genuine engine fault
+    still surfaces from the caller's own use of the (empty) result.
+    """
     query = getattr(engine, "query_cypher", None)
     if not callable(query):
-        return frozenset()
+        return None
     try:
-        rows = query(
+        return query(
             "MATCH (n:CallableResource) WHERE n.name IN $names "
             "RETURN n.id AS id, n.name AS name, n.resource_type AS rtype, "
             "n.system_prompt AS system_prompt, "
@@ -4008,20 +4013,18 @@ def _ready_bundled_skill_names(
             {"names": sorted(expected_digests)},
         )
     except Exception as exc:
-        # This is a READINESS PROBE: "which bundled skills are already ingested".
-        # On a graph that does not exist yet — a first boot, or the first boot
-        # after a tenant claim starts scoping this process to a new tenant graph
-        # — the engine answers "Graph '<name>' not found" rather than an empty
-        # result. That is the correct answer to "nothing is ready", not a
-        # failure, and treating it as fatal makes the server unable to perform
-        # the very ingestion that would create the graph. Report none-ready and
-        # let the caller ingest; a genuine engine fault still surfaces there.
         logger.info(
             "bundled-skill readiness probe found no existing skill graph "
             "(%s); treating every bundled skill as not yet ingested",
             exc,
         )
-        return frozenset()
+        return None
+
+
+def _group_bundled_skill_candidates(
+    rows: list[dict[str, Any]] | None, expected_digests: dict[str, str]
+) -> dict[str, list[dict[str, Any]]]:
+    """Bucket readiness-probe rows by skill name, ignoring unrequested names."""
     candidates: dict[str, list[dict[str, Any]]] = {}
     for row in rows or []:
         if not isinstance(row, dict):
@@ -4029,40 +4032,71 @@ def _ready_bundled_skill_names(
         name = str(row.get("name") or "")
         if name in expected_digests:
             candidates.setdefault(name, []).append(row)
+    return candidates
 
-    ready: set[str] = set()
-    for name, expected_digest in expected_digests.items():
-        matches = candidates.get(name, [])
-        if len(matches) > 1:
-            # Readiness asks "is a correct node present", and every check below
-            # pins the exact node id `resource:skill:<name>`, so a second row can
-            # never sneak past them. Requiring exactly ONE row instead conflated
-            # "more than one row came back" with "not ready", which left a skill
-            # permanently unready and — because this is a HARD startup gate —
-            # kept graph-os from serving at all. Log the duplication as the
-            # hygiene problem it is, then evaluate the rows on their merits.
-            logger.warning(
-                "bundled skill %r resolved to %d nodes; readiness is decided by "
-                "the exact id resource:skill:%s",
-                name,
-                len(matches),
-                name,
-            )
-        expected_ref = skill_reference(name)
-        for row in matches:
-            body = str(row.get("system_prompt") or "").strip()
-            digest = str(row.get("instruction_digest") or "")
-            if (
-                row.get("id") == f"resource:skill:{name}"
-                and row.get("rtype") == "AGENT_SKILL"
-                and row.get("runnable_bound") is True
-                and row.get("source_ref") == expected_ref
-                and body
-                and digest == expected_digest
-                and runnable_skill_digest(body) == digest
-            ):
-                ready.add(name)
-                break
+
+def _bundled_skill_row_matches_contract(
+    row: dict[str, Any], name: str, expected_digest: str, expected_ref: str
+) -> bool:
+    """Does this one candidate row satisfy the exact ready contract for ``name``?"""
+    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+        runnable_skill_digest,
+    )
+
+    body = str(row.get("system_prompt") or "").strip()
+    digest = str(row.get("instruction_digest") or "")
+    return (
+        row.get("id") == f"resource:skill:{name}"
+        and row.get("rtype") == "AGENT_SKILL"
+        and row.get("runnable_bound") is True
+        and row.get("source_ref") == expected_ref
+        and bool(body)
+        and digest == expected_digest
+        and runnable_skill_digest(body) == digest
+    )
+
+
+def _is_bundled_skill_ready(
+    name: str, expected_digest: str, matches: list[dict[str, Any]]
+) -> bool:
+    """Is any candidate row for ``name`` exactly the expected ready contract?"""
+    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+        skill_reference,
+    )
+
+    if len(matches) > 1:
+        # Readiness asks "is a correct node present", and every check below
+        # pins the exact node id `resource:skill:<name>`, so a second row can
+        # never sneak past them. Requiring exactly ONE row instead conflated
+        # "more than one row came back" with "not ready", which left a skill
+        # permanently unready and — because this is a HARD startup gate —
+        # kept graph-os from serving at all. Log the duplication as the
+        # hygiene problem it is, then evaluate the rows on their merits.
+        logger.warning(
+            "bundled skill %r resolved to %d nodes; readiness is decided by "
+            "the exact id resource:skill:%s",
+            name,
+            len(matches),
+            name,
+        )
+    expected_ref = skill_reference(name)
+    return any(
+        _bundled_skill_row_matches_contract(row, name, expected_digest, expected_ref)
+        for row in matches
+    )
+
+
+def _ready_bundled_skill_names(
+    engine: Any, expected_digests: dict[str, str]
+) -> frozenset[str]:
+    """Return exact packaged skills already ready for delegated execution."""
+    rows = _query_bundled_skill_rows(engine, expected_digests)
+    candidates = _group_bundled_skill_candidates(rows, expected_digests)
+    ready = {
+        name
+        for name, expected_digest in expected_digests.items()
+        if _is_bundled_skill_ready(name, expected_digest, candidates.get(name, []))
+    }
     return frozenset(ready)
 
 
