@@ -1286,6 +1286,84 @@ class NativeConceptReservationAuthority:
         _node_id, record = self._find_reservation(reservation, tenant)
         return record
 
+    def _record_matches(
+        self,
+        record: ConceptReservationRecord,
+        *,
+        tenant: str,
+        namespace: str | None,
+        state: ConceptReservationState | None,
+        concept_prefix: str | None,
+    ) -> bool:
+        if record.tenant_ref != tenant:
+            return False
+        if namespace and record.request.namespace != namespace:
+            return False
+        if state and record.state is not state:
+            return False
+        if concept_prefix and not record.concept_id.startswith(concept_prefix):
+            return False
+        return True
+
+    def _collect_page_matches(
+        self,
+        page: Sequence[tuple[str, Mapping[str, Any]]],
+        *,
+        tenant: str,
+        namespace: str | None,
+        state: ConceptReservationState | None,
+        concept_prefix: str | None,
+        limit: int,
+        rows_out: list[ConceptReservationRecord],
+    ) -> str | None:
+        last_scanned: str | None = None
+        for node_id, props in page:
+            last_scanned = node_id
+            record = self._parse_properties(props)
+            if self._record_matches(
+                record,
+                tenant=tenant,
+                namespace=namespace,
+                state=state,
+                concept_prefix=concept_prefix,
+            ):
+                rows_out.append(record)
+                if len(rows_out) == limit:
+                    break
+        return last_scanned
+
+    def _list_page_cursor(
+        self,
+        page: Sequence[tuple[str, Mapping[str, Any]]],
+        *,
+        page_limit: int,
+        last_scanned: str | None,
+        filled: bool,
+    ) -> str | None:
+        """Next native cursor to page from, or ``None`` if the list is done."""
+
+        if filled:
+            # The page is intentionally wider than the requested filtered
+            # result.  Advance only past the last node actually inspected;
+            # using page[-1] here would silently skip uninspected matches.
+            if len(page) < page_limit and last_scanned == page[-1][0]:
+                return None
+            candidate = last_scanned
+        elif len(page) < page_limit:
+            return None
+        else:
+            candidate = page[-1][0]
+        return _validate_cursor(candidate, "native cursor")
+
+    def _check_list_cursor_advanced(
+        self, next_cursor: str, native_cursor: str | None, seen_cursors: set[str]
+    ) -> None:
+        if (
+            native_cursor is not None and next_cursor <= native_cursor
+        ) or next_cursor in seen_cursors:
+            raise AuthorityUnavailable("native reservation list cursor did not advance")
+        seen_cursors.add(next_cursor)
+
     def list(
         self,
         *,
@@ -1313,41 +1391,24 @@ class NativeConceptReservationAuthority:
                 raise AuthorityUnavailable(
                     "native reservation list exceeded its record bound"
                 )
-            last_scanned: str | None = None
-            for node_id, props in page:
-                last_scanned = node_id
-                record = self._parse_properties(props)
-                if record.tenant_ref != tenant:
-                    continue
-                if namespace and record.request.namespace != namespace:
-                    continue
-                if state and record.state is not state:
-                    continue
-                if concept_prefix and not record.concept_id.startswith(concept_prefix):
-                    continue
-                rows_out.append(record)
-                if len(rows_out) == limit:
-                    break
-            if len(rows_out) == limit:
-                # The page is intentionally wider than the requested filtered
-                # result.  Advance only past the last node actually inspected;
-                # using page[-1] here would silently skip uninspected matches.
-                if len(page) < page_limit and last_scanned == page[-1][0]:
-                    return rows_out, None
-                next_cursor = _validate_cursor(last_scanned, "native cursor")
-            elif len(page) < page_limit:
+            last_scanned = self._collect_page_matches(
+                page,
+                tenant=tenant,
+                namespace=namespace,
+                state=state,
+                concept_prefix=concept_prefix,
+                limit=limit,
+                rows_out=rows_out,
+            )
+            next_cursor = self._list_page_cursor(
+                page,
+                page_limit=page_limit,
+                last_scanned=last_scanned,
+                filled=len(rows_out) == limit,
+            )
+            if next_cursor is None:
                 return rows_out, None
-            else:
-                next_cursor = _validate_cursor(page[-1][0], "native cursor")
-            if (
-                next_cursor is None
-                or (native_cursor is not None and next_cursor <= native_cursor)
-                or next_cursor in seen_cursors
-            ):
-                raise AuthorityUnavailable(
-                    "native reservation list cursor did not advance"
-                )
-            seen_cursors.add(next_cursor)
+            self._check_list_cursor_advanced(next_cursor, native_cursor, seen_cursors)
             native_cursor = next_cursor
             if len(rows_out) == limit:
                 return rows_out, native_cursor
