@@ -143,39 +143,51 @@ class LSHIndex:
         if len(vec) != self.input_dim:
             return []
 
-        # Collect candidates from all tables
+        candidates = self._collect_candidates(vec, exclude_id)
+        if not candidates:
+            return []
+
+        vec_norm = math.sqrt(sum(value * value for value in vec))
+        if vec_norm == 0:
+            return []
+
+        scored = self._score_candidates(vec, candidates, vec_norm)
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return scored[:k]
+
+    def _collect_candidates(
+        self, vec: list[float], exclude_id: str | None
+    ) -> set[str]:
+        """Union the LSH buckets for ``vec`` across every table."""
         candidates: set[str] = set()
         for table_idx in range(self.num_tables):
             key = self._hash_vector(vec, table_idx)
             bucket = self._tables[table_idx].get(key, set())
             candidates.update(bucket)
-
         if exclude_id:
             candidates.discard(exclude_id)
+        return candidates
 
-        if not candidates:
-            return []
+    def _score_candidates(
+        self, vec: list[float], candidates: set[str], vec_norm: float
+    ) -> list[tuple[str, float]]:
+        """Cosine-similarity re-rank of LSH candidates via one batched matmul.
 
-        # Re-rank by cosine similarity
+        All candidate projections are one native batch operation; only the
+        bounded score-to-id mapping remains in Python.
+        """
         scored: list[tuple[str, float]] = []
-        vec_norm = math.sqrt(sum(value * value for value in vec))
-        if vec_norm == 0:
-            return []
-
-        # All candidate projections are one native batch operation; only the
-        # bounded score-to-id mapping remains in Python.
         candidate_ids = sorted(cid for cid in candidates if cid in self._embeddings)
         candidate_vectors = [self._embeddings[cid] for cid in candidate_ids]
-        if candidate_vectors:
-            dots = xp.matmul(candidate_vectors, [[value] for value in vec])
-            for cid, row in zip(candidate_ids, dots, strict=True):
-                cand_vec = self._embeddings[cid]
-                cand_norm = math.sqrt(sum(value * value for value in cand_vec))
-                if cand_norm:
-                    scored.append((cid, float(row[0]) / (vec_norm * cand_norm)))
-
-        scored.sort(key=lambda x: x[1], reverse=True)
-        return scored[:k]
+        if not candidate_vectors:
+            return scored
+        dots = xp.matmul(candidate_vectors, [[value] for value in vec])
+        for cid, row in zip(candidate_ids, dots, strict=True):
+            cand_vec = self._embeddings[cid]
+            cand_norm = math.sqrt(sum(value * value for value in cand_vec))
+            if cand_norm:
+                scored.append((cid, float(row[0]) / (vec_norm * cand_norm)))
+        return scored
 
     def clear(self) -> None:
         """Remove all entries from the index."""

@@ -188,6 +188,57 @@ def _shared_topic_tokens(ta: list[str], tb: list[str]) -> set[str]:
     return {t for t in shared if t not in _NEGATIONS and t not in _ANTONYMS}
 
 
+def _antonym_flip(sa: set[str], sb: set[str], shared_topic: set[str]) -> bool:
+    """Each side holds one half of an antonym pair over a topic they share."""
+    if not shared_topic:
+        return False
+    for tok in sa:
+        for anti in _ANTONYMS.get(tok, frozenset()):
+            if anti in sb:
+                return True
+    return False
+
+
+def _negation_flip(ta: list[str], tb: list[str]) -> bool:
+    """Exactly one side is negated and the two share enough subject matter.
+
+    Comparison drops polarity cues so a lone negation over an otherwise-shared
+    claim reads as a genuine flip, tolerant of light stemming noise.
+    """
+    neg_a, neg_b = _negation_count(ta), _negation_count(tb)
+    if (neg_a > 0) == (neg_b > 0):
+        return False
+    core_a = [t for t in ta if t not in _NEGATIONS and not t.endswith("nt")]
+    core_b = [t for t in tb if t not in _NEGATIONS and not t.endswith("nt")]
+    ca, cb = set(core_a), set(core_b)
+    if not ca or not cb:
+        return False
+    # Containment over the smaller core: requires the bulk of the shorter
+    # claim to be shared subject matter.
+    containment = len(ca & cb) / min(len(ca), len(cb))
+    return containment >= 0.5
+
+
+def _numeric_contradiction(a: str, b: str, shared_topic: set[str]) -> bool:
+    """Same subject, differing numeric values."""
+    if not shared_topic:
+        return False
+    nums_a = _NUM.findall(a or "")
+    nums_b = _NUM.findall(b or "")
+    return bool(nums_a and nums_b and set(nums_a) != set(nums_b))
+
+
+def _frame_flip(sa: set[str], sb: set[str], shared_topic: set[str]) -> bool:
+    """One side frames the shared subject as an unresolved blocker, the other as resolved."""
+    if not shared_topic:
+        return False
+    a_blocks = bool(sa & _BLOCKER_CUES)
+    b_blocks = bool(sb & _BLOCKER_CUES)
+    a_resolves = bool(sa & _RESOLVER_CUES)
+    b_resolves = bool(sb & _RESOLVER_CUES)
+    return (a_blocks and b_resolves) or (b_blocks and a_resolves)
+
+
 def opposes(a: str, b: str) -> bool:
     """True when two statements are topically related but assert opposing polarity.
 
@@ -218,50 +269,12 @@ def opposes(a: str, b: str) -> bool:
     shared_topic = _shared_topic_tokens(ta, tb)
     sa, sb = set(ta), set(tb)
 
-    # 1. Antonym flip: each side holds one half of an antonym pair over a topic
-    #    they actually share. This needs a shared subject token to be meaningful.
-    if shared_topic:
-        for tok in sa:
-            for anti in _ANTONYMS.get(tok, frozenset()):
-                if anti in sb:
-                    return True
-
-    # 2. Negation flip on an otherwise-shared claim: exactly one side is negated
-    #    and the two share enough subject matter to be the same assertion.
-    neg_a, neg_b = _negation_count(ta), _negation_count(tb)
-    if (neg_a > 0) != (neg_b > 0):
-        # Compare the statements with polarity cues removed; if what remains is
-        # substantially the same claim, the lone negation is a genuine flip.
-        core_a = [t for t in ta if t not in _NEGATIONS and not t.endswith("nt")]
-        core_b = [t for t in tb if t not in _NEGATIONS and not t.endswith("nt")]
-        ca, cb = set(core_a), set(core_b)
-        if ca and cb:
-            # Containment over the smaller core: tolerant of light stemming
-            # noise (``pass``/``passes``) while still requiring the bulk of the
-            # shorter claim to be shared subject matter.
-            inter = len(ca & cb)
-            containment = inter / min(len(ca), len(cb))
-            if containment >= 0.5:
-                return True
-
-    # 3. Numeric contradiction: same subject, differing numbers.
-    if shared_topic:
-        nums_a = _NUM.findall(a or "")
-        nums_b = _NUM.findall(b or "")
-        if nums_a and nums_b and set(nums_a) != set(nums_b):
-            return True
-
-    # 4. Frame flip: one side frames the shared subject as an unresolved
-    #    blocker/cost, the other as resolved/overcome.
-    if shared_topic:
-        a_blocks = bool(sa & _BLOCKER_CUES)
-        b_blocks = bool(sb & _BLOCKER_CUES)
-        a_resolves = bool(sa & _RESOLVER_CUES)
-        b_resolves = bool(sb & _RESOLVER_CUES)
-        if (a_blocks and b_resolves) or (b_blocks and a_resolves):
-            return True
-
-    return False
+    return (
+        _antonym_flip(sa, sb, shared_topic)
+        or _negation_flip(ta, tb)
+        or _numeric_contradiction(a, b, shared_topic)
+        or _frame_flip(sa, sb, shared_topic)
+    )
 
 
 def _severity_for(similarity: float) -> str:

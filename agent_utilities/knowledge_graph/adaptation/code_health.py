@@ -155,6 +155,94 @@ def _baseline_delta(
     return delta
 
 
+def _sweep_one_repo(
+    engine: Any,
+    analyzer: Path,
+    baseline_mod: Any,
+    baseline_backend: Any,
+    repo: Path,
+) -> tuple[str, int, dict[str, Any]] | None:
+    """Run the liveness analyzer over one repo and record a ``CodeHealthReport`` node.
+
+    Returns ``(repo_name, score, baseline_delta)``, or ``None`` if the repo was
+    skipped (not a Python repo) or the analyzer run/parse failed.
+    """
+    if not next(repo.rglob("__init__.py"), None):  # python repos only
+        return None
+    try:
+        res = subprocess.run(
+            [sys.executable, str(analyzer), str(repo)],
+            capture_output=True,
+            text=True,
+            timeout=_PER_REPO_TIMEOUT_S,
+        )
+        if res.returncode not in (0, 1):
+            logger.warning("code_health: %s analyzer rc=%s", repo.name, res.returncode)
+            return None
+        report = json.loads(res.stdout)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("code_health: %s sweep failed: %s", repo.name, e)
+        return None
+
+    counts = report.get("counts", {})
+    delta = _baseline_delta(baseline_mod, repo.name, report, baseline_backend)
+    try:
+        engine.add_node(  # type: ignore[attr-defined]
+            f"code_health:{repo.name}",
+            node_type="CodeHealthReport",
+            repo=repo.name,
+            score=report.get("score"),
+            grade=report.get("grade"),
+            counts=json.dumps(counts),
+            new_findings=delta.get("new"),
+            fixed_findings=delta.get("fixed"),
+            new_debt_score=delta.get("new_debt_score"),
+            ts=time.time(),
+        )
+    except Exception:  # noqa: BLE001
+        pass  # recording is best-effort; the sweep value is the detection itself
+    return repo.name, int(report.get("score", 0)), delta
+
+
+def _resolve_sweep_root(repos_root: Path | None) -> tuple[Path | None, str | None]:
+    """Resolve the repos root to sweep.
+
+    Returns ``(root, None)`` on success, or ``(None, skip_reason)`` when no root
+    is configured/passed, or the resolved path isn't a directory.
+    """
+    configured_root = str(setting("AGENT_PACKAGES_ROOT", "") or "").strip()
+    if repos_root is None and not configured_root:
+        return None, "repos_root_unconfigured"
+    root = repos_root or Path(configured_root)
+    if not root.is_dir():
+        return None, "repos_root_missing"
+    return root, None
+
+
+def _sweep_all_repos(
+    engine: Any,
+    analyzer: Path,
+    baseline_mod: Any,
+    baseline_backend: Any,
+    repos: list[Path],
+) -> tuple[list[tuple[str, int]], list[tuple[str, int]]]:
+    """Sweep every repo in ``repos``, returning ``(swept, regressions)`` sorted for the report."""
+    swept: list[tuple[str, int]] = []
+    regressions: list[tuple[str, int]] = []
+    for repo in repos:
+        result = _sweep_one_repo(engine, analyzer, baseline_mod, baseline_backend, repo)
+        if result is None:
+            continue
+        name, score, delta = result
+        if delta.get("new"):
+            regressions.append((name, delta["new"]))
+        swept.append((name, score))
+
+    swept.sort(key=lambda x: x[1])
+    regressions.sort(key=lambda x: x[1], reverse=True)
+    return swept, regressions
+
+
 def run_code_health_sweep(
     engine: Any,
     repos_root: Path | None = None,
@@ -173,63 +261,18 @@ def run_code_health_sweep(
 
     baseline_mod = _load_baseline_module(analyzer)
     baseline_backend = _baseline_backend(engine)
-    configured_root = str(setting("AGENT_PACKAGES_ROOT", "") or "").strip()
-    if repos_root is None and not configured_root:
-        return {"status": "skipped", "reason": "repos_root_unconfigured"}
-    root = repos_root or Path(configured_root)
-    if not root.is_dir():
-        return {"status": "skipped", "reason": "repos_root_missing"}
+    root, skip_reason = _resolve_sweep_root(repos_root)
+    if root is None:
+        return {"status": "skipped", "reason": skip_reason}
     repos = sorted(
         p for p in root.iterdir() if p.is_dir() and not p.name.startswith(".")
     )
     if limit:
         repos = repos[:limit]
 
-    swept: list[tuple[str, int]] = []
-    regressions: list[tuple[str, int]] = []
-    for repo in repos:
-        if not next(repo.rglob("__init__.py"), None):  # python repos only
-            continue
-        try:
-            res = subprocess.run(
-                [sys.executable, str(analyzer), str(repo)],
-                capture_output=True,
-                text=True,
-                timeout=_PER_REPO_TIMEOUT_S,
-            )
-            if res.returncode not in (0, 1):
-                logger.warning(
-                    "code_health: %s analyzer rc=%s", repo.name, res.returncode
-                )
-                continue
-            report = json.loads(res.stdout)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("code_health: %s sweep failed: %s", repo.name, e)
-            continue
-
-        counts = report.get("counts", {})
-        delta = _baseline_delta(baseline_mod, repo.name, report, baseline_backend)
-        if delta.get("new"):
-            regressions.append((repo.name, delta["new"]))
-        try:
-            engine.add_node(  # type: ignore[attr-defined]
-                f"code_health:{repo.name}",
-                node_type="CodeHealthReport",
-                repo=repo.name,
-                score=report.get("score"),
-                grade=report.get("grade"),
-                counts=json.dumps(counts),
-                new_findings=delta.get("new"),
-                fixed_findings=delta.get("fixed"),
-                new_debt_score=delta.get("new_debt_score"),
-                ts=time.time(),
-            )
-        except Exception:  # noqa: BLE001
-            pass  # recording is best-effort; the sweep value is the detection itself
-        swept.append((repo.name, int(report.get("score", 0))))
-
-    swept.sort(key=lambda x: x[1])
-    regressions.sort(key=lambda x: x[1], reverse=True)
+    swept, regressions = _sweep_all_repos(
+        engine, analyzer, baseline_mod, baseline_backend, repos
+    )
     logger.info(
         "code_health sweep: %d repo(s); lowest=%s; regressions=%s",
         len(swept),

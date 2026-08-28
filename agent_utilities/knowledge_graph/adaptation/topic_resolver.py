@@ -17,6 +17,35 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _addressed_concept_ids(engine: Any) -> set[str]:
+    """Concept ids that already have an ADDRESSED_BY edge (positive traversal — supported)."""
+    try:
+        rows = engine.query_cypher(
+            "MATCH (c:Concept)-[:ADDRESSED_BY]->(s) RETURN c.id AS id"
+        )
+        return {r["id"] for r in (rows or []) if isinstance(r, dict) and r.get("id")}
+    except Exception as e:  # noqa: BLE001 — a failed "already addressed" lookup just falls through with an empty skip-set, over-including topics as unresolved (re-surfacing at worst) rather than losing any; the caller's own retry cadence corrects it next pass
+        logger.debug("unresolved_topics: addressed query failed: %s", e)
+        return set()
+
+
+def _all_concept_rows(
+    engine: Any, limit: int, addressed: set[str]
+) -> list[dict[str, Any]]:
+    """All Concept id/name rows (plain node query — supported), to subtract ``addressed`` from."""
+    try:
+        return (
+            engine.query_cypher(
+                "MATCH (c:Concept) RETURN c.id AS id, c.name AS name LIMIT $limit",
+                {"limit": int(limit) * 10 if addressed else int(limit)},
+            )
+            or []
+        )
+    except Exception as e:  # noqa: BLE001 — no concept rows this pass just returns an empty unresolved-list; nothing is marked/consumed here, so it costs one skipped scan, never a lost topic
+        logger.debug("unresolved_topics: concept query failed: %s", e)
+        return []
+
+
 def unresolved_topics(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
     """Return ``Concept`` topics that have no ``ADDRESSED_BY`` source yet.
 
@@ -27,29 +56,10 @@ def unresolved_topics(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
     negation isn't transpiled, so we take all Concepts and subtract the set that
     already has an ``ADDRESSED_BY`` edge (a positive single-hop traversal).
     """
-    # Concepts that are already addressed (positive traversal — supported).
-    addressed: set[str] = set()
-    try:
-        rows = engine.query_cypher(
-            "MATCH (c:Concept)-[:ADDRESSED_BY]->(s) RETURN c.id AS id"
-        )
-        addressed = {
-            r["id"] for r in (rows or []) if isinstance(r, dict) and r.get("id")
-        }
-    except Exception as e:  # noqa: BLE001 — a failed "already addressed" lookup just falls through with an empty skip-set, over-including topics as unresolved (re-surfacing at worst) rather than losing any; the caller's own retry cadence corrects it next pass
-        logger.debug("unresolved_topics: addressed query failed: %s", e)
-
-    # All concept topics (plain node query — supported), then subtract.
-    try:
-        rows = engine.query_cypher(
-            "MATCH (c:Concept) RETURN c.id AS id, c.name AS name LIMIT $limit",
-            {"limit": int(limit) * 10 if addressed else int(limit)},
-        )
-    except Exception as e:  # noqa: BLE001 — no concept rows this pass just returns an empty unresolved-list; nothing is marked/consumed here, so it costs one skipped scan, never a lost topic
-        logger.debug("unresolved_topics: concept query failed: %s", e)
-        return []
+    addressed = _addressed_concept_ids(engine)
+    rows = _all_concept_rows(engine, limit, addressed)
     out: list[dict[str, Any]] = []
-    for r in rows or []:
+    for r in rows:
         if not (isinstance(r, dict) and r.get("id")):
             continue
         if r["id"] in addressed:

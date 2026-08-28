@@ -72,6 +72,17 @@ def _atomic_write(target: Path, content: str) -> None:
         temp.unlink(missing_ok=True)
 
 
+def _parse_skill_frontmatter(source: str) -> tuple[dict[str, Any], str]:
+    """Split a SKILL.md into ``(frontmatter, body)`` — ``{}`` frontmatter if none present."""
+    match = re.match(r"^---\s*\n(.*?)\n---\s*\n(.*)$", source, re.DOTALL)
+    if not match:
+        return {}, source
+    parsed = yaml.safe_load(match.group(1)) or {}
+    if not isinstance(parsed, dict):
+        raise ValueError("skill frontmatter must be a mapping")
+    return dict(parsed), match.group(2)
+
+
 class PhysicalDistillationEngine:
     """Stage bounded artifact updates beneath an explicit trusted root."""
 
@@ -91,14 +102,12 @@ class PhysicalDistillationEngine:
             raise ValueError("evolution staging root is not a directory")
         self.workspace_root = root
 
-    def _target(
-        self,
-        raw: str,
-        *,
-        expected_name: str | None = None,
-        expected_suffix: str | None = None,
-        must_exist: bool,
-    ) -> Path:
+    def _resolve_within_workspace(self, raw: str) -> tuple[Path, Path]:
+        """Join ``raw`` under the workspace root (if relative) and check lexical containment.
+
+        Returns ``(candidate, relative)`` — the joined path and its path
+        relative to the workspace root, still to be symlink-checked.
+        """
         candidate = Path(str(raw or "")).expanduser()
         if not candidate.is_absolute():
             candidate = self.workspace_root / candidate
@@ -109,11 +118,18 @@ class PhysicalDistillationEngine:
             raise PermissionError(
                 "artifact target is outside the staging root"
             ) from exc
+        return candidate, relative
+
+    def _reject_symlink_components(self, relative: Path) -> None:
+        """Raise PermissionError if any path component under the workspace root is a symlink."""
         cursor = self.workspace_root
         for component in relative.parts:
             cursor = cursor / component
             if cursor.is_symlink():
                 raise PermissionError("symbolic-link artifact paths are not permitted")
+
+    def _resolve_final_target(self, candidate: Path) -> Path:
+        """Resolve ``candidate`` and re-check containment against the workspace root."""
         resolved = candidate.resolve(strict=False)
         try:
             resolved.relative_to(self.workspace_root)
@@ -121,6 +137,17 @@ class PhysicalDistillationEngine:
             raise PermissionError(
                 "artifact target is outside the staging root"
             ) from exc
+        return resolved
+
+    def _validate_target_shape(
+        self,
+        resolved: Path,
+        *,
+        expected_name: str | None,
+        expected_suffix: str | None,
+        must_exist: bool,
+    ) -> None:
+        """Check name/suffix/existence constraints on an already-resolved target."""
         if expected_name is not None and resolved.name != expected_name:
             raise ValueError("artifact target has an unexpected filename")
         if expected_suffix is not None and resolved.suffix.lower() != expected_suffix:
@@ -135,6 +162,24 @@ class PhysicalDistillationEngine:
                 raise PermissionError(
                     "artifact parent is outside the staging root"
                 ) from exc
+
+    def _target(
+        self,
+        raw: str,
+        *,
+        expected_name: str | None = None,
+        expected_suffix: str | None = None,
+        must_exist: bool,
+    ) -> Path:
+        candidate, relative = self._resolve_within_workspace(raw)
+        self._reject_symlink_components(relative)
+        resolved = self._resolve_final_target(candidate)
+        self._validate_target_shape(
+            resolved,
+            expected_name=expected_name,
+            expected_suffix=expected_suffix,
+            must_exist=must_exist,
+        )
         return resolved
 
     def distill_skill(
@@ -166,16 +211,7 @@ class PhysicalDistillationEngine:
             source = target.read_text(encoding="utf-8")
             if len(source.encode("utf-8")) > _MAX_ARTIFACT_BYTES:
                 raise ValueError("existing skill artifact is too large")
-            match = re.match(r"^---\s*\n(.*?)\n---\s*\n(.*)$", source, re.DOTALL)
-            if match:
-                parsed = yaml.safe_load(match.group(1)) or {}
-                if not isinstance(parsed, dict):
-                    raise ValueError("skill frontmatter must be a mapping")
-                frontmatter: dict[str, Any] = dict(parsed)
-                body = match.group(2)
-            else:
-                frontmatter = {}
-                body = source
+            frontmatter, body = _parse_skill_frontmatter(source)
             frontmatter["name"] = name
             frontmatter["description"] = description
             if tags is not None:

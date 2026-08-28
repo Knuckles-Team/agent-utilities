@@ -196,27 +196,39 @@ def triage_fleet_event(
         str(event.get("source_type") or event.get("source") or "generic"),
         str(event.get("severity") or "info"),
     )
+    report = _call_playbook(playbook, engine, event, graph_writer)
+    _stamp_triaged(engine, event_node_id)
+    return {"triaged": True, "event_id": event_node_id, **report}
+
+
+def _call_playbook(
+    playbook: Callable[..., dict[str, Any]],
+    engine: Any,
+    event: dict[str, Any],
+    graph_writer: Any,
+) -> dict[str, Any]:
+    """Invoke the resolved playbook, passing ``graph_writer`` only when it accepts one.
+
+    ``PlaybookFn``'s declared contract is ``(engine, event) -> dict`` — most
+    registered playbooks (e.g. jira/plane) only accept that. The wider call is
+    made only when `inspect.signature` has just proven, at runtime, that
+    ``playbook`` additionally accepts the optional ``graph_writer`` keyword
+    (as ``default_playbook`` does); the cast reflects that runtime-verified
+    wider signature for this one call.
+    """
     try:
-        if (
-            graph_writer is not None
-            and "graph_writer" in inspect.signature(playbook).parameters
-        ):
-            # PlaybookFn's declared contract is (engine, event) -> dict — most
-            # registered playbooks (e.g. jira/plane) only accept that. This
-            # branch is reached only when `inspect.signature` has just proven,
-            # at runtime, that `playbook` additionally accepts the optional
-            # `graph_writer` keyword (as `default_playbook` does); the cast
-            # reflects that runtime-verified wider signature for this one call.
+        if graph_writer is not None and "graph_writer" in inspect.signature(
+            playbook
+        ).parameters:
             playbook_with_writer = cast("Callable[..., dict[str, Any]]", playbook)
-            report = (
-                playbook_with_writer(engine, event, graph_writer=graph_writer) or {}
-            )
-        else:
-            report = playbook(engine, event) or {}
+            return playbook_with_writer(engine, event, graph_writer=graph_writer) or {}
+        return playbook(engine, event) or {}
     except Exception as e:  # noqa: BLE001 — a playbook bug never kills the worker
         logger.warning("fleet event playbook failed (%s)", type(e).__name__)
-        report = {"playbook_error": type(e).__name__}
+        return {"playbook_error": type(e).__name__}
 
+
+def _stamp_triaged(engine: Any, event_node_id: str) -> None:
     try:
         engine.backend.execute(
             "MATCH (e:FleetEvent {id: $id}) "
@@ -225,8 +237,6 @@ def triage_fleet_event(
         )
     except Exception as e:  # noqa: BLE001
         logger.debug("fleet event triage stamp failed (%s)", type(e).__name__)
-
-    return {"triaged": True, "event_id": event_node_id, **report}
 
 
 # Register the jira/plane ticket-driven workflow playbooks (CONCEPT:AU-ORCH.scheduling.ticket-workflow-playbook) when the

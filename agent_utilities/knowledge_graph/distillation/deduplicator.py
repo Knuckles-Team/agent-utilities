@@ -53,6 +53,69 @@ _DEDUP_MERGE_PROMPT_DEFAULT = (
 )
 
 
+def _bfs_component(
+    adjacency: dict[str, set[str]], start: str, visited: set[str]
+) -> list[str]:
+    """Breadth-first traversal of one connected component, marking ``visited`` in place."""
+    cluster: list[str] = []
+    queue = [start]
+    visited.add(start)
+    while queue:
+        current = queue.pop(0)
+        cluster.append(current)
+        for neighbor in adjacency.get(current, set()):
+            if neighbor not in visited:
+                visited.add(neighbor)
+                queue.append(neighbor)
+    return cluster
+
+
+def _split_oversized(members: list[Any], max_size: int) -> list[list[Any]]:
+    """Chop a component into ``max_size``-capped clusters, dropping singletons."""
+    if len(members) <= max_size:
+        return [members] if len(members) > 1 else []
+    clusters: list[list[Any]] = []
+    for i in range(0, len(members), max_size):
+        sub = members[i : i + max_size]
+        if len(sub) > 1:
+            clusters.append(sub)
+    return clusters
+
+
+def _build_similarity_graph(
+    rx: Any, all_nodes: set[str], pairs: list[tuple[str, str, float]]
+) -> tuple[Any, dict[str, int]]:
+    """Build a graph-primitives ``PyGraph`` from similarity pairs."""
+    graph = rx.PyGraph()
+    node_map: dict[str, int] = {}
+    for node in all_nodes:
+        idx = graph.add_node(node)
+        node_map[node] = idx
+    for id_a, id_b, sim in pairs:
+        graph.add_edge(node_map[id_a], node_map[id_b], sim)
+    return graph, node_map
+
+
+def _connected_components(graph: Any) -> list[list[int]]:
+    """Connected components of a graph-primitives graph, as node-index lists."""
+    visited: set[int] = set()
+    components: list[list[int]] = []
+    for start in graph.node_indices():
+        if start in visited:
+            continue
+        comp: list[int] = []
+        stack = [start]
+        while stack:
+            n = stack.pop()
+            if n in visited:
+                continue
+            visited.add(n)
+            comp.append(n)
+            stack.extend(nb for nb in graph.neighbors(n) if nb not in visited)
+        components.append(comp)
+    return components
+
+
 class KnowledgeDeduplicator:
     """Iterative deduplication engine for IdeaBlock knowledge units.
 
@@ -229,29 +292,8 @@ class KnowledgeDeduplicator:
         for node in all_nodes:
             if node in visited:
                 continue
-
-            # BFS from this node
-            cluster: list[str] = []
-            queue = [node]
-            visited.add(node)
-
-            while queue:
-                current = queue.pop(0)
-                cluster.append(current)
-
-                for neighbor in adjacency.get(current, set()):
-                    if neighbor not in visited:
-                        visited.add(neighbor)
-                        queue.append(neighbor)
-
-            # Split oversized clusters
-            if len(cluster) > self.max_cluster_size:
-                for i in range(0, len(cluster), self.max_cluster_size):
-                    sub = cluster[i : i + self.max_cluster_size]
-                    if len(sub) > 1:
-                        clusters.append(sub)
-            elif len(cluster) > 1:
-                clusters.append(cluster)
+            cluster = _bfs_component(adjacency, node, visited)
+            clusters.extend(_split_oversized(cluster, self.max_cluster_size))
 
         return clusters
 
@@ -265,41 +307,13 @@ class KnowledgeDeduplicator:
         try:
             from agent_utilities.knowledge_graph.core import graph_primitives as rx
 
-            G = rx.PyGraph()
-            node_map: dict[str, int] = {}
-            for node in all_nodes:
-                idx = G.add_node(node)
-                node_map[node] = idx
-            for id_a, id_b, sim in pairs:
-                G.add_edge(node_map[id_a], node_map[id_b], sim)
-
-            # Use connected components as community proxy
-            visited: set[int] = set()
-            components: list[list[int]] = []
-            for start in G.node_indices():
-                if start in visited:
-                    continue
-                comp: list[int] = []
-                stack = [start]
-                while stack:
-                    n = stack.pop()
-                    if n in visited:
-                        continue
-                    visited.add(n)
-                    comp.append(n)
-                    stack.extend(nb for nb in G.neighbors(n) if nb not in visited)
-                components.append(comp)
+            graph, _node_map = _build_similarity_graph(rx, all_nodes, pairs)
+            components = _connected_components(graph)
 
             clusters: list[list[str]] = []
             for component in components:
-                members = [G[idx] for idx in component]
-                if len(members) > self.max_cluster_size:
-                    for i in range(0, len(members), self.max_cluster_size):
-                        sub = members[i : i + self.max_cluster_size]
-                        if len(sub) > 1:
-                            clusters.append(sub)
-                elif len(members) > 1:
-                    clusters.append(members)
+                members = [graph[idx] for idx in component]
+                clusters.extend(_split_oversized(members, self.max_cluster_size))
 
             return clusters
 
@@ -373,6 +387,82 @@ class KnowledgeDeduplicator:
         fallback["merged_from"] = [b["id"] for b in cluster_blocks]
         return fallback
 
+    def _merge_clusters(
+        self,
+        current_blocks: list[dict[str, Any]],
+        clusters: list[list[str]],
+    ) -> tuple[list[dict[str, Any]], set[str]]:
+        """Merge each cluster's blocks. Returns (new canonical blocks, ids merged away)."""
+        merged_ids: set[str] = set()
+        new_blocks: list[dict[str, Any]] = []
+        for cluster_ids in clusters:
+            cluster_blocks = [b for b in current_blocks if b["id"] in set(cluster_ids)]
+            if len(cluster_blocks) < 2:
+                continue
+            merged = self.merge_cluster(cluster_blocks)
+            new_blocks.append(merged)
+            for b in cluster_blocks:
+                merged_ids.add(b["id"])
+        return new_blocks, merged_ids
+
+    def _run_dedup_round(
+        self,
+        current_blocks: list[dict[str, Any]],
+        iteration: int,
+        threshold: float,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], bool]:
+        """Run one dedup round: find pairs -> cluster -> merge.
+
+        Returns ``(updated_blocks, round_record, stop)`` — ``stop`` is True
+        when no pairs or no clusters were found this round (early exit).
+        """
+        blocks_before = len(current_blocks)
+        pairs = self.find_similar_pairs(current_blocks, threshold)
+        if not pairs:
+            logger.info("No similar pairs found, stopping early")
+            record = {
+                "iteration": iteration + 1,
+                "threshold": threshold,
+                "pairs_found": 0,
+                "clusters": 0,
+                "blocks_before": blocks_before,
+                "blocks_after": blocks_before,
+            }
+            return current_blocks, record, True
+
+        clusters = self.cluster_similar_blocks(pairs)
+        if not clusters:
+            record = {
+                "iteration": iteration + 1,
+                "threshold": threshold,
+                "pairs_found": len(pairs),
+                "clusters": 0,
+                "blocks_before": blocks_before,
+                "blocks_after": blocks_before,
+            }
+            return current_blocks, record, True
+
+        new_blocks, merged_ids = self._merge_clusters(current_blocks, clusters)
+        surviving = [b for b in current_blocks if b["id"] not in merged_ids]
+        updated_blocks = surviving + new_blocks
+
+        logger.info(
+            "Round %d: %d → %d blocks (%d merged)",
+            iteration + 1,
+            blocks_before,
+            len(updated_blocks),
+            len(merged_ids),
+        )
+        record = {
+            "iteration": iteration + 1,
+            "threshold": threshold,
+            "pairs_found": len(pairs),
+            "clusters": len(clusters),
+            "blocks_before": blocks_before,
+            "blocks_after": len(updated_blocks),
+        }
+        return updated_blocks, record, False
+
     def deduplicate(
         self,
         blocks: list[dict[str, Any]],
@@ -391,9 +481,9 @@ class KnowledgeDeduplicator:
         rounds: list[dict[str, Any]] = []
 
         for iteration in range(self.iterations):
-            threshold = self.base_threshold + (iteration * self.threshold_increment)
-            threshold = min(threshold, 0.98)
-
+            threshold = min(
+                self.base_threshold + (iteration * self.threshold_increment), 0.98
+            )
             logger.info(
                 "Distillation round %d/%d (threshold=%.3f, blocks=%d)",
                 iteration + 1,
@@ -401,77 +491,12 @@ class KnowledgeDeduplicator:
                 threshold,
                 len(current_blocks),
             )
-
-            # Find similar pairs
-            pairs = self.find_similar_pairs(current_blocks, threshold)
-            if not pairs:
-                logger.info("No similar pairs found, stopping early")
-                rounds.append(
-                    {
-                        "iteration": iteration + 1,
-                        "threshold": threshold,
-                        "pairs_found": 0,
-                        "clusters": 0,
-                        "blocks_before": len(current_blocks),
-                        "blocks_after": len(current_blocks),
-                    }
-                )
-                break
-
-            # Cluster similar blocks
-            clusters = self.cluster_similar_blocks(pairs)
-            if not clusters:
-                rounds.append(
-                    {
-                        "iteration": iteration + 1,
-                        "threshold": threshold,
-                        "pairs_found": len(pairs),
-                        "clusters": 0,
-                        "blocks_before": len(current_blocks),
-                        "blocks_after": len(current_blocks),
-                    }
-                )
-                break
-
-            # Merge each cluster
-            blocks_before = len(current_blocks)
-            merged_ids: set[str] = set()
-            new_blocks: list[dict[str, Any]] = []
-
-            for cluster_ids in clusters:
-                cluster_blocks = [
-                    b for b in current_blocks if b["id"] in set(cluster_ids)
-                ]
-                if len(cluster_blocks) < 2:
-                    continue
-
-                merged = self.merge_cluster(cluster_blocks)
-                new_blocks.append(merged)
-                for b in cluster_blocks:
-                    merged_ids.add(b["id"])
-
-            # Replace merged blocks with their canonical versions
-            surviving = [b for b in current_blocks if b["id"] not in merged_ids]
-            current_blocks = surviving + new_blocks
-
-            rounds.append(
-                {
-                    "iteration": iteration + 1,
-                    "threshold": threshold,
-                    "pairs_found": len(pairs),
-                    "clusters": len(clusters),
-                    "blocks_before": blocks_before,
-                    "blocks_after": len(current_blocks),
-                }
+            current_blocks, record, stop = self._run_dedup_round(
+                current_blocks, iteration, threshold
             )
-
-            logger.info(
-                "Round %d: %d → %d blocks (%d merged)",
-                iteration + 1,
-                blocks_before,
-                len(current_blocks),
-                len(merged_ids),
-            )
+            rounds.append(record)
+            if stop:
+                break
 
         final_count = len(current_blocks)
         reduction = (
