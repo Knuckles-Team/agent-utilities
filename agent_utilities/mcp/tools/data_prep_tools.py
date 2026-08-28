@@ -2035,15 +2035,7 @@ def _require_governance_not_weaker(
     _require_policy_version_preserved(source, output)
 
 
-def _require_artifact_access(
-    artifact: ResolvedArtifact,
-    *,
-    request: PrepRequest,
-    session: GraphSession,
-    now_ms: int,
-    match_input_shape: bool = True,
-) -> None:
-    actor = session.actor
+def _require_classification_shape(artifact: ResolvedArtifact) -> None:
     if not isinstance(artifact.classification, DataClassification):
         raise DataPrepToolError("artifact classification proof is unavailable")
     if not artifact.policy_version:
@@ -2058,35 +2050,54 @@ def _require_artifact_access(
         and artifact.classification is not DataClassification.PUBLIC
     ):
         raise DataPrepToolError("public ACL lacks a matching public classification")
+
+
+def _require_content_digest_shape(artifact: ResolvedArtifact) -> None:
     if (
         not isinstance(artifact.content_digest, str)
         or not artifact.content_digest.startswith("sha256:")
         or len(artifact.content_digest) != len("sha256:") + 64
     ):
         raise DataPrepToolError("artifact content fingerprint proof is unavailable")
+
+
+def _require_artifact_acl_principal_shape(artifact: ResolvedArtifact) -> None:
     if any("@" in item for item in artifact.acl.principal_ids):
         raise DataPrepToolError("principal IDs must not be treated as email ACLs")
     if any("@" not in item for item in artifact.acl.principal_emails):
         raise DataPrepToolError("artifact user email ACL proof is unavailable")
+
+
+def _require_tenant_and_expiry(
+    artifact: ResolvedArtifact, *, session: GraphSession, now_ms: int
+) -> None:
     if artifact.tenant_id != session.tenant:
         raise PermissionError("artifact tenant authority does not match the session")
     if artifact.expires_at_ms < 0 or (
         artifact.expires_at_ms and now_ms >= artifact.expires_at_ms
     ):
         raise PermissionError("artifact access has expired")
-    actor_id = str(getattr(actor, "actor_id", "") or "")
-    roles = {str(role) for role in getattr(actor, "roles", ()) or ()}
-    groups = {str(group) for group in getattr(actor, "groups", ()) or ()}
-    if not (
-        artifact.acl.is_public
-        or actor_id == artifact.owner_id
-        or actor_id in artifact.acl.principal_ids
-        or groups.intersection(artifact.acl.group_ids)
-        or roles.intersection(artifact.acl.roles)
+
+
+def _require_artifact_acl_grants_access(
+    artifact: ResolvedArtifact, *, session: GraphSession
+) -> None:
+    actor_id, roles, groups = _session_actor_identity(session)
+    if not _acl_grants_access(
+        artifact.acl,
+        actor_id=actor_id,
+        roles=roles,
+        groups=groups,
+        owner_id=artifact.owner_id,
     ):
         raise PermissionError(
             "artifact ACL does not grant the current principal access"
         )
+
+
+def _require_shape_matches_request(
+    artifact: ResolvedArtifact, request: PrepRequest, *, match_input_shape: bool
+) -> None:
     if match_input_shape and (
         artifact.schema_ref != request.schema_ref
         or artifact.schema_digest != request.schema_digest
@@ -2097,13 +2108,20 @@ def _require_artifact_access(
         or artifact.shape_digest != request.shape_digest
     ):
         raise DataPrepToolError("artifact shape is not the approved immutable shape")
+
+
+def _require_artifact_absolute_bounds(artifact: ResolvedArtifact) -> None:
     if artifact.compressed_bytes < 0 or artifact.compressed_bytes > _MAX_ARTIFACT_BYTES:
         raise DataPrepToolError(
             "artifact compressed size is outside the governed bound"
         )
     if artifact.decoded_bytes < 0 or artifact.decoded_bytes > _MAX_ARTIFACT_BYTES:
         raise DataPrepToolError("artifact decoded size is outside the governed bound")
-    budget = request.budget
+
+
+def _require_artifact_budget_bounds(
+    artifact: ResolvedArtifact, *, budget: PrepBudget
+) -> None:
     if artifact.compressed_bytes > budget.max_compressed_bytes:
         raise DataPrepToolError("artifact compressed size exceeds the request budget")
     if artifact.decoded_bytes > budget.max_decoded_bytes:
@@ -2114,11 +2132,26 @@ def _require_artifact_access(
         raise DataPrepToolError("artifact column count exceeds the request budget")
     if artifact.nesting_depth < 0 or artifact.nesting_depth > budget.max_depth:
         raise DataPrepToolError("artifact nesting depth exceeds the request budget")
+
+
+def _require_artifact_size_bounds(
+    artifact: ResolvedArtifact, *, budget: PrepBudget
+) -> None:
+    _require_artifact_absolute_bounds(artifact)
+    _require_artifact_budget_bounds(artifact, budget=budget)
+
+
+def _require_artifact_media_type_ok(artifact: ResolvedArtifact) -> None:
     if artifact.media_type not in {
         "application/vnd.apache.arrow.stream",
         "application/vnd.apache.arrow.file",
     }:
         raise DataPrepToolError("artifact media type is not an approved Arrow type")
+
+
+def _require_content_matches_metadata(
+    artifact: ResolvedArtifact, *, budget: PrepBudget
+) -> None:
     ArrowAdapter.as_table(
         artifact.table,
         profile=LocalProfile(
@@ -2147,6 +2180,28 @@ def _require_artifact_access(
         raise DataPrepToolError(
             "artifact content nesting depth exceeds the request budget"
         )
+
+
+def _require_artifact_access(
+    artifact: ResolvedArtifact,
+    *,
+    request: PrepRequest,
+    session: GraphSession,
+    now_ms: int,
+    match_input_shape: bool = True,
+) -> None:
+    _require_classification_shape(artifact)
+    _require_content_digest_shape(artifact)
+    _require_artifact_acl_principal_shape(artifact)
+    _require_tenant_and_expiry(artifact, session=session, now_ms=now_ms)
+    _require_artifact_acl_grants_access(artifact, session=session)
+    _require_shape_matches_request(
+        artifact, request, match_input_shape=match_input_shape
+    )
+    budget = request.budget
+    _require_artifact_size_bounds(artifact, budget=budget)
+    _require_artifact_media_type_ok(artifact)
+    _require_content_matches_metadata(artifact, budget=budget)
 
 
 def _require_table_bounds(table: Any, *, budget: PrepBudget) -> None:
