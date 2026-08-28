@@ -882,6 +882,55 @@ def _concept_registry_reserve(
     return json.dumps(record)
 
 
+def _source_sync_resolve_engine(connection: str, graph: str) -> tuple[Any, str | None]:
+    """Resolve the target engine for `source_sync` per the graph/connection
+    selection rules (U-37/GOC-67): an explicit graph never defaults, never fans
+    out, and an unknown/unauthorized graph fails closed with no partial sync
+    started. Returns ``(engine, error_json)`` — ``error_json`` is ``None`` on
+    success."""
+    if graph or connection:
+        try:
+            entries, errors, fanout = kg_server._resolve_target_engines(connection)
+            entries = kg_server.resolve_explicit_graph(entries, graph, fanout=fanout)
+        except kg_server.GraphNotFoundError as e:
+            return None, public_error_json(e, code="graph_not_found")
+        except kg_server.GraphSelectionConflictError as e:
+            return None, public_error_json(e, code="graph_selection_conflict")
+        except Exception as e:  # noqa: BLE001
+            return None, public_error_json(e)
+        if fanout or len(entries) != 1:
+            return None, public_error_json(
+                kg_server.GraphSelectionConflictError(
+                    "source_sync targets exactly one backend; "
+                    "'connection=all'/a list is not supported "
+                    "(use source='all' to fan out across connectors "
+                    "instead)"
+                ),
+                code="graph_selection_conflict",
+            )
+        _sync_conn_name, engine = entries[0]
+        return engine, None
+    try:
+        engine = kg_server._get_engine()
+    except Exception:  # noqa: BLE001
+        engine = None
+    return engine, None
+
+
+def _source_sync_run(
+    engine: Any, source: str, mode: str, ids: list[Any], graph: str, connection: str
+) -> dict[str, Any]:
+    from agent_utilities.knowledge_graph.core.source_sync import sync_source
+
+    with kg_server.bound_to_graph(graph):
+        result = sync_source(engine, str(source), mode=str(mode), ids=ids or None)
+    if graph or connection:
+        result = dict(result)
+        result.setdefault("connection", connection or "default")
+        result.setdefault("graph", graph)
+    return result
+
+
 def register_ontology_tools(mcp):
     """Register the ontology_tools group on the given FastMCP server."""
 
@@ -1690,8 +1739,6 @@ def register_ontology_tools(mcp):
         ),
     ) -> str:
         """Run a delta/full/reconcile sync for any registered source against the live engine."""
-        from agent_utilities.knowledge_graph.core.source_sync import sync_source
-
         # A direct call bypassing FastMCP's own Field-default resolution binds
         # an omitted `graph`/`connection` to a raw `FieldInfo` rather than
         # `""` — normalize once here, mirroring `query_tools._run_graph_query`'s
@@ -1704,51 +1751,15 @@ def register_ontology_tools(mcp):
 
             # U-37/GOC-67: resolve `connection`/`graph` BEFORE touching the
             # engine or reading any watermark — exactly like `graph_query`/
-            # `graph_write`/`graph_ingest`: an explicit graph never defaults,
-            # never fans out, and an unknown/unauthorized graph fails closed
-            # with no partial sync started.
-            if graph or connection:
-                try:
-                    entries, errors, fanout = kg_server._resolve_target_engines(
-                        connection
-                    )
-                    entries = kg_server.resolve_explicit_graph(
-                        entries, graph, fanout=fanout
-                    )
-                except kg_server.GraphNotFoundError as e:
-                    return public_error_json(e, code="graph_not_found")
-                except kg_server.GraphSelectionConflictError as e:
-                    return public_error_json(e, code="graph_selection_conflict")
-                except Exception as e:
-                    return public_error_json(e)
-                if fanout or len(entries) != 1:
-                    return public_error_json(
-                        kg_server.GraphSelectionConflictError(
-                            "source_sync targets exactly one backend; "
-                            "'connection=all'/a list is not supported "
-                            "(use source='all' to fan out across connectors "
-                            "instead)"
-                        ),
-                        code="graph_selection_conflict",
-                    )
-                _sync_conn_name, engine = entries[0]
-            else:
-                try:
-                    engine = kg_server._get_engine()
-                except Exception:  # noqa: BLE001
-                    engine = None
+            # `graph_write`/`graph_ingest`.
+            engine, resolve_error = _source_sync_resolve_engine(connection, graph)
+            if resolve_error is not None:
+                return resolve_error
             if engine is None:
                 return json.dumps(
                     {"status": "error", "error": "active engine required"}
                 )
-            with kg_server.bound_to_graph(graph):
-                result = sync_source(
-                    engine, str(source), mode=str(mode), ids=ids or None
-                )
-            if graph or connection:
-                result = dict(result)
-                result.setdefault("connection", connection or "default")
-                result.setdefault("graph", graph)
+            result = _source_sync_run(engine, source, mode, ids, graph, connection)
             return json.dumps(result)
         except PermissionError as e:
             return public_error_json(
