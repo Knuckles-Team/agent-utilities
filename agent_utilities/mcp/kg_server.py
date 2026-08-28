@@ -431,33 +431,59 @@ def get_existing_disabled_batch(
     remaining = list(dict.fromkeys(node_ids))  # de-dupe, preserve order
     if not remaining:
         return result
+    remaining = _disabled_batch_cache_lookup(engine, remaining, result)
+    if not remaining:
+        return result
+    _disabled_batch_engine_lookup(engine, safe_label, remaining, result)
+    return result
+
+
+def _disabled_batch_cache_lookup(
+    engine, node_ids: list[str], result: dict[str, bool]
+) -> list[str]:
+    """Resolve as many ids as possible from the in-memory graph-compute cache.
+
+    Mutates ``result`` in place for ids found in the cache. Returns the ids
+    still unresolved (for the caller to fall through to the engine query).
+    Fails closed: on any lookup error, marks every id passed in as disabled
+    in ``result`` and returns an empty list.
+    """
     try:
         if hasattr(engine, "graph_compute") and hasattr(engine.graph_compute, "graph"):
             graph = engine.graph_compute.graph
             still_remaining = []
-            for node_id in remaining:
+            for node_id in node_ids:
                 if node_id in graph:
                     result[node_id] = bool(graph.nodes[node_id].get("disabled", False))
                 else:
                     still_remaining.append(node_id)
-            remaining = still_remaining
+            return still_remaining
     except Exception as exc:  # noqa: BLE001 — surfaced as fail-closed below
         logger.error(
             "get_existing_disabled_batch: in-memory cache lookup failed — "
             "failing closed for %d id(s): %s",
-            len(remaining),
+            len(node_ids),
             type(exc).__name__,
         )
-        for node_id in remaining:
+        for node_id in node_ids:
             result[node_id] = True
-        return result
-    if not remaining:
-        return result
+        return []
+    return node_ids
+
+
+def _disabled_batch_engine_lookup(
+    engine, safe_label: str, node_ids: list[str], result: dict[str, bool]
+) -> None:
+    """Resolve the remaining ids via one ``query_cypher`` round trip.
+
+    Mutates ``result`` in place. Fails closed: on any query error, marks
+    every id passed in as disabled in ``result``.
+    """
     try:
         res = engine.query_cypher(
             f"MATCH (n:{safe_label}) WHERE n.id IN $node_ids "
             "RETURN n.id AS id, n.disabled AS disabled",
-            {"node_ids": remaining},
+            {"node_ids": node_ids},
         )
         if not isinstance(res, list):
             raise TypeError(f"expected a list of rows, got {type(res).__name__}")
@@ -465,16 +491,15 @@ def get_existing_disabled_batch(
         logger.error(
             "get_existing_disabled_batch(%d ids) lookup failed — failing "
             "closed (treating every unresolved id as disabled): %s",
-            len(remaining),
+            len(node_ids),
             type(exc).__name__,
         )
-        for node_id in remaining:
+        for node_id in node_ids:
             result[node_id] = True
-        return result
+        return
     for row in res:
         if isinstance(row, dict) and row.get("id"):
             result[str(row["id"])] = bool(row.get("disabled", False))
-    return result
 
 
 def safe_json_load(s: Any) -> Any:
