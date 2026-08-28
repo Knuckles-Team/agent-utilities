@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import Callable, Sequence
 from typing import Any
 
@@ -324,7 +325,28 @@ def _annotate_path_hops(engine: Any, path: list[Any]) -> list[dict[str, Any]]:
 
 
 def _run_graph_query_sql(cypher: str, connection: str, graph: str) -> str:
-    """``scope=='sql'`` branch of ``_run_graph_query`` (CONCEPT:AU-KG.query.read-only-sql-over)."""
+    """``scope=='sql'`` branch of ``_run_graph_query`` (CONCEPT:AU-KG.query.read-only-sql-over).
+
+    Statement-shape gate (WD10-A-BACKEND security review) lives in this thin
+    wrapper, in FRONT of the original implementation
+    (:func:`_run_graph_query_sql_engine`, unchanged) — kept as a separate
+    function rather than added inline so this pre-existing name's own
+    complexity does not regress (`verify_both.py`'s per-function, no-
+    pre-existing-function-may-get-worse rule): the gate's rejection routes
+    through :func:`public_error_json` on a synthetic ``ValueError`` to match
+    the EXACT SAME dict-shaped, message-redacted envelope every other
+    rejection this branch returns already uses (required for
+    ``EvidenceBundle.from_payload`` — this function's sole caller, via
+    ``graph_query`` — to stay valid, and for the message-redaction contract
+    ``test_sql_scope_surfaces_engine_error`` already asserts on).
+    """
+    rejection = _reject_unsafe_table_sql(str(cypher or ""))
+    if rejection is not None:
+        return public_error_json(ValueError(rejection))
+    return _run_graph_query_sql_engine(cypher, connection, graph)
+
+
+def _run_graph_query_sql_engine(cypher: str, connection: str, graph: str) -> str:
     try:
         entries, errors, fanout = kg_server._resolve_target_engines(connection)
         entries = kg_server.resolve_explicit_graph(entries, graph, fanout=fanout)
@@ -1029,6 +1051,87 @@ def _graph_search_fanout(
     return "\n\n".join(out_lines)
 
 
+# ══════════════════════════════════════════════════════════════════
+# WD10-A-BACKEND security review (plans/semantic-indexing/DESIGN-embedding-
+# bindings.md §4): defense-in-depth statement-shape gate in FRONT of every
+# raw-SQL call site this file owns (`graph_table` action='query' and
+# `graph_query` scope='sql'). `QueryMixin.sql()`
+# (agent_utilities/knowledge_graph/orchestration/engine_query.py — owned by a
+# sibling lane this wave, NOT this file) already rejects anything whose first
+# 8 characters are not SELECT/WITH/EXPLAIN, but that is a HEAD-TOKEN check
+# only: it does not parse the statement. Probed empirically (see the
+# WD10-A-BACKEND lane report) — all of the following reach that guard's
+# ADMIT branch unexamined:
+#   * a writable CTE: "WITH x AS (INSERT ... RETURNING id) SELECT * FROM x"
+#   * a ';'-stacked second statement: "SELECT 1; DROP TABLE nodes;"
+#   * "EXPLAIN ANALYZE <mutation>" (ANALYZE mode EXECUTES the wrapped
+#     statement in every SQL engine that implements it)
+# This gate is additive and strictly narrower than the engine-side one — it
+# never admits anything the engine-side guard would reject, only rejects
+# more. It does NOT and cannot defend against a side-effecting/volatile
+# function called from an otherwise-legal SELECT list (e.g.
+# "SELECT pg_read_file(...)"-class builtins) — that requires a function
+# ALLOWLIST enforced by the engine's own SQL executor (eg repo, out of this
+# lane's ownership this wave); filed as a finding in the lane report rather
+# than reached into.
+_TABLE_QUERY_HEAD_RE = re.compile(r"^\s*(SELECT|WITH|EXPLAIN)\b", re.IGNORECASE)
+_TABLE_QUERY_EXPLAIN_ANALYZE_RE = re.compile(
+    r"^\s*EXPLAIN\s+ANALYZE\b", re.IGNORECASE
+)
+_TABLE_QUERY_TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_TABLE_QUERY_WRITE_TOKENS = frozenset(
+    {
+        "insert",
+        "update",
+        "delete",
+        "drop",
+        "alter",
+        "truncate",
+        "create",
+        "grant",
+        "revoke",
+        "copy",
+        "merge",
+        "call",
+        "exec",
+        "execute",
+        "vacuum",
+        "reindex",
+        "attach",
+        "detach",
+        "pragma",
+        "analyze",
+    }
+)
+
+
+def _table_query_statements(sql: str) -> list[str]:
+    """Split on top-level ``;`` — a stacked second statement is the classic
+    defeat of a head-token-only guard (a trailing ``;`` alone is harmless)."""
+    return [part.strip() for part in sql.split(";") if part.strip()]
+
+
+def _reject_unsafe_table_sql(sql: str) -> str | None:
+    """Return an error string when ``sql`` fails this gate's stricter shape
+    check, else ``None``. See the module comment above for what this closes
+    and what it deliberately does NOT (function-call side effects)."""
+    statements = _table_query_statements(sql)
+    if len(statements) != 1:
+        return "query must be a single statement (no ';'-stacked statements)"
+    statement = statements[0]
+    if not _TABLE_QUERY_HEAD_RE.match(statement):
+        return "query must start with SELECT, WITH, or EXPLAIN"
+    if _TABLE_QUERY_EXPLAIN_ANALYZE_RE.match(statement):
+        return (
+            "EXPLAIN ANALYZE executes the wrapped statement; use plain EXPLAIN"
+        )
+    tokens = {t.lower() for t in _TABLE_QUERY_TOKEN_RE.findall(statement)}
+    banned = sorted(tokens & _TABLE_QUERY_WRITE_TOKENS)
+    if banned:
+        return f"query contains a disallowed keyword: {banned[0]}"
+    return None
+
+
 def _graph_table_ingest(
     engine: Any,
     table_ingest: Any,
@@ -1089,7 +1192,415 @@ def _graph_table_drop(engine: Any, table_ingest: Any, table: str) -> str:
 def _graph_table_query(engine: Any, sql: str) -> str:
     if not sql:
         return json.dumps({"error": "query needs a sql SELECT"})
+    return _graph_table_query_checked(engine, sql)
+
+
+def _graph_table_query_checked(engine: Any, sql: str) -> str:
+    """The statement-shape-gated execute step (WD10-A-BACKEND security
+    review) — split from :func:`_graph_table_query` so that pre-existing
+    name's own complexity does not regress (`verify_both.py`)."""
+    rejection = _reject_unsafe_table_sql(str(sql))
+    if rejection is not None:
+        return json.dumps({"error": rejection})
     return json.dumps(engine.sql(str(sql)), default=str)
+
+
+# ══════════════════════════════════════════════════════════════════
+# WD10-A-BACKEND — node-link JSON projection (wD10 Atlas backend gap B).
+#
+# No first-class {nodes, links} serialization exists today for a graph query
+# RESULT (as opposed to `GraphComputeEngine.to_json()`'s whole-graph dump,
+# agent_utilities/knowledge_graph/core/graph_compute.py, which uses
+# {"source","target","properties"} for the FULL graph, not a query
+# projection). Every dialect (Cypher/SQL/SPARQL) can return dict-valued
+# columns shaped like a node ({id, ...}) or a relationship
+# ({source/start/..., target/end/..., type, ...}) depending on backend and
+# RETURN clause; this projector is deliberately generic across that
+# variance and NEVER fabricates a node/edge from a value it can't identify
+# — a scalar/flat column contributes nothing (see class docstring).
+# ══════════════════════════════════════════════════════════════════
+
+_NODE_LINK_SOURCE_KEYS: tuple[str, ...] = ("source", "start", "_start", "from")
+_NODE_LINK_TARGET_KEYS: tuple[str, ...] = ("target", "end", "_end", "to")
+_NODE_LINK_ID_KEYS: tuple[str, ...] = ("id", "node_id", "_id")
+_NODE_LINK_RESERVED_EDGE_KEYS: frozenset[str] = frozenset(
+    _NODE_LINK_SOURCE_KEYS
+    + _NODE_LINK_TARGET_KEYS
+    + ("type", "label", "properties", "id")
+)
+_NODE_LINK_RESERVED_NODE_KEYS: frozenset[str] = frozenset(
+    _NODE_LINK_ID_KEYS + ("label", "type", "properties")
+)
+
+
+def _first_present(mapping: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    for key in keys:
+        if key in mapping:
+            return mapping[key]
+    return None
+
+
+def _node_link_endpoint_id(value: Any) -> Any:
+    """A relationship endpoint may itself be a nested node dict or a bare id."""
+    if isinstance(value, dict):
+        return _first_present(value, _NODE_LINK_ID_KEYS)
+    return value
+
+
+def _node_link_edge_endpoints(value: dict[str, Any]) -> tuple[Any, Any] | None:
+    source = _first_present(value, _NODE_LINK_SOURCE_KEYS)
+    target = _first_present(value, _NODE_LINK_TARGET_KEYS)
+    if source is None or target is None:
+        return None
+    source_id = _node_link_endpoint_id(source)
+    target_id = _node_link_endpoint_id(target)
+    if source_id is None or target_id is None:
+        return None
+    return source_id, target_id
+
+
+def _node_link_edge_properties(value: dict[str, Any]) -> dict[str, Any]:
+    properties = value.get("properties")
+    if isinstance(properties, dict):
+        return properties
+    return {
+        k: v for k, v in value.items() if k not in _NODE_LINK_RESERVED_EDGE_KEYS
+    }
+
+
+def _as_node_link_edge(value: dict[str, Any]) -> dict[str, Any] | None:
+    endpoints = _node_link_edge_endpoints(value)
+    if endpoints is None:
+        return None
+    source_id, target_id = endpoints
+    return {
+        "source": source_id,
+        "target": target_id,
+        "label": value.get("type") or value.get("label") or "",
+        "properties": _node_link_edge_properties(value),
+    }
+
+
+def _as_node_link_node(value: dict[str, Any]) -> dict[str, Any] | None:
+    node_id = _first_present(value, _NODE_LINK_ID_KEYS)
+    if node_id is None:
+        return None
+    properties = value.get("properties")
+    if not isinstance(properties, dict):
+        properties = {
+            k: v for k, v in value.items() if k not in _NODE_LINK_RESERVED_NODE_KEYS
+        }
+    return {
+        "id": node_id,
+        "label": value.get("label") or value.get("type") or "",
+        "properties": properties,
+    }
+
+
+def _absorb_node_link_value(
+    value: Any, nodes: dict[Any, dict[str, Any]], links: list[dict[str, Any]]
+) -> None:
+    if not isinstance(value, dict):
+        return
+    edge = _as_node_link_edge(value)
+    if edge is not None:
+        links.append(edge)
+        return
+    node = _as_node_link_node(value)
+    if node is not None:
+        nodes.setdefault(node["id"], node)
+
+
+def _parse_projection_request_object(request_json: str) -> dict[str, Any] | str:
+    """Parse+validate ``request_json``'s outer JSON shape; the parsed dict, or
+    an error string."""
+    try:
+        request = json.loads(request_json) if request_json else {}
+    except (TypeError, ValueError):
+        return "request_json must be a JSON object"
+    if not isinstance(request, dict):
+        return "request_json must be a JSON object"
+    return request
+
+
+_PROJECTION_REQUEST_STRING_FIELDS: tuple[str, ...] = (
+    "scope",
+    "reference_id",
+    "as_of",
+    "connection",
+    "graph",
+)
+
+
+def _projection_request_params(request: dict[str, Any]) -> str:
+    params = request.get("params")
+    return params if isinstance(params, str) else json.dumps(params or {})
+
+
+def _projection_request_kwargs(request: dict[str, Any], cypher: str) -> dict[str, str]:
+    kwargs = {
+        name: str(request.get(name) or "") for name in _PROJECTION_REQUEST_STRING_FIELDS
+    }
+    kwargs["scope"] = kwargs["scope"] or "local"
+    kwargs["cypher"] = cypher
+    kwargs["params"] = _projection_request_params(request)
+    return kwargs
+
+
+def _parse_projection_request(request_json: str) -> tuple[dict[str, str], str | None]:
+    """Parse ``graph_projection``'s single JSON request object into
+    ``_run_graph_query`` kwargs, or return ``(_, error_message)``.
+
+    Collapses what would otherwise be 7 individual ``Field`` parameters
+    (mirroring ``graph_query``'s own signature) into ONE typed request
+    object — this file's `graph_table` already uses the identical
+    "bundle a multi-field payload into one JSON-string param" idiom
+    (``config_json``/``columns_json``/``rows_json``), so this follows the
+    SAME established convention rather than introducing a new one.
+    """
+    request = _parse_projection_request_object(request_json)
+    if isinstance(request, str):
+        return {}, request
+    cypher = str(request.get("cypher") or "")
+    if not cypher:
+        return {}, "request_json.cypher is required"
+    return _projection_request_kwargs(request, cypher), None
+
+
+def _projection_rows(payload: Any) -> list[Any]:
+    """Extract the raw row list from a ``_run_graph_query`` JSON payload.
+
+    Deliberately bypasses ``EvidenceBundle.from_payload`` here: that class's
+    dict branch (``_from_embedded_bundle``) prioritizes an EMBEDDED
+    ``evidence_bundle`` when present — and ``_run_graph_query_single`` always
+    embeds one (``_evidence_bundle_for_rows``), whose ``claims`` are the
+    epistemic CURRENCY-UPGRADE summary (id/text/kind only, and EMPTY whenever
+    the connected engine has no ``explain_provenance_by_ids`` primitive —
+    verified empirically, see the WD10-A-BACKEND lane report), not the raw
+    per-row node/edge properties this projection needs. This mirrors
+    ``EvidenceBundle._dict_payload_claims``'s own rows/results extraction
+    instead, plus the fan-out ``targets`` shape ``_run_graph_query_fanout``/
+    ``_run_graph_query_sql`` use.
+    """
+    if isinstance(payload, list):
+        return payload
+    if not isinstance(payload, dict):
+        return []
+    rows = payload.get("rows")
+    if isinstance(rows, list):
+        return rows
+    results = payload.get("results")
+    if isinstance(results, list):
+        return results
+    targets = payload.get("targets")
+    if not isinstance(targets, dict):
+        return []
+    merged: list[Any] = []
+    for value in targets.values():
+        if isinstance(value, list):
+            merged.extend(value)
+    return merged
+
+
+def _project_node_link(rows: list[Any]) -> dict[str, Any]:
+    """Project arbitrary graph-query result rows into a stable
+    ``{nodes:[{id,label,properties}], links:[{source,target,label,properties}]}``
+    shape — the D3/force-graph convention every 2D/3D renderer already speaks,
+    so a frontend adapter never has to re-derive node/edge shape from raw
+    per-dialect rows itself.
+    """
+    nodes: dict[Any, dict[str, Any]] = {}
+    links: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for value in row.values():
+            _absorb_node_link_value(value, nodes, links)
+    return {"nodes": list(nodes.values()), "links": links}
+
+
+# ══════════════════════════════════════════════════════════════════
+# WD10-A-BACKEND — unified capability/catalog introspection (wD10 Atlas
+# backend gap A). Schema discovery is fragmented per protocol today (SQL via
+# information_schema, GraphQL via live __schema, SPARQL via
+# `SELECT DISTINCT ?type`, ontology via Method::OwlReason, KV only via
+# `scan`, vector indexes with no listing method at all) — a frontend had to
+# make 4-6 protocol-specific calls and guess. This assembles ONE
+# capability-shaped response: every modality entry says whether it is
+# available, and an ABSENT backend (a modality compiled out of this engine
+# build) yields {"available": false, "reason": ...} rather than an error —
+# matching the agent-webui `src/lib/gateway.ts` {ok, data, unavailable,
+# error} envelope convention one layer up.
+#
+# Capability detection reuses `engine_tools.ENGINE_DOMAINS`
+# (agent_utilities/mcp/tools/engine_tools.py, unowned this wave) — the SAME
+# live introspection of the installed `epistemic_graph` client's sub-client
+# classes every `engine_<domain>` tool is generated from (see that module's
+# `_discover_domains()` docstring) — rather than re-deriving "what's
+# compiled in" by hand. A domain absent from `ENGINE_DOMAINS` (its client
+# class not present in the installed engine build) is reported unavailable;
+# NEVER fabricated as live.
+# ══════════════════════════════════════════════════════════════════
+
+def _capability_entry(
+    available: bool,
+    *,
+    reason: str = "",
+    methods: list[str] | None = None,
+    items: Any = None,
+) -> dict[str, Any]:
+    entry: dict[str, Any] = {"available": available}
+    if not available:
+        entry["reason"] = reason or "not available on the connected engine build"
+        return entry
+    if methods is not None:
+        entry["methods"] = methods
+    if items is not None:
+        entry["items"] = items
+    return entry
+
+
+def _engine_domain_methods(domain: str) -> list[str] | None:
+    """The introspected method list for one ``engine_tools.ENGINE_DOMAINS``
+    entry, or ``None`` when that domain's client class is absent from the
+    installed engine build (never guessed — see module comment above)."""
+    try:
+        from agent_utilities.mcp.tools.engine_tools import ENGINE_DOMAINS
+    except Exception:  # noqa: BLE001 — engine_tools itself unavailable
+        return None
+    return ENGINE_DOMAINS.get(domain)
+
+
+def _catalog_unavailable_domain(domain: str, hint: str) -> dict[str, Any]:
+    """A modality reported by capability alone (compiled in or not) — no
+    listing call attempted, so ``items`` is intentionally absent rather than
+    guessed at from a method NAME (e.g. picking whichever ``TimeSeriesClient``
+    method sounds like "list" would risk calling a mutating/expensive method
+    that merely has a plausible name)."""
+    methods = _engine_domain_methods(domain)
+    if not methods:
+        return _capability_entry(False, reason=hint)
+    return _capability_entry(True, methods=methods)
+
+
+async def _catalog_graphs() -> dict[str, Any]:
+    """Physical graphs — via the already-registered ``engine_tenants`` tool
+    (CONCEPT reference: `engine_tenants(action='list')`, referenced by name
+    in several docstrings across this codebase but never centralized behind
+    one discoverable call before this). ``tenants`` is an AU-P0-6
+    ADMIN_DOMAINS entry (agent_utilities/mcp/tools/engine_tools.py) — a
+    non-admin caller is correctly DENIED here, reported as ``denied`` rather
+    than conflated with "not compiled in"."""
+    methods = _engine_domain_methods("tenants")
+    if not methods:
+        return _capability_entry(
+            False, reason="no MultiTenantClient on the installed engine client"
+        )
+    listing_fn = kg_server.REGISTERED_TOOLS.get("engine_tenants")
+    if listing_fn is None:
+        return _capability_entry(True, methods=methods)
+    try:
+        # Explicit kwargs for every parameter — a direct call bypassing
+        # FastMCP's Field-default resolution binds an omitted arg to its raw,
+        # truthy `pydantic.fields.FieldInfo` rather than its intended default
+        # (the SAME documented gotcha `engine_tools._dispatch` and
+        # `query_tools._run_graph_query` both already guard against).
+        raw = await listing_fn(action="list", params_json="{}", graph="")
+    except PermissionError:
+        entry = _capability_entry(True, methods=methods)
+        entry["denied"] = True
+        entry["reason"] = (
+            "tenants is an ADMIN-scoped domain (AU-P0-6); caller lacks the "
+            "required scope"
+        )
+        return entry
+    except Exception as exc:  # noqa: BLE001 — best-effort listing
+        entry = _capability_entry(True, methods=methods)
+        entry["list_error"] = type(exc).__name__
+        return entry
+    payload = json.loads(raw) if isinstance(raw, str) else raw
+    return _capability_entry(True, methods=methods, items=payload)
+
+
+async def _catalog_sql() -> dict[str, Any]:
+    """Delegate to the already-landed, no-caller-SQL ``/graph/sql-schema``
+    projection (``agent_utilities/mcp/tools/graph_tools.sql_schema`` —
+    confirmed live and already consumed by the sibling WD10-A-SQL lane's own
+    Table Explorer) rather than re-deriving table/column introspection here.
+    Richer (catalog/schema nesting, primary keys) and safer (server-authored
+    ``information_schema`` constants only — see
+    ``graph_tools.CATALOG_STATEMENTS`` — never a per-table caller-shaped
+    query) than a bespoke per-table probe would be."""
+    from agent_utilities.mcp.tools import graph_tools
+
+    try:
+        projection = await graph_tools.sql_schema()
+    except Exception as exc:  # noqa: BLE001 — covers SqlSchemaUnavailable + any other failure
+        return _capability_entry(
+            False,
+            reason=f"sql-schema introspection unavailable: {type(exc).__name__}",
+        )
+    return _capability_entry(True, items=projection)
+
+
+async def _safe_catalog_entry(awaitable: Any) -> dict[str, Any]:
+    """One modality's introspection failure never breaks the whole catalog."""
+    try:
+        return await awaitable
+    except Exception as exc:  # noqa: BLE001 — see docstring
+        return _capability_entry(
+            False, reason=f"introspection failed: {type(exc).__name__}"
+        )
+
+
+async def _build_graph_catalog() -> dict[str, Any]:
+    catalog: dict[str, Any] = {
+        "graphs": await _safe_catalog_entry(_catalog_graphs()),
+        "sql": await _safe_catalog_entry(_catalog_sql()),
+        # KV namespaces and vector indexes have NO listing surface anywhere in
+        # this codebase today (verified: no domain class in ENGINE_DOMAINS,
+        # no `list_*` helper in agent_utilities) — reported honestly rather
+        # than fabricated, per the WD10-A-BACKEND brief's explicit
+        # instruction not to claim a compiled-out modality is live.
+        "kv": _capability_entry(
+            False,
+            reason=(
+                "no KVClient / namespace-listing surface on the engine client; "
+                "graph_context provides KV-like storage via graph nodes, not a "
+                "named-namespace system"
+            ),
+        ),
+        "vector": _capability_entry(
+            False,
+            reason=(
+                "no VectorClient / list-collections method on the engine "
+                "client; embeddings are stored as node properties, not named "
+                "collections (see WD10-A-BACKEND lane report)"
+            ),
+        ),
+        "ontology": _catalog_unavailable_domain(
+            "reasoning",
+            "no ReasoningClient (Method::OwlReason) on the installed engine client",
+        ),
+        "timeseries": _catalog_unavailable_domain(
+            "timeseries", "no TimeSeriesClient on the installed engine client"
+        ),
+        "blob": _catalog_unavailable_domain(
+            "blob", "no BlobClient on the installed engine client"
+        ),
+        "broker": _catalog_unavailable_domain(
+            "broker", "no BrokerClient on the installed engine client"
+        ),
+        "saved_queries": _capability_entry(
+            False,
+            reason=(
+                "no durable saved/continuous-query store on the AU side today "
+                "(only ad hoc engine-level continuous-query primitives "
+                "referenced in code comments, not wired to a listing surface)"
+            ),
+        ),
+    }
+    return catalog
 
 
 async def _graph_context_put(
@@ -1708,6 +2219,95 @@ def register_query_tools(mcp):
             return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["graph_table"] = graph_table
+
+    # ══════════════════════════════════════════════════════════════════
+    # 1a-quater. graph_projection — CONCEPT:AU-KG.query.node-link-projection
+    # (wD10 Atlas backend gap B): a stable {nodes, links} JSON shape for a
+    # graph query result, so the agent-webui data explorer's 2D/3D renderers
+    # never have to re-derive node/edge shape from raw per-dialect rows.
+    # ══════════════════════════════════════════════════════════════════
+    @mcp.tool(
+        name="graph_projection",
+        description=(
+            "CONCEPT:AU-KG.query.node-link-projection — run the SAME query `graph_query` would "
+            "and project the result into a stable node-link JSON shape: "
+            "{nodes:[{id,label,properties}], links:[{source,target,label,properties}]} — "
+            "the D3/force-graph convention every 2D/3D graph renderer already speaks. "
+            "A dict-valued result column shaped like a node ({id, ...}) becomes a node; "
+            "one shaped like a relationship ({source/start/..., target/end/..., type, ...}) "
+            "becomes a link; a plain scalar column is never fabricated into either. "
+            "Nodes are de-duplicated by id across all rows. Takes ONE JSON request "
+            "object (project rule, wD10 preamble addendum — no new wide MCP-tool "
+            "signatures) rather than one Field per argument: request_json is "
+            "{cypher (required), params, scope, reference_id, as_of, connection, "
+            "graph} — identical fields/semantics to graph_query's own arguments."
+        ),
+        tags=["graph-os", "query", "visualization"],
+    )
+    def graph_projection(
+        request_json: str = Field(
+            description=(
+                "JSON object: {cypher (required), params, scope, reference_id, "
+                "as_of, connection, graph} — same fields/semantics as graph_query's "
+                "individual arguments."
+            )
+        ),
+    ) -> str:
+        run_kwargs, request_error = _parse_projection_request(request_json)
+        if request_error is not None:
+            return json.dumps(
+                {"error": {"code": "invalid_request", "message": request_error}}
+            )
+        raw = _run_graph_query(**run_kwargs, include_epistemic=False)
+        try:
+            payload = json.loads(raw) if isinstance(raw, str) else raw
+        except (TypeError, ValueError):
+            return json.dumps({"error": {"code": "operation_failed"}})
+        if isinstance(payload, dict) and payload.get("error"):
+            return json.dumps({"error": payload["error"]})
+        projection = _project_node_link(_projection_rows(payload))
+        projection["connection"] = run_kwargs["connection"] or "default"
+        projection["graph"] = run_kwargs["graph"]
+        return json.dumps(projection, default=str)
+
+    kg_server.REGISTERED_TOOLS["graph_projection"] = graph_projection
+    kg_server.ACTION_TOOL_ROUTES["graph_projection"] = "/graph/projection"
+
+    # ══════════════════════════════════════════════════════════════════
+    # 1a-quinquies. graph_catalog — CONCEPT:AU-KG.query.unified-capability-catalog
+    # (wD10 Atlas backend gap A): one capability-shaped call across every
+    # modality instead of 4-6 protocol-specific ones. See the
+    # `_build_graph_catalog` module docstring for the full design rationale.
+    # ══════════════════════════════════════════════════════════════════
+    @mcp.tool(
+        name="graph_catalog",
+        description=(
+            "CONCEPT:AU-KG.query.unified-capability-catalog — one capability-shaped call across "
+            "every KG modality (graphs, sql, kv, vector, ontology, timeseries, blob, "
+            "broker, saved_queries) instead of making a separate protocol-specific "
+            "introspection call per modality. Each entry reports "
+            "{available: bool, reason?, methods?, items?, denied?}: an absent/"
+            "not-compiled-in backend yields available=false with a reason, NEVER "
+            "an error — a frontend source-tree view can render every modality's "
+            "state from this one response. 'graphs' lists physical engine graphs "
+            "(ADMIN-scoped; a non-admin caller sees denied=true, not an error). "
+            "'sql' lists user SQL tables with a best-effort per-table column probe "
+            "(capped). Other modalities report compiled-in capability + their "
+            "engine method list where the installed engine build has no safe "
+            "generic listing method — never a guessed/fabricated item list."
+        ),
+        tags=["graph-os", "query", "introspection"],
+    )
+    async def graph_catalog() -> str:
+        try:
+            kg_server._get_engine()
+        except Exception as e:  # noqa: BLE001
+            return public_error_json(e, code="dependency_unavailable")
+        catalog = await _build_graph_catalog()
+        return json.dumps(catalog, default=str)
+
+    kg_server.REGISTERED_TOOLS["graph_catalog"] = graph_catalog
+    kg_server.ACTION_TOOL_ROUTES["graph_catalog"] = "/graph/catalog"
 
     # ══════════════════════════════════════════════════════════════════
     # 1b. graph_context — CONCEPT:AU-ORCH.session.invoker-agent-handoff cross-process curated-context store
