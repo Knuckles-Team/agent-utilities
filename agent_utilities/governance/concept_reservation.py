@@ -963,6 +963,111 @@ def _transition_map() -> dict[ConceptReservationState, set[ConceptReservationSta
     }
 
 
+def _effective_target(
+    current: ConceptReservationRecord,
+    target: ConceptReservationState,
+    visibility: ConceptReservationVisibility | None,
+) -> tuple[ConceptReservationState, ConceptReservationVisibility]:
+    """Resolve the requested visibility and redirect a demoting transition
+    to TOMBSTONED once repository/external visibility has been reached --
+    shared by both authority implementations' ``transition``."""
+
+    requested_visibility = _strongest_visibility(
+        current.visibility, visibility or current.visibility
+    )
+    if (
+        target is not ConceptReservationState.TOMBSTONED
+        and _VISIBILITY_RANK[requested_visibility]
+        >= _VISIBILITY_RANK[ConceptReservationVisibility.REPOSITORY]
+    ):
+        # Visibility is monotonic. A release/expiry request cannot erase
+        # repository/external evidence; preserve it as a tombstone.
+        target = ConceptReservationState.TOMBSTONED
+    return target, requested_visibility
+
+
+def _is_idempotent_retry(
+    record: ConceptReservationRecord,
+    owner: str,
+    target: ConceptReservationState,
+    expected_fence: int,
+) -> bool:
+    # A retry may arrive with the pre-CAS fence after another caller has
+    # already committed this exact transition.  Check that idempotent case
+    # before rejecting the now-stale expected fence, but never let another
+    # owner observe a successful retry.
+    return (
+        record.owner_ref == owner
+        and record.state is target
+        and record.fence == expected_fence + 1
+    )
+
+
+def _check_transition_fence(
+    record: ConceptReservationRecord, owner: str, expected_fence: int
+) -> None:
+    if record.owner_ref != owner or record.fence != expected_fence:
+        raise ConceptReservationFenceConflict("reservation owner or fence is stale")
+
+
+def _check_transition_expiry(
+    record: ConceptReservationRecord, target: ConceptReservationState
+) -> None:
+    if (
+        target is ConceptReservationState.EXPIRED
+        and datetime.now(UTC) < record.expires_at
+    ):
+        raise ConceptReservationConflict("reservation has not reached its expiry")
+
+
+def _check_transition_allowed(
+    record: ConceptReservationRecord, target: ConceptReservationState
+) -> None:
+    if target not in _transition_map().get(record.state, set()):
+        raise ConceptReservationConflict(
+            f"cannot transition {record.state.value} to {target.value}"
+        )
+
+
+def _visibility_for_target(
+    target: ConceptReservationState,
+    requested_visibility: ConceptReservationVisibility,
+) -> ConceptReservationVisibility:
+    if target is ConceptReservationState.MATERIALIZED:
+        return _strongest_visibility(
+            requested_visibility, ConceptReservationVisibility.FRAGMENT
+        )
+    if target is ConceptReservationState.LANDED:
+        return _strongest_visibility(
+            requested_visibility, ConceptReservationVisibility.REPOSITORY
+        )
+    if target is ConceptReservationState.TOMBSTONED:
+        return ConceptReservationVisibility.EXTERNAL
+    return requested_visibility
+
+
+def _next_lifecycle_times(
+    target: ConceptReservationState, now: datetime, current: ConceptReservationRecord
+) -> dict[str, datetime | None]:
+    return {
+        "materialized_at": now
+        if target is ConceptReservationState.MATERIALIZED
+        else current.materialized_at,
+        "landed_at": now
+        if target is ConceptReservationState.LANDED
+        else current.landed_at,
+        "released_at": now
+        if target is ConceptReservationState.RELEASED
+        else current.released_at,
+        "expired_at": now
+        if target is ConceptReservationState.EXPIRED
+        else current.expired_at,
+        "tombstoned_at": now
+        if target is ConceptReservationState.TOMBSTONED
+        else current.tombstoned_at,
+    }
+
+
 class NativeConceptReservationAuthority:
     """Durable authority built from epistemic-graph's existing native writes.
 
@@ -1414,6 +1519,29 @@ class NativeConceptReservationAuthority:
                 return rows_out, native_cursor
         raise AuthorityUnavailable("native reservation list exceeded its page bound")
 
+    def _cas_transition(
+        self,
+        node_id: str,
+        owner: str,
+        current: ConceptReservationRecord,
+        expected_fence: int,
+        next_record: ConceptReservationRecord,
+    ) -> bool:
+        return self._call(
+            "compare_and_set_node_fields",
+            node_id,
+            {
+                "node_type": RESERVATION_NODE_LABEL,
+                "reservation_id": current.reservation_id,
+                "tenant_ref": current.tenant_ref,
+                "owner_ref": owner,
+                "state": current.state.value,
+                "fence": expected_fence,
+                "immutable_fingerprint": current.immutable_fingerprint,
+            },
+            self._record_properties(next_record),
+        )
+
     def transition(
         self,
         reservation_id: str,
@@ -1430,101 +1558,26 @@ class NativeConceptReservationAuthority:
         tenant = _reference(tenant_ref, "tenant_ref")
         owner = _reference(owner_ref, "owner_ref")
         node_id, current = self._find_reservation(reservation, tenant)
-        requested_visibility = _strongest_visibility(
-            current.visibility, visibility or current.visibility
-        )
-        if (
-            target is not ConceptReservationState.TOMBSTONED
-            and _VISIBILITY_RANK[requested_visibility]
-            >= _VISIBILITY_RANK[ConceptReservationVisibility.REPOSITORY]
-        ):
-            # Visibility is monotonic. A release/expiry request cannot erase
-            # repository/external evidence; preserve it as a tombstone.
-            target = ConceptReservationState.TOMBSTONED
-        # A retry may arrive with the pre-CAS fence after another caller has
-        # already committed this exact transition.  Check that idempotent case
-        # before rejecting the now-stale expected fence, but never let another
-        # owner observe a successful retry.
-        if (
-            current.owner_ref == owner
-            and current.state is target
-            and current.fence == expected_fence + 1
-        ):
+        target, requested_visibility = _effective_target(current, target, visibility)
+        if _is_idempotent_retry(current, owner, target, expected_fence):
             return current
-        if current.owner_ref != owner or current.fence != expected_fence:
-            raise ConceptReservationFenceConflict("reservation owner or fence is stale")
-        if (
-            target is ConceptReservationState.EXPIRED
-            and datetime.now(UTC) < current.expires_at
-        ):
-            raise ConceptReservationConflict("reservation has not reached its expiry")
-        allowed = _transition_map().get(current.state, set())
-        if target not in allowed:
-            raise ConceptReservationConflict(
-                f"cannot transition {current.state.value} to {target.value}"
-            )
+        _check_transition_fence(current, owner, expected_fence)
+        _check_transition_expiry(current, target)
+        _check_transition_allowed(current, target)
         now = max(current.transitioned_at, datetime.now(UTC))
-        next_visibility = requested_visibility
-        if target is ConceptReservationState.MATERIALIZED:
-            next_visibility = _strongest_visibility(
-                next_visibility, ConceptReservationVisibility.FRAGMENT
-            )
-        elif target is ConceptReservationState.LANDED:
-            next_visibility = _strongest_visibility(
-                next_visibility, ConceptReservationVisibility.REPOSITORY
-            )
-        elif target is ConceptReservationState.TOMBSTONED:
-            next_visibility = ConceptReservationVisibility.EXTERNAL
+        next_visibility = _visibility_for_target(target, requested_visibility)
         next_record = replace(
             current,
             state=target,
             visibility=next_visibility,
             fence=current.fence + 1,
             transitioned_at=now,
-            materialized_at=(
-                now
-                if target is ConceptReservationState.MATERIALIZED
-                else current.materialized_at
-            ),
-            landed_at=(
-                now if target is ConceptReservationState.LANDED else current.landed_at
-            ),
-            released_at=(
-                now
-                if target is ConceptReservationState.RELEASED
-                else current.released_at
-            ),
-            expired_at=(
-                now if target is ConceptReservationState.EXPIRED else current.expired_at
-            ),
-            tombstoned_at=(
-                now
-                if target is ConceptReservationState.TOMBSTONED
-                else current.tombstoned_at
-            ),
+            **_next_lifecycle_times(target, now, current),
         )
-        applied = self._call(
-            "compare_and_set_node_fields",
-            node_id,
-            {
-                "node_type": RESERVATION_NODE_LABEL,
-                "reservation_id": reservation,
-                "tenant_ref": tenant,
-                "owner_ref": owner,
-                "state": current.state.value,
-                "fence": expected_fence,
-                "immutable_fingerprint": current.immutable_fingerprint,
-            },
-            self._record_properties(next_record),
-        )
-        if applied:
+        if self._cas_transition(node_id, owner, current, expected_fence, next_record):
             return next_record
         _node_id, latest = self._find_reservation(reservation, tenant)
-        if (
-            latest.owner_ref == owner
-            and latest.state is target
-            and latest.fence == expected_fence + 1
-        ):
+        if _is_idempotent_retry(latest, owner, target, expected_fence):
             return latest
         raise ConceptReservationFenceConflict("reservation owner or fence is stale")
 
