@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import model_validator
 
@@ -89,13 +89,8 @@ def _scope_matches(scope: AccessScope, server: ServerIdentity) -> None:
         raise RepositoryContractError("repository returned a cross-tenant connector")
 
 
-def _codes_for(
-    desired: DesiredConnectorState,
-    version: ConnectorVersion | None,
-    observation: Observation | None,
-) -> tuple[DriftCode, ...]:
-    if observation is None:
-        return ("no_observation",)
+def _status_only_drift_codes(observation: Observation) -> tuple[DriftCode, ...] | None:
+    """Drift codes decidable from ``observation.status`` alone, or ``None``."""
     if observation.status == "failed":
         return ("probe_failed",)
     if observation.status == "unreachable":
@@ -106,7 +101,14 @@ def _codes_for(
         return ("empty_snapshot_unverified",)
     if observation.status == "empty" and observation.verified_empty:
         return ("verified_empty",)
+    return None
 
+
+def _version_drift_codes(
+    desired: DesiredConnectorState,
+    version: ConnectorVersion | None,
+    observation: Observation,
+) -> list[DriftCode]:
     codes: list[DriftCode] = []
     if observation.version_id != desired.version_id:
         codes.append("version_mismatch")
@@ -122,6 +124,20 @@ def _codes_for(
             codes.append("capability_mismatch")
         if observation.compatibility != version.compatibility:
             codes.append("compatibility_mismatch")
+    return codes
+
+
+def _codes_for(
+    desired: DesiredConnectorState,
+    version: ConnectorVersion | None,
+    observation: Observation | None,
+) -> tuple[DriftCode, ...]:
+    if observation is None:
+        return ("no_observation",)
+    status_only = _status_only_drift_codes(observation)
+    if status_only is not None:
+        return status_only
+    codes = _version_drift_codes(desired, version, observation)
     return tuple(dict.fromkeys(codes)) or ("no_drift",)
 
 
@@ -219,15 +235,14 @@ class ConnectorControlPlane:
         self._repository.append_observation(observation)
         return self.reconcile(scope, observation.server_id, observation=observation)
 
-    def reconcile(
+    def _load_reconciliation_inputs(
         self,
         scope: AccessScope,
         server_id: str,
-        *,
-        observation: Observation | None = None,
-    ) -> ConnectorReconciliation:
-        """Compute drift while retaining desired state on empty or failed probes."""
-
+        observation: Observation | None,
+    ) -> tuple[
+        ServerIdentity, DesiredConnectorState, Observation | None, ConnectorVersion
+    ]:
         server = self._repository.get_server(scope, server_id)
         desired = self._repository.get_desired(scope, server_id)
         if server is None or desired is None:
@@ -254,7 +269,20 @@ class ConnectorControlPlane:
             raise RepositoryContractError(
                 "desired version belongs to another connector"
             )
+        return server, desired, current_observation, version
 
+    def reconcile(
+        self,
+        scope: AccessScope,
+        server_id: str,
+        *,
+        observation: Observation | None = None,
+    ) -> ConnectorReconciliation:
+        """Compute drift while retaining desired state on empty or failed probes."""
+
+        server, desired, current_observation, version = (
+            self._load_reconciliation_inputs(scope, server_id, observation)
+        )
         codes = _codes_for(desired, version, current_observation)
         status = _drift_status(current_observation, codes)
         quarantine_ref = (
@@ -317,6 +345,38 @@ class ConnectorControlPlane:
 
         self._repository.put_authorization(decision)
 
+    @staticmethod
+    def _apply_authorization_decision(
+        decision: Any,
+        scope: AccessScope,
+        server_id: str,
+        version_id: str,
+        at: str,
+        present: set[Literal["approval", "install", "credential_access", "enable"]],
+        missing: list[Literal["approval", "install", "credential_access", "enable"]],
+    ) -> None:
+        if (
+            decision.tenant_id != scope.tenant_id
+            or decision.principal_id != scope.principal_id
+        ):
+            raise RepositoryContractError(
+                "repository returned cross-scope authorization"
+            )
+        if decision.server_id != server_id or decision.version_id != version_id:
+            raise RepositoryContractError(
+                "repository returned authorization for another connector"
+            )
+        present.add(decision.kind)
+        if (
+            decision.kind == "credential_access"
+            and decision.grant_digest not in scope.grant_digests
+        ):
+            missing.append(decision.kind)
+        elif decision.outcome != "approved" or not _now_or_expired(
+            decision.expires_at, at
+        ):
+            missing.append(decision.kind)
+
     def evaluate_authorization(
         self,
         scope: AccessScope,
@@ -341,27 +401,9 @@ class ConnectorControlPlane:
                 Literal["approval", "install", "credential_access", "enable"]
             ] = set()
             for decision in decisions.decisions:
-                if (
-                    decision.tenant_id != scope.tenant_id
-                    or decision.principal_id != scope.principal_id
-                ):
-                    raise RepositoryContractError(
-                        "repository returned cross-scope authorization"
-                    )
-                if decision.server_id != server_id or decision.version_id != version_id:
-                    raise RepositoryContractError(
-                        "repository returned authorization for another connector"
-                    )
-                present.add(decision.kind)
-                if (
-                    decision.kind == "credential_access"
-                    and decision.grant_digest not in scope.grant_digests
-                ):
-                    missing.append(decision.kind)
-                elif decision.outcome != "approved" or not _now_or_expired(
-                    decision.expires_at, at
-                ):
-                    missing.append(decision.kind)
+                self._apply_authorization_decision(
+                    decision, scope, server_id, version_id, at, present, missing
+                )
             missing.extend(kind for kind in required if kind not in present)
         return AuthorizationEvaluation(
             evaluation_version="connector-authorization-evaluation.v1",
