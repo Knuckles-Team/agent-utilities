@@ -296,9 +296,7 @@ class QueryMixin(_Base):
                 scoped_query, session.actor, graph_name
             )
         except Exception as exc:  # noqa: BLE001 — pushdown is best-effort; the row-level fallback is the safety net and must never fail open
-            logger.debug(
-                "query_cypher: commons catalog pushdown unavailable: %s", exc
-            )
+            logger.debug("query_cypher: commons catalog pushdown unavailable: %s", exc)
         else:
             if candidate_query != scoped_query:
                 scoped_query = candidate_query
@@ -454,7 +452,9 @@ class QueryMixin(_Base):
                 # ACL), not a silent bypass of tenant/owner-scope isolation. The
                 # read is still audited, with an empty node-id list (nothing
                 # governable to name).
-                audit_read([], summary="native-cypher-read (aggregate)", actor=session.actor)
+                audit_read(
+                    [], summary="native-cypher-read (aggregate)", actor=session.actor
+                )
                 return rows
 
             # fix/empty-projection: `trust_pushdown=visibility_pushed_down` —
@@ -494,7 +494,9 @@ class QueryMixin(_Base):
                 filter_commons_catalog,
             )
 
-            graph_name = getattr(getattr(self, "graph_compute", None), "graph_name", None)
+            graph_name = getattr(
+                getattr(self, "graph_compute", None), "graph_name", None
+            )
             rows = filter_commons_catalog(
                 rows, session.actor, graph_name, trust_pushdown=commons_pushed_down
             )
@@ -1945,7 +1947,6 @@ class QueryMixin(_Base):
             logger.debug("No backend configured for retrieve_place_view.")
             return []
 
-        results = []
         if place_ids:
             # Match entities co-located at specified places
             cypher = (
@@ -1956,15 +1957,8 @@ class QueryMixin(_Base):
             rows = self.backend.execute(
                 cypher, {"place_ids": place_ids, "limit": top_k}
             )
-            for row in rows:
-                entity = row.get("e", row)
-                place = row.get("p", {})
-                if isinstance(entity, dict):
-                    entity["_place"] = (
-                        place.get("id") if isinstance(place, dict) else str(place)
-                    )
-                    results.append(entity)
-        elif phase_ids:
+            return self._tagged_entities(rows, "_place")
+        if phase_ids:
             # Match entities associated with specific phases
             cypher = (
                 "MATCH (e:Entity)-[r:ASSOCIATED_WITH|associated_with]->(p:Phase) "
@@ -1974,31 +1968,31 @@ class QueryMixin(_Base):
             rows = self.backend.execute(
                 cypher, {"phase_ids": phase_ids, "limit": top_k}
             )
-            for row in rows:
-                entity = row.get("e", row)
-                phase = row.get("p", {})
-                if isinstance(entity, dict):
-                    entity["_phase"] = (
-                        phase.get("id") if isinstance(phase, dict) else str(phase)
-                    )
-                    results.append(entity)
-        else:
-            # Query based search for co-located entities matching query
-            cypher = (
-                "MATCH (e:Entity)-[r:CO_LOCATED_AT|co_located_at]->(p:Place) "
-                "WHERE e.id CONTAINS $q OR p.id CONTAINS $q "
-                "RETURN e, p LIMIT $limit"
-            )
-            rows = self.backend.execute(cypher, {"q": query, "limit": top_k})
-            for row in rows:
-                entity = row.get("e", row)
-                place = row.get("p", {})
-                if isinstance(entity, dict):
-                    entity["_place"] = (
-                        place.get("id") if isinstance(place, dict) else str(place)
-                    )
-                    results.append(entity)
+            return self._tagged_entities(rows, "_phase")
+        # Query based search for co-located entities matching query
+        cypher = (
+            "MATCH (e:Entity)-[r:CO_LOCATED_AT|co_located_at]->(p:Place) "
+            "WHERE e.id CONTAINS $q OR p.id CONTAINS $q "
+            "RETURN e, p LIMIT $limit"
+        )
+        rows = self.backend.execute(cypher, {"q": query, "limit": top_k})
+        return self._tagged_entities(rows, "_place")
 
+    @staticmethod
+    def _tagged_entities(
+        rows: list[dict[str, Any]], tag_key: str
+    ) -> list[dict[str, Any]]:
+        """Extract entity dicts from CO_LOCATED_AT/ASSOCIATED_WITH result rows,
+        tagging each with its related place/phase id under ``tag_key``."""
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            entity = row.get("e", row)
+            related = row.get("p", {})
+            if isinstance(entity, dict):
+                entity[tag_key] = (
+                    related.get("id") if isinstance(related, dict) else str(related)
+                )
+                results.append(entity)
         return results
 
     def retrieve_epistemic_view(
@@ -2023,104 +2017,14 @@ class QueryMixin(_Base):
         Returns:
             Dict with ``beliefs``, ``supporting``, and ``contradicting`` lists.
         """
-        beliefs: list[dict[str, Any]] = []
-        supporting: list[dict[str, Any]] = []
-        contradicting: list[dict[str, Any]] = []
-
         if self.backend:
-            # 1. Find claims matching the query (beliefs)
-            belief_results = self.backend.execute(
-                "MATCH (c:Claim) WHERE c.claim_text CONTAINS $q "
-                "OR c.name CONTAINS $q "
-                "RETURN c ORDER BY c.confidence DESC LIMIT $limit",
-                {"q": query, "limit": top_k},
+            beliefs, supporting, contradicting = self._backend_epistemic_view(
+                query, top_k, include_contradictions
             )
-            for row in belief_results:
-                claim = row.get("c", row)
-                beliefs.append(claim)
-                claim_id = claim.get("id", "")
-
-                # 2. Find supporting evidence (BUILDS_ON, EXEMPLIFIES, CITES)
-                support_results = self.backend.execute(
-                    "MATCH (s)-[r]->(c {id: $cid}) "
-                    "WHERE type(r) IN ['BUILDS_ON', 'EXEMPLIFIES', 'CITES', "
-                    "'builds_on', 'exemplifies', 'cites'] "
-                    "RETURN s, type(r) as rel_type",
-                    {"cid": claim_id},
-                )
-                for s_row in support_results:
-                    support_node = s_row.get("s", s_row)
-                    support_node["_relationship"] = s_row.get("rel_type", "supports")
-                    support_node["_target_claim"] = claim_id
-                    supporting.append(support_node)
-
-                # 3. Find contradicting evidence (CONTRADICTS)
-                if include_contradictions:
-                    contradict_results = self.backend.execute(
-                        "MATCH (s)-[r]->(c {id: $cid}) "
-                        "WHERE type(r) IN ['CONTRADICTS', 'contradicts', "
-                        "'CONTRADICTS_BELIEF', 'contradicts_belief'] "
-                        "RETURN s, type(r) as rel_type",
-                        {"cid": claim_id},
-                    )
-                    for c_row in contradict_results:
-                        contra_node = c_row.get("s", c_row)
-                        contra_node["_relationship"] = c_row.get(
-                            "rel_type", "contradicts"
-                        )
-                        contra_node["_target_claim"] = claim_id
-                        contradicting.append(contra_node)
         else:
-            # GCE fallback — every node's type must be inspected to match, so
-            # hydrate the WHOLE graph in ONE round-trip
-            # (CONCEPT:AU-KG.retrieval.batch-hydrate) rather than one
-            # `_get_node_properties` point-read per node scanned.
-            query_lower = query.lower()
-            for node_id, data in self.graph._get_all_nodes_with_properties():
-                node_type = str(data.get("type", "")).lower()
-                if node_type in ("claim", "evidence"):
-                    claim_text = str(
-                        data.get("claim_text", data.get("claim", ""))
-                    ).lower()
-                    name = str(data.get("name", "")).lower()
-                    if query_lower in claim_text or query_lower in name:
-                        belief = dict(data)
-                        belief["id"] = node_id
-                        beliefs.append(belief)
-
-                        if len(beliefs) >= top_k:
-                            break
-
-            # Find supporting/contradicting edges for found beliefs — collect
-            # every (belief, predecessor) pair FIRST, then hydrate every
-            # predecessor in ONE batched round-trip
-            # (CONCEPT:AU-KG.retrieval.batch-hydrate) instead of one point-read
-            # per predecessor per belief.
-            pending_preds: list[tuple[str, str]] = []
-            for belief in beliefs:
-                belief_id = belief.get("id", "")
-                for u in self.graph.get_predecessors(belief_id):
-                    pending_preds.append((belief_id, u))
-            hydrated_preds = self.graph._get_node_properties_batch(
-                [u for _belief_id, u in pending_preds]
+            beliefs, supporting, contradicting = self._gce_epistemic_view(
+                query, top_k, include_contradictions
             )
-            for belief_id, u in pending_preds:
-                edge_type = "related"  # Default when edge props unavailable
-                source_data = dict(hydrated_preds.get(u, {}))
-                source_data["id"] = u
-                source_data["_target_claim"] = belief_id
-
-                if edge_type in ("builds_on", "exemplifies", "cites"):
-                    source_data["_relationship"] = edge_type
-                    supporting.append(source_data)
-                elif edge_type in (
-                    "contradicts",
-                    "contradicts_belief",
-                    "contradicts_kb",
-                ):
-                    if include_contradictions:
-                        source_data["_relationship"] = edge_type
-                        contradicting.append(source_data)
 
         logger.debug(
             "Epistemic view for %r: %d beliefs, %d supporting, %d contradicting",
@@ -2135,6 +2039,129 @@ class QueryMixin(_Base):
             "supporting": supporting,
             "contradicting": contradicting,
         }
+
+    def _backend_epistemic_beliefs(
+        self, query: str, top_k: int
+    ) -> list[dict[str, Any]]:
+        """1. Find claims matching the query (beliefs)."""
+        belief_results = self.backend.execute(
+            "MATCH (c:Claim) WHERE c.claim_text CONTAINS $q "
+            "OR c.name CONTAINS $q "
+            "RETURN c ORDER BY c.confidence DESC LIMIT $limit",
+            {"q": query, "limit": top_k},
+        )
+        return [row.get("c", row) for row in belief_results]
+
+    def _backend_supporting_evidence(self, claim_id: str) -> list[dict[str, Any]]:
+        """2. Find supporting evidence (BUILDS_ON, EXEMPLIFIES, CITES)."""
+        support_results = self.backend.execute(
+            "MATCH (s)-[r]->(c {id: $cid}) "
+            "WHERE type(r) IN ['BUILDS_ON', 'EXEMPLIFIES', 'CITES', "
+            "'builds_on', 'exemplifies', 'cites'] "
+            "RETURN s, type(r) as rel_type",
+            {"cid": claim_id},
+        )
+        supporting: list[dict[str, Any]] = []
+        for s_row in support_results:
+            support_node = s_row.get("s", s_row)
+            support_node["_relationship"] = s_row.get("rel_type", "supports")
+            support_node["_target_claim"] = claim_id
+            supporting.append(support_node)
+        return supporting
+
+    def _backend_contradicting_evidence(self, claim_id: str) -> list[dict[str, Any]]:
+        """3. Find contradicting evidence (CONTRADICTS)."""
+        contradict_results = self.backend.execute(
+            "MATCH (s)-[r]->(c {id: $cid}) "
+            "WHERE type(r) IN ['CONTRADICTS', 'contradicts', "
+            "'CONTRADICTS_BELIEF', 'contradicts_belief'] "
+            "RETURN s, type(r) as rel_type",
+            {"cid": claim_id},
+        )
+        contradicting: list[dict[str, Any]] = []
+        for c_row in contradict_results:
+            contra_node = c_row.get("s", c_row)
+            contra_node["_relationship"] = c_row.get("rel_type", "contradicts")
+            contra_node["_target_claim"] = claim_id
+            contradicting.append(contra_node)
+        return contradicting
+
+    def _backend_epistemic_view(
+        self, query: str, top_k: int, include_contradictions: bool
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+        beliefs = self._backend_epistemic_beliefs(query, top_k)
+        supporting: list[dict[str, Any]] = []
+        contradicting: list[dict[str, Any]] = []
+        for claim in beliefs:
+            claim_id = claim.get("id", "")
+            supporting.extend(self._backend_supporting_evidence(claim_id))
+            if include_contradictions:
+                contradicting.extend(self._backend_contradicting_evidence(claim_id))
+        return beliefs, supporting, contradicting
+
+    def _gce_epistemic_beliefs(self, query: str, top_k: int) -> list[dict[str, Any]]:
+        # GCE fallback — every node's type must be inspected to match, so
+        # hydrate the WHOLE graph in ONE round-trip
+        # (CONCEPT:AU-KG.retrieval.batch-hydrate) rather than one
+        # `_get_node_properties` point-read per node scanned.
+        query_lower = query.lower()
+        beliefs: list[dict[str, Any]] = []
+        for node_id, data in self.graph._get_all_nodes_with_properties():
+            node_type = str(data.get("type", "")).lower()
+            if node_type not in ("claim", "evidence"):
+                continue
+            claim_text = str(data.get("claim_text", data.get("claim", ""))).lower()
+            name = str(data.get("name", "")).lower()
+            if query_lower not in claim_text and query_lower not in name:
+                continue
+            belief = dict(data)
+            belief["id"] = node_id
+            beliefs.append(belief)
+            if len(beliefs) >= top_k:
+                break
+        return beliefs
+
+    def _gce_epistemic_evidence(
+        self, beliefs: list[dict[str, Any]], include_contradictions: bool
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        # Find supporting/contradicting edges for found beliefs — collect
+        # every (belief, predecessor) pair FIRST, then hydrate every
+        # predecessor in ONE batched round-trip
+        # (CONCEPT:AU-KG.retrieval.batch-hydrate) instead of one point-read
+        # per predecessor per belief.
+        pending_preds: list[tuple[str, str]] = []
+        for belief in beliefs:
+            belief_id = belief.get("id", "")
+            for u in self.graph.get_predecessors(belief_id):
+                pending_preds.append((belief_id, u))
+        hydrated_preds = self.graph._get_node_properties_batch(
+            [u for _belief_id, u in pending_preds]
+        )
+        supporting: list[dict[str, Any]] = []
+        contradicting: list[dict[str, Any]] = []
+        for belief_id, u in pending_preds:
+            edge_type = "related"  # Default when edge props unavailable
+            source_data = dict(hydrated_preds.get(u, {}))
+            source_data["id"] = u
+            source_data["_target_claim"] = belief_id
+
+            if edge_type in ("builds_on", "exemplifies", "cites"):
+                source_data["_relationship"] = edge_type
+                supporting.append(source_data)
+            elif edge_type in ("contradicts", "contradicts_belief", "contradicts_kb"):
+                if include_contradictions:
+                    source_data["_relationship"] = edge_type
+                    contradicting.append(source_data)
+        return supporting, contradicting
+
+    def _gce_epistemic_view(
+        self, query: str, top_k: int, include_contradictions: bool
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+        beliefs = self._gce_epistemic_beliefs(query, top_k)
+        supporting, contradicting = self._gce_epistemic_evidence(
+            beliefs, include_contradictions
+        )
+        return beliefs, supporting, contradicting
 
     def find_relevant_policies(self, query: str) -> list[dict[str, Any]]:
         """Search for policies that apply to the current query context."""
@@ -2401,33 +2428,9 @@ class QueryMixin(_Base):
             Dict with enriched results, signal summary, and top recommendations.
         """
         # 0. Build set of assimilated target_paths to exclude
-        assimilated_paths: set[str] = set()
-        if exclude_assimilated and self.backend:
-            try:
-                if target_codebase:
-                    rows = self.query_cypher(
-                        "MATCH (a:Article)-[r:ASSIMILATED_INTO]->(c) "
-                        "WHERE r.status = 'implemented' AND r.codebase = $cb "
-                        "RETURN DISTINCT a.target_path AS path",
-                        {"cb": target_codebase},
-                    )
-                else:
-                    rows = self.query_cypher(
-                        "MATCH (a:Article)-[r:ASSIMILATED_INTO]->(c) "
-                        "WHERE r.status = 'implemented' "
-                        "RETURN DISTINCT a.target_path AS path",
-                    )
-                for row in rows:
-                    p = row.get("path", "")
-                    if p:
-                        assimilated_paths.add(p)
-                if assimilated_paths:
-                    logger.info(
-                        "Excluding %d assimilated paper paths from discovery",
-                        len(assimilated_paths),
-                    )
-            except Exception as exc:
-                logger.warning("Failed to load assimilated paths: %s", exc)
+        assimilated_paths = self._assimilated_target_paths(
+            exclude_assimilated, target_codebase
+        )
 
         # 1. Run hybrid vector search with low threshold to cast wide net
         raw_results = self.search_hybrid(
@@ -2440,59 +2443,11 @@ class QueryMixin(_Base):
         # 2. Enrich each result with innovation signals
         enriched = []
         domain_accumulator: dict[str, list[dict[str, Any]]] = {}
-
         for r in raw_results:
-            # CONCEPT:AU-KG.query.skip-assimilated-papers — Skip assimilated papers
-            if assimilated_paths:
-                r_path = r.get("target_path", "")
-                if r_path and r_path in assimilated_paths:
-                    continue
-
-            # Build content from available fields
-            content_parts = []
-            for field in (
-                "content",
-                "description",
-                "name",
-                "summary",
-                "text",
-                "claim_text",
-            ):
-                val = r.get(field)
-                if val and isinstance(val, str):
-                    content_parts.append(val)
-            content = " ".join(content_parts)
-
-            if not content or len(content) < 20:
-                continue
-
-            signals = self._extract_signals(content)
-
-            entry = {
-                "id": r.get("id", ""),
-                "name": r.get("name", r.get("title", "")),
-                "type": r.get("type", ""),
-                "target_path": r.get("target_path", ""),
-                "score": round(r.get("_score", 0.0), 4),
-                "concept_id": r.get("concept_id", ""),
-                **signals,
-            }
-
-            # Accumulate by domain for recommendations
-            for sig in signals["tech_signals"] + signals["biomimicry_signals"]:
-                domain = sig["domain"]
-                if domain not in domain_accumulator:
-                    domain_accumulator[domain] = []
-                domain_accumulator[domain].append(
-                    {
-                        "source": entry["name"] or entry["id"],
-                        "keyword": sig["keyword"],
-                        "analogy": sig["analogy"],
-                        "score": entry["score"],
-                    }
-                )
-
-            if signals["total_signal_count"] > 0:
+            entry = self._enrich_innovation_result(
+                r, assimilated_paths, domain_accumulator
+            )
+            if entry is not None:
                 enriched.append(entry)
 
         # Sort by (score * signal_count) for emergent value ranking
@@ -2503,26 +2458,7 @@ class QueryMixin(_Base):
         enriched = enriched[:top_k]
 
         # 3. Build domain-level recommendations
-        recommendations = []
-        for domain, sources in sorted(
-            domain_accumulator.items(),
-            key=lambda x: -len(x[1]),
-        ):
-            best = max(sources, key=lambda s: s["score"])
-            recommendations.append(
-                {
-                    "domain": domain,
-                    "analogy": best["analogy"],
-                    "source_count": len(sources),
-                    "top_source": best["source"],
-                    "top_score": best["score"],
-                    "priority": "high"
-                    if len(sources) >= 3
-                    else "medium"
-                    if len(sources) >= 2
-                    else "low",
-                }
-            )
+        recommendations = self._domain_recommendations(domain_accumulator)
 
         return {
             "query": query,
@@ -2537,3 +2473,143 @@ class QueryMixin(_Base):
                 ),
             },
         }
+
+    def _assimilated_target_paths(
+        self, exclude_assimilated: bool, target_codebase: str
+    ) -> set[str]:
+        """CONCEPT:AU-KG.query.skip-assimilated-papers — build the set of
+        already-implemented Article ``target_path``s to exclude."""
+        assimilated_paths: set[str] = set()
+        if not (exclude_assimilated and self.backend):
+            return assimilated_paths
+        try:
+            if target_codebase:
+                rows = self.query_cypher(
+                    "MATCH (a:Article)-[r:ASSIMILATED_INTO]->(c) "
+                    "WHERE r.status = 'implemented' AND r.codebase = $cb "
+                    "RETURN DISTINCT a.target_path AS path",
+                    {"cb": target_codebase},
+                )
+            else:
+                rows = self.query_cypher(
+                    "MATCH (a:Article)-[r:ASSIMILATED_INTO]->(c) "
+                    "WHERE r.status = 'implemented' "
+                    "RETURN DISTINCT a.target_path AS path",
+                )
+            for row in rows:
+                p = row.get("path", "")
+                if p:
+                    assimilated_paths.add(p)
+            if assimilated_paths:
+                logger.info(
+                    "Excluding %d assimilated paper paths from discovery",
+                    len(assimilated_paths),
+                )
+        except Exception as exc:
+            logger.warning("Failed to load assimilated paths: %s", exc)
+        return assimilated_paths
+
+    @staticmethod
+    def _signal_content(r: dict[str, Any]) -> str:
+        """Build innovation-signal-extraction content from a result's
+        available text fields."""
+        content_parts = []
+        for field in (
+            "content",
+            "description",
+            "name",
+            "summary",
+            "text",
+            "claim_text",
+        ):
+            val = r.get(field)
+            if val and isinstance(val, str):
+                content_parts.append(val)
+        return " ".join(content_parts)
+
+    @staticmethod
+    def _innovation_entry(r: dict[str, Any], signals: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": r.get("id", ""),
+            "name": r.get("name", r.get("title", "")),
+            "type": r.get("type", ""),
+            "target_path": r.get("target_path", ""),
+            "score": round(r.get("_score", 0.0), 4),
+            "concept_id": r.get("concept_id", ""),
+            **signals,
+        }
+
+    @staticmethod
+    def _accumulate_domain_signals(
+        domain_accumulator: dict[str, list[dict[str, Any]]],
+        signals: dict[str, Any],
+        entry: dict[str, Any],
+    ) -> None:
+        """Accumulate by domain for the domain-level recommendations."""
+        for sig in signals["tech_signals"] + signals["biomimicry_signals"]:
+            domain = sig["domain"]
+            domain_accumulator.setdefault(domain, []).append(
+                {
+                    "source": entry["name"] or entry["id"],
+                    "keyword": sig["keyword"],
+                    "analogy": sig["analogy"],
+                    "score": entry["score"],
+                }
+            )
+
+    def _enrich_innovation_result(
+        self,
+        r: dict[str, Any],
+        assimilated_paths: set[str],
+        domain_accumulator: dict[str, list[dict[str, Any]]],
+    ) -> dict[str, Any] | None:
+        """Enrich one raw search result with innovation signals.
+
+        Returns the entry (also updating ``domain_accumulator``) or ``None``
+        if the result is an excluded assimilated paper, has no usable
+        content, or carries no innovation signals.
+        """
+        # CONCEPT:AU-KG.query.skip-assimilated-papers — Skip assimilated papers
+        if assimilated_paths:
+            r_path = r.get("target_path", "")
+            if r_path and r_path in assimilated_paths:
+                return None
+        content = self._signal_content(r)
+        if not content or len(content) < 20:
+            return None
+        signals = self._extract_signals(content)
+        entry = self._innovation_entry(r, signals)
+        self._accumulate_domain_signals(domain_accumulator, signals, entry)
+        if signals["total_signal_count"] > 0:
+            return entry
+        return None
+
+    @staticmethod
+    def _domain_priority(source_count: int) -> str:
+        if source_count >= 3:
+            return "high"
+        if source_count >= 2:
+            return "medium"
+        return "low"
+
+    @classmethod
+    def _domain_recommendations(
+        cls, domain_accumulator: dict[str, list[dict[str, Any]]]
+    ) -> list[dict[str, Any]]:
+        recommendations = []
+        for domain, sources in sorted(
+            domain_accumulator.items(),
+            key=lambda x: -len(x[1]),
+        ):
+            best = max(sources, key=lambda s: s["score"])
+            recommendations.append(
+                {
+                    "domain": domain,
+                    "analogy": best["analogy"],
+                    "source_count": len(sources),
+                    "top_source": best["source"],
+                    "top_score": best["score"],
+                    "priority": cls._domain_priority(len(sources)),
+                }
+            )
+        return recommendations
