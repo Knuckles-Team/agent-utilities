@@ -228,8 +228,12 @@ class UsageFact(ProtocolModel):
             value, field_name=str(getattr(info, "field_name", "quantity"))
         )
 
-    @model_validator(mode="after")
-    def validate_identity_and_coherence(self) -> UsageFact:
+    def _check_coherence(self) -> None:
+        """Cross-field invariants extracted from ``validate_identity_and_coherence``.
+
+        Split out so the identity-assignment half of that validator stays a
+        flat, low-complexity sequence; this half carries the branching.
+        """
         if self.allocation.tenant_id != self.tenant_id:
             raise TenantScopeError("allocation tenant_id must match usage tenant_id")
         keys = [dimension.key for dimension in self.dimensions]
@@ -248,6 +252,9 @@ class UsageFact(ProtocolModel):
         elif self.input_quantity is not None or self.output_quantity is not None:
             raise ValueError("input/output quantities are valid only for token facts")
 
+    @model_validator(mode="after")
+    def validate_identity_and_coherence(self) -> UsageFact:
+        self._check_coherence()
         identity = self.identity_payload()
         expected_id = "usage:" + hashlib.sha256(_canonical(identity)).hexdigest()[:32]
         expected_digest = content_digest({"kind": "usage_fact", "identity": identity})
@@ -394,17 +401,27 @@ class UsageWindow(ProtocolModel):
             value, field_name=str(getattr(info, "field_name", "window_time"))
         )
 
+    @staticmethod
+    def _aligned_window_end(
+        start: datetime, granularity: WindowGranularity, window_end: datetime | None
+    ) -> datetime:
+        """Validate hour/day alignment and return the expected window end."""
+        if start.minute or start.second or start.microsecond:
+            raise ValueError("window_start must be aligned to an hour")
+        if granularity == "day" and start.hour:
+            raise ValueError("daily window_start must be aligned to UTC midnight")
+        duration = timedelta(hours=1 if granularity == "hour" else 24)
+        expected_end = start + duration
+        if window_end is not None and window_end != expected_end:
+            raise ValueError("window_end does not match granularity")
+        return expected_end
+
     @model_validator(mode="after")
     def validate_alignment(self) -> UsageWindow:
         start = self.window_start.astimezone(UTC)
-        if start.minute or start.second or start.microsecond:
-            raise ValueError("window_start must be aligned to an hour")
-        if self.granularity == "day" and start.hour:
-            raise ValueError("daily window_start must be aligned to UTC midnight")
-        duration = timedelta(hours=1 if self.granularity == "hour" else 24)
-        expected_end = start + duration
-        if self.window_end is not None and self.window_end != expected_end:
-            raise ValueError("window_end does not match granularity")
+        expected_end = self._aligned_window_end(
+            start, self.granularity, self.window_end
+        )
         expected_id = f"window:{self.granularity}:{start.isoformat()}"
         if self.window_id and self.window_id != expected_id:
             raise EconomicsConflict("window_id does not match aligned window")
@@ -700,8 +717,8 @@ class SloObjective(ProtocolModel):
     def validate_refs(cls, value: str, info: object) -> str:
         return _ensure_ref(value, field_name=str(getattr(info, "field_name", "ref")))
 
-    @model_validator(mode="after")
-    def validate_target(self) -> SloObjective:
+    def _check_target_shape(self) -> None:
+        """SLI-dependent shape/comparison invariants for ``validate_target``."""
         if self.sli == "latency_ms" and self.latency_threshold_ms is None:
             raise ValueError("latency SLO requires latency_threshold_ms")
         if self.sli != "latency_ms" and self.latency_threshold_ms is not None:
@@ -715,6 +732,10 @@ class SloObjective(ProtocolModel):
             raise ValueError(
                 f"{self.sli} SLOs must use {expected_comparison} comparison"
             )
+
+    @model_validator(mode="after")
+    def validate_target(self) -> SloObjective:
+        self._check_target_shape()
         identity = {
             "schema_version": self.schema_version,
             "tenant_id": self.tenant_id,
@@ -774,8 +795,8 @@ class SloWindowRollup(ProtocolModel):
             raise ValueError("source fact digests must be unique")
         return tuple(sorted(values))
 
-    @model_validator(mode="after")
-    def validate_rollup(self) -> SloWindowRollup:
+    def _check_rollup_status(self) -> None:
+        """Event-count/status consistency invariants for ``validate_rollup``."""
         if self.good_events > self.total_events or self.bad_events > self.total_events:
             raise ValueError("SLO good/bad events cannot exceed total events")
         if self.total_events == 0:
@@ -785,6 +806,10 @@ class SloWindowRollup(ProtocolModel):
                 )
         elif self.status == "insufficient_data" or self.measured_micros is None:
             raise ValueError("populated SLO rollup requires a bounded measurement")
+
+    @model_validator(mode="after")
+    def validate_rollup(self) -> SloWindowRollup:
+        self._check_rollup_status()
         identity = {
             "schema_version": self.schema_version,
             "tenant_id": self.tenant_id,
@@ -1016,23 +1041,37 @@ class ReconciliationReport(ProtocolModel):
             )
         )
 
-    @model_validator(mode="after")
-    def validate_report(self) -> ReconciliationReport:
-        if self.status == "complete" and (
+    def _check_complete_shape(self) -> None:
+        if (
             self.missing
             or self.unexpected
             or self.duplicate_samples
             or self.duplicate_fact_ids
         ):
             raise ValueError("complete reconciliation cannot contain gaps or drift")
-        if self.status == "gap" and not self.missing:
+
+    def _check_gap_shape(self) -> None:
+        if not self.missing:
             raise ValueError("gap reconciliation must expose missing samples")
-        if self.status == "drift" and not (
-            self.unexpected or self.duplicate_samples or self.duplicate_fact_ids
-        ):
+
+    def _check_drift_shape(self) -> None:
+        if not (self.unexpected or self.duplicate_samples or self.duplicate_fact_ids):
             raise ValueError(
                 "drift reconciliation must expose unexpected or duplicate samples"
             )
+
+    def _check_status_shape(self) -> None:
+        """Status/content consistency invariants for ``validate_report``."""
+        if self.status == "complete":
+            self._check_complete_shape()
+        elif self.status == "gap":
+            self._check_gap_shape()
+        elif self.status == "drift":
+            self._check_drift_shape()
+
+    @model_validator(mode="after")
+    def validate_report(self) -> ReconciliationReport:
+        self._check_status_shape()
         identity = {
             "schema_version": self.schema_version,
             "expected_count": self.expected_count,

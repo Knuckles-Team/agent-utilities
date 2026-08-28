@@ -17,6 +17,7 @@ DSTDD Lifecycle:
 import contextlib
 import re
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -96,6 +97,400 @@ def _structural_prd_to_tasks(prd_text: str, feature_id: str) -> Tasks:
         )
         prev_id = tid
     return Tasks(feature_id=feature_id, tasks=tasks)
+
+
+@dataclass
+class _DraftFields:
+    """Best-effort fields read off an autonomous SpecDraft, for
+    ``SDDManager.author_from_draft``."""
+
+    title: str
+    fid: str
+    target_file: str
+    problem: str
+    approach: str
+    value: str
+    target_codebase: str
+    concept_ids: list[str]
+    value_score: float
+
+
+def _draft_title_and_fid(draft: Any, feature_id: str | None) -> tuple[str, str]:
+    """Title + feature-id resolution for ``_extract_draft_fields``.
+
+    Extracted verbatim from ``author_from_draft`` (pure extract-method, no
+    behaviour change).
+    """
+    title = str(getattr(draft, "title", "") or "spec").strip() or "spec"
+    fid = feature_id or (re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "spec")
+    return title, fid
+
+
+def _extract_draft_fields(draft: Any, feature_id: str | None) -> _DraftFields:
+    """Best-effort field extraction from an autonomous SpecDraft, for
+    ``SDDManager.author_from_draft``.
+
+    Extracted verbatim from ``author_from_draft`` (pure extract-method, no
+    behaviour change).
+    """
+    title, fid = _draft_title_and_fid(draft, feature_id)
+    return _DraftFields(
+        title=title,
+        fid=fid,
+        target_file=str(getattr(draft, "target_file", "") or ""),
+        problem=str(getattr(draft, "problem", "") or ""),
+        approach=str(getattr(draft, "approach", "") or ""),
+        value=str(getattr(draft, "value", "") or ""),
+        target_codebase=str(getattr(draft, "target_codebase", "") or ""),
+        concept_ids=list(getattr(draft, "concept_ids", []) or []),
+        value_score=float(getattr(draft, "value_score", 0.0) or 0.0),
+    )
+
+
+def _default_dstdd_tasks(fid: str, files: list[str]) -> Tasks:
+    """Boilerplate 4-task DSTDD scaffold for ``SDDManager.author_from_draft``.
+
+    Extracted verbatim from ``author_from_draft`` (pure extract-method, no
+    behaviour change).
+    """
+    return Tasks(
+        feature_id=fid,
+        tasks=[
+            Task(
+                id="T1",
+                title="Write the failing test that captures the acceptance criteria",
+                file_paths=files,
+            ),
+            Task(
+                id="T2",
+                title="Implement the minimal change that makes it pass",
+                depends_on=["T1"],
+                file_paths=files,
+            ),
+            Task(
+                id="T3",
+                title="Wire the change into its extension point + docs",
+                depends_on=["T2"],
+            ),
+            Task(
+                id="T4",
+                title="Run the full suite + pre-commit; fix all findings",
+                depends_on=["T3"],
+            ),
+        ],
+    )
+
+
+def _wave_can_schedule(
+    task: Any, pending_ids: set[str], scheduled: set[str], occupied_files: set[str]
+) -> bool:
+    """Whether ``task`` can join the CURRENT wave of ``_build_next_wave``:
+    every dependency is met AND it doesn't collide on ``file_paths`` with a
+    task already scheduled into this same wave.
+
+    Extracted verbatim from ``_build_next_wave`` (pure extract-method, no
+    behaviour change).
+    """
+    deps_met = all(
+        dep not in pending_ids or dep in scheduled for dep in task.depends_on
+    )
+    if not deps_met:
+        # Dependency still unscheduled -> hold for a later wave.
+        return False
+    # File collision -> cannot share this wave with an earlier task.
+    return not any(f in occupied_files for f in task.file_paths)
+
+
+def _build_next_wave(
+    remaining: list[Any], pending_ids: set[str], scheduled: set[str]
+) -> tuple[list[str], list[Any]]:
+    """Schedule one wave of ``SDDManager.get_parallel_opportunities``: tasks
+    whose dependencies are met and which don't collide on ``file_paths`` with
+    an earlier task in THIS wave. Falls back to forcing the first remaining
+    task into its own wave if nothing became schedulable (dependency cycle /
+    mutual file contention with nothing else movable), so the scheduler
+    always terminates.
+
+    Extracted verbatim from ``get_parallel_opportunities`` (pure
+    extract-method, no behaviour change). Returns
+    ``(current_batch_task_ids, deferred_tasks)``.
+    """
+    current_batch: list[str] = []
+    occupied_files: set[str] = set()
+    deferred: list[Any] = []
+
+    for task in remaining:
+        if not _wave_can_schedule(task, pending_ids, scheduled, occupied_files):
+            deferred.append(task)
+            continue
+        current_batch.append(task.id)
+        occupied_files.update(task.file_paths)
+
+    if not current_batch:
+        stuck = remaining[0]
+        current_batch.append(stuck.id)
+        deferred = [t for t in remaining if t.id != stuck.id]
+
+    return current_batch, deferred
+
+
+_SCOPE_PRESERVED_STATUSES = {
+    "in_progress",
+    "completed",
+    "done",
+    "review",
+    "cancelled",
+    "deferred",
+    "blocked",
+}
+_SCOPE_STEP_BY_STRENGTH = {"light": 1, "regular": 2, "heavy": 4}
+
+
+def _apply_scope_adjustment(target: Task, direction: str, step: int) -> None:
+    """Structural scope_down/scope_up adjustment for
+    ``SDDManager.scope_task``. Mutates ``target`` in place.
+
+    Extracted verbatim from ``scope_task`` (pure extract-method, no
+    behaviour change).
+    """
+    if direction == "down":
+        target.subtasks = [
+            s for s in target.subtasks if str(s.status) in _SCOPE_PRESERVED_STATUSES
+        ]
+        target.recommended_subtasks = max(0, target.recommended_subtasks - step)
+        target.complexity_score = max(0.0, target.complexity_score - step)
+    else:
+        target.recommended_subtasks += step
+        target.complexity_score = min(10.0, target.complexity_score + step)
+
+
+def _apply_task_transformer(
+    tasks: Tasks,
+    task_id: str,
+    target: Task,
+    direction: str,
+    strength: str,
+    transformer: Any,
+) -> Task:
+    """Optional LLM-backed task-body rewrite for ``SDDManager.scope_task``,
+    replacing ``target`` in ``tasks.tasks`` in place if the transformer
+    returns something.
+
+    Extracted verbatim from ``scope_task`` (pure extract-method, no
+    behaviour change). Returns the (possibly replaced) target.
+    """
+    replacement = transformer(target, direction, strength)
+    if replacement is None:
+        return target
+    tasks.tasks = [replacement if t.id == task_id else t for t in tasks.tasks]
+    return replacement
+
+
+def _parse_constitution_line(
+    line: str,
+    current_section: str | None,
+    principles: list[str],
+    tech_stack: dict[str, str],
+    metadata: dict[str, str],
+) -> str | None:
+    """Process one line of a ``constitution.md`` body for
+    ``SDDManager._parse_constitution_md``'s section-scanning loop. Mutates
+    ``principles``/``tech_stack``/``metadata`` in place; returns the
+    (possibly updated) ``current_section``.
+
+    Extracted verbatim from ``_parse_constitution_md`` (pure extract-method,
+    no behaviour change).
+    """
+    if "## Core Principles" in line:
+        return "principles"
+    if "## Tech Stack" in line:
+        return "tech"
+    if "## Metadata" in line:
+        return "metadata"
+    if line.startswith("- ") and current_section == "principles":
+        principles.append(line[2:].strip())
+        return current_section
+    if line.startswith("- **") and current_section in ("tech", "metadata"):
+        match = re.match(r"- \*\*(.*?)\*\*:\s*(.*)", line)
+        if match:
+            val = match.group(2).strip()
+            if current_section == "tech":
+                tech_stack[match.group(1).strip()] = val
+            else:
+                metadata[match.group(1).strip()] = val
+    return current_section
+
+
+def _new_task_dict(match: re.Match[str]) -> dict[str, Any]:
+    """Build the dict for a new task from a ``"### [ ] T1: Title [P]"``
+    match, for ``SDDManager.import_from_markdown``.
+
+    Extracted verbatim from ``import_from_markdown`` (pure extract-method,
+    no behaviour change).
+    """
+    status_char = match.group("status").lower()
+    status = TaskStatus.COMPLETED if status_char == "x" else TaskStatus.PENDING
+    return {
+        "id": match.group("id"),
+        "title": match.group("title").strip(),
+        "description": "",
+        "status": status,
+        "parallel": bool(match.group("parallel")),
+        "depends_on": [],
+        "file_paths": [],
+    }
+
+
+def _apply_task_continuation_line(line: str, current_task: dict[str, Any]) -> None:
+    """Fold one non-header line into the CURRENT task dict for
+    ``SDDManager.import_from_markdown``: ``**Depends on**:``/``**Files**:``
+    metadata lines, else description text. Mutates ``current_task`` in place.
+
+    Extracted verbatim from ``import_from_markdown`` (pure extract-method,
+    no behaviour change).
+    """
+    if line.startswith("**Depends on**:"):
+        deps = line.replace("**Depends on**:", "").strip()
+        current_task["depends_on"] = [d.strip() for d in deps.split(",") if d.strip()]
+    elif line.startswith("**Files**:"):
+        files = line.replace("**Files**:", "").strip()
+        current_task["file_paths"] = [f.strip() for f in files.split(",") if f.strip()]
+    elif line.strip() and not line.startswith("#") and not line.startswith("##"):
+        current_task["description"] += line.strip() + "\n"
+
+
+def _check_kg_analyzed(kg: KGAnalysis) -> str | None:
+    """Rule 1 of ``SDDManager.validate_design``: KG analysis must contain at
+    least one nearest concept.
+
+    Extracted verbatim from ``validate_design`` (pure extract-method, no
+    behaviour change).
+    """
+    if not kg.nearest_concepts:
+        return (
+            "KG analysis is empty. Run kg_search against the Knowledge Graph "
+            "to find nearest existing concepts before creating a design."
+        )
+    return None
+
+
+def _check_high_similarity_extension(kg: KGAnalysis) -> str | None:
+    """Rule 2 of ``SDDManager.validate_design``: a high-similarity match
+    requires extension, not a new concept.
+
+    Extracted verbatim from ``validate_design`` (pure extract-method, no
+    behaviour change).
+    """
+    high_sim = [c for c in kg.nearest_concepts if c.similarity >= 0.7]
+    if high_sim and kg.extension_strategy == ExtensionStrategy.NEW:
+        names = ", ".join(f"{c.concept_id} ({c.similarity:.0%})" for c in high_sim)
+        return (
+            f"High-similarity concepts found ({names}) but extension_strategy is 'new'. "
+            f"You MUST extend an existing concept when similarity >= 70%."
+        )
+    return None
+
+
+def _check_new_concept_proposal(kg: KGAnalysis) -> str | None:
+    """Rule 3 of ``SDDManager.validate_design``: a new concept requires a
+    proposal.
+
+    Extracted verbatim from ``validate_design`` (pure extract-method, no
+    behaviour change).
+    """
+    if kg.extension_strategy == ExtensionStrategy.NEW and not kg.new_concept_proposal:
+        return (
+            "Extension strategy is 'new' but no NewConceptProposal provided. "
+            "A justification is required for introducing new concepts."
+        )
+    return None
+
+
+def _check_proposal_pillar(kg: KGAnalysis) -> str | None:
+    """Rule 4 of ``SDDManager.validate_design``: a proposal must have a valid
+    pillar assignment.
+
+    Extracted verbatim from ``validate_design`` (pure extract-method, no
+    behaviour change).
+    """
+    if kg.new_concept_proposal:
+        valid_pillars = {"ORCH", "KG", "AHE", "ECO", "OS"}
+        if kg.new_concept_proposal.target_pillar not in valid_pillars:
+            return (
+                f"New concept pillar '{kg.new_concept_proposal.target_pillar}' "
+                f"is not valid. Must be one of: {valid_pillars}"
+            )
+    return None
+
+
+def _render_design_kg_analysis(md: list[str], design: DesignDocument) -> None:
+    """KG Analysis section of ``SDDManager._render_design_md``. Appends to
+    ``md`` in place.
+
+    Extracted verbatim from ``_render_design_md`` (pure extract-method, no
+    behaviour change).
+    """
+    md.append("## KG Analysis\n")
+    if design.kg_analysis.nearest_concepts:
+        md.append("### Nearest Existing Concepts\n")
+        md.append("| Concept ID | Name | Similarity | Pillar |")
+        md.append("|---|---|---|---|")
+        for nc in design.kg_analysis.nearest_concepts:
+            md.append(
+                f"| {nc.concept_id} | {nc.name} | {nc.similarity:.0%} | {nc.pillar} |"
+            )
+        md.append("")
+
+    md.append("### Extension Analysis\n")
+    md.append(
+        f"- **Extension Strategy**: {design.kg_analysis.extension_strategy.value}"
+    )
+    if design.kg_analysis.extension_point:
+        md.append(f"- **Extension Point**: {design.kg_analysis.extension_point}")
+
+    if design.kg_analysis.new_concept_proposal:
+        ncp = design.kg_analysis.new_concept_proposal
+        md.append("\n### New Concept Proposal\n")
+        md.append(f"- **Proposed ID**: {ncp.proposed_id}")
+        md.append(f"- **Target Pillar**: {ncp.target_pillar}")
+        if ncp.pipeline_phase:
+            md.append(f"- **Pipeline Phase**: {ncp.pipeline_phase}")
+        md.append(f"- **Justification**: {ncp.justification}")
+
+
+def _render_design_diagrams(md: list[str], design: DesignDocument) -> None:
+    """C4 diagram + data-flow sections of ``SDDManager._render_design_md``.
+    Appends to ``md`` in place.
+
+    Extracted verbatim from ``_render_design_md`` (pure extract-method, no
+    behaviour change).
+    """
+    if design.c4_diagram:
+        md.append("\n## C4 Context Diagram\n")
+        md.append("```mermaid")
+        md.append(design.c4_diagram)
+        md.append("```")
+
+    if design.data_flow:
+        md.append(f"\n## Data Flow\n\n{design.data_flow}")
+
+
+def _render_design_risk_assessment(md: list[str], design: DesignDocument) -> None:
+    """Risk Assessment section of ``SDDManager._render_design_md``. Appends
+    to ``md`` in place.
+
+    Extracted verbatim from ``_render_design_md`` (pure extract-method, no
+    behaviour change).
+    """
+    md.append("\n## Risk Assessment\n")
+    ra = design.risk_assessment
+    md.append(f"- **Backward Compatible**: {'Yes' if ra.backward_compatible else 'No'}")
+    if ra.blast_radius:
+        md.append(f"- **Blast Radius**: {', '.join(ra.blast_radius)}")
+    if ra.breaking_changes:
+        md.append("- **Breaking Changes**:")
+        for bc in ra.breaking_changes:
+            md.append(f"  - {bc}")
 
 
 class SDDManager:
@@ -256,25 +651,18 @@ class SDDManager:
         understand — not a raw ``open()/write()`` fourth spec shape. ``SpecDraft`` is the
         input adapter; ``Spec`` is the one spec model. Returns the ``spec.md`` path.
         """
-        title = str(getattr(draft, "title", "") or "spec").strip() or "spec"
-        fid = feature_id or (
-            re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "spec"
-        )
-        target_file = str(getattr(draft, "target_file", "") or "")
-        problem = str(getattr(draft, "problem", "") or "")
-        approach = str(getattr(draft, "approach", "") or "")
-        value = str(getattr(draft, "value", "") or "")
+        f = _extract_draft_fields(draft, feature_id)
         story = UserStory(
-            id=f"{fid}-us1",
-            title=title,
-            description=problem or approach or title,
-            acceptance_criteria=[value]
-            if value
+            id=f"{f.fid}-us1",
+            title=f.title,
+            description=f.problem or f.approach or f.title,
+            acceptance_criteria=[f.value]
+            if f.value
             else ["The approach is implemented and tested."],
         )
         spec = Spec(
-            feature_id=fid,
-            title=title,
+            feature_id=f.fid,
+            title=f.title,
             user_stories=[story],
             non_functional_requirements=[
                 "Zero regression: existing tests continue to pass.",
@@ -282,41 +670,15 @@ class SDDManager:
             ],
             metadata={
                 "origin": "kg-distilled",
-                "target_file": target_file,
-                "target_codebase": str(getattr(draft, "target_codebase", "") or ""),
-                "concept_ids": list(getattr(draft, "concept_ids", []) or []),
-                "value_score": float(getattr(draft, "value_score", 0.0) or 0.0),
+                "target_file": f.target_file,
+                "target_codebase": f.target_codebase,
+                "concept_ids": f.concept_ids,
+                "value_score": f.value_score,
             },
         )
-        spec_path = self.save(spec, fid)
-        files = [target_file] if target_file else []
-        tasks = Tasks(
-            feature_id=fid,
-            tasks=[
-                Task(
-                    id="T1",
-                    title="Write the failing test that captures the acceptance criteria",
-                    file_paths=files,
-                ),
-                Task(
-                    id="T2",
-                    title="Implement the minimal change that makes it pass",
-                    depends_on=["T1"],
-                    file_paths=files,
-                ),
-                Task(
-                    id="T3",
-                    title="Wire the change into its extension point + docs",
-                    depends_on=["T2"],
-                ),
-                Task(
-                    id="T4",
-                    title="Run the full suite + pre-commit; fix all findings",
-                    depends_on=["T3"],
-                ),
-            ],
-        )
-        self.save(tasks, fid)
+        spec_path = self.save(spec, f.fid)
+        files = [f.target_file] if f.target_file else []
+        self.save(_default_dstdd_tasks(f.fid, files), f.fid)
         return spec_path
 
     def list_plans(self) -> list[dict[str, Any]]:
@@ -442,38 +804,9 @@ class SDDManager:
         remaining = list(pending)
 
         while remaining:
-            current_batch: list[str] = []
-            occupied_files: set[str] = set()
-            deferred: list[Any] = []
-
-            for task in remaining:
-                deps_met = all(
-                    dep not in pending_ids or dep in scheduled
-                    for dep in task.depends_on
-                )
-                if not deps_met:
-                    # Dependency still unscheduled -> hold for a later wave.
-                    deferred.append(task)
-                    continue
-
-                # File collision -> cannot share this wave with an earlier task.
-                has_collision = any(f in occupied_files for f in task.file_paths)
-                if has_collision:
-                    deferred.append(task)
-                    continue
-
-                current_batch.append(task.id)
-                occupied_files.update(task.file_paths)
-
-            if not current_batch:
-                # No task became schedulable this pass: a dependency cycle (or
-                # mutual file contention with nothing else movable). Break the
-                # deadlock by forcing the first remaining task into its own wave
-                # so the scheduler always terminates.
-                stuck = remaining[0]
-                current_batch.append(stuck.id)
-                deferred = [t for t in remaining if t.id != stuck.id]
-
+            current_batch, deferred = _build_next_wave(
+                remaining, pending_ids, scheduled
+            )
             groups.append(current_batch)
             scheduled.update(current_batch)
             remaining = deferred
@@ -610,30 +943,12 @@ class SDDManager:
         if target is None:
             raise ValueError(f"task {task_id} not found in feature {feature_id}")
 
-        preserved = {
-            "in_progress",
-            "completed",
-            "done",
-            "review",
-            "cancelled",
-            "deferred",
-            "blocked",
-        }
-        step = {"light": 1, "regular": 2, "heavy": 4}.get(strength, 2)
-        if direction == "down":
-            target.subtasks = [s for s in target.subtasks if str(s.status) in preserved]
-            target.recommended_subtasks = max(0, target.recommended_subtasks - step)
-            target.complexity_score = max(0.0, target.complexity_score - step)
-        else:
-            target.recommended_subtasks += step
-            target.complexity_score = min(10.0, target.complexity_score + step)
+        step = _SCOPE_STEP_BY_STRENGTH.get(strength, 2)
+        _apply_scope_adjustment(target, direction, step)
         if transformer is not None:
-            replacement = transformer(target, direction, strength)
-            if replacement is not None:
-                tasks.tasks = [
-                    replacement if t.id == task_id else t for t in tasks.tasks
-                ]
-                target = replacement
+            target = _apply_task_transformer(
+                tasks, task_id, target, direction, strength, transformer
+            )
         self.save(tasks, feature_id)
         return target
 
@@ -733,8 +1048,9 @@ class SDDManager:
     def _parse_constitution_md(self, content: str) -> ProjectConstitution:
         vision = ""
         mission = ""
-        principles = []
-        tech_stack = {}
+        principles: list[str] = []
+        tech_stack: dict[str, str] = {}
+        metadata: dict[str, str] = {}
 
         vision_match = re.search(r"\*\*Vision\*\*:\s*(.*)", content)
         if vision_match:
@@ -744,30 +1060,12 @@ class SDDManager:
         if mission_match:
             mission = mission_match.group(1).strip()
 
-        metadata = {}
-
         # Simple bullet list parsing
-        lines = content.splitlines()
-        current_section = None
-        for line in lines:
-            if "## Core Principles" in line:
-                current_section = "principles"
-            elif "## Tech Stack" in line:
-                current_section = "tech"
-            elif "## Metadata" in line:
-                current_section = "metadata"
-            elif line.startswith("- ") and current_section == "principles":
-                principles.append(line[2:].strip())
-            elif line.startswith("- **") and (
-                current_section == "tech" or current_section == "metadata"
-            ):
-                match = re.match(r"- \*\*(.*?)\*\*:\s*(.*)", line)
-                if match:
-                    val = match.group(2).strip()
-                    if current_section == "tech":
-                        tech_stack[match.group(1).strip()] = val
-                    else:
-                        metadata[match.group(1).strip()] = val
+        current_section: str | None = None
+        for line in content.splitlines():
+            current_section = _parse_constitution_line(
+                line, current_section, principles, tech_stack, metadata
+            )
 
         return ProjectConstitution(
             vision=vision,
@@ -856,38 +1154,9 @@ class SDDManager:
             if match:
                 if current_task:
                     tasks.append(Task(**current_task))
-
-                status_char = match.group("status").lower()
-                status = (
-                    TaskStatus.COMPLETED if status_char == "x" else TaskStatus.PENDING
-                )
-
-                current_task = {
-                    "id": match.group("id"),
-                    "title": match.group("title").strip(),
-                    "description": "",
-                    "status": status,
-                    "parallel": bool(match.group("parallel")),
-                    "depends_on": [],
-                    "file_paths": [],
-                }
+                current_task = _new_task_dict(match)
             elif current_task:
-                if line.startswith("**Depends on**:"):
-                    deps = line.replace("**Depends on**:", "").strip()
-                    current_task["depends_on"] = [
-                        d.strip() for d in deps.split(",") if d.strip()
-                    ]
-                elif line.startswith("**Files**:"):
-                    files = line.replace("**Files**:", "").strip()
-                    current_task["file_paths"] = [
-                        f.strip() for f in files.split(",") if f.strip()
-                    ]
-                elif (
-                    line.strip()
-                    and not line.startswith("#")
-                    and not line.startswith("##")
-                ):
-                    current_task["description"] += line.strip() + "\n"
+                _apply_task_continuation_line(line, current_task)
 
         if current_task:
             tasks.append(Task(**current_task))
@@ -939,45 +1208,14 @@ class SDDManager:
         if design is None:
             return [f"Design document not found for feature '{feature_id}'"]
 
-        violations: list[str] = []
         kg = design.kg_analysis
-
-        # Rule 1: Must have analyzed the KG
-        if not kg.nearest_concepts:
-            violations.append(
-                "KG analysis is empty. Run kg_search against the Knowledge Graph "
-                "to find nearest existing concepts before creating a design."
-            )
-
-        # Rule 2: High-similarity match requires extension, not new concept
-        high_sim = [c for c in kg.nearest_concepts if c.similarity >= 0.7]
-        if high_sim and kg.extension_strategy == ExtensionStrategy.NEW:
-            names = ", ".join(f"{c.concept_id} ({c.similarity:.0%})" for c in high_sim)
-            violations.append(
-                f"High-similarity concepts found ({names}) but extension_strategy is 'new'. "
-                f"You MUST extend an existing concept when similarity >= 70%."
-            )
-
-        # Rule 3: New concept requires proposal
-        if (
-            kg.extension_strategy == ExtensionStrategy.NEW
-            and not kg.new_concept_proposal
-        ):
-            violations.append(
-                "Extension strategy is 'new' but no NewConceptProposal provided. "
-                "A justification is required for introducing new concepts."
-            )
-
-        # Rule 4: Proposal must have pillar assignment
-        if kg.new_concept_proposal:
-            valid_pillars = {"ORCH", "KG", "AHE", "ECO", "OS"}
-            if kg.new_concept_proposal.target_pillar not in valid_pillars:
-                violations.append(
-                    f"New concept pillar '{kg.new_concept_proposal.target_pillar}' "
-                    f"is not valid. Must be one of: {valid_pillars}"
-                )
-
-        return violations
+        checks = (
+            _check_kg_analyzed,
+            _check_high_similarity_extension,
+            _check_new_concept_proposal,
+            _check_proposal_pillar,
+        )
+        return [msg for msg in (check(kg) for check in checks) if msg is not None]
 
     def design_to_spec(self, feature_id: str) -> Spec:
         """Auto-generate a Spec skeleton from a validated design document.
@@ -1049,56 +1287,8 @@ class SDDManager:
         md = [f"# Design Document: {design.title}\n"]
         md.append(f"**Feature ID**: {design.feature_id}\n")
 
-        # KG Analysis section
-        md.append("## KG Analysis\n")
-        if design.kg_analysis.nearest_concepts:
-            md.append("### Nearest Existing Concepts\n")
-            md.append("| Concept ID | Name | Similarity | Pillar |")
-            md.append("|---|---|---|---|")
-            for nc in design.kg_analysis.nearest_concepts:
-                md.append(
-                    f"| {nc.concept_id} | {nc.name} | {nc.similarity:.0%} | {nc.pillar} |"
-                )
-            md.append("")
-
-        md.append("### Extension Analysis\n")
-        md.append(
-            f"- **Extension Strategy**: {design.kg_analysis.extension_strategy.value}"
-        )
-        if design.kg_analysis.extension_point:
-            md.append(f"- **Extension Point**: {design.kg_analysis.extension_point}")
-
-        if design.kg_analysis.new_concept_proposal:
-            ncp = design.kg_analysis.new_concept_proposal
-            md.append("\n### New Concept Proposal\n")
-            md.append(f"- **Proposed ID**: {ncp.proposed_id}")
-            md.append(f"- **Target Pillar**: {ncp.target_pillar}")
-            if ncp.pipeline_phase:
-                md.append(f"- **Pipeline Phase**: {ncp.pipeline_phase}")
-            md.append(f"- **Justification**: {ncp.justification}")
-
-        # C4 Diagram
-        if design.c4_diagram:
-            md.append("\n## C4 Context Diagram\n")
-            md.append("```mermaid")
-            md.append(design.c4_diagram)
-            md.append("```")
-
-        # Data Flow
-        if design.data_flow:
-            md.append(f"\n## Data Flow\n\n{design.data_flow}")
-
-        # Risk Assessment
-        md.append("\n## Risk Assessment\n")
-        ra = design.risk_assessment
-        md.append(
-            f"- **Backward Compatible**: {'Yes' if ra.backward_compatible else 'No'}"
-        )
-        if ra.blast_radius:
-            md.append(f"- **Blast Radius**: {', '.join(ra.blast_radius)}")
-        if ra.breaking_changes:
-            md.append("- **Breaking Changes**:")
-            for bc in ra.breaking_changes:
-                md.append(f"  - {bc}")
+        _render_design_kg_analysis(md, design)
+        _render_design_diagrams(md, design)
+        _render_design_risk_assessment(md, design)
 
         return "\n".join(md)
