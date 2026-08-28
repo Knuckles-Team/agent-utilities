@@ -393,82 +393,87 @@ def _shacl_violation_summary(report: dict[str, Any], *, limit: int = 5) -> str:
 # ── validate ─────────────────────────────────────────────────────────────
 
 
-def _validate_envelope(envelope: ChangeEnvelope) -> list[str]:
-    """Schema + fail-closed policy checks. Empty list = OK.
+def _is_sha256_digest(digest: str) -> bool:
+    """``sha256:`` + exactly 64 lowercase hex characters."""
+    return (
+        digest.startswith("sha256:")
+        and len(digest) == len("sha256:") + 64
+        and all(char in "0123456789abcdef" for char in digest.removeprefix("sha256:"))
+    )
 
-    Re-affirms the invariants ``ChangeEnvelope.__post_init__`` already enforces
-    (defense-in-depth against a future mutation) and adds the policy check
-    ``__post_init__`` can't: CONCEPT:AU-P0-4 fail-closed connector permissions
-    — a ``PUBLIC``-classified object must carry an explicit
-    ``source_acl.is_public=True`` proof; "unknown" must never silently become
-    "public" just because a connector forgot to set an ACL.
+
+def _is_non_negative_int(value: Any) -> bool:
+    """A real ``int`` (never a ``bool``) that is zero or greater."""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _validate_blob_fields(envelope: ChangeEnvelope) -> list[str]:
+    """Per-field blob checks, emitted in the original digest/length/type order."""
+    checks = (
+        (
+            _is_sha256_digest(envelope.blob_digest or ""),
+            "blob_digest must be a sha256 digest",
+        ),
+        (
+            _is_non_negative_int(envelope.blob_length),
+            "blob_length must be non-negative",
+        ),
+        (
+            bool(
+                isinstance(envelope.blob_media_type, str) and envelope.blob_media_type
+            ),
+            "blob_media_type must be non-empty",
+        ),
+    )
+    return [message for ok, message in checks if not ok]
+
+
+def _validate_blob_metadata(envelope: ChangeEnvelope) -> list[str]:
+    """Blob-metadata completeness/shape checks, in their original order."""
+    present = [
+        envelope.blob_digest is not None,
+        envelope.blob_length is not None,
+        envelope.blob_media_type is not None,
+    ]
+    if not any(present):
+        return []
+    if envelope.blob_ref is None or not all(present):
+        return ["blob_digest, blob_length and blob_media_type must accompany blob_ref"]
+    return _validate_blob_fields(envelope)
+
+
+def _validate_structured_evidence(envelope: ChangeEnvelope) -> list[str]:
+    """Structured evidence must be a canonical-JSON object within the size bound."""
+    if envelope.structured_evidence is None:
+        return []
+    if not isinstance(envelope.structured_evidence, dict):
+        return ["structured_evidence must be an object"]
+    try:
+        evidence_bytes = json.dumps(
+            envelope.structured_evidence,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError, OverflowError):
+        return ["structured_evidence must be canonical JSON"]
+    if len(evidence_bytes) > 4 * 1024 * 1024:
+        return ["structured_evidence exceeds the bounded size"]
+    return []
+
+
+def _validate_envelope_policy(envelope: ChangeEnvelope) -> list[str]:
+    """Fail-closed connector-permission policy checks (CONCEPT:AU-P0-4).
+
+    An "unknown" ACL must never silently become "public": a ``PUBLIC``
+    classification requires an explicit ``source_acl.is_public=True`` proof and
+    the converse must hold too, so durable policy and the runtime ACL
+    projection cannot diverge. Order matches the original inline chain.
     """
     from ...models.company_brain import DataClassification
 
     violations: list[str] = []
-    if envelope.operation not in ("upsert", "delete", "snapshot_complete"):
-        violations.append(f"invalid operation {envelope.operation!r}")
-    if envelope.typed_payload is not None and envelope.blob_ref is not None:
-        violations.append(
-            "typed_payload and blob_ref are mutually exclusive on this envelope"
-        )
-    blob_metadata = (
-        envelope.blob_digest,
-        envelope.blob_length,
-        envelope.blob_media_type,
-    )
-    if any(value is not None for value in blob_metadata):
-        if envelope.blob_ref is None or any(value is None for value in blob_metadata):
-            violations.append(
-                "blob_digest, blob_length and blob_media_type must accompany blob_ref"
-            )
-        else:
-            digest = envelope.blob_digest or ""
-            if (
-                not digest.startswith("sha256:")
-                or len(digest) != len("sha256:") + 64
-                or any(
-                    char not in "0123456789abcdef"
-                    for char in digest.removeprefix("sha256:")
-                )
-            ):
-                violations.append("blob_digest must be a sha256 digest")
-            if (
-                not isinstance(envelope.blob_length, int)
-                or isinstance(envelope.blob_length, bool)
-                or envelope.blob_length < 0
-            ):
-                violations.append("blob_length must be non-negative")
-            if (
-                not isinstance(envelope.blob_media_type, str)
-                or not envelope.blob_media_type
-            ):
-                violations.append("blob_media_type must be non-empty")
-    if envelope.structured_evidence is not None:
-        if not isinstance(envelope.structured_evidence, dict):
-            violations.append("structured_evidence must be an object")
-        else:
-            try:
-                evidence_bytes = json.dumps(
-                    envelope.structured_evidence,
-                    ensure_ascii=True,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                    allow_nan=False,
-                ).encode("utf-8")
-            except (TypeError, ValueError, OverflowError):
-                violations.append("structured_evidence must be canonical JSON")
-            else:
-                if len(evidence_bytes) > 4 * 1024 * 1024:
-                    violations.append("structured_evidence exceeds the bounded size")
-    if (
-        envelope.operation == "upsert"
-        and envelope.typed_payload is None
-        and envelope.blob_ref is None
-    ):
-        violations.append(
-            "upsert envelope carries neither typed_payload nor blob_ref — nothing to write"
-        )
     if envelope.operation == "upsert" and envelope.source_acl is None:
         violations.append(
             "upsert envelope has no source ACL proof and was not quarantined"
@@ -495,6 +500,37 @@ def _validate_envelope(envelope: ChangeEnvelope) -> list[str]:
     return violations
 
 
+def _validate_envelope(envelope: ChangeEnvelope) -> list[str]:
+    """Schema + fail-closed policy checks. Empty list = OK.
+
+    Re-affirms the invariants ``ChangeEnvelope.__post_init__`` already enforces
+    (defense-in-depth against a future mutation) and adds the policy check
+    ``__post_init__`` can't: CONCEPT:AU-P0-4 fail-closed connector permissions
+    — a ``PUBLIC``-classified object must carry an explicit
+    ``source_acl.is_public=True`` proof; "unknown" must never silently become
+    "public" just because a connector forgot to set an ACL.
+    """
+    violations: list[str] = []
+    if envelope.operation not in ("upsert", "delete", "snapshot_complete"):
+        violations.append(f"invalid operation {envelope.operation!r}")
+    if envelope.typed_payload is not None and envelope.blob_ref is not None:
+        violations.append(
+            "typed_payload and blob_ref are mutually exclusive on this envelope"
+        )
+    violations.extend(_validate_blob_metadata(envelope))
+    violations.extend(_validate_structured_evidence(envelope))
+    if (
+        envelope.operation == "upsert"
+        and envelope.typed_payload is None
+        and envelope.blob_ref is None
+    ):
+        violations.append(
+            "upsert envelope carries neither typed_payload nor blob_ref — nothing to write"
+        )
+    violations.extend(_validate_envelope_policy(envelope))
+    return violations
+
+
 def validate_envelope(envelope: ChangeEnvelope) -> list[str]:
     """Public reuse point for :func:`_validate_envelope` (CONCEPT:AU-KG.ingest.governed-claim-promotion).
 
@@ -507,6 +543,199 @@ def validate_envelope(envelope: ChangeEnvelope) -> list[str]:
     return _validate_envelope(envelope)
 
 
+#: Private "this entry was not masked" marker for :class:`_OpaqueIdentityVault`.
+#: A unique object so no payload value can ever collide with it.
+_UNMASKED = object()
+
+
+def _assert_safe_identity(guard: Any, value: Any) -> None:
+    """Reject sensitive identities without scanning opaque digest material.
+
+    Deterministic HMAC/SHA identifiers are random-looking tokens, so a
+    runtime deny term can occur in their hexadecimal material by chance.
+    Treat only exact lowercase 128/256-bit digests as opaque.  For a
+    namespaced identifier, the bounded namespace is still scanned while
+    the digest suffix is not; arbitrary namespaced content receives the
+    normal full privacy scan.
+    """
+    rendered = str(value or "")
+    if _OPAQUE_INTERNAL_ID_RE.fullmatch(rendered):
+        return
+    namespaced = _OPAQUE_NAMESPACED_ID_RE.fullmatch(rendered)
+    candidate = namespaced.group("namespace") if namespaced else rendered
+    _, report = guard.sanitize_text(candidate)
+    if report.changed:
+        raise ValueError("unsafe envelope identity")
+
+
+def _is_identity_field(key: Any, *, in_links: bool) -> bool:
+    """Is ``key`` a routing/identity key that must not be rewritten?
+
+    ``id``/``*_id``/``*Id``/``*ID`` are unconditionally node-identity
+    keys everywhere in the payload. ``source``/``target`` are ONLY
+    node-id references when they appear inside an edge record (an
+    entry of a ``_links`` list) — a :class:`DocumentChunk`/Document
+    record legitimately reuses the bare key ``source`` for a
+    human-readable provenance label (e.g. a filesystem path or URL),
+    which is exactly the kind of content the privacy gate commits
+    to "deeply sanitizing" rather than rejecting outright. Treating
+    that provenance field as an opaque identity previously made
+    ``ingest_envelope`` reject ordinary document/skill ingestion
+    whenever the source path matched a PII pattern (e.g. a POSIX
+    local path) instead of just redacting it.
+    """
+    rendered = str(key)
+    normalized = re.sub(r"[^a-z0-9]+", "_", rendered.casefold()).strip("_")
+    if (
+        normalized == "id"
+        or normalized.endswith("_id")
+        or rendered.endswith(("Id", "ID"))
+    ):
+        return True
+    return in_links and normalized in {"source", "target"}
+
+
+class _OpaqueIdentityVault:
+    """Hide opaque identity strings from one payload sanitize pass.
+
+    Identity and routing keys cannot be rewritten safely, but a deterministic
+    digest identifier is random-looking enough to trip a privacy pattern by
+    chance. Each opaque identity is swapped for a private negative-int
+    sentinel before the scan and restored verbatim afterwards, so the scan
+    never sees (and so can never rewrite) the identity.
+    """
+
+    def __init__(self, guard: Any) -> None:
+        self._guard = guard
+        self._values: dict[int, Any] = {}
+        self._next_sentinel = -(1 << 255)
+
+    def _reserve(self, item: Any) -> int:
+        sentinel = self._next_sentinel
+        self._next_sentinel -= 1
+        self._values[sentinel] = item
+        return sentinel
+
+    def _mask_entry(self, key: Any, item: Any, *, in_links: bool) -> Any:
+        """Sentinel for one opaque identity entry, else :data:`_UNMASKED`.
+
+        :data:`_UNMASKED` means "not an opaque identity" and the caller must
+        recurse into the value — the SAME fall-through the previous inline
+        implementation took for a non-opaque identity field.
+        """
+        if not _is_identity_field(key, in_links=in_links) or item in (None, ""):
+            return _UNMASKED
+        _assert_safe_identity(self._guard, item)
+        rendered = str(item)
+        if _OPAQUE_INTERNAL_ID_RE.fullmatch(
+            rendered
+        ) or _OPAQUE_NAMESPACED_ID_RE.fullmatch(rendered):
+            return self._reserve(item)
+        return _UNMASKED
+
+    def mask(self, value: Any, *, in_links: bool = False) -> Any:
+        if isinstance(value, dict):
+            masked: dict[Any, Any] = {}
+            for key, item in value.items():
+                replacement = self._mask_entry(key, item, in_links=in_links)
+                masked[key] = (
+                    replacement
+                    if replacement is not _UNMASKED
+                    else self.mask(item, in_links=in_links or key == "_links")
+                )
+            return masked
+        if isinstance(value, list | tuple | set | frozenset):
+            return [self.mask(item, in_links=in_links) for item in value]
+        return value
+
+    def _is_sentinel(self, key: Any, item: Any, *, in_links: bool) -> bool:
+        return (
+            _is_identity_field(key, in_links=in_links)
+            and isinstance(item, int)
+            and not isinstance(item, bool)
+            and item in self._values
+        )
+
+    def restore(self, value: Any, *, in_links: bool = False) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: (
+                    self._values[item]
+                    if self._is_sentinel(key, item, in_links=in_links)
+                    else self.restore(item, in_links=in_links or key == "_links")
+                )
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [self.restore(item, in_links=in_links) for item in value]
+        return value
+
+
+def _sanitize_typed_payload(
+    guard: Any, payload: Any
+) -> tuple[dict[str, Any] | None, Any]:
+    """Deeply sanitize a typed payload without rewriting its identity keys."""
+    if payload is None:
+        _, report = guard.sanitize(None)
+        return None, report
+    vault = _OpaqueIdentityVault(guard)
+    try:
+        masked_payload = vault.mask(payload)
+    except ValueError:
+        raise ValueError("unsafe payload identity") from None
+    clean_payload, report = guard.sanitize(masked_payload)
+    if not isinstance(clean_payload, dict):
+        raise ValueError("invalid sanitized payload")
+    return vault.restore(clean_payload), report
+
+
+def _sanitize_envelope_acl(guard: Any, access: Any) -> tuple[Any, int]:
+    """Return ``(access, redaction_count)`` — fail CLOSED, never widened.
+
+    An ACL carrying an unsafe principal is replaced wholesale by the deny-all
+    quarantine (the principals are not merely dropped, which would silently
+    widen the object to whatever remained). Stripping user emails from a
+    non-public ACL that then has no remaining principal quarantines for the
+    same reason.
+    """
+    from ...protocols.source_connectors.base import ExternalAccess
+
+    if access is None:
+        return None, 0
+    unsafe_acl = False
+    for principal in (*access.group_ids, *access.read_roles, *access.markings):
+        _, report = guard.sanitize_text(str(principal))
+        unsafe_acl = unsafe_acl or report.changed
+    acl_redactions = len(access.user_emails)
+    if unsafe_acl:
+        acl_redactions += (
+            len(access.group_ids) + len(access.read_roles) + len(access.markings)
+        )
+        return ExternalAccess.quarantined(), acl_redactions
+    if access.user_emails:
+        access = access.model_copy(update={"user_emails": []})
+        if not access.is_public and not (
+            access.group_ids or access.read_roles or access.markings
+        ):
+            return ExternalAccess.quarantined(), acl_redactions
+    return access, acl_redactions
+
+
+def _privacy_redaction_summary(
+    reports: tuple[Any, ...], acl_redactions: int
+) -> dict[str, Any] | None:
+    """Non-sensitive redaction summary, or ``None`` when nothing was redacted."""
+    redactions = sum(report.redactions for report in reports) + acl_redactions
+    if not redactions:
+        return None
+    categories: set[str] = set()
+    for report in reports:
+        categories.update(report.detected_types)
+    if acl_redactions:
+        categories.add("acl_principal")
+    return {"redactions": redactions, "detected_types": sorted(categories)}
+
+
 def _privacy_gate(envelope: ChangeEnvelope) -> ChangeEnvelope:
     """Remove PII and machine locations before any durable envelope step.
 
@@ -515,33 +744,12 @@ def _privacy_gate(envelope: ChangeEnvelope) -> ChangeEnvelope:
     quarantine. Content/provenance fields are deeply sanitized and only a
     non-sensitive redaction summary is retained.
     """
-    from ...protocols.source_connectors.base import ExternalAccess
     from ...security.persistence_privacy import PersistencePrivacyGuard
 
     guard = PersistencePrivacyGuard()
 
-    def assert_safe_identity(value: Any) -> None:
-        """Reject sensitive identities without scanning opaque digest material.
-
-        Deterministic HMAC/SHA identifiers are random-looking tokens, so a
-        runtime deny term can occur in their hexadecimal material by chance.
-        Treat only exact lowercase 128/256-bit digests as opaque.  For a
-        namespaced identifier, the bounded namespace is still scanned while
-        the digest suffix is not; arbitrary namespaced content receives the
-        normal full privacy scan.
-        """
-
-        rendered = str(value or "")
-        if _OPAQUE_INTERNAL_ID_RE.fullmatch(rendered):
-            return
-        namespaced = _OPAQUE_NAMESPACED_ID_RE.fullmatch(rendered)
-        candidate = namespaced.group("namespace") if namespaced else rendered
-        _, report = guard.sanitize_text(candidate)
-        if report.changed:
-            raise ValueError("unsafe envelope identity")
-
     for value in (envelope.envelope_id, envelope.idempotency_key):
-        assert_safe_identity(value)
+        _assert_safe_identity(guard, value)
     for value in (
         envelope.connector,
         envelope.tenant,
@@ -550,101 +758,11 @@ def _privacy_gate(envelope: ChangeEnvelope) -> ChangeEnvelope:
         envelope.source_version,
         *envelope.live_ids,
     ):
-        assert_safe_identity(value)
+        _assert_safe_identity(guard, value)
 
-    payload = envelope.typed_payload
-    if payload is not None:
-        opaque_values: dict[int, Any] = {}
-        next_sentinel = -(1 << 255)
-
-        def identity_field(key: Any, *, in_links: bool) -> bool:
-            """Is ``key`` a routing/identity key that must not be rewritten?
-
-            ``id``/``*_id``/``*Id``/``*ID`` are unconditionally node-identity
-            keys everywhere in the payload. ``source``/``target`` are ONLY
-            node-id references when they appear inside an edge record (an
-            entry of a ``_links`` list) — a :class:`DocumentChunk`/Document
-            record legitimately reuses the bare key ``source`` for a
-            human-readable provenance label (e.g. a filesystem path or URL),
-            which is exactly the kind of content the docstring above commits
-            to "deeply sanitizing" rather than rejecting outright. Treating
-            that provenance field as an opaque identity previously made
-            ``ingest_envelope`` reject ordinary document/skill ingestion
-            whenever the source path matched a PII pattern (e.g. a POSIX
-            local path) instead of just redacting it.
-            """
-            rendered = str(key)
-            normalized = re.sub(r"[^a-z0-9]+", "_", rendered.casefold()).strip("_")
-            if (
-                normalized == "id"
-                or normalized.endswith("_id")
-                or rendered.endswith(("Id", "ID"))
-            ):
-                return True
-            return in_links and normalized in {"source", "target"}
-
-        def mask_opaque_identities(value: Any, *, in_links: bool = False) -> Any:
-            nonlocal next_sentinel
-            if isinstance(value, dict):
-                masked: dict[Any, Any] = {}
-                for key, item in value.items():
-                    if identity_field(key, in_links=in_links) and item not in (
-                        None,
-                        "",
-                    ):
-                        assert_safe_identity(item)
-                        rendered = str(item)
-                        if _OPAQUE_INTERNAL_ID_RE.fullmatch(
-                            rendered
-                        ) or _OPAQUE_NAMESPACED_ID_RE.fullmatch(rendered):
-                            sentinel = next_sentinel
-                            next_sentinel -= 1
-                            opaque_values[sentinel] = item
-                            masked[key] = sentinel
-                            continue
-                    child_in_links = in_links or key == "_links"
-                    masked[key] = mask_opaque_identities(item, in_links=child_in_links)
-                return masked
-            if isinstance(value, list | tuple | set | frozenset):
-                return [
-                    mask_opaque_identities(item, in_links=in_links) for item in value
-                ]
-            return value
-
-        def restore_opaque_identities(value: Any, *, in_links: bool = False) -> Any:
-            if isinstance(value, dict):
-                restored: dict[Any, Any] = {}
-                for key, item in value.items():
-                    if (
-                        identity_field(key, in_links=in_links)
-                        and isinstance(item, int)
-                        and not isinstance(item, bool)
-                        and item in opaque_values
-                    ):
-                        restored[key] = opaque_values[item]
-                    else:
-                        child_in_links = in_links or key == "_links"
-                        restored[key] = restore_opaque_identities(
-                            item, in_links=child_in_links
-                        )
-                return restored
-            if isinstance(value, list):
-                return [
-                    restore_opaque_identities(item, in_links=in_links) for item in value
-                ]
-            return value
-
-        try:
-            masked_payload = mask_opaque_identities(payload)
-        except ValueError:
-            raise ValueError("unsafe payload identity") from None
-        clean_payload, payload_report = guard.sanitize(masked_payload)
-        if not isinstance(clean_payload, dict):
-            raise ValueError("invalid sanitized payload")
-        clean_payload = restore_opaque_identities(clean_payload)
-    else:
-        clean_payload = None
-        _, payload_report = guard.sanitize(None)
+    clean_payload, payload_report = _sanitize_typed_payload(
+        guard, envelope.typed_payload
+    )
 
     clean_provenance, provenance_report = guard.sanitize(envelope.provenance)
     if not isinstance(clean_provenance, dict):
@@ -660,47 +778,15 @@ def _privacy_gate(envelope: ChangeEnvelope) -> ChangeEnvelope:
         }
     )
 
-    access = envelope.source_acl
-    acl_redactions = 0
-    if access is not None:
-        unsafe_acl = False
-        for principal in (*access.group_ids, *access.read_roles, *access.markings):
-            _, report = guard.sanitize_text(str(principal))
-            unsafe_acl = unsafe_acl or report.changed
-        acl_redactions = len(access.user_emails)
-        if unsafe_acl:
-            acl_redactions += (
-                len(access.group_ids) + len(access.read_roles) + len(access.markings)
-            )
-            access = ExternalAccess.quarantined()
-        elif access.user_emails:
-            access = access.model_copy(update={"user_emails": []})
-            if not access.is_public and not (
-                access.group_ids or access.read_roles or access.markings
-            ):
-                access = ExternalAccess.quarantined()
+    access, acl_redactions = _sanitize_envelope_acl(guard, envelope.source_acl)
 
-    redactions = (
-        payload_report.redactions
-        + provenance_report.redactions
-        + evidence_report.redactions
-        + operational_report.redactions
-        + acl_redactions
+    summary = _privacy_redaction_summary(
+        (payload_report, provenance_report, evidence_report, operational_report),
+        acl_redactions,
     )
-    if redactions:
-        categories = {
-            *payload_report.detected_types,
-            *provenance_report.detected_types,
-            *evidence_report.detected_types,
-            *operational_report.detected_types,
-        }
-        if acl_redactions:
-            categories.add("acl_principal")
+    if summary is not None:
         clean_provenance = dict(clean_provenance)
-        clean_provenance["persistence_privacy"] = {
-            "redactions": redactions,
-            "detected_types": sorted(categories),
-        }
+        clean_provenance["persistence_privacy"] = summary
 
     return replace(
         envelope,
