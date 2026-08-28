@@ -469,6 +469,41 @@ class HybridRetriever:
             logger.debug("engine semantic_search unavailable: %s", e)
             return []
 
+    def _batch_node_properties_via_true_batch(
+        self, graph: Any, ids: list[str]
+    ) -> dict[str, dict[str, Any]] | None:
+        client = getattr(graph, "_client", None)
+        nodes_ns = getattr(client, "nodes", None) if client is not None else None
+        batch = getattr(nodes_ns, "properties_batch", None)
+        if not callable(batch):
+            return None
+        try:
+            out: dict[str, dict[str, Any]] = {}
+            for nid, blob in (batch(ids) or {}).items():
+                if isinstance(blob, dict):
+                    out[str(nid)] = blob
+            return out
+        except Exception as e:  # noqa: BLE001 — degrade to per-id projection
+            logger.debug("properties_batch failed: %s", e)
+            return None
+
+    @staticmethod
+    def _batch_node_properties_per_id(
+        graph: Any, ids: list[str]
+    ) -> dict[str, dict[str, Any]]:
+        out: dict[str, dict[str, Any]] = {}
+        getter = getattr(graph, "_get_node_properties", None)
+        if not callable(getter):
+            return out
+        for nid in ids:
+            try:
+                p = getter(nid)
+                if isinstance(p, dict):
+                    out[nid] = p
+            except Exception:  # noqa: BLE001,S112
+                continue
+        return out
+
     def _batch_node_properties(self, ids: list[str]) -> dict[str, dict[str, Any]]:
         """Fetch properties for many node ids in ONE engine round-trip.
 
@@ -477,28 +512,10 @@ class HybridRetriever:
         N per-id round-trips.
         """
         graph = getattr(self.engine, "graph", None)
-        out: dict[str, dict[str, Any]] = {}
-        client = getattr(graph, "_client", None)
-        nodes_ns = getattr(client, "nodes", None) if client is not None else None
-        batch = getattr(nodes_ns, "properties_batch", None)
-        if callable(batch):
-            try:
-                for nid, blob in (batch(ids) or {}).items():
-                    if isinstance(blob, dict):
-                        out[str(nid)] = blob
-                return out
-            except Exception as e:  # noqa: BLE001 — degrade to per-id projection
-                logger.debug("properties_batch failed: %s", e)
-        getter = getattr(graph, "_get_node_properties", None)
-        if callable(getter):
-            for nid in ids:
-                try:
-                    p = getter(nid)
-                    if isinstance(p, dict):
-                        out[nid] = p
-                except Exception:  # noqa: BLE001,S112
-                    continue
-        return out
+        result = self._batch_node_properties_via_true_batch(graph, ids)
+        if result is not None:
+            return result
+        return self._batch_node_properties_per_id(graph, ids)
 
     def _exists_batch_via_has_batch(
         self, graph: Any, wanted: list[str]
