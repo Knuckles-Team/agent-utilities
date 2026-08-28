@@ -1882,6 +1882,111 @@ async def agent_package_step(
     return await _execute_agent_package_logic(ctx, node_id, meta)
 
 
+def _resolve_tool_tags(registry: Any, prompt_name: str) -> list[str]:
+    """Resolve skill tags for ``prompt_name`` from the unified registry
+    (replaces the deprecated NODE_SKILL_MAP)."""
+    agent_info = next((a for a in registry.agents if a.name == prompt_name), None)
+    tool_tags = [prompt_name]
+    if agent_info and agent_info.capabilities:
+        # Capabilities field in NODE_AGENTS.md corresponds to skill tags
+        tool_tags.extend(agent_info.capabilities)
+    return list(set(tool_tags))
+
+
+def _guard_single_toolset(ctx: StepContext, toolset: Any) -> Any:
+    """Wrap one MCP toolset with the mandatory caller-identity guard policy."""
+    from agent_utilities.security.tool_guard import flag_mcp_tool_definitions
+
+    guarded = flag_mcp_tool_definitions(
+        [toolset],
+        permissions_kernel=ctx.deps.permissions_kernel,
+        agent_identity=ctx.deps.agent_identity,
+        engine=ctx.deps.knowledge_engine,
+    )
+    return guarded[0]
+
+
+def _bind_native_toolset(
+    ctx: StepContext, toolset: Any, seen: set[int]
+) -> tuple[Any, int] | None:
+    """Bind a GraphOS-native toolset unconditionally, else return ``None``.
+
+    A native GraphOS toolset is already run-scoped to the exact skill and
+    caller allow-list. It is not a fleet server and must not be discarded by
+    server/domain tag matching.
+    """
+    metadata = getattr(toolset, "metadata", None)
+    if not (isinstance(metadata, dict) and metadata.get("graphos_native") is True):
+        return None
+    seen.add(id(toolset))
+    guarded = _guard_single_toolset(ctx, toolset)
+    tool_count = len(getattr(toolset, "tools", {})) or 1
+    return guarded, tool_count
+
+
+def _bind_matching_toolset(
+    ctx: StepContext,
+    toolset: Any,
+    prompt_name: str,
+    tool_tags: list[str],
+    seen: set[int],
+) -> tuple[Any, int] | None:
+    """Bind a toolset whose server id or tags match ``prompt_name``, else return ``None``."""
+    server_id = (
+        getattr(toolset, "id", getattr(toolset, "name", "unknown"))
+        .lower()
+        .replace("-", "_")
+    )
+    target = prompt_name.lower().replace("-", "_")
+    if server_id != target and not any(
+        t.lower().replace("-", "_") == target for t in tool_tags
+    ):
+        return None
+    seen.add(id(toolset))
+    guarded = _guard_single_toolset(ctx, toolset)
+    tool_count = len(getattr(toolset, "tools", {})) or 1
+    return guarded, tool_count
+
+
+def _bind_filtered_toolset(
+    ctx: StepContext, toolset: Any, tool_tags: list[str], seen: set[int]
+) -> tuple[Any, int] | None:
+    """Bind the tag-filtered subset of a toolset that didn't match directly, else ``None``."""
+    filtered = filter_tools_by_tag(toolset, tool_tags)
+    if not filtered or id(filtered) in seen:
+        return None
+    seen.add(id(filtered))
+    guarded = _guard_single_toolset(ctx, filtered)
+    tool_count = len(getattr(filtered, "tools", {})) or 1
+    return guarded, tool_count
+
+
+def _collect_mcp_toolsets_for_step(
+    ctx: StepContext, prompt_name: str, tool_tags: list[str]
+) -> tuple[list[Any], int]:
+    """Filter+bind ``ctx.deps.mcp_toolsets`` by domain tag AND node_id (``prompt_name``),
+    with deduplication, applying the mandatory caller-identity guard to each bound toolset."""
+    seen: set[int] = set()
+    mcp_tool_count = 0
+    collected: list[Any] = []
+    for toolset in ctx.deps.mcp_toolsets:
+        if id(toolset) in seen:
+            continue
+
+        bound = _bind_native_toolset(ctx, toolset, seen)
+        if bound is None:
+            bound = _bind_matching_toolset(ctx, toolset, prompt_name, tool_tags, seen)
+        if bound is None:
+            bound = _bind_filtered_toolset(ctx, toolset, tool_tags, seen)
+
+        if bound is not None:
+            guarded, tool_count = bound
+            collected.append(guarded)
+            mcp_tool_count += tool_count
+
+    return collected, mcp_tool_count
+
+
 async def _execute_specialized_step(
     ctx: StepContext, prompt_name: str
 ) -> str | End[Any]:
@@ -1944,74 +2049,10 @@ async def _execute_specialized_step(
 
     # Filter MCP toolsets by domain tag AND node_id (prompt_name) with deduplication.
     # Bind each MCP toolset to the mandatory caller identity policy.
-    from agent_utilities.security.tool_guard import flag_mcp_tool_definitions
-
-    # Resolve tags from the unified registry instead of the deprecated NODE_SKILL_MAP
-    agent_info = next((a for a in registry.agents if a.name == prompt_name), None)
-    tool_tags = [prompt_name]
-    if agent_info and agent_info.capabilities:
-        # Capabilities field in NODE_AGENTS.md corresponds to skill tags
-        tool_tags.extend(agent_info.capabilities)
-
-    tool_tags = list(set(tool_tags))
-    _seen_ts: set[int] = set()
-    mcp_tool_count = 0
-    collected_mcp_toolsets: list[Any] = []
-    for toolset in ctx.deps.mcp_toolsets:
-        ts_identity = id(toolset)
-        if ts_identity in _seen_ts:
-            continue
-
-        # A native GraphOS toolset is already run-scoped to the exact skill and
-        # caller allow-list. It is not a fleet server and must not be discarded
-        # by server/domain tag matching. Bind it exactly once, then apply the
-        # same signed identity-policy wrapper as remote MCP toolsets.
-        metadata = getattr(toolset, "metadata", None)
-        if isinstance(metadata, dict) and metadata.get("graphos_native") is True:
-            _seen_ts.add(ts_identity)
-            guarded = flag_mcp_tool_definitions(
-                [toolset],
-                permissions_kernel=ctx.deps.permissions_kernel,
-                agent_identity=ctx.deps.agent_identity,
-                engine=ctx.deps.knowledge_engine,
-            )
-            collected_mcp_toolsets.append(guarded[0])
-            mcp_tool_count += len(getattr(toolset, "tools", {})) or 1
-            continue
-
-        server_id = (
-            getattr(toolset, "id", getattr(toolset, "name", "unknown"))
-            .lower()
-            .replace("-", "_")
-        )
-        target = prompt_name.lower().replace("-", "_")
-
-        if server_id == target or any(
-            t.lower().replace("-", "_") == target for t in tool_tags
-        ):
-            _seen_ts.add(ts_identity)
-            guarded = flag_mcp_tool_definitions(
-                [toolset],
-                permissions_kernel=ctx.deps.permissions_kernel,
-                agent_identity=ctx.deps.agent_identity,
-                engine=ctx.deps.knowledge_engine,
-            )
-            collected_mcp_toolsets.append(guarded[0])
-            mcp_tool_count += len(getattr(toolset, "tools", {})) or 1
-        else:
-            filtered = filter_tools_by_tag(toolset, tool_tags)
-            if filtered:
-                fid = id(filtered)
-                if fid not in _seen_ts:
-                    _seen_ts.add(fid)
-                    guarded = flag_mcp_tool_definitions(
-                        [filtered],
-                        permissions_kernel=ctx.deps.permissions_kernel,
-                        agent_identity=ctx.deps.agent_identity,
-                        engine=ctx.deps.knowledge_engine,
-                    )
-                    collected_mcp_toolsets.append(guarded[0])
-                    mcp_tool_count += len(getattr(filtered, "tools", {})) or 1
+    tool_tags = _resolve_tool_tags(registry, prompt_name)
+    collected_mcp_toolsets, mcp_tool_count = _collect_mcp_toolsets_for_step(
+        ctx, prompt_name, tool_tags
+    )
 
     # Build the agent with ALL toolsets at construction time.
     # agent.toolsets is a read-only property — appending after construction
