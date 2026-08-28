@@ -399,6 +399,61 @@ def _resolve_runtime_value(
     return rendered
 
 
+# Sentinel for "this decode produced nothing", distinct from a legitimate
+# ``None``/``{}`` payload a child may genuinely have returned.
+_ABSENT: Any = object()
+
+# One JSON scalar's flat accounting weight, and the per-collection/per-key
+# structural bounds enforced on every node of a delegated value.
+_JSON_SCALAR_BYTES = 16
+_MAX_JSON_COLLECTION = 4_096
+_MAX_JSON_KEY_BYTES = 1_024
+
+
+def _bounded_json_mapping_bytes(
+    current: dict, depth: int, stack: list[tuple[Any, int]]
+) -> int:
+    """Validate one mapping node's keys and enqueue its values onto ``stack``."""
+    if len(current) > _MAX_JSON_COLLECTION:
+        raise ToolError("MCP tool arguments exceed the collection boundary")
+    byte_count = 0
+    for key, item in current.items():
+        if not isinstance(key, str) or len(key.encode("utf-8")) > _MAX_JSON_KEY_BYTES:
+            raise ToolError("MCP tool argument keys are invalid")
+        byte_count += len(key.encode("utf-8"))
+        stack.append((item, depth + 1))
+    return byte_count
+
+
+def _bounded_json_container_bytes(
+    current: Any, depth: int, stack: list[tuple[Any, int]]
+) -> int:
+    """Validate one list/dict node and enqueue its children; reject anything else."""
+    if isinstance(current, list):
+        if len(current) > _MAX_JSON_COLLECTION:
+            raise ToolError("MCP tool arguments exceed the collection boundary")
+        stack.extend((item, depth + 1) for item in current)
+        return 0
+    if not isinstance(current, dict):
+        raise ToolError("MCP tool arguments must be JSON-compatible")
+    return _bounded_json_mapping_bytes(current, depth, stack)
+
+
+def _bounded_json_node_bytes(
+    current: Any, depth: int, stack: list[tuple[Any, int]]
+) -> int:
+    """Account for one JSON node, enqueueing any children onto ``stack``."""
+    if current is None or isinstance(current, bool | int):
+        return _JSON_SCALAR_BYTES
+    if isinstance(current, float):
+        if not math.isfinite(current):
+            raise ToolError("MCP tool arguments must contain finite numbers")
+        return _JSON_SCALAR_BYTES
+    if isinstance(current, str):
+        return len(current.encode("utf-8"))
+    return _bounded_json_container_bytes(current, depth, stack)
+
+
 def _assert_bounded_json_value(value: Any, *, max_nodes: int) -> None:
     """Reject oversized or excessively nested JSON-compatible values."""
     stack: list[tuple[Any, int]] = [(value, 0)]
@@ -409,28 +464,7 @@ def _assert_bounded_json_value(value: Any, *, max_nodes: int) -> None:
         nodes += 1
         if nodes > max_nodes or depth > _MAX_DELEGATED_DEPTH:
             raise ToolError("MCP tool arguments exceed the structural boundary")
-        if current is None or isinstance(current, bool | int):
-            byte_count += 16
-        elif isinstance(current, float):
-            if not math.isfinite(current):
-                raise ToolError("MCP tool arguments must contain finite numbers")
-            byte_count += 16
-        elif isinstance(current, str):
-            byte_count += len(current.encode("utf-8"))
-        elif isinstance(current, list):
-            if len(current) > 4_096:
-                raise ToolError("MCP tool arguments exceed the collection boundary")
-            stack.extend((item, depth + 1) for item in current)
-        elif isinstance(current, dict):
-            if len(current) > 4_096:
-                raise ToolError("MCP tool arguments exceed the collection boundary")
-            for key, item in current.items():
-                if not isinstance(key, str) or len(key.encode("utf-8")) > 1_024:
-                    raise ToolError("MCP tool argument keys are invalid")
-                byte_count += len(key.encode("utf-8"))
-                stack.append((item, depth + 1))
-        else:
-            raise ToolError("MCP tool arguments must be JSON-compatible")
+        byte_count += _bounded_json_node_bytes(current, depth, stack)
         if byte_count > _MAX_DELEGATED_VALUE_BYTES:
             raise ToolError("MCP tool arguments exceed the size boundary")
 
@@ -441,21 +475,30 @@ def _assert_bounded_delegated_value(value: Any) -> None:
     _assert_bounded_json_value(value, max_nodes=_MAX_DELEGATED_NODES)
 
 
-def _child_result_payload(result: Any) -> Any:
-    """Decode one bounded child result without retaining or logging its body."""
+def _child_structured_payload(result: Any) -> Any:
+    """The decoded ``structuredContent`` half of one child result.
+
+    Returns :data:`_ABSENT` when the child sent no structured half at all, so
+    the caller can fall back to the text half without confusing that with a
+    child that legitimately answered ``None``/``{}``.
+    """
 
     value = getattr(result, "structuredContent", None)
     if value in (None, {}):
         value = getattr(result, "structured_content", None)
-    if value not in (None, {}):
-        if isinstance(value, dict) and set(value) == {"result"}:
-            value = value["result"]
-        if isinstance(value, str):
-            if len(value.encode("utf-8")) > _MAX_DELEGATED_VALUE_BYTES:
-                raise ToolError("MCP child result exceeds the size boundary")
-            value = json.loads(value)
-        _assert_bounded_delegated_value(value)
-        return value
+    if value in (None, {}):
+        return _ABSENT
+    if isinstance(value, dict) and set(value) == {"result"}:
+        value = value["result"]
+    if isinstance(value, str):
+        if len(value.encode("utf-8")) > _MAX_DELEGATED_VALUE_BYTES:
+            raise ToolError("MCP child result exceeds the size boundary")
+        value = json.loads(value)
+    return value
+
+
+def _child_text_payload(result: Any) -> Any:
+    """The decoded text half of one child result, when it sent no structure."""
 
     texts = [
         str(getattr(item, "text", ""))
@@ -465,9 +508,84 @@ def _child_result_payload(result: Any) -> Any:
     rendered = "\n".join(texts)
     if not rendered or len(rendered.encode("utf-8")) > _MAX_DELEGATED_VALUE_BYTES:
         raise ToolError("MCP child result is unavailable for parent ingestion")
-    value = json.loads(rendered)
+    return json.loads(rendered)
+
+
+def _child_result_payload(result: Any) -> Any:
+    """Decode one bounded child result without retaining or logging its body."""
+
+    value = _child_structured_payload(result)
+    if value is _ABSENT:
+        value = _child_text_payload(result)
     _assert_bounded_delegated_value(value)
     return value
+
+
+def _stage_forwarder_components(
+    previous_components: dict, forwarders: dict, changed_names: set[str]
+) -> dict:
+    """The complete provider component registry with changed forwarders swapped in.
+
+    Staged as ONE mapping so a partial native registration can be undone with a
+    single provider-registry swap rather than a doomed series of rollback
+    ``add_tool`` calls.
+    """
+
+    staged = dict(previous_components)
+    for key, component in tuple(staged.items()):
+        if isinstance(component, FunctionTool) and component.name in changed_names:
+            staged.pop(key)
+    for forwarder in forwarders.values():
+        staged[forwarder.key] = forwarder
+    return staged
+
+
+def _child_error_result(text: str) -> Any:
+    """One ``isError`` CallToolResult carrying a single opaque text label."""
+
+    return mcp_types.CallToolResult.model_validate(
+        {
+            "content": [mcp_types.TextContent(type="text", text=text)],
+            "isError": True,
+        }
+    )
+
+
+def _child_required_scopes(child_config: Mapping[str, Any]) -> list[str]:
+    """One child's declared ``required_scopes``, validated.
+
+    Accepts either a list or a whitespace-separated string; anything else is a
+    configuration error rather than an implicitly empty requirement.
+    """
+
+    configured_scopes = child_config.get("required_scopes", [])
+    if isinstance(configured_scopes, str):
+        configured_scopes = configured_scopes.split()
+    if not isinstance(configured_scopes, list) or not all(
+        isinstance(scope, str) and 1 <= len(scope) <= 128 for scope in configured_scopes
+    ):
+        raise ToolError("Child MCP scope configuration is invalid")
+    return configured_scopes
+
+
+def _child_tool_admitted(
+    tool_name: str, enabled_tools: Any, disabled_tools: Any
+) -> bool:
+    """Whether one child tool passes its catalog entry's enable/disable filters."""
+
+    import fnmatch
+
+    if enabled_tools is not None and not any(
+        fnmatch.fnmatch(tool_name, pat) for pat in enabled_tools
+    ):
+        logger.info("Skipping a non-whitelisted MCP child tool")
+        return False
+    if disabled_tools and any(
+        fnmatch.fnmatch(tool_name, pat) for pat in disabled_tools
+    ):
+        logger.info("Skipping a disabled MCP child tool")
+        return False
+    return True
 
 
 def _mediate_langfuse_kg_ingestion(
@@ -509,6 +627,54 @@ def _mediate_langfuse_kg_ingestion(
     ingest_read_result(action, payload)
 
 
+def _bounded_catalog_name(name: Any) -> bool:
+    """Whether one child-supplied catalog identifier is within its boundary."""
+
+    return (
+        isinstance(name, str)
+        and 1 <= len(name.encode("utf-8")) <= 256
+        and all(ord(character) >= 32 for character in name)
+    )
+
+
+def _bounded_tool_annotations(tool: Any) -> dict | None:
+    """One child tool's annotations as a plain dict, or ``None`` when absent."""
+
+    annotations = getattr(tool, "annotations", None)
+    if annotations is None or isinstance(annotations, dict):
+        return annotations
+    model_dump = getattr(annotations, "model_dump", None)
+    if not callable(model_dump):
+        raise RuntimeError("MCP child tool catalog is invalid")
+    dumped = model_dump(mode="json")
+    if not isinstance(dumped, dict):
+        raise RuntimeError("MCP child tool catalog is invalid")
+    return dumped
+
+
+def _bounded_tool_entry(tool: Any) -> dict[str, Any]:
+    """Project and validate ONE child tool descriptor."""
+
+    name = getattr(tool, "name", None)
+    description = getattr(tool, "description", "") or ""
+    input_schema = getattr(tool, "input_schema", None) or {}
+    annotations = _bounded_tool_annotations(tool)
+    if (
+        not _bounded_catalog_name(name)
+        or not isinstance(description, str)
+        or not isinstance(input_schema, dict)
+    ):
+        raise RuntimeError("MCP child tool catalog is invalid")
+    item: dict[str, Any] = {
+        "name": name,
+        "description": description,
+        "inputSchema": input_schema,
+    }
+    if annotations is not None:
+        item["annotations"] = annotations
+    return item
+
+
 def _bounded_tool_catalog(raw_tools: Any) -> list[dict[str, Any]]:
     """Project one child catalog into a bounded, JSON-compatible shape.
 
@@ -524,34 +690,7 @@ def _bounded_tool_catalog(raw_tools: Any) -> list[dict[str, Any]]:
         or len(raw_tools) > _MAX_DISCOVERED_TOOLS
     ):
         raise RuntimeError("MCP child tool catalog exceeded its boundary")
-    tools: list[dict[str, Any]] = []
-    for tool in raw_tools:
-        name = getattr(tool, "name", None)
-        description = getattr(tool, "description", "") or ""
-        input_schema = getattr(tool, "input_schema", None) or {}
-        annotations = getattr(tool, "annotations", None)
-        if annotations is not None and not isinstance(annotations, dict):
-            model_dump = getattr(annotations, "model_dump", None)
-            if not callable(model_dump):
-                raise RuntimeError("MCP child tool catalog is invalid")
-            annotations = model_dump(mode="json")
-        if (
-            not isinstance(name, str)
-            or not 1 <= len(name.encode("utf-8")) <= 256
-            or any(ord(character) < 32 for character in name)
-            or not isinstance(description, str)
-            or not isinstance(input_schema, dict)
-            or (annotations is not None and not isinstance(annotations, dict))
-        ):
-            raise RuntimeError("MCP child tool catalog is invalid")
-        item: dict[str, Any] = {
-            "name": name,
-            "description": description,
-            "inputSchema": input_schema,
-        }
-        if annotations is not None:
-            item["annotations"] = annotations
-        tools.append(item)
+    tools: list[dict[str, Any]] = [_bounded_tool_entry(tool) for tool in raw_tools]
     try:
         _assert_bounded_json_value(tools, max_nodes=_MAX_CATALOG_NODES)
     except ToolError:
@@ -585,6 +724,55 @@ def _tool_catalog_digest(tools: list[MCPTool]) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
+def _assert_bounded_resource_list(raw_resources: Any) -> None:
+    """Reject a child ``resources/list`` payload that is not a bounded sequence."""
+
+    if not isinstance(raw_resources, list | tuple):
+        raise RuntimeError("MCP child resource catalog is invalid")
+    if len(raw_resources) > _MAX_DISCOVERED_TOOLS:
+        raise RuntimeError("MCP child resource catalog exceeded its boundary")
+
+
+def _bounded_skill_entry(resource: Any) -> dict[str, Any] | None:
+    """Project ONE ``skill://`` resource, or ``None`` when it is not a skill."""
+
+    uri = getattr(resource, "uri", None)
+    uri_text = str(uri) if uri is not None else ""
+    match = _SKILL_RESOURCE_RE.match(uri_text)
+    if not match:
+        return None
+    name = match.group("name")
+    description = getattr(resource, "description", "") or ""
+    if not _bounded_catalog_name(name) or not isinstance(description, str):
+        raise RuntimeError("MCP child resource catalog is invalid")
+    return {"name": name, "uri": uri_text, "description": description}
+
+
+def _bounded_prompt_entry(resource: Any) -> dict[str, Any] | None:
+    """Project ONE ``prompt://`` resource, or ``None`` when it is not a prompt."""
+
+    uri = getattr(resource, "uri", None)
+    uri_text = str(uri) if uri is not None else ""
+    match = _PROMPT_RESOURCE_RE.match(uri_text)
+    if not match:
+        return None
+    provider = match.group("provider")
+    name = match.group("name")
+    description = getattr(resource, "description", "") or ""
+    if (
+        not _bounded_catalog_name(name)
+        or not _bounded_catalog_name(provider)
+        or not isinstance(description, str)
+    ):
+        raise RuntimeError("MCP child resource catalog is invalid")
+    return {
+        "name": name,
+        "provider": provider,
+        "uri": uri_text,
+        "description": description,
+    }
+
+
 def _bounded_skill_catalog(raw_resources: Any) -> list[dict[str, Any]]:
     """Project a probed child's Resources into its Skills-over-MCP subset.
 
@@ -596,28 +784,14 @@ def _bounded_skill_catalog(raw_resources: Any) -> list[dict[str, Any]]:
     validated exactly like :func:`_bounded_tool_catalog` so a hostile/
     misbehaving child cannot force an unbounded catalog into the KG.
     """
-    if not isinstance(raw_resources, list | tuple):
-        raise RuntimeError("MCP child resource catalog is invalid")
-    if len(raw_resources) > _MAX_DISCOVERED_TOOLS:
-        raise RuntimeError("MCP child resource catalog exceeded its boundary")
+    _assert_bounded_resource_list(raw_resources)
 
     skills: list[dict[str, Any]] = []
     for resource in raw_resources:
-        uri = getattr(resource, "uri", None)
-        uri_text = str(uri) if uri is not None else ""
-        match = _SKILL_RESOURCE_RE.match(uri_text)
-        if not match:
+        entry = _bounded_skill_entry(resource)
+        if entry is None:
             continue
-        name = match.group("name")
-        description = getattr(resource, "description", "") or ""
-        if (
-            not isinstance(name, str)
-            or not 1 <= len(name.encode("utf-8")) <= 256
-            or any(ord(character) < 32 for character in name)
-            or not isinstance(description, str)
-        ):
-            raise RuntimeError("MCP child resource catalog is invalid")
-        skills.append({"name": name, "uri": uri_text, "description": description})
+        skills.append(entry)
         if len(skills) > _MAX_DISCOVERED_SKILLS:
             raise RuntimeError("MCP child skill catalog exceeded its boundary")
     try:
@@ -640,39 +814,14 @@ def _bounded_prompt_catalog(raw_resources: Any) -> list[dict[str, Any]]:
     :func:`_bounded_skill_catalog` so a hostile/misbehaving child cannot
     force an unbounded catalog into the KG.
     """
-    if not isinstance(raw_resources, list | tuple):
-        raise RuntimeError("MCP child resource catalog is invalid")
-    if len(raw_resources) > _MAX_DISCOVERED_TOOLS:
-        raise RuntimeError("MCP child resource catalog exceeded its boundary")
+    _assert_bounded_resource_list(raw_resources)
 
     prompts: list[dict[str, Any]] = []
     for resource in raw_resources:
-        uri = getattr(resource, "uri", None)
-        uri_text = str(uri) if uri is not None else ""
-        match = _PROMPT_RESOURCE_RE.match(uri_text)
-        if not match:
+        entry = _bounded_prompt_entry(resource)
+        if entry is None:
             continue
-        provider = match.group("provider")
-        name = match.group("name")
-        description = getattr(resource, "description", "") or ""
-        if (
-            not isinstance(name, str)
-            or not 1 <= len(name.encode("utf-8")) <= 256
-            or any(ord(character) < 32 for character in name)
-            or not isinstance(provider, str)
-            or not 1 <= len(provider.encode("utf-8")) <= 256
-            or any(ord(character) < 32 for character in provider)
-            or not isinstance(description, str)
-        ):
-            raise RuntimeError("MCP child resource catalog is invalid")
-        prompts.append(
-            {
-                "name": name,
-                "provider": provider,
-                "uri": uri_text,
-                "description": description,
-            }
-        )
+        prompts.append(entry)
         if len(prompts) > _MAX_DISCOVERED_PROMPTS:
             raise RuntimeError("MCP child prompt catalog exceeded its boundary")
     try:
@@ -855,12 +1004,22 @@ def _close_runtime_child_policy(policy: Any) -> None:
         logger.error("MCP child runtime policy cleanup failed")
 
 
-def _prepare_runtime_child_policy(cfg: dict[str, Any]) -> tuple[dict[str, Any], Any]:
-    """Resolve and materialize one optional provider-neutral child policy."""
+# The method surface every provider-neutral child policy must implement before
+# it is allowed to shape a child's transport.
+_RUNTIME_CHILD_POLICY_METHODS = (
+    "child_environment",
+    "close",
+    "fingerprint_catalog",
+    "allows_tool",
+    "transport_config",
+    "verify_before_spawn",
+)
+
+
+def _runtime_child_policy_names(cfg: dict[str, Any]) -> tuple[str, str]:
+    """Validate one child's policy/profile selection and return both names."""
 
     selected = cfg.get("runtime_policy")
-    if selected in (None, ""):
-        return cfg, None
     policy_name = str(selected)
     profile_name = cfg.get("provider_profile")
     if (
@@ -875,47 +1034,202 @@ def _prepare_runtime_child_policy(cfg: dict[str, Any]) -> tuple[dict[str, Any], 
         )
     ):
         raise RuntimeError("MCP child runtime policy selection is invalid")
+    return policy_name, profile_name
+
+
+def _runtime_child_policy_transport(policy: Any) -> dict[str, Any]:
+    """Verify one materialized policy's method surface and transport config."""
+
+    if not all(
+        callable(getattr(policy, method, None))
+        for method in _RUNTIME_CHILD_POLICY_METHODS
+    ):
+        raise RuntimeError("MCP child runtime policy is invalid")
+    transport = policy.transport_config()
+    if (
+        not isinstance(transport, dict)
+        or not transport
+        or len(transport) > 16
+        or not set(transport).issubset(
+            _RUNTIME_CHILD_POLICY_TRANSPORT_KEYS - {"provider_profile"}
+        )
+        or bool(transport.get("command")) == bool(transport.get("url"))
+    ):
+        raise RuntimeError("MCP child runtime policy transport is invalid")
+    return transport
+
+
+def _runtime_child_policy_config(
+    cfg: dict[str, Any], transport: dict[str, Any], policy: Any
+) -> dict[str, Any]:
+    """The child config the policy's transport replaces, with the policy attached."""
+
+    prepared = {
+        key: value
+        for key, value in cfg.items()
+        if key not in {"provider_profile", "runtime_policy"}
+    }
+    prepared.update(transport)
+    prepared[_RUNTIME_CHILD_POLICY_INTERNAL_KEY] = policy
+    if len(prepared) > 128:
+        raise RuntimeError("MCP child runtime policy transport is invalid")
+    return prepared
+
+
+def _prepare_runtime_child_policy(cfg: dict[str, Any]) -> tuple[dict[str, Any], Any]:
+    """Resolve and materialize one optional provider-neutral child policy."""
+
+    if cfg.get("runtime_policy") in (None, ""):
+        return cfg, None
+    policy_name, profile_name = _runtime_child_policy_names(cfg)
 
     from agent_utilities.core.config import config as agent_config
 
     factory = _load_runtime_child_policy_factory(policy_name)
+    policy: Any = _ABSENT
     try:
         policy = factory(profile_name=profile_name, config=agent_config)
-        required = (
-            "child_environment",
-            "close",
-            "fingerprint_catalog",
-            "allows_tool",
-            "transport_config",
-            "verify_before_spawn",
-        )
-        if not all(callable(getattr(policy, method, None)) for method in required):
-            raise RuntimeError("MCP child runtime policy is invalid")
-        transport = policy.transport_config()
-        if (
-            not isinstance(transport, dict)
-            or not transport
-            or len(transport) > 16
-            or not set(transport).issubset(
-                _RUNTIME_CHILD_POLICY_TRANSPORT_KEYS - {"provider_profile"}
-            )
-            or bool(transport.get("command")) == bool(transport.get("url"))
-        ):
-            raise RuntimeError("MCP child runtime policy transport is invalid")
-        prepared = {
-            key: value
-            for key, value in cfg.items()
-            if key not in {"provider_profile", "runtime_policy"}
-        }
-        prepared.update(transport)
-        prepared[_RUNTIME_CHILD_POLICY_INTERNAL_KEY] = policy
-        if len(prepared) > 128:
-            raise RuntimeError("MCP child runtime policy transport is invalid")
-        return prepared, policy
+        transport = _runtime_child_policy_transport(policy)
+        return _runtime_child_policy_config(cfg, transport, policy), policy
     except Exception:
-        if "policy" in locals():
+        if policy is not _ABSENT:
             _close_runtime_child_policy(policy)
         raise RuntimeError("MCP child runtime policy is unavailable") from None
+
+
+def _child_transport_is_remote(cfg: dict) -> bool | None:
+    """Whether one child speaks HTTP; ``None`` when its declaration is invalid.
+
+    A child is remote (HTTP) when it declares a ``url`` or an http/sse
+    ``transport``; otherwise it is a local stdio subprocess run via
+    ``command``. Either kind loads transparently from the same config.
+    """
+
+    command = cfg.get("command")
+    url = _resolve_runtime_value(cfg.get("url", ""), sensitive=False)
+    explicit_transport = str(cfg.get("transport", "")).lower()
+    if (
+        explicit_transport not in {"", "streamable-http", "sse"}
+        or bool(command) == bool(url)
+        or (explicit_transport and not url)
+    ):
+        logger.error("MCP child transport declaration is invalid")
+        return None
+    is_remote = bool(url) or explicit_transport in ("streamable-http", "sse")
+    if not command and not is_remote:
+        logger.warning("MCP child has neither command nor URL; skipping")
+        return None
+    return is_remote
+
+
+def _child_timeout_admissible(cfg: dict) -> bool:
+    """Whether one child's declared call timeout is inside the safety boundary."""
+
+    try:
+        timeout = float(cfg.get("timeout", 300.0))
+    except (TypeError, ValueError):
+        timeout = 0.0
+    if not 0.001 <= timeout <= 3_600.0:
+        logger.error("MCP child timeout is outside the safety boundary")
+        return False
+    return True
+
+
+def _child_pool_size(cfg: dict, is_remote: bool) -> int | None:
+    """Session-pool sizing (CONCEPT:AU-ECO.mcp.profile-differences-from-client).
+
+    Remote children may hold N independent connections for parallel in-flight
+    calls; stdio children are single-pipe and always keep exactly one session.
+    ``None`` means the declaration is outside the safety boundary.
+    """
+
+    if not is_remote:
+        return 1
+    from agent_utilities.core.config import config as agent_config
+
+    try:
+        pool_size = int(cfg.get("pool_size") or agent_config.mcp_child_pool_size)
+    except (TypeError, ValueError):
+        pool_size = 0
+    if not 1 <= pool_size <= 64:
+        logger.error("MCP child pool size is outside the safety boundary")
+        return None
+    return pool_size
+
+
+def _child_launch_shape(cfg: dict) -> tuple[bool, int] | None:
+    """``(is_remote, pool_size)`` for one child, or ``None`` when any part of its
+    declaration is outside a safety boundary (already logged by the gate that
+    rejected it)."""
+
+    is_remote = _child_transport_is_remote(cfg)
+    if is_remote is None or not _child_timeout_admissible(cfg):
+        return None
+    pool_size = _child_pool_size(cfg, is_remote)
+    if pool_size is None:
+        return None
+    return is_remote, pool_size
+
+
+def _child_call_timeout(cfg: dict, timeout: float | None) -> float:
+    """One ephemeral child call's deadline in seconds; ``0.0`` when the
+    declaration is unusable (the caller rejects anything outside its boundary)."""
+
+    try:
+        return float(timeout if timeout is not None else cfg.get("timeout", 30.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _probe_timeout_seconds(cfg: dict, timeout: float | None) -> float:
+    """This probe's own deadline in seconds; ``0.0`` when the declaration is
+    unusable (the caller rejects anything outside its safety boundary)."""
+
+    try:
+        return float(
+            timeout
+            if timeout is not None
+            else cfg.get("probe_timeout", cfg.get("timeout", 10.0))
+        )
+    except (TypeError, ValueError):
+        return 0.0
+
+
+async def _run_bounded_probe(probe: Any, probe_to: float) -> tuple[dict, Any]:
+    """Run one probe coroutine under its deadline into ``(info, binding)``.
+
+    Every failure mode becomes an honest ``error`` entry rather than an
+    exception: a probe of an unreachable server must not fail the sweep.
+    """
+
+    try:
+        tools, skills, prompts, binding = await asyncio.wait_for(
+            probe(), timeout=probe_to
+        )
+    except TimeoutError:
+        return (
+            {
+                "tools": [],
+                "skills": [],
+                "prompts": [],
+                "error": f"timeout after {probe_to:g}s",
+            },
+            None,
+        )
+    except Exception as e:
+        return (
+            {
+                "tools": [],
+                "skills": [],
+                "prompts": [],
+                "error": _format_probe_error(e),
+            },
+            None,
+        )
+    return (
+        {"tools": tools, "skills": skills, "prompts": prompts, "error": None},
+        binding,
+    )
 
 
 def _request_capabilities() -> frozenset[str] | None:
@@ -1011,6 +1325,19 @@ def _tokenize_server_name(name: str) -> list[str]:
 _INSTANCE_ID_RE = re.compile(r"^[a-z]{0,4}\d+[a-z0-9]*$")
 
 
+def _instance_id_server_prefix(meaningful: list[str]) -> str | None:
+    """``<initials>_<id>`` when the name ends in a neutral instance id, else ``None``.
+
+    Keeps multi-instance servers legible and distinct (systems-manager-mcp-edge101
+    → ``sm_edge101``).
+    """
+    if len(meaningful) < 2 or not _INSTANCE_ID_RE.match(meaningful[-1]):
+        return None
+    base = meaningful[:-1]
+    acronym = "".join(t[0] for t in base) or base[0][:2]
+    return f"{acronym}_{meaningful[-1]}"
+
+
 def auto_server_prefix(server_name: str) -> str:
     """Algorithmically derive a short, readable prefix for ANY MCP server name —
     no lookup table, so out-of-ecosystem / third-party servers are fully
@@ -1026,10 +1353,9 @@ def auto_server_prefix(server_name: str) -> str:
     meaningful = [t for t in tokens if t not in _PREFIX_NOISE_TOKENS] or tokens
     if not meaningful:
         return "mcp"
-    if len(meaningful) >= 2 and _INSTANCE_ID_RE.match(meaningful[-1]):
-        base = meaningful[:-1]
-        acronym = "".join(t[0] for t in base) or base[0][:2]
-        return f"{acronym}_{meaningful[-1]}"
+    instance_prefix = _instance_id_server_prefix(meaningful)
+    if instance_prefix is not None:
+        return instance_prefix
     if len(meaningful) >= 2:
         acronym = "".join(t[0] for t in meaningful)
         if len(acronym) >= 2:
@@ -1455,6 +1781,243 @@ def current_remote_oauth_grant_bindings(actor: Any) -> tuple[Any, ...]:
     return tuple(sorted(bindings, key=lambda binding: binding.fingerprint))
 
 
+#: The three native Tasks methods this gateway will route at all, and the
+#: subset that MUTATES a child's task store (fenced harder, never retried).
+_TASKS_METHODS = frozenset({"tasks/get", "tasks/update", "tasks/cancel"})
+_TASKS_MUTATIONS = frozenset({"tasks/update", "tasks/cancel"})
+
+
+class _TaskRoute(TypedDict):
+    """The verified, immutable facts one native-Tasks request is routed on.
+
+    Frozen at admission time so ``before_send`` can prove that the catalog
+    generation, the child's connection generation, and (for stdio) its channel
+    secret are all still the ones the route was authorized under.
+    """
+
+    method: str
+    server: str
+    mutation: bool
+    is_remote: bool
+    identity: dict[str, Any]
+    params_type: Any
+    result_type: Any
+    admission_epoch: int
+    runtime_generation: int | None
+    admission_secret: str | None
+    base_meta: dict[str, Any]
+
+
+def _tasks_route_data(
+    params: Mapping[str, Any],
+    route: Mapping[str, Any] | None,
+    extension_id: str,
+) -> dict[str, Any]:
+    """One Tasks request's owning-server route.
+
+    An explicit ``route`` wins; otherwise it is read from the request's own
+    ``_meta`` extension block.
+    """
+    route_data = dict(route or {})
+    if route_data:
+        return route_data
+    raw_meta = params.get("_meta")
+    raw_extension = (
+        raw_meta.get(extension_id) if isinstance(raw_meta, Mapping) else None
+    )
+    return dict(raw_extension) if isinstance(raw_extension, Mapping) else {}
+
+
+def _tasks_route_server(route_data: Mapping[str, Any], revision: str) -> str:
+    """The validated owning-server name carried by one Tasks route."""
+    server_name = route_data.get("server")
+    if not isinstance(server_name, str) or not server_name.strip():
+        raise ToolError("Tasks request has no owning-server route")
+    if route_data.get("revision") != revision:
+        raise ToolError("Tasks owning-server route revision is unsupported")
+    return server_name.strip()
+
+
+def _tasks_request_models(method: str) -> tuple[Any, Any]:
+    """The ``(params, result)`` models for one Tasks method."""
+    from agent_utilities.mcp.tasks_extension import (
+        _AckResult,
+        _CancelTaskParams,
+        _GetTaskParams,
+        _GetTaskResult,
+        _UpdateTaskParams,
+    )
+
+    return {
+        "tasks/get": (_GetTaskParams, _GetTaskResult),
+        "tasks/update": (_UpdateTaskParams, _AckResult),
+        "tasks/cancel": (_CancelTaskParams, _AckResult),
+    }[method]
+
+
+def _assert_tasks_caller_present(
+    caller: Mapping[str, Any] | None, route_data: Mapping[str, Any]
+) -> None:
+    """A task delegation is only ever minted for a VERIFIED caller."""
+    if isinstance(route_data.get("caller"), Mapping) and not isinstance(
+        caller, Mapping
+    ):
+        raise ToolError("Tasks route caller is not verified")
+    if not isinstance(caller, Mapping):
+        raise ToolError(
+            "Authenticated task delegation is unavailable; use portable rm_jobs tools"
+        )
+
+
+def _assert_tasks_signing_secret(server_name: str) -> None:
+    """Fail closed unless the shared task-delegation signing secret is present."""
+    try:
+        from agent_utilities.core.config import setting
+
+        if not str(setting("AGENT_UTILITIES_TOKEN_SECRET", "") or "").strip():
+            raise RuntimeError("shared task-delegation signing secret is unavailable")
+    except Exception as exc:
+        logger.warning(
+            "Tasks route delegation proof unavailable for child %s (%s)",
+            server_name,
+            type(exc).__name__,
+        )
+        raise ToolError(
+            "Authenticated task delegation is unavailable; use portable rm_jobs tools"
+        ) from None
+
+
+def _tasks_caller_identity(caller: Mapping[str, Any]) -> dict[str, Any]:
+    """The verified tenant/owner/scopes a Tasks delegation is minted for."""
+    identity = {
+        "tenant": str(caller.get("tenant") or ""),
+        "owner": str(caller.get("owner") or ""),
+        "scopes": sorted(str(scope) for scope in caller.get("scopes", ())),
+    }
+    if not identity["tenant"] or not identity["owner"]:
+        raise ToolError("Tasks route caller is not verified")
+    return identity
+
+
+def _build_task_request(
+    route: _TaskRoute, params: Mapping[str, Any], current_secret: str | None
+) -> Any:
+    """One outgoing Tasks request: envelope, delegation proof, and channel proof."""
+    from agent_utilities.mcp.tasks_extension import (
+        TASKS_EXTENSION_ID,
+        TASKS_EXTENSION_REVISION,
+        _channel_proof,
+        _mint_delegation_token,
+    )
+
+    server_name = route["server"]
+    try:
+        delegation_token = _mint_delegation_token(
+            route["method"],
+            params,
+            server=server_name,
+            revision=TASKS_EXTENSION_REVISION,
+            caller=route["identity"],
+        )
+    except Exception as exc:
+        logger.warning(
+            "Tasks route delegation proof unavailable for child %s (%s)",
+            server_name,
+            type(exc).__name__,
+        )
+        raise ToolError(
+            "Authenticated task delegation is unavailable; use portable rm_jobs tools"
+        ) from None
+    envelope: dict[str, Any] = {
+        "server": server_name,
+        "revision": TASKS_EXTENSION_REVISION,
+        "caller": route["identity"],
+        "delegation": {
+            "issuer": "mcp-multiplexer",
+            "token": delegation_token,
+        },
+    }
+    if not route["is_remote"]:
+        generation_secret = str(current_secret or "").strip()
+        if not 32 <= len(generation_secret) <= 512:
+            raise ToolError(
+                "Authenticated stdio task channel is unavailable; "
+                "use portable rm_jobs tools"
+            )
+        envelope["delegation"]["channel"] = _channel_proof(
+            generation_secret, delegation_token
+        )
+    outgoing = dict(params)
+    outgoing_meta = dict(route["base_meta"])
+    outgoing_meta[TASKS_EXTENSION_ID] = envelope
+    outgoing["_meta"] = outgoing_meta
+    parsed = route["params_type"].model_validate(outgoing)
+    request_type = mcp_types.Request[route["params_type"], str]
+    return request_type(method=route["method"], params=parsed)
+
+
+def _assert_task_mutation_fence(
+    route: _TaskRoute, current_generation: int, current_secret: str | None
+) -> None:
+    """The generation/channel fencing only a Tasks MUTATION must satisfy."""
+    runtime_generation = route["runtime_generation"]
+    if runtime_generation is not None and current_generation != runtime_generation:
+        raise ToolError("Tasks mutation connection generation changed before send")
+    if not route["is_remote"] and current_secret != route["admission_secret"]:
+        raise ToolError("Tasks mutation connection generation changed before send")
+
+
+def _assert_task_route_current(
+    mux: MCPMultiplexer,
+    route: _TaskRoute,
+    runtime: Any,
+    current_generation: int,
+    current_secret: str | None,
+) -> None:
+    """Revalidate one Tasks route immediately before its request is sent."""
+    server_name = route["server"]
+    mutation = route["mutation"]
+    if (
+        mux._catalog_epoch != route["admission_epoch"]
+        or mux.children.get(server_name) is not runtime
+        or not mux._tasks_runtime_capable(server_name, runtime)
+    ):
+        raise ToolError(
+            "Tasks mutation route was retired before the request was sent"
+            if mutation
+            else "Tasks read route was retired before the request was sent"
+        )
+    if not route["is_remote"] and not 32 <= len(str(current_secret or "")) <= 512:
+        raise ToolError(
+            "Authenticated stdio task channel is unavailable; "
+            "use portable rm_jobs tools"
+        )
+    if mutation:
+        _assert_task_mutation_fence(route, current_generation, current_secret)
+
+
+class _DiscoveryRanking(TypedDict):
+    """The per-call inputs every ranked ``find_tools`` row is scored against."""
+
+    query: str
+    semantic: dict[str, float]
+    catalog: dict[str, dict]
+    loaded: set[str]
+
+
+class _EmbeddingTargets(TypedDict):
+    """Every probed capability to score, plus the not-yet-embedded batch.
+
+    ``names`` is the full ``(bare_name, cache_key)`` set to score; the two
+    ``pending_*`` lists are the parallel subset that still needs an embedding
+    computed, so only genuinely-uncached text is sent to the model.
+    """
+
+    names: list[tuple[str, str]]
+    pending_text: list[str]
+    pending_key: list[str]
+
+
 class MCPMultiplexer:
     """Aggregates and proxies multiple MCP servers over a single stdio connection."""
 
@@ -1615,6 +2178,66 @@ class MCPMultiplexer:
         _LIVE_MULTIPLEXERS.add(self)
         _register_child_health_sampler()
 
+    def _admit_proxied_call(self, prefixed_name: str) -> tuple[str, str, dict, Any]:
+        """Resolve and authorize one proxied call.
+
+        Returns ``(server_name, original_name, child_config, runtime)``; raises
+        if the tool/server is unknown, disabled, inactive, or not admitted by
+        the child's runtime policy.
+        """
+        if prefixed_name not in self.tool_to_server:
+            raise ValueError("Tool is not registered in multiplexer")
+
+        server_name, original_name = self.tool_to_server[prefixed_name]
+        child_config = self.load_catalog().get(server_name)
+        if child_config is None:
+            raise ToolError("MCP child is no longer enabled")
+        _require_fleet_capability("delegate", _child_required_scopes(child_config))
+        runtime = self.children.get(server_name)
+        if runtime is None:
+            raise RuntimeError("MCP child session is not active")
+        policy = self._child_runtime_policies.get(server_name)
+        if (
+            policy is not None
+            and original_name
+            not in self._child_policy_admitted_tools.get(server_name, frozenset())
+        ):
+            raise ToolError("MCP child tool is not admitted by runtime policy")
+        return server_name, original_name, child_config, runtime
+
+    async def _dispatch_proxied_call(
+        self,
+        server_name: str,
+        original_name: str,
+        child_config: dict,
+        runtime: Any,
+        arguments: dict[str, Any],
+    ) -> MCPCallToolResult:
+        """Forward one admitted call through the child's hardened runtime
+        (per-server concurrency limit + bounded queue)."""
+        revision_before = self._child_schema_revisions.get(server_name, 0)
+        result = await runtime.call_tool(original_name, arguments)
+        # A reconnect can complete while the call above is waiting for the
+        # runtime's ready gate.  Do not let that freshly recovered child
+        # serve through a route whose outer schema could not be refreshed.
+        if server_name in self._child_schema_refresh_errors:
+            return _child_error_result("schema_refresh_failed")
+        if (
+            self._host_mcp is not None
+            and self._child_schema_revisions.get(server_name, 0) != revision_before
+        ):
+            # This call supplied the request context that observed the
+            # reconnect.  A detached recovery queues a durable revision;
+            # use this live request to deliver it to this session.
+            await self.notify_pending_tools_changed()
+        _mediate_langfuse_kg_ingestion(
+            child_config=child_config,
+            original_name=original_name,
+            arguments=arguments,
+            result=result,
+        )
+        return result
+
     async def call_proxied_tool(
         self, prefixed_name: str, arguments: dict[str, Any] | None = None
     ) -> MCPCallToolResult:
@@ -1626,77 +2249,18 @@ class MCPMultiplexer:
         """
         _require_fleet_capability("delegate")
         logger.info("Calling delegated MCP tool")
-        _assert_bounded_delegated_value(arguments or {})
-        if prefixed_name not in self.tool_to_server:
-            raise ValueError("Tool is not registered in multiplexer")
-
-        server_name, original_name = self.tool_to_server[prefixed_name]
-        child_config = self.load_catalog().get(server_name)
-        if child_config is None:
-            raise ToolError("MCP child is no longer enabled")
-        configured_scopes = child_config.get("required_scopes", [])
-        if isinstance(configured_scopes, str):
-            configured_scopes = configured_scopes.split()
-        if not isinstance(configured_scopes, list) or not all(
-            isinstance(scope, str) and 1 <= len(scope) <= 128
-            for scope in configured_scopes
-        ):
-            raise ToolError("Child MCP scope configuration is invalid")
-        _require_fleet_capability("delegate", configured_scopes)
-        runtime = self.children.get(server_name)
-        if runtime is None:
-            raise RuntimeError("MCP child session is not active")
-        policy = self._child_runtime_policies.get(server_name)
-        if (
-            policy is not None
-            and original_name
-            not in self._child_policy_admitted_tools.get(server_name, frozenset())
-        ):
-            raise ToolError("MCP child tool is not admitted by runtime policy")
+        call_arguments = arguments or {}
+        _assert_bounded_delegated_value(call_arguments)
+        server_name, original_name, child_config, runtime = self._admit_proxied_call(
+            prefixed_name
+        )
         if server_name in self._child_schema_refresh_errors:
-            return mcp_types.CallToolResult.model_validate(
-                {
-                    "content": [
-                        mcp_types.TextContent(type="text", text="schema_refresh_failed")
-                    ],
-                    "isError": True,
-                }
-            )
+            return _child_error_result("schema_refresh_failed")
 
         try:
-            # Forward the call through the child's hardened runtime
-            # (per-server concurrency limit + bounded queue).
-            revision_before = self._child_schema_revisions.get(server_name, 0)
-            result = await runtime.call_tool(original_name, arguments or {})
-            # A reconnect can complete while the call above is waiting for the
-            # runtime's ready gate.  Do not let that freshly recovered child
-            # serve through a route whose outer schema could not be refreshed.
-            if server_name in self._child_schema_refresh_errors:
-                return mcp_types.CallToolResult.model_validate(
-                    {
-                        "content": [
-                            mcp_types.TextContent(
-                                type="text", text="schema_refresh_failed"
-                            )
-                        ],
-                        "isError": True,
-                    }
-                )
-            if (
-                self._host_mcp is not None
-                and self._child_schema_revisions.get(server_name, 0) != revision_before
-            ):
-                # This call supplied the request context that observed the
-                # reconnect.  A detached recovery queues a durable revision;
-                # use this live request to deliver it to this session.
-                await self.notify_pending_tools_changed()
-            _mediate_langfuse_kg_ingestion(
-                child_config=child_config,
-                original_name=original_name,
-                arguments=arguments or {},
-                result=result,
+            return await self._dispatch_proxied_call(
+                server_name, original_name, child_config, runtime, call_arguments
             )
-            return result
         except MCPChildError as e:
             # Typed per-child failure (busy/restarting/failed/circuit-open):
             # the CALLER-facing result is deliberately just the class name (so
@@ -1708,23 +2272,9 @@ class MCPMultiplexer:
                 type(e).__name__,
                 redact_for_log(e),
             )
-            return mcp_types.CallToolResult.model_validate(
-                {
-                    "content": [
-                        mcp_types.TextContent(type="text", text=type(e).__name__)
-                    ],
-                    "isError": True,
-                }
-            )
+            return _child_error_result(type(e).__name__)
         except Exception as e:
-            return mcp_types.CallToolResult.model_validate(
-                {
-                    "content": [
-                        mcp_types.TextContent(type="text", text=public_error_text(e))
-                    ],
-                    "isError": True,
-                }
-            )
+            return _child_error_result(public_error_text(e))
 
     async def call_oauth_gated_tool(
         self,
@@ -1766,69 +2316,72 @@ class MCPMultiplexer:
         cfg = self.load_catalog().get(server_name)
         if cfg is None or not _oauth_gated(cfg):
             raise ToolError("Server is not a configured OAuth-gated remote MCP child")
-        configured_scopes = cfg.get("required_scopes", [])
-        if isinstance(configured_scopes, str):
-            configured_scopes = configured_scopes.split()
-        if not isinstance(configured_scopes, list) or not all(
-            isinstance(scope, str) and 1 <= len(scope) <= 128
-            for scope in configured_scopes
-        ):
-            raise ToolError("Child MCP scope configuration is invalid")
-        _require_fleet_capability("delegate", configured_scopes)
-        _assert_bounded_delegated_value(arguments or {})
-        try:
-            call_timeout = float(
-                timeout if timeout is not None else cfg.get("timeout", 30.0)
-            )
-        except (TypeError, ValueError):
-            call_timeout = 0.0
+        _require_fleet_capability("delegate", _child_required_scopes(cfg))
+        call_arguments = arguments or {}
+        _assert_bounded_delegated_value(call_arguments)
+        call_timeout = _child_call_timeout(cfg, timeout)
         if not 0.001 <= call_timeout <= 300.0:
             raise ToolError("Invalid call timeout")
 
-        async def _call() -> MCPCallToolResult:
-            runtime_cfg, runtime_policy = _prepare_runtime_child_policy(cfg)
-            try:
-                async with contextlib.AsyncExitStack() as stack:
-                    session = await self._open_one_session(
-                        server_name, runtime_cfg, stack
-                    )
-                    if runtime_policy is not None:
-                        tools_result = await session.list_tools()
-                        admitted = self._admit_runtime_policy_tools(
-                            server_name,
-                            runtime_policy,
-                            list(tools_result.tools),
-                            record_state=False,
-                        )
-                        if original_name not in {tool.name for tool in admitted}:
-                            raise ToolError(
-                                "MCP child tool is not admitted by runtime policy"
-                            )
-                    return await session.call_tool(original_name, arguments or {})
-            finally:
-                if runtime_policy is not None:
-                    _close_runtime_child_policy(runtime_policy)
-
         try:
-            return await asyncio.wait_for(_call(), timeout=call_timeout)
+            return await asyncio.wait_for(
+                self._call_ephemeral_oauth_session(
+                    server_name, original_name, cfg, call_arguments
+                ),
+                timeout=call_timeout,
+            )
         except TimeoutError:
-            return mcp_types.CallToolResult.model_validate(
-                {
-                    "content": [
-                        mcp_types.TextContent(type="text", text="MCPChildTimeout")
-                    ],
-                    "isError": True,
-                }
-            )
+            return _child_error_result("MCPChildTimeout")
         except Exception as e:
-            return mcp_types.CallToolResult.model_validate(
-                {
-                    "content": [
-                        mcp_types.TextContent(type="text", text=public_error_text(e))
-                    ],
-                    "isError": True,
-                }
-            )
+            return _child_error_result(public_error_text(e))
+
+    async def _assert_oauth_tool_admitted(
+        self,
+        server_name: str,
+        original_name: str,
+        session: Any,
+        runtime_policy: Any,
+    ) -> None:
+        """Refuse a tool this child's runtime policy does not admit.
+
+        ``record_state=False``: an ephemeral per-principal session must never
+        write into the process-wide admitted-tool map.
+        """
+        if runtime_policy is None:
+            return
+        tools_result = await session.list_tools()
+        admitted = self._admit_runtime_policy_tools(
+            server_name,
+            runtime_policy,
+            list(tools_result.tools),
+            record_state=False,
+        )
+        if original_name not in {tool.name for tool in admitted}:
+            raise ToolError("MCP child tool is not admitted by runtime policy")
+
+    async def _call_ephemeral_oauth_session(
+        self,
+        server_name: str,
+        original_name: str,
+        cfg: dict,
+        arguments: dict[str, Any],
+    ) -> MCPCallToolResult:
+        """One tool call over a dedicated session bound to THIS caller's grant.
+
+        The session never joins the shared pool and nothing is cached keyed
+        only by server name, so a per-user OAuth grant is never shared.
+        """
+        runtime_cfg, runtime_policy = _prepare_runtime_child_policy(cfg)
+        try:
+            async with contextlib.AsyncExitStack() as stack:
+                session = await self._open_one_session(server_name, runtime_cfg, stack)
+                await self._assert_oauth_tool_admitted(
+                    server_name, original_name, session, runtime_policy
+                )
+                return await session.call_tool(original_name, arguments)
+        finally:
+            if runtime_policy is not None:
+                _close_runtime_child_policy(runtime_policy)
 
     @staticmethod
     def _tasks_child_capable(initialization: Any) -> bool:
@@ -1882,53 +2435,37 @@ class MCPMultiplexer:
         from agent_utilities.mcp.tasks_extension import (
             TASKS_EXTENSION_ID,
             TASKS_EXTENSION_REVISION,
-            _AckResult,
-            _CancelTaskParams,
-            _channel_proof,
-            _GetTaskParams,
-            _GetTaskResult,
-            _mint_delegation_token,
-            _UpdateTaskParams,
         )
 
-        if method not in {"tasks/get", "tasks/update", "tasks/cancel"}:
+        if method not in _TASKS_METHODS:
             raise ToolError("Unsupported Tasks method")
         if not isinstance(params, Mapping):
             raise ToolError("Tasks request parameters are invalid")
-        route_data = dict(route or {})
-        if not route_data:
-            raw_meta = params.get("_meta")
-            raw_extension = (
-                raw_meta.get(TASKS_EXTENSION_ID)
-                if isinstance(raw_meta, Mapping)
-                else None
-            )
-            if isinstance(raw_extension, Mapping):
-                route_data = dict(raw_extension)
-        server_name = route_data.get("server")
-        if not isinstance(server_name, str) or not server_name.strip():
-            raise ToolError("Tasks request has no owning-server route")
-        server_name = server_name.strip()
-        if route_data.get("revision") != TASKS_EXTENSION_REVISION:
-            raise ToolError("Tasks owning-server route revision is unsupported")
+        route_data = _tasks_route_data(params, route, TASKS_EXTENSION_ID)
+        server_name = _tasks_route_server(route_data, TASKS_EXTENSION_REVISION)
         catalog = self.load_catalog()
         if server_name not in catalog:
             raise ToolError("Tasks owning server is not in the active catalog")
         # Apply the same fleet/delegation authorization used by tool
         # forwarding before a task poll can lazily spawn a child.
         _require_fleet_capability("delegate")
-        configured_scopes = catalog[server_name].get("required_scopes", [])
-        if isinstance(configured_scopes, str):
-            configured_scopes = configured_scopes.split()
-        if not isinstance(configured_scopes, list) or not all(
-            isinstance(scope, str) and 1 <= len(scope) <= 128
-            for scope in configured_scopes
-        ):
-            raise ToolError("Child MCP scope configuration is invalid")
-        _require_fleet_capability("delegate", configured_scopes)
+        _require_fleet_capability(
+            "delegate", _child_required_scopes(catalog[server_name])
+        )
 
-        # Lazy task polling is allowed to mount the owner exactly once, just as
-        # lazy tool loading does. No process-local task state is created.
+        runtime = await self._admit_tasks_owner(server_name)
+        _assert_tasks_caller_present(caller, route_data)
+        task_route = self._build_task_route(
+            method, params, cast("Mapping[str, Any]", caller), server_name, runtime
+        )
+        return await self._send_task_request(params, task_route, runtime)
+
+    async def _admit_tasks_owner(self, server_name: str) -> Any:
+        """Mount (once) and verify the child that owns this task.
+
+        Lazy task polling is allowed to mount the owner exactly once, just as
+        lazy tool loading does. No process-local task state is created.
+        """
         if server_name not in self.children:
             await self.mount_child(server_name)
         runtime = self.children.get(server_name)
@@ -1936,167 +2473,85 @@ class MCPMultiplexer:
             raise ToolError("Tasks owning server is unavailable")
         if not self._tasks_runtime_capable(server_name, runtime):
             raise ToolError("Tasks owning server did not advertise native Tasks")
-        admission_epoch = self._catalog_epoch
+        return runtime
+
+    def _build_task_route(
+        self,
+        method: str,
+        params: Mapping[str, Any],
+        caller: Mapping[str, Any],
+        server_name: str,
+        runtime: Any,
+    ) -> _TaskRoute:
+        """Freeze the verified, immutable facts this Tasks request is routed on.
+
+        Capability negotiation is already checked by the caller; this captures
+        the exact catalog generation, connection generation, and channel secret
+        the route was admitted under, so :func:`_assert_task_route_current` can
+        later prove none of them moved before the request was actually sent.
+        """
         runtime_generation = getattr(runtime, "generation", None)
         if not isinstance(runtime_generation, int):
             runtime_generation = None
-        mutation = method in {"tasks/update", "tasks/cancel"}
-
-        if method == "tasks/get":
-            params_type = _GetTaskParams
-            result_type = _GetTaskResult
-        elif method == "tasks/update":
-            params_type = _UpdateTaskParams
-            result_type = _AckResult
-        else:
-            params_type = _CancelTaskParams
-            result_type = _AckResult
-
+        params_type, result_type = _tasks_request_models(method)
         raw_meta = params.get("_meta")
-        base_meta = dict(raw_meta) if isinstance(raw_meta, Mapping) else {}
-        if isinstance(route_data.get("caller"), Mapping) and not isinstance(
-            caller, Mapping
-        ):
-            raise ToolError("Tasks route caller is not verified")
-        if not isinstance(caller, Mapping):
-            raise ToolError(
-                "Authenticated task delegation is unavailable; use portable rm_jobs tools"
-            )
-        child_cfg = catalog[server_name]
+        child_cfg = self.load_catalog()[server_name]
         explicit_transport = str(child_cfg.get("transport", "")).lower()
         is_remote = bool(child_cfg.get("url")) or explicit_transport in {
             "streamable-http",
             "sse",
         }
-        try:
-            from agent_utilities.core.config import setting
-
-            if not str(setting("AGENT_UTILITIES_TOKEN_SECRET", "") or "").strip():
-                raise RuntimeError(
-                    "shared task-delegation signing secret is unavailable"
-                )
-        except Exception as exc:
-            logger.warning(
-                "Tasks route delegation proof unavailable for child %s (%s)",
-                server_name,
-                type(exc).__name__,
-            )
-            raise ToolError(
-                "Authenticated task delegation is unavailable; use portable rm_jobs tools"
-            ) from None
-
-        identity = {
-            "tenant": str(caller.get("tenant") or ""),
-            "owner": str(caller.get("owner") or ""),
-            "scopes": sorted(str(scope) for scope in caller.get("scopes", ())),
+        _assert_tasks_signing_secret(server_name)
+        return {
+            "method": method,
+            "server": server_name,
+            "mutation": method in _TASKS_MUTATIONS,
+            "is_remote": is_remote,
+            "identity": _tasks_caller_identity(caller),
+            "params_type": params_type,
+            "result_type": result_type,
+            "admission_epoch": self._catalog_epoch,
+            "runtime_generation": runtime_generation,
+            "admission_secret": getattr(runtime, "_task_generation_secret", None),
+            "base_meta": dict(raw_meta) if isinstance(raw_meta, Mapping) else {},
         }
-        if not identity["tenant"] or not identity["owner"]:
-            raise ToolError("Tasks route caller is not verified")
 
-        request_type = mcp_types.Request[params_type, str]
+    async def _send_task_request(
+        self, params: Mapping[str, Any], route: _TaskRoute, runtime: Any
+    ) -> Any:
+        """Send one admitted Tasks request through the child's bounded runtime.
 
-        def _build_request(_current_generation: int, current_secret: str | None) -> Any:
-            try:
-                delegation_token = _mint_delegation_token(
-                    method,
-                    params,
-                    server=server_name,
-                    revision=TASKS_EXTENSION_REVISION,
-                    caller=identity,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Tasks route delegation proof unavailable for child %s (%s)",
-                    server_name,
-                    type(exc).__name__,
-                )
-                raise ToolError(
-                    "Authenticated task delegation is unavailable; use portable rm_jobs tools"
-                ) from None
-            envelope: dict[str, Any] = {
-                "server": server_name,
-                "revision": TASKS_EXTENSION_REVISION,
-                "caller": identity,
-                "delegation": {
-                    "issuer": "mcp-multiplexer",
-                    "token": delegation_token,
-                },
-            }
-            if not is_remote:
-                generation_secret = str(current_secret or "").strip()
-                if not 32 <= len(generation_secret) <= 512:
-                    raise ToolError(
-                        "Authenticated stdio task channel is unavailable; "
-                        "use portable rm_jobs tools"
-                    )
-                envelope["delegation"]["channel"] = _channel_proof(
-                    generation_secret, delegation_token
-                )
-            outgoing = dict(params)
-            outgoing_meta = dict(base_meta)
-            outgoing_meta[TASKS_EXTENSION_ID] = envelope
-            outgoing["_meta"] = outgoing_meta
-            parsed = params_type.model_validate(outgoing)
-            return request_type(method=method, params=parsed)
-
-        parsed_input = params_type.model_validate(dict(params))
+        Reads may retry once, but each attempt still revalidates the owning
+        catalog/runtime and exact Tasks revision through ``before_send``.
+        Mutations add generation fencing and disable retry.
+        """
+        parsed_input = route["params_type"].model_validate(dict(params))
 
         call_request = getattr(runtime, "call_request", None)
         if not callable(call_request):
             raise ToolError("Tasks owning server has no bounded request runtime")
+        mutation = route["mutation"]
 
-        admission_secret = getattr(runtime, "_task_generation_secret", None)
+        def _factory(_current_generation: int, current_secret: str | None) -> Any:
+            return _build_task_request(route, params, current_secret)
 
-        def _assert_task_route_current(
-            current_generation: int, current_secret: str | None
-        ) -> None:
-            if (
-                self._catalog_epoch != admission_epoch
-                or self.children.get(server_name) is not runtime
-                or not self._tasks_runtime_capable(server_name, runtime)
-            ):
-                message = (
-                    "Tasks mutation route was retired before the request was sent"
-                    if mutation
-                    else "Tasks read route was retired before the request was sent"
-                )
-                raise ToolError(message)
-            if not is_remote and not 32 <= len(str(current_secret or "")) <= 512:
-                raise ToolError(
-                    "Authenticated stdio task channel is unavailable; "
-                    "use portable rm_jobs tools"
-                )
-            if (
-                mutation
-                and runtime_generation is not None
-                and current_generation != runtime_generation
-            ):
-                raise ToolError(
-                    "Tasks mutation connection generation changed before send"
-                )
-            if mutation and not is_remote and current_secret != admission_secret:
-                raise ToolError(
-                    "Tasks mutation connection generation changed before send"
-                )
+        def _before_send(current_generation: int, current_secret: str | None) -> None:
+            _assert_task_route_current(
+                self, route, runtime, current_generation, current_secret
+            )
 
-        request = (
-            _build_request(runtime_generation or 0, admission_secret)
-            if mutation
-            else None
-        )
         result = await call_request(
-            request,
-            result_type,
+            _factory(route["runtime_generation"] or 0, route["admission_secret"])
+            if mutation
+            else None,
+            route["result_type"],
             retry_on_transient=not mutation,
-            generation_marker=runtime_generation if mutation else None,
-            request_factory=None if mutation else _build_request,
-            # Reads may retry once, but each attempt still revalidates the
-            # owning catalog/runtime and exact Tasks revision. Mutations add
-            # generation fencing and disable retry below.
-            before_send=_assert_task_route_current,
+            generation_marker=route["runtime_generation"] if mutation else None,
+            request_factory=None if mutation else _factory,
+            before_send=_before_send,
         )
-        if not isinstance(result, result_type):
-            result = result_type.model_validate(result)
+        if not isinstance(result, route["result_type"]):
+            result = route["result_type"].model_validate(result)
         task_id = getattr(parsed_input, "task_id", None)
         returned_id = getattr(result, "task_id", None)
         if task_id and returned_id and returned_id != task_id:
@@ -2187,10 +2642,7 @@ class MCPMultiplexer:
             raise RuntimeError(
                 "MCP child runtime policy environment is unavailable"
             ) from None
-        if (
-            not isinstance(policy_environment, Mapping)
-            or len(policy_environment) > 256
-        ):
+        if not isinstance(policy_environment, Mapping) or len(policy_environment) > 256:
             raise RuntimeError("MCP child runtime policy environment is invalid")
         provider_environment: dict[str, str] = {}
         for raw_key, raw_value in policy_environment.items():
@@ -2202,9 +2654,7 @@ class MCPMultiplexer:
                 or len(raw_value.encode("utf-8")) > 65_536
                 or "\x00" in raw_value
             ):
-                raise RuntimeError(
-                    "MCP child runtime policy environment is invalid"
-                )
+                raise RuntimeError("MCP child runtime policy environment is invalid")
             provider_environment[key] = raw_value
         return provider_environment
 
@@ -2258,9 +2708,7 @@ class MCPMultiplexer:
                 )
             elif acquired:
                 _PROVIDER_RESOLUTION_CAPACITY.release()
-            raise RuntimeError(
-                "MCP child provider profile is unavailable"
-            ) from None
+            raise RuntimeError("MCP child provider profile is unavailable") from None
         stack.callback(prepared_provider.close)
         provider_environment = dict(prepared_provider.environment)
         provider_environment.update(_provider_child_sandbox_environment(stack))
@@ -2324,16 +2772,12 @@ class MCPMultiplexer:
             *agent_config.mcp_http_allowed_private_hosts,
             *(str(value) for value in child_private_hosts),
         ]
-        if (
-            parsed_url.scheme.lower() == "http"
-            and parsed_url.hostname.lower()
-            not in {
-                "localhost",
-                "127.0.0.1",
-                "::1",
-                *(host.lower() for host in allowed_private_hosts),
-            }
-        ):
+        if parsed_url.scheme.lower() == "http" and parsed_url.hostname.lower() not in {
+            "localhost",
+            "127.0.0.1",
+            "::1",
+            *(host.lower() for host in allowed_private_hosts),
+        }:
             raise RuntimeError("Remote MCP child requires HTTPS outside loopback")
         return allowed_private_hosts
 
@@ -2547,9 +2991,7 @@ class MCPMultiplexer:
             or not isinstance(args, list)
             or len(args) > 128
             or not all(
-                isinstance(value, str)
-                and len(value) <= 8_192
-                and "\x00" not in value
+                isinstance(value, str) and len(value) <= 8_192 and "\x00" not in value
                 for value in args
             )
             or not isinstance(configured_env, dict)
@@ -2592,9 +3034,7 @@ class MCPMultiplexer:
             | provider_controlled_keys
             | {_TASK_DELEGATION_CHANNEL_ENV}
         ):
-            raise RuntimeError(
-                "MCP child provider environment is parent-controlled"
-            )
+            raise RuntimeError("MCP child provider environment is parent-controlled")
         value = _resolve_runtime_value(
             raw_value,
             sensitive=_sensitive_config_key(key),
@@ -2666,9 +3106,7 @@ class MCPMultiplexer:
         # interpreter, checkout, and trust-material locations. The parent
         # already emits bounded transport/error codes, so discard that raw
         # channel and keep the sink alive for the complete child generation.
-        child_error_sink = stack.enter_context(
-            open(os.devnull, "w", encoding="utf-8")
-        )
+        child_error_sink = stack.enter_context(open(os.devnull, "w", encoding="utf-8"))
         read_stream, write_stream = await stack.enter_async_context(
             stdio_client(server_params, errlog=child_error_sink)
         )
@@ -2711,10 +3149,11 @@ class MCPMultiplexer:
         )
         initialization_timeout = self._resolve_child_initialization_timeout(cfg)
 
-        provider_environment, runtime_policy = (
-            await self._resolve_child_provider_environment(
-                cfg, is_remote, stack, initialization_timeout
-            )
+        (
+            provider_environment,
+            runtime_policy,
+        ) = await self._resolve_child_provider_environment(
+            cfg, is_remote, stack, initialization_timeout
         )
 
         if is_remote:
@@ -2744,6 +3183,7 @@ class MCPMultiplexer:
         # reconnect after a catalog epoch changes, so this transport-open path
         # mutates no shared handshake record.
         return session
+
     async def _start_child(
         self, server_name: str, cfg: dict
     ) -> tuple[str, ChildRuntime, list[MCPTool], dict] | None:
@@ -2777,55 +3217,11 @@ class MCPMultiplexer:
             if runtime_policy is not None:
                 _close_runtime_child_policy(runtime_policy)
 
-        command = cfg.get("command")
-        url = _resolve_runtime_value(cfg.get("url", ""), sensitive=False)
-        explicit_transport = str(cfg.get("transport", "")).lower()
-        if (
-            explicit_transport not in {"", "streamable-http", "sse"}
-            or bool(command) == bool(url)
-            or (explicit_transport and not url)
-        ):
-            logger.error("MCP child transport declaration is invalid")
+        shape = _child_launch_shape(cfg)
+        if shape is None:
             _close_policy()
             return None
-        # A child is remote (HTTP) when it declares a ``url`` or an http/sse
-        # ``transport``; otherwise it is a local stdio subprocess run via
-        # ``command``. Either kind loads transparently from the same config.
-        is_remote = bool(url) or explicit_transport in (
-            "streamable-http",
-            "sse",
-        )
-        if not command and not is_remote:
-            logger.warning("MCP child has neither command nor URL; skipping")
-            _close_policy()
-            return None
-
-        try:
-            timeout = float(cfg.get("timeout", 300.0))
-        except (TypeError, ValueError):
-            timeout = 0.0
-        if not 0.001 <= timeout <= 3_600.0:
-            logger.error("MCP child timeout is outside the safety boundary")
-            _close_policy()
-            return None
-
-        # Session-pool sizing (CONCEPT:AU-ECO.mcp.profile-differences-from-client): remote children may hold N
-        # independent connections for parallel in-flight calls; stdio children
-        # are single-pipe and always keep exactly one session.
-        from agent_utilities.core.config import config as agent_config
-
-        pool_size = 1
-        if is_remote:
-            try:
-                pool_size = int(
-                    cfg.get("pool_size") or agent_config.mcp_child_pool_size
-                )
-            except (TypeError, ValueError):
-                pool_size = 0
-            if not 1 <= pool_size <= 64:
-                logger.error("MCP child pool size is outside the safety boundary")
-                _close_policy()
-                return None
+        is_remote, pool_size = shape
 
         logger.info(
             "Starting MCP child (transport=%s)", "remote" if is_remote else "stdio"
@@ -2913,6 +3309,144 @@ class MCPMultiplexer:
         )
         return server_name, runtime, tools, cfg
 
+    def _read_catalog_document(self) -> dict[str, Any]:
+        """Read and parse the persistent MCP config document, fail-soft to empty.
+
+        The document is parsed LITERALLY. Runtime references are resolved only
+        at the exact child boundary that consumes them, so secret values never
+        enter this catalog wholesale.
+        """
+        empty: dict[str, Any] = {"mcpServers": {}}
+        if not self.config_path.exists():
+            return empty
+        try:
+            content = _read_catalog_text(self.config_path)
+        except Exception as exc:
+            logger.error(
+                "Failed to read MCP config: %s: %s",
+                type(exc).__name__,
+                redact_for_log(exc),
+            )
+            return empty
+        if not content:
+            return empty
+        try:
+            return cast("dict[str, Any]", json.loads(content))
+        except Exception as exc:
+            logger.error(
+                "Failed to parse MCP config: %s: %s",
+                type(exc).__name__,
+                redact_for_log(exc),
+            )
+            return empty
+
+    @staticmethod
+    def _augment_native_langfuse(servers: dict) -> set[int]:
+        """Materialize the built-in Langfuse child when the config declares none.
+
+        Returns the ids of the runtime-materialized configs: they are already
+        attested here and must not be re-validated as if they came from disk.
+        """
+        from agent_utilities.observability.langfuse_trust import (
+            LangfuseTrustError,
+            is_langfuse_server,
+            native_langfuse_mcp_config,
+        )
+
+        if any(
+            isinstance(cfg, dict) and is_langfuse_server(str(name), cfg)
+            for name, cfg in servers.items()
+        ):
+            return set()
+        try:
+            native = native_langfuse_mcp_config()
+        except LangfuseTrustError as exc:
+            # LangfuseTrustError.category AND .reason are both small,
+            # fixed-vocabulary labels drawn from a closed set (see the
+            # class docstring: "a stable, non-sensitive trust failure" --
+            # LangfuseTrustError.__init__ rejects any reason outside its
+            # _CATEGORIES map). Read both into locals before logging so
+            # this out-of-boundary logger's static exception-redaction
+            # check can see neither is the raw exception object, and log
+            # .reason verbatim rather than through redact_for_log: that
+            # helper is for genuinely sensitive runtime values (paths,
+            # endpoints), and hashing an already-safe fixed-vocabulary
+            # string only destroys the diagnostic detail this log line
+            # exists to carry.
+            category = exc.category
+            reason = exc.reason
+            logger.error(
+                "Native Langfuse MCP disabled: %s configuration invalid (%s)",
+                category,
+                reason,
+            )
+            return set()
+        if native is None:
+            return set()
+        servers["langfuse-mcp"] = native
+        return {id(native)}
+
+    @staticmethod
+    def _catalog_entry_admissible(server_name: Any, cfg: Any, skip: Any) -> bool:
+        """Whether one raw config entry is even shaped like a mountable child."""
+        return (
+            isinstance(server_name, str)
+            and re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", server_name) is not None
+            and isinstance(cfg, dict)
+            and len(cfg) <= 128
+            and server_name not in skip
+            and not cfg.get("disabled", False)
+        )
+
+    @staticmethod
+    def _admit_catalog_entry(
+        server_name: str, cfg: dict, runtime_materialized: bool
+    ) -> dict | None:
+        """The catalog config for ONE entry, or ``None`` when it is not mountable."""
+        from agent_utilities.base_utilities import (
+            is_loopback_url as _is_self_mcp_url,
+        )
+        from agent_utilities.observability.langfuse_trust import (
+            LangfuseTrustError,
+            is_langfuse_server,
+            prepare_langfuse_mcp_config,
+        )
+
+        # Never surface a self-entry as a mountable child, regardless of the name it
+        # is filed under. ``skip`` covers it by NAME ("graph-os"), but a fresh
+        # ``MCPMultiplexer`` built off the raw config (e.g. by ``_fleet_server_url``)
+        # has not had ``attach_fleet_loader`` widen ``skip``. Match by the process's
+        # own advertised identity (config-driven) so the gateway's own endpoint is
+        # never dialed as if it were a fleet child — it is fronted in-process instead.
+        if _is_self_mcp_url(str(cfg.get("url") or "")):
+            return None
+        if not runtime_materialized:
+            try:
+                _validate_externalized_child_secrets(cfg)
+            except RuntimeError:
+                logger.error("MCP child disabled: credential policy violation")
+                return None
+        if not is_langfuse_server(str(server_name), cfg):
+            return cfg
+        try:
+            if not runtime_materialized:
+                cfg = prepare_langfuse_mcp_config(cfg)
+            return attest_runtime_child_config(cfg)
+        except LangfuseTrustError as exc:
+            # See the analogous native_langfuse_mcp_config() handler in
+            # _augment_native_langfuse: category and reason are both
+            # fixed-vocabulary, non-sensitive labels read into locals before
+            # logging (reason logged verbatim, not through redact_for_log,
+            # for the same reason given there).
+            category = exc.category
+            reason = exc.reason
+            logger.error(
+                "Langfuse MCP entry disabled: %s configuration invalid (%s)",
+                category,
+                reason,
+            )
+            return None
+
     def load_catalog(self) -> dict[str, dict]:
         """Parse the config once into the mountable-server catalog WITHOUT
         spawning any child (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
@@ -2925,147 +3459,28 @@ class MCPMultiplexer:
             return self._catalog
 
         self._catalog = {}
-        config_data: dict[str, Any] = {"mcpServers": {}}
-        if self.config_path.exists():
-            try:
-                content = _read_catalog_text(self.config_path)
-            except Exception as exc:
-                logger.error(
-                    "Failed to read MCP config: %s: %s",
-                    type(exc).__name__,
-                    redact_for_log(exc),
-                )
-                content = ""
-            if content:
-                try:
-                    # Parse the persistent document literally. Runtime references
-                    # are resolved only at the exact child boundary that consumes
-                    # them, so secret values never enter this catalog wholesale.
-                    config_data = json.loads(content)
-                except Exception as exc:
-                    logger.error(
-                        "Failed to parse MCP config: %s: %s",
-                        type(exc).__name__,
-                        redact_for_log(exc),
-                    )
-                    config_data = {"mcpServers": {}}
-
+        config_data = self._read_catalog_document()
         servers = config_data.get("mcpServers") or {}
         if not isinstance(servers, dict) or len(servers) > 512:
             servers = {}
-        from agent_utilities.observability.langfuse_trust import (
-            LangfuseTrustError,
-            is_langfuse_server,
-            native_langfuse_mcp_config,
-            prepare_langfuse_mcp_config,
-        )
-
-        runtime_materialized_configs: set[int] = set()
-
-        has_langfuse = any(
-            isinstance(cfg, dict) and is_langfuse_server(str(name), cfg)
-            for name, cfg in servers.items()
-        )
-        if not has_langfuse:
-            try:
-                native = native_langfuse_mcp_config()
-            except LangfuseTrustError as exc:
-                native = None
-                # LangfuseTrustError.category AND .reason are both small,
-                # fixed-vocabulary labels drawn from a closed set (see the
-                # class docstring: "a stable, non-sensitive trust failure" --
-                # LangfuseTrustError.__init__ rejects any reason outside its
-                # _CATEGORIES map). Read both into locals before logging so
-                # this out-of-boundary logger's static exception-redaction
-                # check can see neither is the raw exception object, and log
-                # .reason verbatim rather than through redact_for_log: that
-                # helper is for genuinely sensitive runtime values (paths,
-                # endpoints), and hashing an already-safe fixed-vocabulary
-                # string only destroys the diagnostic detail this log line
-                # exists to carry.
-                category = exc.category
-                reason = exc.reason
-                logger.error(
-                    "Native Langfuse MCP disabled: %s configuration invalid (%s)",
-                    category,
-                    reason,
-                )
-            if native is not None:
-                runtime_materialized_configs.add(id(native))
-                servers["langfuse-mcp"] = native
+        runtime_materialized_configs = self._augment_native_langfuse(servers)
 
         # The host server never mounts itself as a child (avoids self-recursion).
         # Defaults to the retired standalone multiplexer name; graph-os's
         # attach_fleet_loader widens this to include "graph-os".
         skip = getattr(self, "_skip_servers", None) or {"mcp-multiplexer"}
         for server_name, cfg in servers.items():
-            if (
-                not isinstance(server_name, str)
-                or not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", server_name)
-                or not isinstance(cfg, dict)
-                or len(cfg) > 128
-            ):
+            if not self._catalog_entry_admissible(server_name, cfg, skip):
                 continue
-            if server_name in skip or cfg.get("disabled", False):
-                continue
-            # Never surface a self-entry as a mountable child, regardless of the name it
-            # is filed under. ``skip`` covers it by NAME ("graph-os"), but a fresh
-            # ``MCPMultiplexer`` built off the raw config (e.g. by ``_fleet_server_url``)
-            # has not had ``attach_fleet_loader`` widen ``skip``. Match by the process's
-            # own advertised identity (config-driven) so the gateway's own endpoint is
-            # never dialed as if it were a fleet child — it is fronted in-process instead.
-            from agent_utilities.base_utilities import (
-                is_loopback_url as _is_self_mcp_url,
+            admitted = self._admit_catalog_entry(
+                server_name, cfg, id(cfg) in runtime_materialized_configs
             )
-
-            if _is_self_mcp_url(str(cfg.get("url") or "")):
-                continue
-            runtime_materialized = id(cfg) in runtime_materialized_configs
-            if not runtime_materialized:
-                try:
-                    _validate_externalized_child_secrets(cfg)
-                except RuntimeError:
-                    logger.error("MCP child disabled: credential policy violation")
-                    continue
-            if is_langfuse_server(str(server_name), cfg):
-                try:
-                    if not runtime_materialized:
-                        cfg = prepare_langfuse_mcp_config(cfg)
-                    cfg = attest_runtime_child_config(cfg)
-                except LangfuseTrustError as exc:
-                    # See the analogous native_langfuse_mcp_config() handler
-                    # above: category and reason are both fixed-vocabulary,
-                    # non-sensitive labels read into locals before logging
-                    # (reason logged verbatim, not through redact_for_log,
-                    # for the same reason given there).
-                    category = exc.category
-                    reason = exc.reason
-                    logger.error(
-                        "Langfuse MCP entry disabled: %s configuration invalid (%s)",
-                        category,
-                        reason,
-                    )
-                    continue
-            self._catalog[str(server_name)] = cfg
+            if admitted is not None:
+                self._catalog[str(server_name)] = admitted
         return self._catalog
 
-    def reload_catalog(self) -> dict[str, dict]:
-        """Discard runtime-derived fleet state and reparse the current catalog.
-
-        Hot configuration changes must not leave a disabled child callable or a
-        credential/TLS change attached to an old process.  Mux-owned host
-        forwarders are removed too, so a same-named tool on the reloaded child
-        cannot retain an obsolete client-visible schema.
-        """
-        # Invalidate callback closures before tearing down their runtimes.  A
-        # delayed reconnect can then cleanly close without resurrecting stale
-        # routing or admission state after this catalog has been rebuilt.
-        self._catalog_epoch += 1
-        stale_children = tuple(
-            (name, runtime, self._child_runtime_policies.get(name))
-            for name, runtime in self.children.items()
-        )
-        stale_tool_names = set(self.tool_to_server)
+    def _remove_all_host_forwarders(self) -> None:
+        """Remove every mux-owned FastMCP forwarder, fail-soft per tool."""
         for prefixed_name in tuple(self._exposed):
             try:
                 self._remove_host_forwarder(prefixed_name)
@@ -3079,10 +3494,15 @@ class MCPMultiplexer:
                     type(exc).__name__,
                     redact_for_log(exc),
                 )
-        # ``_remove_host_forwarder`` discards each normally.  Explicitly
-        # converge the marker as well when a legacy/provider failure prevented
-        # removal, otherwise a fresh mount would falsely believe its new
-        # forwarder had already been registered.
+
+    def _clear_runtime_fleet_state(self) -> None:
+        """Drop every runtime-derived fleet map so a reload starts from config.
+
+        ``_remove_host_forwarder`` discards each exposed name normally.
+        Explicitly converge the marker as well when a legacy/provider failure
+        prevented removal, otherwise a fresh mount would falsely believe its
+        new forwarder had already been registered.
+        """
         self._exposed.clear()
         self.children.clear()
         self._child_runtime_policies.clear()
@@ -3111,6 +3531,54 @@ class MCPMultiplexer:
         # result cannot survive a hot reload or an already-connected session
         # would skip mounting the new declaration indefinitely.
         self._always_load_done.clear()
+
+    def _close_stale_children(self, stale_children: tuple) -> None:
+        """Tear down the child runtimes and policies a catalog reload retired."""
+        if not stale_children:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # Configuration tooling may run without an event loop.  Calls
+            # are already denied by the cleared routing state; normal server
+            # shutdown remains the owner of these runtime resources.
+            logger.warning("MCP catalog reloaded outside a serving event loop")
+            for _name, _runtime, policy in stale_children:
+                if policy is not None:
+                    _close_runtime_child_policy(policy)
+            return
+
+        async def _close_stale(runtime: ChildRuntime, policy: Any) -> None:
+            try:
+                await runtime.aclose()
+            finally:
+                if policy is not None:
+                    _close_runtime_child_policy(policy)
+
+        for _name, runtime, policy in stale_children:
+            task = loop.create_task(_close_stale(runtime, policy))
+            self._catalog_reload_tasks.add(task)
+            task.add_done_callback(self._catalog_reload_tasks.discard)
+
+    def reload_catalog(self) -> dict[str, dict]:
+        """Discard runtime-derived fleet state and reparse the current catalog.
+
+        Hot configuration changes must not leave a disabled child callable or a
+        credential/TLS change attached to an old process.  Mux-owned host
+        forwarders are removed too, so a same-named tool on the reloaded child
+        cannot retain an obsolete client-visible schema.
+        """
+        # Invalidate callback closures before tearing down their runtimes.  A
+        # delayed reconnect can then cleanly close without resurrecting stale
+        # routing or admission state after this catalog has been rebuilt.
+        self._catalog_epoch += 1
+        stale_children = tuple(
+            (name, runtime, self._child_runtime_policies.get(name))
+            for name, runtime in self.children.items()
+        )
+        stale_tool_names = set(self.tool_to_server)
+        self._remove_all_host_forwarders()
+        self._clear_runtime_fleet_state()
         if self._host_mcp is not None:
             # ``graph_config set`` calls :func:`invalidate_live_catalogs` for
             # every runtime setting update, including the always-load
@@ -3129,31 +3597,7 @@ class MCPMultiplexer:
         for loaded in self._auto_unload.values():
             loaded.difference_update(stale_tool_names)
 
-        if stale_children:
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                # Configuration tooling may run without an event loop.  Calls
-                # are already denied by the cleared routing state; normal server
-                # shutdown remains the owner of these runtime resources.
-                logger.warning("MCP catalog reloaded outside a serving event loop")
-                for _name, _runtime, policy in stale_children:
-                    if policy is not None:
-                        _close_runtime_child_policy(policy)
-            else:
-
-                async def _close_stale(runtime: ChildRuntime, policy: Any) -> None:
-                    try:
-                        await runtime.aclose()
-                    finally:
-                        if policy is not None:
-                            _close_runtime_child_policy(policy)
-
-                for _name, runtime, policy in stale_children:
-                    task = loop.create_task(_close_stale(runtime, policy))
-                    self._catalog_reload_tasks.add(task)
-                    task.add_done_callback(self._catalog_reload_tasks.discard)
-
+        self._close_stale_children(stale_children)
         return self.load_catalog()
 
     @staticmethod
@@ -3235,18 +3679,8 @@ class MCPMultiplexer:
         registered: list[MCPTool] = []
         originals: dict[str, str] = {}
         for tool in tools:
-            if enabled_tools is not None:
-                import fnmatch
-
-                if not any(fnmatch.fnmatch(tool.name, pat) for pat in enabled_tools):
-                    logger.info("Skipping a non-whitelisted MCP child tool")
-                    continue
-            if disabled_tools:
-                import fnmatch
-
-                if any(fnmatch.fnmatch(tool.name, pat) for pat in disabled_tools):
-                    logger.info("Skipping a disabled MCP child tool")
-                    continue
+            if not _child_tool_admitted(tool.name, enabled_tools, disabled_tools):
+                continue
             prefix = self.server_prefix(server_name)
             prefixed_name = clean_tool_name(prefix, server_name, tool.name)
             registered.append(
@@ -3307,6 +3741,21 @@ class MCPMultiplexer:
             )
         self._exposed.discard(prefixed_name)
 
+    def _changed_exposed_schemas(
+        self,
+        old_tools: dict[str, MCPTool],
+        new_tools: dict[str, MCPTool],
+    ) -> set[str]:
+        """Which currently-exposed names have a changed (or removed) schema."""
+        exposed = set(old_tools) & self._exposed
+        return {
+            name
+            for name in exposed
+            if name not in new_tools
+            or _tool_catalog_digest([old_tools[name]])
+            != _tool_catalog_digest([new_tools[name]])
+        }
+
     def _replace_exposed_forwarders(
         self,
         old_tools: dict[str, MCPTool],
@@ -3328,21 +3777,14 @@ class MCPMultiplexer:
         ``provider._components`` directly — an unrecognized SDK layout fails
         closed BEFORE this reads or mutates anything.
         """
-        exposed = set(old_tools) & self._exposed
-        changed = {
-            name
-            for name in exposed
-            if name not in new_tools
-            or _tool_catalog_digest([old_tools[name]])
-            != _tool_catalog_digest([new_tools[name]])
-        }
+        changed = self._changed_exposed_schemas(old_tools, new_tools)
         if not changed or self._host_mcp is None:
             return set()
 
         replacements = sorted(name for name in changed if name in new_tools)
         removed = sorted(changed - set(replacements))
         host = self._host_mcp
-        provider, components = _local_provider_component_snapshot(host)
+        provider, previous_components = _local_provider_component_snapshot(host)
 
         # ``FunctionTool`` construction validates every child schema before
         # the live registry is touched.  Keep these real SDK objects in the
@@ -3351,14 +3793,9 @@ class MCPMultiplexer:
         forwarders = {
             name: _forwarder_component(self, new_tools[name]) for name in replacements
         }
-        previous_components = components
-        staged_components = dict(previous_components)
-        changed_names = set(changed)
-        for key, component in tuple(staged_components.items()):
-            if isinstance(component, FunctionTool) and component.name in changed_names:
-                staged_components.pop(key)
-        for forwarder in forwarders.values():
-            staged_components[forwarder.key] = forwarder
+        staged_components = _stage_forwarder_components(
+            previous_components, forwarders, set(changed)
+        )
 
         try:
             # Preserve FastMCP's native registration path and any validation
@@ -3424,6 +3861,52 @@ class MCPMultiplexer:
             self.prune_session_visibility(session_key)
         return True
 
+    def _rebind_server_tool_maps(
+        self,
+        server_name: str,
+        refreshed: list[MCPTool],
+        originals: dict[str, str],
+    ) -> set[str]:
+        """Swap one server's rows in the aggregation maps; return the prior names."""
+        stale_names = {
+            prefixed
+            for prefixed, (owner, _original) in self.tool_to_server.items()
+            if owner == server_name
+        }
+        self.tool_to_server = {
+            prefixed: target
+            for prefixed, target in self.tool_to_server.items()
+            if target[0] != server_name
+        }
+        self.aggregated_tools = [
+            tool for tool in self.aggregated_tools if tool.name not in stale_names
+        ]
+        for tool in refreshed:
+            self.tool_to_server[tool.name] = (server_name, originals[tool.name])
+        self.aggregated_tools.extend(refreshed)
+        return stale_names
+
+    def _drop_stale_child_caches(self, server_name: str) -> None:
+        """Invalidate every derived cache keyed on one server's old catalog."""
+        self._probe_cache.pop(server_name, None)
+        self._drop_discovery_bindings_for_server(server_name)
+        embedding_prefix = f"{server_name}::"
+        for key in [
+            key for key in self._tool_embeddings if key.startswith(embedding_prefix)
+        ]:
+            self._tool_embeddings.pop(key, None)
+
+    def _retract_removed_from_sessions(self, removed: set[str]) -> None:
+        """Retract tools a child no longer serves from every session's view."""
+        if not removed:
+            return
+        for loaded in self._session_loaded.values():
+            loaded.difference_update(removed)
+        for loaded in self._auto_unload.values():
+            loaded.difference_update(removed)
+        for session_key in tuple(self._session_loaded):
+            self.prune_session_visibility(session_key)
+
     def _replace_child_tools(
         self,
         server_name: str,
@@ -3453,44 +3936,16 @@ class MCPMultiplexer:
             current_by_name, refreshed_by_name
         )
 
-        stale_names = {
-            prefixed
-            for prefixed, (owner, _original) in self.tool_to_server.items()
-            if owner == server_name
-        }
-        self.tool_to_server = {
-            prefixed: target
-            for prefixed, target in self.tool_to_server.items()
-            if target[0] != server_name
-        }
-        self.aggregated_tools = [
-            tool for tool in self.aggregated_tools if tool.name not in stale_names
-        ]
-        for tool in refreshed:
-            self.tool_to_server[tool.name] = (server_name, originals[tool.name])
-        self.aggregated_tools.extend(refreshed)
+        stale_names = self._rebind_server_tool_maps(server_name, refreshed, originals)
         self._child_tool_digests[server_name] = refreshed_digest
         self._child_schema_revisions[server_name] = (
             self._child_schema_revisions.get(server_name, 0) + 1
         )
-        self._probe_cache.pop(server_name, None)
-        self._drop_discovery_bindings_for_server(server_name)
-        embedding_prefix = f"{server_name}::"
-        for key in [
-            key for key in self._tool_embeddings if key.startswith(embedding_prefix)
-        ]:
-            self._tool_embeddings.pop(key, None)
+        self._drop_stale_child_caches(server_name)
 
         self._queue_tools_changed(changed_exposed)
 
-        removed = stale_names - set(refreshed_by_name)
-        if removed:
-            for loaded in self._session_loaded.values():
-                loaded.difference_update(removed)
-            for loaded in self._auto_unload.values():
-                loaded.difference_update(removed)
-            for session_key in tuple(self._session_loaded):
-                self.prune_session_visibility(session_key)
+        self._retract_removed_from_sessions(stale_names - set(refreshed_by_name))
         return refreshed, True
 
     async def _refresh_child_tools(
@@ -3618,6 +4073,17 @@ class MCPMultiplexer:
         """
         return str(exc.args[0]) if exc.args else type(exc).__name__
 
+    def _release_mount_ownership(
+        self, server_name: str, leader_future: asyncio.Future
+    ) -> None:
+        """Release this task's singleflight ownership of ``server_name``.
+
+        A no-op when another task has since taken ownership, so a late release
+        can never evict a newer leader's in-flight mount (D-CDX-44).
+        """
+        if self._mount_inflight.get(server_name) is leader_future:
+            del self._mount_inflight[server_name]
+
     async def mount_child(self, server_name: str) -> list[MCPTool]:
         """Start ONE configured child on demand and register its tools
         (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
@@ -3668,14 +4134,12 @@ class MCPMultiplexer:
             # Release ownership BEFORE settling so a caller that retries
             # after this cancellation starts a fresh attempt rather than
             # joining a future that will never resolve to a live mount.
-            if self._mount_inflight.get(server_name) is leader_future:
-                del self._mount_inflight[server_name]
+            self._release_mount_ownership(server_name, leader_future)
             if not leader_future.done():
                 leader_future.cancel()
             raise
         except BaseException as exc:
-            if self._mount_inflight.get(server_name) is leader_future:
-                del self._mount_inflight[server_name]
+            self._release_mount_ownership(server_name, leader_future)
             if not leader_future.done():
                 leader_future.set_exception(exc)
                 # If no follower ever joined (the common case — most first
@@ -3689,12 +4153,10 @@ class MCPMultiplexer:
                 # normally — ``Future.exception()`` does not consume it.
                 self._mark_future_exception_retrieved(leader_future)
             raise
-        else:
-            if self._mount_inflight.get(server_name) is leader_future:
-                del self._mount_inflight[server_name]
-            if not leader_future.done():
-                leader_future.set_result(result)
-            return result
+        self._release_mount_ownership(server_name, leader_future)
+        if not leader_future.done():
+            leader_future.set_result(result)
+        return result
 
     async def _mount_child_first_load(
         self, server_name: str, cfg: dict
@@ -3915,6 +4377,29 @@ class MCPMultiplexer:
             if recorded_server == server_name:
                 self._local_discovery_cache_authority.pop(key, None)
 
+    def _rebound_cache_discovery_binding(
+        self, server_name: Any, info: Any
+    ) -> Any | None:
+        """Re-mint local authority for an exact process-owned cached probe object.
+
+        Non-OAuth results may be served from the process-owned cache after
+        their prior side-channel record was consumed. Re-mint only for the
+        exact cached object and a successful local probe that previously
+        recorded verified provenance; copied/caller-shaped dictionaries never
+        match.
+        """
+        cached_authority = self._local_discovery_cache_authority.get(id(info))
+        if (
+            cached_authority is None
+            or cached_authority[0] != str(server_name)
+            or cached_authority[1] is not info
+        ):
+            return None
+        binding = _tenant_local_discovery_binding()
+        if binding is None or binding.tenant_id != cached_authority[2].tenant_id:
+            return None
+        return binding
+
     def _take_discovery_bindings(self, catalog: Mapping[str, Any]) -> dict[str, Any]:
         """Consume private bindings for exact probe objects in ``catalog``.
 
@@ -3929,23 +4414,9 @@ class MCPMultiplexer:
         for server_name, info in catalog.items():
             record = self._discovery_binding_sidechannel.get(id(info))
             if record is None:
-                # Non-OAuth results may be served from the process-owned
-                # cache after their prior side-channel record was consumed.
-                # Re-mint only for the exact cached object and a successful
-                # local probe that previously recorded verified provenance;
-                # copied/caller-shaped dictionaries never match.
-                cached_authority = self._local_discovery_cache_authority.get(id(info))
-                if (
-                    cached_authority is not None
-                    and cached_authority[0] == str(server_name)
-                    and cached_authority[1] is info
-                ):
-                    binding = _tenant_local_discovery_binding()
-                    if (
-                        binding is not None
-                        and binding.tenant_id == cached_authority[2].tenant_id
-                    ):
-                        bindings[str(server_name)] = binding
+                rebound = self._rebound_cache_discovery_binding(server_name, info)
+                if rebound is not None:
+                    bindings[str(server_name)] = rebound
                 continue
             recorded_server, recorded_info, binding = record
             if recorded_server != str(server_name) or recorded_info is not info:
@@ -4035,6 +4506,21 @@ class MCPMultiplexer:
         age_s = round(now - info.get("probed_at", now), 3)
         return age_s, bool(info.get("stale")) or age_s > ttl
 
+    async def _live_child_probe(self, server_name: str) -> dict:
+        """The probe answer for an ALREADY-MOUNTED child — read from its live
+        session rather than paying a fresh connect."""
+        info: dict[str, Any] = {
+            "tools": self._live_tools_for_server(server_name),
+            "skills": await self._live_skills_for_server(server_name),
+            "prompts": await self._live_prompts_for_server(server_name),
+            "error": None,
+        }
+        result = self._cache_probe(server_name, info)
+        self._record_discovery_binding(
+            server_name, result, _tenant_local_discovery_binding()
+        )
+        return result
+
     async def probe_server(
         self, server_name: str, force: bool = False, timeout: float | None = None
     ) -> dict:
@@ -4056,31 +4542,14 @@ class MCPMultiplexer:
                 return cached
 
         if server_name in self.children:
-            info: dict[str, Any] = {
-                "tools": self._live_tools_for_server(server_name),
-                "skills": await self._live_skills_for_server(server_name),
-                "prompts": await self._live_prompts_for_server(server_name),
-                "error": None,
-            }
-            result = self._cache_probe(server_name, info)
-            self._record_discovery_binding(
-                server_name, result, _tenant_local_discovery_binding()
-            )
-            return result
+            return await self._live_child_probe(server_name)
 
         cfg = self.load_catalog().get(server_name)
         if cfg is None:
-            info = {"tools": [], "error": "not in catalog"}
+            info: dict[str, Any] = {"tools": [], "error": "not in catalog"}
             return self._cache_probe(server_name, info)
 
-        try:
-            probe_to = float(
-                timeout
-                if timeout is not None
-                else cfg.get("probe_timeout", cfg.get("timeout", 10.0))
-            )
-        except (TypeError, ValueError):
-            probe_to = 0.0
+        probe_to = _probe_timeout_seconds(cfg, timeout)
         if not 0.001 <= probe_to <= 300.0:
             info = {"tools": [], "error": "invalid probe timeout"}
             return self._cache_probe(server_name, info)
@@ -4135,26 +4604,7 @@ class MCPMultiplexer:
                     _close_runtime_child_policy(runtime_policy)
                     self._child_policy_admitted_tools.pop(server_name, None)
 
-        discovery_binding = None
-        try:
-            tools, skills, prompts, discovery_binding = await asyncio.wait_for(
-                _probe(), timeout=probe_to
-            )
-            info = {"tools": tools, "skills": skills, "prompts": prompts, "error": None}
-        except TimeoutError:
-            info = {
-                "tools": [],
-                "skills": [],
-                "prompts": [],
-                "error": f"timeout after {probe_to:g}s",
-            }
-        except Exception as e:
-            info = {
-                "tools": [],
-                "skills": [],
-                "prompts": [],
-                "error": _format_probe_error(e),
-            }
+        info, discovery_binding = await _run_bounded_probe(_probe, probe_to)
         result = self._cache_probe(server_name, info)
         if discovery_binding is not None and info.get("error") is None:
             self._record_discovery_binding(server_name, result, discovery_binding)
@@ -4529,6 +4979,92 @@ class MCPMultiplexer:
         task.add_done_callback(lambda t: self._settle_probe_task(server, t))
         return task
 
+    def _probe_targets(
+        self,
+        catalog: dict[str, dict],
+        servers: list[str] | tuple[str, ...] | None,
+        force: bool,
+    ) -> list[str]:
+        """Which catalog servers this call must (re-)probe.
+
+        A cached entry aged past ``mcp_catalog_probe_ttl`` is targeted exactly
+        like an uncached one (CONCEPT:AU-ECO.multiplexer.catalog-probe-ttl-staleness).
+        """
+        candidates = (
+            catalog if servers is None else (s for s in servers if s in catalog)
+        )
+        return [
+            server
+            for server in candidates
+            if force or self._probe_cache_hit(server) is None
+        ]
+
+    def _spawn_probe_tasks(
+        self,
+        targets: list[str],
+        force: bool,
+        timeout: float | None,
+        priority: PriorityClass | None,
+    ) -> dict[asyncio.Task, str]:
+        """Start (or join) one probe per target under this call's priority scope."""
+        scope = (
+            priority_scope(priority)
+            if priority is not None
+            else contextlib.nullcontext()
+        )
+        with scope:
+            return {
+                self._ensure_probing(server, force=force, timeout=timeout): server
+                for server in targets
+            }
+
+    def _harvest_probe_results(
+        self,
+        tasks: dict[asyncio.Task, str],
+        pending: frozenset[asyncio.Task] | set[asyncio.Task] = frozenset(),
+    ) -> dict[str, dict]:
+        """Fold every SETTLED probe task's answer over the cached fleet view.
+
+        A task that is still running, was cancelled, or raised contributes
+        nothing — one unreachable server can never take the sweep down with it.
+        """
+        result = dict(self._probe_cache)
+        for task, server in tasks.items():
+            if task in pending or task.cancelled() or not task.done():
+                continue
+            try:
+                info = task.result()
+            except BaseException:  # noqa: BLE001 - one server never fails the sweep
+                continue
+            if isinstance(info, dict):
+                result[server] = info
+        return result
+
+    def _unsettled_probe_entry(self, server: str, now: float, budget: float) -> dict:
+        """The honest answer for a server still probing when the budget expired.
+
+        Reachable two ways: an explicit force re-probe, or a TTL-expired cache
+        entry (CONCEPT:AU-ECO.multiplexer.catalog-probe-ttl-staleness)
+        re-targeted by ``_probe_targets`` — either way, serve the last known
+        answer rather than a bare "unavailable", labelled so the caller knows
+        it is not this round's live result. With no prior answer at all, say
+        so explicitly rather than implying the server is unreachable.
+        """
+        prior = self._probe_cache.get(server)
+        if prior is None:
+            return {
+                "tools": [],
+                "error": (
+                    f"still probing after {budget:g}s (no result yet) — "
+                    "the probe continues in the background; call again shortly"
+                ),
+                "pending": True,
+            }
+        stale = dict(prior)
+        stale["stale"] = True
+        stale["age_s"] = round(now - prior.get("probed_at", now), 3)
+        return stale
+
     async def probe_catalog(
         self,
         force: bool = False,
@@ -4586,91 +5122,26 @@ class MCPMultiplexer:
         answer, honestly labelled ``stale`` with its real ``age_s``, while
         the refresh keeps running in the background for the next call."""
         catalog = self.load_catalog()
-        candidates = (
-            catalog if servers is None else (s for s in servers if s in catalog)
-        )
-        targets = [
-            server
-            for server in candidates
-            if force or self._probe_cache_hit(server) is None
-        ]
+        targets = self._probe_targets(catalog, servers, force)
         if not targets:
             return self._probe_cache
 
         if budget is not None and not 0.001 <= budget <= 300.0:
             raise ValueError("catalog probe budget is outside the safety boundary")
 
-        scope = (
-            priority_scope(priority)
-            if priority is not None
-            else contextlib.nullcontext()
-        )
-        with scope:
-            tasks = {
-                self._ensure_probing(server, force=force, timeout=timeout): server
-                for server in targets
-            }
+        tasks = self._spawn_probe_tasks(targets, force, timeout, priority)
 
         if budget is None:
             await asyncio.gather(*tasks, return_exceptions=True)
-            result = dict(self._probe_cache)
-            for task, server in tasks.items():
-                if not task.done() or task.cancelled():
-                    continue
-                try:
-                    info = task.result()
-                except BaseException:
-                    continue
-                if isinstance(info, dict):
-                    result[server] = info
-            return result
+            return self._harvest_probe_results(tasks)
 
         _done, pending = await asyncio.wait(tasks, timeout=budget)
-        if not pending:
-            result = dict(self._probe_cache)
-            for task, server in tasks.items():
-                try:
-                    info = task.result()
-                except BaseException:
-                    continue
-                if isinstance(info, dict):
-                    result[server] = info
-            return result
-
-        now = time.time()
-        result = dict(self._probe_cache)
-        for task, server in tasks.items():
-            if task in pending or task.cancelled():
-                continue
-            try:
-                info = task.result()
-            except BaseException:
-                continue
-            if isinstance(info, dict):
-                result[server] = info
-        for task in pending:
-            server = tasks[task]
-            prior = self._probe_cache.get(server)
-            if prior is not None:
-                # Reachable two ways: an explicit force re-probe, or a
-                # TTL-expired cache entry (CONCEPT:AU-ECO.multiplexer.catalog-probe-ttl-staleness)
-                # re-targeted by the ``_probe_cache_hit`` check above — either
-                # way, serve the last known answer rather than a bare
-                # "unavailable", labelled so the caller knows it is not this
-                # round's live result.
-                stale = dict(prior)
-                stale["stale"] = True
-                stale["age_s"] = round(now - prior.get("probed_at", now), 3)
-                result[server] = stale
-            else:
-                result[server] = {
-                    "tools": [],
-                    "error": (
-                        f"still probing after {budget:g}s (no result yet) — "
-                        "the probe continues in the background; call again shortly"
-                    ),
-                    "pending": True,
-                }
+        result = self._harvest_probe_results(tasks, pending)
+        if pending:
+            now = time.time()
+            for task in pending:
+                server = tasks[task]
+                result[server] = self._unsettled_probe_entry(server, now, budget)
         return result
 
     @staticmethod
@@ -4724,6 +5195,70 @@ class MCPMultiplexer:
         ranked.sort(reverse=True)
         return [server for _coverage, _overlap, server in ranked]
 
+    def _collect_kind_embedding_targets(
+        self, server: str, kind: str, entries: Any, out: _EmbeddingTargets
+    ) -> None:
+        """Accumulate one server's tools OR skills into the embedding batch.
+
+        Each entry is namespaced by KIND as well as server: a skill and a tool
+        may legitimately share a name on the same server, and they must not
+        share one cached embedding.
+        """
+        for entry in entries or []:
+            name = entry.get("name")
+            if not name:
+                continue
+            key = f"{server}::{kind}::{name}"
+            out["names"].append((name, key))
+            if key in self._tool_embeddings:
+                continue
+            out["pending_text"].append(f"{name}. {entry.get('description', '')}"[:512])
+            out["pending_key"].append(key)
+
+    def _collect_embedding_targets(self, probe: dict) -> _EmbeddingTargets:
+        """Every probed capability to embed — tools AND skills, in ONE pass.
+
+        Skills were previously skipped entirely, so `semantic.get(skill, ...)`
+        in discover_tools always returned 0.0 and skills were ranked on token
+        overlap alone while tools additionally got a cosine term. That is not
+        one capability space: whenever the embedder is warm — the production
+        condition this whole feature exists for — skills were structurally
+        under-ranked against tools for any query where intent similarity
+        matters more than literal token overlap.
+        """
+        out: _EmbeddingTargets = {"names": [], "pending_text": [], "pending_key": []}
+        for server, info in probe.items():
+            if info.get("error"):
+                continue
+            for kind in ("tools", "skills"):
+                self._collect_kind_embedding_targets(
+                    server, kind, info.get(kind, []), out
+                )
+        return out
+
+    async def _embed_query_and_batch(
+        self, embed: Any, query: str, targets: _EmbeddingTargets
+    ) -> Any:
+        """Embed the uncached batch (cached per tool) and the query itself.
+
+        Returns the query vector, or ``None`` when embedding is unavailable —
+        which degrades find_tools silently to its token-overlap backbone.
+        """
+        try:
+            if targets["pending_text"]:
+                vecs = await asyncio.to_thread(embed, targets["pending_text"])
+                for k, v in zip(targets["pending_key"], vecs, strict=False):
+                    if v:
+                        self._tool_embeddings[k] = list(v)
+            return (await asyncio.to_thread(embed, [query]))[0]
+        except Exception as exc:
+            logger.debug(
+                "find_tools embedding rerank unavailable; token-overlap only: %s: %s",
+                type(exc).__name__,
+                redact_for_log(exc),
+            )
+            return None
+
     async def _embed_semantic_scores(
         self, query: str, probe: dict, semantic: dict[str, float]
     ) -> None:
@@ -4736,56 +5271,210 @@ class MCPMultiplexer:
         embed = self._embed_fn
         if embed is None:
             return
-        # Tools AND skills, in ONE pass. Skills were previously skipped entirely,
-        # so `semantic.get(skill, ...)` in discover_tools always returned 0.0 and
-        # skills were ranked on token overlap alone while tools additionally got a
-        # cosine term. That is not one capability space: whenever the embedder is
-        # warm — the production condition this whole feature exists for — skills
-        # were structurally under-ranked against tools for any query where intent
-        # similarity matters more than literal token overlap.
-        names: list[tuple[str, str]] = []  # (bare_name, cache_key)
-        pending_text: list[str] = []
-        pending_key: list[str] = []
-        for server, info in probe.items():
-            if info.get("error"):
-                continue
-            for kind in ("tools", "skills"):
-                for entry in info.get(kind, []) or []:
-                    name = entry.get("name")
-                    if not name:
-                        continue
-                    # Namespaced by kind as well as server: a skill and a tool may
-                    # legitimately share a name on the same server, and they must
-                    # not share one cached embedding.
-                    key = f"{server}::{kind}::{name}"
-                    names.append((name, key))
-                    if key not in self._tool_embeddings:
-                        pending_text.append(
-                            f"{name}. {entry.get('description', '')}"[:512]
-                        )
-                        pending_key.append(key)
-        try:
-            if pending_text:
-                vecs = await asyncio.to_thread(embed, pending_text)
-                for k, v in zip(pending_key, vecs, strict=False):
-                    if v:
-                        self._tool_embeddings[k] = list(v)
-            qv = (await asyncio.to_thread(embed, [query]))[0]
-        except Exception as exc:
-            logger.debug(
-                "find_tools embedding rerank unavailable; token-overlap only: %s: %s",
-                type(exc).__name__,
-                redact_for_log(exc),
-            )
-            return
+        targets = self._collect_embedding_targets(probe)
+        qv = await self._embed_query_and_batch(embed, query, targets)
         if not qv:
             return
-        for name, key in names:
+        for name, key in targets["names"]:
             vec = self._tool_embeddings.get(key)
-            if vec:
-                c = _cosine(qv, vec)
-                if c > 0:
-                    semantic[name] = max(semantic.get(name, 0.0), c)
+            if not vec:
+                continue
+            cosine = _cosine(qv, vec)
+            if cosine > 0:
+                semantic[name] = max(semantic.get(name, 0.0), cosine)
+
+    async def _discovery_probe(
+        self,
+        query: str,
+        catalog: dict[str, dict],
+        discovery_timeout: float,
+        deadline: float,
+    ) -> dict:
+        """The probe view backing one ``find_tools`` call, within its budget.
+
+        A latency-sensitive first stage probes only the query-relevant servers.
+        The broad fleet-wide sweep that follows (every server, not just those)
+        is a background warm-up, not itself the interactive answer — tag it
+        BACKGROUND_INGESTION (ORCH-1.98) so it yields shared-resource
+        contention to interactive/orchestration work instead of competing with
+        it, reusing the ONE existing priority gate rather than inventing a
+        second (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
+        """
+        loop = asyncio.get_running_loop()
+        probe: dict = {}
+        priority_servers = self._priority_catalog_servers(query, catalog)
+        if priority_servers:
+            probe = await self.probe_catalog(
+                budget=discovery_timeout,
+                servers=priority_servers,
+            )
+        remaining = deadline - loop.time()
+        if remaining >= 0.001:
+            probe = await self.probe_catalog(
+                budget=remaining, priority=PriorityClass.BACKGROUND_INGESTION
+            )
+        return probe
+
+    async def _discovery_semantic_scores(
+        self, query: str, probe: dict, deadline: float
+    ) -> dict[str, float]:
+        """Semantic scores keyed by bare tool name, within the remaining budget.
+
+        When graph-os injects an in-process embedder (attach_fleet_loader),
+        every probed tool is ranked by query↔description cosine similarity
+        (embeddings cached per tool). Absent ⇒ this stays empty and the
+        token-overlap backbone ranks alone. This is what makes find_tools
+        understand intent ("send a message to a gitlab MR" → the gitlab tools)
+        instead of only matching literal tokens.
+        (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)
+        """
+        semantic: dict[str, float] = {}
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining < 0.001:
+            return semantic
+        try:
+            await asyncio.wait_for(
+                self._embed_semantic_scores(query, probe, semantic),
+                timeout=remaining,
+            )
+        except TimeoutError:
+            logger.warning("find_tools semantic rerank exceeded its latency budget")
+        return semantic
+
+    def _ranked_tool_entry(
+        self,
+        server: str,
+        entry: dict,
+        rank: _DiscoveryRanking,
+        probe_age: float | None,
+        is_stale: bool,
+    ) -> dict | None:
+        """One ranked fleet-tool row, or ``None`` when it does not qualify.
+
+        find_tools surfaces only loadable (enabled) tools, so the caller never
+        picks one that load_tools would silently drop. Disabled-but-capable
+        tools remain visible via list_catalog.
+        """
+        tool = entry["name"]
+        if not self._tool_enabled(server, tool):
+            return None
+        desc = entry.get("description", "")
+        score = rank["semantic"].get(tool, 0.0) + self._relevance(
+            rank["query"], f"{tool} {desc}"
+        )
+        if score <= 0:
+            return None
+        prefixed = clean_tool_name(self.server_prefix(server), server, tool)
+        capability = Capability(
+            kind="tool",
+            id=f"tool_{server}_{tool}",
+            name=tool,
+            description=desc,
+            score=score,
+            server=server,
+            source="fleet_probe",
+        )
+        return {
+            "kind": "tool",
+            "server": server,
+            "tool": tool,
+            "prefixed_name": prefixed,
+            "description": desc,
+            "score": round(score, 4),
+            "mountable": server in rank["catalog"],
+            "mounted": prefixed in rank["loaded"],
+            "bind": capability.to_binding(),
+            "age_s": probe_age,
+            "stale": is_stale,
+        }
+
+    def _ranked_skill_entry(
+        self,
+        server: str,
+        entry: dict,
+        rank: _DiscoveryRanking,
+        probe_age: float | None,
+        is_stale: bool,
+    ) -> dict | None:
+        """One ranked fleet-served ``skill://`` row, or ``None`` when it does not
+        qualify. Scored with the SAME backbone as a tool row, so tools and
+        skills share one ranked capability space."""
+        skill = entry.get("name")
+        if not skill:
+            return None
+        desc = entry.get("description", "")
+        score = rank["semantic"].get(skill, 0.0) + self._relevance(
+            rank["query"], f"{skill} {desc}"
+        )
+        if score <= 0:
+            return None
+        capability = Capability(
+            kind="skill",
+            id=f"skill_{server}_{skill}",
+            name=skill,
+            description=desc,
+            score=score,
+            server=server,
+            source="fleet_probe",
+        )
+        return {
+            "kind": "skill",
+            "server": server,
+            "skill": skill,
+            "uri": entry.get("uri", ""),
+            "description": desc,
+            "score": round(score, 4),
+            "mountable": server in rank["catalog"],
+            "mounted": False,
+            "bind": capability.to_binding(),
+            "age_s": probe_age,
+            "stale": is_stale,
+        }
+
+    def _ranked_server_entries(
+        self,
+        server: str,
+        info: dict,
+        rank: _DiscoveryRanking,
+        now: float,
+        ttl: float,
+    ) -> list[dict]:
+        """Every qualifying tool AND skill row for one probed server.
+
+        Truthful freshness for every surfaced tool/skill (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog):
+        a result served from a probe that ran seconds/minutes ago is still
+        labelled with its real age, not presented as if it were just measured
+        live. ``is_stale`` is computed from that age against the TTL
+        (CONCEPT:AU-ECO.multiplexer.catalog-probe-ttl-staleness) — never a bare
+        echo of the narrow in-flight ``stale`` flag, which stays ``False``
+        forever on a normally-settled cache entry no matter how old.
+        """
+        probe_age, is_stale = self._probe_age_and_staleness(info, now, ttl)
+        rows: list[dict] = []
+        for entry in info.get("tools", []):
+            row = self._ranked_tool_entry(server, entry, rank, probe_age, is_stale)
+            if row is not None:
+                rows.append(row)
+        for entry in info.get("skills", []) or []:
+            row = self._ranked_skill_entry(server, entry, rank, probe_age, is_stale)
+            if row is not None:
+                rows.append(row)
+        return rows
+
+    def _discovery_results(
+        self, ranked: list[dict], top_k: int, probe: dict
+    ) -> list[dict]:
+        """The top-``top_k`` rows, or a server-level fallback when nothing matched.
+
+        Nothing matched but reachable servers exist → list them so the caller
+        can still load by server. If every server errored, leave results empty
+        and let ``unavailable`` tell the story.
+        """
+        ranked.sort(key=lambda r: r["score"], reverse=True)
+        results = ranked[:top_k]
+        if not results and any(not info.get("error") for info in probe.values()):
+            return self._server_level_fallback()
+        return results
 
     async def discover_tools(
         self, query: str, top_k: int | None = None, loaded: set[str] | None = None
@@ -4805,45 +5494,14 @@ class MCPMultiplexer:
             top_k = agent_config.mcp_dynamic_top_k
         catalog = self.load_catalog()
         discovery_timeout = agent_config.mcp_dynamic_discovery_timeout
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + discovery_timeout
-        priority_servers = self._priority_catalog_servers(query, catalog)
-        if priority_servers:
-            probe = await self.probe_catalog(
-                budget=discovery_timeout,
-                servers=priority_servers,
-            )
-        else:
-            probe = {}
-        remaining = deadline - loop.time()
-        if remaining >= 0.001:
-            # The broad fleet-wide sweep (every server, not just the
-            # query-relevant ones already probed above) is a background
-            # warm-up, not itself the interactive answer — tag it
-            # BACKGROUND_INGESTION (ORCH-1.98) so it yields shared-resource
-            # contention to interactive/orchestration work instead of
-            # competing with it, reusing the ONE existing priority gate
-            # rather than inventing a second (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
-            probe = await self.probe_catalog(
-                budget=remaining, priority=PriorityClass.BACKGROUND_INGESTION
-            )
-
-        # Semantic scores keyed by bare tool name. When graph-os injects an in-process
-        # embedder (attach_fleet_loader), rank every probed tool by query↔description
-        # cosine similarity (embeddings cached per tool). Absent ⇒ this stays empty and
-        # the token-overlap backbone below ranks alone. This is what makes find_tools
-        # understand intent ("send a message to a gitlab MR" → the gitlab tools) instead
-        # of only matching literal tokens. (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)
-        semantic: dict[str, float] = {}
-        remaining = deadline - loop.time()
-        if remaining >= 0.001:
-            try:
-                await asyncio.wait_for(
-                    self._embed_semantic_scores(query, probe, semantic),
-                    timeout=remaining,
-                )
-            except TimeoutError:
-                logger.warning("find_tools semantic rerank exceeded its latency budget")
+        deadline = asyncio.get_running_loop().time() + discovery_timeout
+        probe = await self._discovery_probe(query, catalog, discovery_timeout, deadline)
+        rank: _DiscoveryRanking = {
+            "query": query,
+            "semantic": await self._discovery_semantic_scores(query, probe, deadline),
+            "catalog": catalog,
+            "loaded": loaded if loaded is not None else self._exposed,
+        }
 
         # One ranked capability space (CONCEPT:AU-KG.retrieval.unified-capability-contract):
         # fleet tools AND fleet-served skill:// resources are scored with the
@@ -4859,97 +5517,157 @@ class MCPMultiplexer:
             if info.get("error"):
                 unavailable[server] = info["error"]
                 continue
-            # Truthful freshness for every surfaced tool/skill (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog):
-            # a result served from a probe that ran seconds/minutes ago is
-            # still labelled with its real age, not presented as if it were
-            # just measured live. ``is_stale`` is computed from that age
-            # against the TTL (CONCEPT:AU-ECO.multiplexer.catalog-probe-ttl-staleness)
-            # — never a bare echo of the narrow in-flight ``stale`` flag,
-            # which stays ``False`` forever on a normally-settled cache entry
-            # no matter how old.
-            probe_age, is_stale = self._probe_age_and_staleness(info, now, ttl)
-            for entry in info.get("tools", []):
-                tool = entry["name"]
-                # find_tools surfaces only loadable (enabled) tools, so the
-                # caller never picks one that load_tools would silently drop.
-                # Disabled-but-capable tools remain visible via list_catalog.
-                if not self._tool_enabled(server, tool):
-                    continue
-                desc = entry.get("description", "")
-                score = semantic.get(tool, 0.0) + self._relevance(
-                    query, f"{tool} {desc}"
-                )
-                if score <= 0:
-                    continue
-                prefixed = clean_tool_name(self.server_prefix(server), server, tool)
-                capability = Capability(
-                    kind="tool",
-                    id=f"tool_{server}_{tool}",
-                    name=tool,
-                    description=desc,
-                    score=score,
-                    server=server,
-                    source="fleet_probe",
-                )
-                ranked.append(
-                    {
-                        "kind": "tool",
-                        "server": server,
-                        "tool": tool,
-                        "prefixed_name": prefixed,
-                        "description": desc,
-                        "score": round(score, 4),
-                        "mountable": server in catalog,
-                        "mounted": prefixed
-                        in (loaded if loaded is not None else self._exposed),
-                        "bind": capability.to_binding(),
-                        "age_s": probe_age,
-                        "stale": is_stale,
-                    }
-                )
-            for entry in info.get("skills", []) or []:
-                skill = entry.get("name")
-                if not skill:
-                    continue
-                desc = entry.get("description", "")
-                score = semantic.get(skill, 0.0) + self._relevance(
-                    query, f"{skill} {desc}"
-                )
-                if score <= 0:
-                    continue
-                capability = Capability(
-                    kind="skill",
-                    id=f"skill_{server}_{skill}",
-                    name=skill,
-                    description=desc,
-                    score=score,
-                    server=server,
-                    source="fleet_probe",
-                )
-                ranked.append(
-                    {
-                        "kind": "skill",
-                        "server": server,
-                        "skill": skill,
-                        "uri": entry.get("uri", ""),
-                        "description": desc,
-                        "score": round(score, 4),
-                        "mountable": server in catalog,
-                        "mounted": False,
-                        "bind": capability.to_binding(),
-                        "age_s": probe_age,
-                        "stale": is_stale,
-                    }
-                )
+            ranked.extend(self._ranked_server_entries(server, info, rank, now, ttl))
+        return {
+            "results": self._discovery_results(ranked, top_k, probe),
+            "unavailable": unavailable,
+        }
 
-        ranked.sort(key=lambda r: r["score"], reverse=True)
-        results = ranked[:top_k]
-        # Nothing matched but reachable servers exist → list them so the caller
-        # can still load by server. If every server errored, leave results empty
-        # and let ``unavailable`` tell the story.
-        if not results and any(not info.get("error") for info in probe.values()):
-            results = self._server_level_fallback()
-        return {"results": results, "unavailable": unavailable}
+    def _catalog_detail_tools(self, server: str, prefix: str, info: dict) -> list[dict]:
+        """One drilled-down server's client-visible tool rows."""
+        return [
+            {
+                "prefixed_name": prefixed_name,
+                "tool": t["name"],
+                "description": t.get("description", ""),
+                "enabled": self._tool_enabled(server, t["name"]),
+                # Session-scoped dispatch truth (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog):
+                # derived from the SAME predicate the dispatch gate
+                # (SessionVisibilityMiddleware) enforces, so this can
+                # never claim a tool is usable when a call would
+                # actually be rejected.
+                "mounted": self.tool_dispatchable(prefixed_name),
+            }
+            for t in info.get("tools", [])
+            for prefixed_name in (clean_tool_name(prefix, server, t["name"]),)
+        ]
+
+    async def _catalog_server_detail(self, server: str, include_tools: bool) -> dict:
+        """Drill into ONE catalog server, probing only that server."""
+        info = await self.probe_server(server)
+        prefix = self.server_prefix(server)
+        age_s, is_stale = self._probe_age_and_staleness(
+            info, time.time(), self._probe_ttl()
+        )
+        result = {
+            "server": server,
+            "prefix": prefix,
+            # Process-level fact only: the child is spawned. It does NOT
+            # mean any of its tools are callable by the CALLING session —
+            # that per-tool truth is the "mounted" field inside "tools"
+            # below, and it is the ONLY field a caller should read to
+            # decide whether it can dispatch a specific tool right now.
+            "process_running": server in self.children,
+            "probed": True,
+            "available": info.get("error") is None,
+            "error": info.get("error"),
+            "age_s": age_s,
+            # CONCEPT:AU-ECO.multiplexer.catalog-probe-ttl-staleness — a
+            # drill-down calls probe_server directly, whose own cache hit
+            # is already TTL-gated, so this is normally fresh; still
+            # reported honestly rather than assumed.
+            "stale": is_stale,
+        }
+        if include_tools:
+            result["tools"] = self._catalog_detail_tools(server, prefix, info)
+        return result
+
+    async def _catalog_fleet_probe(self, include_tools: bool) -> dict:
+        """The probe view backing a whole-fleet listing.
+
+        A whole-fleet browse is a background sweep, not a targeted interactive
+        lookup: bound it by the same interactive discovery budget as find_tools
+        (a server that never answers must not hang this call indefinitely) and
+        tag it BACKGROUND_INGESTION so it yields to interactive/orchestration
+        work (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog). A metadata-only
+        listing never probes a child at all.
+        """
+        if not include_tools:
+            return dict(self._probe_cache)
+        from agent_utilities.core.config import config as agent_config
+
+        return await self.probe_catalog(
+            budget=agent_config.mcp_dynamic_discovery_timeout,
+            priority=PriorityClass.BACKGROUND_INGESTION,
+        )
+
+    def _catalog_tool_partition(
+        self, name: str, prefix: str, tool_entries: list[dict]
+    ) -> tuple[list[str], list[str]]:
+        """Split one server's probed tools into (enabled, disabled) prefixed names."""
+        enabled_names: list[str] = []
+        disabled_names: list[str] = []
+        for t in tool_entries:
+            pn = clean_tool_name(prefix, name, t["name"])
+            target = (
+                enabled_names if self._tool_enabled(name, t["name"]) else disabled_names
+            )
+            target.append(pn)
+        return enabled_names, disabled_names
+
+    def _stamp_catalog_freshness(
+        self, entry: dict, info: dict, now: float, ttl: float
+    ) -> None:
+        """Stamp honest probe freshness onto one fleet-listing entry.
+
+        CONCEPT:AU-ECO.multiplexer.catalog-probe-ttl-staleness — staleness is
+        computed from age vs TTL, never a bare echo of the narrow in-flight
+        ``stale`` flag. This is also the ``include_tools=False`` metadata-only
+        path, which reads ``self._probe_cache`` directly and never goes through
+        ``probe_catalog``'s re-probe targeting at all — the exact path where an
+        entry could otherwise sit at ``stale: false`` no matter how old.
+        """
+        entry["pending"] = bool(info.get("pending"))
+        if "probed_at" not in info:
+            entry["stale"] = bool(info.get("stale"))
+            return
+        age_s, is_stale = self._probe_age_and_staleness(info, now, ttl)
+        entry["age_s"] = age_s
+        entry["stale"] = is_stale
+
+    def _catalog_fleet_entry(
+        self,
+        name: str,
+        info: dict,
+        probed: bool,
+        now: float,
+        ttl: float,
+        include_tools: bool,
+    ) -> dict:
+        """One server's row in a whole-fleet listing."""
+        prefix = self.server_prefix(name)
+        tool_entries = info.get("tools", [])
+        enabled_names, disabled_names = self._catalog_tool_partition(
+            name, prefix, tool_entries
+        )
+        entry = {
+            "server": name,
+            "prefix": prefix,
+            "tool_count": len(tool_entries),
+            "enabled_count": len(enabled_names),
+            # Process-level fact only (the child is spawned) — NOT a claim
+            # that any tool is callable by the caller's own session. See
+            # "dispatchable_tools" for the truthful, session-scoped answer.
+            "process_running": name in self.children,
+            "probed": probed,
+            "available": info.get("error") is None if probed else None,
+        }
+        if probed:
+            self._stamp_catalog_freshness(entry, info, now, ttl)
+        if info.get("error"):
+            entry["error"] = info["error"]
+        if include_tools:
+            entry["tools"] = enabled_names
+            if disabled_names:
+                entry["disabled_tools"] = disabled_names
+            # Session-scoped dispatch truth (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog):
+            # the subset of `tools` the CALLING session could actually
+            # invoke right now, derived from the same predicate the
+            # dispatch gate enforces (MCPMultiplexer.tool_dispatchable).
+            entry["dispatchable_tools"] = [
+                pn for pn in enabled_names if self.tool_dispatchable(pn)
+            ]
+        return entry
 
     async def list_catalog(self, server: str = "", include_tools: bool = True) -> dict:
         """Browse configured fleet metadata without unnecessary child starts.
@@ -4967,124 +5685,18 @@ class MCPMultiplexer:
         if server:
             if server not in catalog:
                 return {"error": f"'{server}' is not in the catalog"}
-            info = await self.probe_server(server)
-            prefix = self.server_prefix(server)
-            age_s, is_stale = self._probe_age_and_staleness(
-                info, time.time(), self._probe_ttl()
-            )
-            result = {
-                "server": server,
-                "prefix": prefix,
-                # Process-level fact only: the child is spawned. It does NOT
-                # mean any of its tools are callable by the CALLING session —
-                # that per-tool truth is the "mounted" field inside "tools"
-                # below, and it is the ONLY field a caller should read to
-                # decide whether it can dispatch a specific tool right now.
-                "process_running": server in self.children,
-                "probed": True,
-                "available": info.get("error") is None,
-                "error": info.get("error"),
-                "age_s": age_s,
-                # CONCEPT:AU-ECO.multiplexer.catalog-probe-ttl-staleness — a
-                # drill-down calls probe_server directly, whose own cache hit
-                # is already TTL-gated, so this is normally fresh; still
-                # reported honestly rather than assumed.
-                "stale": is_stale,
-            }
-            if include_tools:
-                result["tools"] = [
-                    {
-                        "prefixed_name": prefixed_name,
-                        "tool": t["name"],
-                        "description": t.get("description", ""),
-                        "enabled": self._tool_enabled(server, t["name"]),
-                        # Session-scoped dispatch truth (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog):
-                        # derived from the SAME predicate the dispatch gate
-                        # (SessionVisibilityMiddleware) enforces, so this can
-                        # never claim a tool is usable when a call would
-                        # actually be rejected.
-                        "mounted": self.tool_dispatchable(prefixed_name),
-                    }
-                    for t in info.get("tools", [])
-                    for prefixed_name in (clean_tool_name(prefix, server, t["name"]),)
-                ]
-            return result
+            return await self._catalog_server_detail(server, include_tools)
 
-        if include_tools:
-            from agent_utilities.core.config import config as agent_config
-
-            # A whole-fleet browse is a background sweep, not a targeted
-            # interactive lookup: bound it by the same interactive discovery
-            # budget as find_tools (a server that never answers must not hang
-            # this call indefinitely) and tag it BACKGROUND_INGESTION so it
-            # yields to interactive/orchestration work (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
-            probe = await self.probe_catalog(
-                budget=agent_config.mcp_dynamic_discovery_timeout,
-                priority=PriorityClass.BACKGROUND_INGESTION,
-            )
-        else:
-            probe = dict(self._probe_cache)
+        probe = await self._catalog_fleet_probe(include_tools)
 
         now = time.time()
         ttl = self._probe_ttl()
-        servers: list[dict] = []
-        for name in catalog:
-            probed = name in probe
-            info = probe.get(name) or {}
-            prefix = self.server_prefix(name)
-            tool_entries = info.get("tools", [])
-            enabled_names: list[str] = []
-            disabled_names: list[str] = []
-            for t in tool_entries:
-                pn = clean_tool_name(prefix, name, t["name"])
-                target = (
-                    enabled_names
-                    if self._tool_enabled(name, t["name"])
-                    else disabled_names
-                )
-                target.append(pn)
-            entry = {
-                "server": name,
-                "prefix": prefix,
-                "tool_count": len(tool_entries),
-                "enabled_count": len(enabled_names),
-                # Process-level fact only (the child is spawned) — NOT a claim
-                # that any tool is callable by the caller's own session. See
-                # "dispatchable_tools" for the truthful, session-scoped answer.
-                "process_running": name in self.children,
-                "probed": probed,
-                "available": info.get("error") is None if probed else None,
-            }
-            if probed:
-                entry["pending"] = bool(info.get("pending"))
-                if "probed_at" in info:
-                    # CONCEPT:AU-ECO.multiplexer.catalog-probe-ttl-staleness —
-                    # honest staleness from age vs TTL, never a bare echo of
-                    # the narrow in-flight ``stale`` flag. This is also the
-                    # ``include_tools=False`` metadata-only path, which reads
-                    # ``self._probe_cache`` directly and never goes through
-                    # ``probe_catalog``'s re-probe targeting at all — the
-                    # exact path where an entry could otherwise sit at
-                    # ``stale: false`` no matter how old.
-                    age_s, is_stale = self._probe_age_and_staleness(info, now, ttl)
-                    entry["age_s"] = age_s
-                    entry["stale"] = is_stale
-                else:
-                    entry["stale"] = bool(info.get("stale"))
-            if info.get("error"):
-                entry["error"] = info["error"]
-            if include_tools:
-                entry["tools"] = enabled_names
-                if disabled_names:
-                    entry["disabled_tools"] = disabled_names
-                # Session-scoped dispatch truth (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog):
-                # the subset of `tools` the CALLING session could actually
-                # invoke right now, derived from the same predicate the
-                # dispatch gate enforces (MCPMultiplexer.tool_dispatchable).
-                entry["dispatchable_tools"] = [
-                    pn for pn in enabled_names if self.tool_dispatchable(pn)
-                ]
-            servers.append(entry)
+        servers: list[dict] = [
+            self._catalog_fleet_entry(
+                name, probe.get(name) or {}, name in probe, now, ttl, include_tools
+            )
+            for name in catalog
+        ]
         return {
             "total_servers": len(servers),
             "total_tools": sum(s["tool_count"] for s in servers),
@@ -5092,6 +5704,69 @@ class MCPMultiplexer:
             "unavailable": [s["server"] for s in servers if s["available"] is False],
             "servers": servers,
         }
+
+    def _split_requested_tool_owners(
+        self, requested_tools: list[str], servers: list[str] | None
+    ) -> tuple[set[str], list[str]]:
+        """(servers that must be mounted, requested names with no owning server)."""
+        target_servers: set[str] = set(servers or [])
+        unresolved_tools: list[str] = []
+        for prefixed in requested_tools:
+            owner = self._server_for_prefixed(prefixed)
+            if owner:
+                target_servers.add(owner)
+            else:
+                unresolved_tools.append(prefixed)
+        return target_servers, unresolved_tools
+
+    async def _mount_target_servers(
+        self, target_servers: set[str], failed: dict[str, str]
+    ) -> list[str]:
+        """Mount every target; record a human-readable reason for each that didn't."""
+        mounted: list[str] = []
+        for server in sorted(target_servers):
+            await self.mount_child(server)
+            if server in self.children:
+                mounted.append(server)
+                continue
+            # Mount failed — surface *why* via a targeted probe (cached).
+            info = await self.probe_server(server)
+            failed[server] = info.get("error") or "could not mount (unreachable?)"
+        return mounted
+
+    def _condensed_server_surface(self, mounted: list[str]) -> set[str]:
+        """The prefixed names a SERVER-level load exposes.
+
+        CONCEPT:AU-ECO.multiplexer.condensed-server-load — only the condensed
+        action surface; verbose 1:1 tools stay loadable by EXPLICIT name so
+        ``load_tools(servers=[X])`` never floods a session's context with X's
+        whole granular surface. Mirrors the always-on mount's verbose-hold.
+        """
+        wanted: set[str] = set()
+        for server in mounted:
+            for t in self.prefixed_tools_for_server(server):
+                if _tool_is_verbose(t):
+                    continue
+                wanted.add(t.name)
+        return wanted
+
+    def _explain_unregistered_tools(
+        self, requested_tools: list[str], failed: dict[str, str]
+    ) -> None:
+        """Record every requested tool whose owning server mounted but that never
+        actually registered (disabled by config, or dropped by the child's
+        runtime admission policy). It must not vanish silently — it belongs in
+        ``failed``, not in a phantom ``newly_exposed``/``mounted`` claim."""
+        for prefixed in requested_tools:
+            if prefixed in self.tool_to_server or prefixed in failed:
+                continue
+            owner = self._server_for_prefixed(prefixed)
+            if owner is not None and owner in failed:
+                continue  # already explained by the server-level failure
+            failed[prefixed] = (
+                "tool is not registered by its owning server "
+                "(disabled by config or rejected by its runtime policy)"
+            )
 
     async def resolve_and_mount(
         self,
@@ -5115,62 +5790,25 @@ class MCPMultiplexer:
         job so this stays unit-testable.
         """
         requested_tools = list(tools or [])
-        target_servers: set[str] = set(servers or [])
-        unresolved_tools: list[str] = []
-        for prefixed in requested_tools:
-            owner = self._server_for_prefixed(prefixed)
-            if owner:
-                target_servers.add(owner)
-            else:
-                unresolved_tools.append(prefixed)
-
-        mounted: list[str] = []
+        target_servers, unresolved_tools = self._split_requested_tool_owners(
+            requested_tools, servers
+        )
         failed: dict[str, str] = {
             name: "tool is not present in the fleet catalog"
             for name in unresolved_tools
         }
-        for server in sorted(target_servers):
-            await self.mount_child(server)
-            if server in self.children:
-                mounted.append(server)
-            else:
-                # Mount failed — surface *why* via a targeted probe (cached).
-                info = await self.probe_server(server)
-                failed[server] = info.get("error") or "could not mount (unreachable?)"
-
-        if requested_tools:
-            wanted = set(requested_tools)
-        else:
-            # CONCEPT:AU-ECO.multiplexer.condensed-server-load — a SERVER-level load exposes only the condensed action
-            # surface; verbose 1:1 tools stay loadable by EXPLICIT name (via requested_tools)
-            # so ``load_tools(servers=[X])`` never floods a session's context with X's whole
-            # granular surface. Mirrors the always-on mount's verbose-hold.
-            wanted = set()
-            for server in mounted:
-                for t in self.prefixed_tools_for_server(server):
-                    if _tool_is_verbose(t):
-                        continue
-                    wanted.add(t.name)
-
+        mounted = await self._mount_target_servers(target_servers, failed)
+        wanted = (
+            set(requested_tools)
+            if requested_tools
+            else self._condensed_server_surface(mounted)
+        )
         to_expose = [
             name
             for name in sorted(wanted)
             if name in self.tool_to_server and name not in self._exposed
         ]
-        # A requested tool whose owning server mounted but that never actually
-        # registered (disabled by config, or dropped by the child's runtime
-        # admission policy) must not vanish silently — it belongs in `failed`,
-        # not in a phantom `newly_exposed`/`mounted` claim.
-        for prefixed in requested_tools:
-            if prefixed in self.tool_to_server or prefixed in failed:
-                continue
-            owner = self._server_for_prefixed(prefixed)
-            if owner is not None and owner in failed:
-                continue  # already explained by the server-level failure
-            failed[prefixed] = (
-                "tool is not registered by its owning server "
-                "(disabled by config or rejected by its runtime policy)"
-            )
+        self._explain_unregistered_tools(requested_tools, failed)
         return mounted, to_expose, failed
 
     def tool_object(self, prefixed_name: str) -> MCPTool | None:
@@ -5681,6 +6319,37 @@ def _explicit_local_session_key() -> str | None:
     return f"local_{digest}"
 
 
+def _context_session_key(get_context: Any) -> str | None:
+    """This request's MCP ``session_id``, when its context carries one."""
+    try:
+        sid = get_context().session_id
+    except Exception as exc:  # noqa: BLE001 — deliberate DEBUG: a per-request CONTROL-FLOW probe one rung down the key-source cascade (session_id -> token -> unauthenticated). Absence is the NORMAL case for an unauthenticated caller, not a failure; the cause is preserved and the cascade continues in the caller.
+        logger.debug(
+            "HTTP context present but no session_id; falling back to token key: %s: %s",
+            type(exc).__name__,
+            redact_for_log(exc),
+        )
+        return None
+    return str(sid) if sid else None
+
+
+def _token_session_key(token: Any) -> str:
+    """The stable, keyed per-caller session key derived from one access token."""
+    claims = getattr(token, "claims", None) or {}
+    raw = "\x00".join(
+        str(value or "")
+        for value in (
+            getattr(token, "client_id", None),
+            claims.get("sub") if isinstance(claims, dict) else None,
+            claims.get("tenant_id") if isinstance(claims, dict) else None,
+        )
+    )
+    digest = hashlib.blake2s(
+        raw.encode("utf-8"), key=_SESSION_KEY, digest_size=16
+    ).hexdigest()
+    return f"http_{digest}"
+
+
 def _session_key() -> str:
     """Stable per-connection key for session-scoped tool visibility.
 
@@ -5714,35 +6383,16 @@ def _session_key() -> str:
             redact_for_log(exc),
         )
         return _explicit_local_session_key() or "__invalid_http_context__"
-    try:
-        sid = get_context().session_id
-        if sid:
-            return str(sid)
-    except Exception as exc:  # noqa: BLE001 — deliberate DEBUG: same per-request probe as above, one rung down the key-source cascade (session_id -> token -> unauthenticated). Absence is the NORMAL case for an unauthenticated caller, not a failure; the cause is preserved and the cascade continues below.
-        logger.debug(
-            "HTTP context present but no session_id; falling back to token key: %s: %s",
-            type(exc).__name__,
-            redact_for_log(exc),
-        )
+    sid = _context_session_key(get_context)
+    if sid is not None:
+        return sid
     try:
         token = get_access_token()
     except Exception:
         token = None
     if token is None:
         return "__unauthenticated_http__"
-    claims = getattr(token, "claims", None) or {}
-    raw = "\x00".join(
-        str(value or "")
-        for value in (
-            getattr(token, "client_id", None),
-            claims.get("sub") if isinstance(claims, dict) else None,
-            claims.get("tenant_id") if isinstance(claims, dict) else None,
-        )
-    )
-    digest = hashlib.blake2s(
-        raw.encode("utf-8"), key=_SESSION_KEY, digest_size=16
-    ).hexdigest()
-    return f"http_{digest}"
+    return _token_session_key(token)
 
 
 class SessionVisibilityMiddleware(Middleware):
@@ -5858,6 +6508,34 @@ def _tools_with_tag(mcp, tags: list[str] | None) -> set[str]:
     return out
 
 
+def _register_resolved_forwarders(
+    mcp, mux: MCPMultiplexer, to_expose: list[str]
+) -> None:
+    """Register forwarders process-globally (once); visibility is per-session."""
+    for name in to_expose:
+        tool_obj = mux.tool_object(name)
+        if tool_obj is not None:
+            _register_forwarder(mcp, mux, tool_obj)
+
+
+def _admit_session_names(
+    mux: MCPMultiplexer,
+    session_key: str,
+    session_names: list[str],
+    auto_unload: bool,
+) -> tuple[list[str], set[str]]:
+    """Make ``session_names`` visible to one session.
+
+    Returns ``(newly_visible, the session's full loaded set)``.
+    """
+    loaded = mux.session_loaded(session_key)
+    newly = [n for n in session_names if n not in loaded]
+    loaded.update(session_names)
+    if auto_unload and newly:
+        mux._auto_unload.setdefault(session_key, set()).update(newly)
+    return newly, loaded
+
+
 async def load_session_tools(
     mcp,
     mux: MCPMultiplexer,
@@ -5914,20 +6592,12 @@ async def load_session_tools(
     mounted_servers, to_expose, failed = await mux.resolve_and_mount(
         tools=fleet_tools, servers=servers
     )
-    # Register forwarders process-globally (once); visibility is per-session.
-    for name in to_expose:
-        tool_obj = mux.tool_object(name)
-        if tool_obj is not None:
-            _register_forwarder(mcp, mux, tool_obj)
+    _register_resolved_forwarders(mcp, mux, to_expose)
     # Make the full resolved set visible to THIS session (incl. tools another
     # session already registered).
     session_names = mux.requested_prefixed(fleet_tools, servers) + local_names
     session_key = _session_key()
-    loaded = mux.session_loaded(session_key)
-    newly = [n for n in session_names if n not in loaded]
-    loaded.update(session_names)
-    if auto_unload and newly:
-        mux._auto_unload.setdefault(session_key, set()).update(newly)
+    newly, loaded = _admit_session_names(mux, session_key, session_names, auto_unload)
     # BUG-050 (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog): report ONLY what the
     # server actually knows, never what it hopes happened downstream. MCP's
     # ``notifications/tools/list_changed`` is fire-and-forget — there is no ack in
@@ -6005,6 +6675,152 @@ def _empty_always_load_result() -> AlwaysLoadResult:
     return {"mounted_servers": [], "exposed": [], "degraded": {}}
 
 
+def _group_always_load_tool_specs(
+    mux: MCPMultiplexer, degraded: dict[str, str]
+) -> dict[str, list[tuple[str, str | None]]]:
+    """Group the tool-level always-load specs by owning server.
+
+    Each server is then mounted ONCE whether it was named wholesale, per-tool,
+    or both. A spec that resolves to no catalog server is reported in
+    ``degraded`` and left lazily discoverable.
+    """
+    per_server_tools: dict[str, list[tuple[str, str | None]]] = {}
+    for spec in mux._always_load_tool_specs:
+        server, original = mux.always_load_tool_owner(spec)
+        if not server:
+            degraded[spec] = "tool is not resolvable to any catalog server"
+            logger.error(
+                "always-load tool spec could not be resolved to a fleet server; "
+                "it will remain lazily discoverable only (spec=%s)",
+                redact_for_log(spec),
+            )
+            continue
+        per_server_tools.setdefault(server, []).append((spec, original))
+    return per_server_tools
+
+
+async def _mount_always_load_server(
+    mux: MCPMultiplexer, server: str, degraded: dict[str, str]
+) -> bool:
+    """Mount ONE always-load server. ``False`` ⇒ degraded to the lazy path.
+
+    Each server is mounted on its OWN try/except so one that is missing from
+    the catalog, unreachable, or crash-looping can never prevent the remaining
+    always-load entries from mounting, and can never propagate out of a
+    ``tools/list``. This is not hypothetical: a fastmcp-version mismatch has
+    put dozens of fleet pods into a crash loop at once.
+    """
+    try:
+        await mux.mount_child(server)
+    except asyncio.CancelledError:
+        raise
+    except BaseException as exc:  # noqa: BLE001 - eager mount must fail soft
+        degraded[server] = _format_probe_error(exc)
+        logger.error(
+            "always-load server failed to mount and is DEGRADED to lazy "
+            "discovery; graph-os continues serving without it "
+            "(server=%s, error=%s)",
+            server,
+            degraded[server],
+        )
+        return False
+    if server not in mux.children:
+        degraded[server] = "could not mount (not in catalog, or unreachable)"
+        logger.error(
+            "always-load server did not mount and is DEGRADED to lazy "
+            "discovery; graph-os continues serving without it (server=%s)",
+            server,
+        )
+        return False
+    return True
+
+
+def _always_load_server_surface(mux: MCPMultiplexer, server: str) -> set[str]:
+    """One wholesale-named server's eager surface.
+
+    Mirrors the server-level ``load_tools`` contract: the condensed action
+    surface only, never the verbose 1:1 tools — always-load exists to save a
+    round trip, not to flood context.
+    """
+    return {
+        tool.name
+        for tool in mux.prefixed_tools_for_server(server)
+        if not _tool_is_verbose(tool)
+    }
+
+
+def _always_load_tool_surface(
+    mux: MCPMultiplexer,
+    server: str,
+    specs: list[tuple[str, str | None]],
+    degraded: dict[str, str],
+) -> set[str]:
+    """The prefixed names one server's per-tool always-load specs resolve to.
+
+    A spec whose owning server mounted but that the server never registered
+    (disabled by config, or rejected by its runtime policy) is reported in
+    ``degraded`` rather than silently dropped.
+    """
+    expose: set[str] = set()
+    for spec, original in specs:
+        prefixed = (
+            mux.prefixed_for_original(server, original)
+            if original is not None
+            else (spec if spec in mux.tool_to_server else None)
+        )
+        if prefixed is None:
+            degraded[spec] = (
+                "tool is not registered by its owning server "
+                "(disabled by config or rejected by its runtime policy)"
+            )
+            logger.error(
+                "always-load tool is absent from its mounted server and is "
+                "DEGRADED to lazy discovery (spec=%s)",
+                redact_for_log(spec),
+            )
+            continue
+        expose.add(prefixed)
+    return expose
+
+
+async def _publish_always_load(
+    mcp, mux: MCPMultiplexer, expose: set[str], session_key: str
+) -> tuple[list[str], bool]:
+    """Register the eager set's forwarders and make it visible to this session.
+
+    Returns ``(newly_exposed, notification_sent)``. BUG-050: that flag is
+    "was the push sent", never "did the client refresh".
+    """
+    for name in sorted(expose):
+        tool_obj = mux.tool_object(name)
+        if tool_obj is not None and name not in mux._exposed:
+            _register_forwarder(mcp, mux, tool_obj)
+    loaded = mux.session_loaded(session_key)
+    newly = [n for n in sorted(expose) if n in mux.tool_to_server and n not in loaded]
+    loaded.update(newly)
+    notification_sent = await _notify_tools_changed(mcp) if newly else True
+    return newly, notification_sent
+
+
+def _log_always_load_outcome(
+    degraded: dict[str, str], mounted: list[str], newly: list[str]
+) -> None:
+    """One operator-visible line summarising the eager pass's real outcome."""
+    if degraded:
+        logger.warning(
+            "graph-os always-load completed DEGRADED: %d of %d entries "
+            "unavailable and left to lazy discovery",
+            len(degraded),
+            len(mounted) + len(degraded),
+        )
+        return
+    logger.info(
+        "graph-os always-load ready: %d server(s), %d tool(s) pre-mounted",
+        len(mounted),
+        len(newly),
+    )
+
+
 async def _perform_always_load(
     mcp, mux: MCPMultiplexer, session_key: str
 ) -> AlwaysLoadResult:
@@ -6023,83 +6839,19 @@ async def _perform_always_load(
     mounted: list[str] = []
     expose: set[str] = set()
 
-    # Group the tool-level specs by owning server so each server is mounted once
-    # whether it was named wholesale, per-tool, or both.
-    per_server_tools: dict[str, list[tuple[str, str | None]]] = {}
-    for spec in mux._always_load_tool_specs:
-        server, original = mux.always_load_tool_owner(spec)
-        if not server:
-            degraded[spec] = "tool is not resolvable to any catalog server"
-            logger.error(
-                "always-load tool spec could not be resolved to a fleet server; "
-                "it will remain lazily discoverable only (spec=%s)",
-                redact_for_log(spec),
-            )
-            continue
-        per_server_tools.setdefault(server, []).append((spec, original))
-
+    per_server_tools = _group_always_load_tool_specs(mux, degraded)
     whole = [str(s).strip() for s in mux._always_load_servers if str(s).strip()]
     for server in list(dict.fromkeys([*whole, *per_server_tools])):
-        try:
-            await mux.mount_child(server)
-        except asyncio.CancelledError:
-            raise
-        except BaseException as exc:  # noqa: BLE001 - eager mount must fail soft
-            degraded[server] = _format_probe_error(exc)
-            logger.error(
-                "always-load server failed to mount and is DEGRADED to lazy "
-                "discovery; graph-os continues serving without it "
-                "(server=%s, error=%s)",
-                server,
-                degraded[server],
-            )
-            continue
-        if server not in mux.children:
-            degraded[server] = "could not mount (not in catalog, or unreachable)"
-            logger.error(
-                "always-load server did not mount and is DEGRADED to lazy "
-                "discovery; graph-os continues serving without it (server=%s)",
-                server,
-            )
+        if not await _mount_always_load_server(mux, server, degraded):
             continue
         mounted.append(server)
         if server in whole:
-            # Mirror the server-level ``load_tools`` contract: expose the
-            # condensed action surface only, never the verbose 1:1 tools —
-            # always-load exists to save a round trip, not to flood context.
-            for tool in mux.prefixed_tools_for_server(server):
-                if _tool_is_verbose(tool):
-                    continue
-                expose.add(tool.name)
-        for spec, original in per_server_tools.get(server, ()):
-            prefixed = (
-                mux.prefixed_for_original(server, original)
-                if original is not None
-                else (spec if spec in mux.tool_to_server else None)
-            )
-            if prefixed is None:
-                degraded[spec] = (
-                    "tool is not registered by its owning server "
-                    "(disabled by config or rejected by its runtime policy)"
-                )
-                logger.error(
-                    "always-load tool is absent from its mounted server and is "
-                    "DEGRADED to lazy discovery (spec=%s)",
-                    redact_for_log(spec),
-                )
-                continue
-            expose.add(prefixed)
+            expose |= _always_load_server_surface(mux, server)
+        expose |= _always_load_tool_surface(
+            mux, server, per_server_tools.get(server, []), degraded
+        )
 
-    for name in sorted(expose):
-        tool_obj = mux.tool_object(name)
-        if tool_obj is not None and name not in mux._exposed:
-            _register_forwarder(mcp, mux, tool_obj)
-    loaded = mux.session_loaded(session_key)
-    newly = [n for n in sorted(expose) if n in mux.tool_to_server and n not in loaded]
-    loaded.update(newly)
-    # BUG-050: same honesty contract as ``load_session_tools`` — this is
-    # "was the push sent", never "did the client refresh".
-    notification_sent = await _notify_tools_changed(mcp) if newly else True
+    newly, notification_sent = await _publish_always_load(mcp, mux, expose, session_key)
     result: AlwaysLoadResult = {
         "mounted_servers": mounted,
         "exposed": newly,
@@ -6109,20 +6861,57 @@ async def _perform_always_load(
             name: mux._child_schema_revisions.get(name, 0) for name in mounted
         },
     }
-    if degraded:
-        logger.warning(
-            "graph-os always-load completed DEGRADED: %d of %d entries "
-            "unavailable and left to lazy discovery",
-            len(degraded),
-            len(mounted) + len(degraded),
-        )
-    else:
-        logger.info(
-            "graph-os always-load ready: %d server(s), %d tool(s) pre-mounted",
-            len(mounted),
-            len(newly),
-        )
+    _log_always_load_outcome(degraded, mounted, newly)
     return result
+
+
+async def _join_always_load_pass(pending: dict[str, Any]) -> AlwaysLoadResult:
+    """Observe a concurrent or already-settled always-load pass for this session.
+
+    The first caller runs the pass while any concurrent caller awaits the same
+    future, so a client that fires ``tools/list`` and a ``tools/call`` back to
+    back cannot start two mounting passes. NEVER raises except on cancellation.
+    """
+    inflight = pending.get("future")
+    if isinstance(inflight, asyncio.Future) and not inflight.done():
+        try:
+            return cast(AlwaysLoadResult, await asyncio.shield(inflight))
+        except asyncio.CancelledError:
+            raise
+        except BaseException:  # noqa: BLE001 - never fail the request
+            return _empty_always_load_result()
+    settled = pending.get("result")
+    if isinstance(settled, dict):
+        return cast(AlwaysLoadResult, settled)
+    return _empty_always_load_result()
+
+
+async def _run_always_load_pass(
+    mcp, mux: MCPMultiplexer, key: str, barrier: asyncio.Future
+) -> AlwaysLoadResult:
+    """Run one session's pass, degrading any failure into a reported result.
+
+    A pass that raises never poisons the session; a pass that is CANCELLED
+    clears the marker so a later call can retry.
+    """
+    try:
+        return await _perform_always_load(mcp, mux, key)
+    except asyncio.CancelledError:
+        mux._always_load_done.pop(key, None)
+        if not barrier.done():
+            barrier.cancel()
+        raise
+    except BaseException as exc:  # noqa: BLE001 - eager mount must fail soft
+        logger.error(
+            "graph-os always-load pass failed entirely; every declared server "
+            "remains reachable through find_tools/load_tools "
+            "(exception_type=%s): %s",
+            type(exc).__name__,
+            redact_for_log(exc),
+        )
+        result = _empty_always_load_result()
+        result["degraded"] = {"*": _format_probe_error(exc)}
+        return result
 
 
 async def ensure_always_loaded(
@@ -6143,45 +6932,41 @@ async def ensure_always_loaded(
     key = session_key or _session_key()
     pending = mux._always_load_done.get(key)
     if pending is not None:
-        inflight = pending.get("future")
-        if isinstance(inflight, asyncio.Future) and not inflight.done():
-            try:
-                return cast(AlwaysLoadResult, await asyncio.shield(inflight))
-            except asyncio.CancelledError:
-                raise
-            except BaseException:  # noqa: BLE001 - never fail the request
-                return _empty_always_load_result()
-        settled = pending.get("result")
-        if isinstance(settled, dict):
-            return cast(AlwaysLoadResult, settled)
-        return _empty_always_load_result()
+        return await _join_always_load_pass(pending)
 
     loop = asyncio.get_running_loop()
     barrier: asyncio.Future = loop.create_future()
     record: dict[str, Any] = {"future": barrier, "result": None}
     mux._always_load_done[key] = record
-    try:
-        result = await _perform_always_load(mcp, mux, key)
-    except asyncio.CancelledError:
-        mux._always_load_done.pop(key, None)
-        if not barrier.done():
-            barrier.cancel()
-        raise
-    except BaseException as exc:  # noqa: BLE001 - eager mount must fail soft
-        logger.error(
-            "graph-os always-load pass failed entirely; every declared server "
-            "remains reachable through find_tools/load_tools "
-            "(exception_type=%s): %s",
-            type(exc).__name__,
-            redact_for_log(exc),
-        )
-        result = _empty_always_load_result()
-        result["degraded"] = {"*": _format_probe_error(exc)}
+    result = await _run_always_load_pass(mcp, mux, key, barrier)
     record["result"] = result
     record["future"] = None
     if not barrier.done():
         barrier.set_result(result)
     return result
+
+
+def _unload_target_names(
+    mcp,
+    mux: MCPMultiplexer,
+    tools: list[str] | None,
+    servers: list[str] | None,
+    toolsets: list[str] | None,
+) -> set[str]:
+    """The union of the three unload granularities, as prefixed tool names.
+
+    ``servers`` naming the HOST itself (``mux._skip_servers``) selects the
+    host's own gated tools rather than a fleet child's — e.g.
+    ``servers=["graph-os"]`` retracts the whole condensed surface at once.
+    """
+    names: set[str] = set(tools or [])
+    for server in servers or []:
+        if server in (mux._skip_servers or ()):
+            names.update(mux._local_gated)
+        else:
+            names.update(t.name for t in mux.prefixed_tools_for_server(server))
+    names.update(_tools_with_tag(mcp, toolsets))
+    return names
 
 
 async def unload_session_tools(
@@ -6205,13 +6990,7 @@ async def unload_session_tools(
     """
     session_key = _session_key()
     loaded = mux.session_loaded(session_key)
-    names: set[str] = set(tools or [])
-    for server in servers or []:
-        if server in (mux._skip_servers or ()):
-            names.update(mux._local_gated)
-        else:
-            names.update(t.name for t in mux.prefixed_tools_for_server(server))
-    names.update(_tools_with_tag(mcp, toolsets))
+    names = _unload_target_names(mcp, mux, tools, servers, toolsets)
 
     removed = [n for n in sorted(names) if n in loaded]
     auto = mux._auto_unload.get(session_key)
@@ -6489,6 +7268,57 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
     _register_status_tool(mcp, mux)
 
 
+def _always_load_raw_setting(field: str, alias: str) -> Any:
+    """The raw configured value for one always-load field, live alias first.
+
+    Never raises: an unreadable value degrades to ``None`` (fully-lazy) and is
+    logged (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
+    """
+    raw: Any = None
+    try:
+        raw = setting(alias)
+    except Exception as exc:  # noqa: BLE001 - configuration must not fail attach
+        logger.error(
+            "always-load setting %s unreadable (exception_type=%s): %s",
+            alias,
+            type(exc).__name__,
+            redact_for_log(exc),
+        )
+        raw = None
+    if raw is not None:
+        return raw
+    try:
+        from agent_utilities.core.config import config as agent_config
+
+        return getattr(agent_config, field, None)
+    except Exception as exc:  # noqa: BLE001 - configuration must not fail attach
+        logger.error(
+            "always-load field %s unreadable (exception_type=%s): %s",
+            field,
+            type(exc).__name__,
+            redact_for_log(exc),
+        )
+        return None
+
+
+def _always_load_parse_text(raw: str, alias: str) -> Any:
+    """One STRING always-load setting as a list: a JSON array, or comma-separated.
+
+    So ``MCP_ALWAYS_LOAD=a,b`` in a pod env is as valid as a JSON array in
+    ``config.json``. Malformed JSON degrades to fully-lazy and is logged.
+    """
+    text = raw.strip()
+    if not text:
+        return []
+    if text[:1] != "[":
+        return text.split(",")
+    try:
+        return json.loads(text)
+    except ValueError:
+        logger.error("always-load setting %s is not valid JSON", alias)
+        return []
+
+
 def _always_load_setting(field: str, alias: str) -> list[str]:
     """Read one always-load list from the effective configuration.
 
@@ -6502,44 +7332,11 @@ def _always_load_setting(field: str, alias: str) -> list[str]:
     Never raises: an unreadable or malformed value degrades to fully-lazy and
     is logged (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
     """
-    raw: Any = None
-    try:
-        raw = setting(alias)
-    except Exception as exc:  # noqa: BLE001 - configuration must not fail attach
-        logger.error(
-            "always-load setting %s unreadable (exception_type=%s): %s",
-            alias,
-            type(exc).__name__,
-            redact_for_log(exc),
-        )
-        raw = None
-    if raw is None:
-        try:
-            from agent_utilities.core.config import config as agent_config
-
-            raw = getattr(agent_config, field, None)
-        except Exception as exc:  # noqa: BLE001 - configuration must not fail attach
-            logger.error(
-                "always-load field %s unreadable (exception_type=%s): %s",
-                field,
-                type(exc).__name__,
-                redact_for_log(exc),
-            )
-            return []
+    raw = _always_load_raw_setting(field, alias)
     if raw is None:
         return []
     if isinstance(raw, str):
-        text = raw.strip()
-        if not text:
-            return []
-        if text[:1] == "[":
-            try:
-                raw = json.loads(text)
-            except ValueError:
-                logger.error("always-load setting %s is not valid JSON", alias)
-                return []
-        else:
-            raw = text.split(",")
+        raw = _always_load_parse_text(raw, alias)
     if isinstance(raw, str):
         raw = [raw]
     if not isinstance(raw, (list, tuple, set)):
