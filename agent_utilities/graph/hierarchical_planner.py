@@ -33,6 +33,8 @@ import logging
 import os
 import re
 import subprocess
+from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -157,6 +159,261 @@ def _plan_output_type(model: Any) -> Any:
     return GraphPlan
 
 
+@dataclass
+class _ReplanSections:
+    """Assembled context sections consumed by both the re-plan system prompt
+    and the LATS/RLM re-plan modes."""
+
+    feedback: str
+    error: str
+    results: str
+    policies: str
+    process: str
+
+
+def _replan_context_sections(state: Any) -> tuple[str, str, str]:
+    """Bound and format the feedback/error/previous-results sections for a
+    re-plan (FU-4, CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid): keeps
+    the accumulated re-plan context from growing unbounded across attempts and
+    overflowing the model window (we observed 32K-limit 400s)."""
+    _MAX_RESULTS_ENTRIES = 5
+    _MAX_RESULTS_CHARS = 2500
+    _MAX_FEEDBACK_CHARS = 1500
+    _MAX_ERROR_CHARS = 1000
+
+    # Build a rich re-planning context from the MOST RECENT prior results only.
+    _recent = list(state.results_registry.items())[-_MAX_RESULTS_ENTRIES:]
+    previous_results = "\n".join(f"- {node}: {str(val)[:300]}" for node, val in _recent)
+    if len(previous_results) > _MAX_RESULTS_CHARS:
+        previous_results = previous_results[-_MAX_RESULTS_CHARS:]
+
+    feedback_section = ""
+    if state.validation_feedback:
+        _fb = str(state.validation_feedback)[:_MAX_FEEDBACK_CHARS]
+        feedback_section = (
+            f"### VERIFICATION FEEDBACK (CRITICAL)\n"
+            f"The previous plan was rejected by the verifier. Address this:\n"
+            f"{_fb}\n\n"
+        )
+
+    error_section = ""
+    if state.error:
+        error_section = f"### PREVIOUS ERROR\n{str(state.error)[:_MAX_ERROR_CHARS]}\n\n"
+
+    results_section = ""
+    if previous_results:
+        results_section = (
+            f"### PREVIOUS EXECUTION RESULTS (for context)\n{previous_results}\n\n"
+        )
+
+    return feedback_section, error_section, results_section
+
+
+async def _discover_policies_and_process(ctx: StepContext) -> tuple[str, str]:
+    """KG lookup for applicable policies + a matching process flow ("0.
+    Discover Processes and Policies from Knowledge Graph"). Sets
+    ``ctx.state.current_flow_id`` when a matching flow is found."""
+    policies_context = ""
+    process_context = ""
+    if not ctx.deps.knowledge_engine:
+        return policies_context, process_context
+
+    from .nodes import find_best_matching_process_flow_via_kg
+
+    logger.info("Planner: Discovering relevant policies and processes from KG...")
+    relevant_policies = await asyncio.to_thread(
+        ctx.deps.knowledge_engine.find_relevant_policies,
+        ctx.state.query,
+    )
+    if relevant_policies:
+        policies_context = "### APPLICABLE POLICIES\n" + "\n".join(
+            [f"- {p['name']}: {p['description']}" for p in relevant_policies]
+        )
+
+    best_flow = await find_best_matching_process_flow_via_kg(ctx.state.query)
+    if best_flow:
+        process_context = (
+            f"### RECOMMENDED PROCESS FLOW\n"
+            f"A matching process flow '{best_flow.name}' was found in the Knowledge Graph:\n"
+            f"Goal: {best_flow.goal}\n"
+            f"You should strongly consider following this established process."
+        )
+        ctx.state.current_flow_id = best_flow.flow_id
+
+    return policies_context, process_context
+
+
+def _build_replan_agent(
+    ctx: StepContext,
+    domain_tools: Any,
+    domain_toolsets: Any,
+    planner_prompt: str,
+    agent_context: str,
+    sections: _ReplanSections,
+) -> Any:
+    """Construct the re-planning agent with the assembled system prompt."""
+    return create_context_agent(
+        model=ctx.deps.agent_model,
+        permissions_kernel=ctx.deps.permissions_kernel,
+        agent_identity=ctx.deps.agent_identity,
+        permission_engine=ctx.deps.knowledge_engine,
+        output_type=_plan_output_type(ctx.deps.agent_model),  # FU-2
+        deps_type=GraphDeps,
+        tools=domain_tools,
+        toolsets=domain_toolsets,
+        system_prompt=(
+            f"{planner_prompt}\n\n"
+            f"### WIDE-SEARCH ORCHESTRATION (CONCEPT:AU-ORCH.planning.recursion-nesting-depth)\n"
+            f"If the query requests extracting a large table of data across many entities "
+            f"(e.g., 'Web2WideSearch'), decompose the extraction into discrete batches. Emit "
+            f"multiple parallel ExecutionSteps assigned to an extraction specialist, each targeting "
+            f"a specific partition of the data in its 'refined_subtask'. Set 'parallel=True' "
+            f"and configure 'access_list' to share the shared workboard context.\n\n"
+            f"### MULTI-LEVEL ABSTRACTION LAYERING (CONCEPT:AU-ORCH.execution.execution-budget-caps)\n"
+            f"Do not attempt to plan every micro-step. Instead, emit coarse, high-level steps "
+            f"and delegate the detailed refinement to the executing adaptive_agent_router. This saves "
+            f"upfront planning tokens and allows adaptive_agent_router to adapt dynamically.\n\n"
+            f"{sections.feedback}"
+            f"{sections.error}"
+            f"{sections.results}"
+            f"{sections.policies}\n\n"
+            f"{sections.process}\n\n"
+            f"### ARCHITECTURAL DECISIONS\n{ctx.state.architectural_decisions}\n\n"
+            f"### WORKSPACE CONTEXT\n{agent_context}"
+        ),
+    )
+
+
+async def _generate_replan_rlm(
+    ctx: StepContext,
+    planner: Any,
+    planner_deps: Any,
+    usage_limits: Any,
+    rlm_config: Any,
+    combined_context: str,
+) -> Any:
+    """RLM (Recursive Language Model) re-plan mode: run the REPL, parse its
+    ``GraphPlan`` JSON output, and fall back to the plain planner agent to
+    parse the raw RLM output if it wasn't valid JSON."""
+    from ..rlm.repl import RLMEnvironment
+
+    logger.info("Planner: Running in RLM (Recursive Language Model) mode.")
+    env = RLMEnvironment(
+        context=combined_context,
+        config=rlm_config,
+        graph_deps=ctx.deps,
+    )
+    rlm_result = await env.run_full_rlm(
+        f"Create a CORRECTED execution plan for: {ctx.state.query}\n\n"
+        f"The previous approach failed. You MUST use a different strategy. "
+        f"Use the REPL to deeply analyze the context. "
+        f"You MUST output a JSON representation of a GraphPlan using FINAL_VAR('plan', <json_string>)."
+    )
+
+    import json
+
+    try:
+        plan_data = json.loads(rlm_result)
+        return GraphPlan.model_validate(plan_data)
+    except Exception as parse_e:
+        logger.warning(
+            f"RLM output was not valid GraphPlan JSON: {parse_e}. Running fallback parser."
+        )
+        res = await planner.run(
+            f"Parse this into a GraphPlan:\n{rlm_result}",
+            deps=planner_deps,
+            usage_limits=usage_limits,
+        )
+        return res.output
+
+
+async def _generate_replan(
+    ctx: StepContext,
+    planner: Any,
+    planner_deps: Any,
+    usage_limits: Any,
+    rlm_config: Any,
+    combined_context: str,
+) -> Any:
+    """Run the re-plan through LATS, RLM, or the plain planner agent --
+    whichever mode is active -- and return the resulting plan."""
+    # CONCEPT:AU-ORCH.planning.recursion-nesting-depth — LATS implementation fallback for complex failures
+    if getattr(ctx.state, "use_lats", False) or ctx.state.verification_attempts > 1:
+        logger.info("Planner: Running in LATS (Language Agent Tree Search) mode.")
+        lats_env = LATSPlanner(
+            context=combined_context,
+            deps=ctx.deps,
+            model=ctx.deps.agent_model,
+        )
+        return await lats_env.search(ctx.state.query)
+
+    if rlm_config.enabled or getattr(ctx.state, "requires_long_horizon", False):
+        return await _generate_replan_rlm(
+            ctx, planner, planner_deps, usage_limits, rlm_config, combined_context
+        )
+
+    res = await planner.run(
+        f"Create a CORRECTED execution plan for: {ctx.state.query}\n\n"
+        f"The previous approach failed. You MUST use a different strategy.",
+        deps=planner_deps,
+        usage_limits=usage_limits,
+    )
+    return res.output
+
+
+async def _replan_fallback(
+    ctx: StepContext, planner_prompt: str, error: Exception
+) -> str:
+    """Unstructured last-resort re-plan: ask the model for a bare comma-
+    separated list of specialist names when structured planning fails
+    outright."""
+    logger.warning(f"Planning failed: {error}. Attempting unstructured fallback.")
+    try:
+        fallback_prompt = (
+            f"{planner_prompt}\n\nCRITICAL: You failed JSON validation. "
+            "Please reply ONLY with a simple text list of the exact agent names you want to use from the available specialists "
+            "(separated by commas). DO NOT output conversational text, just the comma-separated agent names."
+        )
+        fallback_agent = create_context_agent(
+            model=ctx.deps.agent_model, system_prompt=fallback_prompt
+        )
+        fallback_res = await fallback_agent.run(ctx.state.query)
+
+        raw_text = str(
+            getattr(fallback_res, "data", getattr(fallback_res, "output", ""))
+        )
+        available = (
+            list(ctx.deps.tag_prompts.keys())
+            if ctx.deps and hasattr(ctx.deps, "tag_prompts")
+            else []
+        )
+
+        steps = []
+        for spec in available:
+            if spec.lower() in raw_text.lower():
+                steps.append(ExecutionStep(id=spec, description=ctx.state.query))
+
+        if steps:
+            logger.info(
+                f"Planner Fallback: Extracted {len(steps)} steps from text: {[s.id for s in steps]}"
+            )
+            ctx.state.plan = GraphPlan(
+                steps=steps,
+                metadata={"reasoning": "Fallback natural language extraction"},
+            )
+            ctx.state.step_cursor = 0
+            return "dispatcher"
+        else:
+            logger.warning(
+                f"Planner Fallback: No known specialists found in text. Available: {available}. Raw text: {raw_text}"
+            )
+    except Exception as fallback_e:
+        logger.error(f"Planner fallback also failed: {fallback_e}")
+
+    logger.error(f"Re-planning failed fully: {error}")
+    return "error_recovery"
+
+
 async def planner_step(
     ctx: StepContext,
 ) -> GraphPlan | str:
@@ -195,42 +452,11 @@ async def planner_step(
     planner_prompt = await asyncio.to_thread(load_specialized_prompts, "planner")
     agent_context = await fetch_epistemic_context()
 
-    # FU-4 (CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid) — bound the accumulated re-plan context so it can't grow
-    # unbounded across attempts and overflow the model window (we observed 32K-limit 400s).
-    _MAX_RESULTS_ENTRIES = 5
-    _MAX_RESULTS_CHARS = 2500
-    _MAX_FEEDBACK_CHARS = 1500
-    _MAX_ERROR_CHARS = 1000
-
-    # Build a rich re-planning context from the MOST RECENT prior results only.
-    _recent = list(ctx.state.results_registry.items())[-_MAX_RESULTS_ENTRIES:]
-    previous_results = "\n".join(f"- {node}: {str(val)[:300]}" for node, val in _recent)
-    if len(previous_results) > _MAX_RESULTS_CHARS:
-        previous_results = previous_results[-_MAX_RESULTS_CHARS:]
-
-    feedback_section = ""
-    if ctx.state.validation_feedback:
-        _fb = str(ctx.state.validation_feedback)[:_MAX_FEEDBACK_CHARS]
-        feedback_section = (
-            f"### VERIFICATION FEEDBACK (CRITICAL)\n"
-            f"The previous plan was rejected by the verifier. Address this:\n"
-            f"{_fb}\n\n"
-        )
-
-    error_section = ""
-    if ctx.state.error:
-        error_section = (
-            f"### PREVIOUS ERROR\n{str(ctx.state.error)[:_MAX_ERROR_CHARS]}\n\n"
-        )
-
-    results_section = ""
-    if previous_results:
-        results_section = (
-            f"### PREVIOUS EXECUTION RESULTS (for context)\n{previous_results}\n\n"
-        )
+    feedback_section, error_section, results_section = _replan_context_sections(
+        ctx.state
+    )
 
     from .executor import _get_domain_tools, agent_deps_from_graph
-    from .nodes import find_best_matching_process_flow_via_kg
 
     domain_tools, domain_toolsets = await _get_domain_tools("planner", ctx.deps)
     # Injected dev/sdd tools are RunContext[AgentDeps]-typed (read ctx.deps.workspace_path);
@@ -252,112 +478,36 @@ async def planner_step(
     )
 
     # 0. Discover Processes and Policies from Knowledge Graph
-    policies_context = ""
-    process_context = ""
-    if ctx.deps.knowledge_engine:
-        logger.info("Planner: Discovering relevant policies and processes from KG...")
-        relevant_policies = await asyncio.to_thread(
-            ctx.deps.knowledge_engine.find_relevant_policies,
-            ctx.state.query,
-        )
-        if relevant_policies:
-            policies_context = "### APPLICABLE POLICIES\n" + "\n".join(
-                [f"- {p['name']}: {p['description']}" for p in relevant_policies]
-            )
+    policies_context, process_context = await _discover_policies_and_process(ctx)
 
-        best_flow = await find_best_matching_process_flow_via_kg(ctx.state.query)
-        if best_flow:
-            process_context = (
-                f"### RECOMMENDED PROCESS FLOW\n"
-                f"A matching process flow '{best_flow.name}' was found in the Knowledge Graph:\n"
-                f"Goal: {best_flow.goal}\n"
-                f"You should strongly consider following this established process."
-            )
-            ctx.state.current_flow_id = best_flow.flow_id
-
-    planner = create_context_agent(
-        model=ctx.deps.agent_model,
-        permissions_kernel=ctx.deps.permissions_kernel,
-        agent_identity=ctx.deps.agent_identity,
-        permission_engine=ctx.deps.knowledge_engine,
-        output_type=_plan_output_type(ctx.deps.agent_model),  # FU-2
-        deps_type=GraphDeps,
-        tools=domain_tools,
-        toolsets=domain_toolsets,
-        system_prompt=(
-            f"{planner_prompt}\n\n"
-            f"### WIDE-SEARCH ORCHESTRATION (CONCEPT:AU-ORCH.planning.recursion-nesting-depth)\n"
-            f"If the query requests extracting a large table of data across many entities "
-            f"(e.g., 'Web2WideSearch'), decompose the extraction into discrete batches. Emit "
-            f"multiple parallel ExecutionSteps assigned to an extraction specialist, each targeting "
-            f"a specific partition of the data in its 'refined_subtask'. Set 'parallel=True' "
-            f"and configure 'access_list' to share the shared workboard context.\n\n"
-            f"### MULTI-LEVEL ABSTRACTION LAYERING (CONCEPT:AU-ORCH.execution.execution-budget-caps)\n"
-            f"Do not attempt to plan every micro-step. Instead, emit coarse, high-level steps "
-            f"and delegate the detailed refinement to the executing adaptive_agent_router. This saves "
-            f"upfront planning tokens and allows adaptive_agent_router to adapt dynamically.\n\n"
-            f"{feedback_section}"
-            f"{error_section}"
-            f"{results_section}"
-            f"{policies_context}\n\n"
-            f"{process_context}\n\n"
-            f"### ARCHITECTURAL DECISIONS\n{ctx.state.architectural_decisions}\n\n"
-            f"### WORKSPACE CONTEXT\n{agent_context}"
-        ),
+    sections = _ReplanSections(
+        feedback=feedback_section,
+        error=error_section,
+        results=results_section,
+        policies=policies_context,
+        process=process_context,
+    )
+    planner = _build_replan_agent(
+        ctx, domain_tools, domain_toolsets, planner_prompt, agent_context, sections
     )
 
     from ..rlm.config import RLMConfig
-    from ..rlm.repl import RLMEnvironment
 
     rlm_config = RLMConfig()
 
     try:
-        # CONCEPT:AU-ORCH.planning.recursion-nesting-depth — LATS implementation fallback for complex failures
-        if getattr(ctx.state, "use_lats", False) or ctx.state.verification_attempts > 1:
-            logger.info("Planner: Running in LATS (Language Agent Tree Search) mode.")
-            lats_env = LATSPlanner(
-                context=f"{feedback_section}\n{error_section}\n{results_section}\n{policies_context}\n{process_context}\n{agent_context}",
-                deps=ctx.deps,
-                model=ctx.deps.agent_model,
-            )
-            ctx.state.plan = await lats_env.search(ctx.state.query)
-        elif rlm_config.enabled or getattr(ctx.state, "requires_long_horizon", False):
-            logger.info("Planner: Running in RLM (Recursive Language Model) mode.")
-            env = RLMEnvironment(
-                context=f"{feedback_section}\n{error_section}\n{results_section}\n{policies_context}\n{process_context}\n{agent_context}",
-                config=rlm_config,
-                graph_deps=ctx.deps,
-            )
-            rlm_result = await env.run_full_rlm(
-                f"Create a CORRECTED execution plan for: {ctx.state.query}\n\n"
-                f"The previous approach failed. You MUST use a different strategy. "
-                f"Use the REPL to deeply analyze the context. "
-                f"You MUST output a JSON representation of a GraphPlan using FINAL_VAR('plan', <json_string>)."
-            )
-
-            import json
-
-            try:
-                plan_data = json.loads(rlm_result)
-                ctx.state.plan = GraphPlan.model_validate(plan_data)
-            except Exception as parse_e:
-                logger.warning(
-                    f"RLM output was not valid GraphPlan JSON: {parse_e}. Running fallback parser."
-                )
-                res = await planner.run(
-                    f"Parse this into a GraphPlan:\n{rlm_result}",
-                    deps=_planner_deps,
-                    usage_limits=_planner_usage_limits,
-                )
-                ctx.state.plan = res.output
-        else:
-            res = await planner.run(
-                f"Create a CORRECTED execution plan for: {ctx.state.query}\n\n"
-                f"The previous approach failed. You MUST use a different strategy.",
-                deps=_planner_deps,
-                usage_limits=_planner_usage_limits,
-            )
-            ctx.state.plan = res.output
+        combined_context = (
+            f"{feedback_section}\n{error_section}\n{results_section}\n"
+            f"{policies_context}\n{process_context}\n{agent_context}"
+        )
+        ctx.state.plan = await _generate_replan(
+            ctx,
+            planner,
+            _planner_deps,
+            _planner_usage_limits,
+            rlm_config,
+            combined_context,
+        )
 
         ctx.state.step_cursor = 0
         ctx.state.needs_replan = False
@@ -374,51 +524,7 @@ async def planner_step(
 
         return "dispatcher"
     except Exception as e:
-        logger.warning(f"Planning failed: {e}. Attempting unstructured fallback.")
-        try:
-            fallback_prompt = (
-                f"{planner_prompt}\n\nCRITICAL: You failed JSON validation. "
-                "Please reply ONLY with a simple text list of the exact agent names you want to use from the available specialists "
-                "(separated by commas). DO NOT output conversational text, just the comma-separated agent names."
-            )
-            fallback_agent = create_context_agent(
-                model=ctx.deps.agent_model, system_prompt=fallback_prompt
-            )
-            fallback_res = await fallback_agent.run(ctx.state.query)
-
-            raw_text = str(
-                getattr(fallback_res, "data", getattr(fallback_res, "output", ""))
-            )
-            available = (
-                list(ctx.deps.tag_prompts.keys())
-                if ctx.deps and hasattr(ctx.deps, "tag_prompts")
-                else []
-            )
-
-            steps = []
-            for spec in available:
-                if spec.lower() in raw_text.lower():
-                    steps.append(ExecutionStep(id=spec, description=ctx.state.query))
-
-            if steps:
-                logger.info(
-                    f"Planner Fallback: Extracted {len(steps)} steps from text: {[s.id for s in steps]}"
-                )
-                ctx.state.plan = GraphPlan(
-                    steps=steps,
-                    metadata={"reasoning": "Fallback natural language extraction"},
-                )
-                ctx.state.step_cursor = 0
-                return "dispatcher"
-            else:
-                logger.warning(
-                    f"Planner Fallback: No known specialists found in text. Available: {available}. Raw text: {raw_text}"
-                )
-        except Exception as fallback_e:
-            logger.error(f"Planner fallback also failed: {fallback_e}")
-
-        logger.error(f"Re-planning failed fully: {e}")
-        return "error_recovery"
+        return await _replan_fallback(ctx, planner_prompt, e)
 
 
 async def fetch_epistemic_context() -> str:
@@ -588,28 +694,43 @@ def _scan_workspace_docs(root: str) -> list[str]:
     pruning never descends into the ignored trees, and the scan stops at ``_DOC_SCAN_CAP``.
     """
     out: list[str] = []
+    for p in _iter_workspace_md_files(root):
+        line = _scan_one_doc(p)
+        if line is None:
+            continue
+        out.append(line)
+        if len(out) >= _DOC_SCAN_CAP:
+            return out
+    return out
+
+
+def _iter_workspace_md_files(root: str) -> Iterator[Path]:
+    """Yield every markdown file path under ``root``, pruning ignored dirs
+    in-place so ``os.walk`` never descends into them (``.venv``, etc.)."""
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in _DOC_SCAN_IGNORED_DIRS]
         for fn in filenames:
-            if not fn.endswith(".md"):
-                continue
-            p = Path(dirpath) / fn
-            try:
-                # Only the frontmatter carries a description; read a bounded head, not the
-                # whole file.
-                with p.open(encoding="utf-8", errors="ignore") as fh:
-                    head = fh.read(1024)
-                description = "General project documentation"
-                if head.startswith("---"):
-                    match = re.search(r"description:\s*(.*)", head)
-                    if match:
-                        description = match.group(1).strip()
-                out.append(f"- [Doc] {p.name}: {description}")
-                if len(out) >= _DOC_SCAN_CAP:
-                    return out
-            except Exception as e:  # noqa: BLE001
-                logger.warning(f"Context document scanning failed: {e}")
-    return out
+            if fn.endswith(".md"):
+                yield Path(dirpath) / fn
+
+
+def _scan_one_doc(p: Path) -> str | None:
+    """Read one markdown doc's bounded head and extract its frontmatter
+    description, if any. Returns ``None`` on read failure (logged)."""
+    try:
+        # Only the frontmatter carries a description; read a bounded head, not the
+        # whole file.
+        with p.open(encoding="utf-8", errors="ignore") as fh:
+            head = fh.read(1024)
+        description = "General project documentation"
+        if head.startswith("---"):
+            match = re.search(r"description:\s*(.*)", head)
+            if match:
+                description = match.group(1).strip()
+        return f"- [Doc] {p.name}: {description}"
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Context document scanning failed: {e}")
+        return None
 
 
 def _load_selected_docs(root: str, selected: list[str]) -> list[str]:
@@ -623,22 +744,210 @@ def _load_selected_docs(root: str, selected: list[str]) -> list[str]:
     out: list[str] = []
     if not wanted:
         return out
+    for dirpath, fn in _iter_selected_files(root, wanted):
+        content = _load_one_doc(Path(dirpath) / fn, fn)
+        if content is not None:
+            out.append(content)
+        wanted.discard(fn)
+        if not wanted:
+            return out
+    return out
+
+
+def _iter_selected_files(root: str, wanted: set[str]) -> Iterator[tuple[str, str]]:
+    """Yield ``(dirpath, filename)`` for each wanted file found, walking once
+    with the same in-place ignored-dir pruning as ``_iter_workspace_md_files``.
+    ``wanted`` is read live -- the caller discarding an already-found name
+    lets an already-satisfied walk skip it for the rest of the tree."""
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in _DOC_SCAN_IGNORED_DIRS]
         for fn in filenames:
-            if fn not in wanted:
-                continue
-            p = Path(dirpath) / fn
-            try:
-                out.append(
-                    f"### {fn}\n{p.read_text(encoding='utf-8', errors='ignore')}"
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.warning(f"Selected memory load failed: {e}")
-            wanted.discard(fn)
-            if not wanted:
-                return out
-    return out
+            if fn in wanted:
+                yield dirpath, fn
+
+
+def _load_one_doc(p: Path, fn: str) -> str | None:
+    """Read one selected doc's full content. Returns ``None`` on read
+    failure (logged)."""
+    try:
+        return f"### {fn}\n{p.read_text(encoding='utf-8', errors='ignore')}"
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Selected memory load failed: {e}")
+        return None
+
+
+def _scan_kg_memories(engine: Any, words: set[str]) -> list[str]:
+    """Bounded single-pass KG memory lookup (CONCEPT:AU-ORCH.execution.direct-completion-shape):
+    visits each node at most once against the whole word set, capping both
+    the nodes scanned and the memories returned, instead of the previous
+    O(query_words x all_KG_nodes) per-node property fetch."""
+    found: list[str] = []
+    if not words:
+        return found
+    graph = engine.graph
+    scanned = 0
+    for node_id in graph.node_ids():
+        scanned += 1
+        if scanned > _KG_MEMORY_SCAN_CAP:
+            break
+        data = graph._get_node_properties(node_id)
+        if data.get("type") != "memory":
+            continue
+        desc = str(data.get("description", "")).lower()
+        name = str(data.get("name", "")).lower()
+        if any(w in desc or w in name for w in words):
+            found.append(
+                f"- [KnowledgeGraph Memory] {data['name']}: {str(data['description'])[:300]}"
+            )
+            if len(found) >= _KG_MEMORY_RESULT_CAP:
+                break
+    return found
+
+
+async def _lookup_kg_memories(ctx: StepContext) -> list[str]:
+    """Phase 2: Knowledge Graph memory lookup, run OFF the event loop
+    (CONCEPT:AU-ORCH.execution.direct-completion-shape). Returns ``[]`` when
+    no ``knowledge_engine`` is configured."""
+    if not ctx.deps.knowledge_engine:
+        return []
+    logger.info("Memory Selection: Querying Knowledge Graph for contextual memories...")
+    words = set(re.findall(r"\b[a-z0-9_]{4,}\b", ctx.state.query.lower()))
+    engine = ctx.deps.knowledge_engine
+    kg_memories = await asyncio.to_thread(_scan_kg_memories, engine, words)
+    if kg_memories:
+        logger.info(
+            f"Memory Selection: Retrieved {len(kg_memories)} memories from Knowledge Graph."
+        )
+    return kg_memories
+
+
+async def _handle_no_memories(ctx: StepContext) -> str:
+    """No workspace/KG memories found: route to researcher when the query
+    looks non-trivial and no research has happened yet (context gap
+    detection), otherwise fall straight through to the dispatcher."""
+    logger.info("Memory Selection: No workspace memories found. Skipping.")
+    word_count = len(ctx.state.query.split())
+    already_researched = ctx.state.global_research_loops > 1
+    if word_count > 8 and not already_researched and not ctx.state.exploration_notes:
+        logger.info("Memory Selection: Context gap detected — routing to researcher.")
+        emit_graph_event(
+            ctx.deps.event_queue,
+            "context_gap_detected",
+            reason="no_workspace_memories",
+            query_words=word_count,
+        )
+        _emit_node_lifecycle(
+            ctx.deps.event_queue,
+            "memory_selection",
+            "node_complete",
+            next_node="researcher",
+        )
+        return "researcher"
+    _emit_node_lifecycle(
+        ctx.deps.event_queue,
+        "memory_selection",
+        "node_complete",
+        next_node="dispatcher",
+    )
+    return "dispatcher"
+
+
+async def _select_memories_structured(
+    ctx: StepContext, selectors: Any, memories: list[str]
+) -> list[str]:
+    """Primary structured-output memory selection."""
+    res = await selectors.run(
+        f"Query: {ctx.state.query}\n\nAvailable memories:\n" + "\n".join(memories[:20])
+    )
+    selected = res.output.get("selected_memories", [])
+    logger.info(
+        f"Memory Selection: Selected {len(selected)} relevant files: {selected}"
+    )
+    return selected
+
+
+async def _select_memories_fallback(
+    ctx: StepContext, prompt_content: str, memories: list[str], error: Exception
+) -> list[str]:
+    """Unstructured fallback when structured selection fails: ask for a bare
+    comma list of filenames and match it against the candidate memories."""
+    logger.warning(
+        f"Memory Selection structured output failed: {error}. Attempting unstructured fallback."
+    )
+    try:
+        fallback = create_context_agent(
+            model=ctx.deps.agent_model, system_prompt=prompt_content
+        )
+        res_fb = await fallback.run(
+            f"Query: {ctx.state.query}\n\nAvailable memories:\n"
+            + "\n".join(memories[:20])
+            + "\n\nCRITICAL: Just output the exact file names you need, separated by commas. DO NOT output conversational text."
+        )
+
+        selected = []
+        raw_text = str(getattr(res_fb, "data", getattr(res_fb, "output", "")))
+        for mem_line in memories[:20]:
+            filename = (
+                mem_line.split(":")[0]
+                .replace("- [Doc] ", "")
+                .replace("- [KnowledgeGraph Memory] ", "")
+                .strip()
+            )
+            if filename.lower() in raw_text.lower():
+                selected.append(filename)
+
+        logger.info(
+            f"Memory Selection Fallback: Extracted {len(selected)} memories from text: {selected}"
+        )
+        return selected
+    except Exception as fallback_e:
+        logger.error(f"Memory selection fallback also failed: {fallback_e}")
+        return []
+
+
+async def _finalize_memory_selection(
+    ctx: StepContext, root: str, memories: list[str], selected: list[str]
+) -> str:
+    """Load the selected memories' content into ``exploration_notes`` and
+    check for the "memories exist but none are relevant" context gap."""
+    loaded_context = await asyncio.to_thread(_load_selected_docs, root, selected)
+
+    ctx.state.exploration_notes += "\n\n### SELECTED MEMORIES\n" + "\n\n".join(
+        loaded_context
+    )
+
+    # Context gap: memories exist but none are relevant to this query
+    already_researched = ctx.state.global_research_loops > 1
+    if (
+        not selected
+        and not already_researched
+        and not ctx.state.exploration_notes.strip()
+    ):
+        logger.info(
+            "Memory Selection: No relevant memories matched — routing to researcher."
+        )
+        emit_graph_event(
+            ctx.deps.event_queue,
+            "context_gap_detected",
+            reason="no_relevant_memories",
+            available=len(memories),
+            selected=0,
+        )
+        _emit_node_lifecycle(
+            ctx.deps.event_queue,
+            "memory_selection",
+            "node_complete",
+            next_node="researcher",
+        )
+        return "researcher"
+
+    _emit_node_lifecycle(
+        ctx.deps.event_queue,
+        "memory_selection",
+        "node_complete",
+        next_node="dispatcher",
+    )
+    return "dispatcher"
 
 
 async def memory_selection_step(
@@ -686,81 +995,10 @@ async def memory_selection_step(
         _DOC_SCAN_CACHE[root] = cached
     memories = list(cached)
 
-    # Phase 2: Knowledge Graph memory lookup — bounded single pass, OFF the event loop
-    # (CONCEPT:AU-ORCH.execution.direct-completion-shape). The previous version was O(query_words × all_KG_nodes) with a
-    # per-node property fetch ON the loop; this visits each node at most once against the whole
-    # word set, caps both the nodes scanned and the memories returned, and runs in a thread.
-    if ctx.deps.knowledge_engine:
-        logger.info(
-            "Memory Selection: Querying Knowledge Graph for contextual memories..."
-        )
-        words = set(re.findall(r"\b[a-z0-9_]{4,}\b", ctx.state.query.lower()))
-        engine = ctx.deps.knowledge_engine
-
-        def _scan_kg_memories() -> list[str]:
-            found: list[str] = []
-            if not words:
-                return found
-            graph = engine.graph
-            scanned = 0
-            for node_id in graph.node_ids():
-                scanned += 1
-                if scanned > _KG_MEMORY_SCAN_CAP:
-                    break
-                data = graph._get_node_properties(node_id)
-                if data.get("type") != "memory":
-                    continue
-                desc = str(data.get("description", "")).lower()
-                name = str(data.get("name", "")).lower()
-                if any(w in desc or w in name for w in words):
-                    found.append(
-                        f"- [KnowledgeGraph Memory] {data['name']}: {str(data['description'])[:300]}"
-                    )
-                    if len(found) >= _KG_MEMORY_RESULT_CAP:
-                        break
-            return found
-
-        kg_memories = await asyncio.to_thread(_scan_kg_memories)
-        if kg_memories:
-            logger.info(
-                f"Memory Selection: Retrieved {len(kg_memories)} memories from Knowledge Graph."
-            )
-            memories.extend(kg_memories)
+    memories.extend(await _lookup_kg_memories(ctx))
 
     if not memories:
-        logger.info("Memory Selection: No workspace memories found. Skipping.")
-        # Context gap detection: non-trivial queries with no memories
-        # benefit from a research pass before execution.
-        word_count = len(ctx.state.query.split())
-        already_researched = ctx.state.global_research_loops > 1
-        if (
-            word_count > 8
-            and not already_researched
-            and not ctx.state.exploration_notes
-        ):
-            logger.info(
-                "Memory Selection: Context gap detected — routing to researcher."
-            )
-            emit_graph_event(
-                ctx.deps.event_queue,
-                "context_gap_detected",
-                reason="no_workspace_memories",
-                query_words=word_count,
-            )
-            _emit_node_lifecycle(
-                ctx.deps.event_queue,
-                "memory_selection",
-                "node_complete",
-                next_node="researcher",
-            )
-            return "researcher"
-        _emit_node_lifecycle(
-            ctx.deps.event_queue,
-            "memory_selection",
-            "node_complete",
-            next_node="dispatcher",
-        )
-        return "dispatcher"
+        return await _handle_no_memories(ctx)
 
     selectors = create_context_agent(
         model=ctx.deps.agent_model,
@@ -768,85 +1006,10 @@ async def memory_selection_step(
         output_type=dict,
     )
     try:
-        res = await selectors.run(
-            f"Query: {ctx.state.query}\n\nAvailable memories:\n"
-            + "\n".join(memories[:20])
-        )
-        selected = res.output.get("selected_memories", [])
-        logger.info(
-            f"Memory Selection: Selected {len(selected)} relevant files: {selected}"
-        )
+        selected = await _select_memories_structured(ctx, selectors, memories)
     except Exception as e:
-        logger.warning(
-            f"Memory Selection structured output failed: {e}. Attempting unstructured fallback."
-        )
-        try:
-            fallback = create_context_agent(
-                model=ctx.deps.agent_model, system_prompt=prompt_content
-            )
-            res_fb = await fallback.run(
-                f"Query: {ctx.state.query}\n\nAvailable memories:\n"
-                + "\n".join(memories[:20])
-                + "\n\nCRITICAL: Just output the exact file names you need, separated by commas. DO NOT output conversational text."
-            )
-
-            selected = []
-            raw_text = str(getattr(res_fb, "data", getattr(res_fb, "output", "")))
-            for mem_line in memories[:20]:
-                filename = (
-                    mem_line.split(":")[0]
-                    .replace("- [Doc] ", "")
-                    .replace("- [KnowledgeGraph Memory] ", "")
-                    .strip()
-                )
-                if filename.lower() in raw_text.lower():
-                    selected.append(filename)
-
-            logger.info(
-                f"Memory Selection Fallback: Extracted {len(selected)} memories from text: {selected}"
-            )
-        except Exception as fallback_e:
-            logger.error(f"Memory selection fallback also failed: {fallback_e}")
-            selected = []
-
-        loaded_context = await asyncio.to_thread(_load_selected_docs, root, selected)
-
-        ctx.state.exploration_notes += "\n\n### SELECTED MEMORIES\n" + "\n\n".join(
-            loaded_context
-        )
-
-        # Context gap: memories exist but none are relevant to this query
-        already_researched = ctx.state.global_research_loops > 1
-        if (
-            not selected
-            and not already_researched
-            and not ctx.state.exploration_notes.strip()
-        ):
-            logger.info(
-                "Memory Selection: No relevant memories matched — routing to researcher."
-            )
-            emit_graph_event(
-                ctx.deps.event_queue,
-                "context_gap_detected",
-                reason="no_relevant_memories",
-                available=len(memories),
-                selected=0,
-            )
-            _emit_node_lifecycle(
-                ctx.deps.event_queue,
-                "memory_selection",
-                "node_complete",
-                next_node="researcher",
-            )
-            return "researcher"
-
-        _emit_node_lifecycle(
-            ctx.deps.event_queue,
-            "memory_selection",
-            "node_complete",
-            next_node="dispatcher",
-        )
-        return "dispatcher"
+        selected = await _select_memories_fallback(ctx, prompt_content, memories, e)
+        return await _finalize_memory_selection(ctx, root, memories, selected)
 
     return "dispatcher"
 
@@ -896,8 +1059,24 @@ class LATSPlanner:
 
         results = await gather_with_resilience(tasks, label="mcts_simulation")
 
-        # CONCEPT:AU-AHE.rlm.memory-aware-test-time-scaling: Memory-Aware Test-Time Scaling
-        # Distill memory from parallel scaling trajectories before evaluation
+        await self._distill_trajectories(results, query)
+
+        best_plan, best_score = await self._select_best_plan(results, query)
+
+        if best_plan:
+            logger.info(f"LATSPlanner: Selected best plan with score {best_score}")
+            return best_plan
+
+        logger.warning(
+            "LATSPlanner: All simulations failed, falling back to empty plan."
+        )
+        return GraphPlan(steps=[], metadata={"reasoning": "LATS failed"})
+
+    async def _distill_trajectories(self, results: list[Any], query: str) -> None:
+        """CONCEPT:AU-AHE.rlm.memory-aware-test-time-scaling: Memory-Aware
+        Test-Time Scaling -- distill memory from parallel scaling
+        trajectories before evaluation. Best-effort; a failure here never
+        blocks scoring."""
         try:
             from .verification import parallel_trajectory_distiller
 
@@ -920,6 +1099,11 @@ class LATSPlanner:
         except Exception as e:
             logger.warning(f"LATSPlanner: Parallel trajectory distillation failed: {e}")
 
+    async def _select_best_plan(
+        self, results: list[Any], query: str
+    ) -> tuple[GraphPlan | None, int]:
+        """Score every successful candidate plan and return the highest-
+        scoring one (``None`` if every simulation failed)."""
         best_plan = None
         best_score = -1
 
@@ -942,14 +1126,7 @@ class LATSPlanner:
             except Exception as e:
                 logger.warning(f"LATSPlanner: Evaluation failed: {e}")
 
-        if best_plan:
-            logger.info(f"LATSPlanner: Selected best plan with score {best_score}")
-            return best_plan
-
-        logger.warning(
-            "LATSPlanner: All simulations failed, falling back to empty plan."
-        )
-        return GraphPlan(steps=[], metadata={"reasoning": "LATS failed"})
+        return best_plan, best_score
 
 
 # === From recursive_executor.py ===

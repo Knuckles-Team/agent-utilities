@@ -23,6 +23,7 @@ import re
 import time
 import uuid
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Literal, TypeVar, cast
@@ -606,6 +607,19 @@ class RepositoryWorkItemRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_target(self) -> RepositoryWorkItemRequest:
+        self._check_operation_payload_discriminator()
+        self._check_resolved_profile_authority()
+        self._check_target_kind_alias()
+        self._check_branch_exclusive()
+        self._check_push_consent()
+        self._check_target_conflict()
+        self._check_disk_watermarks()
+        self._check_lane_intent_exclusivity()
+        self._check_lane_lifecycle_intent()
+        self._check_lane_cleanup_intent()
+        return self
+
+    def _check_operation_payload_discriminator(self) -> None:
         if (
             self.operation != RepositoryOperation.BUILD
             and self.operation_payload is not None
@@ -613,6 +627,8 @@ class RepositoryWorkItemRequest(BaseModel):
             raise ValueError(
                 "operation_payload discriminator does not match the operation"
             )
+
+    def _check_resolved_profile_authority(self) -> None:
         if self.resolved_profile_authority is not None and (
             self.profile_version is None
             or self.disk_policy_key is None
@@ -621,12 +637,18 @@ class RepositoryWorkItemRequest(BaseModel):
             raise ValueError(
                 "resolved profile authority requires the complete resolved profile projection"
             )
+
+    def _check_target_kind_alias(self) -> None:
         if self.target_kind == "local" and self.target_alias is not None:
             raise ValueError("local target must not carry target_alias")
         if self.target_kind == "inventory_alias" and self.target_alias is None:
             raise ValueError("inventory_alias target requires target_alias")
+
+    def _check_branch_exclusive(self) -> None:
         if self.branch_exclusive and self.branch is None:
             raise ValueError("branch_exclusive requires an explicit branch")
+
+    def _check_push_consent(self) -> None:
         if (
             self.operation
             in {
@@ -636,6 +658,8 @@ class RepositoryWorkItemRequest(BaseModel):
             and not self.consent.allow_push
         ):
             raise ValueError("release or workspace push requires explicit push consent")
+
+    def _check_target_conflict(self) -> None:
         if (
             self.required_target is not None
             and self.preferred_target.kind == "local"
@@ -645,14 +669,20 @@ class RepositoryWorkItemRequest(BaseModel):
             raise ValueError(
                 "preferred and required targets cannot express conflicting forms"
             )
+
+    def _check_disk_watermarks(self) -> None:
         low = self.disk_low_watermark_mib
         high = self.disk_high_watermark_mib
         if low is not None and high is not None and low > high:
             raise ValueError("disk low watermark must not exceed high watermark")
+
+    def _check_lane_intent_exclusivity(self) -> None:
         if self.lane_intent is not None and self.lane_cleanup_intent is not None:
             raise ValueError(
                 "lane_intent and lane_cleanup_intent are mutually exclusive"
             )
+
+    def _check_lane_lifecycle_intent(self) -> None:
         if self.operation == RepositoryOperation.LANE_LIFECYCLE:
             if self.lane_intent is None:
                 raise ValueError("lane.lifecycle requires a typed lane_intent")
@@ -660,6 +690,8 @@ class RepositoryWorkItemRequest(BaseModel):
             raise ValueError(
                 "lane_intent is only valid on a lane.lifecycle WorkItem request"
             )
+
+    def _check_lane_cleanup_intent(self) -> None:
         if self.operation == RepositoryOperation.LANE_CLEANUP:
             if self.lane_cleanup_intent is None:
                 raise ValueError("lane.cleanup requires a typed lane_cleanup_intent")
@@ -667,7 +699,6 @@ class RepositoryWorkItemRequest(BaseModel):
             raise ValueError(
                 "lane_cleanup_intent is only valid on a lane.cleanup WorkItem request"
             )
-        return self
 
     def immutable_digest(self) -> str:
         """Digest the complete v1 request projection used for deduplication."""
@@ -679,10 +710,7 @@ class RepositoryWorkItemRequest(BaseModel):
         """Adapt RMDD's richer request model without importing Repository Manager."""
 
         raw = _as_mapping(contract)
-        if raw.get("contract_version", CONTRACT_VERSION) != CONTRACT_VERSION:
-            raise RepositoryWorkItemError(
-                "unsupported repository-development contract version"
-            )
+        cls._check_contract_version(raw)
         repository = _nested_mapping(raw.get("repository"))
         resources = _nested_mapping(raw.get("resources"))
         target = _nested_mapping(raw.get("target"))
@@ -697,6 +725,35 @@ class RepositoryWorkItemRequest(BaseModel):
             if required_target_raw is not None
             else None
         )
+        operation = cls._parse_contract_operation(raw)
+        target_kind = cls._parse_contract_target_kind(target)
+        input_digest = raw.get("input_digest")
+        if input_digest is None:
+            input_digest = _digest(raw)
+
+        fields: dict[str, Any] = {}
+        fields.update(cls._contract_identity_fields(raw, repository, operation))
+        fields.update(
+            cls._contract_resource_fields(
+                raw, resources, preferred_target, required_target
+            )
+        )
+        fields.update(
+            cls._contract_meta_fields(
+                raw, target, target_kind, validation, consent, input_digest
+            )
+        )
+        return cls(**fields)
+
+    @staticmethod
+    def _check_contract_version(raw: Mapping[str, Any]) -> None:
+        if raw.get("contract_version", CONTRACT_VERSION) != CONTRACT_VERSION:
+            raise RepositoryWorkItemError(
+                "unsupported repository-development contract version"
+            )
+
+    @staticmethod
+    def _parse_contract_operation(raw: Mapping[str, Any]) -> RepositoryOperation:
         operation_raw = raw.get("operation")
         if isinstance(operation_raw, StrEnum):
             operation_raw = operation_raw.value
@@ -704,7 +761,12 @@ class RepositoryWorkItemRequest(BaseModel):
             raise RepositoryWorkItemError(
                 "operation is required and must be a known repository operation"
             )
-        operation = RepositoryOperation(operation_raw)
+        return RepositoryOperation(operation_raw)
+
+    @staticmethod
+    def _parse_contract_target_kind(
+        target: Mapping[str, Any],
+    ) -> Literal["local", "inventory_alias"]:
         target_kind_raw = str(target.get("kind") or "local")
         if target_kind_raw == "remote":
             target_kind_raw = "inventory_alias"
@@ -713,79 +775,145 @@ class RepositoryWorkItemRequest(BaseModel):
                 f"unsupported repository target kind: {target_kind_raw!r}"
             )
         # Verified against the Literal's exact member set immediately above.
-        target_kind = cast(Literal["local", "inventory_alias"], target_kind_raw)
-        input_digest = raw.get("input_digest")
-        if input_digest is None:
-            input_digest = _digest(raw)
-        return cls(
-            request_id=_nonblank(raw.get("request_id") or raw.get("id"), "request_id"),
-            idempotency_key=_nonblank(raw.get("idempotency_key"), "idempotency_key"),
-            operation=operation,
-            repository_id=_nonblank(
+        return cast(Literal["local", "inventory_alias"], target_kind_raw)
+
+    @staticmethod
+    def _contract_identity_fields(
+        raw: Mapping[str, Any],
+        repository: Mapping[str, Any],
+        operation: RepositoryOperation,
+    ) -> dict[str, Any]:
+        return {
+            "request_id": _nonblank(
+                raw.get("request_id") or raw.get("id"), "request_id"
+            ),
+            "idempotency_key": _nonblank(raw.get("idempotency_key"), "idempotency_key"),
+            "operation": operation,
+            "repository_id": _nonblank(
                 repository.get("repository_id") or raw.get("repository_id"),
                 "repository_id",
             ),
-            base_ref=_nonblank(raw.get("base_ref"), "base_ref"),
-            branch=raw.get("branch"),
-            base_sha=_nonblank(raw.get("base_sha"), "base_sha"),
-            owner_id=_nonblank(raw.get("owner_id"), "owner_id"),
-            session_id=_nonblank(raw.get("session_id"), "session_id"),
-            tenant_id=_nonblank(raw.get("tenant_id") or raw.get("tenant"), "tenant_id"),
-            fairness_group=raw.get("fairness_group")
+            "base_ref": _nonblank(raw.get("base_ref"), "base_ref"),
+            "branch": raw.get("branch"),
+            "base_sha": _nonblank(raw.get("base_sha"), "base_sha"),
+            "owner_id": _nonblank(raw.get("owner_id"), "owner_id"),
+            "session_id": _nonblank(raw.get("session_id"), "session_id"),
+            "tenant_id": _nonblank(
+                raw.get("tenant_id") or raw.get("tenant"), "tenant_id"
+            ),
+        }
+
+    @staticmethod
+    def _contract_resource_fields(
+        raw: Mapping[str, Any],
+        resources: Mapping[str, Any],
+        preferred_target: RepositoryTargetPolicy,
+        required_target: RepositoryTargetPolicy | None,
+    ) -> dict[str, Any]:
+        fields: dict[str, Any] = {}
+        fields.update(
+            RepositoryWorkItemRequest._contract_scheduling_fields(raw, resources)
+        )
+        fields.update(
+            RepositoryWorkItemRequest._contract_capacity_fields(
+                raw, resources, preferred_target, required_target
+            )
+        )
+        return fields
+
+    @staticmethod
+    def _contract_scheduling_fields(
+        raw: Mapping[str, Any], resources: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        fields: dict[str, Any] = {
+            "fairness_group": raw.get("fairness_group")
             or resources.get("fairness_group")
             or "default",
-            dependencies=raw.get("dependencies") or raw.get("depends_on") or (),
-            priority=raw.get("priority", resources.get("priority", 0)),
-            resource_class=resources.get("resource_class")
+            "dependencies": raw.get("dependencies") or raw.get("depends_on") or (),
+            "resource_class": resources.get("resource_class")
             or raw.get("resource_class")
             or "light-check",
-            concurrency_key=resources.get("concurrency_key")
+            "concurrency_key": resources.get("concurrency_key")
             or raw.get("concurrency_key")
             or "light-check",
-            profile_version=resources.get("profile_version")
+        }
+        fields.update(
+            RepositoryWorkItemRequest._contract_profile_fields(raw, resources)
+        )
+        return fields
+
+    @staticmethod
+    def _contract_profile_fields(
+        raw: Mapping[str, Any], resources: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        return {
+            "priority": raw.get("priority", resources.get("priority", 0)),
+            "profile_version": resources.get("profile_version")
             or raw.get("profile_version"),
-            resolved_profile_authority=resources.get("resolved_profile_authority")
+            "resolved_profile_authority": resources.get("resolved_profile_authority")
             or raw.get("resolved_profile_authority"),
-            concurrency_limit=resources.get("concurrency_limit")
+            "concurrency_limit": resources.get("concurrency_limit")
             if resources.get("concurrency_limit") is not None
             else raw.get("concurrency_limit"),
-            repository_exclusive=resources.get(
+            "repository_exclusive": resources.get(
                 "repository_exclusive", raw.get("repository_exclusive", False)
             ),
-            branch_exclusive=resources.get(
+            "branch_exclusive": resources.get(
                 "branch_exclusive", raw.get("branch_exclusive", False)
             ),
-            disk_policy_key=resources.get("disk_policy_key")
+        }
+
+    @staticmethod
+    def _contract_capacity_fields(
+        raw: Mapping[str, Any],
+        resources: Mapping[str, Any],
+        preferred_target: RepositoryTargetPolicy,
+        required_target: RepositoryTargetPolicy | None,
+    ) -> dict[str, Any]:
+        return {
+            "disk_policy_key": resources.get("disk_policy_key")
             or raw.get("disk_policy_key"),
-            fairness_cost=resources.get("fairness_cost")
+            "fairness_cost": resources.get("fairness_cost")
             if resources.get("fairness_cost") is not None
             else raw.get("fairness_cost"),
-            cpu_weight=resources.get("cpu_weight", 1),
-            memory_mib=resources.get("memory_mib", 256),
-            disk_mib=resources.get("disk_mib", 256),
-            process_slots=resources.get("process_slots", 1),
-            host_labels=resources.get("host_labels") or (),
-            preferred_target=preferred_target,
-            required_target=required_target,
-            anti_affinity=resources.get("anti_affinity") or (),
-            queue_deadline=resources.get("queue_deadline"),
-            disk_low_watermark_mib=resources.get("disk_low_watermark_mib"),
-            disk_high_watermark_mib=resources.get("disk_high_watermark_mib"),
-            consent=consent,
-            lane_id=raw.get("lane_id"),
-            candidate_id=raw.get("candidate_id"),
-            generation_id=raw.get("generation_id"),
-            target_kind=target_kind,
-            target_alias=target.get("alias") or target.get("target_alias"),
-            retry_class=raw.get("retry_class"),
-            validation_stages=validation.get("stages") or (),
-            config_digest=raw.get("config_digest"),
-            input_digest=input_digest,
-            correlation_id=raw.get("correlation_id"),
-            operation_payload=raw.get("operation_payload"),
-            lane_intent=raw.get("lane_intent"),
-            lane_cleanup_intent=raw.get("lane_cleanup_intent"),
-        )
+            "cpu_weight": resources.get("cpu_weight", 1),
+            "memory_mib": resources.get("memory_mib", 256),
+            "disk_mib": resources.get("disk_mib", 256),
+            "process_slots": resources.get("process_slots", 1),
+            "host_labels": resources.get("host_labels") or (),
+            "preferred_target": preferred_target,
+            "required_target": required_target,
+            "anti_affinity": resources.get("anti_affinity") or (),
+            "queue_deadline": resources.get("queue_deadline"),
+            "disk_low_watermark_mib": resources.get("disk_low_watermark_mib"),
+            "disk_high_watermark_mib": resources.get("disk_high_watermark_mib"),
+        }
+
+    @staticmethod
+    def _contract_meta_fields(
+        raw: Mapping[str, Any],
+        target: Mapping[str, Any],
+        target_kind: Literal["local", "inventory_alias"],
+        validation: Mapping[str, Any],
+        consent: RepositoryConsentPolicy,
+        input_digest: Any,
+    ) -> dict[str, Any]:
+        return {
+            "consent": consent,
+            "lane_id": raw.get("lane_id"),
+            "candidate_id": raw.get("candidate_id"),
+            "generation_id": raw.get("generation_id"),
+            "target_kind": target_kind,
+            "target_alias": target.get("alias") or target.get("target_alias"),
+            "retry_class": raw.get("retry_class"),
+            "validation_stages": validation.get("stages") or (),
+            "config_digest": raw.get("config_digest"),
+            "input_digest": input_digest,
+            "correlation_id": raw.get("correlation_id"),
+            "operation_payload": raw.get("operation_payload"),
+            "lane_intent": raw.get("lane_intent"),
+            "lane_cleanup_intent": raw.get("lane_cleanup_intent"),
+        }
 
 
 class RepositoryLease(BaseModel):
@@ -1023,38 +1151,70 @@ def _request_metadata(
 ) -> dict[str, Any]:
     """Build the bounded, privacy-safe WorkItem extension record."""
 
-    operation_payload = request.operation_payload
-    serialized_payload = (
-        operation_payload.model_dump(mode="json", exclude_none=False)
-        if operation_payload is not None
-        else None
+    serialized_payload = _validated_operation_payload(request.operation_payload)
+    resource_reservation = _resource_reservation_metadata(
+        request, resolved_profile_projection
     )
+    extension_metadata: dict[str, Any] = {
+        "resource_reservation": resource_reservation,
+    }
     if serialized_payload is not None:
+        operation_payload = request.operation_payload
         assert operation_payload is not None
-        computed_payload_digest = payload_digest(serialized_payload)
-        if operation_payload.payload_digest != computed_payload_digest:
-            raise RepositoryWorkItemConflict(
-                "input_conflict: operation payload digest does not match its body"
-            )
-        encoded_size = len(
-            json.dumps(
-                serialized_payload,
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=False,
-            ).encode("utf-8")
+        extension_metadata.update(
+            {
+                "operation_payload": serialized_payload,
+                "operation_payload_digest": operation_payload.payload_digest,
+            }
         )
-        if encoded_size > MAX_OPERATION_PAYLOAD_BYTES:
-            raise RepositoryWorkItemError("operation payload exceeds its durable bound")
-        clean_payload, privacy_report = PersistencePrivacyGuard().sanitize(
-            serialized_payload
-        )
-        if privacy_report.changed or clean_payload != serialized_payload:
-            raise RepositoryWorkItemError(
-                "operation payload fails persistence privacy validation"
-            )
 
-    resource_reservation = {
+    return {
+        _METADATA_KEY: _work_item_metadata_record(
+            request,
+            job_id=job_id,
+            input_digest=input_digest,
+            dependencies=dependencies,
+            extension_metadata=extension_metadata,
+        )
+    }
+
+
+def _validated_operation_payload(operation_payload: Any) -> dict[str, Any] | None:
+    """Serialize + validate the request's operation payload (digest match,
+    durable-size bound, persistence-privacy conformance). ``None`` when the
+    request carries no payload."""
+    if operation_payload is None:
+        return None
+    serialized_payload = operation_payload.model_dump(mode="json", exclude_none=False)
+    computed_payload_digest = payload_digest(serialized_payload)
+    if operation_payload.payload_digest != computed_payload_digest:
+        raise RepositoryWorkItemConflict(
+            "input_conflict: operation payload digest does not match its body"
+        )
+    encoded_size = len(
+        json.dumps(
+            serialized_payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    )
+    if encoded_size > MAX_OPERATION_PAYLOAD_BYTES:
+        raise RepositoryWorkItemError("operation payload exceeds its durable bound")
+    clean_payload, privacy_report = PersistencePrivacyGuard().sanitize(
+        serialized_payload
+    )
+    if privacy_report.changed or clean_payload != serialized_payload:
+        raise RepositoryWorkItemError(
+            "operation payload fails persistence privacy validation"
+        )
+    return serialized_payload
+
+
+def _resource_reservation_metadata(
+    request: RepositoryWorkItemRequest, resolved_profile_projection: bool
+) -> dict[str, Any]:
+    return {
         "schema_version": "1",
         "profile_name": _encode_opaque(request.resource_class),
         "profile_version": _encode_opaque(request.profile_version),
@@ -1096,65 +1256,61 @@ def _request_metadata(
         "target_kind": request.target_kind,
         "target_alias": _encode_opaque(request.target_alias),
     }
-    extension_metadata: dict[str, Any] = {
-        "resource_reservation": resource_reservation,
-    }
-    if serialized_payload is not None:
-        assert operation_payload is not None
-        extension_metadata.update(
-            {
-                "operation_payload": serialized_payload,
-                "operation_payload_digest": operation_payload.payload_digest,
-            }
-        )
 
+
+def _work_item_metadata_record(
+    request: RepositoryWorkItemRequest,
+    *,
+    job_id: str,
+    input_digest: str,
+    dependencies: Sequence[str],
+    extension_metadata: dict[str, Any],
+) -> dict[str, Any]:
     return {
-        _METADATA_KEY: {
-            "contract_version": CONTRACT_VERSION,
-            "job_id": _encode_opaque(job_id),
-            "request_id": _encode_opaque(request.request_id),
-            "tenant_id": _encode_opaque(request.tenant_id),
-            "idempotency_scope_digest": _digest(request.tenant_id),
-            "immutable_input_digest": input_digest,
-            "source_input_digest": request.input_digest,
-            "operation": _operation_value(request.operation),
-            **extension_metadata,
-            "repository_id": _encode_opaque(request.repository_id),
-            "base_ref": _encode_opaque(request.base_ref),
-            "branch": _encode_opaque(request.branch),
-            "base_sha": request.base_sha,
-            "owner_id": _encode_opaque(request.owner_id),
-            "session_id": _encode_opaque(request.session_id),
-            "resource_class": _encode_opaque(request.resource_class),
-            "concurrency_key": _encode_opaque(request.concurrency_key),
-            "fairness_group": _encode_opaque(request.fairness_group),
-            "priority": request.priority,
-            "cpu_weight": request.cpu_weight,
-            "memory_mib": request.memory_mib,
-            "disk_mib": request.disk_mib,
-            "process_slots": request.process_slots,
-            "host_labels": _encode_opaque_sequence(request.host_labels),
-            "preferred_target": _target_policy_metadata(request.preferred_target),
-            "required_target": (
-                _target_policy_metadata(request.required_target)
-                if request.required_target is not None
-                else None
-            ),
-            "anti_affinity": _encode_opaque_sequence(request.anti_affinity),
-            "queue_deadline": (_canonical_json_datetime(request.queue_deadline)),
-            "disk_low_watermark_mib": request.disk_low_watermark_mib,
-            "disk_high_watermark_mib": request.disk_high_watermark_mib,
-            "target_kind": request.target_kind,
-            "target_alias": _encode_opaque(request.target_alias),
-            "lane_id": _encode_opaque(request.lane_id),
-            "candidate_id": _encode_opaque(request.candidate_id),
-            "generation_id": _encode_opaque(request.generation_id),
-            "retry_class": _encode_opaque(request.retry_class),
-            "config_digest": request.config_digest,
-            "validation_stages": _encode_opaque_sequence(request.validation_stages),
-            "dependencies": _encode_opaque_sequence(dependencies),
-            "consent": _consent_metadata(request.consent),
-        }
+        "contract_version": CONTRACT_VERSION,
+        "job_id": _encode_opaque(job_id),
+        "request_id": _encode_opaque(request.request_id),
+        "tenant_id": _encode_opaque(request.tenant_id),
+        "idempotency_scope_digest": _digest(request.tenant_id),
+        "immutable_input_digest": input_digest,
+        "source_input_digest": request.input_digest,
+        "operation": _operation_value(request.operation),
+        **extension_metadata,
+        "repository_id": _encode_opaque(request.repository_id),
+        "base_ref": _encode_opaque(request.base_ref),
+        "branch": _encode_opaque(request.branch),
+        "base_sha": request.base_sha,
+        "owner_id": _encode_opaque(request.owner_id),
+        "session_id": _encode_opaque(request.session_id),
+        "resource_class": _encode_opaque(request.resource_class),
+        "concurrency_key": _encode_opaque(request.concurrency_key),
+        "fairness_group": _encode_opaque(request.fairness_group),
+        "priority": request.priority,
+        "cpu_weight": request.cpu_weight,
+        "memory_mib": request.memory_mib,
+        "disk_mib": request.disk_mib,
+        "process_slots": request.process_slots,
+        "host_labels": _encode_opaque_sequence(request.host_labels),
+        "preferred_target": _target_policy_metadata(request.preferred_target),
+        "required_target": (
+            _target_policy_metadata(request.required_target)
+            if request.required_target is not None
+            else None
+        ),
+        "anti_affinity": _encode_opaque_sequence(request.anti_affinity),
+        "queue_deadline": (_canonical_json_datetime(request.queue_deadline)),
+        "disk_low_watermark_mib": request.disk_low_watermark_mib,
+        "disk_high_watermark_mib": request.disk_high_watermark_mib,
+        "target_kind": request.target_kind,
+        "target_alias": _encode_opaque(request.target_alias),
+        "lane_id": _encode_opaque(request.lane_id),
+        "candidate_id": _encode_opaque(request.candidate_id),
+        "generation_id": _encode_opaque(request.generation_id),
+        "retry_class": _encode_opaque(request.retry_class),
+        "config_digest": request.config_digest,
+        "validation_stages": _encode_opaque_sequence(request.validation_stages),
+        "dependencies": _encode_opaque_sequence(dependencies),
+        "consent": _consent_metadata(request.consent),
     }
 
 
@@ -1194,6 +1350,15 @@ def _native_admission_projection(
 def _metadata_record(
     row: Mapping[str, Any], *, include_payload: bool = True
 ) -> dict[str, Any]:
+    record = _extract_metadata_record(row)
+    result = dict(record)
+    _repair_sanitized_job_id(result, row)
+    _decode_opaque_scalar_fields(result)
+    _decode_opaque_sequence_fields(result)
+    return _resolve_operation_payload(result, include_payload)
+
+
+def _extract_metadata_record(row: Mapping[str, Any]) -> Mapping[str, Any]:
     metadata = row.get("metadata")
     if not isinstance(metadata, Mapping):
         raise RepositoryWorkItemConflict("repository WorkItem metadata is missing")
@@ -1205,7 +1370,10 @@ def _metadata_record(
         raise RepositoryWorkItemConflict(
             "WorkItem is not a repository-development v1 record"
         )
-    result = dict(record)
+    return record
+
+
+def _repair_sanitized_job_id(result: dict[str, Any], row: Mapping[str, Any]) -> None:
     # The generic persistence privacy guard can conservatively recognize a
     # UUID's all-numeric groups as a credit-card-shaped substring and redact
     # part of ``job_id``.  The durable WorkItem ID is the canonical identity,
@@ -1220,6 +1388,9 @@ def _metadata_record(
         and "[REDACTED_" in stored_job_id
     ):
         result["job_id"] = f"rmjob:{match.group('uuid').lower()}"
+
+
+def _decode_opaque_scalar_fields(result: dict[str, Any]) -> None:
     for field in (
         "job_id",
         "request_id",
@@ -1238,56 +1409,69 @@ def _metadata_record(
     ):
         if field in result:
             result[field] = _decode_opaque(result[field], field)
+
+
+def _decode_opaque_sequence_fields(result: dict[str, Any]) -> None:
     for field in ("host_labels", "anti_affinity", "validation_stages", "dependencies"):
         if field in result:
             result[field] = _decode_opaque_sequence(result[field], field)
+
+
+def _resolve_operation_payload(
+    result: dict[str, Any], include_payload: bool
+) -> dict[str, Any]:
     raw_payload = result.get("operation_payload")
     stored_payload_digest = result.get("operation_payload_digest")
-    if raw_payload is not None:
-        if not include_payload:
-            # Ordinary projections may carry only the closed discriminator
-            # summary.  Never parse or retain the executable body on this
-            # path; exact input requires the native capability seam below.
-            if isinstance(raw_payload, Mapping):
-                result["operation_payload"] = {
-                    "kind": raw_payload.get("kind"),
-                    "schema_version": raw_payload.get("schema_version"),
-                }
-            else:
-                result["operation_payload"] = None
-            return result
-        try:
-            typed_payload = operation_payload_from_mapping(raw_payload)
-        except (TypeError, ValueError) as exc:
+    if raw_payload is None:
+        if stored_payload_digest is not None:
             raise RepositoryWorkItemConflict(
-                "input_conflict: repository WorkItem operation payload is invalid"
-            ) from exc
-        if result.get("operation") != RepositoryOperation.BUILD.value:
-            raise RepositoryWorkItemConflict(
-                "input_conflict: operation payload discriminator does not match operation"
+                "input_conflict: operation payload digest has no body"
             )
-        computed_payload_digest = payload_digest(typed_payload)
-        raw_payload_digest = (
-            raw_payload.get("payload_digest")
-            if isinstance(raw_payload, Mapping)
-            else None
-        )
-        if (
-            stored_payload_digest != computed_payload_digest
-            or raw_payload_digest != computed_payload_digest
-            or typed_payload.payload_digest != computed_payload_digest
-        ):
-            raise RepositoryWorkItemConflict(
-                "input_conflict: repository WorkItem operation payload digest mismatch"
-            )
-        result["operation_payload"] = typed_payload.model_dump(
-            mode="json", exclude_none=False
-        )
-        result["operation_payload_digest"] = computed_payload_digest
-    elif stored_payload_digest is not None:
+        return result
+    if not include_payload:
+        # Ordinary projections may carry only the closed discriminator
+        # summary.  Never parse or retain the executable body on this
+        # path; exact input requires the native capability seam below.
+        if isinstance(raw_payload, Mapping):
+            result["operation_payload"] = {
+                "kind": raw_payload.get("kind"),
+                "schema_version": raw_payload.get("schema_version"),
+            }
+        else:
+            result["operation_payload"] = None
+        return result
+    return _typed_operation_payload(result, raw_payload, stored_payload_digest)
+
+
+def _typed_operation_payload(
+    result: dict[str, Any], raw_payload: Any, stored_payload_digest: Any
+) -> dict[str, Any]:
+    try:
+        typed_payload = operation_payload_from_mapping(raw_payload)
+    except (TypeError, ValueError) as exc:
         raise RepositoryWorkItemConflict(
-            "input_conflict: operation payload digest has no body"
+            "input_conflict: repository WorkItem operation payload is invalid"
+        ) from exc
+    if result.get("operation") != RepositoryOperation.BUILD.value:
+        raise RepositoryWorkItemConflict(
+            "input_conflict: operation payload discriminator does not match operation"
         )
+    computed_payload_digest = payload_digest(typed_payload)
+    raw_payload_digest = (
+        raw_payload.get("payload_digest") if isinstance(raw_payload, Mapping) else None
+    )
+    if (
+        stored_payload_digest != computed_payload_digest
+        or raw_payload_digest != computed_payload_digest
+        or typed_payload.payload_digest != computed_payload_digest
+    ):
+        raise RepositoryWorkItemConflict(
+            "input_conflict: repository WorkItem operation payload digest mismatch"
+        )
+    result["operation_payload"] = typed_payload.model_dump(
+        mode="json", exclude_none=False
+    )
+    result["operation_payload_digest"] = computed_payload_digest
     return result
 
 
@@ -1351,73 +1535,127 @@ def submit_repository_work_item(
         if isinstance(request, RepositoryWorkItemRequest)
         else _as_mapping(request)
     )
+    _check_resolved_profile_authority_projection(
+        raw_request, resolved_profile_projection
+    )
+
+    typed_request = _typed_request_from_input(request)
+    _check_build_payload_identity(typed_request)
+    if resolved_profile_projection and typed_request.resolved_profile_authority is None:
+        raise RepositoryWorkItemError(
+            "trusted resolved profile projection was not preserved by contract adaptation"
+        )
+    _require_tenant_for_engine(engine, typed_request.tenant_id)
+    job_id = _resolve_submission_job_id(job_id, typed_request)
+    item_id = repository_work_item_id(job_id)
+    input_digest = typed_request.immutable_digest()
+
+    existing = get_work_item(engine, item_id)
+    if existing is not None:
+        return _dedup_work_item_handle(
+            existing,
+            typed_request,
+            job_id=job_id,
+            item_id=item_id,
+            input_digest=input_digest,
+        )
+
+    ctx = _SubmissionContext(
+        job_id=job_id,
+        item_id=item_id,
+        input_digest=input_digest,
+        max_attempts=max_attempts,
+        now=now,
+        resolved_profile_projection=resolved_profile_projection,
+    )
+    return _submit_new_work_item(engine, typed_request, ctx)
+
+
+def _check_resolved_profile_authority_projection(
+    raw_request: Mapping[str, Any], resolved_profile_projection: bool
+) -> None:
     raw_resources = _nested_mapping(raw_request.get("resources"))
     supplied_authority = raw_resources.get(
         "resolved_profile_authority"
     ) or raw_request.get("resolved_profile_authority")
     if resolved_profile_projection:
-        if supplied_authority != "repository_manager:resource_profile_registry:v1":
-            raise RepositoryWorkItemError(
-                "resolved_profile_projection requires the trusted profile authority marker"
-            )
-        authority_source = {**raw_request, **raw_resources}
-        required_authority_fields = (
-            "resource_class",
-            "concurrency_key",
-            "profile_version",
-            "concurrency_limit",
-            "repository_exclusive",
-            "branch_exclusive",
-            "disk_policy_key",
-            "fairness_cost",
-            "cpu_weight",
-            "memory_mib",
-            "disk_mib",
-            "process_slots",
-            "host_labels",
-            "anti_affinity",
-            "preferred_target",
-            "required_target",
-            "disk_low_watermark_mib",
-            "disk_high_watermark_mib",
-            "fairness_group",
+        _check_trusted_profile_authority_fields(
+            raw_request, raw_resources, supplied_authority
         )
-        # Nullable policy values (concurrency_limit and disk watermarks) are
-        # deliberately checked for presence only: a trusted profile may
-        # explicitly resolve them to None.  Identity, profile, dimensions,
-        # and cost fields must carry a concrete value before the Pydantic model
-        # validator runs, otherwise the boundary would leak ValidationError
-        # instead of the stable repository-authority error vocabulary.
-        required_non_null_fields = {
-            "resource_class",
-            "concurrency_key",
-            "profile_version",
-            "disk_policy_key",
-            "fairness_cost",
-            "cpu_weight",
-            "memory_mib",
-            "disk_mib",
-            "process_slots",
-            "preferred_target",
-            "fairness_group",
-        }
-        missing_authority_fields = [
-            field
-            for field in required_authority_fields
-            if field not in authority_source
-            or (field in required_non_null_fields and authority_source[field] is None)
-        ]
-        if missing_authority_fields:
-            raise RepositoryWorkItemError(
-                "trusted resolved profile projection is incomplete: "
-                + ", ".join(missing_authority_fields)
-            )
     elif supplied_authority is not None:
         raise RepositoryWorkItemError(
             "resolved profile authority is reserved for the trusted RM projection path"
         )
+
+
+def _check_trusted_profile_authority_fields(
+    raw_request: Mapping[str, Any],
+    raw_resources: Mapping[str, Any],
+    supplied_authority: Any,
+) -> None:
+    if supplied_authority != "repository_manager:resource_profile_registry:v1":
+        raise RepositoryWorkItemError(
+            "resolved_profile_projection requires the trusted profile authority marker"
+        )
+    authority_source = {**raw_request, **raw_resources}
+    required_authority_fields = (
+        "resource_class",
+        "concurrency_key",
+        "profile_version",
+        "concurrency_limit",
+        "repository_exclusive",
+        "branch_exclusive",
+        "disk_policy_key",
+        "fairness_cost",
+        "cpu_weight",
+        "memory_mib",
+        "disk_mib",
+        "process_slots",
+        "host_labels",
+        "anti_affinity",
+        "preferred_target",
+        "required_target",
+        "disk_low_watermark_mib",
+        "disk_high_watermark_mib",
+        "fairness_group",
+    )
+    # Nullable policy values (concurrency_limit and disk watermarks) are
+    # deliberately checked for presence only: a trusted profile may
+    # explicitly resolve them to None.  Identity, profile, dimensions,
+    # and cost fields must carry a concrete value before the Pydantic model
+    # validator runs, otherwise the boundary would leak ValidationError
+    # instead of the stable repository-authority error vocabulary.
+    required_non_null_fields = {
+        "resource_class",
+        "concurrency_key",
+        "profile_version",
+        "disk_policy_key",
+        "fairness_cost",
+        "cpu_weight",
+        "memory_mib",
+        "disk_mib",
+        "process_slots",
+        "preferred_target",
+        "fairness_group",
+    }
+    missing_authority_fields = [
+        field
+        for field in required_authority_fields
+        if field not in authority_source
+        or (field in required_non_null_fields and authority_source[field] is None)
+    ]
+    if missing_authority_fields:
+        raise RepositoryWorkItemError(
+            "trusted resolved profile projection is incomplete: "
+            + ", ".join(missing_authority_fields)
+        )
+
+
+def _typed_request_from_input(
+    request: RepositoryWorkItemRequest | Mapping[str, Any] | BaseModel,
+) -> RepositoryWorkItemRequest:
     try:
-        typed_request = (
+        return (
             RepositoryWorkItemRequest.model_validate(request)
             if isinstance(request, RepositoryWorkItemRequest)
             else RepositoryWorkItemRequest.from_contract(request)
@@ -1426,6 +1664,9 @@ def submit_repository_work_item(
         raise RepositoryWorkItemError(
             "repository request is invalid at the WorkItem authority boundary"
         ) from exc
+
+
+def _check_build_payload_identity(typed_request: RepositoryWorkItemRequest) -> None:
     if typed_request.operation == RepositoryOperation.BUILD and (
         typed_request.operation_payload is not None
     ):
@@ -1437,11 +1678,11 @@ def submit_repository_work_item(
             raise RepositoryWorkItemError(
                 "operation payload base SHA disagrees with WorkItem"
             )
-    if resolved_profile_projection and typed_request.resolved_profile_authority is None:
-        raise RepositoryWorkItemError(
-            "trusted resolved profile projection was not preserved by contract adaptation"
-        )
-    _require_tenant_for_engine(engine, typed_request.tenant_id)
+
+
+def _resolve_submission_job_id(
+    job_id: str | None, typed_request: RepositoryWorkItemRequest
+) -> str:
     derived_job_id = repository_job_id(
         typed_request.tenant_id, typed_request.idempotency_key
     )
@@ -1449,24 +1690,49 @@ def submit_repository_work_item(
         raise RepositoryWorkItemConflict(
             "job_id must be the deterministic handle for tenant scope and idempotency key"
         )
-    job_id = derived_job_id
-    item_id = repository_work_item_id(job_id)
-    input_digest = typed_request.immutable_digest()
-    existing = get_work_item(engine, item_id)
-    if existing is not None:
-        _assert_idempotent(
-            existing, typed_request, job_id=job_id, input_digest=input_digest
-        )
-        view = _view_from_row(existing)
-        return RepositoryWorkItemHandle(
-            job_id=job_id,
-            work_item_id=item_id,
-            request_id=typed_request.request_id,
-            state=view.state,
-            input_digest=input_digest,
-            deduplicated=True,
-        )
+    return derived_job_id
 
+
+def _dedup_work_item_handle(
+    existing: Mapping[str, Any],
+    typed_request: RepositoryWorkItemRequest,
+    *,
+    job_id: str,
+    item_id: str,
+    input_digest: str,
+) -> RepositoryWorkItemHandle:
+    _assert_idempotent(
+        existing, typed_request, job_id=job_id, input_digest=input_digest
+    )
+    view = _view_from_row(existing)
+    return RepositoryWorkItemHandle(
+        job_id=job_id,
+        work_item_id=item_id,
+        request_id=typed_request.request_id,
+        state=view.state,
+        input_digest=input_digest,
+        deduplicated=True,
+    )
+
+
+@dataclass
+class _SubmissionContext:
+    """Bundled non-request submission parameters (keeps the helper below
+    under the 7-parameter cap)."""
+
+    job_id: str
+    item_id: str
+    input_digest: str
+    max_attempts: int
+    now: float | None
+    resolved_profile_projection: bool
+
+
+def _submit_new_work_item(
+    engine: Any,
+    typed_request: RepositoryWorkItemRequest,
+    ctx: _SubmissionContext,
+) -> RepositoryWorkItemHandle:
     dependencies = tuple(
         sorted(
             {_work_item_dependency_id(value) for value in typed_request.dependencies}
@@ -1480,7 +1746,7 @@ def submit_repository_work_item(
         engine,
         kind=kind.value,
         queue=kind.value,
-        payload_ref=job_id,
+        payload_ref=ctx.job_id,
         tenant=typed_request.tenant_id,
         depends_on=dependencies,
         priority=_native_priority_bucket(typed_request.priority),
@@ -1491,35 +1757,37 @@ def submit_repository_work_item(
         ),
         resource_class=typed_request.resource_class,
         fairness_group=typed_request.fairness_group,
-        max_attempts=max_attempts,
+        max_attempts=ctx.max_attempts,
         idempotency_key=_scoped_idempotency_key(typed_request),
         correlation_id=typed_request.correlation_id or typed_request.request_id,
         description=f"repository operation: {_operation_value(typed_request.operation)}",
         created_by=typed_request.owner_id,
         metadata=_request_metadata(
             typed_request,
-            job_id=job_id,
-            input_digest=input_digest,
+            job_id=ctx.job_id,
+            input_digest=ctx.input_digest,
             dependencies=dependencies,
-            resolved_profile_projection=resolved_profile_projection,
+            resolved_profile_projection=ctx.resolved_profile_projection,
         ),
-        work_item_id=item_id,
-        now=now,
-        **_native_admission_projection(typed_request, now=now),
+        work_item_id=ctx.item_id,
+        now=ctx.now,
+        **_native_admission_projection(typed_request, now=ctx.now),
     )
-    stored = get_work_item(engine, item_id)
+    stored = get_work_item(engine, ctx.item_id)
     if stored is None:
         raise WorkItemBackendUnavailable(
             "repository WorkItem disappeared after submission"
         )
-    _assert_idempotent(stored, typed_request, job_id=job_id, input_digest=input_digest)
+    _assert_idempotent(
+        stored, typed_request, job_id=ctx.job_id, input_digest=ctx.input_digest
+    )
     view = _view_from_row(stored)
     return RepositoryWorkItemHandle(
-        job_id=job_id,
-        work_item_id=item_id,
+        job_id=ctx.job_id,
+        work_item_id=ctx.item_id,
         request_id=typed_request.request_id,
         state=view.state,
-        input_digest=input_digest,
+        input_digest=ctx.input_digest,
         deduplicated=not created,
     )
 
@@ -1531,103 +1799,156 @@ def _state_value(value: object) -> str:
 
 def _view_from_row(row: Mapping[str, Any]) -> RepositoryWorkItemView:
     record = _metadata_record(row, include_payload=False)
+    payload_kind, payload_version = _view_payload_kind_version(record)
+    lease = _lease_from_row(row)
+
+    fields: dict[str, Any] = {}
+    fields.update(_view_identity_fields(row, record))
+    fields.update(_view_target_fields(record))
+    fields.update(_view_resource_fields(row, record))
+    fields.update(_view_meta_fields(row, record, payload_kind, payload_version, lease))
+    return RepositoryWorkItemView(**fields)
+
+
+def _view_payload_kind_version(
+    record: Mapping[str, Any],
+) -> tuple[str | None, str | None]:
     operation_payload = record.get("operation_payload")
-    payload_kind = (
-        str(operation_payload.get("kind"))
-        if isinstance(operation_payload, Mapping)
-        else None
+    if not isinstance(operation_payload, Mapping):
+        return None, None
+    return (
+        str(operation_payload.get("kind")),
+        str(operation_payload.get("schema_version")),
     )
-    payload_version = (
-        str(operation_payload.get("schema_version"))
-        if isinstance(operation_payload, Mapping)
-        else None
+
+
+def _lease_from_row(row: Mapping[str, Any]) -> RepositoryLease | None:
+    if not row.get("lease_owner"):
+        return None
+    return RepositoryLease(
+        owner=str(row["lease_owner"]),
+        epoch=int(row.get("lease_epoch") or 0),
+        fencing_token=int(row.get("fencing_token") or 0),
+        attempt=max(1, int(row.get("attempt") or 0)),
+        heartbeat_at=(
+            float(row["heartbeat_at"]) if row.get("heartbeat_at") is not None else None
+        ),
+        expires_at=(
+            float(row["lease_expires_at"])
+            if row.get("lease_expires_at") is not None
+            else None
+        ),
     )
-    lease = None
-    if row.get("lease_owner"):
-        lease = RepositoryLease(
-            owner=str(row["lease_owner"]),
-            epoch=int(row.get("lease_epoch") or 0),
-            fencing_token=int(row.get("fencing_token") or 0),
-            attempt=max(1, int(row.get("attempt") or 0)),
-            heartbeat_at=(
-                float(row["heartbeat_at"])
-                if row.get("heartbeat_at") is not None
-                else None
-            ),
-            expires_at=(
-                float(row["lease_expires_at"])
-                if row.get("lease_expires_at") is not None
-                else None
-            ),
-        )
-    return RepositoryWorkItemView(
-        job_id=record["job_id"],
-        work_item_id=str(row["id"]),
-        request_id=record["request_id"],
-        operation=record["operation"],
-        kind=row["kind"],
-        state=RepositoryJobState(_state_value(row.get("status"))),
-        repository_id=record["repository_id"],
-        tenant_id=str(row.get("tenant") or ""),
-        owner_id=record["owner_id"],
-        session_id=record["session_id"],
-        base_ref=_decode_opaque(record["base_ref"], "base_ref") or "",
-        base_sha=record["base_sha"],
-        target_kind=record["target_kind"],
-        target_alias=_decode_opaque(record.get("target_alias"), "target alias"),
-        lane_id=record.get("lane_id"),
-        candidate_id=record.get("candidate_id"),
-        generation_id=record.get("generation_id"),
-        resource_class=str(
+
+
+def _view_identity_fields(
+    row: Mapping[str, Any], record: Mapping[str, Any]
+) -> dict[str, Any]:
+    return {
+        "job_id": record["job_id"],
+        "work_item_id": str(row["id"]),
+        "request_id": record["request_id"],
+        "operation": record["operation"],
+        "kind": row["kind"],
+        "state": RepositoryJobState(_state_value(row.get("status"))),
+        "repository_id": record["repository_id"],
+        "tenant_id": str(row.get("tenant") or ""),
+        "owner_id": record["owner_id"],
+        "session_id": record["session_id"],
+    }
+
+
+def _view_target_fields(record: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "base_ref": _decode_opaque(record["base_ref"], "base_ref") or "",
+        "base_sha": record["base_sha"],
+        "target_kind": record["target_kind"],
+        "target_alias": _decode_opaque(record.get("target_alias"), "target alias"),
+        "lane_id": record.get("lane_id"),
+        "candidate_id": record.get("candidate_id"),
+        "generation_id": record.get("generation_id"),
+    }
+
+
+def _view_resource_fields(
+    row: Mapping[str, Any], record: Mapping[str, Any]
+) -> dict[str, Any]:
+    fields: dict[str, Any] = {}
+    fields.update(_view_resource_scheduling_fields(row, record))
+    fields.update(_view_resource_capacity_fields(record))
+    return fields
+
+
+def _view_resource_scheduling_fields(
+    row: Mapping[str, Any], record: Mapping[str, Any]
+) -> dict[str, Any]:
+    return {
+        "resource_class": str(
             record.get("resource_class") or row.get("resource_class") or "light-check"
         ),
-        concurrency_key=str(
+        "concurrency_key": str(
             record.get("concurrency_key")
             or record.get("resource_class")
             or row.get("resource_class")
             or "light-check"
         ),
-        fairness_group=str(
+        "fairness_group": str(
             record.get("fairness_group") or row.get("fairness_group") or "default"
         ),
-        priority=int(record.get("priority") or row.get("prio_bucket") or 0),
-        cpu_weight=int(record.get("cpu_weight") or 1),
-        memory_mib=int(record.get("memory_mib") or 256),
-        disk_mib=int(record.get("disk_mib") or 256),
-        process_slots=int(record.get("process_slots") or 1),
-        host_labels=tuple(record.get("host_labels") or ()),
-        preferred_target=_target_policy_from_metadata(
+        "priority": int(record.get("priority") or row.get("prio_bucket") or 0),
+    }
+
+
+def _view_resource_capacity_fields(record: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "cpu_weight": int(record.get("cpu_weight") or 1),
+        "memory_mib": int(record.get("memory_mib") or 256),
+        "disk_mib": int(record.get("disk_mib") or 256),
+        "process_slots": int(record.get("process_slots") or 1),
+        "host_labels": tuple(record.get("host_labels") or ()),
+        "preferred_target": _target_policy_from_metadata(
             record.get("preferred_target") or {}
         ),
-        required_target=(
+        "required_target": (
             _target_policy_from_metadata(record["required_target"])
             if record.get("required_target") is not None
             else None
         ),
-        anti_affinity=tuple(record.get("anti_affinity") or ()),
-        queue_deadline=(
+        "anti_affinity": tuple(record.get("anti_affinity") or ()),
+        "queue_deadline": (
             datetime.fromisoformat(str(record["queue_deadline"]))
             if record.get("queue_deadline")
             else None
         ),
-        disk_low_watermark_mib=record.get("disk_low_watermark_mib"),
-        disk_high_watermark_mib=record.get("disk_high_watermark_mib"),
-        consent=_consent_from_metadata(record.get("consent") or {}),
-        retry_class=record.get("retry_class"),
-        dependencies=tuple(row.get("depends_on") or ()),
-        input_digest=record["immutable_input_digest"],
-        config_digest=record.get("config_digest"),
-        correlation_id=row.get("correlation_id"),
-        operation_payload_kind=payload_kind,
-        operation_payload_version=payload_version,
-        operation_payload_digest=record.get("operation_payload_digest"),
-        attempt=int(row.get("attempt") or 0),
-        max_attempts=max(1, int(row.get("max_attempts") or 1)),
-        checkpoint=row.get("checkpoint_id"),
-        result_ref=row.get("result_ref"),
-        error_ref=row.get("error_ref"),
-        lease=lease,
-    )
+        "disk_low_watermark_mib": record.get("disk_low_watermark_mib"),
+        "disk_high_watermark_mib": record.get("disk_high_watermark_mib"),
+    }
+
+
+def _view_meta_fields(
+    row: Mapping[str, Any],
+    record: Mapping[str, Any],
+    payload_kind: str | None,
+    payload_version: str | None,
+    lease: RepositoryLease | None,
+) -> dict[str, Any]:
+    return {
+        "consent": _consent_from_metadata(record.get("consent") or {}),
+        "retry_class": record.get("retry_class"),
+        "dependencies": tuple(row.get("depends_on") or ()),
+        "input_digest": record["immutable_input_digest"],
+        "config_digest": record.get("config_digest"),
+        "correlation_id": row.get("correlation_id"),
+        "operation_payload_kind": payload_kind,
+        "operation_payload_version": payload_version,
+        "operation_payload_digest": record.get("operation_payload_digest"),
+        "attempt": int(row.get("attempt") or 0),
+        "max_attempts": max(1, int(row.get("max_attempts") or 1)),
+        "checkpoint": row.get("checkpoint_id"),
+        "result_ref": row.get("result_ref"),
+        "error_ref": row.get("error_ref"),
+        "lease": lease,
+    }
 
 
 def _require_tenant(tenant: str) -> str:
@@ -1903,6 +2224,14 @@ def list_repository_work_items(
         else list(_REPOSITORY_KINDS)
     )
     normalized_states = [_state_value(state) for state in states]
+    filters = _ListFilters(
+        repository_id=repository_id,
+        lane_id=lane_id,
+        candidate_id=candidate_id,
+        generation_id=generation_id,
+        correlation_id=correlation_id,
+        owner_id=owner_id,
+    )
     result: list[RepositoryWorkItemView] = []
     cursor: tuple[float, str] | None = None
     page_size = min(_MAX_LIST_LIMIT, max(limit, 100))
@@ -1921,27 +2250,53 @@ def list_repository_work_items(
         )
         if not rows:
             break
-        for row in rows:
-            view = _view_from_row(row)
-            if repository_id is not None and view.repository_id != repository_id:
-                continue
-            if lane_id is not None and view.lane_id != lane_id:
-                continue
-            if candidate_id is not None and view.candidate_id != candidate_id:
-                continue
-            if generation_id is not None and view.generation_id != generation_id:
-                continue
-            if correlation_id is not None and view.correlation_id != correlation_id:
-                continue
-            if owner_id is not None and view.owner_id != owner_id:
-                continue
-            result.append(view)
-            if len(result) >= limit:
-                break
+        _append_matching_rows(rows, result, limit, filters)
         cursor = _row_cursor(rows[-1])
         if len(rows) < page_size:
             break
     return result
+
+
+@dataclass
+class _ListFilters:
+    """Post-page correlation filters for ``list_repository_work_items``
+    (applied after each bounded native page, since they live in the bounded
+    extension metadata rather than the native query predicate)."""
+
+    repository_id: str | None
+    lane_id: str | None
+    candidate_id: str | None
+    generation_id: str | None
+    correlation_id: str | None
+    owner_id: str | None
+
+
+def _view_matches_filters(view: RepositoryWorkItemView, filters: _ListFilters) -> bool:
+    """Every non-None filter must match the corresponding view field."""
+    checks = (
+        (filters.repository_id, view.repository_id),
+        (filters.lane_id, view.lane_id),
+        (filters.candidate_id, view.candidate_id),
+        (filters.generation_id, view.generation_id),
+        (filters.correlation_id, view.correlation_id),
+        (filters.owner_id, view.owner_id),
+    )
+    return all(wanted is None or actual == wanted for wanted, actual in checks)
+
+
+def _append_matching_rows(
+    rows: Sequence[Mapping[str, Any]],
+    result: list[RepositoryWorkItemView],
+    limit: int,
+    filters: _ListFilters,
+) -> None:
+    for row in rows:
+        view = _view_from_row(row)
+        if not _view_matches_filters(view, filters):
+            continue
+        result.append(view)
+        if len(result) >= limit:
+            break
 
 
 def _work_item_fields() -> tuple[str, ...]:

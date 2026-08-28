@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from typing import Any, Generic, Literal, TypeVar
 from urllib.parse import urlsplit, urlunsplit
 
@@ -510,7 +510,21 @@ def _parse_multi_kind_request(
     """
 
     params = request.query_params
-    raw_kinds = str(params.get("kinds", "") or "").strip()
+    kinds = _parse_registry_kinds(str(params.get("kinds", "") or "").strip())
+    limit = _parse_registry_limit(params.get("limit", str(_DEFAULT_LIMIT)))
+    query = _parse_registry_query(str(params.get("q", "") or "").strip())
+    cursors = _parse_kind_cursors(params, kinds)
+
+    include_raw = str(params.get("include", "") or "")
+    include_toggle = "toggle" in {
+        part.strip() for part in include_raw.split(",") if part.strip()
+    }
+    return kinds, limit, query, cursors, include_toggle
+
+
+def _parse_registry_kinds(raw_kinds: str) -> list[str]:
+    """Validate and dedupe the comma-separated ``kinds`` parameter against
+    ``_KIND_SPECS``."""
     kinds: list[str] = []
     for token in raw_kinds.split(","):
         kind = token.strip()
@@ -524,19 +538,32 @@ def _parse_multi_kind_request(
             kinds.append(kind)
     if not kinds:
         raise HTTPException(status_code=422, detail="registry kinds is required")
+    return kinds
 
-    raw_limit = params.get("limit", str(_DEFAULT_LIMIT))
+
+def _parse_registry_limit(raw_limit: str) -> int:
+    """Validate the shared ``limit`` bound (same bounds as the single-kind
+    route)."""
     try:
         limit = int(raw_limit)
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail="invalid registry limit") from exc
     if not 1 <= limit <= _MAX_LIMIT:
         raise HTTPException(status_code=422, detail="registry limit is out of bounds")
+    return limit
 
-    query = str(params.get("q", "") or "").strip()
+
+def _parse_registry_query(query: str) -> str:
+    """Bound the shared ``q`` filter's byte length."""
     if len(query.encode("utf-8")) > _MAX_QUERY_BYTES:
         raise HTTPException(status_code=422, detail="registry filter is too long")
+    return query
 
+
+def _parse_kind_cursors(params: Any, kinds: list[str]) -> dict[str, str]:
+    """Parse one ``cursor_<kind>`` query parameter per requested kind --
+    never a single combined cursor, since each kind's keyset position is
+    independent."""
     cursors: dict[str, str] = {}
     for kind in kinds:
         cursor = params.get(f"cursor_{kind}") or None
@@ -545,12 +572,7 @@ def _parse_multi_kind_request(
         if len(cursor.encode("utf-8")) > _MAX_CURSOR_BYTES:
             raise HTTPException(status_code=400, detail="invalid registry cursor")
         cursors[kind] = cursor
-
-    include_raw = str(params.get("include", "") or "")
-    include_toggle = "toggle" in {
-        part.strip() for part in include_raw.split(",") if part.strip()
-    }
-    return kinds, limit, query, cursors, include_toggle
+    return cursors
 
 
 def _cursor_token(
@@ -606,30 +628,56 @@ def _decode_cursor(
 
     try:
         decoded = validate_token(token, endpoint="registry", operation="read")
-        if decoded.tenant_id != tenant or decoded.actor_id != principal:
-            raise TokenError("cursor authority mismatch")
+        _check_cursor_authority(decoded, tenant=tenant, principal=principal)
         payload = json.loads(decoded.run_id)
-        payload_grants = payload.get("grant_digests")
-        if not isinstance(payload_grants, list) or not all(
-            isinstance(value, str) and value for value in payload_grants
-        ):
-            raise TokenError("cursor grant binding is malformed")
-        if (
-            payload.get("kind") != kind
-            or payload.get("query") != query
-            or tuple(sorted(set(payload_grants))) != tuple(sorted(set(grant_digests)))
-        ):
-            raise TokenError("cursor query mismatch")
-        after = payload.get("after")
-        if (
-            not isinstance(after, list)
-            or len(after) != 2
-            or any(not isinstance(value, str) for value in after)
-        ):
-            raise TokenError("cursor position is malformed")
-        return after[0], after[1]
+        _check_cursor_binding(
+            payload, kind=kind, query=query, grant_digests=grant_digests
+        )
+        return _cursor_after_position(payload)
     except (TokenError, TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=400, detail="invalid registry cursor") from exc
+
+
+def _check_cursor_authority(decoded: Any, *, tenant: str, principal: str) -> None:
+    from agent_utilities.security.run_token import TokenError
+
+    if decoded.tenant_id != tenant or decoded.actor_id != principal:
+        raise TokenError("cursor authority mismatch")
+
+
+def _check_cursor_binding(
+    payload: dict[str, Any],
+    *,
+    kind: str,
+    query: str,
+    grant_digests: tuple[str, ...],
+) -> None:
+    from agent_utilities.security.run_token import TokenError
+
+    payload_grants = payload.get("grant_digests")
+    if not isinstance(payload_grants, list) or not all(
+        isinstance(value, str) and value for value in payload_grants
+    ):
+        raise TokenError("cursor grant binding is malformed")
+    if (
+        payload.get("kind") != kind
+        or payload.get("query") != query
+        or tuple(sorted(set(payload_grants))) != tuple(sorted(set(grant_digests)))
+    ):
+        raise TokenError("cursor query mismatch")
+
+
+def _cursor_after_position(payload: dict[str, Any]) -> tuple[str, str]:
+    from agent_utilities.security.run_token import TokenError
+
+    after = payload.get("after")
+    if (
+        not isinstance(after, list)
+        or len(after) != 2
+        or any(not isinstance(value, str) for value in after)
+    ):
+        raise TokenError("cursor position is malformed")
+    return after[0], after[1]
 
 
 def _redact_text(value: Any) -> Any:
@@ -662,9 +710,7 @@ def _safe_url(value: Any) -> str:
         return ""
     try:
         parsed = urlsplit(raw)
-        if parsed.username or parsed.password or parsed.query or parsed.fragment:
-            return ""
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        if not _url_safe_to_disclose(parsed):
             return ""
         host = parsed.hostname
         if parsed.port is not None:
@@ -676,6 +722,15 @@ def _safe_url(value: Any) -> str:
         return ""
 
 
+def _url_safe_to_disclose(parsed: Any) -> bool:
+    """True when a parsed URL carries no userinfo/query/fragment and has an
+    http(s) scheme + hostname -- the only shape whose bare host is safe to
+    return."""
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        return False
+    return parsed.scheme in {"http", "https"} and bool(parsed.hostname)
+
+
 def _normalize_row(kind: str, row: Mapping[str, Any]) -> dict[str, Any]:
     """Shape a catalog row without exposing tenant/principal or raw secrets."""
 
@@ -684,20 +739,30 @@ def _normalize_row(kind: str, row: Mapping[str, Any]) -> dict[str, Any]:
     if kind == "servers":
         result["url"] = _safe_url(result.get("url"))
     if kind in {"tools", "prompts", "resources", "skills"}:
-        if "description" in result:
-            result["description"] = _redact_text(result.get("description"))
-        if "uri" in result:
-            result["uri"] = _redact_text(result.get("uri"))
+        _redact_prose_fields(result)
     if kind == "discoveries":
-        # Discovery failures are intentionally classified, not echoed: the
-        # stored message may contain host paths or connector details.
-        error = result.get("last_error")
-        if error is None or error == "":
-            result["last_error"] = ""
-        elif isinstance(error, str):
-            result["last_error"] = "unavailable"
-        result.pop("discovery_principal", None)
+        _sanitize_discovery_row(result)
     return result
+
+
+def _redact_prose_fields(result: dict[str, Any]) -> None:
+    """Redact free-text fields (description/uri) via the privacy guard, in
+    place."""
+    if "description" in result:
+        result["description"] = _redact_text(result.get("description"))
+    if "uri" in result:
+        result["uri"] = _redact_text(result.get("uri"))
+
+
+def _sanitize_discovery_row(result: dict[str, Any]) -> None:
+    """Discovery failures are intentionally classified, not echoed: the
+    stored message may contain host paths or connector details."""
+    error = result.get("last_error")
+    if error is None or error == "":
+        result["last_error"] = ""
+    elif isinstance(error, str):
+        result["last_error"] = "unavailable"
+    result.pop("discovery_principal", None)
 
 
 def _validate_item(
@@ -928,28 +993,66 @@ def _validate_scope(
 
     required_columns = set(spec.columns)
     for row in rows:
-        if not required_columns.issubset(row):
-            raise CatalogUnavailable("authoritative catalog row is malformed")
-        row_tenant = row.get("tenant_id")
-        if not isinstance(row_tenant, str) or row_tenant != tenant:
+        _validate_row_scope(
+            spec,
+            row,
+            required_columns,
+            tenant=tenant,
+            principal=principal,
+            grant_digests=grant_digests,
+        )
+
+
+def _validate_row_scope(
+    spec: _KindSpec,
+    row: dict[str, Any],
+    required_columns: set[str],
+    *,
+    tenant: str,
+    principal: str,
+    grant_digests: tuple[str, ...],
+) -> None:
+    if not required_columns.issubset(row):
+        raise CatalogUnavailable("authoritative catalog row is malformed")
+    row_tenant = row.get("tenant_id")
+    if not isinstance(row_tenant, str) or row_tenant != tenant:
+        raise CatalogUnavailable("authoritative catalog scope is malformed")
+    if spec.authority_column and spec.principal_column and spec.grant_column:
+        _validate_row_authority(
+            row,
+            authority_column=spec.authority_column,
+            principal_column=spec.principal_column,
+            grant_column=spec.grant_column,
+            principal=principal,
+            grant_digests=grant_digests,
+        )
+
+
+def _validate_row_authority(
+    row: dict[str, Any],
+    *,
+    authority_column: str,
+    principal_column: str,
+    grant_column: str,
+    principal: str,
+    grant_digests: tuple[str, ...],
+) -> None:
+    row_authority = row.get(authority_column)
+    row_principal = row.get(principal_column)
+    row_grant = row.get(grant_column)
+    if row_authority == DISCOVERY_AUTHORITY_TENANT_LOCAL:
+        if row_principal != "" or row_grant != "":
             raise CatalogUnavailable("authoritative catalog scope is malformed")
-        if spec.authority_column and spec.principal_column and spec.grant_column:
-            row_authority = row.get(spec.authority_column)
-            row_principal = row.get(spec.principal_column)
-            row_grant = row.get(spec.grant_column)
-            if row_authority == DISCOVERY_AUTHORITY_TENANT_LOCAL:
-                if row_principal != "" or row_grant != "":
-                    raise CatalogUnavailable("authoritative catalog scope is malformed")
-            elif row_authority == DISCOVERY_AUTHORITY_OAUTH_GRANT:
-                if (
-                    not isinstance(row_principal, str)
-                    or row_principal != principal
-                    or not isinstance(row_grant, str)
-                    or row_grant not in grant_digests
-                ):
-                    raise CatalogUnavailable("authoritative catalog scope is malformed")
-            else:
-                raise CatalogUnavailable("authoritative catalog scope is malformed")
+    elif row_authority == DISCOVERY_AUTHORITY_OAUTH_GRANT:
+        if (
+            not isinstance(row_principal, str)
+            or row_principal != principal
+            or not isinstance(row_grant, str)
+            or row_grant not in grant_digests
+        ):
+            raise CatalogUnavailable("authoritative catalog scope is malformed")
+    else:
+        raise CatalogUnavailable("authoritative catalog scope is malformed")
 
 
 def _authorized_count(
@@ -1279,29 +1382,32 @@ async def _merge_toggle_states(
 
     from agent_utilities.mcp.kg_server import get_toggle_states_batch
 
-    keys: list[tuple[str, str]] = []
+    toggleable = list(_iter_toggleable_items(kinds_map))
+    if not toggleable:
+        return
+
+    keys = [builder(item) for builder, item in toggleable]
+    toggle_states = await _offload_catalog_call(get_toggle_states_batch, engine, keys)
+
+    for builder, item in toggleable:
+        key = builder(item)
+        toggled = bool(toggle_states.get(key, True))
+        item["enabled"] = toggled and bool(item.get("enabled", True))
+
+
+def _iter_toggleable_items(
+    kinds_map: dict[str, RegistryKindResult],
+) -> Iterator[tuple[Callable[[dict[str, Any]], tuple[str, str]], dict[str, Any]]]:
+    """Yield ``(key_builder, item)`` for every item, across every requested
+    kind, that carries an ``enabled`` field and has a toggle-key convention
+    in ``_TOGGLE_KEY_BUILDERS``."""
     for kind, result in kinds_map.items():
         builder = _TOGGLE_KEY_BUILDERS.get(kind)
         if builder is None or result.status != "ok":
             continue
         for item in result.items:
             if "enabled" in item:
-                keys.append(builder(item))
-    if not keys:
-        return
-
-    toggle_states = await _offload_catalog_call(get_toggle_states_batch, engine, keys)
-
-    for kind, result in kinds_map.items():
-        builder = _TOGGLE_KEY_BUILDERS.get(kind)
-        if builder is None or result.status != "ok":
-            continue
-        for item in result.items:
-            if "enabled" not in item:
-                continue
-            key = builder(item)
-            toggled = bool(toggle_states.get(key, True))
-            item["enabled"] = toggled and bool(item.get("enabled", True))
+                yield builder, item
 
 
 async def _list_multi_kind(request: Request) -> RegistryMultiKindPage:

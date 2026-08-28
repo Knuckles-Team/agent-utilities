@@ -192,25 +192,33 @@ class SkillGraphDistiller:
         seen: set[str] = set(anchors)
         frontier: list[str] = list(anchors)
         for _hop in range(max(0, depth)):
-            next_frontier: list[str] = []
-            for node_id in frontier:
-                if len(seen) >= max_nodes:
-                    break
-                try:
-                    neigh = await self.client.nodes.neighbors(node_id)
-                except Exception:  # noqa: BLE001
-                    neigh = []
-                for nid in neigh:
-                    if nid not in seen:
-                        seen.add(nid)
-                        next_frontier.append(nid)
-                        if len(seen) >= max_nodes:
-                            break
-            frontier = next_frontier
+            frontier = await self._expand_one_hop(frontier, seen, max_nodes)
             if not frontier or len(seen) >= max_nodes:
                 break
 
         return {"anchors": anchors, "node_ids": sorted(seen)}
+
+    async def _expand_one_hop(
+        self, frontier: list[str], seen: set[str], max_nodes: int
+    ) -> list[str]:
+        """One BFS hop: pull neighbors of each frontier node into ``seen``
+        (mutated in place) and return the next frontier, capped at
+        ``max_nodes``."""
+        next_frontier: list[str] = []
+        for node_id in frontier:
+            if len(seen) >= max_nodes:
+                break
+            try:
+                neigh = await self.client.nodes.neighbors(node_id)
+            except Exception:  # noqa: BLE001
+                neigh = []
+            for nid in neigh:
+                if nid not in seen:
+                    seen.add(nid)
+                    next_frontier.append(nid)
+                    if len(seen) >= max_nodes:
+                        break
+        return next_frontier
 
     async def _semantic_seed(self, query: str, n: int) -> list[str]:
         emb = self._embed(query)
@@ -257,21 +265,8 @@ class SkillGraphDistiller:
         every node in ``node_ids`` exactly once.
         """
         selected = set(node_ids)
-        try:
-            communities = await self.client.graph.community_detection(resolution)
-        except Exception as e:  # noqa: BLE001
-            logger.info("community_detection unavailable (%s); flat taxonomy", e)
-            communities = []
-
-        clusters: dict[str, list[str]] = {}
-        assigned: set[str] = set()
-        for comm in communities or []:
-            members = [n for n in comm if n in selected and n not in assigned]
-            if len(members) < 2:  # singletons fold into "general"
-                continue
-            name = self._cluster_name(members, props, taken=set(clusters))
-            clusters[name] = members
-            assigned.update(members)
+        communities = await self._detect_communities(resolution)
+        clusters, assigned = self._cluster_communities(communities, selected, props)
 
         leftover = [n for n in node_ids if n not in assigned]
         if leftover:
@@ -284,6 +279,34 @@ class SkillGraphDistiller:
             only = next(iter(clusters.values()))
             return {"": only}
         return clusters
+
+    async def _detect_communities(self, resolution: float) -> list:
+        """Run community detection, folding any failure into a flat taxonomy."""
+        try:
+            return await self.client.graph.community_detection(resolution)
+        except Exception as e:  # noqa: BLE001
+            logger.info("community_detection unavailable (%s); flat taxonomy", e)
+            return []
+
+    def _cluster_communities(
+        self,
+        communities: list,
+        selected: set[str],
+        props: dict[str, dict],
+    ) -> tuple[dict[str, list[str]], set[str]]:
+        """Turn raw communities into named ``{cluster: [node_id, ...]}``
+        groups, dropping singletons (they fold into "general" upstream).
+        Returns the clusters plus the set of node ids they cover."""
+        clusters: dict[str, list[str]] = {}
+        assigned: set[str] = set()
+        for comm in communities or []:
+            members = [n for n in comm if n in selected and n not in assigned]
+            if len(members) < 2:  # singletons fold into "general"
+                continue
+            name = self._cluster_name(members, props, taken=set(clusters))
+            clusters[name] = members
+            assigned.update(members)
+        return clusters, assigned
 
     def _cluster_name(
         self, members: list[str], props: dict[str, dict], taken: set[str]
@@ -331,74 +354,137 @@ class SkillGraphDistiller:
         ref = out / "reference"
         ref.mkdir(parents=True, exist_ok=True)
 
-        node_ids = selection["node_ids"]
-
         # Standardized ingestion stores a Document's full body AND its verbatim
         # chunks (IdeaBlock --PART_OF--> Document). When the parent Document is
         # itself materialised, its chunks are redundant — emit the doc, not
         # doc+chunks. Collect such covered children up front so they are recorded
         # in the manifest but never written as separate files.
-        all_edges = edges
-        covered_children: set[str] = set()
-        for src, dst, rel in all_edges:
+        edge_records = edges
+        covered_children = self._covered_children(edge_records, props)
+        file_for, manifest_nodes = self._place_nodes(
+            ref, taxonomy, props, covered_children
+        )
+        crosslinks = self._build_crosslinks(edge_records, file_for, manifest_nodes)
+        files_written = self._write_reference_files(ref, file_for, props, crosslinks)
+
+        manifest = self._build_manifest(
+            selection=selection,
+            taxonomy=taxonomy,
+            selector=selector,
+            files_written=files_written,
+            edge_records=edge_records,
+            manifest_nodes=manifest_nodes,
+        )
+        (out / "kg_manifest.json").write_text(
+            json.dumps(manifest, indent=2), encoding="utf-8"
+        )
+        return manifest
+
+    @staticmethod
+    def _covered_children(
+        edges: list[tuple[str, str, str]], props: dict[str, dict]
+    ) -> set[str]:
+        """Chunks (IdeaBlock --PART_OF--> Document) whose parent Document
+        already carries a body — recorded in the manifest but never written
+        as a separate, redundant file."""
+        covered: set[str] = set()
+        for src, dst, rel in edges:
             if rel.upper() in ("PART_OF", "CONTAINS"):
                 child, parent = (src, dst) if rel.upper() == "PART_OF" else (dst, src)
                 parent_props = props.get(parent) or {}
                 if _first(parent_props, _BODY_KEYS):
-                    covered_children.add(child)
-        # Map node_id -> relative-to-reference file path for the nodes we write.
+                    covered.add(child)
+        return covered
+
+    def _place_nodes(
+        self,
+        ref: Path,
+        taxonomy: dict[str, list[str]],
+        props: dict[str, dict],
+        covered_children: set[str],
+    ) -> tuple[dict[str, str], list[dict[str, Any]]]:
+        """Assign each selected node either a manifest-only entry (no body,
+        or a chunk covered by its parent) or a written file path — disambiguating
+        collisions across the whole tree — and create the cluster directories
+        that will receive files. Returns ``(node_id -> relative path, manifest
+        node entries)``."""
         file_for: dict[str, str] = {}
         used_rel: set[str] = set()
-
         manifest_nodes: list[dict[str, Any]] = []
 
         for cluster, members in taxonomy.items():
             cluster_dir = ref / cluster if cluster else ref
             for nid in members:
-                p = props.get(nid) or {}
-                body = _first(p, _BODY_KEYS)
-                ntype = str(_first(p, _TYPE_KEYS) or "Node")
-                title = str(_first(p, _TITLE_KEYS) or _slugify(nid))
-                if not body or nid in covered_children:
-                    # No body, or a chunk already covered by its parent Document:
-                    # recorded in the manifest, but no (empty/duplicate) file.
-                    entry = {
-                        "id": nid,
-                        "type": ntype,
-                        "title": title,
-                        "file": None,
-                        "source_url": _first(p, _SOURCE_KEYS),
-                    }
-                    if nid in covered_children:
-                        entry["covered_by_parent"] = True
-                    manifest_nodes.append(entry)
-                    continue
-                slug = _slugify(title or nid, fallback="node")
-                # Disambiguate collisions across the whole tree.
-                cand = slug
-                i = 2
-                rel = f"{cluster}/{cand}.md" if cluster else f"{cand}.md"
-                while rel in used_rel:
-                    cand = f"{slug}-{i}"
-                    rel = f"{cluster}/{cand}.md" if cluster else f"{cand}.md"
-                    i += 1
-                used_rel.add(rel)
-                file_for[nid] = rel
-                manifest_nodes.append(
-                    {
-                        "id": nid,
-                        "type": ntype,
-                        "title": title,
-                        "file": f"reference/{rel}",
-                        "source_url": _first(p, _SOURCE_KEYS),
-                    }
+                entry, rel = self._place_one_node(
+                    nid, cluster, props, covered_children, used_rel
                 )
-                cluster_dir.mkdir(parents=True, exist_ok=True)
+                manifest_nodes.append(entry)
+                if rel is not None:
+                    used_rel.add(rel)
+                    file_for[nid] = rel
+                    cluster_dir.mkdir(parents=True, exist_ok=True)
 
-        # Reuse the single batched edge read from above (no per-edge round-trip).
-        edge_records = all_edges
+        return file_for, manifest_nodes
 
-        # Build adjacency among *written* files for inline cross-links.
+    @staticmethod
+    def _place_one_node(
+        nid: str,
+        cluster: str,
+        props: dict[str, dict],
+        covered_children: set[str],
+        used_rel: set[str],
+    ) -> tuple[dict[str, Any], str | None]:
+        """Classify one node: a manifest-only entry (no body, or a chunk
+        covered by its parent Document — ``rel=None``) or a manifest entry
+        with a unique ``cluster/slug.md`` relative path."""
+        p = props.get(nid) or {}
+        body = _first(p, _BODY_KEYS)
+        ntype = str(_first(p, _TYPE_KEYS) or "Node")
+        title = str(_first(p, _TITLE_KEYS) or _slugify(nid))
+        if not body or nid in covered_children:
+            # No body, or a chunk already covered by its parent Document:
+            # recorded in the manifest, but no (empty/duplicate) file.
+            entry: dict[str, Any] = {
+                "id": nid,
+                "type": ntype,
+                "title": title,
+                "file": None,
+                "source_url": _first(p, _SOURCE_KEYS),
+            }
+            if nid in covered_children:
+                entry["covered_by_parent"] = True
+            return entry, None
+        rel = SkillGraphDistiller._unique_rel_path(cluster, title or nid, used_rel)
+        entry = {
+            "id": nid,
+            "type": ntype,
+            "title": title,
+            "file": f"reference/{rel}",
+            "source_url": _first(p, _SOURCE_KEYS),
+        }
+        return entry, rel
+
+    @staticmethod
+    def _unique_rel_path(cluster: str, title_or_id: str, used_rel: set[str]) -> str:
+        """Slugify ``title_or_id`` into a ``cluster/slug.md`` path, disambiguating
+        collisions against ``used_rel`` with a ``-2``, ``-3``, ... suffix."""
+        slug = _slugify(title_or_id, fallback="node")
+        cand = slug
+        i = 2
+        rel = f"{cluster}/{cand}.md" if cluster else f"{cand}.md"
+        while rel in used_rel:
+            cand = f"{slug}-{i}"
+            rel = f"{cluster}/{cand}.md" if cluster else f"{cand}.md"
+            i += 1
+        return rel
+
+    @staticmethod
+    def _build_crosslinks(
+        edge_records: list[tuple[str, str, str]],
+        file_for: dict[str, str],
+        manifest_nodes: list[dict[str, Any]],
+    ) -> dict[str, list[tuple[str, str]]]:
+        """Adjacency among *written* files, for inline "## Related" links."""
         crosslinks: dict[str, list[tuple[str, str]]] = {}
         for src, dst, rel in edge_records:
             if rel.upper() not in _CROSSLINK_RELS:
@@ -408,8 +494,17 @@ class SkillGraphDistiller:
                     (n["title"] for n in manifest_nodes if n["id"] == dst), dst
                 )
                 crosslinks.setdefault(src, []).append((dst_title, file_for[dst]))
+        return crosslinks
 
-        # Write the files.
+    def _write_reference_files(
+        self,
+        ref: Path,
+        file_for: dict[str, str],
+        props: dict[str, dict],
+        crosslinks: dict[str, list[tuple[str, str]]],
+    ) -> int:
+        """Render each written node's markdown file (front-matter + body +
+        "## Related" cross-links) and return the count written."""
         files_written = 0
         for nid, rel in file_for.items():
             p = props.get(nid) or {}
@@ -436,8 +531,21 @@ class SkillGraphDistiller:
                 parts.append("")
             (ref / rel).write_text("\n".join(parts), encoding="utf-8")
             files_written += 1
+        return files_written
 
-        manifest = {
+    def _build_manifest(
+        self,
+        *,
+        selection: dict[str, Any],
+        taxonomy: dict[str, list[str]],
+        selector: dict[str, Any],
+        files_written: int,
+        edge_records: list[tuple[str, str, str]],
+        manifest_nodes: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Assemble the ``kg_manifest.json`` payload for a skill-graph package."""
+        node_ids = selection["node_ids"]
+        return {
             "schema": MANIFEST_SCHEMA,
             "ontology": "agent-utilities",
             "agent_utilities_version": _pkg_version(),
@@ -455,10 +563,6 @@ class SkillGraphDistiller:
             "nodes": manifest_nodes,
             "edges": [{"src": s, "dst": d, "type": r} for s, d, r in edge_records],
         }
-        (out / "kg_manifest.json").write_text(
-            json.dumps(manifest, indent=2), encoding="utf-8"
-        )
-        return manifest
 
     @staticmethod
     def _rel_link(from_rel: str, to_rel: str) -> str:
@@ -490,8 +594,15 @@ class SkillGraphDistiller:
         }
         for nid in node_ids:
             props.setdefault(nid, {})
+        edges = self._parse_edges(sub.get("edges", []))
+        return props, edges
+
+    @staticmethod
+    def _parse_edges(raw_edges: list) -> list[tuple[str, str, str]]:
+        """Normalize the engine's raw edge records to ``(src, dst, rel)``,
+        dropping anything malformed."""
         edges: list[tuple[str, str, str]] = []
-        for edge in sub.get("edges", []):
+        for edge in raw_edges:
             if not isinstance(edge, dict):
                 continue
             src, dst = edge.get("source"), edge.get("target")
@@ -499,7 +610,7 @@ class SkillGraphDistiller:
                 continue
             rel = str(_first(edge.get("properties") or {}, _REL_KEYS) or "RELATED")
             edges.append((src, dst, rel))
-        return props, edges
+        return edges
 
     async def distill(
         self,
@@ -568,6 +679,15 @@ class SkillGraphDistiller:
     def _toposort(nodes: list[str], precedes: list[tuple[str, str]]) -> list[str]:
         """Kahn topological sort; ``precedes`` = (before, after) pairs. On a cycle,
         the remaining nodes are appended in their original order (deterministic)."""
+        succ, indeg = SkillGraphDistiller._build_adjacency(nodes, precedes)
+        return SkillGraphDistiller._kahn_order(nodes, succ, indeg)
+
+    @staticmethod
+    def _build_adjacency(
+        nodes: list[str], precedes: list[tuple[str, str]]
+    ) -> tuple[dict[str, list[str]], dict[str, int]]:
+        """Successor list + in-degree map for Kahn's algorithm, over edges
+        whose endpoints are both in ``nodes``."""
         nset = set(nodes)
         succ: dict[str, list[str]] = {n: [] for n in nodes}
         indeg: dict[str, int] = {n: 0 for n in nodes}
@@ -575,6 +695,14 @@ class SkillGraphDistiller:
             if a in nset and b in nset:
                 succ[a].append(b)
                 indeg[b] += 1
+        return succ, indeg
+
+    @staticmethod
+    def _kahn_order(
+        nodes: list[str], succ: dict[str, list[str]], indeg: dict[str, int]
+    ) -> list[str]:
+        """Kahn's algorithm over a precomputed adjacency; a cycle's leftover
+        nodes are appended in their original order (deterministic)."""
         ready = [n for n in nodes if indeg[n] == 0]
         order: list[str] = []
         while ready:
@@ -619,7 +747,48 @@ class SkillGraphDistiller:
         node_ids = selection["node_ids"]
         props, edges = await self.fetch_subgraph(node_ids)
 
+        ordered, precedes, deps = self._derive_workflow_steps(node_ids, props, edges)
+        wf_name = self._workflow_name(name, seed, query)
+        markdown = self._render_workflow_markdown(
+            wf_name, seed, query, ordered, props, deps
+        )
+
+        out = Path(out_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "SKILL.md").write_text(markdown, encoding="utf-8")
+
+        manifest = self._build_workflow_manifest(
+            selector=selector, ordered=ordered, deps=deps, precedes=precedes
+        )
+        (out / "kg_manifest.json").write_text(
+            json.dumps(manifest, indent=2), encoding="utf-8"
+        )
+        logger.info(
+            "Distilled workflow %s with %d steps at %s", wf_name, len(ordered), out_dir
+        )
+        return {"name": wf_name, "steps": len(ordered), "manifest": manifest}
+
+    def _derive_workflow_steps(
+        self,
+        node_ids: list[str],
+        props: dict[str, dict],
+        edges: list[tuple[str, str, str]],
+    ) -> tuple[list[str], list[tuple[str, str]], dict[str, list[int]]]:
+        """Map ``PRECEDES`` edges + procedure-typed nodes onto an ordered step
+        list plus a ``node_id -> [before-step-index, ...]`` dependency map."""
         precedes = [(s, d) for (s, d, r) in edges if r.upper() == "PRECEDES"]
+        step_ids = self._collect_step_ids(node_ids, props, precedes)
+        ordered = self._toposort(sorted(step_ids), precedes)
+        deps = self._step_dependencies(ordered, precedes)
+        return ordered, precedes, deps
+
+    def _collect_step_ids(
+        self,
+        node_ids: list[str],
+        props: dict[str, dict],
+        precedes: list[tuple[str, str]],
+    ) -> set[str]:
+        """Nodes on a ``PRECEDES`` edge, plus any procedure-typed node."""
         step_ids: set[str] = set()
         for s, d in precedes:
             step_ids.update((s, d))
@@ -627,20 +796,40 @@ class SkillGraphDistiller:
             ntype = str(_first(props.get(nid) or {}, _TYPE_KEYS) or "").lower()
             if ntype in self._PROCEDURE_TYPES:
                 step_ids.add(nid)
+        return step_ids
 
-        ordered = self._toposort(sorted(step_ids), precedes)
+    @staticmethod
+    def _step_dependencies(
+        ordered: list[str], precedes: list[tuple[str, str]]
+    ) -> dict[str, list[int]]:
+        """``after`` node id -> [step index of each ``before`` it depends on]."""
         pos = {nid: i for i, nid in enumerate(ordered)}
-        # after → [before step numbers]
         deps: dict[str, list[int]] = {}
         for before, after in precedes:
             if before in pos and after in pos:
                 deps.setdefault(after, []).append(pos[before])
+        return deps
 
+    def _workflow_name(
+        self, name: str | None, seed: str | None, query: str | None
+    ) -> str:
+        """Derive the ``*-workflow`` slug used for the SKILL.md name/filename."""
         wf_name = name or (seed or query or "kg-workflow")
         wf_name = self._token(wf_name).lower().replace("_", "-")
         if not wf_name.endswith("-workflow"):
             wf_name = f"{wf_name}-workflow"
+        return wf_name
 
+    def _render_workflow_markdown(
+        self,
+        wf_name: str,
+        seed: str | None,
+        query: str | None,
+        ordered: list[str],
+        props: dict[str, dict],
+        deps: dict[str, list[int]],
+    ) -> str:
+        """Render the distilled ``SKILL.md`` body for a workflow's step-DAG."""
         lines = [
             "---",
             f"name: {wf_name}",
@@ -674,12 +863,18 @@ class SkillGraphDistiller:
             lines.append(body)
             lines.append(f"Expected: {token}_result")
             lines.append("")
+        return "\n".join(lines)
 
-        out = Path(out_dir)
-        out.mkdir(parents=True, exist_ok=True)
-        (out / "SKILL.md").write_text("\n".join(lines), encoding="utf-8")
-
-        manifest = {
+    def _build_workflow_manifest(
+        self,
+        *,
+        selector: dict[str, Any],
+        ordered: list[str],
+        deps: dict[str, list[int]],
+        precedes: list[tuple[str, str]],
+    ) -> dict[str, Any]:
+        """Assemble the ``kg_manifest.json`` payload for a skill-workflow."""
+        return {
             "schema": MANIFEST_SCHEMA,
             "kind": "skill-workflow",
             "ontology": "agent-utilities",
@@ -697,13 +892,6 @@ class SkillGraphDistiller:
             ],
             "precedes": [{"before": a, "after": b} for a, b in precedes],
         }
-        (out / "kg_manifest.json").write_text(
-            json.dumps(manifest, indent=2), encoding="utf-8"
-        )
-        logger.info(
-            "Distilled workflow %s with %d steps at %s", wf_name, len(ordered), out_dir
-        )
-        return {"name": wf_name, "steps": len(ordered), "manifest": manifest}
 
     async def close(self) -> None:
         try:

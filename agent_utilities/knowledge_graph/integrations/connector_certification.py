@@ -169,6 +169,44 @@ class CertificationBundle:
         root = connector_root.resolve()
         manifest_path = root / "connector_manifest.yml"
         manifest_bytes = _read_regular(manifest_path, _MAX_ARTIFACT_BYTES)
+        manifest = cls._load_manifest(manifest_path, manifest_bytes, root)
+
+        fixture_path, shapes_path, certification_path = cls._locate_capability_bundle(
+            root
+        )
+        fixture_bytes = _read_regular(fixture_path, _MAX_ARTIFACT_BYTES)
+        shapes_bytes = _read_regular(shapes_path, _MAX_ARTIFACT_BYTES)
+        certification_bytes = _read_regular(certification_path, _MAX_ARTIFACT_BYTES)
+
+        fixture_doc, certification = cls._parse_capability_json(
+            fixture_bytes, certification_bytes, manifest
+        )
+        cls._verify_certification_signature(certification, manifest)
+        cls._verify_artifact_ledger(
+            certification,
+            root,
+            (
+                (manifest_path, manifest_bytes),
+                (fixture_path, fixture_bytes),
+                (shapes_path, shapes_bytes),
+            ),
+        )
+        fixtures = cls._parse_fixtures(fixture_doc, manifest)
+        shapes_text = cls._decode_shapes(shapes_bytes)
+
+        return cls(
+            manifest=manifest,
+            fixtures=tuple(fixtures),
+            shapes_text=shapes_text,
+            manifest_sha256=_sha256(manifest_bytes),
+            fixtures_sha256=_sha256(fixture_bytes),
+            shapes_sha256=_sha256(shapes_bytes),
+        )
+
+    @staticmethod
+    def _load_manifest(
+        manifest_path: Path, manifest_bytes: bytes, root: Path
+    ) -> ConnectorManifest:
         try:
             manifest_data = yaml.safe_load(manifest_bytes.decode("utf-8"))
             manifest = ConnectorManifest.model_validate(manifest_data)
@@ -182,20 +220,23 @@ class CertificationBundle:
         violations = check_manifest_bytes(manifest_path, require_signature=True)
         if violations:
             raise CertificationError("connector manifest integrity verification failed")
+        return manifest
 
+    @staticmethod
+    def _locate_capability_bundle(root: Path) -> tuple[Path, Path, Path]:
         fixture_matches = sorted(root.glob("*/ontology/fixtures/records.json"))
         shape_matches = sorted(root.glob("*/ontology/shapes/connector.shacl.ttl"))
         cert_matches = sorted(root.glob("*/ontology/certification.json"))
         if not (len(fixture_matches) == len(shape_matches) == len(cert_matches) == 1):
             raise CertificationError("connector capability bundle is incomplete")
-        fixture_path, shapes_path, certification_path = (
-            fixture_matches[0],
-            shape_matches[0],
-            cert_matches[0],
-        )
-        fixture_bytes = _read_regular(fixture_path, _MAX_ARTIFACT_BYTES)
-        shapes_bytes = _read_regular(shapes_path, _MAX_ARTIFACT_BYTES)
-        certification_bytes = _read_regular(certification_path, _MAX_ARTIFACT_BYTES)
+        return fixture_matches[0], shape_matches[0], cert_matches[0]
+
+    @staticmethod
+    def _parse_capability_json(
+        fixture_bytes: bytes,
+        certification_bytes: bytes,
+        manifest: ConnectorManifest,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         try:
             fixture_doc = _bounded_json(fixture_bytes, max_bytes=_MAX_ARTIFACT_BYTES)
             certification = _bounded_json(
@@ -209,7 +250,12 @@ class CertificationBundle:
             raise CertificationError("connector fixture identity differs from manifest")
         if source_attestation_violations(certification, manifest):
             raise CertificationError("connector source attestation is invalid")
+        return fixture_doc, certification
 
+    @staticmethod
+    def _verify_certification_signature(
+        certification: dict[str, Any], manifest: ConnectorManifest
+    ) -> None:
         public_key = str(manifest.provenance.signing_public_key or "")
         digest = ontology_integrity.canonical_signed_document_hash(certification)
         if not ontology_integrity.verify_release_signature(
@@ -224,51 +270,53 @@ class CertificationBundle:
                 "connector bundle certification signature is invalid"
             )
 
+    @staticmethod
+    def _verify_artifact_ledger(
+        certification: dict[str, Any],
+        root: Path,
+        artifacts: tuple[tuple[Path, bytes], ...],
+    ) -> None:
         ledger = certification.get("artifacts")
         if not isinstance(ledger, dict):
             raise CertificationError("connector bundle artifact ledger is absent")
         expected_artifacts = {
-            manifest_path.relative_to(root).as_posix(): _sha256(manifest_bytes),
-            fixture_path.relative_to(root).as_posix(): _sha256(fixture_bytes),
-            shapes_path.relative_to(root).as_posix(): _sha256(shapes_bytes),
+            path.relative_to(root).as_posix(): _sha256(data) for path, data in artifacts
         }
         if any(ledger.get(name) != value for name, value in expected_artifacts.items()):
             raise CertificationError(
                 "connector bundle differs from its artifact ledger"
             )
 
+    @staticmethod
+    def _parse_fixtures(
+        fixture_doc: dict[str, Any], manifest: ConnectorManifest
+    ) -> list[_Fixture]:
         rows = fixture_doc.get("fixtures")
         if not isinstance(rows, list) or len(rows) > 256:
             raise CertificationError("connector fixture collection is invalid")
-        fixtures: list[_Fixture] = []
-        for row in rows:
-            if not isinstance(row, dict):
-                raise CertificationError("connector fixture entry is invalid")
-            preset = str(row.get("preset") or "")
-            record = row.get("record")
-            expected = row.get("expected")
-            if (
-                not preset
-                or not isinstance(record, dict)
-                or not isinstance(expected, dict)
-            ):
-                raise CertificationError("connector fixture contract is incomplete")
-            fixtures.append(_Fixture(preset, dict(record), dict(expected)))
+        fixtures = [CertificationBundle._parse_fixture_row(row) for row in rows]
         signed_presets = {sync.preset for sync in manifest.sync}
         if signed_presets and {item.preset for item in fixtures} != signed_presets:
             raise CertificationError("fixtures do not cover every signed source preset")
+        return fixtures
+
+    @staticmethod
+    def _parse_fixture_row(row: Any) -> _Fixture:
+        if not isinstance(row, dict):
+            raise CertificationError("connector fixture entry is invalid")
+        preset = str(row.get("preset") or "")
+        record = row.get("record")
+        expected = row.get("expected")
+        if not preset or not isinstance(record, dict) or not isinstance(expected, dict):
+            raise CertificationError("connector fixture contract is incomplete")
+        return _Fixture(preset, dict(record), dict(expected))
+
+    @staticmethod
+    def _decode_shapes(shapes_bytes: bytes) -> str:
         try:
-            shapes_text = shapes_bytes.decode("utf-8")
+            return shapes_bytes.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise CertificationError("connector SHACL artifact is not UTF-8") from exc
-        return cls(
-            manifest=manifest,
-            fixtures=tuple(fixtures),
-            shapes_text=shapes_text,
-            manifest_sha256=_sha256(manifest_bytes),
-            fixtures_sha256=_sha256(fixture_bytes),
-            shapes_sha256=_sha256(shapes_bytes),
-        )
 
 
 class CertificationDriver(Protocol):
@@ -293,61 +341,73 @@ class ReferenceCertificationDriver:
     async def invoke(self, request: Mapping[str, Any]) -> dict[str, Any]:
         action = request.get("action")
         if action == "list_tools":
-            return {
-                "tools": [
-                    {"name": name, "inputSchema": schema}
-                    for name, schema in sorted(self.tool_schemas.items())
-                ]
-            }
+            return self._invoke_list_tools()
         if action == "apply":
-            envelope = request.get("envelope")
-            if not isinstance(envelope, dict):
-                raise CertificationError("driver apply request has no envelope")
-            dedup = str(envelope.get("idempotency_key") or "")
-            if dedup in self._seen:
-                return {"applied": False, "replayed": True}
-            self._seen.add(dedup)
-            key = _scope_key(envelope)
-            governance = _governance(envelope)
-            if envelope.get("operation") == "delete":
-                self._records.pop(key, None)
-                self._tombstones[key] = governance
-            elif envelope.get("operation") == "upsert":
-                self._records[key] = {
-                    "governance": governance,
-                    "payload": envelope.get("typed_payload"),
-                }
-                self._tombstones.pop(key, None)
-            else:
-                raise CertificationError("reference driver operation is unsupported")
-            return {"applied": True, "replayed": False}
+            return self._invoke_apply(request)
         if action == "count":
-            scope = request.get("scope")
-            if not isinstance(scope, dict):
-                raise CertificationError("driver count request has no scope")
-            prefix = (
-                str(scope.get("tenant") or ""),
-                str(scope.get("connector") or ""),
-                str(scope.get("source_instance") or ""),
-            )
-            return {"count": sum(key[:3] == prefix for key in self._records)}
+            return self._invoke_count(request)
         if action == "inspect":
-            scope = request.get("scope")
-            if not isinstance(scope, dict):
-                raise CertificationError("driver inspect request has no scope")
-            key = (
-                str(scope.get("tenant") or ""),
-                str(scope.get("connector") or ""),
-                str(scope.get("source_instance") or ""),
-                str(scope.get("source_object_id") or ""),
-            )
-            record = self._records.get(key)
-            return {
-                "exists": record is not None,
-                "governance": record.get("governance") if record else None,
-                "tombstone_governance": self._tombstones.get(key),
-            }
+            return self._invoke_inspect(request)
         raise CertificationError("certification driver action is unsupported")
+
+    def _invoke_list_tools(self) -> dict[str, Any]:
+        return {
+            "tools": [
+                {"name": name, "inputSchema": schema}
+                for name, schema in sorted(self.tool_schemas.items())
+            ]
+        }
+
+    def _invoke_apply(self, request: Mapping[str, Any]) -> dict[str, Any]:
+        envelope = request.get("envelope")
+        if not isinstance(envelope, dict):
+            raise CertificationError("driver apply request has no envelope")
+        dedup = str(envelope.get("idempotency_key") or "")
+        if dedup in self._seen:
+            return {"applied": False, "replayed": True}
+        self._seen.add(dedup)
+        key = _scope_key(envelope)
+        governance = _governance(envelope)
+        if envelope.get("operation") == "delete":
+            self._records.pop(key, None)
+            self._tombstones[key] = governance
+        elif envelope.get("operation") == "upsert":
+            self._records[key] = {
+                "governance": governance,
+                "payload": envelope.get("typed_payload"),
+            }
+            self._tombstones.pop(key, None)
+        else:
+            raise CertificationError("reference driver operation is unsupported")
+        return {"applied": True, "replayed": False}
+
+    def _invoke_count(self, request: Mapping[str, Any]) -> dict[str, Any]:
+        scope = request.get("scope")
+        if not isinstance(scope, dict):
+            raise CertificationError("driver count request has no scope")
+        prefix = (
+            str(scope.get("tenant") or ""),
+            str(scope.get("connector") or ""),
+            str(scope.get("source_instance") or ""),
+        )
+        return {"count": sum(key[:3] == prefix for key in self._records)}
+
+    def _invoke_inspect(self, request: Mapping[str, Any]) -> dict[str, Any]:
+        scope = request.get("scope")
+        if not isinstance(scope, dict):
+            raise CertificationError("driver inspect request has no scope")
+        key = (
+            str(scope.get("tenant") or ""),
+            str(scope.get("connector") or ""),
+            str(scope.get("source_instance") or ""),
+            str(scope.get("source_object_id") or ""),
+        )
+        record = self._records.get(key)
+        return {
+            "exists": record is not None,
+            "governance": record.get("governance") if record else None,
+            "tombstone_governance": self._tombstones.get(key),
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -418,6 +478,18 @@ def load_live_profile(reference: str) -> LiveCertificationProfile:
         tenant=str(parsed["tenant"]),
         retention=str(parsed["retention"]),
         tls_profile_ref=str(parsed.get("tls_profile_ref") or "") or None,
+    )
+
+
+def _valid_command_part(part: Any) -> bool:
+    """One certification-driver command argument: a bounded string with no
+    embedded NUL/CR/LF."""
+    return (
+        isinstance(part, str)
+        and 1 <= len(part) <= 4096
+        and "\x00" not in part
+        and "\r" not in part
+        and "\n" not in part
     )
 
 
@@ -523,14 +595,7 @@ class RuntimeCommandCertificationDriver:
         if (
             not isinstance(value, list)
             or not 1 <= len(value) <= 64
-            or not all(
-                isinstance(part, str)
-                and 1 <= len(part) <= 4096
-                and "\x00" not in part
-                and "\r" not in part
-                and "\n" not in part
-                for part in value
-            )
+            or not all(_valid_command_part(part) for part in value)
         ):
             raise CertificationError("certification driver command is invalid")
         return tuple(value)
@@ -1221,19 +1286,42 @@ def _bounded_json(raw: bytes, *, max_bytes: int) -> Any:
         nodes += 1
         if nodes > _MAX_JSON_NODES or depth > 32:
             raise ValueError("JSON payload exceeds its structural boundary")
-        if isinstance(current, dict):
-            if len(current) > 4096 or any(not isinstance(key, str) for key in current):
-                raise ValueError("JSON object is invalid")
-            stack.extend((item, depth + 1) for item in current.values())
-        elif isinstance(current, list):
-            if len(current) > 4096:
-                raise ValueError("JSON collection is invalid")
-            stack.extend((item, depth + 1) for item in current)
-        elif current is not None and not isinstance(current, str | int | float | bool):
-            raise ValueError("JSON value is invalid")
-        elif isinstance(current, float) and not math.isfinite(current):
-            raise ValueError("JSON number is invalid")
+        stack.extend(_bounded_json_children(current, depth))
     return value
+
+
+def _bounded_json_children(current: Any, depth: int) -> list[tuple[Any, int]]:
+    """Validate one JSON node's shape/type and return its children (with
+    depth+1) to continue the bounded traversal from."""
+    if isinstance(current, dict):
+        return _bounded_json_dict_children(current, depth)
+    if isinstance(current, list):
+        return _bounded_json_list_children(current, depth)
+    _check_bounded_json_scalar(current)
+    return []
+
+
+def _bounded_json_dict_children(
+    current: dict[Any, Any], depth: int
+) -> list[tuple[Any, int]]:
+    if len(current) > 4096 or any(not isinstance(key, str) for key in current):
+        raise ValueError("JSON object is invalid")
+    return [(item, depth + 1) for item in current.values()]
+
+
+def _bounded_json_list_children(
+    current: list[Any], depth: int
+) -> list[tuple[Any, int]]:
+    if len(current) > 4096:
+        raise ValueError("JSON collection is invalid")
+    return [(item, depth + 1) for item in current]
+
+
+def _check_bounded_json_scalar(current: Any) -> None:
+    if current is not None and not isinstance(current, str | int | float | bool):
+        raise ValueError("JSON value is invalid")
+    if isinstance(current, float) and not math.isfinite(current):
+        raise ValueError("JSON number is invalid")
 
 
 def _sha256(value: bytes) -> str:
@@ -1282,6 +1370,33 @@ def _fixture_envelope(
     policy: CertificationPolicy,
     version: str,
 ) -> ChangeEnvelope:
+    sanitized, encoded = _sanitize_fixture_record(fixture)
+    object_id = _fixture_object_id(bundle.manifest.connector, run_key, fixture, index)
+    sync = next(item for item in bundle.manifest.sync if item.preset == fixture.preset)
+    resource = _fixture_resource_type(bundle, sync)
+    payload = {**sanitized, "id": object_id, "type": resource}
+    access, classification = _fixture_access_classification(fixture)
+    return ChangeEnvelope(
+        connector=bundle.manifest.connector,
+        tenant=policy.tenant,
+        source_instance=source_instance,
+        source_object_id=object_id,
+        source_version=version,
+        schema_version=bundle.manifest.schema_version,
+        ontology_mapping_version=bundle.manifest_sha256,
+        typed_payload=payload,
+        source_acl=access,
+        classification=classification,
+        retention=policy.retention,
+        legal_hold=policy.legal_hold,
+        provenance={"fixture_sha256": _sha256(encoded), "certification": True},
+        checkpoint=version,
+    )
+
+
+def _sanitize_fixture_record(fixture: _Fixture) -> tuple[dict[str, Any], bytes]:
+    """Strip untrusted governance fields from a fixture record, sanitize it
+    through the privacy guard, and encode it canonically."""
     raw = dict(fixture.record)
     for untrusted in (
         "external_access",
@@ -1305,15 +1420,23 @@ def _fixture_envelope(
     ).encode("utf-8")
     if len(encoded) > 256 * 1024:
         raise CertificationError("certification fixture exceeds its record boundary")
-    object_id = (
+    return sanitized, encoded
+
+
+def _fixture_object_id(
+    connector: str, run_key: str, fixture: _Fixture, index: int
+) -> str:
+    return (
         "cert-"
         + hashlib.sha256(
-            f"{bundle.manifest.connector}:{run_key}:{fixture.preset}:{index}".encode()
+            f"{connector}:{run_key}:{fixture.preset}:{index}".encode()
         ).hexdigest()[:32]
     )
-    sync = next(item for item in bundle.manifest.sync if item.preset == fixture.preset)
+
+
+def _fixture_resource_type(bundle: CertificationBundle, sync: Any) -> str:
     normalized_doc_type = re.sub(r"[^a-z0-9]", "", str(sync.doc_type or "").lower())
-    resource = next(
+    return next(
         (
             item.name
             for item in bundle.manifest.resources
@@ -1321,32 +1444,17 @@ def _fixture_envelope(
         ),
         bundle.manifest.resources[0].name if bundle.manifest.resources else "Document",
     )
-    payload = {**sanitized, "id": object_id, "type": resource}
+
+
+def _fixture_access_classification(
+    fixture: _Fixture,
+) -> tuple[ExternalAccess, DataClassification]:
     acl_state = str(fixture.expected.get("acl_state") or "quarantine")
     if acl_state == "quarantine":
-        access = ExternalAccess.quarantined()
-        classification = DataClassification.INTERNAL
-    elif acl_state == "public":
-        access = ExternalAccess.public()
-        classification = DataClassification.PUBLIC
-    else:
-        raise CertificationError("fixture ACL expectation is unsupported")
-    return ChangeEnvelope(
-        connector=bundle.manifest.connector,
-        tenant=policy.tenant,
-        source_instance=source_instance,
-        source_object_id=object_id,
-        source_version=version,
-        schema_version=bundle.manifest.schema_version,
-        ontology_mapping_version=bundle.manifest_sha256,
-        typed_payload=payload,
-        source_acl=access,
-        classification=classification,
-        retention=policy.retention,
-        legal_hold=policy.legal_hold,
-        provenance={"fixture_sha256": _sha256(encoded), "certification": True},
-        checkpoint=version,
-    )
+        return ExternalAccess.quarantined(), DataClassification.INTERNAL
+    if acl_state == "public":
+        return ExternalAccess.public(), DataClassification.PUBLIC
+    raise CertificationError("fixture ACL expectation is unsupported")
 
 
 def _next_envelope(
@@ -1483,53 +1591,77 @@ def _semantic_validation(
     try:
         shapes = rdflib.Graph()
         shapes.parse(data=bundle.shapes_text, format="turtle")
-        data = rdflib.Graph()
-        kg = rdflib.Namespace("http://knuckles.team/kg#")
-        for index, envelope in enumerate(envelopes):
-            payload = envelope.typed_payload or {}
-            resource = str(payload.get("type") or "Document")
-            subject = rdflib.URIRef(f"urn:graphos:connector-certification:{index}")
-            data.add((subject, rdflib.RDF.type, kg[resource]))
-            data.add((subject, kg.sourceRecordRef, rdflib.Literal("opaque")))
-            data.add((subject, kg.tenantReference, rdflib.Literal("bound")))
-            data.add((subject, kg.accessPolicyReference, rdflib.Literal("bound")))
-            data.add((subject, kg.provenanceReference, rdflib.Literal("bound")))
-        try:
-            from pyshacl import validate
-        except ImportError:
-            if require_pyshacl:
-                raise CertificationError(
-                    "live certification requires the SHACL runtime"
-                ) from None
-            target_class = rdflib.URIRef("http://www.w3.org/ns/shacl#targetClass")
-            targets = {str(value) for value in shapes.objects(predicate=target_class)}
-            declared = {
-                str(
-                    rdflib.Namespace("http://knuckles.team/kg#")[
-                        str((envelope.typed_payload or {}).get("type") or "Document")
-                    ]
-                )
-                for envelope in envelopes
-            }
-            if not declared.issubset(targets):
-                raise CertificationError(
-                    "declared semantic coverage is incomplete"
-                ) from None
-            return "declared-shacl-contract"
-        conforms, _results_graph, _results_text = validate(
-            data,
-            shacl_graph=shapes,
-            abort_on_first=False,
-            allow_infos=False,
-            allow_warnings=False,
+        data = _build_certification_data_graph(rdflib, envelopes)
+        return _validate_against_shapes(
+            rdflib, shapes, data, envelopes, require_pyshacl=require_pyshacl
         )
-        if not bool(conforms):
-            raise CertificationError("synthetic fixture does not conform to SHACL")
-        return "pyshacl"
     except CertificationError:
         raise
     except Exception as exc:
         raise CertificationError("semantic validation failed") from exc
+
+
+def _build_certification_data_graph(
+    rdflib: Any, envelopes: Sequence[ChangeEnvelope]
+) -> Any:
+    data = rdflib.Graph()
+    kg = rdflib.Namespace("http://knuckles.team/kg#")
+    for index, envelope in enumerate(envelopes):
+        payload = envelope.typed_payload or {}
+        resource = str(payload.get("type") or "Document")
+        subject = rdflib.URIRef(f"urn:graphos:connector-certification:{index}")
+        data.add((subject, rdflib.RDF.type, kg[resource]))
+        data.add((subject, kg.sourceRecordRef, rdflib.Literal("opaque")))
+        data.add((subject, kg.tenantReference, rdflib.Literal("bound")))
+        data.add((subject, kg.accessPolicyReference, rdflib.Literal("bound")))
+        data.add((subject, kg.provenanceReference, rdflib.Literal("bound")))
+    return data
+
+
+def _validate_against_shapes(
+    rdflib: Any,
+    shapes: Any,
+    data: Any,
+    envelopes: Sequence[ChangeEnvelope],
+    *,
+    require_pyshacl: bool,
+) -> str:
+    try:
+        from pyshacl import validate
+    except ImportError:
+        if require_pyshacl:
+            raise CertificationError(
+                "live certification requires the SHACL runtime"
+            ) from None
+        return _declared_shacl_target_coverage(rdflib, shapes, envelopes)
+    conforms, _results_graph, _results_text = validate(
+        data,
+        shacl_graph=shapes,
+        abort_on_first=False,
+        allow_infos=False,
+        allow_warnings=False,
+    )
+    if not bool(conforms):
+        raise CertificationError("synthetic fixture does not conform to SHACL")
+    return "pyshacl"
+
+
+def _declared_shacl_target_coverage(
+    rdflib: Any, shapes: Any, envelopes: Sequence[ChangeEnvelope]
+) -> str:
+    target_class = rdflib.URIRef("http://www.w3.org/ns/shacl#targetClass")
+    targets = {str(value) for value in shapes.objects(predicate=target_class)}
+    declared = {
+        str(
+            rdflib.Namespace("http://knuckles.team/kg#")[
+                str((envelope.typed_payload or {}).get("type") or "Document")
+            ]
+        )
+        for envelope in envelopes
+    }
+    if not declared.issubset(targets):
+        raise CertificationError("declared semantic coverage is incomplete") from None
+    return "declared-shacl-contract"
 
 
 def _declared_semantic_validation(
@@ -1569,7 +1701,14 @@ def _delegated_environment(
     command: Sequence[str], payload: Mapping[str, Any]
 ) -> dict[str, str]:
     env = {key: value for key, value in os.environ.items() if key in _BASE_CHILD_ENV}
-    values: list[str] = list(command)
+    values = list(command) + _collect_strings(payload)
+    env.update(_extract_env_refs(values))
+    return env
+
+
+def _collect_strings(payload: Any) -> list[str]:
+    """Flatten every string leaf out of a nested dict/list payload."""
+    values: list[str] = []
     stack: list[Any] = [payload]
     while stack:
         item = stack.pop()
@@ -1579,6 +1718,13 @@ def _delegated_environment(
             stack.extend(item)
         elif isinstance(item, str):
             values.append(item)
+    return values
+
+
+def _extract_env_refs(values: list[str]) -> dict[str, str]:
+    """Resolve any ``env://NAME`` reference in ``values`` to its current
+    process environment value, when NAME is a safe identifier that exists."""
+    resolved: dict[str, str] = {}
     for value in values:
         if value.startswith("env://"):
             name = value[6:]
@@ -1586,8 +1732,8 @@ def _delegated_environment(
                 re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", name)
                 and name in os.environ
             ):
-                env[name] = os.environ[name]
-    return env
+                resolved[name] = os.environ[name]
+    return resolved
 
 
 def safe_record_name(connector: str) -> str:

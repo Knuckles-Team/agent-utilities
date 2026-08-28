@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from pydantic import Field
@@ -71,20 +71,30 @@ def _persist_sections(
     """
     ok = False
     for n in nodes:
-        props = {k: v for k, v in n.items() if k not in ("id", "type")}
-        try:
-            engine.add_node(n["id"], n["type"], props)
+        if _persist_section_node(engine, n):
             ok = True
-        except Exception:  # noqa: BLE001 — best-effort per node
-            pass
     for e in edges:
-        props = {k: v for k, v in e.items() if k not in ("source", "target", "type")}
-        try:
-            engine.add_edge(e["source"], e["target"], e["type"], **props)
+        if _persist_section_edge(engine, e):
             ok = True
-        except Exception:  # noqa: BLE001 — best-effort per edge
-            pass
     return ok
+
+
+def _persist_section_node(engine: Any, n: dict[str, Any]) -> bool:
+    props = {k: v for k, v in n.items() if k not in ("id", "type")}
+    try:
+        engine.add_node(n["id"], n["type"], props)
+        return True
+    except Exception:  # noqa: BLE001 — best-effort per node
+        return False
+
+
+def _persist_section_edge(engine: Any, e: dict[str, Any]) -> bool:
+    props = {k: v for k, v in e.items() if k not in ("source", "target", "type")}
+    try:
+        engine.add_edge(e["source"], e["target"], e["type"], **props)
+        return True
+    except Exception:  # noqa: BLE001 — best-effort per edge
+        return False
 
 
 def _json_default(obj: Any) -> Any:
@@ -280,7 +290,21 @@ def code_connects(
             "path": [],
         }
 
-    # Annotate each hop with the connecting edge (undirected match for the relation).
+    hops = _annotate_path_hops(engine, path)
+
+    return {
+        "source": src_id,
+        "target": dst_id,
+        "connected": True,
+        "length": len(path) - 1,
+        "path": path,
+        "hops": hops,
+    }
+
+
+def _annotate_path_hops(engine: Any, path: list[Any]) -> list[dict[str, Any]]:
+    """Annotate each hop with the connecting edge (undirected match for the
+    relation); best-effort per hop."""
     hops: list[dict[str, Any]] = []
     for a, b in zip(path, path[1:], strict=False):
         rel, conf = None, None
@@ -296,15 +320,7 @@ def code_connects(
         except Exception:  # noqa: BLE001 — annotation is best-effort
             pass
         hops.append({"from": a, "to": b, "rel": rel, "confidence": conf})
-
-    return {
-        "source": src_id,
-        "target": dst_id,
-        "connected": True,
-        "length": len(path) - 1,
-        "path": path,
-        "hops": hops,
-    }
+    return hops
 
 
 def _run_graph_query_sql(cypher: str, connection: str, graph: str) -> str:
@@ -646,17 +662,7 @@ def _run_graph_query_fanout_response(
     union_read: bool,
 ) -> str:
     if union_read:
-        # Merge the per-graph row lists into one id-deduped canonical row set.
-        merged: list[Any] = []
-        seen_ids: set[str] = set()
-        for _name in results:
-            for row in results[_name] or []:
-                rid = row.get("id") if isinstance(row, dict) else None
-                if rid is not None:
-                    if rid in seen_ids:
-                        continue
-                    seen_ids.add(rid)
-                merged.append(row)
+        merged = _merge_fanout_rows(results)
         return json.dumps(
             {"rows": merged, "connection": connection, "graph": graph},
             default=_json_default,
@@ -670,6 +676,21 @@ def _run_graph_query_fanout_response(
         },
         default=_json_default,
     )
+
+
+def _merge_fanout_rows(results: dict[str, Any]) -> list[Any]:
+    """Merge the per-graph row lists into one id-deduped canonical row set."""
+    merged: list[Any] = []
+    seen_ids: set[str] = set()
+    for _name in results:
+        for row in results[_name] or []:
+            rid = row.get("id") if isinstance(row, dict) else None
+            if rid is not None:
+                if rid in seen_ids:
+                    continue
+                seen_ids.add(rid)
+            merged.append(row)
+    return merged
 
 
 def _run_graph_query_fanout(
@@ -908,6 +929,297 @@ def _graph_search_format_results(results: Any) -> str:
             f"[{label}] {name} (ID: {nid}) - Score: {score:.2f}\n{desc}"
         )
     return "\n---\n".join(formatted_results)
+
+
+def _graph_search_single_target(
+    entries: list[tuple[str, Any]],
+    graph: str,
+    run_search: Callable[[Any], str],
+) -> str:
+    """Single-connection ``graph_search`` path: bind the graph and run once."""
+    name, engine = entries[0]
+    try:
+        with kg_server.bound_to_graph(graph):
+            text = run_search(engine)
+    except PermissionError as e:
+        return public_error_text(
+            e, code="permission_denied" if graph else "operation_failed"
+        )
+    return f"{text}\n\n[connection={name} graph={graph or '(default)'}]"
+
+
+def _graph_search_implicit_fanout(
+    entries: list[tuple[str, Any]],
+    run_search: Callable[[Any], str],
+    content_graph_search: Callable[[str, Any], str],
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """CONCEPT:AU-KG.ingest.unified-query-routing — an implicit-default connection
+    (no ``connection`` passed, or explicitly "default") fans across every active
+    content graph, which can be dozens of ``code:<repo>``/``src:<repo>``
+    connections, often idle/unreachable.
+
+    The PRIMARY/``default`` backend must ALWAYS ground: it holds the primary
+    ``__commons__`` + control-plane content and is the source of the real
+    ranked hits. So run it separately at the normal budget (never the
+    skip-timeout) and apply the SHORT skip-timeout ONLY to the supplementary
+    content backends. Under a wide implicit fan-out (~70 ``code:*`` graphs) a
+    single shared short wall-clock across ALL targets starved the primary —
+    it was queued behind the hung code backends and timed out too, so the
+    search returned zero results even though the engine was healthy.
+    Splitting the primary out fixes that: a search still returns the
+    primary's real hits in a few seconds when every supplementary backend is
+    dead.
+    """
+    primary = [(n, e) for n, e in entries if n == "default"]
+    supplementary = [(n, e) for n, e in entries if n != "default"]
+    # Robustness: if the resolver produced no ``default`` entry, treat the
+    # first as primary so SOMETHING always grounds at the full budget.
+    if not primary and entries:
+        primary, supplementary = [entries[0]], entries[1:]
+    results: dict[str, Any] = {}
+    fan_errors: dict[str, str] = {}
+    for name, engine in primary:
+        # B-18: bind for a real content graph promoted into `primary` by
+        # the robustness fallback above too — only the literal-"default"
+        # entry already targets the ambient session's own graph and needs
+        # no narrowing.
+        if name == "default":
+            results[name] = run_search(engine)
+        else:
+            results[name] = content_graph_search(name, engine)
+    if supplementary:
+        sup_results, sup_errors = kg_server.fanout_execute(
+            supplementary,
+            content_graph_search,
+            timeout=kg_server.DEFAULT_CONTENT_FANOUT_TIMEOUT_S,
+        )
+        results.update(sup_results)
+        fan_errors.update(sup_errors)
+    return results, fan_errors
+
+
+def _graph_search_fanout(
+    entries: list[tuple[str, Any]],
+    errors: dict[str, str],
+    connection: str,
+    run_search: Callable[[Any], str],
+    content_graph_search: Callable[[str, Any], str],
+) -> str:
+    """Multi-connection ``graph_search`` path: implicit content-graph union
+    or an explicit cross-repo fan-out, formatted into one labeled block."""
+    is_implicit_target = connection is None or (
+        isinstance(connection, str) and connection.strip().lower() in ("", "default")
+    )
+    if is_implicit_target:
+        results, fan_errors = _graph_search_implicit_fanout(
+            entries, run_search, content_graph_search
+        )
+    else:
+        # Explicit cross-repo fan-out — per-target timeout at the full budget so
+        # one slow backend can't stall the set.
+        results, fan_errors = kg_server.fanout_execute(
+            entries, lambda name, engine: run_search(engine)
+        )
+    out_lines = [f"=== {name} ===\n{results[name]}" for name in results]
+    out_lines += [
+        f"=== {name} (error) ===\n{err}"
+        for name, err in {**errors, **fan_errors}.items()
+    ]
+    out_lines.append(f"[connection={connection or 'default'} graph=(none — fan-out)]")
+    return "\n\n".join(out_lines)
+
+
+def _graph_table_ingest(
+    engine: Any,
+    table_ingest: Any,
+    source: str,
+    table: str,
+    config_json: str,
+    limit: int,
+    replace: bool,
+) -> str:
+    if not source:
+        return json.dumps({"error": "ingest needs a source connector"})
+    return json.dumps(
+        table_ingest.ingest_connector_to_table(
+            engine,
+            str(source),
+            table=table or None,
+            config=json.loads(config_json) if config_json else None,
+            limit=int(limit),
+            replace=bool(replace),
+        ),
+        default=str,
+    )
+
+
+def _graph_table_rows(
+    engine: Any, table_ingest: Any, table: str, rows_json: str, replace: bool
+) -> str:
+    if not table:
+        return json.dumps({"error": "rows needs a table"})
+    return json.dumps(
+        table_ingest.ingest_rows_to_table(
+            engine,
+            str(table),
+            json.loads(rows_json) if rows_json else [],
+            replace=bool(replace),
+        ),
+        default=str,
+    )
+
+
+def _graph_table_create(
+    engine: Any, table_ingest: Any, table: str, columns_json: str
+) -> str:
+    if not table:
+        return json.dumps({"error": "create needs a table"})
+    cols = json.loads(columns_json) if columns_json else []
+    if not cols:
+        return json.dumps({"error": "create needs columns_json"})
+    return json.dumps(table_ingest.ensure_table(engine, str(table), cols), default=str)
+
+
+def _graph_table_drop(engine: Any, table_ingest: Any, table: str) -> str:
+    if not table:
+        return json.dumps({"error": "drop needs a table"})
+    return json.dumps(table_ingest.drop_table(engine, str(table)), default=str)
+
+
+def _graph_table_query(engine: Any, sql: str) -> str:
+    if not sql:
+        return json.dumps({"error": "query needs a sql SELECT"})
+    return json.dumps(engine.sql(str(sql)), default=str)
+
+
+async def _graph_context_put(
+    engine: Any,
+    content: str,
+    context_id: str,
+    session_id: str,
+    key: str,
+    ttl_s: int,
+) -> str:
+    import contextlib
+    import time
+    import uuid as _uuid
+
+    if not content:
+        return json.dumps({"error": "content required for put"})
+    sid = session_id or _uuid.uuid4().hex
+    cid = context_id or f"ctx:{sid}:{key or _uuid.uuid4().hex}"
+    snode = f"session:{sid}"
+
+    def _persist_context_blob() -> None:
+        engine.add_node(
+            cid,
+            "ContextBlob",
+            properties={
+                "id": cid,
+                "content": content,
+                "session_id": sid,
+                "key": key,
+                "ttl_s": int(ttl_s),
+                "created_at": time.time(),
+                "producer": kg_server._SESSION_ID,
+            },
+        )
+        # CONCEPT:AU-ORCH.session.session-anchored-collections-native — session-anchored collection: upsert the id-addressable
+        # Session node and link it, so "list by session" is a reliable id-anchored
+        # traversal (the engine has no property index; property scans are unreliable).
+        with contextlib.suppress(Exception):
+            engine.add_node(
+                snode, "Session", properties={"id": snode, "session_id": sid}
+            )
+            engine.add_edge(snode, cid, "HAS_CONTEXT")
+
+    await run_blocking_ordered(_persist_context_blob)
+    return json.dumps({"context_id": cid, "session_id": sid})
+
+
+async def _graph_context_get(engine: Any, context_id: str) -> str:
+    import time
+
+    if not context_id:
+        return json.dumps({"error": "context_id required for get"})
+    try:
+        rows = await run_blocking_ordered(
+            engine.query_cypher,
+            "MATCH (c:ContextBlob) WHERE c.id = $id "
+            "RETURN c.id AS id, c.content AS content, "
+            "c.session_id AS session_id, "
+            "c.created_at AS created_at, c.ttl_s AS ttl_s",
+            {"id": context_id},
+        )
+        if not rows:
+            return json.dumps({})
+        row = rows[0]
+        # TTL: treat an expired blob as gone (created_at + ttl_s < now).
+        _ttl = row.get("ttl_s") or 0
+        _created = row.get("created_at") or 0
+        if _ttl and _created and (float(_created) + float(_ttl) < time.time()):
+            return json.dumps({"error": "context expired", "expired": True})
+        return json.dumps(row, default=str)
+    except Exception as exc:  # noqa: BLE001
+        return public_error_json(exc)
+
+
+async def _graph_context_prune(engine: Any) -> str:
+    import contextlib
+    import time
+
+    # Delete expired ContextBlobs (CONCEPT:AU-ORCH.session.invoker-agent-handoff lifecycle).
+    try:
+
+        def _prune_expired() -> tuple[int, int]:
+            rows = engine.query_cypher(
+                "MATCH (c:ContextBlob) WHERE c.ttl_s > 0 AND "
+                "(c.created_at + c.ttl_s) < $now RETURN c.id AS id",
+                {"now": time.time()},
+            )
+            count = 0
+            _del = getattr(engine, "delete_node", None) or getattr(
+                getattr(engine, "backend", None), "delete_node", None
+            )
+            for r in rows or []:
+                if callable(_del):
+                    with contextlib.suppress(Exception):
+                        _del(r["id"])
+                        count += 1
+            return count, len(rows or [])
+
+        pruned, expired = await run_blocking_ordered(_prune_expired)
+        return json.dumps({"pruned": pruned, "expired": expired})
+    except Exception as exc:  # noqa: BLE001
+        return public_error_json(exc)
+
+
+async def _graph_context_list(engine: Any, session_id: str) -> str:
+    try:
+        # CONCEPT:AU-ORCH.session.session-anchored-collections-native — id-anchored traversal from the Session node (the engine's
+        # reliable, fast O(degree) path; the index-less backend can't serve property
+        # scans). The traversal reader returns whole nodes (`RETURN c`), so project +
+        # sort + limit client-side.
+        rows = await run_blocking_ordered(
+            engine.query_cypher,
+            "MATCH (s {id: $snode})-[:HAS_CONTEXT]->(c:ContextBlob) RETURN c",
+            {"snode": f"session:{session_id}"},
+        )
+        items = []
+        for r in rows or []:
+            c = r.get("c") if isinstance(r, dict) else None
+            if isinstance(c, dict) and str(c.get("id", "")).startswith("ctx:"):
+                items.append(
+                    {
+                        "context_id": c.get("id"),
+                        "key": c.get("key"),
+                        "created_at": c.get("created_at"),
+                    }
+                )
+        items.sort(key=lambda x: x.get("created_at") or 0, reverse=True)
+        return json.dumps(items[:50], default=str)
+    except Exception as exc:  # noqa: BLE001
+        return public_error_json(exc)
 
 
 def register_query_tools(mcp):
@@ -1376,52 +1688,21 @@ def register_query_tools(mcp):
 
         try:
             if action == "ingest":
-                if not source:
-                    return json.dumps({"error": "ingest needs a source connector"})
-                return json.dumps(
-                    table_ingest.ingest_connector_to_table(
-                        engine,
-                        str(source),
-                        table=table or None,
-                        config=json.loads(config_json) if config_json else None,
-                        limit=int(limit),
-                        replace=bool(replace),
-                    ),
-                    default=str,
+                return _graph_table_ingest(
+                    engine, table_ingest, source, table, config_json, limit, replace
                 )
             if action == "rows":
-                if not table:
-                    return json.dumps({"error": "rows needs a table"})
-                return json.dumps(
-                    table_ingest.ingest_rows_to_table(
-                        engine,
-                        str(table),
-                        json.loads(rows_json) if rows_json else [],
-                        replace=bool(replace),
-                    ),
-                    default=str,
+                return _graph_table_rows(
+                    engine, table_ingest, table, rows_json, replace
                 )
             if action == "create":
-                if not table:
-                    return json.dumps({"error": "create needs a table"})
-                cols = json.loads(columns_json) if columns_json else []
-                if not cols:
-                    return json.dumps({"error": "create needs columns_json"})
-                return json.dumps(
-                    table_ingest.ensure_table(engine, str(table), cols), default=str
-                )
+                return _graph_table_create(engine, table_ingest, table, columns_json)
             if action == "list":
                 return json.dumps({"tables": table_ingest.list_tables(engine)})
             if action == "drop":
-                if not table:
-                    return json.dumps({"error": "drop needs a table"})
-                return json.dumps(
-                    table_ingest.drop_table(engine, str(table)), default=str
-                )
+                return _graph_table_drop(engine, table_ingest, table)
             if action == "query":
-                if not sql:
-                    return json.dumps({"error": "query needs a sql SELECT"})
-                return json.dumps(engine.sql(str(sql)), default=str)
+                return _graph_table_query(engine, sql)
             return json.dumps({"error": f"unknown action {action!r}"})
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
@@ -1456,119 +1737,19 @@ def register_query_tools(mcp):
             default=0, description="Optional time-to-live in seconds (0 = persistent)."
         ),
     ) -> str:
-        import contextlib
-        import time
-        import uuid as _uuid
-
         engine = kg_server._get_engine()
         if not engine:
             return json.dumps({"error": "IntelligenceGraphEngine not active."})
         if action == "put":
-            if not content:
-                return json.dumps({"error": "content required for put"})
-            sid = session_id or _uuid.uuid4().hex
-            cid = context_id or f"ctx:{sid}:{key or _uuid.uuid4().hex}"
-            snode = f"session:{sid}"
-
-            def _persist_context_blob() -> None:
-                engine.add_node(
-                    cid,
-                    "ContextBlob",
-                    properties={
-                        "id": cid,
-                        "content": content,
-                        "session_id": sid,
-                        "key": key,
-                        "ttl_s": int(ttl_s),
-                        "created_at": time.time(),
-                        "producer": kg_server._SESSION_ID,
-                    },
-                )
-                # CONCEPT:AU-ORCH.session.session-anchored-collections-native — session-anchored collection: upsert the id-addressable
-                # Session node and link it, so "list by session" is a reliable id-anchored
-                # traversal (the engine has no property index; property scans are unreliable).
-                with contextlib.suppress(Exception):
-                    engine.add_node(
-                        snode, "Session", properties={"id": snode, "session_id": sid}
-                    )
-                    engine.add_edge(snode, cid, "HAS_CONTEXT")
-
-            await run_blocking_ordered(_persist_context_blob)
-            return json.dumps({"context_id": cid, "session_id": sid})
+            return await _graph_context_put(
+                engine, content, context_id, session_id, key, ttl_s
+            )
         if action == "get":
-            if not context_id:
-                return json.dumps({"error": "context_id required for get"})
-            try:
-                rows = await run_blocking_ordered(
-                    engine.query_cypher,
-                    "MATCH (c:ContextBlob) WHERE c.id = $id "
-                    "RETURN c.id AS id, c.content AS content, "
-                    "c.session_id AS session_id, "
-                    "c.created_at AS created_at, c.ttl_s AS ttl_s",
-                    {"id": context_id},
-                )
-                if not rows:
-                    return json.dumps({})
-                row = rows[0]
-                # TTL: treat an expired blob as gone (created_at + ttl_s < now).
-                _ttl = row.get("ttl_s") or 0
-                _created = row.get("created_at") or 0
-                if _ttl and _created and (float(_created) + float(_ttl) < time.time()):
-                    return json.dumps({"error": "context expired", "expired": True})
-                return json.dumps(row, default=str)
-            except Exception as exc:  # noqa: BLE001
-                return public_error_json(exc)
+            return await _graph_context_get(engine, context_id)
         if action == "prune":
-            # Delete expired ContextBlobs (CONCEPT:AU-ORCH.session.invoker-agent-handoff lifecycle).
-            try:
-
-                def _prune_expired() -> tuple[int, int]:
-                    rows = engine.query_cypher(
-                        "MATCH (c:ContextBlob) WHERE c.ttl_s > 0 AND "
-                        "(c.created_at + c.ttl_s) < $now RETURN c.id AS id",
-                        {"now": time.time()},
-                    )
-                    count = 0
-                    _del = getattr(engine, "delete_node", None) or getattr(
-                        getattr(engine, "backend", None), "delete_node", None
-                    )
-                    for r in rows or []:
-                        if callable(_del):
-                            with contextlib.suppress(Exception):
-                                _del(r["id"])
-                                count += 1
-                    return count, len(rows or [])
-
-                pruned, expired = await run_blocking_ordered(_prune_expired)
-                return json.dumps({"pruned": pruned, "expired": expired})
-            except Exception as exc:  # noqa: BLE001
-                return public_error_json(exc)
+            return await _graph_context_prune(engine)
         if action == "list":
-            try:
-                # CONCEPT:AU-ORCH.session.session-anchored-collections-native — id-anchored traversal from the Session node (the engine's
-                # reliable, fast O(degree) path; the index-less backend can't serve property
-                # scans). The traversal reader returns whole nodes (`RETURN c`), so project +
-                # sort + limit client-side.
-                rows = await run_blocking_ordered(
-                    engine.query_cypher,
-                    "MATCH (s {id: $snode})-[:HAS_CONTEXT]->(c:ContextBlob) RETURN c",
-                    {"snode": f"session:{session_id}"},
-                )
-                items = []
-                for r in rows or []:
-                    c = r.get("c") if isinstance(r, dict) else None
-                    if isinstance(c, dict) and str(c.get("id", "")).startswith("ctx:"):
-                        items.append(
-                            {
-                                "context_id": c.get("id"),
-                                "key": c.get("key"),
-                                "created_at": c.get("created_at"),
-                            }
-                        )
-                items.sort(key=lambda x: x.get("created_at") or 0, reverse=True)
-                return json.dumps(items[:50], default=str)
-            except Exception as exc:  # noqa: BLE001
-                return public_error_json(exc)
+            return await _graph_context_list(engine, session_id)
         return json.dumps({"error": f"unknown action: {action}"})
 
     kg_server.REGISTERED_TOOLS["graph_context"] = graph_context
@@ -1793,77 +1974,11 @@ def register_query_tools(mcp):
                 return public_error_text(e)
 
             if not fanout:
-                name, engine = entries[0]
-                try:
-                    with kg_server.bound_to_graph(graph):
-                        text = _run_search(engine)
-                except PermissionError as e:
-                    return public_error_text(
-                        e, code="permission_denied" if graph else "operation_failed"
-                    )
-                return f"{text}\n\n[connection={name} graph={graph or '(default)'}]"
+                return _graph_search_single_target(entries, graph, _run_search)
 
-            # CONCEPT:AU-KG.ingest.unified-query-routing — an implicit-default connection
-            # (no ``connection`` passed, or explicitly "default") fans across every active
-            # content graph, which can be dozens of ``code:<repo>``/``src:<repo>``
-            # connections, often idle/unreachable. An explicit ``connection='all'``/list is
-            # a deliberate cross-repo search and keeps the full per-backend budget.
-            is_implicit_target = connection is None or (
-                isinstance(connection, str)
-                and connection.strip().lower() in ("", "default")
+            return _graph_search_fanout(
+                entries, errors, connection, _run_search, _content_graph_search
             )
-            if is_implicit_target:
-                # The PRIMARY/``default`` backend must ALWAYS ground: it holds the
-                # primary ``__commons__`` + control-plane content and is the source of
-                # the real ranked hits. So run it separately at the normal budget
-                # (never the skip-timeout) and apply the SHORT skip-timeout ONLY to the
-                # supplementary content backends. Under a wide implicit fan-out (~70
-                # ``code:*`` graphs) a single shared short wall-clock across ALL targets
-                # starved the primary — it was queued behind the hung code backends and
-                # timed out too, so the search returned zero results even though the
-                # engine was healthy. Splitting the primary out fixes that: a search
-                # still returns the primary's real hits in a few seconds when every
-                # supplementary backend is dead.
-                primary = [(n, e) for n, e in entries if n == "default"]
-                supplementary = [(n, e) for n, e in entries if n != "default"]
-                # Robustness: if the resolver produced no ``default`` entry, treat the
-                # first as primary so SOMETHING always grounds at the full budget.
-                if not primary and entries:
-                    primary, supplementary = [entries[0]], entries[1:]
-                results: dict[str, Any] = {}
-                fan_errors: dict[str, str] = {}
-                for name, engine in primary:
-                    # B-18: bind for a real content graph promoted into
-                    # `primary` by the robustness fallback above too — only
-                    # the literal-"default" entry already targets the
-                    # ambient session's own graph and needs no narrowing.
-                    if name == "default":
-                        results[name] = _run_search(engine)
-                    else:
-                        results[name] = _content_graph_search(name, engine)
-                if supplementary:
-                    sup_results, sup_errors = kg_server.fanout_execute(
-                        supplementary,
-                        _content_graph_search,
-                        timeout=kg_server.DEFAULT_CONTENT_FANOUT_TIMEOUT_S,
-                    )
-                    results.update(sup_results)
-                    fan_errors.update(sup_errors)
-            else:
-                # Explicit cross-repo fan-out — per-target timeout at the full budget so
-                # one slow backend can't stall the set.
-                results, fan_errors = kg_server.fanout_execute(
-                    entries, lambda name, engine: _run_search(engine)
-                )
-            out_lines = [f"=== {name} ===\n{results[name]}" for name in results]
-            out_lines += [
-                f"=== {name} (error) ===\n{err}"
-                for name, err in {**errors, **fan_errors}.items()
-            ]
-            out_lines.append(
-                f"[connection={connection or 'default'} graph=(none — fan-out)]"
-            )
-            return "\n\n".join(out_lines)
 
         return await run_blocking_ordered(_execute)
 
